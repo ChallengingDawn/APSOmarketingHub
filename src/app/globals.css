@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: Arial, system-ui, sans-serif;
+    color: #5e5e5e;
+  }
+  h1, h2, h3 {
+    color: #050505;
+  }
+}

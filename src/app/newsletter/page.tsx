@@ -27,13 +27,16 @@ export default function NewsletterPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Drive Newsletter Generator</h1>
+      <div>
+        <h1 className="text-2xl font-bold">Drive Newsletter Generator</h1>
+        <p className="text-sm text-apso-text mt-1">Create compelling newsletter content for distribution</p>
+      </div>
 
-      <div className="bg-white rounded-lg border p-6 space-y-4">
+      <div className="bg-white rounded-lg border border-apso-border p-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Newsletter Theme / Topics</label>
+          <label className="block text-sm font-medium text-apso-dark mb-1">Newsletter Theme / Topics</label>
           <textarea
-            className="w-full border rounded-lg p-3 text-sm"
+            className="w-full border border-apso-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red focus:border-transparent"
             rows={3}
             placeholder="e.g. Q1 product highlights, new sealing solutions, upcoming trade shows..."
             value={topic}
@@ -43,8 +46,8 @@ export default function NewsletterPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Number of Sections</label>
-            <select className="w-full border rounded-lg p-2 text-sm" value={sections} onChange={(e) => setSections(e.target.value)}>
+            <label className="block text-sm font-medium text-apso-dark mb-1">Number of Sections</label>
+            <select className="w-full border border-apso-border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red" value={sections} onChange={(e) => setSections(e.target.value)}>
               <option value="2">2 Sections</option>
               <option value="3">3 Sections</option>
               <option value="4">4 Sections</option>
@@ -52,8 +55,8 @@ export default function NewsletterPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Language</label>
-            <select className="w-full border rounded-lg p-2 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <label className="block text-sm font-medium text-apso-dark mb-1">Language</label>
+            <select className="w-full border border-apso-border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="en">English</option>
               <option value="de">Deutsch</option>
               <option value="fr">Francais</option>
@@ -67,24 +70,24 @@ export default function NewsletterPage() {
         <button
           onClick={generate}
           disabled={!topic || loading}
-          className="bg-green-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-apso-red text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-apso-red-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? "Generating..." : "Generate Newsletter"}
         </button>
       </div>
 
       {result && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border border-apso-border p-6">
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-semibold">Generated Newsletter</h2>
             <button
               onClick={() => navigator.clipboard.writeText(result)}
-              className="text-sm text-green-600 hover:underline"
+              className="text-sm text-apso-teal hover:text-apso-teal-light font-medium hover:underline transition-colors"
             >
               Copy to clipboard
             </button>
           </div>
-          <div className="whitespace-pre-wrap text-sm bg-gray-50 rounded-lg p-4">{result}</div>
+          <div className="whitespace-pre-wrap text-sm bg-apso-gray rounded-lg p-4">{result}</div>
         </div>
       )}
     </div>
