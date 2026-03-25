@@ -1,5 +1,15 @@
 "use client";
 import { useState } from "react";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import Paper from "@mui/material/Paper";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import Stack from "@mui/material/Stack";
 
 export default function NewsletterPage() {
   const [topic, setTopic] = useState("");
@@ -19,77 +29,75 @@ export default function NewsletterPage() {
       });
       const data = await res.json();
       setResult(data.content || data.error || "No content generated");
-    } catch (e) {
+    } catch {
       setResult("Error connecting to generation service");
     }
     setLoading(false);
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Drive Newsletter Generator</h1>
-        <p className="text-sm text-apso-text mt-1">Create compelling newsletter content for distribution</p>
-      </div>
+    <>
+      <Typography variant="h5" gutterBottom>
+        Drive Newsletter Generator
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Create compelling newsletter content for distribution
+      </Typography>
 
-      <div className="bg-white rounded-lg border border-apso-border p-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-apso-dark mb-1">Newsletter Theme / Topics</label>
-          <textarea
-            className="w-full border border-apso-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red focus:border-transparent"
-            rows={3}
-            placeholder="e.g. Q1 product highlights, new sealing solutions, upcoming trade shows..."
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-        </div>
+      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+        <TextField
+          label="Newsletter Theme / Topics"
+          multiline
+          rows={3}
+          fullWidth
+          placeholder="e.g. Q1 product highlights, new sealing solutions, upcoming trade shows..."
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          sx={{ mb: 3 }}
+        />
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-apso-dark mb-1">Number of Sections</label>
-            <select className="w-full border border-apso-border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red" value={sections} onChange={(e) => setSections(e.target.value)}>
-              <option value="2">2 Sections</option>
-              <option value="3">3 Sections</option>
-              <option value="4">4 Sections</option>
-              <option value="5">5 Sections</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-apso-dark mb-1">Language</label>
-            <select className="w-full border border-apso-border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-apso-red" value={language} onChange={(e) => setLanguage(e.target.value)}>
-              <option value="en">English</option>
-              <option value="de">Deutsch</option>
-              <option value="fr">Francais</option>
-              <option value="it">Italiano</option>
-              <option value="nl">Nederlands</option>
-              <option value="pl">Polski</option>
-            </select>
-          </div>
-        </div>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 3 }}>
+          <TextField select label="Number of Sections" fullWidth value={sections} onChange={(e) => setSections(e.target.value)} size="small">
+            <MenuItem value="2">2 Sections</MenuItem>
+            <MenuItem value="3">3 Sections</MenuItem>
+            <MenuItem value="4">4 Sections</MenuItem>
+            <MenuItem value="5">5 Sections</MenuItem>
+          </TextField>
+          <TextField select label="Language" fullWidth value={language} onChange={(e) => setLanguage(e.target.value)} size="small">
+            <MenuItem value="en">English</MenuItem>
+            <MenuItem value="de">Deutsch</MenuItem>
+            <MenuItem value="fr">Francais</MenuItem>
+            <MenuItem value="it">Italiano</MenuItem>
+            <MenuItem value="nl">Nederlands</MenuItem>
+            <MenuItem value="pl">Polski</MenuItem>
+          </TextField>
+        </Stack>
 
-        <button
+        <Button
+          variant="contained"
+          color="secondary"
           onClick={generate}
           disabled={!topic || loading}
-          className="bg-apso-red text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-apso-red-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? "Generating..." : "Generate Newsletter"}
-        </button>
-      </div>
+        </Button>
+      </Paper>
 
       {result && (
-        <div className="bg-white rounded-lg border border-apso-border p-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-semibold">Generated Newsletter</h2>
-            <button
-              onClick={() => navigator.clipboard.writeText(result)}
-              className="text-sm text-apso-teal hover:text-apso-teal-light font-medium hover:underline transition-colors"
-            >
-              Copy to clipboard
-            </button>
-          </div>
-          <div className="whitespace-pre-wrap text-sm bg-apso-gray rounded-lg p-4">{result}</div>
-        </div>
+        <Paper variant="outlined" sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="subtitle1" fontWeight={600}>Generated Newsletter</Typography>
+            <Tooltip title="Copy to clipboard">
+              <IconButton size="small" onClick={() => navigator.clipboard.writeText(result)} color="primary">
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Box sx={{ whiteSpace: "pre-wrap", fontSize: 14, bgcolor: "background.default", borderRadius: 1, p: 2 }}>
+            {result}
+          </Box>
+        </Paper>
       )}
-    </div>
+    </>
   );
 }
