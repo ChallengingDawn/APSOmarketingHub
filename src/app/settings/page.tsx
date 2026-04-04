@@ -170,7 +170,7 @@ export default function SettingsPage() {
           />
           <Grid container spacing={2}>
             {integrations.map((itg) => (
-              <Grid item xs={12} sm={6} md={4} key={itg.name}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={itg.name}>
                 <Paper
                   variant="outlined"
                   sx={{
@@ -428,7 +428,7 @@ export default function SettingsPage() {
           />
 
           <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs={12} md={6}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {/* Processing Region */}
                 <Box>
@@ -468,7 +468,7 @@ export default function SettingsPage() {
               </Box>
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs={12} md={6}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {/* API Data Training Opt-out */}
                 <Box
@@ -635,7 +635,7 @@ export default function SettingsPage() {
           />
 
           <Grid container spacing={3}>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs={12} sm={6}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {/* No duplicate parent keywords */}
                 <Box>
@@ -687,7 +687,7 @@ export default function SettingsPage() {
               </Box>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs={12} sm={6}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {/* Max articles per week */}
                 <Box>
