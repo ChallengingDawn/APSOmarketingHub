@@ -212,8 +212,9 @@ export default function AnalyticsPage() {
                 />
                 <YAxis tick={{ fontSize: 12, fill: "#5e5e5e" }} />
                 <Tooltip
-                  formatter={(value: number, name: string) => [
-                    fmt.format(value),
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any, name: any) => [
+                    fmt.format(Number(value)),
                     name === "sessions" ? "Sessions" : "Page Views",
                   ]}
                 />
@@ -280,7 +281,8 @@ export default function AnalyticsPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number, name: string) => [
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any, name: any) => [
                         `${value}%`,
                         name,
                       ]}
@@ -288,7 +290,8 @@ export default function AnalyticsPage() {
                     <Legend
                       verticalAlign="bottom"
                       iconType="circle"
-                      formatter={(value: string) => (
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any) => (
                         <span style={{ color: "#050505", fontSize: 13 }}>
                           {value}
                         </span>
@@ -339,7 +342,8 @@ export default function AnalyticsPage() {
                       width={120}
                     />
                     <Tooltip
-                      formatter={(value: number, name: string) => [
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any, name: any) => [
                         `${value}/100`,
                         name === "score" ? "Score" : "Target",
                       ]}

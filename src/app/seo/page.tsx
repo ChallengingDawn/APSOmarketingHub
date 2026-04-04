@@ -362,7 +362,8 @@ export default function SEOCommandCenter() {
                       tick={{ fontSize: 12 }}
                     />
                     <RechartsTooltip
-                      formatter={(value: number) => [value, "Opportunity Score"]}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any) => [value, "Opportunity Score"]}
                       contentStyle={{ borderRadius: 8, fontSize: 13 }}
                     />
                     <Bar dataKey="score" radius={[0, 6, 6, 0]} barSize={28}>

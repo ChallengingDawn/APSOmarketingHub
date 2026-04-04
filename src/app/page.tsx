@@ -317,13 +317,15 @@ export default function MissionControl() {
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number, name: string) => [`${value} items`, name]}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any, name: any) => [`${value} items`, name]}
                       contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
                     />
                     <Legend
                       verticalAlign="bottom"
                       height={36}
-                      formatter={(value: string) => (
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any) => (
                         <span style={{ color: "#6b7280", fontSize: 12, fontWeight: 500 }}>{value}</span>
                       )}
                     />
