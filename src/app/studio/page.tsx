@@ -16,7 +16,7 @@ import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
 import IconButton from "@mui/material/IconButton";
 import Collapse from "@mui/material/Collapse";
-import Grid from "@mui/material/Grid2";
+import Grid from "@mui/material/Grid";
 import CheckCircle from "@mui/icons-material/CheckCircle";
 import Cancel from "@mui/icons-material/Cancel";
 import AutoAwesome from "@mui/icons-material/AutoAwesome";
