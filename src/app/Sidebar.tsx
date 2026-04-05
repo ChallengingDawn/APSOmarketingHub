@@ -99,7 +99,7 @@ export default function Sidebar() {
             APSO Marketing Hub
           </Typography>
           <Typography sx={{ fontSize: 11, color: "text.secondary", fontWeight: 500 }}>
-            Angst+Pfister
+            apsoparts.com
           </Typography>
         </Box>
       </Box>

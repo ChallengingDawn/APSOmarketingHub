@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "APSO Marketing Hub | Mission Control",
-  description: "AI-powered marketing operations platform for Angst+Pfister — SEO, content generation, and digital growth management",
+  description: "AI-powered marketing operations platform for APSOparts — SEO, content generation, and digital growth management",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

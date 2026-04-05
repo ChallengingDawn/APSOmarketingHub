@@ -87,10 +87,10 @@ const contentGaps = seoKeywords.filter((k) => k.position === 0);
 const cannibAlerts = seoKeywords.filter((k) => k.cannibalization);
 
 const summaryCards = [
-  { label: "Total Keywords Tracked", value: "1,247", sub: "Across all GSC properties", icon: <CheckCircle />, color: "#274e64" },
-  { label: "Quick Win Opportunities", value: String(quickWins.length), sub: "Keywords position 5\u201320", icon: <TrendingUp />, color: "#10b981" },
-  { label: "Content Gaps", value: String(contentGaps.length), sub: "Competitor keywords we don\u2019t rank for", icon: <Info />, color: "#f59e0b" },
-  { label: "Cannibalization Alerts", value: String(cannibAlerts.length), sub: "Pages competing for same keyword", icon: <Warning />, color: "#ef4444" },
+  { label: "Target Keywords", value: String(seoKeywords.length), sub: "From content gap analysis", icon: <CheckCircle />, color: "#274e64" },
+  { label: "Quick Win Opportunities", value: "—", sub: "Awaiting GSC connection", icon: <TrendingUp />, color: "#10b981" },
+  { label: "Content Gaps", value: String(contentGaps.length), sub: "Keywords to target", icon: <Info />, color: "#f59e0b" },
+  { label: "Cannibalization Alerts", value: String(cannibAlerts.length), sub: "Awaiting GSC connection", icon: <Warning />, color: "#ef4444" },
 ];
 
 /* ── component ── */

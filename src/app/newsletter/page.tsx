@@ -251,7 +251,7 @@ export default function NewsletterPage() {
                       letterSpacing: "0.03em",
                     }}
                   >
-                    ANGST+PFISTER
+                    APSOPARTS
                   </Typography>
                   <Typography
                     sx={{
@@ -400,10 +400,9 @@ export default function NewsletterPage() {
                       lineHeight: 1.6,
                     }}
                   >
-                    Angst+Pfister Group AG &middot; Thurgauerstrasse 66
-                    &middot; 8050 Z{"\u00fc"}rich
+                    APSOparts &middot; Sealings &amp; Plastics
                     <br />
-                    www.angst-pfister.com &middot; info@angst-pfister.com
+                    www.apsoparts.com &middot; info@apsoparts.com
                     <br />
                     <span style={{ color: "#0077B5" }}>Unsubscribe</span>
                     {" "}&middot;{" "}

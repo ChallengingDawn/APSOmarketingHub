@@ -60,17 +60,17 @@ interface TeamMember {
 /* ── Mock data ── */
 
 const integrations: Integration[] = [
-  { name: "Google Analytics 4", connected: true, details: "Read-only access" },
-  { name: "Google Search Console", connected: true, details: "Read-only access" },
+  { name: "Google Analytics 4", connected: false, details: "Read-only OAuth scope" },
+  { name: "Google Search Console", connected: false, details: "Read-only OAuth scope" },
   {
     name: "Anthropic Claude API",
-    connected: true,
+    connected: false,
     details: "Model: claude-opus-4-6",
     badge: "EU Region",
   },
-  { name: "n8n Workflows", connected: true, details: "3 active workflows" },
-  { name: "LinkedIn API", connected: false, details: "" },
-  { name: "Magento CMS", connected: false, details: "" },
+  { name: "n8n Workflows", connected: false, details: "Webhook-based automation" },
+  { name: "LinkedIn API", connected: false, details: "Post scheduling & analytics" },
+  { name: "Magento CMS", connected: false, details: "Draft publishing via API" },
 ];
 
 const teamMembers: TeamMember[] = [
@@ -79,7 +79,7 @@ const teamMembers: TeamMember[] = [
     name: "Miriam",
     role: "Admin",
     roleColor: "primary",
-    email: "miriam@angstpfister.com",
+    email: "miriam@apsoparts.com",
     permissions: "Full access",
     permColor: "success",
   },
@@ -88,7 +88,7 @@ const teamMembers: TeamMember[] = [
     name: "Aleksandra",
     role: "Editor",
     roleColor: "secondary",
-    email: "aleksandra@angstpfister.com",
+    email: "aleksandra@apsoparts.com",
     permissions: "Content review & approval",
     permColor: "info",
   },

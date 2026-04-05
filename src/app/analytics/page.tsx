@@ -68,10 +68,10 @@ interface KpiDef {
 }
 
 const kpis: KpiDef[] = [
-  { label: "Total Sessions", value: "78,620", change: 15.2 },
-  { label: "Page Views", value: "186,400", change: 18.7 },
-  { label: "Avg Bounce Rate", value: "38%", change: -4.2, inverted: true },
-  { label: "Content ROI Score", value: "82/100", change: 0 },
+  { label: "Total Sessions", value: "—", change: 0, suffix: "Awaiting GA4" },
+  { label: "Page Views", value: "—", change: 0, suffix: "Awaiting GA4" },
+  { label: "Avg Bounce Rate", value: "—", change: 0, inverted: true, suffix: "Awaiting GA4" },
+  { label: "Content ROI Score", value: "—", change: 0, suffix: "Awaiting data" },
 ];
 
 /* ── Pie chart custom label ── */

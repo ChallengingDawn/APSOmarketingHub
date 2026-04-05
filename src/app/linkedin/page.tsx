@@ -47,7 +47,7 @@ const mockPosts = [
   },
   {
     id: 2,
-    title: "Angst+Pfister at Hannover Messe 2026 — Visit us at...",
+    title: "APSOparts at Hannover Messe 2026 — Visit us at...",
     date: "2026-04-05",
     status: "Scheduled",
     engagement: "—",
@@ -274,7 +274,7 @@ export default function LinkedInPage() {
                           color: "#000",
                         }}
                       >
-                        Angst+Pfister
+                        APSOparts
                       </Typography>
                       <Typography
                         sx={{
@@ -283,7 +283,7 @@ export default function LinkedInPage() {
                           lineHeight: 1.3,
                         }}
                       >
-                        APSO &middot; Engineering solutions since 1920
+                        Sealings &amp; Plastics &middot; apsoparts.com
                       </Typography>
                       <Typography
                         sx={{
@@ -313,7 +313,7 @@ export default function LinkedInPage() {
                       whiteSpace: "pre-line",
                     }}
                   >
-                    {`Choosing between PTFE and FKM for critical sealing applications? Here's what our engineers recommend:\n\n\u2705 PTFE: Superior chemical resistance, wide temperature range (-200\u00b0C to +260\u00b0C), excellent for aggressive media\n\u2705 FKM: Outstanding heat resistance, excellent compression set, ideal for dynamic seals\n\nThe right choice depends on your specific operating conditions \u2014 pressure, temperature, media compatibility, and service life requirements.\n\nOur application engineers are ready to help you select the optimal material for your sealing challenge.\n\n#Sealing #Engineering #PTFE #FKM #AngstPfister`}
+                    {`Choosing between PTFE and FKM for critical sealing applications? Here's what our engineers recommend:\n\n\u2705 PTFE: Superior chemical resistance, wide temperature range (-200\u00b0C to +260\u00b0C), excellent for aggressive media\n\u2705 FKM: Outstanding heat resistance, excellent compression set, ideal for dynamic seals\n\nThe right choice depends on your specific operating conditions \u2014 pressure, temperature, media compatibility, and service life requirements.\n\nOur application engineers are ready to help you select the optimal material for your sealing challenge.\n\n#Sealing #Engineering #PTFE #FKM #APSOparts`}
                   </Typography>
                 </Box>
 

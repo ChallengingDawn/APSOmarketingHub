@@ -441,7 +441,7 @@ export default function ContentStudioPage() {
               >
                 When evaluating materials, engineers should consider compression
                 set resistance, thermal aging behaviour, and media
-                compatibility. Angst+Pfister&apos;s sealing specialists can
+                compatibility. APSOparts&apos; sealing specialists can
                 provide application-specific recommendations based on your exact
                 pressure, temperature, and media requirements.
               </Typography>
