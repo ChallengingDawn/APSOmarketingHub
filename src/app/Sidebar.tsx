@@ -74,29 +74,77 @@ export default function Sidebar() {
           boxSizing: "border-box",
           bgcolor: "#ffffff",
           borderRight: "1px solid #ececec",
+          position: "relative",
+          overflow: "hidden",
         },
       }}
     >
-      {/* Brand Header — no logo, just clean text */}
-      <Box sx={{ px: 3, pt: 3, pb: 2.5 }}>
+      {/* ── Animated Background ── */}
+      <Box className="sidebar-bg">
+        <Box className="sidebar-blob sidebar-blob-1" />
+        <Box className="sidebar-blob sidebar-blob-2" />
+        <Box className="sidebar-blob sidebar-blob-3" />
+      </Box>
+      <Box className="sidebar-dots" />
+
+      {/* Brand Header — animated marketing typography */}
+      <Box
+        sx={{
+          px: 3,
+          pt: 3.5,
+          pb: 2.5,
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+          <Box
+            component="span"
+            className="brand-display"
+            sx={{
+              fontSize: 22,
+              color: "#1f1f1f",
+            }}
+          >
+            APSO
+          </Box>
+          <Box
+            component="span"
+            className="brand-display"
+            sx={{
+              fontSize: 18,
+              color: "#3c4043",
+              fontWeight: 500,
+            }}
+          >
+            Marketing
+          </Box>
+          <Box component="span" className="brand-hub-wrap">
+            <Box
+              component="span"
+              className="brand-hub"
+              sx={{ fontSize: 22 }}
+            >
+              Hub
+            </Box>
+          </Box>
+        </Box>
         <Typography
           sx={{
-            fontWeight: 600,
-            fontSize: 18,
-            color: "#1f1f1f",
-            lineHeight: 1.2,
-            letterSpacing: "-0.01em",
+            fontSize: 11,
+            color: "#5f6368",
+            fontWeight: 500,
+            mt: 0.75,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
           }}
         >
-          APSO Marketing Hub
-        </Typography>
-        <Typography sx={{ fontSize: 12, color: "#5f6368", fontWeight: 400, mt: 0.25 }}>
           apsoparts.com
         </Typography>
       </Box>
 
       {/* Navigation Sections */}
-      <Box sx={{ flex: 1, overflow: "auto", py: 0.5 }}>
+      <Box sx={{ flex: 1, overflow: "auto", py: 0.5, position: "relative", zIndex: 1 }}>
         {navSections.map((section) => (
           <Box key={section.title} sx={{ mb: 0.5 }}>
             <Typography
@@ -105,10 +153,10 @@ export default function Sidebar() {
                 pt: 2,
                 pb: 0.75,
                 fontSize: 11,
-                fontWeight: 500,
+                fontWeight: 600,
                 textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: "#5f6368",
+                letterSpacing: "0.1em",
+                color: "#3c4043",
               }}
             >
               {section.title}
@@ -128,10 +176,13 @@ export default function Sidebar() {
                       py: 0.85,
                       px: 2,
                       minHeight: 40,
-                      bgcolor: active ? "#e8f0f4" : "transparent",
+                      bgcolor: active ? "#e8f0f4" : "rgba(255,255,255,0.55)",
+                      backdropFilter: "blur(6px)",
                       color: active ? "#1a3a4c" : "#3c4043",
+                      transition: "background-color 0.2s ease, transform 0.2s ease",
                       "&:hover": {
-                        bgcolor: active ? "#dbe7ed" : "#f1f3f4",
+                        bgcolor: active ? "#dbe7ed" : "rgba(255,255,255,0.92)",
+                        transform: "translateX(2px)",
                       },
                       "& .MuiListItemIcon-root": {
                         color: active ? "#274e64" : "#5f6368",
@@ -176,7 +227,7 @@ export default function Sidebar() {
       </Box>
 
       {/* Bottom Status */}
-      <Box sx={{ px: 3, py: 2.5, borderTop: "1px solid #ececec" }}>
+      <Box sx={{ px: 3, py: 2.5, borderTop: "1px solid #ececec", position: "relative", zIndex: 1, bgcolor: "rgba(255,255,255,0.7)", backdropFilter: "blur(8px)" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
           <Box
             sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#34a853" }}

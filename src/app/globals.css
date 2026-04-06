@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -198,4 +198,132 @@
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
+}
+
+/* ──────────────────────────────────────────
+   BRAND TYPOGRAPHY & ANIMATED "HUB"
+   ────────────────────────────────────────── */
+
+.brand-display {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-weight: 700;
+  font-stretch: 110%;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+.brand-hub {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    100deg,
+    #ed1b2f 0%,
+    #ed1b2f 25%,
+    #f97a3d 40%,
+    #274e64 60%,
+    #274e64 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: hubShine 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  display: inline-block;
+}
+
+@keyframes hubShine {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* "Hub" subtle scale pulse */
+.brand-hub-wrap {
+  display: inline-block;
+  animation: hubPulse 4s ease-in-out infinite;
+}
+
+@keyframes hubPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+/* ──────────────────────────────────────────
+   FLAT ANIMATED SIDEBAR BACKGROUND
+   ────────────────────────────────────────── */
+
+.sidebar-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.35;
+}
+
+.sidebar-blob-1 {
+  width: 280px;
+  height: 280px;
+  background: #ed1b2f;
+  top: -100px;
+  left: -120px;
+  animation: blobFloat1 18s ease-in-out infinite;
+}
+
+.sidebar-blob-2 {
+  width: 320px;
+  height: 320px;
+  background: #274e64;
+  bottom: -120px;
+  right: -140px;
+  animation: blobFloat2 22s ease-in-out infinite;
+}
+
+.sidebar-blob-3 {
+  width: 200px;
+  height: 200px;
+  background: #4285f4;
+  top: 40%;
+  left: -80px;
+  animation: blobFloat3 26s ease-in-out infinite;
+  opacity: 0.18;
+}
+
+@keyframes blobFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, 60px) scale(1.1); }
+  66% { transform: translate(20px, 100px) scale(0.95); }
+}
+
+@keyframes blobFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-30px, -50px) scale(1.08); }
+  66% { transform: translate(-50px, -20px) scale(0.92); }
+}
+
+@keyframes blobFloat3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, -80px) scale(1.15); }
+}
+
+/* Subtle dot grid overlay */
+.sidebar-dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, #1f1f1f 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.025;
+  pointer-events: none;
 }
