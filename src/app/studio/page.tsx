@@ -37,6 +37,8 @@ import LightbulbIcon from "@mui/icons-material/Lightbulb";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PageHeader from "@/app/PageHeader";
 import RealPhotoVisual from "./RealPhotoVisual";
+import NewsletterVisual from "./NewsletterVisual";
+import BlogVisual from "./BlogVisual";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 
 import { contentProposals, type ContentChannel, type ContentProposal } from "@/lib/mockData";
@@ -272,9 +274,15 @@ export default function ContentStudioPage() {
                   transition: "all 0.3s ease",
                 }}
               >
-                {/* ── Visual ── */}
-                {state.imageMode === "stock" && (
+                {/* ── Visual (channel-specific) ── */}
+                {state.imageMode === "stock" && proposal.channel === "LinkedIn" && (
                   <RealPhotoVisual theme={proposal.theme} height={180} />
+                )}
+                {state.imageMode === "stock" && proposal.channel === "Newsletter" && (
+                  <NewsletterVisual subject={proposal.title} height={180} />
+                )}
+                {state.imageMode === "stock" && proposal.channel === "Blog" && (
+                  <BlogVisual title={proposal.title} readingTime="8 min" height={180} />
                 )}
                 {state.imageMode === "ai" && (
                   <Box
@@ -387,33 +395,51 @@ export default function ContentStudioPage() {
                     {proposal.title}
                   </Typography>
 
-                  {/* ── Text content ── */}
+                  {/* ── Text content (scrollable to show full text) ── */}
                   {state.editing ? (
                     <TextField
                       multiline
                       fullWidth
-                      minRows={4}
-                      maxRows={8}
+                      minRows={6}
+                      maxRows={14}
                       value={state.draftText}
                       onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
                       sx={{ mb: 1.5, "& .MuiInputBase-input": { fontSize: "0.78rem", lineHeight: 1.55 } }}
                     />
                   ) : (
-                    <Typography
+                    <Box
                       sx={{
-                        fontSize: "0.78rem",
-                        lineHeight: 1.55,
-                        color: "#3c4043",
-                        whiteSpace: "pre-line",
                         mb: 1.5,
-                        display: "-webkit-box",
-                        WebkitLineClamp: 6,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
+                        maxHeight: 260,
+                        overflowY: "auto",
+                        pr: 0.75,
+                        position: "relative",
+                        // Fade bottom indicator for scrollable content
+                        "&::after": {
+                          content: '""',
+                          position: "sticky",
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          display: "block",
+                          height: 16,
+                          marginTop: "-16px",
+                          background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 100%)",
+                          pointerEvents: "none",
+                        },
                       }}
                     >
-                      {state.draftText}
-                    </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.78rem",
+                          lineHeight: 1.6,
+                          color: "#3c4043",
+                          whiteSpace: "pre-line",
+                        }}
+                      >
+                        {state.draftText}
+                      </Typography>
+                    </Box>
                   )}
 
                   {/* ── Scheduled date display ── */}
