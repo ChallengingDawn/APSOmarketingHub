@@ -7,7 +7,6 @@ import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import Stepper from "@mui/material/Stepper";
@@ -17,8 +16,12 @@ import Divider from "@mui/material/Divider";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Snackbar from "@mui/material/Snackbar";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import Collapse from "@mui/material/Collapse";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import EmailIcon from "@mui/icons-material/Email";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -29,14 +32,15 @@ import ScheduleIcon from "@mui/icons-material/Schedule";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ImageIcon from "@mui/icons-material/Image";
 import TextFieldsIcon from "@mui/icons-material/TextFields";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import ShieldIcon from "@mui/icons-material/Shield";
+import LightbulbIcon from "@mui/icons-material/Lightbulb";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PageHeader from "@/app/PageHeader";
 import ProposalVisual from "./ProposalVisual";
 
 import { contentProposals, type ContentChannel, type ContentProposal } from "@/lib/mockData";
 
-/* ── Constants ── */
+/* ── Channel definitions ── */
 
 const CHANNELS: { id: ContentChannel; label: string; icon: React.ReactNode; color: string }[] = [
   { id: "LinkedIn", label: "LinkedIn", icon: <LinkedInIcon />, color: "#0077b5" },
@@ -53,12 +57,39 @@ const WORKFLOW_STEPS = [
 ];
 
 type ImageMode = "stock" | "ai" | "text";
+type ProposalStatus = "pending" | "approved" | "rejected" | "scheduled";
 
 interface ProposalState {
-  status: "pending" | "approved" | "rejected" | "scheduled";
+  status: ProposalStatus;
   imageMode: ImageMode;
   editing: boolean;
   draftText: string;
+  scheduledDate: string | null;
+  reasoningOpen: boolean;
+}
+
+/* ── Helper: action button shared style ── */
+
+const ACTION_BTN_SX = {
+  flex: 1,
+  borderRadius: 2,
+  textTransform: "none" as const,
+  fontWeight: 600,
+  fontSize: "0.75rem",
+  py: 0.85,
+  px: 1,
+  minHeight: 36,
+  border: "1px solid",
+  boxShadow: "none",
+  "&:hover": { boxShadow: "none" },
+};
+
+/* ── Default schedule date helper ── */
+
+function defaultDate(offsetDays: number = 1): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
 }
 
 /* ── Page ── */
@@ -66,8 +97,11 @@ interface ProposalState {
 export default function ContentStudioPage() {
   const [activeChannel, setActiveChannel] = useState<ContentChannel>("LinkedIn");
   const [snack, setSnack] = useState<string | null>(null);
+  const [scheduleDialogId, setScheduleDialogId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState<string>(defaultDate(1));
+  const [scheduleTime, setScheduleTime] = useState<string>("09:00");
 
-  // Initialize state map for all proposals
+  // Per-proposal state
   const [states, setStates] = useState<Record<string, ProposalState>>(() => {
     const initial: Record<string, ProposalState> = {};
     contentProposals.forEach((p) => {
@@ -76,6 +110,8 @@ export default function ContentStudioPage() {
         imageMode: "stock",
         editing: false,
         draftText: p.text,
+        scheduledDate: null,
+        reasoningOpen: false,
       };
     });
     return initial;
@@ -90,26 +126,29 @@ export default function ContentStudioPage() {
     setStates((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
 
-  const handleApprove = (p: ContentProposal) => {
-    updateState(p.id, { status: "approved" });
-    setSnack(`Approved: ${p.title}`);
-  };
-
   const handleReject = (p: ContentProposal) => {
     updateState(p.id, { status: "rejected" });
     setSnack(`Rejected: ${p.title}`);
-  };
-
-  const handleSchedule = (p: ContentProposal) => {
-    updateState(p.id, { status: "scheduled" });
-    setSnack(`Scheduled: ${p.title}`);
   };
 
   const toggleEdit = (p: ContentProposal) => {
     updateState(p.id, { editing: !states[p.id].editing });
   };
 
-  const channelMeta = CHANNELS.find((c) => c.id === activeChannel)!;
+  const openSchedule = (id: string) => {
+    setScheduleDate(defaultDate(1));
+    setScheduleTime("09:00");
+    setScheduleDialogId(id);
+  };
+
+  const confirmSchedule = () => {
+    if (!scheduleDialogId) return;
+    const proposal = contentProposals.find((p) => p.id === scheduleDialogId);
+    const dt = `${scheduleDate} ${scheduleTime}`;
+    updateState(scheduleDialogId, { status: "scheduled", scheduledDate: dt });
+    setSnack(`Scheduled for ${dt}: ${proposal?.title ?? ""}`);
+    setScheduleDialogId(null);
+  };
 
   return (
     <Box>
@@ -174,240 +213,326 @@ export default function ContentStudioPage() {
         })}
       </Box>
 
-      {/* ── Proposals List ── */}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5, mb: 5 }} className="stagger-children">
+      {/* ── Proposals Grid: 3 per row ── */}
+      <Grid container spacing={2.5} className="stagger-children" sx={{ mb: 5 }}>
         {filteredProposals.map((proposal) => {
           const state = states[proposal.id];
+          const channelMeta = CHANNELS.find((c) => c.id === proposal.channel)!;
           const isApproved = state.status === "approved";
           const isRejected = state.status === "rejected";
           const isScheduled = state.status === "scheduled";
 
           const statusColor =
-            isApproved ? "#34a853" :
-            isRejected ? "#ea4335" :
             isScheduled ? "#4285f4" :
+            isRejected ? "#ea4335" :
+            isApproved ? "#34a853" :
             "#fbbc04";
           const statusLabel =
-            isApproved ? "Approved" :
-            isRejected ? "Rejected" :
             isScheduled ? "Scheduled" :
+            isRejected ? "Rejected" :
+            isApproved ? "Approved" :
             "Pending Review";
 
           return (
-            <Card
-              key={proposal.id}
-              className="hover-lift"
-              sx={{
-                borderRadius: 4,
-                border: `1px solid ${isApproved ? "#34a85333" : isRejected ? "#ea433533" : isScheduled ? "#4285f433" : "#ececec"}`,
-                bgcolor: "#fff",
-                opacity: isRejected ? 0.6 : 1,
-                transition: "all 0.3s ease",
-              }}
-            >
-              <CardContent sx={{ p: 0 }}>
-                {/* Card header */}
-                <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 2, p: 3, pb: 2 }}>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, flexWrap: "wrap" }}>
-                      <Chip
-                        size="small"
-                        label={channelMeta.label}
-                        icon={channelMeta.icon as React.ReactElement}
-                        sx={{
-                          bgcolor: `${channelMeta.color}14`,
-                          color: channelMeta.color,
-                          border: "none",
-                          fontWeight: 600,
-                          "& .MuiChip-icon": { color: channelMeta.color, fontSize: 14 },
-                        }}
-                      />
-                      <Chip
-                        size="small"
-                        label={statusLabel}
-                        sx={{
-                          bgcolor: `${statusColor}14`,
-                          color: statusColor,
-                          border: "none",
-                          fontWeight: 600,
-                        }}
-                      />
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
-                        <AutoAwesomeIcon sx={{ fontSize: 14, color: "#fbbc04" }} />
-                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#1f1f1f" }}>
-                          {proposal.qualityScore}
-                          <Box component="span" sx={{ color: "#5f6368", fontWeight: 500 }}>/100</Box>
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Typography
-                      sx={{
-                        fontFamily: "'Outfit', 'Inter', sans-serif",
-                        fontSize: "1.25rem",
-                        fontWeight: 500,
-                        color: "#1f1f1f",
-                        letterSpacing: "-0.015em",
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      {proposal.title}
+            <Grid key={proposal.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+              <Card
+                className="hover-lift"
+                sx={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  borderRadius: 4,
+                  border: `1px solid ${
+                    isRejected ? "#ea433533" :
+                    isScheduled ? "#4285f433" :
+                    isApproved ? "#34a85333" :
+                    "#ececec"
+                  }`,
+                  opacity: isRejected ? 0.55 : 1,
+                  transition: "all 0.3s ease",
+                }}
+              >
+                {/* ── Visual ── */}
+                {state.imageMode !== "text" ? (
+                  <Box sx={{ p: 0 }}>
+                    <ProposalVisual
+                      theme={proposal.theme}
+                      mode={state.imageMode === "ai" ? "ai" : "stock"}
+                      height={180}
+                    />
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      height: 60,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "#f8f9fa",
+                      borderBottom: "1px solid #ececec",
+                      gap: 1,
+                    }}
+                  >
+                    <TextFieldsIcon sx={{ fontSize: 18, color: "#5f6368" }} />
+                    <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#5f6368" }}>
+                      Text-only post
                     </Typography>
                   </Box>
-                </Box>
+                )}
 
-                <Divider sx={{ borderColor: "#f1f3f4" }} />
+                <CardContent sx={{ p: 2.25, flex: 1, display: "flex", flexDirection: "column" }}>
+                  {/* ── Status row ── */}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1, flexWrap: "wrap" }}>
+                    <Chip
+                      size="small"
+                      label={channelMeta.label}
+                      icon={channelMeta.icon as React.ReactElement}
+                      sx={{
+                        height: 22,
+                        bgcolor: `${channelMeta.color}14`,
+                        color: channelMeta.color,
+                        border: "none",
+                        fontWeight: 600,
+                        fontSize: "0.65rem",
+                        "& .MuiChip-icon": { color: channelMeta.color, fontSize: 13 },
+                      }}
+                    />
+                    <Chip
+                      size="small"
+                      label={statusLabel}
+                      sx={{
+                        height: 22,
+                        bgcolor: `${statusColor}14`,
+                        color: statusColor,
+                        border: "none",
+                        fontWeight: 600,
+                        fontSize: "0.65rem",
+                      }}
+                    />
+                    <Box sx={{ flex: 1 }} />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
+                      <AutoAwesomeIcon sx={{ fontSize: 13, color: "#fbbc04" }} />
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1f1f1f" }}>
+                        {proposal.qualityScore}
+                        <Box component="span" sx={{ color: "#5f6368", fontWeight: 500 }}>/100</Box>
+                      </Typography>
+                    </Box>
+                  </Box>
 
-                {/* Card body — compact horizontal layout: image left, content right */}
-                <Box sx={{ p: 3 }}>
-                  <Grid container spacing={3}>
-                    {/* Left: Single themed visual (matches the post topic) */}
-                    {state.imageMode !== "text" && (
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <Box sx={{ position: "sticky", top: 0 }}>
-                          <ProposalVisual
-                            theme={proposal.theme}
-                            mode={state.imageMode === "ai" ? "ai" : "stock"}
-                          />
-                        </Box>
-                      </Grid>
-                    )}
+                  {/* ── Title ── */}
+                  <Typography
+                    sx={{
+                      fontFamily: "'Outfit', 'Inter', sans-serif",
+                      fontSize: "1rem",
+                      fontWeight: 500,
+                      color: "#1f1f1f",
+                      letterSpacing: "-0.01em",
+                      lineHeight: 1.3,
+                      mb: 1.25,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {proposal.title}
+                  </Typography>
 
-                    {/* Right: Text content */}
-                    <Grid size={{ xs: 12, md: state.imageMode === "text" ? 12 : 8 }}>
-                      {state.editing ? (
-                        <TextField
-                          multiline
-                          fullWidth
-                          minRows={5}
-                          value={state.draftText}
-                          onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
-                          sx={{ mb: 2 }}
-                        />
-                      ) : (
-                        <Typography
-                          sx={{
-                            fontSize: "0.9rem",
-                            lineHeight: 1.65,
-                            color: "#3c4043",
-                            whiteSpace: "pre-line",
-                            mb: 2,
-                          }}
-                        >
-                          {state.draftText}
-                        </Typography>
-                      )}
+                  {/* ── Text content ── */}
+                  {state.editing ? (
+                    <TextField
+                      multiline
+                      fullWidth
+                      minRows={4}
+                      maxRows={8}
+                      value={state.draftText}
+                      onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
+                      sx={{ mb: 1.5, "& .MuiInputBase-input": { fontSize: "0.78rem", lineHeight: 1.55 } }}
+                    />
+                  ) : (
+                    <Typography
+                      sx={{
+                        fontSize: "0.78rem",
+                        lineHeight: 1.55,
+                        color: "#3c4043",
+                        whiteSpace: "pre-line",
+                        mb: 1.5,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 6,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {state.draftText}
+                    </Typography>
+                  )}
 
-                      {/* Visual mode toggle */}
-                      <ToggleButtonGroup
-                        value={state.imageMode}
-                        exclusive
-                        size="small"
-                        onChange={(_, val: ImageMode | null) => val && updateState(proposal.id, { imageMode: val })}
+                  {/* ── Scheduled date display ── */}
+                  {isScheduled && state.scheduledDate && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                        px: 1.25,
+                        py: 0.75,
+                        mb: 1.25,
+                        borderRadius: 1.5,
+                        bgcolor: "#e8f0fe",
+                        border: "1px solid #4285f433",
+                      }}
+                    >
+                      <ScheduleIcon sx={{ fontSize: 14, color: "#4285f4" }} />
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "#1a73e8" }}>
+                        Scheduled · {state.scheduledDate}
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {/* ── Image mode toggle ── */}
+                  <ToggleButtonGroup
+                    value={state.imageMode}
+                    exclusive
+                    size="small"
+                    fullWidth
+                    onChange={(_, val: ImageMode | null) => val && updateState(proposal.id, { imageMode: val })}
+                    sx={{
+                      mb: 1.25,
+                      "& .MuiToggleButton-root": {
+                        textTransform: "none",
+                        fontSize: "0.65rem",
+                        fontWeight: 500,
+                        py: 0.5,
+                        color: "#5f6368",
+                        border: "1px solid #ececec",
+                        "&.Mui-selected": {
+                          bgcolor: "#274e64",
+                          color: "#fff",
+                          borderColor: "#274e64",
+                          "&:hover": { bgcolor: "#1a3a4c" },
+                        },
+                      },
+                    }}
+                  >
+                    <ToggleButton value="stock">
+                      <ImageIcon sx={{ fontSize: 12, mr: 0.4 }} />
+                      Stock
+                    </ToggleButton>
+                    <ToggleButton value="ai">
+                      <AutoAwesomeIcon sx={{ fontSize: 12, mr: 0.4 }} />
+                      AI
+                    </ToggleButton>
+                    <ToggleButton value="text">
+                      <TextFieldsIcon sx={{ fontSize: 12, mr: 0.4 }} />
+                      Text
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+
+                  {/* ── Reasoning collapse ── */}
+                  <Box sx={{ mb: 1.5 }}>
+                    <Box
+                      onClick={() => updateState(proposal.id, { reasoningOpen: !state.reasoningOpen })}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.5,
+                        cursor: "pointer",
+                        py: 0.5,
+                        userSelect: "none",
+                        "&:hover": { color: "#274e64" },
+                        color: "#5f6368",
+                      }}
+                    >
+                      <LightbulbIcon sx={{ fontSize: 13, color: "#fbbc04" }} />
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        AI Reasoning
+                      </Typography>
+                      <ExpandMoreIcon
                         sx={{
-                          mb: 2,
-                          "& .MuiToggleButton-root": {
-                            textTransform: "none",
-                            fontSize: "0.7rem",
-                            fontWeight: 500,
-                            px: 1.5,
-                            py: 0.4,
-                            color: "#5f6368",
-                            border: "1px solid #ececec",
-                            "&.Mui-selected": {
-                              bgcolor: "#274e64",
-                              color: "#fff",
-                              borderColor: "#274e64",
-                              "&:hover": { bgcolor: "#1a3a4c" },
-                            },
-                          },
+                          fontSize: 14,
+                          ml: "auto",
+                          transition: "transform 0.2s",
+                          transform: state.reasoningOpen ? "rotate(180deg)" : "rotate(0deg)",
                         }}
-                      >
-                        <ToggleButton value="stock">
-                          <ImageIcon sx={{ fontSize: 13, mr: 0.5 }} />
-                          Free Stock
-                        </ToggleButton>
-                        <ToggleButton value="ai">
-                          <AutoAwesomeIcon sx={{ fontSize: 13, mr: 0.5 }} />
-                          AI Generated
-                        </ToggleButton>
-                        <ToggleButton value="text">
-                          <TextFieldsIcon sx={{ fontSize: 13, mr: 0.5 }} />
-                          Text Only
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-
-                      {/* Reasoning */}
-                      <Box sx={{ p: 1.75, bgcolor: "#f8f9fa", borderRadius: 2, mb: 0 }}>
-                        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
-                          AI Reasoning
-                        </Typography>
-                        <Typography sx={{ fontSize: "0.78rem", color: "#3c4043", lineHeight: 1.5 }}>
+                      />
+                    </Box>
+                    <Collapse in={state.reasoningOpen}>
+                      <Box sx={{ p: 1.25, bgcolor: "#f8f9fa", borderRadius: 1.5, mt: 0.5 }}>
+                        <Typography sx={{ fontSize: "0.7rem", color: "#3c4043", lineHeight: 1.5 }}>
                           {proposal.reasoning}
                         </Typography>
                       </Box>
-                    </Grid>
-                  </Grid>
+                    </Collapse>
+                  </Box>
 
-                  <Box sx={{ mt: 2.5 }} />
-
-                  {/* Actions */}
-                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                  {/* ── Unified action buttons ── */}
+                  <Box sx={{ mt: "auto", display: "flex", gap: 0.75 }}>
                     <Button
-                      variant="contained"
-                      startIcon={<CheckIcon />}
-                      onClick={() => handleApprove(proposal)}
-                      disabled={isApproved || isRejected || isScheduled}
-                      sx={{ bgcolor: "#34a853", "&:hover": { bgcolor: "#1e8e3e" } }}
+                      onClick={() => handleReject(proposal)}
+                      disabled={isRejected || isScheduled}
+                      startIcon={<CloseIcon sx={{ fontSize: 14 }} />}
+                      sx={{
+                        ...ACTION_BTN_SX,
+                        bgcolor: "#fff",
+                        borderColor: "#ea433533",
+                        color: "#ea4335",
+                        "&:hover": {
+                          bgcolor: "#fce8e6",
+                          borderColor: "#ea4335",
+                          boxShadow: "none",
+                        },
+                      }}
                     >
-                      Approve
+                      Reject
                     </Button>
                     <Button
-                      variant="outlined"
-                      startIcon={<EditIcon />}
                       onClick={() => toggleEdit(proposal)}
                       disabled={isRejected || isScheduled}
+                      startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                      sx={{
+                        ...ACTION_BTN_SX,
+                        bgcolor: "#fff",
+                        borderColor: "#ececec",
+                        color: "#3c4043",
+                        "&:hover": {
+                          bgcolor: "#f1f3f4",
+                          borderColor: "#dadce0",
+                          boxShadow: "none",
+                        },
+                      }}
                     >
                       {state.editing ? "Done" : "Edit"}
                     </Button>
                     <Button
-                      variant="outlined"
-                      startIcon={<ScheduleIcon />}
-                      onClick={() => handleSchedule(proposal)}
-                      disabled={!isApproved}
+                      onClick={() => openSchedule(proposal.id)}
+                      disabled={isRejected || isScheduled}
+                      startIcon={<ScheduleIcon sx={{ fontSize: 14 }} />}
                       sx={{
-                        borderColor: "#4285f4",
-                        color: "#4285f4",
-                        "&:hover": { borderColor: "#1a73e8", bgcolor: "#e8f0fe" },
-                        "&.Mui-disabled": { borderColor: "#ececec" },
+                        ...ACTION_BTN_SX,
+                        bgcolor: "#34a853",
+                        borderColor: "#34a853",
+                        color: "#fff",
+                        "&:hover": {
+                          bgcolor: "#1e8e3e",
+                          borderColor: "#1e8e3e",
+                          boxShadow: "none",
+                        },
+                        "&.Mui-disabled": {
+                          bgcolor: "#f1f3f4",
+                          borderColor: "#ececec",
+                          color: "#9aa0a6",
+                        },
                       }}
                     >
-                      Schedule
-                    </Button>
-                    <Box sx={{ flex: 1 }} />
-                    <Tooltip title="Regenerate this proposal">
-                      <IconButton
-                        size="small"
-                        sx={{ color: "#5f6368", "&:hover": { color: "#274e64" } }}
-                      >
-                        <RefreshIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Button
-                      variant="text"
-                      startIcon={<CloseIcon />}
-                      onClick={() => handleReject(proposal)}
-                      disabled={isRejected}
-                      sx={{ color: "#ea4335", "&:hover": { bgcolor: "#fce8e6" } }}
-                    >
-                      Reject
+                      Approve
                     </Button>
                   </Box>
-                </Box>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Grid>
           );
         })}
-      </Box>
+      </Grid>
 
       {/* ── Footer: Approval Workflow Stepper ── */}
       <Card
@@ -475,6 +600,143 @@ export default function ContentStudioPage() {
           </Alert>
         </CardContent>
       </Card>
+
+      {/* ── Schedule Dialog ── */}
+      <Dialog
+        open={!!scheduleDialogId}
+        onClose={() => setScheduleDialogId(null)}
+        PaperProps={{ sx: { borderRadius: 4, minWidth: 380 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                bgcolor: "#e8f0fe",
+                color: "#4285f4",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ScheduleIcon />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontFamily: "'Outfit', 'Inter', sans-serif",
+                  fontSize: "1.15rem",
+                  fontWeight: 500,
+                  color: "#1f1f1f",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Approve & Schedule
+              </Typography>
+              <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
+                Pick a date and time to publish
+              </Typography>
+            </Box>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2.5 }}>
+          {scheduleDialogId && (
+            <Box sx={{ mb: 2.5 }}>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
+                Post
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  color: "#1f1f1f",
+                  lineHeight: 1.4,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {contentProposals.find((p) => p.id === scheduleDialogId)?.title}
+              </Typography>
+            </Box>
+          )}
+          <Box sx={{ display: "flex", gap: 1.5 }}>
+            <TextField
+              type="date"
+              label="Date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              type="time"
+              label="Time"
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+              size="small"
+              sx={{ width: 130 }}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+          <Box sx={{ display: "flex", gap: 0.75, mt: 2, flexWrap: "wrap" }}>
+            {[
+              { label: "Tomorrow", days: 1 },
+              { label: "In 3 days", days: 3 },
+              { label: "Next week", days: 7 },
+              { label: "In 2 weeks", days: 14 },
+            ].map((preset) => (
+              <Chip
+                key={preset.label}
+                label={preset.label}
+                size="small"
+                onClick={() => setScheduleDate(defaultDate(preset.days))}
+                sx={{
+                  cursor: "pointer",
+                  bgcolor: "#f1f3f4",
+                  color: "#3c4043",
+                  fontWeight: 500,
+                  "&:hover": { bgcolor: "#e8f0fe", color: "#1a73e8" },
+                }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1.5, gap: 1 }}>
+          <Button
+            onClick={() => setScheduleDialogId(null)}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 600,
+              color: "#5f6368",
+              "&:hover": { bgcolor: "#f1f3f4" },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmSchedule}
+            variant="contained"
+            startIcon={<CheckIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 600,
+              bgcolor: "#34a853",
+              boxShadow: "none",
+              "&:hover": { bgcolor: "#1e8e3e", boxShadow: "none" },
+            }}
+          >
+            Approve & Schedule
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ── Snackbar ── */}
       <Snackbar
