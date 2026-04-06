@@ -37,7 +37,22 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+import LinearProgress from "@mui/material/LinearProgress";
+import LanguageIcon from "@mui/icons-material/Language";
+import DevicesIcon from "@mui/icons-material/Devices";
+import LinkIcon from "@mui/icons-material/Link";
+import SearchIcon from "@mui/icons-material/Search";
+import { AreaChart, Area } from "recharts";
 import { analyticsData, trafficChartData } from "@/lib/mockData";
+
+// Type-safe access for fields we just added
+type AnalyticsExt = typeof analyticsData & {
+  topPages?: { url: string; sessions: number; bounce: number; avgTime: string; change: number }[];
+  topKeywords?: { keyword: string; position: number; clicks: number; impressions: number; ctr: number }[];
+  deviceSplit?: { device: string; percentage: number }[];
+  topCountries?: { country: string; flag: string; sessions: number; percentage: number }[];
+};
+const analytics = analyticsData as AnalyticsExt;
 
 /* ── helpers ── */
 
@@ -220,53 +235,69 @@ export default function AnalyticsPage() {
       </Grid>
 
       {/* ── Traffic Trend Chart ── */}
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Traffic Trend
-          </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+      <Card sx={{ mb: 4, borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+              <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+              <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                Traffic Trend
+              </Typography>
+            </Box>
+            <Chip
+              label="SAMPLE"
+              size="small"
+              sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+            />
+          </Box>
+          <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
             Weekly sessions and page views
           </Typography>
-          <Box sx={{ width: "100%", height: 340 }}>
+          <Box sx={{ width: "100%", height: 320 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
+              <AreaChart
                 data={analyticsData.weeklyTraffic}
-                margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e6e8ea" />
-                <XAxis
-                  dataKey="week"
-                  tick={{ fontSize: 12, fill: "#5e5e5e" }}
-                />
-                <YAxis tick={{ fontSize: 12, fill: "#5e5e5e" }} />
+                <defs>
+                  <linearGradient id="gradPV" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0077b5" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#0077b5" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="gradSes" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#274e64" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#274e64" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f3f4" />
+                <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#5f6368" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#5f6368" }} axisLine={false} tickLine={false} />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any, name: any) => [
                     fmt.format(Number(value)),
                     name === "sessions" ? "Sessions" : "Page Views",
                   ]}
+                  contentStyle={{ borderRadius: 8, border: "1px solid #ececec", fontSize: 12 }}
                 />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="sessions"
-                  name="Sessions"
-                  stroke="#274e64"
-                  strokeWidth={2}
-                  dot={{ r: 4, fill: "#274e64" }}
-                  activeDot={{ r: 6 }}
-                />
-                <Line
+                <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
+                <Area
                   type="monotone"
                   dataKey="pageViews"
                   name="Page Views"
                   stroke="#0077b5"
-                  strokeWidth={2}
-                  dot={{ r: 4, fill: "#0077b5" }}
-                  activeDot={{ r: 6 }}
+                  strokeWidth={2.5}
+                  fill="url(#gradPV)"
                 />
-              </LineChart>
+                <Area
+                  type="monotone"
+                  dataKey="sessions"
+                  name="Sessions"
+                  stroke="#274e64"
+                  strokeWidth={2.5}
+                  fill="url(#gradSes)"
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </Box>
         </CardContent>
@@ -394,6 +425,261 @@ export default function AnalyticsPage() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* ── SEMrush-style: Top Pages + Top Keywords ── */}
+      <Grid container spacing={2.5} sx={{ mb: 4 }}>
+        {/* Top Pages */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    Top Landing Pages
+                  </Typography>
+                </Box>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
+                Best-performing URLs by sessions
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column" }}>
+                {(analytics.topPages ?? []).map((p, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      py: 1.25,
+                      borderBottom: i < (analytics.topPages?.length ?? 0) - 1 ? "1px solid #f1f3f4" : "none",
+                    }}
+                  >
+                    <LinkIcon sx={{ fontSize: 14, color: "#274e64", flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.url}
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1.5, mt: 0.25 }}>
+                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+                          Bounce {p.bounce}%
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+                          · {p.avgTime}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1 }}>
+                        {fmt.format(p.sessions)}
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.25, mt: 0.25 }}>
+                        {p.change >= 0 ? (
+                          <TrendingUpIcon sx={{ fontSize: 11, color: "#1e8e3e" }} />
+                        ) : (
+                          <TrendingDownIcon sx={{ fontSize: 11, color: "#ea4335" }} />
+                        )}
+                        <Typography sx={{ fontSize: "0.62rem", fontWeight: 600, color: p.change >= 0 ? "#1e8e3e" : "#ea4335" }}>
+                          {p.change >= 0 ? "+" : ""}{p.change}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Top Keywords (GSC-style) */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#ed1b2f" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    Top Organic Keywords
+                  </Typography>
+                </Box>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
+                Keywords driving the most clicks
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column" }}>
+                {(analytics.topKeywords ?? []).map((k, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      py: 1.25,
+                      borderBottom: i < (analytics.topKeywords?.length ?? 0) - 1 ? "1px solid #f1f3f4" : "none",
+                    }}
+                  >
+                    <SearchIcon sx={{ fontSize: 14, color: "#ed1b2f", flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {k.keyword}
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1.5, mt: 0.25 }}>
+                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+                          {fmt.format(k.impressions)} impr.
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+                          · CTR {k.ctr}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+                      <Chip
+                        label={`#${k.position}`}
+                        size="small"
+                        sx={{
+                          height: 20,
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          bgcolor: k.position <= 5 ? "#e6f4ea" : "#fef7e0",
+                          color: k.position <= 5 ? "#1e8e3e" : "#b06000",
+                          border: "none",
+                          minWidth: 36,
+                        }}
+                      />
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#5f6368", mt: 0.25 }}>
+                        {fmt.format(k.clicks)} clicks
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* ── SEMrush-style: Devices + Geographic ── */}
+      <Grid container spacing={2.5} sx={{ mb: 4 }}>
+        {/* Device split */}
+        <Grid size={{ xs: 12, md: 5 }}>
+          <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#9334e6" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    Device Split
+                  </Typography>
+                </Box>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", ml: 1.75, mb: 2.5 }}>
+                Sessions by device category
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {(analytics.deviceSplit ?? []).map((d, i) => {
+                  const colors = ["#274e64", "#ed1b2f", "#fbbc04"];
+                  return (
+                    <Box key={i}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <DevicesIcon sx={{ fontSize: 14, color: colors[i] }} />
+                          <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f" }}>
+                            {d.device}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: "#1f1f1f" }}>
+                          {d.percentage}%
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={d.percentage}
+                        sx={{
+                          height: 8,
+                          borderRadius: 4,
+                          bgcolor: "#f1f3f4",
+                          "& .MuiLinearProgress-bar": { bgcolor: colors[i], borderRadius: 4 },
+                        }}
+                      />
+                    </Box>
+                  );
+                })}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Geographic */}
+        <Grid size={{ xs: 12, md: 7 }}>
+          <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#34a853" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    Geographic Distribution
+                  </Typography>
+                </Box>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
+                Top countries by sessions
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+                {(analytics.topCountries ?? []).map((c, i) => (
+                  <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Typography sx={{ fontSize: "1.1rem", flexShrink: 0, width: 22 }}>{c.flag}</Typography>
+                    <Box sx={{ flex: 1 }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f" }}>
+                          {c.country}
+                        </Typography>
+                        <Box sx={{ display: "flex", gap: 1.25 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: "#5f6368", fontWeight: 500 }}>
+                            {fmt.format(c.sessions)}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#1f1f1f", minWidth: 32, textAlign: "right" }}>
+                            {c.percentage}%
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={c.percentage * 2.5}
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          bgcolor: "#f1f3f4",
+                          "& .MuiLinearProgress-bar": { bgcolor: "#34a853", borderRadius: 3 },
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                ))}
               </Box>
             </CardContent>
           </Card>
