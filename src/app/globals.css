@@ -1,13 +1,365 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    font-family: Arial, system-ui, sans-serif;
-    color: #5e5e5e;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    color: #3c4043;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  h1, h2, h3 {
-    color: #050505;
+  h1, h2, h3, h4 {
+    color: #1f1f1f;
   }
+}
+
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bdc1c6;
+}
+
+/* ──────────────────────────────────────────
+   ANIMATIONS
+   ────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.92); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes barGrow {
+  from { width: 0%; }
+}
+
+@keyframes accentSlide {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Animation utility classes ── */
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-dot {
+  animation: pulseSoft 2s ease-in-out infinite;
+}
+
+.animate-bar-grow {
+  animation: barGrow 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-count-up {
+  animation: countUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Staggered children ── */
+
+.stagger-children > * {
+  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 70ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 140ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 210ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 280ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 350ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 420ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 490ms; }
+
+/* Slow stagger for hero sections */
+.stagger-slow > * {
+  opacity: 0;
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.stagger-slow > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-slow > *:nth-child(2) { animation-delay: 120ms; }
+.stagger-slow > *:nth-child(3) { animation-delay: 240ms; }
+.stagger-slow > *:nth-child(4) { animation-delay: 360ms; }
+
+/* ── Hover lift utility ── */
+
+.hover-lift {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(39, 78, 100, 0.08);
+}
+
+/* ── Card top accent (APSO red) ── */
+
+.accent-top {
+  position: relative;
+  overflow: hidden;
+}
+.accent-top::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ed1b2f 0%, #274e64 100%);
+  transform-origin: left;
+  transform: scaleX(0);
+  animation: accentSlide 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+}
+
+/* ── Shimmer placeholder ── */
+
+.shimmer {
+  background: linear-gradient(90deg, #f1f3f4 0%, #e8eaed 50%, #f1f3f4 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2.2s infinite linear;
+}
+
+/* ── Gradient text utility ── */
+
+.gradient-text-apso {
+  background: linear-gradient(135deg, #ed1b2f 0%, #274e64 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ──────────────────────────────────────────
+   BRAND TYPOGRAPHY & ANIMATED "HUB"
+   ────────────────────────────────────────── */
+
+.brand-display {
+  font-family: 'Outfit', 'Inter', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+}
+
+.brand-apso {
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  color: #274e64;
+  perspective: 600px;
+}
+
+.brand-apso .letter {
+  display: inline-block;
+  color: #274e64;
+  transform-style: preserve-3d;
+}
+
+/*
+  9-second cycle:
+  0-5%   all blue
+  5-10%  A red
+  10-15% P red
+  15-20% S red
+  20-25% O red (all red)
+  25-40% O 3D spins twice (720°), all letters stay red
+  40-50% O red (settle)
+  50-60% O blue
+  60-70% S blue
+  70-80% P blue
+  80-90% A blue (all blue)
+  90-100% hold blue
+*/
+
+.brand-apso .letter-a { animation: letterA 9s ease-in-out infinite; }
+.brand-apso .letter-p { animation: letterP 9s ease-in-out infinite; }
+.brand-apso .letter-s { animation: letterS 9s ease-in-out infinite; }
+.brand-apso .letter-o { animation: letterO 9s ease-in-out infinite; }
+
+/* A: red 8% → 82%, then back to blue */
+@keyframes letterA {
+  0%, 6%     { color: #274e64; }
+  10%, 80%   { color: #ed1b2f; }
+  86%, 100%  { color: #274e64; }
+}
+/* P: red 13% → 76%, blue */
+@keyframes letterP {
+  0%, 11%    { color: #274e64; }
+  15%, 73%   { color: #ed1b2f; }
+  79%, 100%  { color: #274e64; }
+}
+/* S: red 18% → 68%, blue */
+@keyframes letterS {
+  0%, 16%    { color: #274e64; }
+  20%, 65%   { color: #ed1b2f; }
+  71%, 100%  { color: #274e64; }
+}
+/* O: red 23% → 55%, then blue. During 25-40% it spins. */
+@keyframes letterO {
+  0%, 21%                    { color: #274e64; transform: rotateY(0deg); }
+  25%                        { color: #ed1b2f; transform: rotateY(0deg); }
+  27%                        { color: #ed1b2f; transform: rotateY(180deg); }
+  30%                        { color: #ed1b2f; transform: rotateY(360deg); }
+  33%                        { color: #ed1b2f; transform: rotateY(540deg); }
+  36%, 50%                   { color: #ed1b2f; transform: rotateY(720deg); }
+  56%, 100%                  { color: #274e64; transform: rotateY(720deg); }
+}
+
+/* ── Active nav icon animation ── */
+@keyframes navIconBreathe {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.12) rotate(-3deg);
+  }
+  50% {
+    transform: scale(1.18) rotate(0deg);
+  }
+  75% {
+    transform: scale(1.12) rotate(3deg);
+  }
+}
+
+.nav-icon-active {
+  animation: navIconBreathe 3s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* ──────────────────────────────────────────
+   FLAT ANIMATED SIDEBAR BACKGROUND
+   ────────────────────────────────────────── */
+
+.sidebar-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar-icon-bg {
+  position: absolute;
+  opacity: 0.07;
+  transform-origin: center;
+}
+
+.sidebar-icon-person {
+  top: 18%;
+  right: 18px;
+  width: 80px;
+  height: 80px;
+  animation: iconFloat1 14s ease-in-out infinite;
+}
+
+.sidebar-icon-compass {
+  bottom: 32%;
+  left: 14px;
+  width: 90px;
+  height: 90px;
+  animation: iconCompass 20s linear infinite;
+}
+
+.sidebar-icon-pen {
+  bottom: 14%;
+  right: 22px;
+  width: 78px;
+  height: 78px;
+  animation: iconFloat2 16s ease-in-out infinite;
+}
+
+@keyframes iconFloat1 {
+  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+  50%      { transform: translate(-6px, -10px) rotate(4deg); }
+}
+
+@keyframes iconFloat2 {
+  0%, 100% { transform: translate(0, 0) rotate(8deg); }
+  50%      { transform: translate(8px, -8px) rotate(-8deg); }
+}
+
+@keyframes iconCompass {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Subtle dot grid overlay */
+.sidebar-dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, #274e64 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.04;
+  pointer-events: none;
 }
