@@ -60,18 +60,21 @@ export const seoKeywords = [
 ];
 
 export const contentCalendarItems = [
-  { id: "cal-1", title: "O-Ring Material Selection Guide — FKM, FFKM & Silicone", date: "2026-04-07", channel: "Blog" as const, status: "draft" as const, assignee: "AI + Miriam", priority: "high" as const },
-  { id: "cal-2", title: "LinkedIn: New PEEK Machined Components Range", date: "2026-04-08", channel: "LinkedIn" as const, status: "approved" as const, assignee: "Aleksandra", priority: "high" as const },
-  { id: "cal-3", title: "POM-C Acetal Copolymer — Applications & Tolerances", date: "2026-04-10", channel: "Blog" as const, status: "idea" as const, assignee: "Unassigned", priority: "medium" as const },
-  { id: "cal-4", title: "Newsletter: O-Rings & Plastics Q2 Update", date: "2026-04-11", channel: "Newsletter" as const, status: "in_review" as const, assignee: "Miriam", priority: "medium" as const },
-  { id: "cal-5", title: "LinkedIn: Food-Grade EPDM O-Rings Case Study", date: "2026-04-14", channel: "LinkedIn" as const, status: "idea" as const, assignee: "Unassigned", priority: "low" as const },
-  { id: "cal-6", title: "PEEK vs POM-C — Engineering Plastics Comparison", date: "2026-04-15", channel: "Blog" as const, status: "brief" as const, assignee: "AI", priority: "high" as const },
-  { id: "cal-7", title: "LinkedIn: O-Ring Failure Modes & Prevention", date: "2026-04-16", channel: "LinkedIn" as const, status: "draft" as const, assignee: "Aleksandra", priority: "medium" as const },
-  { id: "cal-8", title: "PEEK Aerospace Sealing Applications Guide", date: "2026-04-17", channel: "Newsletter" as const, status: "approved" as const, assignee: "Miriam", priority: "high" as const },
-  { id: "cal-9", title: "FFKM O-Rings for Chemical Resistance", date: "2026-04-21", channel: "Blog" as const, status: "idea" as const, assignee: "Unassigned", priority: "medium" as const },
-  { id: "cal-10", title: "LinkedIn: Sustainability in PEEK Manufacturing", date: "2026-04-22", channel: "LinkedIn" as const, status: "brief" as const, assignee: "AI", priority: "low" as const },
-  { id: "cal-11", title: "O-Ring Sizing Guide — Standard vs Custom", date: "2026-04-24", channel: "Blog" as const, status: "draft" as const, assignee: "AI + Miriam", priority: "high" as const },
-  { id: "cal-12", title: "Newsletter: POM-C Machining Best Practices", date: "2026-04-28", channel: "Newsletter" as const, status: "idea" as const, assignee: "Unassigned", priority: "low" as const },
+  // Blog (3 imported drafts)
+  { id: "cal-1", proposalId: "bl-1", title: "O-Ring Material Selection Guide: FKM, FFKM & Silicone", date: "2026-04-07", channel: "Blog" as const, status: "draft" as const, assignee: "AI + Miriam", priority: "high" as const },
+  { id: "cal-2", proposalId: "bl-2", title: "PEEK vs POM-C: Engineering Plastics Comparison", date: "2026-04-15", channel: "Blog" as const, status: "draft" as const, assignee: "AI", priority: "high" as const },
+  { id: "cal-3", proposalId: "bl-3", title: "5 Common O-Ring Failure Modes (and How to Prevent Each One)", date: "2026-04-22", channel: "Blog" as const, status: "draft" as const, assignee: "AI + Miriam", priority: "medium" as const },
+  // LinkedIn (3 imported drafts)
+  { id: "cal-4", proposalId: "li-1", title: "FKM vs FFKM: choosing your o-ring for chemical resistance", date: "2026-04-08", channel: "LinkedIn" as const, status: "draft" as const, assignee: "Aleksandra", priority: "high" as const },
+  { id: "cal-5", proposalId: "li-2", title: "PEEK in aerospace: the high-performance plastic explained", date: "2026-04-14", channel: "LinkedIn" as const, status: "draft" as const, assignee: "Aleksandra", priority: "medium" as const },
+  { id: "cal-6", proposalId: "li-5", title: "O-rings for food & beverage processing", date: "2026-04-17", channel: "LinkedIn" as const, status: "draft" as const, assignee: "Aleksandra", priority: "medium" as const },
+  // Newsletter (3 imported drafts)
+  { id: "cal-7", proposalId: "nl-1", title: "Q2 2026 — New FFKM range, expanded PEEK catalog & spring webinar", date: "2026-04-10", channel: "Newsletter" as const, status: "in_review" as const, assignee: "Miriam", priority: "high" as const },
+  { id: "cal-8", proposalId: "nl-2", title: "[New Guide] How to choose the right o-ring material in 5 questions", date: "2026-04-21", channel: "Newsletter" as const, status: "draft" as const, assignee: "Miriam", priority: "medium" as const },
+  { id: "cal-9", proposalId: "nl-3", title: "PEEK vs POM-C — which one fits your next project?", date: "2026-04-28", channel: "Newsletter" as const, status: "draft" as const, assignee: "Miriam", priority: "medium" as const },
+  // Future ideas (no proposal yet)
+  { id: "cal-10", proposalId: null, title: "POM-C precision parts: when tolerances matter", date: "2026-04-23", channel: "LinkedIn" as const, status: "idea" as const, assignee: "Unassigned", priority: "low" as const },
+  { id: "cal-11", proposalId: null, title: "O-Ring Sizing Guide — Standard vs Custom", date: "2026-04-24", channel: "Blog" as const, status: "idea" as const, assignee: "Unassigned", priority: "low" as const },
 ];
 
 export const studioContentBriefs = [

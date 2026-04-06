@@ -17,7 +17,16 @@ import ChevronLeft from "@mui/icons-material/ChevronLeft";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
 import FiberManualRecord from "@mui/icons-material/FiberManualRecord";
-import { contentCalendarItems } from "@/lib/mockData";
+import EditIcon from "@mui/icons-material/Edit";
+import LaunchIcon from "@mui/icons-material/Launch";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import Link from "next/link";
+import { contentCalendarItems, contentProposals } from "@/lib/mockData";
+
+type CalendarItem = (typeof contentCalendarItems)[number];
 
 // ── Constants ──────────────────────────────────────────────
 
@@ -77,6 +86,12 @@ function buildAprilGrid(): (number | null)[][] {
 
 export default function ContentCalendarPage() {
   const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [selectedItem, setSelectedItem] = useState<CalendarItem | null>(null);
+
+  const selectedProposal = useMemo(() => {
+    if (!selectedItem?.proposalId) return null;
+    return contentProposals.find((p) => p.id === selectedItem.proposalId) ?? null;
+  }, [selectedItem]);
 
   const calendarGrid = useMemo(() => buildAprilGrid(), []);
 
@@ -222,6 +237,7 @@ export default function ContentCalendarPage() {
                         {(itemsByDay[day] || []).map((item) => (
                           <Box
                             key={item.id}
+                            onClick={(e) => { e.stopPropagation(); setSelectedItem(item); }}
                             sx={{
                               display: "flex",
                               alignItems: "center",
@@ -232,6 +248,9 @@ export default function ContentCalendarPage() {
                               borderRadius: 1,
                               bgcolor: CHANNEL_COLORS[item.channel] + "18",
                               overflow: "hidden",
+                              cursor: "pointer",
+                              transition: "all 0.15s",
+                              "&:hover": { bgcolor: CHANNEL_COLORS[item.channel] + "33" },
                             }}
                           >
                             <FiberManualRecord
@@ -276,11 +295,12 @@ export default function ContentCalendarPage() {
             overflow: "hidden",
           }}
         >
-          <CardContent sx={{ flex: 1, overflow: "auto", pb: 0 }}>
+          <CardContent sx={{ flex: 1, overflow: "hidden", pb: 0, display: "flex", flexDirection: "column" }}>
             <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
               Upcoming Items
             </Typography>
 
+            <Box sx={{ flex: 1, overflowY: "auto", maxHeight: 7 * 92, pr: 1 }}>
             {sortedUpcoming.map((item, idx) => {
               const dateObj = new Date(item.date + "T00:00:00");
               const dateLabel = dateObj.toLocaleDateString("en-GB", {
@@ -288,7 +308,19 @@ export default function ContentCalendarPage() {
                 month: "short",
               });
               return (
-                <Box key={item.id}>
+                <Box
+                  key={item.id}
+                  onClick={() => setSelectedItem(item)}
+                  sx={{
+                    cursor: "pointer",
+                    borderRadius: 1.5,
+                    px: 0.75,
+                    mx: -0.75,
+                    py: 0.5,
+                    transition: "background-color 0.15s",
+                    "&:hover": { bgcolor: "#f8f9fa" },
+                  }}
+                >
                   {idx > 0 && <Divider sx={{ my: 1 }} />}
                   <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
                     <FiberManualRecord
@@ -346,6 +378,7 @@ export default function ContentCalendarPage() {
                 </Box>
               );
             })}
+            </Box>
           </CardContent>
 
           <Box sx={{ p: 2, pt: 1 }}>
@@ -355,6 +388,137 @@ export default function ContentCalendarPage() {
           </Box>
         </Card>
       </Box>
+
+      {/* ── Item Detail Modal ── */}
+      <Dialog
+        open={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 4 } }}
+      >
+        {selectedItem && (() => {
+          const dateObj = new Date(selectedItem.date + "T00:00:00");
+          const dateLabel = dateObj.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+          const isIdea = !selectedProposal;
+          return (
+            <>
+              <DialogTitle sx={{ pb: 1.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, flexWrap: "wrap" }}>
+                  <Chip
+                    label={selectedItem.channel}
+                    size="small"
+                    sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: CHANNEL_COLORS[selectedItem.channel], color: "#fff" }}
+                  />
+                  <Chip
+                    label={STATUS_LABELS[selectedItem.status]}
+                    size="small"
+                    sx={{
+                      height: 22,
+                      fontSize: "0.65rem",
+                      fontWeight: 600,
+                      bgcolor: STATUS_COLORS[selectedItem.status] + "22",
+                      color: STATUS_COLORS[selectedItem.status],
+                      border: `1px solid ${STATUS_COLORS[selectedItem.status]}44`,
+                    }}
+                  />
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: "0.72rem", color: "#5f6368", fontWeight: 600 }}>
+                    {dateLabel}
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontFamily: "'Outfit', 'Inter', sans-serif", fontSize: "1.2rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.3, letterSpacing: "-0.01em" }}>
+                  {selectedItem.title}
+                </Typography>
+              </DialogTitle>
+              <Divider />
+              <DialogContent sx={{ pt: 2.5 }}>
+                {isIdea ? (
+                  <Box sx={{ textAlign: "center", py: 3 }}>
+                    <Box
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: "50%",
+                        bgcolor: "#fef7e0",
+                        color: "#fbbc04",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        mb: 1.5,
+                      }}
+                    >
+                      <EditIcon sx={{ fontSize: 28 }} />
+                    </Box>
+                    <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#1f1f1f", mb: 0.5 }}>
+                      No draft yet
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mb: 2.5 }}>
+                      This topic is still an idea. Generate it in Content Studio to start drafting.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.75 }}>
+                      Draft preview
+                    </Typography>
+                    <Box
+                      sx={{
+                        bgcolor: "#fafbfc",
+                        border: "1px solid #ececec",
+                        borderRadius: 2,
+                        p: 2,
+                        maxHeight: 280,
+                        overflowY: "auto",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: "0.78rem", lineHeight: 1.6, color: "#3c4043", whiteSpace: "pre-line" }}>
+                        {selectedProposal.text}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 1.5, mt: 2, alignItems: "center" }}>
+                      <Avatar sx={{ width: 22, height: 22, fontSize: "0.65rem", bgcolor: "#274e64" }}>
+                        {selectedItem.assignee.charAt(0)}
+                      </Avatar>
+                      <Typography sx={{ fontSize: "0.75rem", color: "#5f6368", fontWeight: 500 }}>
+                        Assigned to {selectedItem.assignee}
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>
+                        Quality score: <strong>{selectedProposal.qualityScore}/100</strong>
+                      </Typography>
+                    </Box>
+                  </>
+                )}
+              </DialogContent>
+              <DialogActions sx={{ p: 2.5, pt: 1.5, gap: 1 }}>
+                <Button
+                  onClick={() => setSelectedItem(null)}
+                  sx={{ borderRadius: 999, textTransform: "none", fontWeight: 600, color: "#5f6368", "&:hover": { bgcolor: "#f1f3f4" } }}
+                >
+                  Close
+                </Button>
+                <Button
+                  component={Link}
+                  href="/studio"
+                  variant="contained"
+                  startIcon={isIdea ? <Add /> : <LaunchIcon />}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 600,
+                    bgcolor: isIdea ? "#ed1b2f" : "#274e64",
+                    boxShadow: "none",
+                    "&:hover": { bgcolor: isIdea ? "#d80901" : "#1a3a4c", boxShadow: "none" },
+                  }}
+                >
+                  {isIdea ? "Create in Content Studio" : "Open in Content Studio"}
+                </Button>
+              </DialogActions>
+            </>
+          );
+        })()}
+      </Dialog>
 
       {/* ── Bottom Stats Bar ─────────────────────────── */}
       <Paper
