@@ -196,6 +196,7 @@ export default function ContentStudioPage() {
       >
         {CHANNELS.map((c) => {
           const active = c.id === activeChannel;
+          const count = contentProposals.filter((p) => p.channel === c.id).length;
           return (
             <Button
               key={c.id}
@@ -219,7 +220,7 @@ export default function ContentStudioPage() {
             >
               {c.label}
               <Chip
-                label="5"
+                label={count}
                 size="small"
                 sx={{
                   ml: 1,
@@ -278,7 +279,7 @@ export default function ContentStudioPage() {
                 {state.imageMode === "stock" && proposal.channel === "LinkedIn" && (
                   <RealPhotoVisual theme={proposal.theme} height={180} />
                 )}
-                {state.imageMode === "stock" && proposal.channel === "Newsletter" && (
+                {proposal.channel === "Newsletter" && (
                   <NewsletterVisual subject={proposal.title} preview={state.draftText} height={180} />
                 )}
                 {state.imageMode === "stock" && proposal.channel === "Blog" && (
@@ -469,7 +470,8 @@ export default function ContentStudioPage() {
                     </Box>
                   )}
 
-                  {/* ── Image mode toggle ── */}
+                  {/* ── Image mode toggle (hidden for Newsletter — text-only channel) ── */}
+                  {proposal.channel !== "Newsletter" && (
                   <ToggleButtonGroup
                     value={state.imageMode}
                     exclusive
@@ -507,6 +509,7 @@ export default function ContentStudioPage() {
                       Text
                     </ToggleButton>
                   </ToggleButtonGroup>
+                  )}
 
                   {/* ── Reasoning collapse ── */}
                   <Box sx={{ mb: 1.5 }}>
