@@ -393,7 +393,7 @@ export default function MissionControl() {
                                 bgcolor: statusColor,
                                 flexShrink: 0,
                               }}
-                              className={item.status === "pending_review" || item.status === "action_needed" ? "animate-pulse-dot" : undefined}
+                              className={item.status === "pending_review" ? "animate-pulse-dot" : undefined}
                             />
                             <Typography sx={{ fontSize: "0.7rem", color: "#5f6368", fontWeight: 500 }}>
                               {item.time}
