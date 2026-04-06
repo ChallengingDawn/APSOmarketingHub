@@ -105,6 +105,9 @@ export default function ContentStudioPage() {
   const [scheduleTime, setScheduleTime] = useState<string>("09:00");
   const [regenerateDialogId, setRegenerateDialogId] = useState<string | null>(null);
   const [regeneratePrompt, setRegeneratePrompt] = useState<string>("");
+  const [photoDialogId, setPhotoDialogId] = useState<string | null>(null);
+  const [photoParagraphIdx, setPhotoParagraphIdx] = useState<number>(0);
+  const [photoPrompt, setPhotoPrompt] = useState<string>("");
 
   // Per-proposal state
   const [states, setStates] = useState<Record<string, ProposalState>>(() => {
@@ -158,6 +161,25 @@ export default function ContentStudioPage() {
   const openRegenerate = (id: string) => {
     setRegeneratePrompt("");
     setRegenerateDialogId(id);
+  };
+
+  const openPhotoDialog = (id: string) => {
+    setPhotoParagraphIdx(0);
+    setPhotoPrompt("");
+    setPhotoDialogId(id);
+  };
+
+  const confirmPhoto = () => {
+    if (!photoDialogId) return;
+    const current = states[photoDialogId].draftText;
+    const paragraphs = current.split(/\n\n+/);
+    const promptText = photoPrompt.trim() || "auto-generated photo";
+    const placeholder = `\n\n🖼 [Photo: ${promptText}]\n`;
+    paragraphs.splice(photoParagraphIdx + 1, 0, placeholder.trim());
+    const newText = paragraphs.join("\n\n");
+    updateState(photoDialogId, { draftText: newText });
+    setSnack(`Photo placeholder added`);
+    setPhotoDialogId(null);
   };
 
   const confirmRegenerate = () => {
@@ -280,7 +302,26 @@ export default function ContentStudioPage() {
                   <RealPhotoVisual theme={proposal.theme} height={180} />
                 )}
                 {proposal.channel === "Newsletter" && (
-                  <NewsletterVisual subject={proposal.title} preview={state.draftText} height={180} />
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      px: 2,
+                      py: 1.25,
+                      bgcolor: "#fafbfc",
+                      borderBottom: "1px solid #ececec",
+                    }}
+                  >
+                    <EmailIcon sx={{ fontSize: 16, color: "#274e64" }} />
+                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64" }}>
+                      news@apsoparts.com
+                    </Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <Typography sx={{ fontSize: "0.65rem", color: "#9aa0a6", fontWeight: 600, letterSpacing: "0.05em" }}>
+                      EMAIL DRAFT
+                    </Typography>
+                  </Box>
                 )}
                 {state.imageMode === "stock" && proposal.channel === "Blog" && (
                   <BlogVisual
@@ -548,6 +589,28 @@ export default function ContentStudioPage() {
                       </Box>
                     </Collapse>
                   </Box>
+
+                  {/* ── Add photo button (Newsletter only) ── */}
+                  {proposal.channel === "Newsletter" && !isRejected && !isScheduled && (
+                    <Button
+                      onClick={() => openPhotoDialog(proposal.id)}
+                      startIcon={<ImageIcon sx={{ fontSize: 14 }} />}
+                      sx={{
+                        mb: 1,
+                        borderRadius: 2,
+                        textTransform: "none",
+                        fontWeight: 600,
+                        fontSize: "0.72rem",
+                        py: 0.75,
+                        bgcolor: "#fff",
+                        border: "1px dashed #274e6455",
+                        color: "#274e64",
+                        "&:hover": { bgcolor: "#e8f0f4", borderColor: "#274e64" },
+                      }}
+                    >
+                      Add photo to a paragraph
+                    </Button>
+                  )}
 
                   {/* ── Unified action buttons (2 rows, 4 actions) ── */}
                   <Box sx={{ mt: "auto", display: "flex", flexDirection: "column", gap: 0.75 }}>
@@ -974,6 +1037,117 @@ export default function ContentStudioPage() {
             }}
           >
             Regenerate
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Photo Dialog (Newsletter) ── */}
+      <Dialog
+        open={!!photoDialogId}
+        onClose={() => setPhotoDialogId(null)}
+        PaperProps={{ sx: { borderRadius: 4, minWidth: 480 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                bgcolor: "#e8f0f4",
+                color: "#274e64",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ImageIcon />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontFamily: "'Outfit', 'Inter', sans-serif",
+                  fontSize: "1.15rem",
+                  fontWeight: 500,
+                  color: "#1f1f1f",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Generate photo for paragraph
+              </Typography>
+              <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
+                Pick a paragraph and describe the photo to find or generate
+              </Typography>
+            </Box>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2.5 }}>
+          {photoDialogId && (() => {
+            const paragraphs = states[photoDialogId].draftText.split(/\n\n+/);
+            return (
+              <>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>
+                  Insert photo after this paragraph
+                </Typography>
+                <Box sx={{ maxHeight: 200, overflowY: "auto", border: "1px solid #ececec", borderRadius: 2, mb: 2 }}>
+                  {paragraphs.map((para, idx) => (
+                    <Box
+                      key={idx}
+                      onClick={() => setPhotoParagraphIdx(idx)}
+                      sx={{
+                        p: 1.25,
+                        cursor: "pointer",
+                        borderBottom: idx < paragraphs.length - 1 ? "1px solid #f1f3f4" : "none",
+                        bgcolor: photoParagraphIdx === idx ? "#e8f0f4" : "transparent",
+                        borderLeft: photoParagraphIdx === idx ? "3px solid #274e64" : "3px solid transparent",
+                        "&:hover": { bgcolor: photoParagraphIdx === idx ? "#e8f0f4" : "#fafbfc" },
+                      }}
+                    >
+                      <Typography sx={{ fontSize: "0.72rem", color: "#3c4043", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                        {para.slice(0, 140)}{para.length > 140 ? "…" : ""}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>
+                  Photo prompt
+                </Typography>
+                <TextField
+                  autoFocus
+                  multiline
+                  minRows={2}
+                  fullWidth
+                  placeholder="e.g. close-up of black FFKM o-rings on a white background, industrial product photography"
+                  value={photoPrompt}
+                  onChange={(e) => setPhotoPrompt(e.target.value)}
+                  sx={{ "& .MuiInputBase-input": { fontSize: "0.85rem", lineHeight: 1.5 } }}
+                />
+              </>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1.5, gap: 1 }}>
+          <Button
+            onClick={() => setPhotoDialogId(null)}
+            sx={{ borderRadius: 999, textTransform: "none", fontWeight: 600, color: "#5f6368", "&:hover": { bgcolor: "#f1f3f4" } }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmPhoto}
+            variant="contained"
+            startIcon={<AutoAwesomeIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 600,
+              bgcolor: "#274e64",
+              boxShadow: "none",
+              "&:hover": { bgcolor: "#1a3a4c", boxShadow: "none" },
+            }}
+          >
+            Generate &amp; insert
           </Button>
         </DialogActions>
       </Dialog>
