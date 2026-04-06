@@ -94,7 +94,9 @@ export default function Sidebar() {
           pt: 3.5,
           pb: 2.5,
           position: "relative",
-          zIndex: 1,
+          zIndex: 2,
+          bgcolor: "#ffffff",
+          borderBottom: "1px solid #ececec",
         }}
       >
         <Box sx={{ display: "flex", alignItems: "baseline", gap: 0, whiteSpace: "nowrap" }}>
