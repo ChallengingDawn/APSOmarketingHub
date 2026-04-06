@@ -265,8 +265,8 @@
   width: 280px;
   height: 280px;
   background: #ed1b2f;
-  top: -100px;
-  left: -120px;
+  bottom: -100px;
+  right: -120px;
   animation: blobFloat1 18s ease-in-out infinite;
 }
 
@@ -274,8 +274,8 @@
   width: 320px;
   height: 320px;
   background: #274e64;
-  bottom: -120px;
-  right: -140px;
+  top: -120px;
+  left: -140px;
   animation: blobFloat2 22s ease-in-out infinite;
 }
 

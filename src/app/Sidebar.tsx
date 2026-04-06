@@ -97,7 +97,7 @@ export default function Sidebar() {
           zIndex: 1,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, whiteSpace: "nowrap" }}>
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0, whiteSpace: "nowrap" }}>
           <Box
             component="span"
             className="brand-display brand-apso"
