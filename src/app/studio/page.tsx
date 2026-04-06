@@ -279,10 +279,15 @@ export default function ContentStudioPage() {
                   <RealPhotoVisual theme={proposal.theme} height={180} />
                 )}
                 {state.imageMode === "stock" && proposal.channel === "Newsletter" && (
-                  <NewsletterVisual subject={proposal.title} height={180} />
+                  <NewsletterVisual subject={proposal.title} preview={state.draftText} height={180} />
                 )}
                 {state.imageMode === "stock" && proposal.channel === "Blog" && (
-                  <BlogVisual title={proposal.title} readingTime="8 min" height={180} />
+                  <BlogVisual
+                    title={proposal.title}
+                    excerpt={state.draftText}
+                    readingTime="8 min read"
+                    height={180}
+                  />
                 )}
                 {state.imageMode === "ai" && (
                   <Box
