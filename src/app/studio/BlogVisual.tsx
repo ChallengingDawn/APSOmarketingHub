@@ -19,20 +19,21 @@ interface Props {
 }
 
 const REAL_PHOTOS: Record<string, string> = {
-  "oring-fkm": "1565043666747-69f6646db940",
-  "oring-food": "1556909114-f6e7ad7d3136",
-  "oring-failure": "1504917595217-d4dc5ebe6122",
-  "oring-guide": "1581094794329-c8112a89af12",
-  "peek-aerospace": "1540962351326-c1e7c0e2e1c4",
-  "peek-pomc": "1559028012-481c04fa702d",
-  "pomc": "1565008447742-97f6f38c985c",
+  "oring-fkm": "https://www.kinsoe.com/wp-content/uploads/2025/06/FKM-vs-FFKM-O-Rings-Comparison.webp",
+  "oring-food": "https://www.fst.com/-/media/images/pr/2025/03/fst_epdm335dw_1000x666px.jpg",
+  "oring-failure": "https://www.globaloring.com/wp-content/uploads/2021/05/O-Ring-Failure-Rapid-Gas-Decompression-1-scaled.jpg",
+  "oring-guide": "https://www.gtweed.com/wp-content/uploads/2023/01/fkm-ffkm-header2.webp",
+  "peek-aerospace": "https://www.piedmontplastics.com/img/asset/cGFnZV9idWlsZGVyL3BlZWstcGFydHMtcGllZG1vbnQucG5n/peek-parts-piedmont.png?w=1024&h=511.03396226415&fit=crop&q=85&s=fdd7e0e3761fb80c00ec63d0bb949e4c",
+  "peek-pomc": "https://polyfluoroltd.com/poly-admin/assets/uploads/events/images/0zPM1tqZxWcpsVYy.JPG",
+  "pomc": "https://www.plastique-cauwet.com/wp-content/uploads/elementor/thumbs/POM-C.jpg-rcm67atj5lv168f7jjsubplb6tx4v9liqidhpz2256.webp",
   "pharma": "1576091160550-2173dba999ef",
   "newsletter-q2": "1586528116311-ad8dd3c8310d",
   "maintenance": "1581092335397-9583eb92d232",
 };
 
-function photoUrl(id: string): string {
-  return `https://images.unsplash.com/photo-${id}?w=900&q=80&auto=format&fit=crop`;
+function photoUrl(idOrUrl: string): string {
+  if (idOrUrl.startsWith("http")) return idOrUrl;
+  return `https://images.unsplash.com/photo-${idOrUrl}?w=900&q=80&auto=format&fit=crop`;
 }
 
 export default function BlogVisual({

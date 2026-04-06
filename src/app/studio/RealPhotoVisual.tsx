@@ -18,10 +18,10 @@ interface Props {
 const REAL_PHOTOS: Record<VisualTheme, string> = {
   "oring-fkm": "https://www.kinsoe.com/wp-content/uploads/2025/06/FKM-vs-FFKM-O-Rings-Comparison.webp",
   "oring-food": "https://www.fst.com/-/media/images/pr/2025/03/fst_epdm335dw_1000x666px.jpg",
-  "oring-failure": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQrpd1sBkHybrh25afp7Nuo-h918e8cxq5Vaw&s",
-  "oring-guide": "1581094794329-c8112a89af12",
+  "oring-failure": "https://www.globaloring.com/wp-content/uploads/2021/05/O-Ring-Failure-Rapid-Gas-Decompression-1-scaled.jpg",
+  "oring-guide": "https://www.gtweed.com/wp-content/uploads/2023/01/fkm-ffkm-header2.webp",
   "peek-aerospace": "https://www.piedmontplastics.com/img/asset/cGFnZV9idWlsZGVyL3BlZWstcGFydHMtcGllZG1vbnQucG5n/peek-parts-piedmont.png?w=1024&h=511.03396226415&fit=crop&q=85&s=fdd7e0e3761fb80c00ec63d0bb949e4c",
-  "peek-pomc": "https://www.piedmontplastics.com/img/asset/cGFnZV9idWlsZGVyL3BlZWstcGFydHMtcGllZG1vbnQucG5n/peek-parts-piedmont.png?w=1024&h=511.03396226415&fit=crop&q=85&s=fdd7e0e3761fb80c00ec63d0bb949e4c",
+  "peek-pomc": "https://polyfluoroltd.com/poly-admin/assets/uploads/events/images/0zPM1tqZxWcpsVYy.JPG",
   "pomc": "https://www.plastique-cauwet.com/wp-content/uploads/elementor/thumbs/POM-C.jpg-rcm67atj5lv168f7jjsubplb6tx4v9liqidhpz2256.webp",
   "pharma": "1576091160550-2173dba999ef",
   "newsletter-q2": "1586528116311-ad8dd3c8310d",
