@@ -116,18 +116,20 @@ export default function MissionControl() {
         }
       />
 
-      {/* ── KPI Grid ── */}
-      <Grid container spacing={2} className="stagger-children" sx={{ mb: 4 }}>
+      {/* ── KPI Grid (redesigned: horizontal, with sparkbar) ── */}
+      <Grid container spacing={2} className="stagger-children" sx={{ mb: 3 }}>
         {kpiCards.map((kpi) => {
           const data = kpiData[kpi.key];
           const hasData = data.value !== null;
+          // Mock sparkline bars per card (visual interest only)
+          const bars = [40, 65, 50, 80, 55, 90, 70];
 
           return (
             <Grid key={kpi.key} size={{ xs: 6, sm: 4, md: 3, lg: 1.5 }}>
               <Card
                 component={Link}
                 href={kpi.href}
-                className="hover-lift accent-top"
+                className="hover-lift"
                 sx={{
                   height: "100%",
                   border: "1px solid #ececec",
@@ -137,49 +139,51 @@ export default function MissionControl() {
                   bgcolor: "#ffffff",
                   textDecoration: "none",
                   display: "block",
+                  overflow: "hidden",
+                  borderTop: `3px solid ${kpi.color}`,
                 }}
               >
-                <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
-                  {/* Icon badge */}
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 3,
-                      bgcolor: kpi.bgColor,
-                      color: kpi.color,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      mb: 2,
-                      "& .MuiSvgIcon-root": { fontSize: 22 },
-                    }}
-                  >
-                    {kpi.icon}
+                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1.25 }}>
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 2,
+                        bgcolor: kpi.bgColor,
+                        color: kpi.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        "& .MuiSvgIcon-root": { fontSize: 18 },
+                      }}
+                    >
+                      {kpi.icon}
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontSize: "0.62rem",
+                        color: "#5f6368",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {kpi.label}
+                    </Typography>
                   </Box>
-
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      color: "#5f6368",
-                      fontWeight: 500,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      mb: 0.75,
-                    }}
-                  >
-                    {kpi.label}
-                  </Typography>
 
                   {hasData ? (
                     <Typography
                       sx={{
-                        fontSize: "1.75rem",
-                        fontWeight: 600,
+                        fontSize: "1.85rem",
+                        fontWeight: 700,
                         color: "#1f1f1f",
-                        lineHeight: 1.1,
+                        lineHeight: 1,
                         letterSpacing: "-0.02em",
-                        mb: 0.5,
+                        mb: 0.75,
                       }}
                     >
                       {data.value}
@@ -187,11 +191,11 @@ export default function MissionControl() {
                   ) : (
                     <Typography
                       sx={{
-                        fontSize: "1.75rem",
+                        fontSize: "1.85rem",
                         fontWeight: 400,
                         color: "#dadce0",
-                        lineHeight: 1.1,
-                        mb: 0.5,
+                        lineHeight: 1,
+                        mb: 0.75,
                       }}
                     >
                       —
@@ -200,19 +204,232 @@ export default function MissionControl() {
 
                   <Typography
                     sx={{
-                      fontSize: "0.7rem",
+                      fontSize: "0.65rem",
                       color: "#5f6368",
-                      lineHeight: 1.4,
-                      fontWeight: 400,
+                      lineHeight: 1.3,
+                      fontWeight: 500,
+                      mb: 1,
                     }}
                   >
                     {data.period}
                   </Typography>
+
+                  {/* Mini sparkbar (decorative) */}
+                  <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.4, height: 18 }}>
+                    {bars.map((h, i) => (
+                      <Box
+                        key={i}
+                        sx={{
+                          flex: 1,
+                          height: `${hasData ? h : 20}%`,
+                          bgcolor: hasData ? kpi.color : "#ececec",
+                          opacity: hasData ? 0.35 + (i / bars.length) * 0.65 : 0.5,
+                          borderRadius: 0.5,
+                        }}
+                      />
+                    ))}
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>
           );
         })}
+      </Grid>
+
+      {/* ── New row: Approval Queue + This Week's Schedule ── */}
+      <Grid container spacing={2.5} sx={{ mb: 3 }}>
+        {/* Approval Queue */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card
+            className="animate-fade-in-up hover-lift"
+            sx={{ height: "100%", border: "1px solid #ececec", borderRadius: 4 }}
+          >
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#fbbc04" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    Approval Queue
+                  </Typography>
+                </Box>
+                <Chip
+                  label="9 pending"
+                  size="small"
+                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
+                Drafts waiting for human review
+              </Typography>
+
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {[
+                  { ch: "LinkedIn", chColor: "#0077b5", title: "FKM vs FFKM: choosing your o-ring for chemical resistance", time: "8 min ago" },
+                  { ch: "Newsletter", chColor: "#274e64", title: "Q2 2026 — New FFKM range, expanded PEEK catalog", time: "1h ago" },
+                  { ch: "Blog", chColor: "#ed1b2f", title: "O-Ring Material Selection Guide: FKM, FFKM & Silicone", time: "3h ago" },
+                  { ch: "LinkedIn", chColor: "#0077b5", title: "PEEK in aerospace: the high-performance plastic explained", time: "22 min ago" },
+                ].map((item, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.25,
+                      p: 1.25,
+                      borderRadius: 2,
+                      border: "1px solid #f1f3f4",
+                      transition: "all 0.2s",
+                      "&:hover": { bgcolor: "#fafbfc", borderColor: "#ececec" },
+                    }}
+                  >
+                    <Box sx={{ width: 3, height: 28, borderRadius: 2, bgcolor: item.chColor, flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.title}
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25 }}>
+                        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: item.chColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          {item.ch}
+                        </Typography>
+                        <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: "#dadce0" }} />
+                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+                          {item.time}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Button
+                      component={Link}
+                      href="/studio"
+                      size="small"
+                      sx={{
+                        minWidth: 0,
+                        px: 1.25,
+                        py: 0.4,
+                        borderRadius: 1.5,
+                        fontSize: "0.65rem",
+                        fontWeight: 700,
+                        bgcolor: "#34a853",
+                        color: "#fff",
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "#1e8e3e" },
+                      }}
+                    >
+                      Review
+                    </Button>
+                  </Box>
+                ))}
+              </Box>
+
+              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid #f1f3f4", textAlign: "center" }}>
+                <Button
+                  component={Link}
+                  href="/studio"
+                  endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />}
+                  sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64", textTransform: "none", "&:hover": { bgcolor: "transparent", color: "#1a3a4c" } }}
+                >
+                  View all 9 drafts in Content Studio
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* This Week's Schedule */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card
+            className="animate-fade-in-up hover-lift"
+            sx={{ height: "100%", border: "1px solid #ececec", borderRadius: 4 }}
+          >
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#4285f4" }} />
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+                    This Week's Schedule
+                  </Typography>
+                </Box>
+                <Chip
+                  label="7 items"
+                  size="small"
+                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#e8f0fe", color: "#1a73e8", border: "none" }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
+                Upcoming content scheduled for publication
+              </Typography>
+
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {[
+                  { day: "Tue", date: "07", channel: "Blog", chColor: "#ed1b2f", title: "O-Ring Material Selection Guide", status: "Draft" },
+                  { day: "Wed", date: "08", channel: "LinkedIn", chColor: "#0077b5", title: "New PEEK Machined Components Range", status: "Approved" },
+                  { day: "Fri", date: "10", channel: "Blog", chColor: "#ed1b2f", title: "POM-C Acetal — Applications & Tolerances", status: "Idea" },
+                  { day: "Sat", date: "11", channel: "Newsletter", chColor: "#274e64", title: "O-Rings & Plastics Q2 Update", status: "In Review" },
+                ].map((item, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      p: 1.25,
+                      borderRadius: 2,
+                      border: "1px solid #f1f3f4",
+                      transition: "all 0.2s",
+                      "&:hover": { bgcolor: "#fafbfc", borderColor: "#ececec" },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 1.5,
+                        bgcolor: "#f8f9fa",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        border: "1px solid #ececec",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1 }}>
+                        {item.day}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1 }}>
+                        {item.date}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.title}
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25 }}>
+                        <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: item.chColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          {item.channel}
+                        </Typography>
+                        <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: "#dadce0" }} />
+                        <Typography sx={{ fontSize: "0.62rem", color: "#5f6368", fontWeight: 500 }}>
+                          {item.status}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+
+              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid #f1f3f4", textAlign: "center" }}>
+                <Button
+                  component={Link}
+                  href="/calendar"
+                  endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />}
+                  sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64", textTransform: "none", "&:hover": { bgcolor: "transparent", color: "#1a3a4c" } }}
+                >
+                  Open full editorial calendar
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
       {/* ── Two-column: Pipeline + Activity Feed ── */}
