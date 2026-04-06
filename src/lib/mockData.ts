@@ -175,9 +175,9 @@ export const contentProposals: ContentProposal[] = [
   {
     id: "li-5",
     channel: "LinkedIn",
-    title: "Custom o-rings for food & beverage processing",
+    title: "O-rings for food & beverage processing",
     topic: "food-grade EPDM o-rings",
-    text: "Food and beverage processing demands more than ordinary sealing.\n\n🍽️ FDA-compliant materials\n🍽️ EPDM, silicone & FKM food-grade options\n🍽️ Steam & CIP resistant\n🍽️ Custom sizes & profiles available\n\nAPSOparts supplies certified o-rings to food processing leaders across Europe. Your application — our solution.\n\n#FoodSafety #ORings #EPDM #APSOparts",
+    text: "Food and beverage processing demands more than ordinary sealing.\n\n🍽️ FDA-compliant materials\n🍽️ EPDM, silicone & FKM food-grade options\n🍽️ Steam & CIP resistant\n🍽️ Sizes & profiles available\n\nAPSOparts supplies certified o-rings to food processing leaders across Europe. Your application — our solution.\n\n#FoodSafety #ORings #EPDM #APSOparts",
     reasoning: "Vertical-specific (F&B) targets a high-value industry. Compliance angle resonates with regulated buyers.",
     qualityScore: 86,
     theme: "oring-food",
