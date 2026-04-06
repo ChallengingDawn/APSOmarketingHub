@@ -7,7 +7,6 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Divider from "@mui/material/Divider";
 import Chip from "@mui/material/Chip";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
@@ -21,7 +20,7 @@ import NewspaperIcon from "@mui/icons-material/Newspaper";
 import SettingsIcon from "@mui/icons-material/Settings";
 import Link from "next/link";
 
-const DRAWER_WIDTH = 270;
+const DRAWER_WIDTH = 264;
 
 interface NavSection {
   title: string;
@@ -74,58 +73,47 @@ export default function Sidebar() {
           width: DRAWER_WIDTH,
           boxSizing: "border-box",
           bgcolor: "#ffffff",
-          borderRight: "1px solid",
-          borderColor: "divider",
+          borderRight: "1px solid #ececec",
         },
       }}
     >
-      {/* Brand Header */}
-      <Box sx={{ px: 2.5, py: 2.5, display: "flex", alignItems: "center", gap: 1.5 }}>
-        <Box
+      {/* Brand Header — no logo, just clean text */}
+      <Box sx={{ px: 3, pt: 3, pb: 2.5 }}>
+        <Typography
           sx={{
-            width: 36,
-            height: 36,
-            borderRadius: 2,
-            bgcolor: "secondary.main",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            fontWeight: 600,
+            fontSize: 18,
+            color: "#1f1f1f",
+            lineHeight: 1.2,
+            letterSpacing: "-0.01em",
           }}
         >
-          <Typography sx={{ color: "#fff", fontWeight: 900, fontSize: 14, letterSpacing: 1 }}>AP</Typography>
-        </Box>
-        <Box>
-          <Typography sx={{ fontWeight: 700, fontSize: 14, color: "text.primary", lineHeight: 1.2 }}>
-            APSO Marketing Hub
-          </Typography>
-          <Typography sx={{ fontSize: 11, color: "text.secondary", fontWeight: 500 }}>
-            apsoparts.com
-          </Typography>
-        </Box>
+          APSO Marketing Hub
+        </Typography>
+        <Typography sx={{ fontSize: 12, color: "#5f6368", fontWeight: 400, mt: 0.25 }}>
+          apsoparts.com
+        </Typography>
       </Box>
 
-      <Divider />
-
       {/* Navigation Sections */}
-      <Box sx={{ flex: 1, overflow: "auto", py: 1 }}>
+      <Box sx={{ flex: 1, overflow: "auto", py: 0.5 }}>
         {navSections.map((section) => (
           <Box key={section.title} sx={{ mb: 0.5 }}>
             <Typography
               sx={{
-                px: 2.5,
+                px: 3,
                 pt: 2,
-                pb: 0.5,
+                pb: 0.75,
                 fontSize: 11,
-                fontWeight: 700,
+                fontWeight: 500,
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
-                color: "text.secondary",
-                opacity: 0.6,
+                color: "#5f6368",
               }}
             >
               {section.title}
             </Typography>
-            <List dense sx={{ px: 1.5, py: 0 }}>
+            <List dense disablePadding sx={{ px: 1.5, py: 0 }}>
               {section.items.map((item) => {
                 const active = pathname === item.href;
                 return (
@@ -133,27 +121,37 @@ export default function Sidebar() {
                     key={item.href}
                     component={Link}
                     href={item.href}
-                    selected={active}
+                    disableRipple
                     sx={{
-                      borderRadius: 2,
+                      borderRadius: 999,
                       mb: 0.25,
-                      py: 0.75,
-                      px: 1.5,
-                      "&.Mui-selected": {
-                        bgcolor: "primary.main",
-                        color: "#fff",
-                        "&:hover": { bgcolor: "primary.light" },
-                        "& .MuiListItemIcon-root": { color: "#fff" },
+                      py: 0.85,
+                      px: 2,
+                      minHeight: 40,
+                      bgcolor: active ? "#e8f0f4" : "transparent",
+                      color: active ? "#1a3a4c" : "#3c4043",
+                      "&:hover": {
+                        bgcolor: active ? "#dbe7ed" : "#f1f3f4",
                       },
-                      "&:hover": { bgcolor: "action.hover" },
+                      "& .MuiListItemIcon-root": {
+                        color: active ? "#274e64" : "#5f6368",
+                        minWidth: 32,
+                      },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 32, color: active ? "#fff" : "text.secondary" }}>
-                      {item.icon}
-                    </ListItemIcon>
+                    <ListItemIcon>{item.icon}</ListItemIcon>
                     <ListItemText
                       primary={item.label}
-                      primaryTypographyProps={{ fontSize: 13, fontWeight: active ? 600 : 500 }}
+                      slotProps={{
+                        primary: {
+                          sx: {
+                            fontSize: 14,
+                            fontWeight: active ? 600 : 500,
+                            color: active ? "#1a3a4c" : "#3c4043",
+                            letterSpacing: "-0.005em",
+                          },
+                        },
+                      }}
                     />
                     {item.badge && (
                       <Chip
@@ -163,8 +161,9 @@ export default function Sidebar() {
                           height: 20,
                           fontSize: 10,
                           fontWeight: 700,
-                          bgcolor: active ? "rgba(255,255,255,0.2)" : "secondary.main",
+                          bgcolor: active ? "#274e64" : "#ed1b2f",
                           color: "#fff",
+                          ml: 0.5,
                         }}
                       />
                     )}
@@ -176,14 +175,18 @@ export default function Sidebar() {
         ))}
       </Box>
 
-      {/* Bottom Section */}
-      <Divider />
-      <Box sx={{ p: 2, mx: 1, mb: 1, mt: 1, borderRadius: 2, bgcolor: "#f8f9fb" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "success.main" }} className="animate-pulse-dot" />
-          <Typography sx={{ fontSize: 12, fontWeight: 600, color: "text.primary" }}>Pipeline Active</Typography>
+      {/* Bottom Status */}
+      <Box sx={{ px: 3, py: 2.5, borderTop: "1px solid #ececec" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+          <Box
+            sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#34a853" }}
+            className="animate-pulse-dot"
+          />
+          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "#1f1f1f" }}>
+            Pipeline Active
+          </Typography>
         </Box>
-        <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
+        <Typography sx={{ fontSize: 11, color: "#5f6368" }}>
           Draft-only mode enabled
         </Typography>
       </Box>

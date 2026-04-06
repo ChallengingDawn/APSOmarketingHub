@@ -40,38 +40,38 @@ import MoreHorizOutlined from "@mui/icons-material/MoreHorizOutlined";
 const mockPosts = [
   {
     id: 1,
-    title: "PTFE vs FKM: Choosing the right sealing material for...",
+    title: "O-Ring Material Selection: FKM vs FFKM vs Silicone — when to use which",
     date: "2026-04-02",
-    status: "Published",
-    engagement: "47 reactions",
+    status: "Draft",
+    engagement: "—",
   },
   {
     id: 2,
-    title: "APSOparts at Hannover Messe 2026 — Visit us at...",
+    title: "PEEK Machined Components — new product range launch",
     date: "2026-04-05",
-    status: "Scheduled",
+    status: "Draft",
     engagement: "—",
   },
   {
     id: 3,
-    title: "New EPDM o-ring range for food & beverage industry...",
+    title: "POM-C Acetal Copolymer: precision parts in food processing",
     date: "2026-04-08",
     status: "Draft",
     engagement: "—",
   },
   {
     id: 4,
-    title: "How predictive maintenance reduces sealing failures by...",
+    title: "PEEK vs POM-C — engineering plastics comparison",
     date: "2026-03-28",
-    status: "Published",
-    engagement: "92 reactions",
+    status: "Draft",
+    engagement: "—",
   },
   {
     id: 5,
-    title: "Sustainability in engineered plastics: Our roadmap for...",
+    title: "FFKM o-rings for chemical-resistant sealing applications",
     date: "2026-03-20",
-    status: "Published",
-    engagement: "63 reactions",
+    status: "Draft",
+    engagement: "—",
   },
 ];
 
@@ -313,7 +313,7 @@ export default function LinkedInPage() {
                       whiteSpace: "pre-line",
                     }}
                   >
-                    {`Choosing between PTFE and FKM for critical sealing applications? Here's what our engineers recommend:\n\n\u2705 PTFE: Superior chemical resistance, wide temperature range (-200\u00b0C to +260\u00b0C), excellent for aggressive media\n\u2705 FKM: Outstanding heat resistance, excellent compression set, ideal for dynamic seals\n\nThe right choice depends on your specific operating conditions \u2014 pressure, temperature, media compatibility, and service life requirements.\n\nOur application engineers are ready to help you select the optimal material for your sealing challenge.\n\n#Sealing #Engineering #PTFE #FKM #APSOparts`}
+                    {`Choosing the right o-ring material for your application? Here's what our engineers recommend:\n\n\u2705 FKM: Excellent heat & chemical resistance up to +200\u00b0C — ideal for fuel, oil & dynamic seals\n\u2705 FFKM: The ultimate chemical resistance — for the most aggressive media and high temperatures up to +325\u00b0C\n\u2705 Silicone: Best low-temperature flexibility (-60\u00b0C) and food-grade compliance\n\nThe right choice depends on temperature, media, pressure, and service life requirements.\n\nOur application engineers help you select the optimal o-ring for your sealing challenge.\n\n#ORings #Sealing #Engineering #FKM #FFKM #APSOparts`}
                   </Typography>
                 </Box>
 
