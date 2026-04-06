@@ -216,30 +216,41 @@
   font-weight: 800;
   font-stretch: 125%;
   letter-spacing: -0.02em;
-  background: linear-gradient(
-    100deg,
-    #274e64 0%,
-    #274e64 20%,
-    #ed1b2f 50%,
-    #274e64 80%,
-    #274e64 100%
-  );
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: apsoShine 4.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  display: inline-block;
+  display: inline-flex;
+  color: #274e64;
 }
 
-@keyframes apsoShine {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+.brand-apso .letter {
+  display: inline-block;
+  color: #274e64;
+  transition: color 0.15s ease;
+}
+
+/* Sequence: all blue → A red → P red → S red → O red → hold all red → reset to blue */
+.brand-apso .letter-a { animation: letterA 6s ease infinite; }
+.brand-apso .letter-p { animation: letterP 6s ease infinite; }
+.brand-apso .letter-s { animation: letterS 6s ease infinite; }
+.brand-apso .letter-o { animation: letterO 6s ease infinite; }
+
+@keyframes letterA {
+  0%, 8%      { color: #274e64; }
+  10%, 88%    { color: #ed1b2f; }
+  92%, 100%   { color: #274e64; }
+}
+@keyframes letterP {
+  0%, 23%     { color: #274e64; }
+  25%, 88%    { color: #ed1b2f; }
+  92%, 100%   { color: #274e64; }
+}
+@keyframes letterS {
+  0%, 38%     { color: #274e64; }
+  40%, 88%    { color: #ed1b2f; }
+  92%, 100%   { color: #274e64; }
+}
+@keyframes letterO {
+  0%, 53%     { color: #274e64; }
+  55%, 88%    { color: #ed1b2f; }
+  92%, 100%   { color: #274e64; }
 }
 
 /* ──────────────────────────────────────────

@@ -105,7 +105,10 @@ export default function Sidebar() {
             className="brand-display brand-apso"
             sx={{ fontSize: 20 }}
           >
-            APSO
+            <span className="letter letter-a">A</span>
+            <span className="letter letter-p">P</span>
+            <span className="letter letter-s">S</span>
+            <span className="letter letter-o">O</span>
           </Box>
           <Box
             component="span"
