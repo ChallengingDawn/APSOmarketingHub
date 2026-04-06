@@ -32,6 +32,7 @@ import TextFieldsIcon from "@mui/icons-material/TextFields";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ShieldIcon from "@mui/icons-material/Shield";
 import PageHeader from "@/app/PageHeader";
+import ProposalVisual from "./ProposalVisual";
 
 import { contentProposals, type ContentChannel, type ContentProposal } from "@/lib/mockData";
 
@@ -58,12 +59,6 @@ interface ProposalState {
   imageMode: ImageMode;
   editing: boolean;
   draftText: string;
-}
-
-/* ── Helpers ── */
-
-function imageUrl(seed: string): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/600/400`;
 }
 
 /* ── Page ── */
@@ -262,168 +257,98 @@ export default function ContentStudioPage() {
 
                 <Divider sx={{ borderColor: "#f1f3f4" }} />
 
-                {/* Card body — content + images */}
+                {/* Card body — compact horizontal layout: image left, content right */}
                 <Box sx={{ p: 3 }}>
-                  {/* Text content */}
-                  {state.editing ? (
-                    <TextField
-                      multiline
-                      fullWidth
-                      minRows={4}
-                      value={state.draftText}
-                      onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
-                      sx={{ mb: 2.5 }}
-                    />
-                  ) : (
-                    <Typography
-                      sx={{
-                        fontSize: "0.9rem",
-                        lineHeight: 1.65,
-                        color: "#3c4043",
-                        whiteSpace: "pre-line",
-                        mb: 2.5,
-                      }}
-                    >
-                      {state.draftText}
-                    </Typography>
-                  )}
+                  <Grid container spacing={3}>
+                    {/* Left: Single themed visual (matches the post topic) */}
+                    {state.imageMode !== "text" && (
+                      <Grid size={{ xs: 12, md: 4 }}>
+                        <Box sx={{ position: "sticky", top: 0 }}>
+                          <ProposalVisual
+                            theme={proposal.theme}
+                            mode={state.imageMode === "ai" ? "ai" : "stock"}
+                          />
+                        </Box>
+                      </Grid>
+                    )}
 
-                  {/* Image mode selector */}
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1.5 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Visuals
-                      </Typography>
-                    </Box>
-                    <ToggleButtonGroup
-                      value={state.imageMode}
-                      exclusive
-                      size="small"
-                      onChange={(_, val: ImageMode | null) => val && updateState(proposal.id, { imageMode: val })}
-                      sx={{
-                        "& .MuiToggleButton-root": {
-                          textTransform: "none",
-                          fontSize: "0.75rem",
-                          fontWeight: 500,
-                          px: 1.75,
-                          py: 0.5,
-                          color: "#5f6368",
-                          border: "1px solid #ececec",
-                          "&.Mui-selected": {
-                            bgcolor: "#274e64",
-                            color: "#fff",
-                            borderColor: "#274e64",
-                            "&:hover": { bgcolor: "#1a3a4c" },
+                    {/* Right: Text content */}
+                    <Grid size={{ xs: 12, md: state.imageMode === "text" ? 12 : 8 }}>
+                      {state.editing ? (
+                        <TextField
+                          multiline
+                          fullWidth
+                          minRows={5}
+                          value={state.draftText}
+                          onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
+                          sx={{ mb: 2 }}
+                        />
+                      ) : (
+                        <Typography
+                          sx={{
+                            fontSize: "0.9rem",
+                            lineHeight: 1.65,
+                            color: "#3c4043",
+                            whiteSpace: "pre-line",
+                            mb: 2,
+                          }}
+                        >
+                          {state.draftText}
+                        </Typography>
+                      )}
+
+                      {/* Visual mode toggle */}
+                      <ToggleButtonGroup
+                        value={state.imageMode}
+                        exclusive
+                        size="small"
+                        onChange={(_, val: ImageMode | null) => val && updateState(proposal.id, { imageMode: val })}
+                        sx={{
+                          mb: 2,
+                          "& .MuiToggleButton-root": {
+                            textTransform: "none",
+                            fontSize: "0.7rem",
+                            fontWeight: 500,
+                            px: 1.5,
+                            py: 0.4,
+                            color: "#5f6368",
+                            border: "1px solid #ececec",
+                            "&.Mui-selected": {
+                              bgcolor: "#274e64",
+                              color: "#fff",
+                              borderColor: "#274e64",
+                              "&:hover": { bgcolor: "#1a3a4c" },
+                            },
                           },
-                        },
-                      }}
-                    >
-                      <ToggleButton value="stock">
-                        <ImageIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                        Free Stock
-                      </ToggleButton>
-                      <ToggleButton value="ai">
-                        <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                        AI Generated
-                      </ToggleButton>
-                      <ToggleButton value="text">
-                        <TextFieldsIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                        Text Only
-                      </ToggleButton>
-                    </ToggleButtonGroup>
-                  </Box>
-
-                  {/* Image gallery */}
-                  {state.imageMode === "stock" && (
-                    <Grid container spacing={1.5} sx={{ mb: 2 }}>
-                      {proposal.imageSeeds.map((seed, idx) => (
-                        <Grid key={seed} size={{ xs: 12, sm: 4 }}>
-                          <Box
-                            sx={{
-                              position: "relative",
-                              width: "100%",
-                              aspectRatio: "3 / 2",
-                              borderRadius: 2,
-                              overflow: "hidden",
-                              border: "1px solid #ececec",
-                              bgcolor: "#f8f9fa",
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={imageUrl(seed)}
-                              alt={`${proposal.topic} ${idx + 1}`}
-                              loading="lazy"
-                              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                            />
-                            <Chip
-                              label="FREE STOCK"
-                              size="small"
-                              sx={{
-                                position: "absolute",
-                                top: 8,
-                                left: 8,
-                                height: 18,
-                                fontSize: "0.6rem",
-                                fontWeight: 700,
-                                bgcolor: "rgba(0,0,0,0.7)",
-                                color: "#fff",
-                                backdropFilter: "blur(4px)",
-                              }}
-                            />
-                          </Box>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  )}
-
-                  {state.imageMode === "ai" && (
-                    <Box
-                      sx={{
-                        p: 4,
-                        mb: 2,
-                        textAlign: "center",
-                        borderRadius: 2,
-                        border: "2px dashed #ececec",
-                        bgcolor: "#fafbfc",
-                      }}
-                    >
-                      <AutoAwesomeIcon sx={{ fontSize: 36, color: "#ed1b2f", mb: 1 }} />
-                      <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#1f1f1f", mb: 0.5 }}>
-                        AI Image Generation
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mb: 2 }}>
-                        Generate a custom image based on the content theme
-                      </Typography>
-                      <Button
-                        variant="contained"
-                        startIcon={<AutoAwesomeIcon />}
-                        sx={{ bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" } }}
+                        }}
                       >
-                        Generate Image
-                      </Button>
-                    </Box>
-                  )}
+                        <ToggleButton value="stock">
+                          <ImageIcon sx={{ fontSize: 13, mr: 0.5 }} />
+                          Free Stock
+                        </ToggleButton>
+                        <ToggleButton value="ai">
+                          <AutoAwesomeIcon sx={{ fontSize: 13, mr: 0.5 }} />
+                          AI Generated
+                        </ToggleButton>
+                        <ToggleButton value="text">
+                          <TextFieldsIcon sx={{ fontSize: 13, mr: 0.5 }} />
+                          Text Only
+                        </ToggleButton>
+                      </ToggleButtonGroup>
 
-                  {state.imageMode === "text" && (
-                    <Alert
-                      severity="info"
-                      icon={<TextFieldsIcon />}
-                      sx={{ mb: 2, bgcolor: "#f8f9fa", border: "1px solid #ececec", color: "#5f6368" }}
-                    >
-                      Will be published as text only — no images attached.
-                    </Alert>
-                  )}
+                      {/* Reasoning */}
+                      <Box sx={{ p: 1.75, bgcolor: "#f8f9fa", borderRadius: 2, mb: 0 }}>
+                        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
+                          AI Reasoning
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.78rem", color: "#3c4043", lineHeight: 1.5 }}>
+                          {proposal.reasoning}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
 
-                  {/* Reasoning */}
-                  <Box sx={{ p: 2, bgcolor: "#f8f9fa", borderRadius: 2, mb: 2.5 }}>
-                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
-                      AI Reasoning
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.8rem", color: "#3c4043", lineHeight: 1.5 }}>
-                      {proposal.reasoning}
-                    </Typography>
-                  </Box>
+                  <Box sx={{ mt: 2.5 }} />
 
                   {/* Actions */}
                   <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
