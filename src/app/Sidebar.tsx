@@ -194,7 +194,15 @@ export default function Sidebar() {
                       },
                     }}
                   >
-                    <ListItemIcon>{item.icon}</ListItemIcon>
+                    <ListItemIcon>
+                      <Box
+                        component="span"
+                        className={active ? "nav-icon-active" : undefined}
+                        sx={{ display: "inline-flex", alignItems: "center" }}
+                      >
+                        {item.icon}
+                      </Box>
+                    </ListItemIcon>
                     <ListItemText
                       primary={item.label}
                       slotProps={{
