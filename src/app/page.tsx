@@ -79,6 +79,13 @@ const kpiCards: KpiCardConfig[] = [
   { label: "Planned Items", key: "pipelineItems", icon: <PendingActionsIcon />, color: "#9334e6", bgColor: "#f3e8fd" },
 ];
 
+const PREVIEW_VALUES: Record<string, { value: string; period: string }> = {
+  organicTraffic: { value: "12.4k", period: "sessions / month" },
+  keywordRankings: { value: "184", period: "keywords tracked" },
+  avgPosition: { value: "14.2", period: "avg. SERP position" },
+  clickThroughRate: { value: "3.8%", period: "click-through rate" },
+};
+
 /* ── page ── */
 
 export default function MissionControl() {
@@ -165,42 +172,72 @@ export default function MissionControl() {
                   </Typography>
 
                   {hasData ? (
-                    <Typography
-                      sx={{
-                        fontSize: "1.75rem",
-                        fontWeight: 600,
-                        color: "#1f1f1f",
-                        lineHeight: 1.1,
-                        letterSpacing: "-0.02em",
-                        mb: 0.5,
-                      }}
-                    >
-                      {data.value}
-                    </Typography>
+                    <>
+                      <Typography
+                        sx={{
+                          fontSize: "1.75rem",
+                          fontWeight: 600,
+                          color: "#1f1f1f",
+                          lineHeight: 1.1,
+                          letterSpacing: "-0.02em",
+                          mb: 0.5,
+                        }}
+                      >
+                        {data.value}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.7rem",
+                          color: "#5f6368",
+                          lineHeight: 1.4,
+                          fontWeight: 400,
+                        }}
+                      >
+                        {data.period}
+                      </Typography>
+                    </>
                   ) : (
-                    <Typography
-                      sx={{
-                        fontSize: "1.75rem",
-                        fontWeight: 400,
-                        color: "#dadce0",
-                        lineHeight: 1.1,
-                        mb: 0.5,
-                      }}
-                    >
-                      —
-                    </Typography>
+                    <>
+                      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, mb: 0.25 }}>
+                        <Typography
+                          sx={{
+                            fontSize: "1.75rem",
+                            fontWeight: 600,
+                            color: "#c4c7c5",
+                            lineHeight: 1.1,
+                            letterSpacing: "-0.02em",
+                          }}
+                        >
+                          {PREVIEW_VALUES[kpi.key]?.value ?? "—"}
+                        </Typography>
+                        <Chip
+                          label="NICE TO HAVE"
+                          size="small"
+                          sx={{
+                            height: 16,
+                            fontSize: "0.55rem",
+                            fontWeight: 700,
+                            letterSpacing: "0.05em",
+                            bgcolor: "#fef7e0",
+                            color: "#b06000",
+                            border: "none",
+                            "& .MuiChip-label": { px: 0.75 },
+                          }}
+                        />
+                      </Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.68rem",
+                          color: "#9aa0a6",
+                          lineHeight: 1.4,
+                          fontWeight: 500,
+                          fontStyle: "italic",
+                        }}
+                      >
+                        {PREVIEW_VALUES[kpi.key]?.period ?? data.period} · sample
+                      </Typography>
+                    </>
                   )}
-
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      color: "#5f6368",
-                      lineHeight: 1.4,
-                      fontWeight: 400,
-                    }}
-                  >
-                    {data.period}
-                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
