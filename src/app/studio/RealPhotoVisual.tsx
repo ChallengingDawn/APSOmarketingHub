@@ -14,19 +14,18 @@ interface Props {
   height?: number | string;
 }
 
-// Curated Unsplash photo IDs — industrial, rubber, sealing, plastics, manufacturing.
-// IDs verified to exist on images.unsplash.com.
+// Per-theme image source. Can be either a full URL or an Unsplash photo ID.
 const REAL_PHOTOS: Record<VisualTheme, string> = {
-  "oring-fkm": "1565043666747-69f6646db940",       // rubber gaskets / black rings
-  "oring-food": "1556909114-f6e7ad7d3136",         // food processing line
-  "oring-failure": "1504917595217-d4dc5ebe6122",   // worn mechanical parts
-  "oring-guide": "1581094794329-c8112a89af12",     // industrial parts close-up
-  "peek-aerospace": "1540962351326-c1e7c0e2e1c4",  // jet engine
-  "peek-pomc": "1559028012-481c04fa702d",          // plastic rods / extrusion
-  "pomc": "1565008447742-97f6f38c985c",            // CNC machining
-  "pharma": "1576091160550-2173dba999ef",          // laboratory
-  "newsletter-q2": "1586528116311-ad8dd3c8310d",   // warehouse parts
-  "maintenance": "1581092335397-9583eb92d232",     // tools / maintenance
+  "oring-fkm": "https://www.kinsoe.com/wp-content/uploads/2025/06/FKM-vs-FFKM-O-Rings-Comparison.webp",
+  "oring-food": "https://www.fst.com/-/media/images/pr/2025/03/fst_epdm335dw_1000x666px.jpg",
+  "oring-failure": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQrpd1sBkHybrh25afp7Nuo-h918e8cxq5Vaw&s",
+  "oring-guide": "1581094794329-c8112a89af12",
+  "peek-aerospace": "https://www.piedmontplastics.com/img/asset/cGFnZV9idWlsZGVyL3BlZWstcGFydHMtcGllZG1vbnQucG5n/peek-parts-piedmont.png?w=1024&h=511.03396226415&fit=crop&q=85&s=fdd7e0e3761fb80c00ec63d0bb949e4c",
+  "peek-pomc": "https://www.piedmontplastics.com/img/asset/cGFnZV9idWlsZGVyL3BlZWstcGFydHMtcGllZG1vbnQucG5n/peek-parts-piedmont.png?w=1024&h=511.03396226415&fit=crop&q=85&s=fdd7e0e3761fb80c00ec63d0bb949e4c",
+  "pomc": "https://www.plastique-cauwet.com/wp-content/uploads/elementor/thumbs/POM-C.jpg-rcm67atj5lv168f7jjsubplb6tx4v9liqidhpz2256.webp",
+  "pharma": "1576091160550-2173dba999ef",
+  "newsletter-q2": "1586528116311-ad8dd3c8310d",
+  "maintenance": "1581092335397-9583eb92d232",
 };
 
 const THEME_LABEL: Record<VisualTheme, string> = {
@@ -42,8 +41,9 @@ const THEME_LABEL: Record<VisualTheme, string> = {
   "maintenance": "MAINTENANCE",
 };
 
-function photoUrl(id: string): string {
-  return `https://images.unsplash.com/photo-${id}?w=800&q=80&auto=format&fit=crop`;
+function photoUrl(idOrUrl: string): string {
+  if (idOrUrl.startsWith("http")) return idOrUrl;
+  return `https://images.unsplash.com/photo-${idOrUrl}?w=800&q=80&auto=format&fit=crop`;
 }
 
 export default function RealPhotoVisual({ theme, height = 180 }: Props) {
@@ -93,7 +93,7 @@ export default function RealPhotoVisual({ theme, height = 180 }: Props) {
         }}
       >
         <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#fff", letterSpacing: "0.05em" }}>
-          UNSPLASH
+          PHOTO
         </Typography>
       </Box>
 
