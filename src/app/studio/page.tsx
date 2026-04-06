@@ -36,7 +36,8 @@ import ShieldIcon from "@mui/icons-material/Shield";
 import LightbulbIcon from "@mui/icons-material/Lightbulb";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PageHeader from "@/app/PageHeader";
-import ProposalVisual from "./ProposalVisual";
+import RealPhotoVisual from "./RealPhotoVisual";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
 
 import { contentProposals, type ContentChannel, type ContentProposal } from "@/lib/mockData";
 
@@ -100,6 +101,8 @@ export default function ContentStudioPage() {
   const [scheduleDialogId, setScheduleDialogId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string>(defaultDate(1));
   const [scheduleTime, setScheduleTime] = useState<string>("09:00");
+  const [regenerateDialogId, setRegenerateDialogId] = useState<string | null>(null);
+  const [regeneratePrompt, setRegeneratePrompt] = useState<string>("");
 
   // Per-proposal state
   const [states, setStates] = useState<Record<string, ProposalState>>(() => {
@@ -148,6 +151,23 @@ export default function ContentStudioPage() {
     updateState(scheduleDialogId, { status: "scheduled", scheduledDate: dt });
     setSnack(`Scheduled for ${dt}: ${proposal?.title ?? ""}`);
     setScheduleDialogId(null);
+  };
+
+  const openRegenerate = (id: string) => {
+    setRegeneratePrompt("");
+    setRegenerateDialogId(id);
+  };
+
+  const confirmRegenerate = () => {
+    if (!regenerateDialogId) return;
+    const proposal = contentProposals.find((p) => p.id === regenerateDialogId);
+    // Mock regeneration: prepend the user prompt as a marker
+    const prefix = regeneratePrompt.trim()
+      ? `[Regenerated based on: "${regeneratePrompt.trim()}"]\n\n`
+      : "[Regenerated]\n\n";
+    updateState(regenerateDialogId, { draftText: prefix + (proposal?.text ?? "") });
+    setSnack(`Regenerating: ${proposal?.title ?? ""}`);
+    setRegenerateDialogId(null);
   };
 
   return (
@@ -253,15 +273,44 @@ export default function ContentStudioPage() {
                 }}
               >
                 {/* ── Visual ── */}
-                {state.imageMode !== "text" ? (
-                  <Box sx={{ p: 0 }}>
-                    <ProposalVisual
-                      theme={proposal.theme}
-                      mode={state.imageMode === "ai" ? "ai" : "stock"}
-                      height={180}
-                    />
+                {state.imageMode === "stock" && (
+                  <RealPhotoVisual theme={proposal.theme} height={180} />
+                )}
+                {state.imageMode === "ai" && (
+                  <Box
+                    sx={{
+                      height: 180,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "#fafbfc",
+                      borderBottom: "1px solid #ececec",
+                      gap: 0.75,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "50%",
+                        bgcolor: "#fdebed",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <AutoAwesomeIcon sx={{ color: "#ed1b2f", fontSize: 22 }} />
+                    </Box>
+                    <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f" }}>
+                      AI image
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.68rem", color: "#5f6368" }}>
+                      Coming soon
+                    </Typography>
                   </Box>
-                ) : (
+                )}
+                {state.imageMode === "text" && (
                   <Box
                     sx={{
                       height: 60,
@@ -465,50 +514,74 @@ export default function ContentStudioPage() {
                     </Collapse>
                   </Box>
 
-                  {/* ── Unified action buttons ── */}
-                  <Box sx={{ mt: "auto", display: "flex", gap: 0.75 }}>
-                    <Button
-                      onClick={() => handleReject(proposal)}
-                      disabled={isRejected || isScheduled}
-                      startIcon={<CloseIcon sx={{ fontSize: 14 }} />}
-                      sx={{
-                        ...ACTION_BTN_SX,
-                        bgcolor: "#fff",
-                        borderColor: "#ea433533",
-                        color: "#ea4335",
-                        "&:hover": {
-                          bgcolor: "#fce8e6",
-                          borderColor: "#ea4335",
-                          boxShadow: "none",
-                        },
-                      }}
-                    >
-                      Reject
-                    </Button>
-                    <Button
-                      onClick={() => toggleEdit(proposal)}
-                      disabled={isRejected || isScheduled}
-                      startIcon={<EditIcon sx={{ fontSize: 14 }} />}
-                      sx={{
-                        ...ACTION_BTN_SX,
-                        bgcolor: "#fff",
-                        borderColor: "#ececec",
-                        color: "#3c4043",
-                        "&:hover": {
-                          bgcolor: "#f1f3f4",
-                          borderColor: "#dadce0",
-                          boxShadow: "none",
-                        },
-                      }}
-                    >
-                      {state.editing ? "Done" : "Edit"}
-                    </Button>
+                  {/* ── Unified action buttons (2 rows, 4 actions) ── */}
+                  <Box sx={{ mt: "auto", display: "flex", flexDirection: "column", gap: 0.75 }}>
+                    {/* Row 1: secondary actions */}
+                    <Box sx={{ display: "flex", gap: 0.75 }}>
+                      <Button
+                        onClick={() => handleReject(proposal)}
+                        disabled={isRejected || isScheduled}
+                        startIcon={<CloseIcon sx={{ fontSize: 14 }} />}
+                        sx={{
+                          ...ACTION_BTN_SX,
+                          bgcolor: "#fff",
+                          borderColor: "#ea433533",
+                          color: "#ea4335",
+                          "&:hover": {
+                            bgcolor: "#fce8e6",
+                            borderColor: "#ea4335",
+                            boxShadow: "none",
+                          },
+                        }}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        onClick={() => toggleEdit(proposal)}
+                        disabled={isRejected || isScheduled}
+                        startIcon={<EditIcon sx={{ fontSize: 14 }} />}
+                        sx={{
+                          ...ACTION_BTN_SX,
+                          bgcolor: "#fff",
+                          borderColor: "#ececec",
+                          color: "#3c4043",
+                          "&:hover": {
+                            bgcolor: "#f1f3f4",
+                            borderColor: "#dadce0",
+                            boxShadow: "none",
+                          },
+                        }}
+                      >
+                        {state.editing ? "Done" : "Edit"}
+                      </Button>
+                      <Button
+                        onClick={() => openRegenerate(proposal.id)}
+                        disabled={isRejected || isScheduled}
+                        startIcon={<AutorenewIcon sx={{ fontSize: 14 }} />}
+                        sx={{
+                          ...ACTION_BTN_SX,
+                          bgcolor: "#fff",
+                          borderColor: "#274e6433",
+                          color: "#274e64",
+                          "&:hover": {
+                            bgcolor: "#e8f0f4",
+                            borderColor: "#274e64",
+                            boxShadow: "none",
+                          },
+                        }}
+                      >
+                        Regenerate
+                      </Button>
+                    </Box>
+                    {/* Row 2: primary approval */}
                     <Button
                       onClick={() => openSchedule(proposal.id)}
                       disabled={isRejected || isScheduled}
                       startIcon={<ScheduleIcon sx={{ fontSize: 14 }} />}
                       sx={{
                         ...ACTION_BTN_SX,
+                        flex: "unset",
+                        width: "100%",
                         bgcolor: "#34a853",
                         borderColor: "#34a853",
                         color: "#fff",
@@ -524,7 +597,7 @@ export default function ContentStudioPage() {
                         },
                       }}
                     >
-                      Approve
+                      Approve & Schedule
                     </Button>
                   </Box>
                 </CardContent>
@@ -734,6 +807,138 @@ export default function ContentStudioPage() {
             }}
           >
             Approve & Schedule
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Regenerate Dialog ── */}
+      <Dialog
+        open={!!regenerateDialogId}
+        onClose={() => setRegenerateDialogId(null)}
+        PaperProps={{ sx: { borderRadius: 4, minWidth: 440 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                bgcolor: "#e8f0f4",
+                color: "#274e64",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <AutorenewIcon />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontFamily: "'Outfit', 'Inter', sans-serif",
+                  fontSize: "1.15rem",
+                  fontWeight: 500,
+                  color: "#1f1f1f",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Regenerate Content
+              </Typography>
+              <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
+                Describe what you'd like to change
+              </Typography>
+            </Box>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2.5 }}>
+          {regenerateDialogId && (
+            <Box sx={{ mb: 2 }}>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
+                Post
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  color: "#1f1f1f",
+                  lineHeight: 1.4,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {contentProposals.find((p) => p.id === regenerateDialogId)?.title}
+              </Typography>
+            </Box>
+          )}
+          <TextField
+            autoFocus
+            multiline
+            minRows={4}
+            fullWidth
+            placeholder="e.g. Make it shorter and more casual. Add a statistic about downtime costs. Target procurement buyers instead of engineers."
+            value={regeneratePrompt}
+            onChange={(e) => setRegeneratePrompt(e.target.value)}
+            sx={{
+              "& .MuiInputBase-input": { fontSize: "0.85rem", lineHeight: 1.5 },
+            }}
+          />
+          <Box sx={{ display: "flex", gap: 0.75, mt: 2, flexWrap: "wrap" }}>
+            {[
+              "Make it shorter",
+              "More technical",
+              "Add a statistic",
+              "Stronger CTA",
+              "Different hook",
+            ].map((preset) => (
+              <Chip
+                key={preset}
+                label={preset}
+                size="small"
+                onClick={() =>
+                  setRegeneratePrompt((prev) => (prev ? `${prev}. ${preset}` : preset))
+                }
+                sx={{
+                  cursor: "pointer",
+                  bgcolor: "#f1f3f4",
+                  color: "#3c4043",
+                  fontWeight: 500,
+                  "&:hover": { bgcolor: "#e8f0f4", color: "#274e64" },
+                }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1.5, gap: 1 }}>
+          <Button
+            onClick={() => setRegenerateDialogId(null)}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 600,
+              color: "#5f6368",
+              "&:hover": { bgcolor: "#f1f3f4" },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmRegenerate}
+            variant="contained"
+            startIcon={<AutorenewIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 600,
+              bgcolor: "#274e64",
+              boxShadow: "none",
+              "&:hover": { bgcolor: "#1a3a4c", boxShadow: "none" },
+            }}
+          >
+            Regenerate
           </Button>
         </DialogActions>
       </Dialog>
