@@ -97,14 +97,11 @@ export default function Sidebar() {
           zIndex: 1,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, whiteSpace: "nowrap" }}>
           <Box
             component="span"
-            className="brand-display"
-            sx={{
-              fontSize: 22,
-              color: "#1f1f1f",
-            }}
+            className="brand-display brand-apso"
+            sx={{ fontSize: 20 }}
           >
             APSO
           </Box>
@@ -112,21 +109,23 @@ export default function Sidebar() {
             component="span"
             className="brand-display"
             sx={{
-              fontSize: 18,
+              fontSize: 16,
               color: "#3c4043",
               fontWeight: 500,
             }}
           >
             Marketing
           </Box>
-          <Box component="span" className="brand-hub-wrap">
-            <Box
-              component="span"
-              className="brand-hub"
-              sx={{ fontSize: 22 }}
-            >
-              Hub
-            </Box>
+          <Box
+            component="span"
+            className="brand-display"
+            sx={{
+              fontSize: 20,
+              color: "#ed1b2f",
+              fontWeight: 800,
+            }}
+          >
+            Hub
           </Box>
         </Box>
         <Typography

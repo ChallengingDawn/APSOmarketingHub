@@ -212,46 +212,34 @@
   line-height: 1.05;
 }
 
-.brand-hub {
-  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+.brand-apso {
   font-weight: 800;
   font-stretch: 125%;
   letter-spacing: -0.02em;
   background: linear-gradient(
     100deg,
-    #ed1b2f 0%,
-    #ed1b2f 25%,
-    #f97a3d 40%,
-    #274e64 60%,
-    #274e64 100%
+    #1f1f1f 0%,
+    #1f1f1f 30%,
+    #ed1b2f 50%,
+    #1f1f1f 70%,
+    #1f1f1f 100%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  animation: hubShine 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: apsoShine 4.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   display: inline-block;
 }
 
-@keyframes hubShine {
+@keyframes apsoShine {
   0%, 100% {
     background-position: 0% 50%;
   }
   50% {
     background-position: 100% 50%;
   }
-}
-
-/* "Hub" subtle scale pulse */
-.brand-hub-wrap {
-  display: inline-block;
-  animation: hubPulse 4s ease-in-out infinite;
-}
-
-@keyframes hubPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
 }
 
 /* ──────────────────────────────────────────
