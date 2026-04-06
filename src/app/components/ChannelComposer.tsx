@@ -202,8 +202,8 @@ export default function ChannelComposer({ config }: Props) {
               <Box sx={{ border: "1px solid #ececec", borderRadius: 3, overflow: "hidden", bgcolor: "#fff" }}>
                 {/* Header strip */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 2, borderBottom: "1px solid #f1f3f4" }}>
-                  <Avatar sx={{ width: 40, height: 40, bgcolor: "#ed1b2f", color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>
-                    AP
+                  <Avatar sx={{ width: 44, height: 44, bgcolor: "#ed1b2f", color: "#fff", fontSize: "0.75rem", fontWeight: 800, letterSpacing: "0.02em" }}>
+                    APSO
                   </Avatar>
                   <Box sx={{ flex: 1 }}>
                     <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: "#1f1f1f" }}>
