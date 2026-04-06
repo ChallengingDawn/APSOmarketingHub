@@ -1,38 +1,49 @@
 "use client";
-import PageHeader from "@/app/PageHeader";
 
-import { useState } from "react";
-import Typography from "@mui/material/Typography";
+import { useState, useMemo } from "react";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
-import Chip from "@mui/material/Chip";
+import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Chip from "@mui/material/Chip";
+import Alert from "@mui/material/Alert";
 import Stepper from "@mui/material/Stepper";
 import Step from "@mui/material/Step";
 import StepLabel from "@mui/material/StepLabel";
-import LinearProgress from "@mui/material/LinearProgress";
-import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
-import Alert from "@mui/material/Alert";
-import IconButton from "@mui/material/IconButton";
-import Collapse from "@mui/material/Collapse";
-import Grid from "@mui/material/Grid";
-import CheckCircle from "@mui/icons-material/CheckCircle";
-import Cancel from "@mui/icons-material/Cancel";
-import AutoAwesome from "@mui/icons-material/AutoAwesome";
-import Edit from "@mui/icons-material/Edit";
-import Shield from "@mui/icons-material/Shield";
-import Schedule from "@mui/icons-material/Schedule";
-import ThumbUp from "@mui/icons-material/ThumbUp";
-import ThumbDown from "@mui/icons-material/ThumbDown";
-import Lightbulb from "@mui/icons-material/Lightbulb";
-import ExpandMore from "@mui/icons-material/ExpandMore";
-import ExpandLess from "@mui/icons-material/ExpandLess";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import Snackbar from "@mui/material/Snackbar";
+import LinkedInIcon from "@mui/icons-material/LinkedIn";
+import EmailIcon from "@mui/icons-material/Email";
+import ArticleIcon from "@mui/icons-material/Article";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
+import EditIcon from "@mui/icons-material/Edit";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import ImageIcon from "@mui/icons-material/Image";
+import TextFieldsIcon from "@mui/icons-material/TextFields";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import ShieldIcon from "@mui/icons-material/Shield";
+import PageHeader from "@/app/PageHeader";
 
-import { studioContentBriefs } from "@/lib/mockData";
+import { contentProposals, type ContentChannel, type ContentProposal } from "@/lib/mockData";
 
-const workflowSteps = [
+/* ── Constants ── */
+
+const CHANNELS: { id: ContentChannel; label: string; icon: React.ReactNode; color: string }[] = [
+  { id: "LinkedIn", label: "LinkedIn", icon: <LinkedInIcon />, color: "#0077b5" },
+  { id: "Newsletter", label: "Newsletter", icon: <EmailIcon />, color: "#274e64" },
+  { id: "Blog", label: "Blog", icon: <ArticleIcon />, color: "#ed1b2f" },
+];
+
+const WORKFLOW_STEPS = [
   { label: "Topic Selection", gate: false },
   { label: "Brief Approval", gate: true },
   { label: "Content Generation", gate: false },
@@ -40,519 +51,514 @@ const workflowSteps = [
   { label: "Publish", gate: false },
 ];
 
-const statusColor: Record<string, "warning" | "success" | "info"> = {
-  pending_approval: "warning",
-  approved: "success",
-  generating: "info",
-};
+type ImageMode = "stock" | "ai" | "text";
 
-const statusLabel: Record<string, string> = {
-  pending_approval: "Pending Approval",
-  approved: "Approved",
-  generating: "Generating",
-};
+interface ProposalState {
+  status: "pending" | "approved" | "rejected" | "scheduled";
+  imageMode: ImageMode;
+  editing: boolean;
+  draftText: string;
+}
+
+/* ── Helpers ── */
+
+function imageUrl(seed: string): string {
+  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/600/400`;
+}
+
+/* ── Page ── */
 
 export default function ContentStudioPage() {
-  const [selectedBrief, setSelectedBrief] = useState<string>(
-    studioContentBriefs[0]?.id ?? ""
-  );
-  const [expandedReasoning, setExpandedReasoning] = useState<
-    Record<string, boolean>
-  >({ "brief-1": true });
+  const [activeChannel, setActiveChannel] = useState<ContentChannel>("LinkedIn");
+  const [snack, setSnack] = useState<string | null>(null);
 
-  const toggleReasoning = (id: string) =>
-    setExpandedReasoning((prev) => ({ ...prev, [id]: !prev[id] }));
+  // Initialize state map for all proposals
+  const [states, setStates] = useState<Record<string, ProposalState>>(() => {
+    const initial: Record<string, ProposalState> = {};
+    contentProposals.forEach((p) => {
+      initial[p.id] = {
+        status: "pending",
+        imageMode: "stock",
+        editing: false,
+        draftText: p.text,
+      };
+    });
+    return initial;
+  });
+
+  const filteredProposals = useMemo(
+    () => contentProposals.filter((p) => p.channel === activeChannel),
+    [activeChannel]
+  );
+
+  const updateState = (id: string, patch: Partial<ProposalState>) => {
+    setStates((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  };
+
+  const handleApprove = (p: ContentProposal) => {
+    updateState(p.id, { status: "approved" });
+    setSnack(`Approved: ${p.title}`);
+  };
+
+  const handleReject = (p: ContentProposal) => {
+    updateState(p.id, { status: "rejected" });
+    setSnack(`Rejected: ${p.title}`);
+  };
+
+  const handleSchedule = (p: ContentProposal) => {
+    updateState(p.id, { status: "scheduled" });
+    setSnack(`Scheduled: ${p.title}`);
+  };
+
+  const toggleEdit = (p: ContentProposal) => {
+    updateState(p.id, { editing: !states[p.id].editing });
+  };
+
+  const channelMeta = CHANNELS.find((c) => c.id === activeChannel)!;
 
   return (
-    <>
-      {/* ── Header ───────────────────────────────────────────── */}
+    <Box>
       <PageHeader
         title="Content Studio"
         subtitle="AI-powered content generation with mandatory human approval gates"
         badge="AI"
       />
 
-      {/* ── Approval Workflow Stepper ────────────────────────── */}
-      <Card
-        variant="outlined"
+      {/* ── Channel Tabs ── */}
+      <Box
+        className="animate-fade-in-up"
         sx={{
+          display: "flex",
+          gap: 1,
           mb: 3,
-          p: 3,
-          background: (theme) =>
-            `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.action.hover} 100%)`,
+          p: 0.75,
+          bgcolor: "#fff",
+          border: "1px solid #ececec",
+          borderRadius: 999,
+          width: "fit-content",
         }}
       >
-        <Typography
-          variant="subtitle2"
-          fontWeight={700}
-          sx={{ mb: 2, textTransform: "uppercase", letterSpacing: 1 }}
-        >
-          Approval Workflow
-        </Typography>
-        <Stepper activeStep={2} alternativeLabel>
-          {workflowSteps.map((step) => (
-            <Step key={step.label}>
-              <StepLabel>
-                <Typography variant="caption" fontWeight={600}>
-                  {step.label}
-                </Typography>
-                {step.gate && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "center",
-                      mt: 0.5,
-                    }}
-                  >
-                    <Chip
-                      icon={<Shield sx={{ fontSize: 12 }} />}
-                      label="Human Gate"
-                      size="small"
-                      color="warning"
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: 10, fontWeight: 700 }}
-                    />
+        {CHANNELS.map((c) => {
+          const active = c.id === activeChannel;
+          return (
+            <Button
+              key={c.id}
+              onClick={() => setActiveChannel(c.id)}
+              startIcon={c.icon}
+              disableRipple
+              sx={{
+                px: 3,
+                py: 1.25,
+                borderRadius: 999,
+                fontWeight: 600,
+                fontSize: "0.875rem",
+                bgcolor: active ? c.color : "transparent",
+                color: active ? "#fff" : "#5f6368",
+                "&:hover": {
+                  bgcolor: active ? c.color : "#f1f3f4",
+                  color: active ? "#fff" : "#1f1f1f",
+                },
+                transition: "all 0.25s ease",
+              }}
+            >
+              {c.label}
+              <Chip
+                label="5"
+                size="small"
+                sx={{
+                  ml: 1,
+                  height: 20,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  bgcolor: active ? "rgba(255,255,255,0.25)" : "#f1f3f4",
+                  color: active ? "#fff" : "#5f6368",
+                }}
+              />
+            </Button>
+          );
+        })}
+      </Box>
+
+      {/* ── Proposals List ── */}
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5, mb: 5 }} className="stagger-children">
+        {filteredProposals.map((proposal) => {
+          const state = states[proposal.id];
+          const isApproved = state.status === "approved";
+          const isRejected = state.status === "rejected";
+          const isScheduled = state.status === "scheduled";
+
+          const statusColor =
+            isApproved ? "#34a853" :
+            isRejected ? "#ea4335" :
+            isScheduled ? "#4285f4" :
+            "#fbbc04";
+          const statusLabel =
+            isApproved ? "Approved" :
+            isRejected ? "Rejected" :
+            isScheduled ? "Scheduled" :
+            "Pending Review";
+
+          return (
+            <Card
+              key={proposal.id}
+              className="hover-lift"
+              sx={{
+                borderRadius: 4,
+                border: `1px solid ${isApproved ? "#34a85333" : isRejected ? "#ea433533" : isScheduled ? "#4285f433" : "#ececec"}`,
+                bgcolor: "#fff",
+                opacity: isRejected ? 0.6 : 1,
+                transition: "all 0.3s ease",
+              }}
+            >
+              <CardContent sx={{ p: 0 }}>
+                {/* Card header */}
+                <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 2, p: 3, pb: 2 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, flexWrap: "wrap" }}>
+                      <Chip
+                        size="small"
+                        label={channelMeta.label}
+                        icon={channelMeta.icon as React.ReactElement}
+                        sx={{
+                          bgcolor: `${channelMeta.color}14`,
+                          color: channelMeta.color,
+                          border: "none",
+                          fontWeight: 600,
+                          "& .MuiChip-icon": { color: channelMeta.color, fontSize: 14 },
+                        }}
+                      />
+                      <Chip
+                        size="small"
+                        label={statusLabel}
+                        sx={{
+                          bgcolor: `${statusColor}14`,
+                          color: statusColor,
+                          border: "none",
+                          fontWeight: 600,
+                        }}
+                      />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
+                        <AutoAwesomeIcon sx={{ fontSize: 14, color: "#fbbc04" }} />
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#1f1f1f" }}>
+                          {proposal.qualityScore}
+                          <Box component="span" sx={{ color: "#5f6368", fontWeight: 500 }}>/100</Box>
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontFamily: "'Outfit', 'Inter', sans-serif",
+                        fontSize: "1.25rem",
+                        fontWeight: 500,
+                        color: "#1f1f1f",
+                        letterSpacing: "-0.015em",
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {proposal.title}
+                    </Typography>
                   </Box>
-                )}
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      </Card>
+                </Box>
 
-      {/* ── Main Layout: Briefs + Preview ───────────────────── */}
-      <Grid container spacing={3}>
-        {/* ── Content Briefs Panel ──────────────────────────── */}
-        <Grid size={{ xs: 12, md: 7 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-            Content Briefs
-          </Typography>
+                <Divider sx={{ borderColor: "#f1f3f4" }} />
 
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {studioContentBriefs.map((brief) => {
-              const isSelected = brief.id === selectedBrief;
-              const isGenerating = brief.status === "generating";
-
-              return (
-                <Card
-                  key={brief.id}
-                  variant="outlined"
-                  sx={{
-                    cursor: "pointer",
-                    borderColor: isSelected ? "primary.main" : "divider",
-                    borderWidth: isSelected ? 2 : 1,
-                    boxShadow: isSelected ? 4 : 0,
-                    transition: "all 0.2s ease",
-                    "&:hover": { borderColor: "primary.light" },
-                  }}
-                  onClick={() => setSelectedBrief(brief.id)}
-                >
-                  <CardContent sx={{ pb: "16px !important" }}>
-                    {/* Title row */}
-                    <Box
+                {/* Card body — content + images */}
+                <Box sx={{ p: 3 }}>
+                  {/* Text content */}
+                  {state.editing ? (
+                    <TextField
+                      multiline
+                      fullWidth
+                      minRows={4}
+                      value={state.draftText}
+                      onChange={(e) => updateState(proposal.id, { draftText: e.target.value })}
+                      sx={{ mb: 2.5 }}
+                    />
+                  ) : (
+                    <Typography
                       sx={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                        gap: 1,
-                        mb: 1,
+                        fontSize: "0.9rem",
+                        lineHeight: 1.65,
+                        color: "#3c4043",
+                        whiteSpace: "pre-line",
+                        mb: 2.5,
                       }}
                     >
-                      <Typography variant="subtitle1" fontWeight={700}>
-                        {brief.title}
+                      {state.draftText}
+                    </Typography>
+                  )}
+
+                  {/* Image mode selector */}
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1.5 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Visuals
                       </Typography>
+                    </Box>
+                    <ToggleButtonGroup
+                      value={state.imageMode}
+                      exclusive
+                      size="small"
+                      onChange={(_, val: ImageMode | null) => val && updateState(proposal.id, { imageMode: val })}
+                      sx={{
+                        "& .MuiToggleButton-root": {
+                          textTransform: "none",
+                          fontSize: "0.75rem",
+                          fontWeight: 500,
+                          px: 1.75,
+                          py: 0.5,
+                          color: "#5f6368",
+                          border: "1px solid #ececec",
+                          "&.Mui-selected": {
+                            bgcolor: "#274e64",
+                            color: "#fff",
+                            borderColor: "#274e64",
+                            "&:hover": { bgcolor: "#1a3a4c" },
+                          },
+                        },
+                      }}
+                    >
+                      <ToggleButton value="stock">
+                        <ImageIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                        Free Stock
+                      </ToggleButton>
+                      <ToggleButton value="ai">
+                        <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                        AI Generated
+                      </ToggleButton>
+                      <ToggleButton value="text">
+                        <TextFieldsIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                        Text Only
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
 
-                      {/* Score badge */}
-                      <Box
-                        sx={{
-                          position: "relative",
-                          display: "inline-flex",
-                          flexShrink: 0,
-                        }}
+                  {/* Image gallery */}
+                  {state.imageMode === "stock" && (
+                    <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                      {proposal.imageSeeds.map((seed, idx) => (
+                        <Grid key={seed} size={{ xs: 12, sm: 4 }}>
+                          <Box
+                            sx={{
+                              position: "relative",
+                              width: "100%",
+                              aspectRatio: "3 / 2",
+                              borderRadius: 2,
+                              overflow: "hidden",
+                              border: "1px solid #ececec",
+                              bgcolor: "#f8f9fa",
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={imageUrl(seed)}
+                              alt={`${proposal.topic} ${idx + 1}`}
+                              loading="lazy"
+                              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                            />
+                            <Chip
+                              label="FREE STOCK"
+                              size="small"
+                              sx={{
+                                position: "absolute",
+                                top: 8,
+                                left: 8,
+                                height: 18,
+                                fontSize: "0.6rem",
+                                fontWeight: 700,
+                                bgcolor: "rgba(0,0,0,0.7)",
+                                color: "#fff",
+                                backdropFilter: "blur(4px)",
+                              }}
+                            />
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+
+                  {state.imageMode === "ai" && (
+                    <Box
+                      sx={{
+                        p: 4,
+                        mb: 2,
+                        textAlign: "center",
+                        borderRadius: 2,
+                        border: "2px dashed #ececec",
+                        bgcolor: "#fafbfc",
+                      }}
+                    >
+                      <AutoAwesomeIcon sx={{ fontSize: 36, color: "#ed1b2f", mb: 1 }} />
+                      <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#1f1f1f", mb: 0.5 }}>
+                        AI Image Generation
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mb: 2 }}>
+                        Generate a custom image based on the content theme
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        startIcon={<AutoAwesomeIcon />}
+                        sx={{ bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" } }}
                       >
-                        <CircularProgress
-                          variant="determinate"
-                          value={brief.score}
-                          size={48}
-                          thickness={4}
-                          color={
-                            brief.score >= 85
-                              ? "success"
-                              : brief.score >= 70
-                                ? "warning"
-                                : "error"
-                          }
-                        />
-                        <Box
-                          sx={{
-                            position: "absolute",
-                            inset: 0,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Typography
-                            variant="caption"
-                            fontWeight={700}
-                            lineHeight={1}
-                          >
-                            {brief.score}
-                          </Typography>
-                        </Box>
-                      </Box>
+                        Generate Image
+                      </Button>
                     </Box>
+                  )}
 
-                    {/* Chips row */}
-                    <Box
+                  {state.imageMode === "text" && (
+                    <Alert
+                      severity="info"
+                      icon={<TextFieldsIcon />}
+                      sx={{ mb: 2, bgcolor: "#f8f9fa", border: "1px solid #ececec", color: "#5f6368" }}
+                    >
+                      Will be published as text only — no images attached.
+                    </Alert>
+                  )}
+
+                  {/* Reasoning */}
+                  <Box sx={{ p: 2, bgcolor: "#f8f9fa", borderRadius: 2, mb: 2.5 }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.5 }}>
+                      AI Reasoning
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.8rem", color: "#3c4043", lineHeight: 1.5 }}>
+                      {proposal.reasoning}
+                    </Typography>
+                  </Box>
+
+                  {/* Actions */}
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<CheckIcon />}
+                      onClick={() => handleApprove(proposal)}
+                      disabled={isApproved || isRejected || isScheduled}
+                      sx={{ bgcolor: "#34a853", "&:hover": { bgcolor: "#1e8e3e" } }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<EditIcon />}
+                      onClick={() => toggleEdit(proposal)}
+                      disabled={isRejected || isScheduled}
+                    >
+                      {state.editing ? "Done" : "Edit"}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<ScheduleIcon />}
+                      onClick={() => handleSchedule(proposal)}
+                      disabled={!isApproved}
                       sx={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 1,
-                        mb: 1.5,
+                        borderColor: "#4285f4",
+                        color: "#4285f4",
+                        "&:hover": { borderColor: "#1a73e8", bgcolor: "#e8f0fe" },
+                        "&.Mui-disabled": { borderColor: "#ececec" },
                       }}
                     >
-                      <Chip
-                        label={brief.keyword}
+                      Schedule
+                    </Button>
+                    <Box sx={{ flex: 1 }} />
+                    <Tooltip title="Regenerate this proposal">
+                      <IconButton
                         size="small"
-                        variant="outlined"
-                        sx={{ fontWeight: 600 }}
-                      />
-                      <Chip
-                        label={statusLabel[brief.status]}
-                        size="small"
-                        color={statusColor[brief.status]}
-                        sx={{
-                          fontWeight: 700,
-                          ...(isGenerating && {
-                            animation: "pulse 1.5s ease-in-out infinite",
-                            "@keyframes pulse": {
-                              "0%, 100%": { opacity: 1 },
-                              "50%": { opacity: 0.5 },
-                            },
-                          }),
-                        }}
-                      />
-                      <Chip
-                        label={brief.channel}
-                        size="small"
-                        variant="outlined"
-                        color="primary"
-                      />
-                      <Chip
-                        label={`${brief.wordCount.toLocaleString()} words`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </Box>
-
-                    {/* AI Reasoning (expandable) */}
-                    <Box
-                      sx={{
-                        mb: 1.5,
-                        backgroundColor: "action.hover",
-                        borderRadius: 1,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.5,
-                          px: 1.5,
-                          py: 0.75,
-                          cursor: "pointer",
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleReasoning(brief.id);
-                        }}
+                        sx={{ color: "#5f6368", "&:hover": { color: "#274e64" } }}
                       >
-                        <Lightbulb
-                          sx={{ fontSize: 16, color: "warning.main" }}
-                        />
-                        <Typography
-                          variant="caption"
-                          fontWeight={700}
-                          color="text.secondary"
-                        >
-                          AI Reasoning
-                        </Typography>
-                        <Box sx={{ ml: "auto" }}>
-                          <IconButton size="small" sx={{ p: 0 }}>
-                            {expandedReasoning[brief.id] ? (
-                              <ExpandLess sx={{ fontSize: 18 }} />
-                            ) : (
-                              <ExpandMore sx={{ fontSize: 18 }} />
-                            )}
-                          </IconButton>
-                        </Box>
-                      </Box>
-                      <Collapse in={expandedReasoning[brief.id]}>
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{ px: 1.5, pb: 1.5, lineHeight: 1.6 }}
-                        >
-                          {brief.reasoning}
-                        </Typography>
-                      </Collapse>
-                    </Box>
-
-                    {/* Generating progress bar */}
-                    {isGenerating && (
-                      <LinearProgress
-                        sx={{ mb: 1.5, borderRadius: 1, height: 6 }}
-                      />
-                    )}
-
-                    {/* Action buttons */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        gap: 1,
-                        alignItems: "center",
-                      }}
+                        <RefreshIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Button
+                      variant="text"
+                      startIcon={<CloseIcon />}
+                      onClick={() => handleReject(proposal)}
+                      disabled={isRejected}
+                      sx={{ color: "#ea4335", "&:hover": { bgcolor: "#fce8e6" } }}
                     >
-                      {brief.status === "pending_approval" && (
-                        <>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="success"
-                            startIcon={<ThumbUp sx={{ fontSize: 16 }} />}
-                          >
-                            Approve Topic
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="error"
-                            startIcon={<ThumbDown sx={{ fontSize: 16 }} />}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      {brief.status === "approved" && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<AutoAwesome sx={{ fontSize: 16 }} />}
-                        >
-                          Generate Content
-                        </Button>
-                      )}
-                      {brief.status === "generating" && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          disabled
-                          startIcon={
-                            <CircularProgress size={14} color="inherit" />
-                          }
-                        >
-                          Generating...
-                        </Button>
-                      )}
-                    </Box>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                      Reject
+                    </Button>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </Box>
+
+      {/* ── Footer: Approval Workflow Stepper ── */}
+      <Card
+        className="animate-fade-in-up"
+        sx={{
+          mt: 4,
+          borderRadius: 4,
+          border: "1px solid #ececec",
+          bgcolor: "#fafbfc",
+        }}
+      >
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 2 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#1f1f1f" }}>
+              Approval Workflow
+            </Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "#5f6368", ml: 1 }}>
+              Every piece of content passes through human-gated approval steps
+            </Typography>
           </Box>
-        </Grid>
-
-        {/* ── Content Preview Panel ─────────────────────────── */}
-        <Grid size={{ xs: 12, md: 5 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-            Content Preview
-          </Typography>
-
-          <Card
-            variant="outlined"
+          <Stepper activeStep={2} alternativeLabel sx={{ mt: 2 }}>
+            {WORKFLOW_STEPS.map((step) => (
+              <Step key={step.label}>
+                <StepLabel
+                  optional={
+                    step.gate ? (
+                      <Chip
+                        label="Human Gate"
+                        size="small"
+                        icon={<ShieldIcon sx={{ fontSize: 12 }} />}
+                        sx={{
+                          mt: 0.5,
+                          height: 20,
+                          fontSize: "0.65rem",
+                          fontWeight: 600,
+                          bgcolor: "#fef7e0",
+                          color: "#f9ab00",
+                          border: "none",
+                          "& .MuiChip-icon": { color: "#f9ab00" },
+                        }}
+                      />
+                    ) : null
+                  }
+                >
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 500, color: "#3c4043" }}>
+                    {step.label}
+                  </Typography>
+                </StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+          <Alert
+            severity="success"
+            icon={<ShieldIcon fontSize="small" />}
             sx={{
-              position: "sticky",
-              top: 24,
-              borderColor: "primary.light",
+              mt: 3,
+              bgcolor: "#e6f4ea",
+              border: "1px solid #34a85333",
+              color: "#1e8e3e",
+              fontSize: "0.8rem",
             }}
           >
-            <CardContent>
-              {/* Article header */}
-              <Typography variant="h6" fontWeight={700} sx={{ mb: 0.5 }}>
-                O-Ring Material Selection for High-Temperature Applications
-              </Typography>
-              <Chip
-                label="Draft Preview"
-                size="small"
-                color="info"
-                variant="outlined"
-                sx={{ mb: 2, fontWeight: 600 }}
-              />
+            All content requires human approval before publication. Draft-only mode is enabled and enforced.
+          </Alert>
+        </CardContent>
+      </Card>
 
-              <Divider sx={{ mb: 2 }} />
-
-              {/* Article body */}
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 1.5, lineHeight: 1.7 }}
-              >
-                Selecting the right o-ring material for high-temperature
-                environments is critical to ensuring seal integrity and
-                preventing costly equipment failures. Applications in
-                automotive, aerospace, and industrial processing regularly
-                expose seals to sustained temperatures above 200 &#176;C, where
-                standard elastomers lose their mechanical properties.
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 1.5, lineHeight: 1.7 }}
-              >
-                Fluoroelastomers (FKM) remain the most popular choice for
-                continuous service up to 200 &#176;C, offering excellent
-                chemical resistance alongside thermal stability. For even more
-                demanding conditions, perfluoroelastomers (FFKM) extend the
-                operating window to 320 &#176;C while maintaining near-universal
-                chemical compatibility.
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 1.5, lineHeight: 1.7 }}
-              >
-                When evaluating materials, engineers should consider compression
-                set resistance, thermal aging behaviour, and media
-                compatibility. APSOparts&apos; sealing specialists can
-                provide application-specific recommendations based on your exact
-                pressure, temperature, and media requirements.
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 2, lineHeight: 1.7 }}
-              >
-                Our high-temperature sealing portfolio includes compounds
-                tailored for static and dynamic applications. Contact our
-                engineering team to discuss your requirements or request sample
-                materials for your own testing protocol.
-              </Typography>
-
-              <Divider sx={{ mb: 2 }} />
-
-              {/* Brand tone indicator */}
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                  mb: 2,
-                }}
-              >
-                <Typography variant="caption" fontWeight={700}>
-                  Brand Tone:
-                </Typography>
-                <Chip
-                  label="Professional / Technical"
-                  size="small"
-                  color="success"
-                  icon={<CheckCircle sx={{ fontSize: 14 }} />}
-                  sx={{ fontWeight: 600 }}
-                />
-              </Box>
-
-              {/* Quality checks */}
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 0.75,
-                  mb: 2,
-                  p: 1.5,
-                  borderRadius: 1,
-                  backgroundColor: "action.hover",
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  fontWeight={700}
-                  sx={{ mb: 0.25 }}
-                >
-                  Quality Checks
-                </Typography>
-                {[
-                  "Readability",
-                  "Brand Tone",
-                  "Technical Accuracy",
-                  "SEO Optimized",
-                ].map((check) => (
-                  <Box
-                    key={check}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.75,
-                    }}
-                  >
-                    <CheckCircle
-                      sx={{ fontSize: 16, color: "success.main" }}
-                    />
-                    <Typography variant="body2">{check}</Typography>
-                  </Box>
-                ))}
-              </Box>
-
-              <Divider sx={{ mb: 2 }} />
-
-              {/* Action buttons */}
-              <Box
-                sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}
-              >
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<Edit sx={{ fontSize: 16 }} />}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="warning"
-                  startIcon={<Cancel sx={{ fontSize: 16 }} />}
-                >
-                  Request Changes
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="success"
-                  startIcon={<Schedule sx={{ fontSize: 16 }} />}
-                >
-                  Approve &amp; Schedule
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* ── Bottom Bar ──────────────────────────────────────── */}
-      <Alert
-        severity="info"
-        icon={<Shield />}
-        sx={{
-          mt: 3,
-          fontWeight: 600,
-          borderRadius: 2,
-          "& .MuiAlert-message": { width: "100%" },
-        }}
-      >
-        All content requires human approval before publication. Draft-only mode
-        is enabled.
-      </Alert>
-    </>
+      {/* ── Snackbar ── */}
+      <Snackbar
+        open={!!snack}
+        autoHideDuration={2500}
+        onClose={() => setSnack(null)}
+        message={snack}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
+    </Box>
   );
 }

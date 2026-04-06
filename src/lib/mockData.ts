@@ -103,6 +103,179 @@ export const studioContentBriefs = [
   },
 ];
 
+/* ── Content proposals (per channel) for Content Studio ── */
+
+export type ContentChannel = "LinkedIn" | "Newsletter" | "Blog";
+
+export interface ContentProposal {
+  id: string;
+  channel: ContentChannel;
+  title: string;
+  topic: string;
+  text: string;
+  reasoning: string;
+  qualityScore: number;
+  imageSeeds: string[]; // 3 free stock image seeds (picsum.photos)
+}
+
+export const contentProposals: ContentProposal[] = [
+  /* ── LinkedIn (5) ── */
+  {
+    id: "li-1",
+    channel: "LinkedIn",
+    title: "FKM vs FFKM: choosing your o-ring for chemical resistance",
+    topic: "FKM vs FFKM o-rings",
+    text: "Choosing between FKM and FFKM o-rings? Here's what matters for chemical resistance:\n\n✅ FKM: Excellent for fuels, oils & most acids — service up to +200°C\n✅ FFKM: The ultimate chemical resistance — handles aggressive media up to +325°C\n\nThe right choice depends on your media, temperature, and budget. Our engineers help you select the optimal material for your sealing challenge.\n\n#ORings #Sealing #FKM #FFKM #APSOparts",
+    reasoning: "High-engagement format (comparison + emoji) for technical audience. Targets engineers searching FKM vs FFKM. Aligns with Q2 sealing focus.",
+    qualityScore: 91,
+    imageSeeds: ["oring-fkm-1", "oring-fkm-2", "oring-fkm-3"],
+  },
+  {
+    id: "li-2",
+    channel: "LinkedIn",
+    title: "PEEK in aerospace: the high-performance plastic explained",
+    topic: "PEEK aerospace applications",
+    text: "Why does aerospace love PEEK?\n\n🚀 Operating temperature up to +260°C\n🚀 Self-extinguishing (V-0 rating)\n🚀 Outstanding chemical & wear resistance\n🚀 Lightweight alternative to metals\n\nFrom bushings to seal back-up rings, PEEK is replacing metal components across modern aircraft. APSOparts machines PEEK to your exact specifications.\n\n#PEEK #Aerospace #EngineeredPlastics #APSOparts",
+    reasoning: "Industry-vertical content targeting aerospace engineers. PEEK is key product line. Format leverages curiosity hook.",
+    qualityScore: 88,
+    imageSeeds: ["peek-aero-1", "peek-aero-2", "peek-aero-3"],
+  },
+  {
+    id: "li-3",
+    channel: "LinkedIn",
+    title: "POM-C precision parts: when tolerances matter",
+    topic: "POM-C machining tolerances",
+    text: "POM-C (acetal copolymer) is the engineer's choice when you need:\n\n⚙️ Tight tolerances (±0.05mm achievable)\n⚙️ Excellent dimensional stability\n⚙️ Low friction & wear\n⚙️ Food-contact compliance available\n\nFrom gears to bushings to precision housings, POM-C delivers consistent performance. Available in rod, sheet & custom-machined parts at APSOparts.\n\n#POMC #EngineeringPlastics #PrecisionParts #APSOparts",
+    reasoning: "Educational content about a flagship plastic. Targets procurement and design engineers. Lists concrete benefits.",
+    qualityScore: 85,
+    imageSeeds: ["pomc-1", "pomc-2", "pomc-3"],
+  },
+  {
+    id: "li-4",
+    channel: "LinkedIn",
+    title: "5 signs your o-rings need replacing",
+    topic: "o-ring failure analysis",
+    text: "Don't wait for a leak. Watch for these warning signs:\n\n1️⃣ Surface cracking or hardening\n2️⃣ Compression set (loss of elasticity)\n3️⃣ Swelling or shrinkage\n4️⃣ Discoloration\n5️⃣ Sticky or tacky surface\n\nPredictive replacement saves downtime. Need help selecting the right replacement material? APSOparts engineers are here.\n\n#ORings #Maintenance #Sealing #APSOparts",
+    reasoning: "Listicle format performs well on LinkedIn. Maintenance angle reaches operations managers. Strong CTA.",
+    qualityScore: 89,
+    imageSeeds: ["oring-fail-1", "oring-fail-2", "oring-fail-3"],
+  },
+  {
+    id: "li-5",
+    channel: "LinkedIn",
+    title: "Custom o-rings for food & beverage processing",
+    topic: "food-grade EPDM o-rings",
+    text: "Food and beverage processing demands more than ordinary sealing.\n\n🍽️ FDA-compliant materials\n🍽️ EPDM, silicone & FKM food-grade options\n🍽️ Steam & CIP resistant\n🍽️ Custom sizes & profiles available\n\nAPSOparts supplies certified o-rings to food processing leaders across Europe. Your application — our solution.\n\n#FoodSafety #ORings #EPDM #APSOparts",
+    reasoning: "Vertical-specific (F&B) targets a high-value industry. Compliance angle resonates with regulated buyers.",
+    qualityScore: 86,
+    imageSeeds: ["food-oring-1", "food-oring-2", "food-oring-3"],
+  },
+
+  /* ── Newsletter (5) ── */
+  {
+    id: "nl-1",
+    channel: "Newsletter",
+    title: "Q2 Sealings & Plastics Update — What's New at APSOparts",
+    topic: "Q2 product newsletter",
+    text: "This quarter at APSOparts:\n\n• New FFKM o-ring range for ultra-high chemical resistance\n• Expanded PEEK machined parts catalog\n• POM-C precision components — now in stock\n• Technical webinar: Material selection for high-temperature sealing\n\nRead the full update inside.",
+    reasoning: "Quarterly digest format. Highlights new products to drive engagement and sales conversations.",
+    qualityScore: 90,
+    imageSeeds: ["q2-nl-1", "q2-nl-2", "q2-nl-3"],
+  },
+  {
+    id: "nl-2",
+    channel: "Newsletter",
+    title: "O-Ring Material Selection: A Technical Deep-Dive",
+    topic: "o-ring material guide",
+    text: "Choosing the right o-ring material shouldn't be guesswork.\n\nIn this issue:\n• FKM, FFKM, EPDM, NBR & Silicone compared\n• Temperature & chemical resistance charts\n• Industry-specific recommendations\n• When to specify custom compounds\n\nA must-read for design and procurement engineers.",
+    reasoning: "Educational deep-dive serves as lead magnet. Positions APSOparts as material expert.",
+    qualityScore: 92,
+    imageSeeds: ["oring-guide-1", "oring-guide-2", "oring-guide-3"],
+  },
+  {
+    id: "nl-3",
+    channel: "Newsletter",
+    title: "PEEK vs POM-C: Which Engineering Plastic for Your Application?",
+    topic: "PEEK vs POM-C comparison",
+    text: "Two of the most popular engineering plastics — but which one is right for you?\n\nThis newsletter walks through:\n• Mechanical properties side-by-side\n• Temperature & chemical resistance\n• Machinability & cost considerations\n• Application examples from APSOparts customers",
+    reasoning: "Comparison content drives high engagement. Targets undecided buyers in the design phase.",
+    qualityScore: 88,
+    imageSeeds: ["peek-pomc-1", "peek-pomc-2", "peek-pomc-3"],
+  },
+  {
+    id: "nl-4",
+    channel: "Newsletter",
+    title: "Industry Spotlight: Sealing Solutions for Pharma Manufacturing",
+    topic: "pharma sealing solutions",
+    text: "Pharmaceutical manufacturing has zero tolerance for contamination.\n\nLearn how APSOparts supports pharma producers with:\n• USP Class VI compliant elastomers\n• EPDM, silicone & FFKM for CIP/SIP cycles\n• Lot traceability & full documentation\n• Custom compounds for specific media",
+    reasoning: "Industry-vertical content for high-value market. Compliance angle critical for pharma buyers.",
+    qualityScore: 89,
+    imageSeeds: ["pharma-1", "pharma-2", "pharma-3"],
+  },
+  {
+    id: "nl-5",
+    channel: "Newsletter",
+    title: "Predictive Maintenance: When to Replace Your Seals",
+    topic: "predictive maintenance",
+    text: "Unplanned downtime costs more than scheduled replacement.\n\nIn this issue:\n• Visual inspection checklist\n• Common failure modes & root causes\n• Replacement intervals by application\n• Working with APSOparts on maintenance contracts",
+    reasoning: "Maintenance content reaches operations & MRO buyers. Drives repeat business and service contracts.",
+    qualityScore: 87,
+    imageSeeds: ["maint-1", "maint-2", "maint-3"],
+  },
+
+  /* ── Blog (5) ── */
+  {
+    id: "bl-1",
+    channel: "Blog",
+    title: "O-Ring Material Selection Guide — FKM, FFKM & Silicone for Demanding Applications",
+    topic: "o-ring material selection",
+    text: "Selecting the right o-ring material for high-temperature environments is critical to ensuring seal integrity and preventing costly equipment failures. Applications in automotive, aerospace, and industrial processing regularly expose seals to sustained temperatures above 200°C, where standard elastomers lose their mechanical properties.\n\nFluoroelastomers (FKM) remain the most popular choice for continuous service up to 200°C, offering excellent chemical resistance alongside thermal stability. For even more demanding conditions, perfluoroelastomers (FFKM) extend the operating window to 320°C while maintaining near-universal chemical compatibility.",
+    reasoning: "Cornerstone content targeting 'o-ring material selection guide' (2,400 vol/mo, difficulty 42). Long-form pillar article.",
+    qualityScore: 92,
+    imageSeeds: ["blog-oring-1", "blog-oring-2", "blog-oring-3"],
+  },
+  {
+    id: "bl-2",
+    channel: "Blog",
+    title: "PEEK vs POM-C: Engineering Plastics Comparison for Precision Components",
+    topic: "PEEK vs POM-C",
+    text: "When designing precision components, the choice between PEEK and POM-C can dramatically impact performance, cost, and lifespan. Both materials offer excellent machinability and dimensional stability, but their properties diverge sharply at the extremes.\n\nPEEK delivers superior temperature resistance (up to 260°C continuous), chemical compatibility, and mechanical strength — making it the go-to for aerospace, medical, and high-performance industrial applications. POM-C, by contrast, offers excellent value for room-temperature applications requiring tight tolerances, low friction, and consistent dimensional behaviour.",
+    reasoning: "Targets 2,100 vol/mo comparison keyword. Strategic for plastics product line. Strong commercial intent.",
+    qualityScore: 90,
+    imageSeeds: ["blog-peek-1", "blog-peek-2", "blog-peek-3"],
+  },
+  {
+    id: "bl-3",
+    channel: "Blog",
+    title: "Common O-Ring Failure Modes and How to Prevent Them",
+    topic: "o-ring failure analysis",
+    text: "O-rings are deceptively simple components, but their failure can bring entire systems to a halt. Understanding the common failure modes helps engineers specify the right material the first time and predict replacement intervals accurately.\n\nThe most common failure modes include compression set, chemical attack, thermal degradation, extrusion, and abrasion. Each has distinct visual signatures and root causes — and each is preventable with the right material selection and installation practices.",
+    reasoning: "Maintenance/troubleshooting content drives organic traffic from engineers diagnosing field issues.",
+    qualityScore: 88,
+    imageSeeds: ["blog-fail-1", "blog-fail-2", "blog-fail-3"],
+  },
+  {
+    id: "bl-4",
+    channel: "Blog",
+    title: "PEEK Machined Parts for Aerospace Sealing — A Complete Specification Guide",
+    topic: "PEEK aerospace sealing",
+    text: "Aerospace sealing applications demand materials that perform reliably under extreme conditions: wide temperature swings, aggressive chemicals, and zero tolerance for failure. PEEK has emerged as a leading choice for back-up rings, bushings, and seal components in modern aircraft.\n\nThis guide covers the key properties of PEEK relevant to aerospace, including grade selection, machining tolerances, certification requirements, and case studies from APSOparts' aerospace customers.",
+    reasoning: "Vertical-specific cornerstone content for aerospace. PEEK is core product line. High-value B2B vertical.",
+    qualityScore: 91,
+    imageSeeds: ["blog-aero-1", "blog-aero-2", "blog-aero-3"],
+  },
+  {
+    id: "bl-5",
+    channel: "Blog",
+    title: "POM-C Acetal Copolymer: Properties, Applications & Machining Tolerances",
+    topic: "POM-C properties",
+    text: "POM-C (polyoxymethylene copolymer) is one of the workhorses of engineering plastics. Its combination of dimensional stability, low friction, and excellent machinability makes it the default choice for precision mechanical components.\n\nThis comprehensive guide covers POM-C's mechanical and thermal properties, common applications across industries, machining best practices, and how to specify POM-C components with APSOparts for tight-tolerance projects.",
+    reasoning: "Pillar content for POM-C product line. Targets engineers researching material specifications.",
+    qualityScore: 87,
+    imageSeeds: ["blog-pomc-1", "blog-pomc-2", "blog-pomc-3"],
+  },
+];
+
 export const knowledgeBaseDocuments = [
   { id: "kb-1", name: "APSOparts Brand Guidelines v3.2", type: "Brand" as const, size: "2.4 MB", lastUpdated: "2026-03-15", version: "3.2", shared: true },
   { id: "kb-2", name: "Product Catalog — Sealing Solutions", type: "Product" as const, size: "8.1 MB", lastUpdated: "2026-03-28", version: "2026-Q1", shared: true },
