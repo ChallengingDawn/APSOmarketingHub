@@ -179,7 +179,7 @@ export default function AnalyticsPage() {
           const isPositive = kpi.inverted ? kpi.change < 0 : kpi.change > 0;
           const isNeutral = kpi.change === 0;
           return (
-            <Grid key={kpi.label} size={{ xs: 6, sm: 4, md: 3, lg: 1.5 }}>
+            <Grid key={kpi.label} size={{ xs: 6, sm: 6, md: 3 }}>
               <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
                 <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
