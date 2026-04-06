@@ -160,7 +160,7 @@ export default function SettingsPage() {
       />
 
       {/* ── 1. Integrations ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
         <CardContent>
           <SectionTitle
             icon={<LinkIcon color="primary" />}
@@ -251,7 +251,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── 2. Publishing & Approval Gates ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
         <CardContent>
           <SectionTitle
             icon={<ShieldIcon color="primary" />}
@@ -418,7 +418,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── 3. Data & Privacy ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
         <CardContent>
           <SectionTitle
             icon={<SecurityIcon color="primary" />}
@@ -534,7 +534,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── 4. Team & Access Control ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
         <CardContent>
           <SectionTitle
             icon={<PeopleIcon color="primary" />}
@@ -625,7 +625,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── 5. Content Strategy Rules ── */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
         <CardContent>
           <SectionTitle
             icon={<CalendarMonthIcon color="primary" />}

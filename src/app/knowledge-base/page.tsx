@@ -99,61 +99,37 @@ export default function KnowledgeBasePage() {
 
       {/* Stats Row */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card variant="outlined">
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Total Documents
-              </Typography>
-              <Typography variant="h4" sx={{ fontWeight: 700 }}>
-                8
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card variant="outlined">
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Shared with AI
-              </Typography>
-              <Typography
-                variant="h4"
-                sx={{ fontWeight: 700, color: "success.main" }}
-              >
-                {sharedCount}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card variant="outlined">
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Last Updated
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                Apr 1, 2026
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card variant="outlined">
-            <CardContent sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Storage Used
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                22.1 MB
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+        {[
+          { label: "Total Documents", value: "8", color: "#274e64" },
+          { label: "Shared with AI", value: String(sharedCount), color: "#34a853" },
+          { label: "Last Updated", value: "Apr 1, 2026", color: "#4285f4" },
+          { label: "Storage Used", value: "22.1 MB", color: "#9334e6" },
+        ].map((s) => (
+          <Grid key={s.label} size={{ xs: 6, md: 3 }}>
+            <Card sx={{ borderRadius: 4, border: "1px solid #ececec", borderTop: `3px solid ${s.color}` }}>
+              <CardContent sx={{ textAlign: "center", py: 2.25, "&:last-child": { pb: 2.25 } }}>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.75 }}>
+                  {s.label}
+                </Typography>
+                <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+                  {s.value}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
       </Grid>
 
       {/* Documents Table */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 2.5, pb: 0 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+              Documents
+            </Typography>
+          </Box>
+        </CardContent>
         <TableContainer>
           <Table>
             <TableHead>
@@ -242,12 +218,14 @@ export default function KnowledgeBasePage() {
       </Card>
 
       {/* Brand Voice Config Card */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Brand Voice Configuration
-          </Typography>
-          <Divider sx={{ mb: 2 }} />
+      <Card sx={{ mb: 3, borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 2 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#ed1b2f" }} />
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+              Brand Voice Configuration
+            </Typography>
+          </Box>
           <Grid container spacing={2} sx={{ mb: 2 }}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <Typography
@@ -322,8 +300,8 @@ export default function KnowledgeBasePage() {
       </Card>
 
       {/* Data Flow Transparency Card */}
-      <Card variant="outlined">
-        <CardContent>
+      <Card sx={{ borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3 }}>
           <Box
             sx={{
               display: "flex",
