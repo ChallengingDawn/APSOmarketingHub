@@ -68,23 +68,19 @@ interface KpiCardConfig {
   icon: React.ReactNode;
   color: string;
   bgColor: string;
+  href: string;
 }
 
 const kpiCards: KpiCardConfig[] = [
-  { label: "Organic Traffic", key: "organicTraffic", icon: <TrendingUpIcon />, color: "#274e64", bgColor: "#e8f0f4" },
-  { label: "Keywords Tracked", key: "keywordRankings", icon: <TrackChangesIcon />, color: "#ed1b2f", bgColor: "#fdebed" },
-  { label: "Content in Pipeline", key: "contentPieces", icon: <AssignmentIcon />, color: "#34a853", bgColor: "#e6f4ea" },
-  { label: "Avg. SERP Position", key: "avgPosition", icon: <BarChartIcon />, color: "#fbbc04", bgColor: "#fef7e0" },
-  { label: "Click-Through Rate", key: "clickThroughRate", icon: <AdsClickIcon />, color: "#4285f4", bgColor: "#e8f0fe" },
-  { label: "Planned Items", key: "pipelineItems", icon: <PendingActionsIcon />, color: "#9334e6", bgColor: "#f3e8fd" },
+  { label: "Organic Traffic", key: "organicTraffic", icon: <TrendingUpIcon />, color: "#274e64", bgColor: "#e8f0f4", href: "/analytics" },
+  { label: "Keywords Tracked", key: "keywordRankings", icon: <TrackChangesIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/seo" },
+  { label: "Content in Pipeline", key: "contentPieces", icon: <AssignmentIcon />, color: "#34a853", bgColor: "#e6f4ea", href: "/calendar" },
+  { label: "Avg. SERP Position", key: "avgPosition", icon: <BarChartIcon />, color: "#fbbc04", bgColor: "#fef7e0", href: "/seo" },
+  { label: "Click-Through Rate", key: "clickThroughRate", icon: <AdsClickIcon />, color: "#4285f4", bgColor: "#e8f0fe", href: "/analytics" },
+  { label: "Planned Items", key: "pipelineItems", icon: <PendingActionsIcon />, color: "#9334e6", bgColor: "#f3e8fd", href: "/calendar" },
+  { label: "Drafts Pending", key: "draftsPending", icon: <PendingActionsIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/studio" },
+  { label: "Knowledge Docs", key: "knowledgeDocs", icon: <ArticleIcon />, color: "#274e64", bgColor: "#e8f0f4", href: "/knowledge-base" },
 ];
-
-const PREVIEW_VALUES: Record<string, { value: string; period: string }> = {
-  organicTraffic: { value: "12.4k", period: "sessions / month" },
-  keywordRankings: { value: "184", period: "keywords tracked" },
-  avgPosition: { value: "14.2", period: "avg. SERP position" },
-  clickThroughRate: { value: "3.8%", period: "click-through rate" },
-};
 
 /* ── page ── */
 
@@ -127,8 +123,10 @@ export default function MissionControl() {
           const hasData = data.value !== null;
 
           return (
-            <Grid key={kpi.key} size={{ xs: 6, sm: 4, md: 2 }}>
+            <Grid key={kpi.key} size={{ xs: 6, sm: 4, md: 3, lg: 1.5 }}>
               <Card
+                component={Link}
+                href={kpi.href}
                 className="hover-lift accent-top"
                 sx={{
                   height: "100%",
@@ -137,6 +135,8 @@ export default function MissionControl() {
                   position: "relative",
                   cursor: "pointer",
                   bgcolor: "#ffffff",
+                  textDecoration: "none",
+                  display: "block",
                 }}
               >
                 <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
@@ -172,72 +172,42 @@ export default function MissionControl() {
                   </Typography>
 
                   {hasData ? (
-                    <>
-                      <Typography
-                        sx={{
-                          fontSize: "1.75rem",
-                          fontWeight: 600,
-                          color: "#1f1f1f",
-                          lineHeight: 1.1,
-                          letterSpacing: "-0.02em",
-                          mb: 0.5,
-                        }}
-                      >
-                        {data.value}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          color: "#5f6368",
-                          lineHeight: 1.4,
-                          fontWeight: 400,
-                        }}
-                      >
-                        {data.period}
-                      </Typography>
-                    </>
+                    <Typography
+                      sx={{
+                        fontSize: "1.75rem",
+                        fontWeight: 600,
+                        color: "#1f1f1f",
+                        lineHeight: 1.1,
+                        letterSpacing: "-0.02em",
+                        mb: 0.5,
+                      }}
+                    >
+                      {data.value}
+                    </Typography>
                   ) : (
-                    <>
-                      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, mb: 0.25 }}>
-                        <Typography
-                          sx={{
-                            fontSize: "1.75rem",
-                            fontWeight: 600,
-                            color: "#c4c7c5",
-                            lineHeight: 1.1,
-                            letterSpacing: "-0.02em",
-                          }}
-                        >
-                          {PREVIEW_VALUES[kpi.key]?.value ?? "—"}
-                        </Typography>
-                        <Chip
-                          label="NICE TO HAVE"
-                          size="small"
-                          sx={{
-                            height: 16,
-                            fontSize: "0.55rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.05em",
-                            bgcolor: "#fef7e0",
-                            color: "#b06000",
-                            border: "none",
-                            "& .MuiChip-label": { px: 0.75 },
-                          }}
-                        />
-                      </Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.68rem",
-                          color: "#9aa0a6",
-                          lineHeight: 1.4,
-                          fontWeight: 500,
-                          fontStyle: "italic",
-                        }}
-                      >
-                        {PREVIEW_VALUES[kpi.key]?.period ?? data.period} · sample
-                      </Typography>
-                    </>
+                    <Typography
+                      sx={{
+                        fontSize: "1.75rem",
+                        fontWeight: 400,
+                        color: "#dadce0",
+                        lineHeight: 1.1,
+                        mb: 0.5,
+                      }}
+                    >
+                      —
+                    </Typography>
                   )}
+
+                  <Typography
+                    sx={{
+                      fontSize: "0.7rem",
+                      color: "#5f6368",
+                      lineHeight: 1.4,
+                      fontWeight: 400,
+                    }}
+                  >
+                    {data.period}
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
