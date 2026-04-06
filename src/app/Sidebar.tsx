@@ -17,6 +17,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
+import ArticleIcon from "@mui/icons-material/Article";
 import SettingsIcon from "@mui/icons-material/Settings";
 import Link from "next/link";
 
@@ -48,6 +49,7 @@ const navSections: NavSection[] = [
     items: [
       { label: "LinkedIn", href: "/linkedin", icon: <LinkedInIcon fontSize="small" /> },
       { label: "Newsletter", href: "/newsletter", icon: <NewspaperIcon fontSize="small" /> },
+      { label: "Blog", href: "/blog", icon: <ArticleIcon fontSize="small" /> },
     ],
   },
   {
