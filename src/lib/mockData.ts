@@ -9,6 +9,8 @@ export const kpiData = {
   avgPosition: { value: null as number | null, change: 0, period: "Awaiting GSC connection" },
   clickThroughRate: { value: null as number | null, change: 0, period: "Awaiting GA4 connection" },
   pipelineItems: { value: 12, change: 0, period: "planned this month" },
+  draftsPending: { value: 9, change: 0, period: "awaiting approval" },
+  knowledgeDocs: { value: 8, change: 0, period: "in knowledge base" },
 };
 
 export const trafficChartData = [
