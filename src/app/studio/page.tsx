@@ -97,8 +97,15 @@ function defaultDate(offsetDays: number = 1): string {
 
 /* ── Page ── */
 
-export default function ContentStudioPage() {
-  const [activeChannel, setActiveChannel] = useState<ContentChannel>("LinkedIn");
+interface StudioBoardProps {
+  lockedChannel?: ContentChannel;
+  pageTitle?: string;
+  pageSubtitle?: string;
+}
+
+export default function ContentStudioPage(props: StudioBoardProps = {}) {
+  const { lockedChannel, pageTitle, pageSubtitle } = props;
+  const [activeChannel, setActiveChannel] = useState<ContentChannel>(lockedChannel ?? "LinkedIn");
   const [snack, setSnack] = useState<string | null>(null);
   const [scheduleDialogId, setScheduleDialogId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string>(defaultDate(1));
@@ -197,16 +204,16 @@ export default function ContentStudioPage() {
   return (
     <Box>
       <PageHeader
-        title="Content Studio"
-        subtitle="AI-powered content generation with mandatory human approval gates"
+        title={pageTitle ?? "Content Studio"}
+        subtitle={pageSubtitle ?? "AI-powered content generation with mandatory human approval gates"}
         badge="AI"
       />
 
-      {/* ── Channel Tabs ── */}
+      {/* ── Channel Tabs (hidden when locked to one channel) ── */}
       <Box
         className="animate-fade-in-up"
         sx={{
-          display: "flex",
+          display: lockedChannel ? "none" : "flex",
           gap: 1,
           mb: 3,
           p: 0.75,
