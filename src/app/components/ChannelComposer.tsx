@@ -19,6 +19,7 @@ import Snackbar from "@mui/material/Snackbar";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ImageIcon from "@mui/icons-material/Image";
 import ScheduleIcon from "@mui/icons-material/Schedule";
+import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PageHeader from "@/app/PageHeader";
 
@@ -131,7 +132,7 @@ export default function ChannelComposer({ config }: Props) {
                   startIcon={<AutoAwesomeIcon sx={{ fontSize: 16 }} />}
                   sx={{
                     flex: 1,
-                    minWidth: 160,
+                    minWidth: 180,
                     bgcolor: config.accentColor,
                     color: "#fff",
                     borderRadius: 999,
@@ -150,7 +151,7 @@ export default function ChannelComposer({ config }: Props) {
                   startIcon={<ImageIcon sx={{ fontSize: 16 }} />}
                   sx={{
                     flex: 1,
-                    minWidth: 140,
+                    minWidth: 180,
                     bgcolor: "#fff",
                     color: config.accentColor,
                     border: `1px dashed ${config.accentColor}66`,
@@ -162,26 +163,7 @@ export default function ChannelComposer({ config }: Props) {
                     "&:hover": { bgcolor: `${config.accentColor}10`, borderColor: config.accentColor },
                   }}
                 >
-                  {photo ? "Change Photo" : "Add Photo"}
-                </Button>
-                <Button
-                  startIcon={<ScheduleIcon sx={{ fontSize: 16 }} />}
-                  sx={{
-                    flex: 1,
-                    minWidth: 140,
-                    bgcolor: "#34a853",
-                    color: "#fff",
-                    borderRadius: 999,
-                    textTransform: "none",
-                    fontWeight: 600,
-                    fontSize: "0.85rem",
-                    py: 1.1,
-                    boxShadow: "none",
-                    "&:hover": { bgcolor: "#1e8e3e", boxShadow: "none" },
-                  }}
-                  onClick={() => setSnack("Scheduled (mock)")}
-                >
-                  Schedule Post
+                  {photo ? "Change Photo" : "Generate Photo with AI"}
                 </Button>
               </Box>
 
@@ -220,7 +202,7 @@ export default function ChannelComposer({ config }: Props) {
               <Box sx={{ border: "1px solid #ececec", borderRadius: 3, overflow: "hidden", bgcolor: "#fff" }}>
                 {/* Header strip */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 2, borderBottom: "1px solid #f1f3f4" }}>
-                  <Avatar sx={{ width: 40, height: 40, bgcolor: config.accentColor, fontSize: "0.85rem", fontWeight: 700 }}>
+                  <Avatar sx={{ width: 40, height: 40, bgcolor: "#ed1b2f", color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>
                     AP
                   </Avatar>
                   <Box sx={{ flex: 1 }}>
@@ -269,6 +251,46 @@ export default function ChannelComposer({ config }: Props) {
                     </Box>
                   ))}
                 </Box>
+              </Box>
+
+              {/* Edit + Schedule actions under preview */}
+              <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+                <Button
+                  onClick={() => setSnack("Edit mode (mock)")}
+                  startIcon={<EditIcon sx={{ fontSize: 16 }} />}
+                  sx={{
+                    flex: 1,
+                    bgcolor: "#fff",
+                    color: "#3c4043",
+                    border: "1px solid #ececec",
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.85rem",
+                    py: 1.05,
+                    "&:hover": { bgcolor: "#f1f3f4", borderColor: "#dadce0" },
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  onClick={() => setSnack("Scheduled (mock)")}
+                  startIcon={<ScheduleIcon sx={{ fontSize: 16 }} />}
+                  sx={{
+                    flex: 1,
+                    bgcolor: "#34a853",
+                    color: "#fff",
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.85rem",
+                    py: 1.1,
+                    boxShadow: "none",
+                    "&:hover": { bgcolor: "#1e8e3e", boxShadow: "none" },
+                  }}
+                >
+                  Schedule Post
+                </Button>
               </Box>
             </CardContent>
           </Card>
