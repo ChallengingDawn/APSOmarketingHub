@@ -217,39 +217,63 @@
   letter-spacing: -0.02em;
   display: inline-flex;
   color: #274e64;
+  perspective: 600px;
 }
 
 .brand-apso .letter {
   display: inline-block;
   color: #274e64;
-  transition: color 0.15s ease;
+  transform-style: preserve-3d;
 }
 
-/* Sequence: all blue → A red → P red → S red → O red → hold all red → reset to blue */
-.brand-apso .letter-a { animation: letterA 6s ease infinite; }
-.brand-apso .letter-p { animation: letterP 6s ease infinite; }
-.brand-apso .letter-s { animation: letterS 6s ease infinite; }
-.brand-apso .letter-o { animation: letterO 6s ease infinite; }
+/*
+  9-second cycle:
+  0-5%   all blue
+  5-10%  A red
+  10-15% P red
+  15-20% S red
+  20-25% O red (all red)
+  25-40% O 3D spins twice (720°), all letters stay red
+  40-50% O red (settle)
+  50-60% O blue
+  60-70% S blue
+  70-80% P blue
+  80-90% A blue (all blue)
+  90-100% hold blue
+*/
 
+.brand-apso .letter-a { animation: letterA 9s ease-in-out infinite; }
+.brand-apso .letter-p { animation: letterP 9s ease-in-out infinite; }
+.brand-apso .letter-s { animation: letterS 9s ease-in-out infinite; }
+.brand-apso .letter-o { animation: letterO 9s ease-in-out infinite; }
+
+/* A: red 8% → 82%, then back to blue */
 @keyframes letterA {
-  0%, 8%      { color: #274e64; }
-  10%, 88%    { color: #ed1b2f; }
-  92%, 100%   { color: #274e64; }
+  0%, 6%     { color: #274e64; }
+  10%, 80%   { color: #ed1b2f; }
+  86%, 100%  { color: #274e64; }
 }
+/* P: red 13% → 76%, blue */
 @keyframes letterP {
-  0%, 23%     { color: #274e64; }
-  25%, 88%    { color: #ed1b2f; }
-  92%, 100%   { color: #274e64; }
+  0%, 11%    { color: #274e64; }
+  15%, 73%   { color: #ed1b2f; }
+  79%, 100%  { color: #274e64; }
 }
+/* S: red 18% → 68%, blue */
 @keyframes letterS {
-  0%, 38%     { color: #274e64; }
-  40%, 88%    { color: #ed1b2f; }
-  92%, 100%   { color: #274e64; }
+  0%, 16%    { color: #274e64; }
+  20%, 65%   { color: #ed1b2f; }
+  71%, 100%  { color: #274e64; }
 }
+/* O: red 23% → 55%, then blue. During 25-40% it spins. */
 @keyframes letterO {
-  0%, 53%     { color: #274e64; }
-  55%, 88%    { color: #ed1b2f; }
-  92%, 100%   { color: #274e64; }
+  0%, 21%                    { color: #274e64; transform: rotateY(0deg); }
+  25%                        { color: #ed1b2f; transform: rotateY(0deg); }
+  27%                        { color: #ed1b2f; transform: rotateY(180deg); }
+  30%                        { color: #ed1b2f; transform: rotateY(360deg); }
+  33%                        { color: #ed1b2f; transform: rotateY(540deg); }
+  36%, 50%                   { color: #ed1b2f; transform: rotateY(720deg); }
+  56%, 100%                  { color: #274e64; transform: rotateY(720deg); }
 }
 
 /* ── Active nav icon animation ── */

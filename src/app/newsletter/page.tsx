@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
@@ -84,32 +85,10 @@ export default function NewsletterPage() {
 
   return (
     <>
-      {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-        <Box
-          sx={{
-            width: 48,
-            height: 48,
-            borderRadius: 2,
-            background: "linear-gradient(135deg, #274e64 0%, #1a3a4c 100%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Email sx={{ color: "#fff", fontSize: 26 }} />
-        </Box>
-        <Box>
-          <Typography variant="h5" sx={{ lineHeight: 1.2 }}>
-            Newsletter Studio
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Design &amp; generate newsletter content for your audience
-          </Typography>
-        </Box>
-      </Box>
-
-      <Divider sx={{ my: 2.5 }} />
+      <PageHeader
+        title="Newsletter Studio"
+        subtitle="Design & generate newsletter content for your audience"
+      />
 
       {/* Two-column layout */}
       <Grid container spacing={3} sx={{ mb: 3 }}>

@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
@@ -106,16 +107,10 @@ export default function AuditPage() {
 
   return (
     <Box sx={{ py: 4, px: { xs: 2, md: 4 } }}>
-      {/* ── Header ── */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-        <Shield sx={{ fontSize: 40, color: "#274e64" }} />
-        <Typography variant="h4" fontWeight={700} color="#274e64">
-          Audit &amp; Compliance
-        </Typography>
-      </Box>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Full transparency — every AI decision, every prompt, every output logged and traceable
-      </Typography>
+      <PageHeader
+        title="Audit & Compliance"
+        subtitle="Full transparency — every AI decision, every prompt, every output logged and traceable"
+      />
 
       {/* ── Compliance Status Cards ── */}
       <Grid container spacing={3} sx={{ mb: 4 }}>

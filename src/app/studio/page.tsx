@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
@@ -65,28 +66,11 @@ export default function ContentStudioPage() {
   return (
     <>
       {/* ── Header ───────────────────────────────────────────── */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1.5,
-          mb: 0.5,
-        }}
-      >
-        <Typography variant="h5" fontWeight={700}>
-          Content Studio
-        </Typography>
-        <Chip
-          icon={<AutoAwesome sx={{ fontSize: 16 }} />}
-          label="AI"
-          size="small"
-          color="secondary"
-          sx={{ fontWeight: 700, letterSpacing: 0.5 }}
-        />
-      </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        AI-powered content generation with mandatory human approval gates
-      </Typography>
+      <PageHeader
+        title="Content Studio"
+        subtitle="AI-powered content generation with mandatory human approval gates"
+        badge="AI"
+      />
 
       {/* ── Approval Workflow Stepper ────────────────────────── */}
       <Card

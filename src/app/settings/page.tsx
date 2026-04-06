@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
@@ -153,13 +154,10 @@ export default function SettingsPage() {
 
   return (
     <>
-      {/* ── Header ── */}
-      <Typography variant="h5" fontWeight={700} gutterBottom>
-        Settings &amp; Governance
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-        Configure integrations, access control &amp; publishing rules
-      </Typography>
+      <PageHeader
+        title="Settings & Governance"
+        subtitle="Configure integrations, access control & publishing rules"
+      />
 
       {/* ── 1. Integrations ── */}
       <Card variant="outlined" sx={{ mb: 3 }}>

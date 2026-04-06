@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState, useMemo } from "react";
 import Typography from "@mui/material/Typography";
@@ -120,15 +121,10 @@ export default function AnalyticsPage() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1400, mx: "auto" }}>
-      {/* ── Header ── */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Analytics &amp; Reporting
-        </Typography>
-        <Typography variant="body2" sx={{ color: "text.secondary" }}>
-          Content performance, ROI metrics &amp; quality monitoring
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Analytics & Reporting"
+        subtitle="Content performance, ROI metrics & quality monitoring"
+      />
 
       {/* ── Time Period Selector ── */}
       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 4 }}>

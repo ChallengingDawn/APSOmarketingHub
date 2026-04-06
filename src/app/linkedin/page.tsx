@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
@@ -90,32 +91,10 @@ export default function LinkedInPage() {
 
   return (
     <>
-      {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-        <Box
-          sx={{
-            width: 48,
-            height: 48,
-            borderRadius: 2,
-            background: "linear-gradient(135deg, #0077B5 0%, #005582 100%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <LinkedIn sx={{ color: "#fff", fontSize: 30 }} />
-        </Box>
-        <Box>
-          <Typography variant="h5" sx={{ lineHeight: 1.2 }}>
-            LinkedIn Content Manager
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Create, schedule &amp; manage LinkedIn posts
-          </Typography>
-        </Box>
-      </Box>
-
-      <Divider sx={{ my: 2.5 }} />
+      <PageHeader
+        title="LinkedIn Content Manager"
+        subtitle="Create, schedule & manage LinkedIn posts"
+      />
 
       {/* Two-column layout */}
       <Grid container spacing={3} sx={{ mb: 3 }}>

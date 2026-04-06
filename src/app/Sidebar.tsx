@@ -79,22 +79,8 @@ export default function Sidebar() {
         },
       }}
     >
-      {/* ── Animated Background: flat Google-style icons ── */}
+      {/* ── Animated Background: flat Google-style compass ── */}
       <Box className="sidebar-bg">
-        {/* Person */}
-        <Box className="sidebar-icon-bg sidebar-icon-person">
-          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="50" cy="32" r="16" fill="#274e64" />
-            <path
-              d="M22 86c0-15.5 12.5-28 28-28s28 12.5 28 28"
-              stroke="#274e64"
-              strokeWidth="6"
-              strokeLinecap="round"
-              fill="none"
-            />
-          </svg>
-        </Box>
-        {/* Compass */}
         <Box className="sidebar-icon-bg sidebar-icon-compass">
           <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="50" cy="50" r="42" stroke="#274e64" strokeWidth="5" fill="none" />
@@ -104,24 +90,6 @@ export default function Sidebar() {
               fill="#ed1b2f"
             />
             <circle cx="50" cy="50" r="4" fill="#274e64" />
-          </svg>
-        </Box>
-        {/* Pen */}
-        <Box className="sidebar-icon-bg sidebar-icon-pen">
-          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M14 86 L24 64 L70 18 L82 30 L36 76 Z"
-              fill="#274e64"
-            />
-            <path
-              d="M62 26 L74 38"
-              stroke="#fff"
-              strokeWidth="3"
-            />
-            <path
-              d="M14 86 L24 76 L24 64 L14 86 Z"
-              fill="#1f1f1f"
-            />
           </svg>
         </Box>
       </Box>

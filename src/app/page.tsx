@@ -26,6 +26,7 @@ import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import Link from "next/link";
+import PageHeader from "./PageHeader";
 
 import {
   kpiData,
@@ -88,36 +89,10 @@ export default function MissionControl() {
 
   return (
     <Box>
-      {/* ── Hero Header ── */}
-      <Box className="animate-fade-in-up" sx={{ mb: 4 }}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 2 }}>
-          <Box>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-              <Box
-                sx={{
-                  width: 4,
-                  height: 32,
-                  borderRadius: 4,
-                  background: "linear-gradient(180deg, #ed1b2f 0%, #274e64 100%)",
-                }}
-              />
-              <Typography
-                variant="h4"
-                sx={{
-                  fontFamily: "'Outfit', 'Inter', sans-serif",
-                  fontWeight: 500,
-                  color: "#1f1f1f",
-                  letterSpacing: "-0.03em",
-                  fontSize: { xs: "1.85rem", md: "2.15rem" },
-                }}
-              >
-                Mission Control
-              </Typography>
-            </Box>
-            <Typography variant="body2" sx={{ color: "#5f6368", ml: 2.5, fontSize: "0.95rem" }}>
-              Real-time overview of your digital growth pipeline
-            </Typography>
-          </Box>
+      <PageHeader
+        title="Mission Control"
+        subtitle="Real-time overview of your digital growth pipeline"
+        rightSlot={
           <Box
             sx={{
               display: "flex",
@@ -135,8 +110,8 @@ export default function MissionControl() {
               {today}
             </Typography>
           </Box>
-        </Box>
-      </Box>
+        }
+      />
 
       {/* ── KPI Grid ── */}
       <Grid container spacing={2} className="stagger-children" sx={{ mb: 4 }}>

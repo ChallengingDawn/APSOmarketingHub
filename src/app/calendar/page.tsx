@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState, useMemo } from "react";
 import Typography from "@mui/material/Typography";
@@ -115,12 +116,10 @@ export default function ContentCalendarPage() {
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2, minHeight: "calc(100vh - 48px)" }}>
       {/* ── Header ──────────────────────────────────────── */}
       <Box>
-        <Typography variant="h5" fontWeight={700}>
-          Content Calendar
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Plan, schedule &amp; manage content across all channels
-        </Typography>
+        <PageHeader
+          title="Content Calendar"
+          subtitle="Plan, schedule & manage content across all channels"
+        />
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           {FILTERS.map((f) => (

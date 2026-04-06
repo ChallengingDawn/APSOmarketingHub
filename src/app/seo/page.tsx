@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useMemo } from "react";
 import Typography from "@mui/material/Typography";
@@ -110,13 +111,10 @@ export default function SEOCommandCenter() {
 
   return (
     <>
-      {/* ── Header ── */}
-      <Typography variant="h5" gutterBottom>
-        SEO Command Center
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Keyword intelligence, content gaps &amp; ranking opportunities
-      </Typography>
+      <PageHeader
+        title="SEO Command Center"
+        subtitle="Keyword intelligence, content gaps & ranking opportunities"
+      />
 
       {/* ── Summary Cards ── */}
       <Grid container spacing={2.5} sx={{ mb: 4 }}>

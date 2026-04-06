@@ -1,4 +1,5 @@
 "use client";
+import PageHeader from "@/app/PageHeader";
 
 import { useState } from "react";
 import Typography from "@mui/material/Typography";
@@ -73,14 +74,11 @@ export default function KnowledgeBasePage() {
           mb: 3,
         }}
       >
-        <Box>
-          <Typography variant="h5" gutterBottom>
-            Knowledge Base
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage brand guidelines, product catalogs &amp; domain knowledge for
-            AI-powered content generation
-          </Typography>
+        <Box sx={{ flex: 1 }}>
+          <PageHeader
+            title="Knowledge Base"
+            subtitle="Manage brand guidelines, product catalogs & domain knowledge for AI-powered content generation"
+          />
         </Box>
         <Button
           variant="contained"
