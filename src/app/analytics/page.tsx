@@ -69,10 +69,14 @@ interface KpiDef {
 }
 
 const kpis: KpiDef[] = [
-  { label: "Total Sessions", value: "—", change: 0, suffix: "Awaiting GA4" },
-  { label: "Page Views", value: "—", change: 0, suffix: "Awaiting GA4" },
-  { label: "Avg Bounce Rate", value: "—", change: 0, inverted: true, suffix: "Awaiting GA4" },
-  { label: "Content ROI Score", value: "—", change: 0, suffix: "Awaiting data" },
+  { label: "Total Sessions", value: "12,438", change: 8.4, suffix: "vs prev period" },
+  { label: "Page Views", value: "34,217", change: 12.1, suffix: "vs prev period" },
+  { label: "Avg Bounce Rate", value: "42.3%", change: -3.2, inverted: true, suffix: "vs prev period" },
+  { label: "Content ROI Score", value: "78/100", change: 5.6, suffix: "quality index" },
+  { label: "Avg Session Duration", value: "2m 48s", change: 6.9, suffix: "vs prev period" },
+  { label: "Pages / Session", value: "2.75", change: 4.1, suffix: "engagement" },
+  { label: "Goal Conversions", value: "184", change: 15.3, suffix: "samples + quotes" },
+  { label: "Conversion Rate", value: "1.48%", change: 0.6, suffix: "of sessions" },
 ];
 
 /* ── Pie chart custom label ── */
@@ -128,34 +132,61 @@ export default function AnalyticsPage() {
 
       {/* ── Time Period Selector ── */}
       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 4 }}>
-        {TIME_PERIODS.map((period) => (
-          <Chip
-            key={period}
-            label={period}
-            onClick={() => setActivePeriod(period)}
-            color={activePeriod === period ? "primary" : "default"}
-            variant={activePeriod === period ? "filled" : "outlined"}
-            sx={{ cursor: "pointer" }}
-          />
-        ))}
+        {TIME_PERIODS.map((period) => {
+          const active = activePeriod === period;
+          return (
+            <Chip
+              key={period}
+              label={period}
+              onClick={() => setActivePeriod(period)}
+              sx={{
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: "0.78rem",
+                px: 0.5,
+                bgcolor: active ? "#ed1b2f" : "#fff",
+                color: active ? "#fff" : "#3c4043",
+                border: active ? "1px solid #ed1b2f" : "1px solid #ececec",
+                "&:hover": {
+                  bgcolor: active ? "#d80901" : "#fdebed",
+                  color: active ? "#fff" : "#ed1b2f",
+                  borderColor: "#ed1b2f",
+                },
+              }}
+            />
+          );
+        })}
       </Box>
 
       {/* ── KPI Cards ── */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 4 }}>
         {kpis.map((kpi) => {
           const isPositive = kpi.inverted ? kpi.change < 0 : kpi.change > 0;
           const isNeutral = kpi.change === 0;
           return (
-            <Grid key={kpi.label} size={{ xs: 12, sm: 6, md: 3 }}>
-              <Card>
-                <CardContent>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ color: "text.secondary", mb: 1 }}
-                  >
-                    {kpi.label}
-                  </Typography>
-                  <Typography variant="h4" sx={{ mb: 1 }}>
+            <Grid key={kpi.label} size={{ xs: 6, sm: 4, md: 3, lg: 1.5 }}>
+              <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
+                <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {kpi.label}
+                    </Typography>
+                    <Chip
+                      label="SAMPLE"
+                      size="small"
+                      sx={{
+                        height: 16,
+                        fontSize: "0.55rem",
+                        fontWeight: 700,
+                        letterSpacing: "0.05em",
+                        bgcolor: "#fdebed",
+                        color: "#ed1b2f",
+                        border: "none",
+                        "& .MuiChip-label": { px: 0.75 },
+                      }}
+                    />
+                  </Box>
+                  <Typography sx={{ fontSize: "1.5rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.1, letterSpacing: "-0.02em", mb: 0.5 }}>
                     {kpi.value}
                   </Typography>
                   {!isNeutral && (
@@ -163,19 +194,21 @@ export default function AnalyticsPage() {
                       sx={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 0.5,
-                        color: isPositive ? "success.main" : "error.main",
+                        gap: 0.4,
+                        color: isPositive ? "#1e8e3e" : "#ea4335",
                       }}
                     >
                       {isPositive ? (
-                        <TrendingUpIcon fontSize="small" />
+                        <TrendingUpIcon sx={{ fontSize: 14 }} />
                       ) : (
-                        <TrendingDownIcon fontSize="small" />
+                        <TrendingDownIcon sx={{ fontSize: 14 }} />
                       )}
-                      <Typography variant="body2" sx={{ color: "inherit" }}>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "inherit" }}>
                         {kpi.change > 0 ? "+" : ""}
                         {kpi.change}%
-                        {kpi.inverted ? " (improvement)" : ""}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: "#9aa0a6", ml: 0.4 }}>
+                        {kpi.suffix}
                       </Typography>
                     </Box>
                   )}
