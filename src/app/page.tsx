@@ -338,7 +338,12 @@ export default function MissionControl() {
         <Grid size={{ xs: 12, md: 6 }}>
           <Card
             className="animate-fade-in-up hover-lift"
-            sx={{ height: "100%", border: "1px solid #ececec", borderRadius: 4 }}
+            sx={{
+              height: "100%",
+              border: "1px solid #ececec",
+              borderRadius: 4,
+              "& a": { color: "inherit", textDecoration: "none" },
+            }}
           >
             <CardContent sx={{ p: 3 }}>
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
@@ -367,6 +372,8 @@ export default function MissionControl() {
                 ].map((item, i) => (
                   <Box
                     key={i}
+                    component={Link}
+                    href="/calendar"
                     sx={{
                       display: "flex",
                       alignItems: "center",
@@ -375,7 +382,9 @@ export default function MissionControl() {
                       borderRadius: 2,
                       border: "1px solid #f1f3f4",
                       transition: "all 0.2s",
-                      "&:hover": { bgcolor: "#fafbfc", borderColor: "#ececec" },
+                      textDecoration: "none",
+                      cursor: "pointer",
+                      "&:hover": { bgcolor: "#e8f0fe", borderColor: "#4285f4" },
                     }}
                   >
                     <Box
