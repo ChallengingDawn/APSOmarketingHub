@@ -104,10 +104,11 @@ export default function MissionControl() {
               <Typography
                 variant="h4"
                 sx={{
-                  fontWeight: 600,
+                  fontFamily: "'Outfit', 'Inter', sans-serif",
+                  fontWeight: 500,
                   color: "#1f1f1f",
-                  letterSpacing: "-0.025em",
-                  fontSize: { xs: "1.75rem", md: "2rem" },
+                  letterSpacing: "-0.03em",
+                  fontSize: { xs: "1.85rem", md: "2.15rem" },
                 }}
               >
                 Mission Control

@@ -46,9 +46,9 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: "'Inter', 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif",
-    h4: { fontWeight: 500, letterSpacing: "-0.02em", color: "#1f1f1f" },
-    h5: { fontWeight: 500, letterSpacing: "-0.01em", color: "#1f1f1f" },
-    h6: { fontWeight: 500, color: "#1f1f1f" },
+    h4: { fontFamily: "'Outfit', 'Inter', sans-serif", fontWeight: 500, letterSpacing: "-0.025em", color: "#1f1f1f" },
+    h5: { fontFamily: "'Outfit', 'Inter', sans-serif", fontWeight: 500, letterSpacing: "-0.02em", color: "#1f1f1f" },
+    h6: { fontFamily: "'Outfit', 'Inter', sans-serif", fontWeight: 500, color: "#1f1f1f" },
     subtitle1: { fontWeight: 500, color: "#1f1f1f" },
     subtitle2: { fontWeight: 500, fontSize: "0.8rem", color: "#1f1f1f" },
     body1: { color: "#3c4043" },
