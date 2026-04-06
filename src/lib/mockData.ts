@@ -29,14 +29,17 @@ export const contentPipelineData = [
 ];
 
 export const activityFeed = [
-  { id: 1, type: "content" as const, message: "New content brief: 'O-Ring Material Selection Guide — FKM, FFKM & Silicone for High-Temperature Applications'", time: "12 min ago", status: "pending_review" as const },
-  { id: 2, type: "content" as const, message: "Draft generated: 'POM-C vs PEEK — Choosing Engineered Plastics for Precision Components'", time: "1 hour ago", status: "pending_review" as const },
-  { id: 3, type: "approval" as const, message: "Miriam approved topic: 'Custom O-Rings for Food & Beverage Processing — EPDM and Silicone'", time: "2 hours ago", status: "approved" as const },
-  { id: 4, type: "content" as const, message: "Brief generated: 'PEEK Machined Parts for Aerospace Sealing Applications'", time: "3 hours ago", status: "pending_review" as const },
-  { id: 5, type: "system" as const, message: "Knowledge base updated: 'POM-C Material Data Sheet 2026' uploaded", time: "5 hours ago", status: "info" as const },
-  { id: 6, type: "approval" as const, message: "Aleksandra requested changes: 'O-Ring Failure Analysis Guide' — needs PEEK back-up ring section", time: "6 hours ago", status: "action_needed" as const },
-  { id: 7, type: "content" as const, message: "Content calendar: 4 new topics added focusing on PEEK and POM-C engineering plastics", time: "1 day ago", status: "info" as const },
-  { id: 8, type: "system" as const, message: "Brand voice document v2.1 — added o-ring & engineered plastics terminology", time: "1 day ago", status: "info" as const },
+  { id: 1, type: "content" as const, message: "LinkedIn draft generated: 'FKM vs FFKM: choosing your o-ring for chemical resistance'", time: "8 min ago", status: "pending_review" as const },
+  { id: 2, type: "content" as const, message: "LinkedIn draft generated: 'PEEK in aerospace: the high-performance plastic explained'", time: "22 min ago", status: "pending_review" as const },
+  { id: 3, type: "content" as const, message: "LinkedIn draft generated: 'O-rings for food & beverage processing'", time: "45 min ago", status: "pending_review" as const },
+  { id: 4, type: "content" as const, message: "Newsletter draft generated: 'Q2 2026 — New FFKM range, expanded PEEK catalog & spring webinar'", time: "1 hour ago", status: "pending_review" as const },
+  { id: 5, type: "content" as const, message: "Newsletter draft generated: '[New Guide] How to choose the right o-ring material in 5 questions'", time: "1 hour ago", status: "pending_review" as const },
+  { id: 6, type: "content" as const, message: "Newsletter draft generated: 'PEEK vs POM-C — which one fits your next project?'", time: "2 hours ago", status: "pending_review" as const },
+  { id: 7, type: "content" as const, message: "Blog draft generated: 'O-Ring Material Selection Guide: FKM, FFKM & Silicone for Demanding Applications'", time: "3 hours ago", status: "pending_review" as const },
+  { id: 8, type: "content" as const, message: "Blog draft generated: 'PEEK vs POM-C: Engineering Plastics Comparison for Precision Components'", time: "3 hours ago", status: "pending_review" as const },
+  { id: 9, type: "content" as const, message: "Blog draft generated: '5 Common O-Ring Failure Modes (and How to Prevent Each One)'", time: "4 hours ago", status: "pending_review" as const },
+  { id: 10, type: "system" as const, message: "Content pipeline run complete: 9 drafts generated across LinkedIn, Newsletter and Blog", time: "4 hours ago", status: "info" as const },
+  { id: 11, type: "system" as const, message: "Knowledge base updated: 'Rubber & Elastomer Material Data Sheets' refreshed", time: "6 hours ago", status: "info" as const },
 ];
 
 export const seoKeywords = [
