@@ -218,11 +218,11 @@
   letter-spacing: -0.02em;
   background: linear-gradient(
     100deg,
-    #1f1f1f 0%,
-    #1f1f1f 30%,
+    #274e64 0%,
+    #274e64 20%,
     #ed1b2f 50%,
-    #1f1f1f 70%,
-    #1f1f1f 100%
+    #274e64 80%,
+    #274e64 100%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;
