@@ -137,23 +137,29 @@ export default function ContentCalendarPage() {
         />
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          {FILTERS.map((f) => (
-            <Chip
-              key={f}
-              label={f}
-              onClick={() => setActiveFilter(f)}
-              variant={activeFilter === f ? "filled" : "outlined"}
-              color={activeFilter === f ? "primary" : "default"}
-              sx={{
-                fontWeight: activeFilter === f ? 700 : 400,
-                cursor: "pointer",
-              }}
-            />
-          ))}
-          <Box sx={{ flex: 1 }} />
-          <Button variant="contained" startIcon={<Add />} size="small">
-            Add Topic
-          </Button>
+          {FILTERS.map((f) => {
+            const active = activeFilter === f;
+            return (
+              <Chip
+                key={f}
+                label={f}
+                onClick={() => setActiveFilter(f)}
+                sx={{
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: "0.78rem",
+                  bgcolor: active ? "#ed1b2f" : "#fff",
+                  color: active ? "#fff" : "#3c4043",
+                  border: active ? "1px solid #ed1b2f" : "1px solid #ececec",
+                  "&:hover": {
+                    bgcolor: active ? "#d80901" : "#fdebed",
+                    color: active ? "#fff" : "#ed1b2f",
+                    borderColor: "#ed1b2f",
+                  },
+                }}
+              />
+            );
+          })}
         </Box>
       </Box>
 
@@ -216,6 +222,7 @@ export default function ContentCalendarPage() {
                         ? {
                             boxShadow: "0 2px 8px rgba(0,0,0,0.10)",
                             transform: "translateY(-1px)",
+                            "& .day-add-btn": { opacity: 1 },
                           }
                         : {},
                     }}
@@ -234,6 +241,31 @@ export default function ContentCalendarPage() {
                           {day}
                         </Typography>
 
+                        {(itemsByDay[day] || []).length === 0 && (
+                          <Box
+                            component={Link}
+                            href="/studio"
+                            className="day-add-btn"
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 22,
+                              height: 22,
+                              borderRadius: "50%",
+                              bgcolor: "#fdebed",
+                              color: "#ed1b2f",
+                              opacity: 0,
+                              transition: "opacity 0.15s",
+                              cursor: "pointer",
+                              textDecoration: "none",
+                              mt: 0.5,
+                              "&:hover": { bgcolor: "#ed1b2f", color: "#fff" },
+                            }}
+                          >
+                            <Add sx={{ fontSize: 14 }} />
+                          </Box>
+                        )}
                         {(itemsByDay[day] || []).map((item) => (
                           <Box
                             key={item.id}
@@ -382,8 +414,23 @@ export default function ContentCalendarPage() {
           </CardContent>
 
           <Box sx={{ p: 2, pt: 1 }}>
-            <Button variant="outlined" color="secondary" fullWidth startIcon={<Add />}>
-              Inject Topic
+            <Button
+              component={Link}
+              href="/studio"
+              variant="contained"
+              fullWidth
+              startIcon={<Add />}
+              sx={{
+                bgcolor: "#ed1b2f",
+                color: "#fff",
+                borderRadius: 999,
+                textTransform: "none",
+                fontWeight: 600,
+                boxShadow: "none",
+                "&:hover": { bgcolor: "#d80901", boxShadow: "none" },
+              }}
+            >
+              Add Topic in Content Studio
             </Button>
           </Box>
         </Card>
