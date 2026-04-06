@@ -117,11 +117,12 @@ export default function AuditPage() {
         {complianceCards.map(card => (
           <Grid key={card.title} size={{ xs: 12, sm: 6, md: 3 }}>
             <Card
-              variant="outlined"
               sx={{
                 height: "100%",
-                borderColor: "#c8e6c9",
-                bgcolor: "#f9fdf9",
+                borderRadius: 4,
+                border: "1px solid #ececec",
+                borderTop: "3px solid #34a853",
+                bgcolor: "#fff",
               }}
             >
               <CardContent>
@@ -160,11 +161,14 @@ export default function AuditPage() {
       </Alert>
 
       {/* ── Audit Log Table ── */}
-      <Card variant="outlined" sx={{ mb: 4 }}>
-        <CardContent sx={{ pb: 0 }}>
-          <Typography variant="h6" fontWeight={700} gutterBottom>
-            Audit Log
-          </Typography>
+      <Card sx={{ mb: 4, borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3, pb: 0 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+              Audit Log
+            </Typography>
+          </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Complete record of every action, AI generation, approval, and system event
           </Typography>
@@ -305,11 +309,14 @@ export default function AuditPage() {
       </Card>
 
       {/* ── Data Flow Audit Card ── */}
-      <Card variant="outlined" sx={{ mb: 4 }}>
-        <CardContent>
-          <Typography variant="h6" fontWeight={700} gutterBottom>
-            Data Processing Audit Trail
-          </Typography>
+      <Card sx={{ mb: 4, borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#ed1b2f" }} />
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+              Data Processing Audit Trail
+            </Typography>
+          </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Every step of the data pipeline is auditable. No data leaves the EU processing region.
           </Typography>
@@ -394,11 +401,14 @@ export default function AuditPage() {
       </Card>
 
       {/* ── Export Section ── */}
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="h6" fontWeight={700} gutterBottom>
-            Export &amp; Reporting
-          </Typography>
+      <Card sx={{ borderRadius: 4, border: "1px solid #ececec" }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#34a853" }} />
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
+              Export &amp; Reporting
+            </Typography>
+          </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Download audit logs and compliance reports for internal review or regulatory submissions.
           </Typography>
