@@ -1,5 +1,5 @@
 "use client";
-import StudioBoard from "@/app/studio/page";
+import StudioBoard from "@/app/studio/StudioBoard";
 
 export default function NewsletterPage() {
   return (
