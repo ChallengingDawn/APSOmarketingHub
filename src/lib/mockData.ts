@@ -59,7 +59,18 @@ export const seoKeywords = [
   { keyword: "EPDM o-rings food contact", volume: 920, position: 14, change: -1, cpc: 3.80, difficulty: 41, url: "/o-rings/epdm-food", cannibalization: false, source: "Competitor" as const },
 ];
 
-export const contentCalendarItems = [
+export interface ContentCalendarItem {
+  id: string;
+  proposalId: string | null;
+  title: string;
+  date: string;
+  channel: "Blog" | "LinkedIn" | "Newsletter";
+  status: "idea" | "brief" | "draft" | "in_review" | "approved";
+  assignee: string;
+  priority: "high" | "medium" | "low";
+}
+
+export const contentCalendarItems: ContentCalendarItem[] = [
   // Blog (3 imported drafts)
   { id: "cal-1", proposalId: "bl-1", title: "O-Ring Material Selection Guide: FKM, FFKM & Silicone", date: "2026-04-07", channel: "Blog" as const, status: "draft" as const, assignee: "AI + Miriam", priority: "high" as const },
   { id: "cal-2", proposalId: "bl-2", title: "PEEK vs POM-C: Engineering Plastics Comparison", date: "2026-04-15", channel: "Blog" as const, status: "draft" as const, assignee: "AI", priority: "high" as const },
