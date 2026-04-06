@@ -79,11 +79,51 @@ export default function Sidebar() {
         },
       }}
     >
-      {/* ── Animated Background ── */}
+      {/* ── Animated Background: flat Google-style icons ── */}
       <Box className="sidebar-bg">
-        <Box className="sidebar-blob sidebar-blob-1" />
-        <Box className="sidebar-blob sidebar-blob-2" />
-        <Box className="sidebar-blob sidebar-blob-3" />
+        {/* Person */}
+        <Box className="sidebar-icon-bg sidebar-icon-person">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="32" r="16" fill="#274e64" />
+            <path
+              d="M22 86c0-15.5 12.5-28 28-28s28 12.5 28 28"
+              stroke="#274e64"
+              strokeWidth="6"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </svg>
+        </Box>
+        {/* Compass */}
+        <Box className="sidebar-icon-bg sidebar-icon-compass">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="42" stroke="#274e64" strokeWidth="5" fill="none" />
+            <circle cx="50" cy="50" r="34" stroke="#274e64" strokeWidth="2" fill="none" opacity="0.5" />
+            <path
+              d="M50 18 L58 50 L50 82 L42 50 Z"
+              fill="#ed1b2f"
+            />
+            <circle cx="50" cy="50" r="4" fill="#274e64" />
+          </svg>
+        </Box>
+        {/* Pen */}
+        <Box className="sidebar-icon-bg sidebar-icon-pen">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M14 86 L24 64 L70 18 L82 30 L36 76 Z"
+              fill="#274e64"
+            />
+            <path
+              d="M62 26 L74 38"
+              stroke="#fff"
+              strokeWidth="3"
+            />
+            <path
+              d="M14 86 L24 76 L24 64 L14 86 Z"
+              fill="#1f1f1f"
+            />
+          </svg>
+        </Box>
       </Box>
       <Box className="sidebar-dots" />
 
@@ -99,11 +139,11 @@ export default function Sidebar() {
           borderBottom: "1px solid #ececec",
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0, whiteSpace: "nowrap" }}>
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.25 }}>
           <Box
             component="span"
             className="brand-display brand-apso"
-            sx={{ fontSize: 20 }}
+            sx={{ fontSize: 36, fontWeight: 700 }}
           >
             <span className="letter letter-a">A</span>
             <span className="letter letter-p">P</span>
@@ -114,9 +154,10 @@ export default function Sidebar() {
             component="span"
             className="brand-display"
             sx={{
-              fontSize: 16,
+              fontSize: 22,
               color: "#3c4043",
-              fontWeight: 500,
+              fontWeight: 400,
+              ml: 0.25,
             }}
           >
             Marketing
@@ -125,9 +166,10 @@ export default function Sidebar() {
             component="span"
             className="brand-display"
             sx={{
-              fontSize: 20,
+              fontSize: 32,
               color: "#ed1b2f",
               fontWeight: 800,
+              ml: 0.25,
             }}
           >
             Hub

@@ -205,11 +205,10 @@
    ────────────────────────────────────────── */
 
 .brand-display {
-  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
-  font-weight: 700;
-  font-stretch: 110%;
-  letter-spacing: -0.025em;
-  line-height: 1.05;
+  font-family: 'Outfit', 'Inter', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
 }
 
 .brand-apso {
@@ -286,64 +285,57 @@
   z-index: 0;
 }
 
-.sidebar-blob {
+.sidebar-icon-bg {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.35;
+  opacity: 0.07;
+  transform-origin: center;
 }
 
-.sidebar-blob-1 {
-  width: 280px;
-  height: 280px;
-  background: #ed1b2f;
-  bottom: -100px;
-  right: -120px;
-  animation: blobFloat1 18s ease-in-out infinite;
+.sidebar-icon-person {
+  top: 18%;
+  right: 18px;
+  width: 80px;
+  height: 80px;
+  animation: iconFloat1 14s ease-in-out infinite;
 }
 
-.sidebar-blob-2 {
-  width: 320px;
-  height: 320px;
-  background: #274e64;
-  top: 30%;
-  left: -160px;
-  animation: blobFloat2 22s ease-in-out infinite;
+.sidebar-icon-compass {
+  bottom: 32%;
+  left: 14px;
+  width: 90px;
+  height: 90px;
+  animation: iconCompass 20s linear infinite;
 }
 
-.sidebar-blob-3 {
-  width: 200px;
-  height: 200px;
-  background: #4285f4;
-  top: 40%;
-  left: -80px;
-  animation: blobFloat3 26s ease-in-out infinite;
-  opacity: 0.18;
+.sidebar-icon-pen {
+  bottom: 14%;
+  right: 22px;
+  width: 78px;
+  height: 78px;
+  animation: iconFloat2 16s ease-in-out infinite;
 }
 
-@keyframes blobFloat1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(40px, 60px) scale(1.1); }
-  66% { transform: translate(20px, 100px) scale(0.95); }
+@keyframes iconFloat1 {
+  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+  50%      { transform: translate(-6px, -10px) rotate(4deg); }
 }
 
-@keyframes blobFloat2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-30px, -50px) scale(1.08); }
-  66% { transform: translate(-50px, -20px) scale(0.92); }
+@keyframes iconFloat2 {
+  0%, 100% { transform: translate(0, 0) rotate(8deg); }
+  50%      { transform: translate(8px, -8px) rotate(-8deg); }
 }
 
-@keyframes blobFloat3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(60px, -80px) scale(1.15); }
+@keyframes iconCompass {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Subtle dot grid overlay */
 .sidebar-dots {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle, #1f1f1f 1px, transparent 1px);
-  background-size: 24px 24px;
-  opacity: 0.025;
+  background-image: radial-gradient(circle, #274e64 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.04;
   pointer-events: none;
 }
