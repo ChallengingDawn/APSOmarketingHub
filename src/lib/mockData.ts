@@ -45,16 +45,18 @@ export const activityFeed = [
 ];
 
 export const seoKeywords = [
-  { keyword: "o-ring material selection guide", volume: 2400, position: 0, change: 0, cpc: 4.20, difficulty: 42, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "PEEK machined parts manufacturer", volume: 1800, position: 0, change: 0, cpc: 5.80, difficulty: 55, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "POM-C acetal copolymer applications", volume: 980, position: 0, change: 0, cpc: 4.10, difficulty: 38, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "FKM o-rings high temperature", volume: 3200, position: 0, change: 0, cpc: 4.90, difficulty: 51, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "custom o-rings food grade EPDM", volume: 1400, position: 0, change: 0, cpc: 3.50, difficulty: 44, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "PEEK vs POM-C comparison", volume: 2100, position: 0, change: 0, cpc: 4.70, difficulty: 51, url: "", cannibalization: false, source: "Editorial" as const },
-  { keyword: "FFKM o-rings chemical resistance", volume: 890, position: 0, change: 0, cpc: 6.20, difficulty: 47, url: "", cannibalization: false, source: "Content Gap" as const },
-  { keyword: "engineered plastics PEEK applications", volume: 1650, position: 0, change: 0, cpc: 5.00, difficulty: 67, url: "", cannibalization: false, source: "Editorial" as const },
-  { keyword: "o-ring failure analysis guide", volume: 1200, position: 0, change: 0, cpc: 4.40, difficulty: 35, url: "", cannibalization: false, source: "Content Gap" as const },
+  { keyword: "o-ring material selection guide", volume: 2400, position: 4, change: 3, cpc: 4.20, difficulty: 42, url: "/o-rings/material-selection-guide", cannibalization: false, source: "GSC Quick Win" as const },
+  { keyword: "PEEK machined parts manufacturer", volume: 1800, position: 12, change: -2, cpc: 5.80, difficulty: 55, url: "/plastics/peek-machined-parts", cannibalization: true, source: "GSC Quick Win" as const },
+  { keyword: "POM-C acetal copolymer applications", volume: 980, position: 7, change: 5, cpc: 4.10, difficulty: 38, url: "/plastics/pom-c-applications", cannibalization: false, source: "GSC Quick Win" as const },
+  { keyword: "FKM o-rings high temperature", volume: 3200, position: 6, change: 1, cpc: 4.90, difficulty: 51, url: "/o-rings/fkm-high-temperature", cannibalization: false, source: "GSC Quick Win" as const },
+  { keyword: "custom o-rings food grade EPDM", volume: 1400, position: 18, change: -4, cpc: 3.50, difficulty: 44, url: "/o-rings/food-grade-epdm", cannibalization: false, source: "GSC Quick Win" as const },
+  { keyword: "PEEK vs POM-C comparison", volume: 2100, position: 3, change: 2, cpc: 4.70, difficulty: 51, url: "/plastics/peek-vs-pom-c", cannibalization: true, source: "Editorial" as const },
+  { keyword: "FFKM o-rings chemical resistance", volume: 890, position: 5, change: 4, cpc: 6.20, difficulty: 47, url: "/o-rings/ffkm-chemical-resistance", cannibalization: false, source: "GSC Quick Win" as const },
+  { keyword: "engineered plastics PEEK applications", volume: 1650, position: 0, change: 0, cpc: 5.00, difficulty: 67, url: "", cannibalization: false, source: "Content Gap" as const },
+  { keyword: "o-ring failure analysis guide", volume: 1200, position: 8, change: 6, cpc: 4.40, difficulty: 35, url: "/blog/o-ring-failure-modes", cannibalization: false, source: "GSC Quick Win" as const },
   { keyword: "POM-C machining tolerances", volume: 760, position: 0, change: 0, cpc: 3.80, difficulty: 40, url: "", cannibalization: false, source: "Content Gap" as const },
+  { keyword: "PEEK aerospace sealing", volume: 1450, position: 0, change: 0, cpc: 6.50, difficulty: 58, url: "", cannibalization: false, source: "Content Gap" as const },
+  { keyword: "EPDM o-rings food contact", volume: 920, position: 14, change: -1, cpc: 3.80, difficulty: 41, url: "/o-rings/epdm-food", cannibalization: false, source: "Competitor" as const },
 ];
 
 export const contentCalendarItems = [

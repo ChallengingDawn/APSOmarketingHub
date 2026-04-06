@@ -86,12 +86,13 @@ const sourceStyles: Record<string, { bg: string; color: string }> = {
 const quickWins = seoKeywords.filter((k) => k.position >= 5 && k.position <= 20);
 const contentGaps = seoKeywords.filter((k) => k.position === 0);
 const cannibAlerts = seoKeywords.filter((k) => k.cannibalization);
+const totalVolume = seoKeywords.reduce((s, k) => s + k.volume, 0);
 
 const summaryCards = [
-  { label: "Target Keywords", value: String(seoKeywords.length), sub: "From content gap analysis", icon: <CheckCircle />, color: "#274e64" },
-  { label: "Quick Win Opportunities", value: "—", sub: "Awaiting GSC connection", icon: <TrendingUp />, color: "#10b981" },
-  { label: "Content Gaps", value: String(contentGaps.length), sub: "Keywords to target", icon: <Info />, color: "#f59e0b" },
-  { label: "Cannibalization Alerts", value: String(cannibAlerts.length), sub: "Awaiting GSC connection", icon: <Warning />, color: "#ef4444" },
+  { label: "Target Keywords", value: String(seoKeywords.length), sub: `${formatNumber(totalVolume)} monthly volume`, icon: <CheckCircle />, color: "#274e64", bg: "#e8f0f4" },
+  { label: "Quick Win Opportunities", value: String(quickWins.length), sub: "Position 5–20, push to page 1", icon: <TrendingUp />, color: "#34a853", bg: "#e6f4ea" },
+  { label: "Content Gaps", value: String(contentGaps.length), sub: "Keywords with no ranking yet", icon: <Info />, color: "#fbbc04", bg: "#fef7e0" },
+  { label: "Cannibalization Alerts", value: String(cannibAlerts.length), sub: "Pages competing for same keyword", icon: <Warning />, color: "#ed1b2f", bg: "#fdebed" },
 ];
 
 /* ── component ── */
@@ -117,38 +118,44 @@ export default function SEOCommandCenter() {
       />
 
       {/* ── Summary Cards ── */}
-      <Grid container spacing={2.5} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 4 }}>
         {summaryCards.map((c) => (
-          <Grid key={c.label} size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
-              <CardContent sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+          <Grid key={c.label} size={{ xs: 6, sm: 6, md: 3 }}>
+            <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec", borderTop: `3px solid ${c.color}` }}>
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 }, textAlign: "center" }}>
                 <Box
                   sx={{
                     width: 44,
                     height: 44,
                     borderRadius: 2,
-                    bgcolor: c.color,
-                    color: "#fff",
+                    bgcolor: c.bg,
+                    color: c.color,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    flexShrink: 0,
-                    mt: 0.25,
+                    mx: "auto",
+                    mb: 1.25,
+                    "& .MuiSvgIcon-root": { fontSize: 22 },
                   }}
                 >
                   {c.icon}
                 </Box>
-                <Box>
-                  <Typography variant="h4" sx={{ lineHeight: 1.1, mb: 0.25 }}>
-                    {c.value}
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ color: "text.primary" }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.75, mb: 0.5 }}>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     {c.label}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {c.sub}
-                  </Typography>
+                  <Chip
+                    label="SAMPLE"
+                    size="small"
+                    sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none", "& .MuiChip-label": { px: 0.75 } }}
+                  />
                 </Box>
+                <Typography sx={{ fontSize: "1.85rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1, letterSpacing: "-0.02em", mb: 0.5 }}>
+                  {c.value}
+                </Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: "#5f6368", lineHeight: 1.4 }}>
+                  {c.sub}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>

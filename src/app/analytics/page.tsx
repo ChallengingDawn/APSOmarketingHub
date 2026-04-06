@@ -181,8 +181,8 @@ export default function AnalyticsPage() {
           return (
             <Grid key={kpi.label} size={{ xs: 6, sm: 6, md: 3 }}>
               <Card sx={{ height: "100%", borderRadius: 4, border: "1px solid #ececec" }}>
-                <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
+                <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 }, textAlign: "center" }}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, mb: 1 }}>
                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                       {kpi.label}
                     </Typography>
@@ -201,7 +201,7 @@ export default function AnalyticsPage() {
                       }}
                     />
                   </Box>
-                  <Typography sx={{ fontSize: "1.5rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.1, letterSpacing: "-0.02em", mb: 0.5 }}>
+                  <Typography sx={{ fontSize: "1.85rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1, letterSpacing: "-0.02em", mb: 0.75 }}>
                     {kpi.value}
                   </Typography>
                   {!isNeutral && (
@@ -209,6 +209,7 @@ export default function AnalyticsPage() {
                       sx={{
                         display: "flex",
                         alignItems: "center",
+                        justifyContent: "center",
                         gap: 0.4,
                         color: isPositive ? "#1e8e3e" : "#ea4335",
                       }}
@@ -218,7 +219,7 @@ export default function AnalyticsPage() {
                       ) : (
                         <TrendingDownIcon sx={{ fontSize: 14 }} />
                       )}
-                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "inherit" }}>
+                      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "inherit" }}>
                         {kpi.change > 0 ? "+" : ""}
                         {kpi.change}%
                       </Typography>
