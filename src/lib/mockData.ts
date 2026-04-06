@@ -215,7 +215,7 @@ export const contentProposals: ContentProposal[] = [
     theme: "peek-pomc",
   },
 
-  /* ── Blog (5) — full article format ── */
+  /* ── Blog (3) — full article format ── */
   {
     id: "bl-1",
     channel: "Blog",
@@ -245,26 +245,6 @@ export const contentProposals: ContentProposal[] = [
     reasoning: "Listicle structure (5 modes) is highly engaging and shareable. Each mode has visual cues + fix. Strong CTAs for engagement.",
     qualityScore: 91,
     theme: "oring-failure",
-  },
-  {
-    id: "bl-4",
-    channel: "Blog",
-    title: "PEEK Machined Parts for Aerospace Sealing — A Complete Specification Guide",
-    topic: "PEEK aerospace sealing",
-    text: "📰 Reading time: 9 min · Audience: aerospace design & procurement\n\nAerospace sealing applications demand materials that perform reliably under extreme conditions: wide temperature swings (-55 to +260 °C), aggressive jet fuels and hydraulic fluids, and absolutely zero tolerance for failure. PEEK has earned its place as the leading choice for back-up rings, bushings, bearings, and seal components in modern commercial and military aircraft.\n\n— Why aerospace chose PEEK —\n\n✅ Continuous service to +260 °C (intermittent +310 °C)\n✅ Self-extinguishing (UL 94 V-0 rating)\n✅ Excellent resistance to jet fuels, hydraulic fluids, de-icing fluids\n✅ Lightweight: 1.32 g/cm³ — significantly lighter than aluminum or steel\n✅ Outstanding fatigue and creep resistance\n✅ Low outgassing — meets vacuum/space requirements\n\n— PEEK grades commonly used in aerospace —\n\n• Standard PEEK (unfilled): general sealing, seals, low-friction\n• PEEK-GF30 (30% glass-filled): higher stiffness, dimensional stability\n• PEEK-CF30 (30% carbon-filled): lowest creep, highest mechanical strength\n• PEEK-HPV (bearing grade): self-lubricating for dynamic applications\n\n— Stock shapes and dimensions —\n\nPEEK is available from APSOparts in rod (Ø6 to Ø200 mm), sheet (1 to 80 mm thick), and tube — in unfilled and filled grades. Standard references ship from stock; non-standard dimensions on request.\n\n— Certifications and traceability —\n\nFor aerospace customers, APSOparts provides full material certification (3.1 per EN 10204) and batch traceability. PEEK supplied to AS9100 supply chains comes with the documentation your QA team needs.\n\n— Common aerospace applications —\n\n🛩 Hydraulic system back-up rings (replace metal back-ups, save weight)\n🛩 Fuel system bushings (replaces bronze, no lubrication required)\n🛩 Engine accessory drive bearings (high temp, low maintenance)\n🛩 Cabin pressurization seal carriers\n\n— Sourcing PEEK at APSOparts —\n\nStandard lead time is 48h for stock references; 2-3 weeks for non-standard dimensions. Free samples for qualification programs.\n\n→ Request a quote for PEEK semi-finished products\n→ Download the PEEK technical datasheet\n→ Browse the aerospace materials catalog",
-    reasoning: "Long-form (9-min) cornerstone content for aerospace vertical. Covers grades, tolerances, certifications, and applications. 3 specific CTAs.",
-    qualityScore: 95,
-    theme: "peek-aerospace",
-  },
-  {
-    id: "bl-5",
-    channel: "Blog",
-    title: "POM-C Acetal Copolymer: Properties, Applications & Machining Tolerances",
-    topic: "POM-C properties",
-    text: "📰 Reading time: 7 min · Audience: design, procurement & machining teams\n\nPOM-C (polyoxymethylene copolymer) is the unsung hero of engineering plastics. While PEEK gets the headlines, POM-C quietly handles 90% of room-temperature precision applications — at a fraction of the cost.\n\n— What makes POM-C special —\n\nPOM-C combines five properties that are hard to find together:\n\n✅ Excellent dimensional stability — minimal moisture absorption\n✅ Low friction and good wear resistance\n✅ Outstanding machinability — chips clean, holds ±0.05 mm easily\n✅ Good chemical resistance to fuels, oils, solvents\n✅ Affordable: typically €8-12/kg for standard grades\n\n— Mechanical properties at a glance —\n\n📊 Tensile strength: 65 MPa\n📊 Elongation at break: 25%\n📊 Continuous service temp: -40 to +100 °C\n📊 Density: 1.41 g/cm³\n📊 Water absorption (24h): 0.2%\n\n— Where POM-C shines —\n\n⚙️ Precision gears (spur, helical, worm)\n⚙️ Bushings and slide bearings\n⚙️ Conveyor components — wear strips, chain guides, sprockets\n⚙️ Pump components — impellers, housings, seals\n⚙️ Manifold blocks for pneumatic/hydraulic systems\n⚙️ Food-contact parts (EU 1935/2004 compliant grades)\n\n— Where POM-C is not the answer —\n\nPOM-C is brilliant within its envelope, but it has limits. Don't use POM-C if your application involves:\n\n❌ Continuous service above 100 °C\n❌ Strong acids or oxidizing agents\n❌ UV exposure (without stabilization)\n❌ Pharmaceutical or USP Class VI requirements\n\nFor those applications, look at PEEK, PEI, or PVDF instead.\n\n— Machining tips for POM-C —\n\nPOM-C is one of the easiest plastics to machine. A few practical tips:\n\n• Sharp tools, low feed rates → mirror-finish surfaces\n• No coolant required for most operations (compressed air is enough)\n• Stress-relief if you need tight tolerances on thin sections\n• Cycle times typically 30-50% faster than steel\n\n— APSOparts POM-C product range —\n\nAPSOparts stocks POM-C in rod (Ø6 to Ø300 mm), sheet (1 to 50 mm thick), and tube. Standard references ship in 48h; non-standard dimensions on request.\n\n→ Browse the APSOparts POM-C catalog\n→ Download the POM-C technical datasheet\n→ Request POM-C samples (free for qualified projects)",
-    reasoning: "Pillar article on POM-C with full property table, application list, machining tips, and limitations. Covers selection AND objections. 3 CTAs.",
-    qualityScore: 92,
-    theme: "pomc",
   },
 ];
 

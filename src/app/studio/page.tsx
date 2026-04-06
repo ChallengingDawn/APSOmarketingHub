@@ -287,6 +287,7 @@ export default function ContentStudioPage() {
                     title={proposal.title}
                     excerpt={state.draftText}
                     readingTime="8 min read"
+                    theme={proposal.theme}
                     height={180}
                   />
                 )}

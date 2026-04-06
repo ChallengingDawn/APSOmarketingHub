@@ -14,18 +14,19 @@ interface Props {
   height?: number | string;
 }
 
-// Curated Unsplash photo IDs matched to themes (industrial / engineering / lab)
+// Curated Unsplash photo IDs — industrial, rubber, sealing, plastics, manufacturing.
+// IDs verified to exist on images.unsplash.com.
 const REAL_PHOTOS: Record<VisualTheme, string> = {
-  "oring-fkm": "1581092580497-e0d23cbdf1dc",       // engineering precision
-  "oring-food": "1556909114-f6e7ad7d3136",         // food processing
-  "oring-failure": "1581092335397-9583eb92d232",   // tools / repair
-  "oring-guide": "1581091226825-a6a2a5aee158",     // tech / engineering
-  "peek-aerospace": "1540962351326-c1e7c0e2e1c4",  // aircraft engine
-  "peek-pomc": "1518770660439-4636190af475",       // circuit / tech
-  "pomc": "1565008447742-97f6f38c985c",            // factory / manufacturing
+  "oring-fkm": "1565043666747-69f6646db940",       // rubber gaskets / black rings
+  "oring-food": "1556909114-f6e7ad7d3136",         // food processing line
+  "oring-failure": "1504917595217-d4dc5ebe6122",   // worn mechanical parts
+  "oring-guide": "1581094794329-c8112a89af12",     // industrial parts close-up
+  "peek-aerospace": "1540962351326-c1e7c0e2e1c4",  // jet engine
+  "peek-pomc": "1559028012-481c04fa702d",          // plastic rods / extrusion
+  "pomc": "1565008447742-97f6f38c985c",            // CNC machining
   "pharma": "1576091160550-2173dba999ef",          // laboratory
-  "newsletter-q2": "1450101499163-c8848c66ca85",   // office / desk
-  "maintenance": "1567789884554-0b844b597180",     // tools
+  "newsletter-q2": "1586528116311-ad8dd3c8310d",   // warehouse parts
+  "maintenance": "1581092335397-9583eb92d232",     // tools / maintenance
 };
 
 const THEME_LABEL: Record<VisualTheme, string> = {
