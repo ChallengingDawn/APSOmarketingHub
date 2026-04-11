@@ -9,7 +9,6 @@ import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 
 function SignInForm() {
@@ -103,7 +102,7 @@ function SignInForm() {
                 Marketing Hub
               </Typography>
               <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
-                APSOparts · Sealings &amp; Plastics
+                APSOparts
               </Typography>
             </Box>
           </Box>
@@ -164,17 +163,6 @@ function SignInForm() {
             </Box>
           ) : (
             <>
-              <Typography
-                sx={{
-                  fontSize: "0.9rem",
-                  color: "#3c4043",
-                  mb: 2.5,
-                  lineHeight: 1.5,
-                }}
-              >
-                Sign in with your corporate email. We&apos;ll send you a one-time link — no password needed.
-              </Typography>
-
               {tokenError && (
                 <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontSize: "0.8rem" }}>
                   {tokenError}
@@ -232,22 +220,6 @@ function SignInForm() {
             </>
           )}
 
-          <Box
-            sx={{
-              mt: 3,
-              pt: 2.5,
-              borderTop: "1px solid #f1f3f4",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 0.5,
-            }}
-          >
-            <CheckCircleIcon sx={{ fontSize: 14, color: "#1e8e3e" }} />
-            <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>
-              Restricted to @angst-pfister.com and @apsoparts.com
-            </Typography>
-          </Box>
         </CardContent>
       </Card>
     </Box>
