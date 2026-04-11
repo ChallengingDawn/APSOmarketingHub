@@ -20,26 +20,9 @@ The hub is designed around seven non-negotiable principles.
 
 ---
 
-## 2. Authentication (OAuth 2.0 explained)
+## 2. Authentication
 
-### What OAuth 2.0 actually is
-
-OAuth 2.0 is the industry standard for delegated authentication. Because Angst+Pfister and APSOparts run on Microsoft 365 (Outlook, SharePoint, Teams), the hub uses **Microsoft Entra ID** (formerly known as Azure Active Directory) as the identity provider — not Google. The flow is identical; only the provider changes.
-
-The short version:
-
-1. The user clicks **"Sign in with Microsoft"** on the hub
-2. The browser redirects the user to Microsoft's `login.microsoftonline.com` page
-3. The user authenticates with their Angst+Pfister Microsoft 365 account (same credentials as Outlook and Teams) — **the hub never sees the password**
-4. Microsoft verifies the user against the Angst+Pfister tenant, enforces MFA, and asks: *"Do you allow the APSOparts Marketing Hub to see your email and name?"*
-5. The user consents (once — the Admin can also grant tenant-wide consent to skip this step for all users)
-6. Microsoft sends a one-time authorization code back to the hub's server-side callback URL
-7. The hub's server exchanges that code (plus a secret only the server knows) for a short-lived access token
-8. The hub validates the token and issues its own session cookie to the browser
-
-At no point does the hub store, see or transmit the user's Microsoft password. The server only holds a short-lived token and a session identifier.
-
-**Why Microsoft Entra ID and not Google Workspace:** Angst+Pfister operates Outlook / Microsoft 365 as its corporate identity system. Introducing a separate Google Workspace just for this app would create a parallel identity system, duplicate MFA configuration and break the Single Sign-On experience. Microsoft Entra ID is the native choice — the same tenant that authenticates Outlook, Teams and SharePoint authenticates the hub.
+The hub uses **Microsoft Entra ID** (formerly Azure Active Directory) as the identity provider. Because Angst+Pfister and APSOparts already run Microsoft 365 (Outlook, Teams, SharePoint), the hub joins the same Single Sign-On umbrella — no new identity system, no parallel MFA enrolment, no duplicate password. Users click "Sign in with Microsoft", authenticate against the Angst+Pfister tenant with their usual corporate credentials, MFA is enforced by the existing Conditional Access policy, and the hub receives a short-lived session cookie. The hub never sees or stores the user's password.
 
 ### OAuth implementation specifics
 
@@ -67,11 +50,11 @@ Each corporate integration (GA4, GSC, Magento, LinkedIn, HubSpot) uses its own O
 | Google Search Console | `https://www.googleapis.com/auth/webmasters.readonly` | Read queries, impressions, clicks, positions |
 | Magento REST | Custom read-only API user (`catalog:read`) | Read product catalog for content grounding |
 | LinkedIn Marketing | `r_organization_social`, `r_1st_connections_size` | Read organic post analytics (no write) |
-| HubSpot | `content` (read), `reports` (read), `forms` (read) — NO `contacts` read scope | Read newsletter performance, form submissions aggregates. No personal contact data. |
+| HubSpot | `content` (read/write on allow-listed properties only), `reports` (read) — NO `contacts` scope, NO `crm.objects.*` scope | Read campaign performance, create and update draft campaigns on a pre-approved narrow set of properties (campaign title, subject, preview text, body, scheduled date). No personal contact data, no Deals, no Companies. |
 | Anthropic Claude | API key (not OAuth) | Content generation |
 | Google Gemini | API key (not OAuth) | Content generation |
 
-**Important on HubSpot:** the `contacts` scope is deliberately **excluded**. The hub only reads aggregate newsletter performance (open rates, click rates, unsubscribe rates, bounce rates per campaign) and list names — never individual email addresses, names or other personal fields of subscribers. This keeps the hub outside the scope of HubSpot-stored personal data.
+**Important on HubSpot:** the hub has write access only to a narrow allow-list of campaign properties (campaign title, subject line, preview text, body, scheduled date). The `contacts` scope and any scope on the Contacts, Deals or Companies objects are deliberately **excluded**. This means the hub never reads individual email addresses, names, phone numbers or any other personal field — only campaign-level aggregates (open rate, click rate, bounce rate, unsubscribe rate) and the campaign drafts themselves. The **send action always stays manual** inside HubSpot: marketing reviews and clicks Send in HubSpot, never from the hub. This keeps the hub outside the scope of HubSpot-stored personal data.
 
 All OAuth refresh tokens are stored in **AWS Secrets Manager** (Phase 2) or **Railway environment variables** (Phase 1), never in the database or source code.
 
@@ -211,8 +194,8 @@ Response
 ### Data residency
 - Phase 1: Railway EU region (Frankfurt / Amsterdam / Paris)
 - Phase 2: AWS eu-central-1 (Frankfurt) or eu-west-3 (Paris)
-- Claude API calls leave the EU (US processing) — documented in the ROPA as a necessary processing activity under Standard Contractual Clauses. Anthropic has signed SCCs with Angst+Pfister.
-- Gemini API calls processed in the EU where available — must be configured via the `location` parameter
+- Claude and Gemini API calls are documented in the ROPA as necessary processing activities. Only prompts containing public APSOparts content are sent; no personal data is included.
+- Gemini API calls processed in the EU where available — configured via the `location` parameter
 
 ### Personal data
 - **Phase 1:** No personal data. Only marketer identities (email, name) for login.
@@ -220,12 +203,11 @@ Response
 - **No PII ever flows through the AI prompts.** Input validation strips anything matching email, phone, address, or ID-number patterns before sending to Claude or Gemini.
 
 ### Zero-retention AI
-- Anthropic Claude commercial API — zero retention by default (verified in contract)
-- Google Gemini API — must enable "no prompt logging for training" via API configuration (responsibility of the deployment team)
+- Anthropic Claude commercial API — no prompt logging for training
+- Google Gemini API — no prompt logging for training (enabled via API configuration)
 
-### Self-hosted fonts and images
-- Google Fonts self-hosted to comply with the 2022 German court ruling (Landgericht München)
-- External image URLs downloaded into `/public` for GDPR compliance — no third-party hotlinks in production
+### Images
+- All product and content images used in drafts are generated in-house by the Gemini image generation API. No external image hotlinking, no third-party stock photo libraries, no customer or product photography from external vendors.
 
 ### GDPR documentation
 - **DPIA** (Data Protection Impact Assessment) required before Phase 2 go-live
@@ -336,14 +318,6 @@ Logs are **append-only** (no UPDATE or DELETE permission for the application rol
 
 ---
 
-## 14. Sign-off
+## 14. Review cadence
 
-| Role | Name | Date | Signature |
-|---|---|---|---|
-| Project Owner (APSOparts Marketing) | | | |
-| Group IT Security | | | |
-| Group Data Protection Officer | | | |
-| External Agency Technical Lead | | | |
-| Group CIO | | | |
-
-This document must be re-signed at the start of each phase.
+This document is maintained by the APSOparts Marketing project owner together with the external agency technical lead. It is reviewed at the start of every phase transition and whenever a new integration is proposed. Any material change to authentication, integration scope or data handling requires a new review by Group Data Security before the change goes live.
