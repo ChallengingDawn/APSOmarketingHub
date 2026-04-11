@@ -138,11 +138,12 @@ No outbound publishing automation whatsoever in Phase 1.
 - ❌ Still no access to customer / order / CRM personal data
 - ❌ Still no outbound publishing to LinkedIn or Magento without a separate Phase 3 review
 
-**Authentication**
-- Microsoft Entra ID (Azure AD) OAuth 2.0 restricted to `@angst-pfister.com` / `@apsoparts.com` tenants
-- MFA enforced at the Microsoft 365 tenant level (same policy as Outlook / SharePoint / Teams)
+**Authentication upgrade**
+- Replace Phase 1 magic-link auth with **Microsoft Entra ID (Azure AD)** OAuth 2.0, restricted to the Angst+Pfister Microsoft 365 tenant
+- MFA enforced at the tenant level via the existing Conditional Access policy (same policy as Outlook / SharePoint / Teams)
 - Session tokens stored in secure, httpOnly, sameSite cookies
 - 12-hour session timeout, sliding refresh
+- Microsoft Entra ID is moved to Phase 2 because it requires a tenant app registration by Group IT, which is being coordinated alongside the AWS onboarding scheduled for June
 
 **New capabilities unlocked**
 - Real traffic / keyword / ranking data on the SEO Command Center
@@ -186,7 +187,8 @@ Each write integration requires an **independent security review and sign-off** 
 | UI | Material UI v6, Recharts, Outfit/Inter fonts (self-hosted) | Professional B2B look, GDPR-compliant font loading |
 | Runtime | Node.js 20 LTS | Standard, long-term supported |
 | AI providers | Anthropic Claude API + Google Gemini API | Dual-provider for redundancy and quality A/B |
-| Auth (Phase 2+) | NextAuth.js (Auth.js v5) + Microsoft Entra ID (Azure AD) SSO | Industry standard, matches the Angst+Pfister Outlook / Microsoft 365 tenant — no new identity system to manage |
+| Auth (Phase 1) | Magic link via Resend + JWT session cookies (jose library) | Zero infrastructure, no database, no Azure dependency. Corporate email allow-list enforced server-side. Good interim protection while the Entra ID app registration is being provisioned. |
+| Auth (Phase 2+) | Microsoft Entra ID (Azure AD) SSO with NextAuth.js | Native SSO with Outlook / Microsoft 365 — no new identity system, MFA via existing Conditional Access policy |
 | State | React Server Components + client state | No database required in Phase 1 |
 | Persistence (Phase 2+) | AWS RDS PostgreSQL (14+) in private subnet | Managed, encrypted at rest, backup automation |
 | Secrets | Railway env vars (Phase 1) → AWS Secrets Manager (Phase 2+) | Industry standard per-phase |
@@ -265,7 +267,7 @@ All egress traffic through a NAT gateway, logged, and restricted by security gro
 - Content Calendar with manual scheduling
 - Knowledge Base upload for APSOparts brand and product documents (public only)
 - Audit log of every AI generation and approval action
-- Microsoft Entra ID (Azure AD) OAuth login enforced from day one of Phase 1 — no anonymous access
+- **Magic-link authentication enforced from day one of Phase 1** — no anonymous access. Users sign in with their corporate email, receive a one-time link from Resend, and get a 12-hour session cookie. Only `@angst-pfister.com` and `@apsoparts.com` email addresses are accepted. No Azure AD dependency in Phase 1 — Microsoft Entra ID SSO is added in Phase 2 once the tenant app registration is provisioned by Group IT.
 - This document + `SECURITY-INFRASTRUCTURE.md` reviewed by Group Security
 
 ### Phase 2 deliverables
