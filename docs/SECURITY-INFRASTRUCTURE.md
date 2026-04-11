@@ -1,0 +1,340 @@
+# APSOparts Marketing Hub — Security Infrastructure
+
+**Status:** Draft for Group Security review
+**Owner:** APSOparts Marketing / Angst+Pfister Group IT Security
+**Related document:** `TECHNICAL-ROADMAP.md`
+
+---
+
+## 1. Guiding security principles
+
+The hub is designed around seven non-negotiable principles.
+
+1. **Least privilege** — every integration, user role and API key has the narrowest possible scope.
+2. **Read-before-write** — all corporate data integrations are read-only by default; write access is opt-in, per integration, per security review.
+3. **Additive never destructive** — the hub can be disconnected at any moment without affecting source systems.
+4. **Server-side secrets only** — no API keys, tokens or credentials ever reach the browser.
+5. **Human in the loop** — every AI-generated output requires explicit human approval before leaving the hub.
+6. **Auditability** — every prompt, response, approval, rejection and configuration change is logged for 24 months minimum.
+7. **Phase-gated trust** — infrastructure privileges expand only after each phase clears a security review.
+
+---
+
+## 2. Authentication (OAuth 2.0 explained)
+
+### What OAuth 2.0 actually is
+
+OAuth 2.0 is the industry standard for delegated authentication. The short version:
+
+1. The user clicks **"Sign in with Google"** on the hub
+2. The browser redirects the user to Google's own login page
+3. The user authenticates with Google (email + password + MFA) — **the hub never sees the password**
+4. Google verifies the user and asks: *"Do you allow the APSOparts Marketing Hub to see your email and name?"*
+5. The user consents
+6. Google sends a one-time authorization code back to the hub's server-side callback URL
+7. The hub's server exchanges that code (plus a secret only the server knows) for a short-lived access token
+8. The hub validates the token and issues its own session cookie to the browser
+
+At no point does the hub store, see or transmit the user's Google password. The server only holds a short-lived token and a session identifier.
+
+### OAuth implementation specifics
+
+| Setting | Value |
+|---|---|
+| Library | NextAuth.js (Auth.js v5) |
+| Identity provider | Google Workspace for Angst+Pfister |
+| Allowed email domains | `@angst-pfister.com`, `@apsoparts.com` — all others rejected at the callback |
+| Flow | Authorization Code with PKCE |
+| Token storage | Server-side session, never stored in browser localStorage or sessionStorage |
+| Session cookie | `httpOnly`, `secure`, `sameSite=lax`, 12-hour sliding expiry |
+| MFA | Enforced at Google Workspace level (no separate MFA in the hub) |
+| Logout | Clears hub session + redirects to Google logout for full sign-out |
+| CSRF protection | Built into NextAuth — double-submit cookie pattern |
+
+### OAuth for service accounts (Phase 2 read-only integrations)
+
+Each corporate integration (GA4, GSC, Magento, LinkedIn) uses its own OAuth credential with the **minimum read-only scope**:
+
+| Integration | OAuth scope | Purpose |
+|---|---|---|
+| Google Analytics 4 | `https://www.googleapis.com/auth/analytics.readonly` | Read traffic, sessions, conversions |
+| Google Search Console | `https://www.googleapis.com/auth/webmasters.readonly` | Read queries, impressions, clicks, positions |
+| Magento REST | Custom read-only API user (`catalog:read`) | Read product catalog for content grounding |
+| LinkedIn Marketing | `r_organization_social`, `r_1st_connections_size` | Read organic post analytics (no write) |
+| Anthropic Claude | API key (not OAuth) | Content generation |
+| Google Gemini | API key (not OAuth) | Content generation |
+
+All OAuth refresh tokens are stored in **AWS Secrets Manager** (Phase 2) or **Railway environment variables** (Phase 1), never in the database or source code.
+
+---
+
+## 3. Authorization (who can do what)
+
+Three roles, defined in the database and enforced on every API route.
+
+| Role | Can view | Can generate | Can approve | Can schedule | Can manage KB | Can manage users |
+|---|---|---|---|---|---|---|
+| **Viewer** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Editor** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Approver** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Admin** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Role assignment is done by an Admin in the hub's Settings page and requires Group IT approval for any new Admin.
+
+---
+
+## 4. Secrets management
+
+### Phase 1 (Railway)
+
+| Secret | Where | Rotation |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Railway environment variable | Quarterly |
+| `GEMINI_API_KEY` | Railway environment variable | Quarterly |
+| `NEXTAUTH_SECRET` | Railway environment variable | On incident only |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (if OAuth added in P1) | Railway environment variable | Quarterly |
+
+**Hard rules:**
+- No `NEXT_PUBLIC_*` prefix on any secret — that prefix bundles the value into browser JS.
+- No secrets in source code, `.env` files committed to git, Docker images, CI logs, or Slack.
+- `.gitignore` excludes `.env`, `.env.local`, `.env.*.local` (verified in repo).
+
+### Phase 2 (AWS)
+
+| Secret | Where | Rotation |
+|---|---|---|
+| All API keys | AWS Secrets Manager (encrypted with KMS CMK) | Automated 90-day rotation where provider supports |
+| Database credentials | RDS-managed secret in Secrets Manager | 30-day rotation |
+| OAuth refresh tokens | Secrets Manager, one entry per user | Auto-refreshed by NextAuth |
+| TLS certificates | AWS Certificate Manager | Automated renewal |
+
+IAM policies restrict Secrets Manager access to the ECS task role only. No human has console access to production secrets — only via break-glass procedure logged to CloudTrail.
+
+---
+
+## 5. Network security
+
+### Phase 1
+- HTTPS / TLS 1.3 enforced by Railway edge
+- HTTP Strict Transport Security (HSTS) header, 1-year max-age, includeSubDomains, preload
+- No public database (no database at all in Phase 1)
+- Outbound egress limited in-code to: `api.anthropic.com`, `generativelanguage.googleapis.com`, `accounts.google.com` (if OAuth), and the self-hosted font / image origin
+
+### Phase 2
+- Application runs inside a VPC with private subnets
+- Application Load Balancer in public subnet is the only internet-facing component
+- AWS WAF attached to the ALB with:
+  - AWS Managed Rules — Core Rule Set (OWASP Top 10)
+  - AWS Managed Rules — Known Bad Inputs
+  - Rate-limiting rule: 1000 requests / 5 min per IP
+  - Geo-blocking (optional, configurable)
+- NAT Gateway for outbound traffic, all egress logged to VPC Flow Logs
+- Security groups restrict port exposure to 443 only on the ALB
+
+---
+
+## 6. HTTP security headers
+
+Set on every response (both phases):
+
+| Header | Value | Why |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Force HTTPS |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://generativelanguage.googleapis.com; frame-ancestors 'none'` | Prevent XSS, clickjacking, untrusted content |
+| `X-Frame-Options` | `DENY` | Backup against clickjacking |
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME sniffing attacks |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limit referer leakage |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Disable unused browser APIs |
+
+---
+
+## 7. API security
+
+Every API route (including `/api/generate`) passes through the same middleware chain:
+
+```
+Request
+  │
+  ▼
+1. TLS termination (Railway / ALB)
+  │
+  ▼
+2. WAF filtering (Phase 2)
+  │
+  ▼
+3. Auth check — getServerSession() → 401 if missing/invalid
+  │
+  ▼
+4. Role check — is this role allowed on this route? → 403 if not
+  │
+  ▼
+5. Rate limit — per user, per route → 429 if exceeded
+  │     (Phase 1: in-memory; Phase 2: Redis / ElastiCache)
+  │
+  ▼
+6. Input validation — Zod schema → 400 if invalid
+  │
+  ▼
+7. Business logic — call Claude / Gemini / read APIs
+  │
+  ▼
+8. Output sanitization — strip unexpected HTML, validate shape
+  │
+  ▼
+9. Audit log entry written
+  │
+  ▼
+Response
+```
+
+### Rate limits
+
+| Route | Limit | Rationale |
+|---|---|---|
+| `/api/generate` | 20 req / min / user | Prevent runaway Claude costs |
+| `/api/auth/*` | 10 req / min / IP | Brute force protection |
+| All other routes | 100 req / min / user | General abuse protection |
+
+---
+
+## 8. Data protection & GDPR
+
+### Data residency
+- Phase 1: Railway EU region (Frankfurt / Amsterdam / Paris)
+- Phase 2: AWS eu-central-1 (Frankfurt) or eu-west-3 (Paris)
+- Claude API calls leave the EU (US processing) — documented in the ROPA as a necessary processing activity under Standard Contractual Clauses. Anthropic has signed SCCs with Angst+Pfister.
+- Gemini API calls processed in the EU where available — must be configured via the `location` parameter
+
+### Personal data
+- **Phase 1:** No personal data. Only marketer identities (email, name) for login.
+- **Phase 2:** No customer personal data. Marketer identities + read-only analytics aggregates from GA4 / GSC (which are already anonymized in Google's products).
+- **No PII ever flows through the AI prompts.** Input validation strips anything matching email, phone, address, or ID-number patterns before sending to Claude or Gemini.
+
+### Zero-retention AI
+- Anthropic Claude commercial API — zero retention by default (verified in contract)
+- Google Gemini API — must enable "no prompt logging for training" via API configuration (responsibility of the deployment team)
+
+### Self-hosted fonts and images
+- Google Fonts self-hosted to comply with the 2022 German court ruling (Landgericht München)
+- External image URLs downloaded into `/public` for GDPR compliance — no third-party hotlinks in production
+
+### GDPR documentation
+- **DPIA** (Data Protection Impact Assessment) required before Phase 2 go-live
+- **ROPA** (Record of Processing Activities) entry for the hub and each integration
+- **DSR** (Data Subject Request) procedure: deletion of a marketer account removes their audit log entries after the legal retention window
+
+---
+
+## 9. Audit logging
+
+Every action is logged to a dedicated audit trail.
+
+| Event | Logged fields | Retention |
+|---|---|---|
+| User login / logout | User, timestamp, IP, user agent, success/failure | 24 months |
+| AI content generation | User, timestamp, channel, topic, model, prompt, response, token count | 24 months |
+| Content approval | User, timestamp, item ID, decision, notes | 24 months |
+| Content rejection | User, timestamp, item ID, reason | 24 months |
+| Knowledge base upload | User, timestamp, file name, size, hash | 24 months |
+| Settings change | User, timestamp, setting, before/after values | 24 months |
+| Integration (read) call | Timestamp, target, scope, response status | 12 months |
+| Failed access attempt | Timestamp, IP, target resource, reason | 24 months |
+
+**Phase 1:** audit log stored in application log stream (Railway log retention, exported weekly to internal storage).
+**Phase 2:** audit log stored in PostgreSQL `audit_log` table + shipped to CloudWatch Logs with 24-month retention and optional S3 archive for long-term compliance.
+
+Logs are **append-only** (no UPDATE or DELETE permission for the application role). The Audit & Compliance page in the hub surfaces the logs read-only for the Approver and Admin roles.
+
+---
+
+## 10. Dependency and supply-chain security
+
+| Measure | Tool / process |
+|---|---|
+| Dependency audit | `npm audit` on every CI run — critical/high block merge |
+| Lockfile | `package-lock.json` committed — reproducible builds |
+| Minimal dependencies | Current footprint is ~15 top-level dependencies, reviewed manually |
+| License review | Permissive licenses only (MIT, Apache 2.0, BSD) — verified on each upgrade |
+| Renovate / Dependabot | Weekly automated PRs for security patches |
+| Container scanning (Phase 2) | AWS ECR image scanning enabled |
+| Source code scanning | GitHub Advanced Security / CodeQL on every push to main |
+
+---
+
+## 11. Incident response
+
+### Detection
+- Sentry (or equivalent) for application-level error alerting
+- CloudWatch alarms on anomalous rates (Phase 2): 5xx spike, 4xx spike, request rate spike, unusual egress
+- Weekly manual review of audit logs during Phase 1
+
+### Response plan
+
+| Severity | Definition | Response time | Actions |
+|---|---|---|---|
+| **P0 — Critical** | Active data exposure, credential compromise, successful unauthorized write | 15 minutes | Rotate all secrets immediately, disable affected integration, Group IT Security notified, post-mortem within 48h |
+| **P1 — High** | Service fully down, authentication bypass suspected | 1 hour | Disable public access, investigate, notify stakeholders |
+| **P2 — Medium** | Degraded service, individual feature broken | 4 hours | Fix forward or roll back |
+| **P3 — Low** | Cosmetic issue, non-security bug | Next business day | Track in backlog |
+
+### Breach notification (GDPR Art. 33)
+- 72-hour notification to the Data Protection Authority if a personal data breach is confirmed
+- Documented breach playbook maintained by Group IT Security
+
+---
+
+## 12. Penetration testing and audits
+
+| Activity | Frequency | When |
+|---|---|---|
+| Internal code review | On every pull request | Continuous |
+| Automated dependency scan | On every CI run | Continuous |
+| External penetration test | Once before Phase 2 go-live, then annually | Before Phase 2 |
+| GDPR internal audit | Annually | Phase 2 onwards |
+| Secrets rotation drill | Quarterly | Phase 2 onwards |
+| Disaster recovery drill | Annually | Phase 2 onwards |
+
+---
+
+## 13. Per-phase security requirements checklist
+
+### Phase 1 gate (before agency hosts it)
+- [ ] This document and the Technical Roadmap reviewed and signed by Group Security
+- [ ] Agency provides SOC 2 Type II report or equivalent attestation
+- [ ] Railway EU region confirmed in writing
+- [ ] Anthropic and Google Gemini contracts include GDPR Standard Contractual Clauses
+- [ ] `.env.example` documented, no real secrets in git, `.gitignore` verified
+- [ ] Only public content in the knowledge base
+- [ ] Written confirmation that no write-capable integration is present
+
+### Phase 2 gate (before AWS migration)
+- [ ] All Phase 1 items still valid
+- [ ] DPIA completed and approved
+- [ ] ROPA entry added
+- [ ] AWS account, VPC, IAM roles, Secrets Manager configured via code (Terraform / CDK)
+- [ ] Penetration test report with no critical or high findings
+- [ ] Google Workspace SSO enforced and tested with MFA
+- [ ] Read-only API credentials provisioned by Group IT for each integration
+- [ ] Incident response plan accepted by Group IT Security
+- [ ] Backup and restore procedure tested
+
+### Phase 3 gate (per write-integration)
+- [ ] Business case documented (value vs. risk)
+- [ ] Dual-control approval flow implemented in code
+- [ ] Scope limited to the minimum necessary write permissions
+- [ ] Incident rollback procedure tested
+- [ ] Independent security sign-off on the specific integration
+
+---
+
+## 14. Sign-off
+
+| Role | Name | Date | Signature |
+|---|---|---|---|
+| Project Owner (APSOparts Marketing) | | | |
+| Group IT Security | | | |
+| Group Data Protection Officer | | | |
+| External Agency Technical Lead | | | |
+| Group CIO | | | |
+
+This document must be re-signed at the start of each phase.
