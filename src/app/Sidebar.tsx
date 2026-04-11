@@ -18,6 +18,7 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
 import ArticleIcon from "@mui/icons-material/Article";
+import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import Link from "next/link";
 
@@ -29,6 +30,13 @@ interface NavSection {
 }
 
 const navSections: NavSection[] = [
+  {
+    title: "Documentation for GDS",
+    items: [
+      { label: "Technical Roadmap", href: "/docs/technical-roadmap", icon: <DescriptionIcon fontSize="small" /> },
+      { label: "Security Infrastructure", href: "/docs/security-infrastructure", icon: <SecurityIcon fontSize="small" /> },
+    ],
+  },
   {
     title: "Overview",
     items: [
