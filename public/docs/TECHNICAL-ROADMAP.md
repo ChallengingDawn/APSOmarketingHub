@@ -26,6 +26,7 @@ Railway is a Platform-as-a-Service (PaaS) hosting provider, equivalent in functi
 - Competitor equivalents the IT team may be more familiar with: **Microsoft Azure App Service**, **AWS App Runner**, **Google Cloud Run**. Railway is in the same category but with less configuration overhead, which is why the external agency uses it for rapid prototype deployments.
 
 **Why Railway for Phase 1 and not directly AWS?**
+- **AWS is not yet available to the group** — AWS onboarding for Angst+Pfister is planned for June, so Phase 1 has to start on an alternative EU-compliant platform in the meantime. Railway fills that gap without blocking the evaluation.
 - The external digital agency already operates the Railway account and bears the hosting cost during the prototype phase.
 - Zero infrastructure setup — the team focuses on evaluating the AI agent, not on configuring VPCs or IAM.
 - Railway can be torn down in one click at the end of Phase 1 with zero residual footprint.
@@ -48,7 +49,7 @@ Phase 1 runs on the external agency's Railway account and a small number of mete
 | Domain name (if a custom domain is used) | 1 – 2 | Optional |
 | **Total estimated monthly cost — Phase 1** | **~ 36 – 72 CHF** | Well under the 100 CHF / month ceiling |
 
-**Important:** Phase 1 has no SaaS licenses, no database costs, no monitoring contracts, no CDN fees and no data transfer charges beyond what is included in the Railway plan. All costs are covered by the external agency's operational budget during the evaluation period and do not appear on Angst+Pfister's cost center.
+**Important:** Phase 1 has no SaaS licenses, no database costs, no monitoring contracts, no CDN fees and no data transfer charges beyond what is included in the Railway plan.
 
 Phase 2 cost estimates will be prepared separately when the AWS architecture is sized and when HubSpot / GA4 / GSC read access is granted.
 
@@ -59,6 +60,18 @@ Phase 2 cost estimates will be prepared separately when the AWS architecture is 
 ### Phase 1 — Supervised training sandbox (external agency hosting)
 
 **Goal:** Evaluate AI content generation quality against APSOparts brand, materials catalog and tone of voice, without touching any live corporate system or customer data.
+
+**What is and is not connected in Phase 1**
+
+In plain terms: nothing is really connected. The hub in Phase 1 is a standalone content laboratory. The only outbound connections are to two AI providers (Claude and Gemini) for the sole purpose of text generation. There is no connection to Outlook, SharePoint, Teams, Magento, HubSpot, LinkedIn, Google Analytics 4, Google Search Console, the customer database, the order system, the CRM or any internal network. The hub cannot read, write or trigger anything in any of those systems — not even indirectly.
+
+**Security-wise, the training data is public only.** The agent learns from:
+- The public APSOparts website copy (already visible to anyone on the internet)
+- Public product catalog pages
+- Public brand guidelines and tone of voice (already shared with the agency under NDA)
+- Public technical datasheets for elastomers and plastics
+
+No confidential document, no customer record, no internal email, no contract, no pricing list and no personal data ever enters the system in Phase 1. If the Railway instance were compromised tomorrow, the attacker would find nothing beyond what is already published on apsoparts.com.
 
 **Hosting**
 - Next.js 15 application deployed to **Railway** (EU region — Frankfurt / Amsterdam / Paris).
@@ -116,14 +129,14 @@ No outbound publishing automation whatsoever in Phase 1.
 - Infrastructure defined as code (Terraform / AWS CDK) and version-controlled
 - DNS via Route 53, WAF rules for rate limiting and OWASP Top 10 protection
 
-**New read-only integrations**
+**New integrations**
 - ✅ Google Analytics 4 — **read-only** scope (`analytics.readonly`)
 - ✅ Google Search Console — **read-only** scope (`webmasters.readonly`)
 - ✅ Magento product catalog — **read-only** API user (catalog_read)
 - ✅ LinkedIn Organic — **read-only** analytics scope (no posting)
-- ✅ HubSpot — **read-only** scopes for newsletter performance (opens, clicks, bounces, unsubscribes) and contact list metadata (no PII fields, only aggregates and list names). HubSpot is the source of truth for email campaigns at Angst+Pfister; the hub reads performance data for analytics but does not write campaigns yet.
-- ❌ Still no write access to any publishing channel
-- ❌ Still no customer / order / CRM personal data (no individual contact fields are read)
+- ✅ HubSpot — **read and write** access, but restricted to a narrow allow-list of properties. The hub can read campaign performance metrics and create or update draft campaigns in HubSpot, but only on a pre-approved set of properties (campaign title, subject, preview text, body, scheduled date). It cannot read or write any contact personal data, any custom property outside the allow-list, or any property on the Contacts, Deals or Companies objects. HubSpot is the source of truth for email campaigns at APSOparts; the send action itself always stays manual inside HubSpot.
+- ❌ Still no access to customer / order / CRM personal data
+- ❌ Still no outbound publishing to LinkedIn or Magento without a separate Phase 3 review
 
 **Authentication**
 - Microsoft Entra ID (Azure AD) OAuth 2.0 restricted to `@angst-pfister.com` / `@apsoparts.com` tenants
@@ -238,7 +251,7 @@ All egress traffic through a NAT gateway, logged, and restricted by security gro
 1. **Public-only in Phase 1** — no customer PII, no order data, no pricing, no internal documents beyond what is already published on apsoparts.com.
 2. **Read-only by default in Phase 2** — read scopes on every corporate integration; write scopes require separate sign-off.
 3. **AI prompts are logged** — every prompt sent to Claude / Gemini is stored in the audit trail with user, timestamp, model and response. Used for compliance and quality review.
-4. **Zero retention on AI providers** — Anthropic's API does not retain or train on commercial API traffic; Google Gemini API has an equivalent zero-retention mode which must be explicitly enabled in the API configuration.
+4. **Zero retention on AI providers** — both Claude and Gemini are configured with no prompt logging for training. Prompts and outputs are not stored or used to train either model.
 5. **No data leaves the EU** except for the Claude / Gemini API calls themselves, which are documented as a necessary processing activity in the GDPR Record of Processing Activities (ROPA).
 
 ---
@@ -250,10 +263,10 @@ All egress traffic through a NAT gateway, logged, and restricted by security gro
 - 9+ content generation workflows working (3 LinkedIn, 3 Newsletter, 3 Blog drafts)
 - SEO Command Center with sample keyword data (no GSC)
 - Content Calendar with manual scheduling
-- Knowledge Base upload for APSOparts brand and product documents
+- Knowledge Base upload for APSOparts brand and product documents (public only)
 - Audit log of every AI generation and approval action
-- Basic Google Workspace OAuth login (optional in Phase 1, mandatory in Phase 2)
-- This document + `SECURITY-INFRASTRUCTURE.md` signed off by Group Security
+- Microsoft Entra ID (Azure AD) OAuth login enforced from day one of Phase 1 — no anonymous access
+- This document + `SECURITY-INFRASTRUCTURE.md` reviewed by Group Security
 
 ### Phase 2 deliverables
 - AWS EU deployment (Terraform / CDK repo)
@@ -277,7 +290,7 @@ All egress traffic through a NAT gateway, logged, and restricted by security gro
 |---|---|---|---|
 | AI generates off-brand / incorrect technical content | Medium | High | Mandatory human approval gate on every draft; brand tone checker; materials datasheet grounding |
 | AI provider outage (Claude or Gemini) | Low | Medium | Dual-provider setup (either model can be selected) |
-| Unauthorized access to Phase 1 Railway instance | Low | Medium | OAuth login recommended in Phase 1; IP allowlist optional |
+| Unauthorized access to Phase 1 Railway instance | Low | Medium | Microsoft Entra ID (Azure AD) OAuth login enforced from day one — no anonymous access; only `@angst-pfister.com` / `@apsoparts.com` tenant users can authenticate; MFA enforced by the existing Conditional Access policy |
 | API key leak from Railway env vars | Very low | High | Keys scoped to content generation only; no financial or PII access; rotation quarterly |
 | GDPR non-compliance (Phase 2 data flows) | Medium | High | DPIA completed before Phase 2 go-live; read-only scopes; EU hosting |
 | Scope creep into customer data | Medium | High | Written policy: no PII, no orders, no CRM; reviewed by Security at each phase gate |
