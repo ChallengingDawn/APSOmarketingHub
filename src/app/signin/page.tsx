@@ -32,11 +32,21 @@ function SignInForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({} as Record<string, unknown>));
+        const detail = typeof body.detail === "string" ? body.detail : "";
+        const from = typeof body.from === "string" ? body.from : "";
+        const status = typeof body.status === "number" ? body.status : r.status;
+        throw new Error(
+          `Email provider returned ${status}. ${detail || "No detail"}${
+            from ? ` (from: ${from})` : ""
+          }`
+        );
+      }
       setStatus("sent");
     } catch (err) {
       setStatus("error");
-      setErrorMsg("Couldn't send the link. Please try again.");
+      setErrorMsg(err instanceof Error ? err.message : "Couldn't send the link. Please try again.");
     }
   }
 
