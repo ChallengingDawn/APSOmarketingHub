@@ -22,10 +22,14 @@ export async function POST(req: NextRequest) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/api/auth/verify?token=${encodeURIComponent(token)}`;
 
-    const apiKey = process.env.RESEND_API_KEY;
+    // Strip any stray wrapping quotes that Railway / .env files sometimes leave on values.
+    const apiKey = (process.env.RESEND_API_KEY || "").replace(/^["']|["']$/g, "").trim();
     const from =
-      process.env.AUTH_EMAIL_FROM ||
-      "APSOparts Marketing Hub <onboarding@resend.dev>";
+      (process.env.AUTH_EMAIL_FROM || "APSOparts Marketing Hub <onboarding@resend.dev>")
+        .replace(/^["']|["']$/g, "")
+        .trim();
+
+    console.log("[auth] send-magic-link attempt", { to: email, from, hasKey: !!apiKey });
 
     // Dev fallback: if Resend isn't configured, log the link to the server console
     // so the developer can still sign in without email delivery set up.
@@ -86,12 +90,22 @@ export async function POST(req: NextRequest) {
     if (!resp.ok) {
       const err = await resp.text();
       console.error("[auth] Resend API error:", resp.status, err);
+      // Return the Resend error text to the client so the issue is visible
+      // without needing Railway log access. Safe: no secrets are exposed.
       return NextResponse.json(
-        { error: "Failed to send email" },
+        {
+          error: "Failed to send email",
+          provider: "resend",
+          status: resp.status,
+          detail: err.slice(0, 500),
+          from,
+        },
         { status: 500 }
       );
     }
 
+    const data = await resp.json().catch(() => ({}));
+    console.log("[auth] Resend send ok", data);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[auth] send-magic-link error:", e);
