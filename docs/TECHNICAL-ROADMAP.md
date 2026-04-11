@@ -14,6 +14,46 @@ The hub is deployed in **three phases**, each unlocking more capability as secur
 
 ---
 
+## 1a. What is Railway?
+
+Railway is a Platform-as-a-Service (PaaS) hosting provider, equivalent in function to services such as Vercel, Heroku, Render, Google Cloud Run or AWS App Runner. It lets teams deploy web applications without managing servers, load balancers or operating systems directly.
+
+**Relevant facts for this project:**
+- Headquartered in San Francisco, but Railway operates data centers in multiple regions including the **European Union** (Frankfurt, Amsterdam, Paris). Our Phase 1 deployment is pinned to an EU region.
+- The platform runs applications in isolated Linux containers, provides HTTPS with automatic TLS certificates, and exposes a web dashboard plus CLI for deployments and log inspection.
+- Environment variables (where API keys live) are stored encrypted and are only injected into the running application at runtime — they are never exposed to the browser or committed to source code.
+- Railway is SOC 2 Type II compliant and signs Data Processing Agreements with customers operating in the EU.
+- Competitor equivalents the IT team may be more familiar with: **Microsoft Azure App Service**, **AWS App Runner**, **Google Cloud Run**. Railway is in the same category but with less configuration overhead, which is why the external agency uses it for rapid prototype deployments.
+
+**Why Railway for Phase 1 and not directly AWS?**
+- The external digital agency already operates the Railway account and bears the hosting cost during the prototype phase.
+- Zero infrastructure setup — the team focuses on evaluating the AI agent, not on configuring VPCs or IAM.
+- Railway can be torn down in one click at the end of Phase 1 with zero residual footprint.
+- No corporate data is ever connected to this instance — it is, by design, an isolated sandbox.
+
+**Transition to Phase 2:** at the end of Phase 1, the source code (which lives in a git repository independent of Railway) is redeployed onto Angst+Pfister-controlled AWS infrastructure. Nothing needs to be rewritten — only the deployment target changes. This reversibility is a core design decision.
+
+---
+
+## 1b. Phase 1 cost estimate
+
+Phase 1 runs on the external agency's Railway account and a small number of metered AI API calls. Total monthly cost during the evaluation phase stays **well under 100 CHF / month**.
+
+| Cost line | Estimate (CHF / month) | Notes |
+|---|---|---|
+| Railway hosting (EU region, small workload) | 5 – 10 | Hobby / Pro tier; actual usage typically below the free tier ceiling during prototype |
+| Anthropic Claude API (content generation) | 20 – 40 | Based on ~ 50 drafts / week, mostly small prompts; Claude Sonnet pricing |
+| Google Gemini API (content generation) | 10 – 20 | Used in parallel for A/B quality comparison; free tier often sufficient |
+| Self-hosted font and image delivery | 0 | Served from the same Railway container |
+| Domain name (if a custom domain is used) | 1 – 2 | Optional |
+| **Total estimated monthly cost — Phase 1** | **~ 36 – 72 CHF** | Well under the 100 CHF / month ceiling |
+
+**Important:** Phase 1 has no SaaS licenses, no database costs, no monitoring contracts, no CDN fees and no data transfer charges beyond what is included in the Railway plan. All costs are covered by the external agency's operational budget during the evaluation period and do not appear on Angst+Pfister's cost center.
+
+Phase 2 cost estimates will be prepared separately when the AWS architecture is sized and when HubSpot / GA4 / GSC read access is granted.
+
+---
+
 ## 2. Phased deployment strategy
 
 ### Phase 1 — Supervised training sandbox (external agency hosting)
@@ -81,12 +121,13 @@ No outbound publishing automation whatsoever in Phase 1.
 - ✅ Google Search Console — **read-only** scope (`webmasters.readonly`)
 - ✅ Magento product catalog — **read-only** API user (catalog_read)
 - ✅ LinkedIn Organic — **read-only** analytics scope (no posting)
+- ✅ HubSpot — **read-only** scopes for newsletter performance (opens, clicks, bounces, unsubscribes) and contact list metadata (no PII fields, only aggregates and list names). HubSpot is the source of truth for email campaigns at Angst+Pfister; the hub reads performance data for analytics but does not write campaigns yet.
 - ❌ Still no write access to any publishing channel
-- ❌ Still no customer / order / CRM data
+- ❌ Still no customer / order / CRM personal data (no individual contact fields are read)
 
 **Authentication**
-- Google Workspace OAuth 2.0 restricted to `@angst-pfister.com` / `@apsoparts.com` domains
-- MFA enforced at the Google Workspace level
+- Microsoft Entra ID (Azure AD) OAuth 2.0 restricted to `@angst-pfister.com` / `@apsoparts.com` tenants
+- MFA enforced at the Microsoft 365 tenant level (same policy as Outlook / SharePoint / Teams)
 - Session tokens stored in secure, httpOnly, sameSite cookies
 - 12-hour session timeout, sliding refresh
 
@@ -117,7 +158,7 @@ No outbound publishing automation whatsoever in Phase 1.
 
 **Potential write-access (subject to separate security review)**
 - LinkedIn Organic posting — scheduled, human-approved posts only, signed with dual-control approval
-- Newsletter dispatch via Mailchimp API — draft creation only, send action still manual
+- HubSpot newsletter creation — draft campaign creation only, **send action always manual** in HubSpot itself
 - Magento blog post publishing — draft creation only, publish action still manual
 
 Each write integration requires an **independent security review and sign-off** before activation. The default stays read-only.
@@ -132,7 +173,7 @@ Each write integration requires an **independent security review and sign-off** 
 | UI | Material UI v6, Recharts, Outfit/Inter fonts (self-hosted) | Professional B2B look, GDPR-compliant font loading |
 | Runtime | Node.js 20 LTS | Standard, long-term supported |
 | AI providers | Anthropic Claude API + Google Gemini API | Dual-provider for redundancy and quality A/B |
-| Auth (Phase 2+) | NextAuth.js (Auth.js v5) + Google Workspace SSO | Industry standard, minimal custom auth code |
+| Auth (Phase 2+) | NextAuth.js (Auth.js v5) + Microsoft Entra ID (Azure AD) SSO | Industry standard, matches the Angst+Pfister Outlook / Microsoft 365 tenant — no new identity system to manage |
 | State | React Server Components + client state | No database required in Phase 1 |
 | Persistence (Phase 2+) | AWS RDS PostgreSQL (14+) in private subnet | Managed, encrypted at rest, backup automation |
 | Secrets | Railway env vars (Phase 1) → AWS Secrets Manager (Phase 2+) | Industry standard per-phase |
@@ -184,6 +225,7 @@ AWS Route 53 ──► AWS WAF ──► Application Load Balancer
                                        ├─► GA4 API (read-only)
                                        ├─► GSC API (read-only)
                                        ├─► Magento REST (read-only)
+                                       ├─► HubSpot API (read-only, aggregates only)
                                        └─► LinkedIn API (read-only)
 ```
 
