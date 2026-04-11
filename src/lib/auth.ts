@@ -22,10 +22,25 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+/**
+ * Returns the list of allow-listed domains, extended with any domains configured
+ * via the AUTH_EXTRA_ALLOWED_DOMAINS env var (comma-separated). Intended for
+ * temporary testing of email delivery from outside the corporate tenant.
+ * Example: AUTH_EXTRA_ALLOWED_DOMAINS=gmail.com,proton.me
+ */
+function getAllowedDomains(): string[] {
+  const base: string[] = [...ALLOWED_DOMAINS];
+  const extra = (process.env.AUTH_EXTRA_ALLOWED_DOMAINS || "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+  return [...base, ...extra];
+}
+
 export function isEmailAllowed(raw: string): boolean {
   const email = raw.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return false;
-  return ALLOWED_DOMAINS.some((d) => email.endsWith(`@${d}`));
+  return getAllowedDomains().some((d) => email.endsWith(`@${d}`));
 }
 
 export async function createMagicLinkToken(email: string): Promise<string> {
