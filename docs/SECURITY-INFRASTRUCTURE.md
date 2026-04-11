@@ -24,36 +24,42 @@ The hub is designed around seven non-negotiable principles.
 
 ### What OAuth 2.0 actually is
 
-OAuth 2.0 is the industry standard for delegated authentication. The short version:
+OAuth 2.0 is the industry standard for delegated authentication. Because Angst+Pfister and APSOparts run on Microsoft 365 (Outlook, SharePoint, Teams), the hub uses **Microsoft Entra ID** (formerly known as Azure Active Directory) as the identity provider — not Google. The flow is identical; only the provider changes.
 
-1. The user clicks **"Sign in with Google"** on the hub
-2. The browser redirects the user to Google's own login page
-3. The user authenticates with Google (email + password + MFA) — **the hub never sees the password**
-4. Google verifies the user and asks: *"Do you allow the APSOparts Marketing Hub to see your email and name?"*
-5. The user consents
-6. Google sends a one-time authorization code back to the hub's server-side callback URL
+The short version:
+
+1. The user clicks **"Sign in with Microsoft"** on the hub
+2. The browser redirects the user to Microsoft's `login.microsoftonline.com` page
+3. The user authenticates with their Angst+Pfister Microsoft 365 account (same credentials as Outlook and Teams) — **the hub never sees the password**
+4. Microsoft verifies the user against the Angst+Pfister tenant, enforces MFA, and asks: *"Do you allow the APSOparts Marketing Hub to see your email and name?"*
+5. The user consents (once — the Admin can also grant tenant-wide consent to skip this step for all users)
+6. Microsoft sends a one-time authorization code back to the hub's server-side callback URL
 7. The hub's server exchanges that code (plus a secret only the server knows) for a short-lived access token
 8. The hub validates the token and issues its own session cookie to the browser
 
-At no point does the hub store, see or transmit the user's Google password. The server only holds a short-lived token and a session identifier.
+At no point does the hub store, see or transmit the user's Microsoft password. The server only holds a short-lived token and a session identifier.
+
+**Why Microsoft Entra ID and not Google Workspace:** Angst+Pfister operates Outlook / Microsoft 365 as its corporate identity system. Introducing a separate Google Workspace just for this app would create a parallel identity system, duplicate MFA configuration and break the Single Sign-On experience. Microsoft Entra ID is the native choice — the same tenant that authenticates Outlook, Teams and SharePoint authenticates the hub.
 
 ### OAuth implementation specifics
 
 | Setting | Value |
 |---|---|
 | Library | NextAuth.js (Auth.js v5) |
-| Identity provider | Google Workspace for Angst+Pfister |
-| Allowed email domains | `@angst-pfister.com`, `@apsoparts.com` — all others rejected at the callback |
+| Identity provider | Microsoft Entra ID (Azure AD) — Angst+Pfister tenant |
+| Tenant restriction | Single-tenant app registration in the Angst+Pfister Microsoft 365 tenant; users from any other tenant are rejected by Microsoft before the callback is even called |
+| Allowed email domains | `@angst-pfister.com`, `@apsoparts.com` — additional server-side check as a second line of defence |
 | Flow | Authorization Code with PKCE |
 | Token storage | Server-side session, never stored in browser localStorage or sessionStorage |
 | Session cookie | `httpOnly`, `secure`, `sameSite=lax`, 12-hour sliding expiry |
-| MFA | Enforced at Google Workspace level (no separate MFA in the hub) |
-| Logout | Clears hub session + redirects to Google logout for full sign-out |
+| MFA | Enforced at the Microsoft 365 tenant level via Conditional Access (same policy as Outlook) |
+| Logout | Clears hub session + redirects to `login.microsoftonline.com/common/oauth2/logout` for full sign-out |
 | CSRF protection | Built into NextAuth — double-submit cookie pattern |
+| App registration owner | Angst+Pfister IT (creates the Entra ID app registration and shares the Client ID + Secret with the development team via secure channel) |
 
 ### OAuth for service accounts (Phase 2 read-only integrations)
 
-Each corporate integration (GA4, GSC, Magento, LinkedIn) uses its own OAuth credential with the **minimum read-only scope**:
+Each corporate integration (GA4, GSC, Magento, LinkedIn, HubSpot) uses its own OAuth credential with the **minimum read-only scope**:
 
 | Integration | OAuth scope | Purpose |
 |---|---|---|
@@ -61,8 +67,11 @@ Each corporate integration (GA4, GSC, Magento, LinkedIn) uses its own OAuth cred
 | Google Search Console | `https://www.googleapis.com/auth/webmasters.readonly` | Read queries, impressions, clicks, positions |
 | Magento REST | Custom read-only API user (`catalog:read`) | Read product catalog for content grounding |
 | LinkedIn Marketing | `r_organization_social`, `r_1st_connections_size` | Read organic post analytics (no write) |
+| HubSpot | `content` (read), `reports` (read), `forms` (read) — NO `contacts` read scope | Read newsletter performance, form submissions aggregates. No personal contact data. |
 | Anthropic Claude | API key (not OAuth) | Content generation |
 | Google Gemini | API key (not OAuth) | Content generation |
+
+**Important on HubSpot:** the `contacts` scope is deliberately **excluded**. The hub only reads aggregate newsletter performance (open rates, click rates, unsubscribe rates, bounce rates per campaign) and list names — never individual email addresses, names or other personal fields of subscribers. This keeps the hub outside the scope of HubSpot-stored personal data.
 
 All OAuth refresh tokens are stored in **AWS Secrets Manager** (Phase 2) or **Railway environment variables** (Phase 1), never in the database or source code.
 
@@ -92,7 +101,7 @@ Role assignment is done by an Admin in the hub's Settings page and requires Grou
 | `ANTHROPIC_API_KEY` | Railway environment variable | Quarterly |
 | `GEMINI_API_KEY` | Railway environment variable | Quarterly |
 | `NEXTAUTH_SECRET` | Railway environment variable | On incident only |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (if OAuth added in P1) | Railway environment variable | Quarterly |
+| `AZURE_AD_CLIENT_ID` / `AZURE_AD_CLIENT_SECRET` / `AZURE_AD_TENANT_ID` (if OAuth added in P1) | Railway environment variable | Quarterly; tenant ID is not secret but kept with the other values |
 
 **Hard rules:**
 - No `NEXT_PUBLIC_*` prefix on any secret — that prefix bundles the value into browser JS.
@@ -313,7 +322,7 @@ Logs are **append-only** (no UPDATE or DELETE permission for the application rol
 - [ ] ROPA entry added
 - [ ] AWS account, VPC, IAM roles, Secrets Manager configured via code (Terraform / CDK)
 - [ ] Penetration test report with no critical or high findings
-- [ ] Google Workspace SSO enforced and tested with MFA
+- [ ] Microsoft Entra ID (Azure AD) SSO enforced, Conditional Access MFA verified against the Angst+Pfister tenant
 - [ ] Read-only API credentials provisioned by Group IT for each integration
 - [ ] Incident response plan accepted by Group IT Security
 - [ ] Backup and restore procedure tested
