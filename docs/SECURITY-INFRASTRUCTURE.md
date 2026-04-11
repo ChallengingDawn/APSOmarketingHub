@@ -22,9 +22,62 @@ The hub is designed around seven non-negotiable principles.
 
 ## 2. Authentication
 
-The hub uses **Microsoft Entra ID** (formerly Azure Active Directory) as the identity provider. Because Angst+Pfister and APSOparts already run Microsoft 365 (Outlook, Teams, SharePoint), the hub joins the same Single Sign-On umbrella — no new identity system, no parallel MFA enrolment, no duplicate password. Users click "Sign in with Microsoft", authenticate against the Angst+Pfister tenant with their usual corporate credentials, MFA is enforced by the existing Conditional Access policy, and the hub receives a short-lived session cookie. The hub never sees or stores the user's password.
+Authentication is implemented in two stages. Phase 1 uses a stateless magic-link flow so the hub can enforce access control immediately, without waiting for corporate identity infrastructure. Phase 2 upgrades to Microsoft Entra ID once the Angst+Pfister tenant app registration is provisioned by Group IT.
 
-### OAuth implementation specifics
+### Phase 1 — Magic-link authentication (active from day one)
+
+The hub is protected behind a magic-link sign-in flow on every route. No anonymous access is allowed.
+
+**How it works:**
+
+1. A user visits any page on the hub. Middleware checks for a signed session cookie.
+2. Without a valid cookie, the user is redirected to `/signin`.
+3. The user enters their corporate email address.
+4. The server validates that the domain is on the allow-list (`angst-pfister.com` or `apsoparts.com`). If not, the server returns a generic "check your inbox" response (to prevent email enumeration) but never sends a link.
+5. For allowed addresses, the server signs a short-lived JWT (15-minute expiry) containing the email and sends a sign-in link to that address via **Resend** (transactional email provider).
+6. The user clicks the link. The server verifies the JWT signature and expiry, issues a second JWT as a 12-hour session cookie, and redirects to the hub.
+7. The session cookie is `httpOnly`, `secure`, `sameSite=lax` — inaccessible to JavaScript, sent only over HTTPS.
+
+**Security properties:**
+
+| Property | Mechanism |
+|---|---|
+| No passwords | Impossible to leak or brute force — nothing to steal |
+| Domain restriction | Server-side check on every request before generating a link |
+| Token tampering | JWTs signed with HS256 using a 32+ character `AUTH_SECRET` env var |
+| Token replay | Each link is single-use in practice because the session is issued once and the user immediately signs in; the short TTL bounds the window |
+| Session theft | `httpOnly` cookies prevent XSS-based token theft |
+| Enumeration | Response never reveals whether an email is on the allow-list |
+| Rate limiting | 20 requests / minute / IP on the send-magic-link endpoint (added in API security section) |
+
+**Phase 1 implementation specifics:**
+
+| Setting | Value |
+|---|---|
+| Library | `jose` (JWT sign/verify, Edge-runtime compatible) |
+| Email delivery | Resend REST API with HTML template |
+| Allow-list | `angst-pfister.com`, `apsoparts.com` — server-side only |
+| Magic link TTL | 15 minutes |
+| Session TTL | 12 hours |
+| Session cookie | `aph_session`, `httpOnly`, `secure`, `sameSite=lax`, path `/` |
+| Signing algorithm | HS256 with `AUTH_SECRET` |
+| Required env vars | `AUTH_SECRET`, `RESEND_API_KEY`, `AUTH_EMAIL_FROM` |
+| Middleware coverage | Every route except `/signin`, `/api/auth/*`, `/docs/*`, Next.js internals |
+| Sign-out | `GET /api/auth/signout` clears the cookie and redirects to `/signin` |
+
+**Why this is acceptable for Phase 1:**
+
+- It enforces access control **today**, with no dependency on Group IT, Azure, AWS or any corporate identity system
+- It can be deployed by the external agency on Railway immediately
+- It protects the same surfaces that Entra ID will later protect — only the identity provider changes
+- The JWT allow-list pattern is a standard, audited approach used by many production applications (e.g. Vercel, GitHub deploy previews, Stripe dashboard invites)
+- Upgrading to Entra ID in Phase 2 is a ~15-line code change to the auth module; the middleware, session cookie format and allow-list logic stay identical
+
+### Phase 2 — Microsoft Entra ID (Azure AD)
+
+When Group IT provisions the Entra ID app registration in the Angst+Pfister Microsoft 365 tenant, the magic-link provider is replaced by Microsoft Entra ID SSO. Because Angst+Pfister and APSOparts already run Microsoft 365 (Outlook, Teams, SharePoint), the hub joins the same Single Sign-On umbrella — no new identity system, no parallel MFA enrolment, no duplicate password. Users click "Sign in with Microsoft", authenticate against the Angst+Pfister tenant with their usual corporate credentials, MFA is enforced by the existing Conditional Access policy, and the hub receives a short-lived session cookie. The hub never sees or stores the user's password.
+
+### Phase 2 OAuth implementation specifics
 
 | Setting | Value |
 |---|---|
@@ -83,8 +136,9 @@ Role assignment is done by an Admin in the hub's Settings page and requires Grou
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Railway environment variable | Quarterly |
 | `GEMINI_API_KEY` | Railway environment variable | Quarterly |
-| `NEXTAUTH_SECRET` | Railway environment variable | On incident only |
-| `AZURE_AD_CLIENT_ID` / `AZURE_AD_CLIENT_SECRET` / `AZURE_AD_TENANT_ID` (if OAuth added in P1) | Railway environment variable | Quarterly; tenant ID is not secret but kept with the other values |
+| `AUTH_SECRET` (magic-link JWT signing key) | Railway environment variable | On incident only |
+| `RESEND_API_KEY` (magic-link email delivery) | Railway environment variable | Quarterly |
+| `AUTH_EMAIL_FROM` (verified sender) | Railway environment variable | Not secret, but kept in env vars for deployment portability |
 
 **Hard rules:**
 - No `NEXT_PUBLIC_*` prefix on any secret — that prefix bundles the value into browser JS.

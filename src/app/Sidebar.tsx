@@ -20,6 +20,7 @@ import NewspaperIcon from "@mui/icons-material/Newspaper";
 import ArticleIcon from "@mui/icons-material/Article";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
+import LogoutIcon from "@mui/icons-material/Logout";
 import Link from "next/link";
 
 const DRAWER_WIDTH = 264;
@@ -258,20 +259,59 @@ export default function Sidebar() {
         ))}
       </Box>
 
-      {/* Bottom Status */}
-      <Box sx={{ px: 3, py: 2.5, borderTop: "1px solid #ececec", position: "relative", zIndex: 1, bgcolor: "rgba(255,255,255,0.7)", backdropFilter: "blur(8px)" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
-          <Box
-            sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#34a853" }}
-            className="animate-pulse-dot"
-          />
-          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "#1f1f1f" }}>
-            Pipeline Active
+      {/* Bottom Status + Sign out */}
+      <Box sx={{ px: 2, py: 2, borderTop: "1px solid #ececec", position: "relative", zIndex: 1, bgcolor: "rgba(255,255,255,0.7)", backdropFilter: "blur(8px)" }}>
+        <Box sx={{ px: 1, mb: 1.25 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+            <Box
+              sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#34a853" }}
+              className="animate-pulse-dot"
+            />
+            <Typography sx={{ fontSize: 12, fontWeight: 500, color: "#1f1f1f" }}>
+              Pipeline Active
+            </Typography>
+          </Box>
+          <Typography sx={{ fontSize: 11, color: "#5f6368" }}>
+            Draft-only mode enabled
           </Typography>
         </Box>
-        <Typography sx={{ fontSize: 11, color: "#5f6368" }}>
-          Draft-only mode enabled
-        </Typography>
+        <ListItemButton
+          component="a"
+          href="/api/auth/signout"
+          disableRipple
+          sx={{
+            borderRadius: 999,
+            py: 0.85,
+            px: 2,
+            minHeight: 40,
+            color: "#3c4043",
+            "&:hover": {
+              bgcolor: "#fdebed",
+              color: "#ed1b2f",
+              "& .MuiListItemIcon-root": { color: "#ed1b2f" },
+            },
+            "& .MuiListItemIcon-root": {
+              minWidth: 32,
+              color: "#5f6368",
+            },
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="Sign out"
+            slotProps={{
+              primary: {
+                sx: {
+                  fontSize: 14,
+                  fontWeight: 500,
+                  letterSpacing: "-0.005em",
+                },
+              },
+            }}
+          />
+        </ListItemButton>
       </Box>
     </Drawer>
   );

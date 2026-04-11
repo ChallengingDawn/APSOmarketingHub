@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Box from "@mui/material/Box";
 import ThemeRegistry from "./ThemeRegistry";
-import Sidebar, { DRAWER_WIDTH } from "./Sidebar";
+import AppShell from "./AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,21 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <ThemeRegistry>
-          <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f0f2f5" }}>
-            <Sidebar />
-            <Box
-              component="main"
-              sx={{
-                flexGrow: 1,
-                p: { xs: 2, md: 3 },
-                ml: `${DRAWER_WIDTH}px`,
-                maxWidth: `calc(100vw - ${DRAWER_WIDTH}px)`,
-                overflow: "auto",
-              }}
-            >
-              {children}
-            </Box>
-          </Box>
+          <AppShell>{children}</AppShell>
         </ThemeRegistry>
       </body>
     </html>
