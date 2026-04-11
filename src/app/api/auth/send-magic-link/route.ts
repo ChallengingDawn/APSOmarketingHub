@@ -29,7 +29,12 @@ export async function POST(req: NextRequest) {
         .replace(/^["']|["']$/g, "")
         .trim();
 
-    console.log("[auth] send-magic-link attempt", { to: email, from, hasKey: !!apiKey });
+    // Dev-mode bypass: when AUTH_DEV_MODE=true, return the link in the response so the
+    // admin can sign in even if corporate mail filters are silently dropping the email.
+    // Should be disabled once the mail delivery is working for real users.
+    const devMode = (process.env.AUTH_DEV_MODE || "").toLowerCase() === "true";
+
+    console.log("[auth] send-magic-link attempt", { to: email, from, hasKey: !!apiKey, devMode });
 
     // Dev fallback: if Resend isn't configured, log the link to the server console
     // so the developer can still sign in without email delivery set up.
@@ -106,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const data = await resp.json().catch(() => ({}));
     console.log("[auth] Resend send ok", data);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(devMode ? { dev_link: link } : {}) });
   } catch (e) {
     console.error("[auth] send-magic-link error:", e);
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
