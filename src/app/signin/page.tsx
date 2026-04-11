@@ -20,12 +20,14 @@ function SignInForm() {
     "idle"
   );
   const [errorMsg, setErrorMsg] = useState("");
+  const [devLink, setDevLink] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
     setStatus("sending");
     setErrorMsg("");
+    setDevLink(null);
     try {
       const r = await fetch("/api/auth/send-magic-link", {
         method: "POST",
@@ -42,6 +44,10 @@ function SignInForm() {
             from ? ` (from: ${from})` : ""
           }`
         );
+      }
+      const body = await r.json().catch(() => ({} as Record<string, unknown>));
+      if (typeof body.dev_link === "string") {
+        setDevLink(body.dev_link);
       }
       setStatus("sent");
     } catch (err) {
@@ -156,10 +162,50 @@ function SignInForm() {
               >
                 If your email is on the allow-list, a sign-in link is on its way. It expires in 15 minutes.
               </Typography>
+
+              {devLink && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    mb: 2,
+                    p: 2,
+                    bgcolor: "#fef7e0",
+                    border: "1px solid #fbbc04",
+                    borderRadius: 2,
+                    textAlign: "left",
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#b06000", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>
+                    ⚠ Dev mode — direct link
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: "#3c4043", mb: 1.5 }}>
+                    Mail delivery is bypassed. Click below to sign in directly.
+                  </Typography>
+                  <Button
+                    component="a"
+                    href={devLink}
+                    fullWidth
+                    sx={{
+                      bgcolor: "#274e64",
+                      color: "#fff",
+                      textTransform: "none",
+                      fontWeight: 600,
+                      fontSize: "0.78rem",
+                      borderRadius: 999,
+                      py: 1,
+                      "&:hover": { bgcolor: "#1a3a4c" },
+                    }}
+                  >
+                    Sign in now
+                  </Button>
+                </Box>
+              )}
+
               <Button
                 onClick={() => {
                   setStatus("idle");
                   setEmail("");
+                  setDevLink(null);
                 }}
                 sx={{
                   fontSize: "0.78rem",
