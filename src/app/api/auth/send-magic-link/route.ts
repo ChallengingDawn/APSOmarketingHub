@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
     }
 
     const token = await createMagicLinkToken(email);
-    const origin = req.nextUrl.origin;
+
+    // Use APP_URL env var when set (required on Railway where req.nextUrl.origin
+    // resolves to the internal container address, e.g. localhost:8080).
+    // Falls back to the request origin for local development.
+    const origin = process.env.APP_URL?.replace(/\/+$/, "") || req.nextUrl.origin;
     const link = `${origin}/api/auth/verify?token=${encodeURIComponent(token)}`;
 
     // Strip any stray wrapping quotes that Railway / .env files sometimes leave on values.
