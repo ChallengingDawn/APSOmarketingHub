@@ -1,16 +1,18 @@
 import { SignJWT, jwtVerify } from "jose";
 
 /**
- * Lightweight magic-link auth for APSOparts Marketing Hub (Phase 1).
- * No database, no Prisma adapter — uses stateless JWTs for both the magic link
- * token and the session cookie. Swap to Microsoft Entra ID in Phase 2.
+ * Lightweight email-code auth for APSOparts Marketing Hub (Phase 1).
+ * No database — uses stateless JWTs. A 6-digit code is emailed to the user;
+ * a short-lived JWT cookie stores the code server-side for verification.
+ * Swap to Microsoft Entra ID in Phase 2.
  */
 
 export const ALLOWED_DOMAINS = ["angst-pfister.com", "apsoparts.com"] as const;
 
 export const SESSION_COOKIE = "aph_session";
+export const CODE_COOKIE = "aph_code_token";
 export const SESSION_TTL_SECONDS = 12 * 60 * 60; // 12 hours
-const MAGIC_LINK_TTL_SECONDS = 15 * 60; // 15 minutes
+const CODE_TTL_SECONDS = 15 * 60; // 15 minutes
 
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET;
@@ -43,21 +45,34 @@ export function isEmailAllowed(raw: string): boolean {
   return getAllowedDomains().some((d) => email.endsWith(`@${d}`));
 }
 
-export async function createMagicLinkToken(email: string): Promise<string> {
-  return await new SignJWT({ email: email.toLowerCase(), typ: "magic" })
+/** Generate a random 6-digit numeric code. */
+export function createVerificationCode(): string {
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return n.toString();
+}
+
+/** Create a JWT that embeds the email + code (15-min TTL). */
+export async function createCodeToken(
+  email: string,
+  code: string
+): Promise<string> {
+  return await new SignJWT({ email: email.toLowerCase(), code, typ: "code" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${MAGIC_LINK_TTL_SECONDS}s`)
+    .setExpirationTime(`${CODE_TTL_SECONDS}s`)
     .sign(getSecret());
 }
 
-export async function verifyMagicLinkToken(
-  token: string
+/** Verify the code JWT and check that the user-submitted code matches. */
+export async function verifyCodeToken(
+  token: string,
+  inputCode: string
 ): Promise<{ email: string } | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
-    if (payload.typ !== "magic") return null;
+    if (payload.typ !== "code") return null;
     if (typeof payload.email !== "string") return null;
+    if (payload.code !== inputCode) return null;
     return { email: payload.email };
   } catch {
     return null;

@@ -1,6 +1,6 @@
 "use client";
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useState, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
@@ -9,27 +9,47 @@ import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
-import MailOutlineIcon from "@mui/icons-material/MailOutline";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 
 function SignInForm() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const errorParam = searchParams.get("error");
 
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
-    "idle"
-  );
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [status, setStatus] = useState<"idle" | "sending" | "verifying" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
-  const [devLink, setDevLink] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Cooldown timer for resend
+  useEffect(() => {
+    if (cooldown <= 0) {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      return;
+    }
+    cooldownRef.current = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1) {
+          if (cooldownRef.current) clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, [cooldown]);
+
+  async function sendCode() {
     if (!email.trim()) return;
     setStatus("sending");
     setErrorMsg("");
-    setDevLink(null);
     try {
-      const r = await fetch("/api/auth/send-magic-link", {
+      const r = await fetch("/api/auth/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),
@@ -38,29 +58,59 @@ function SignInForm() {
         const body = await r.json().catch(() => ({} as Record<string, unknown>));
         const detail = typeof body.detail === "string" ? body.detail : "";
         const from = typeof body.from === "string" ? body.from : "";
-        const status = typeof body.status === "number" ? body.status : r.status;
+        const st = typeof body.status === "number" ? body.status : r.status;
         throw new Error(
-          `Email provider returned ${status}. ${detail || "No detail"}${
-            from ? ` (from: ${from})` : ""
-          }`
+          `Email provider returned ${st}. ${detail || "No detail"}${from ? ` (from: ${from})` : ""}`
         );
       }
-      const body = await r.json().catch(() => ({} as Record<string, unknown>));
-      if (typeof body.dev_link === "string") {
-        setDevLink(body.dev_link);
-      }
-      setStatus("sent");
+      setStep("code");
+      setCode("");
+      setStatus("idle");
+      setCooldown(60);
     } catch (err) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Couldn't send the link. Please try again.");
+      setErrorMsg(err instanceof Error ? err.message : "Couldn't send the code. Please try again.");
     }
+  }
+
+  async function verifyCode() {
+    if (code.trim().length !== 6) return;
+    setStatus("verifying");
+    setErrorMsg("");
+    try {
+      const r = await fetch("/api/auth/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const body = await r.json().catch(() => ({} as Record<string, unknown>));
+      if (!r.ok) {
+        throw new Error(
+          typeof body.error === "string" ? body.error : "Invalid code. Please try again."
+        );
+      }
+      router.push("/");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Verification failed.");
+    }
+  }
+
+  function onEmailSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    sendCode();
+  }
+
+  function onCodeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    verifyCode();
   }
 
   const tokenError =
     errorParam === "missing_token"
-      ? "The sign-in link is missing. Please request a new one."
+      ? "Session expired. Please sign in again."
       : errorParam === "invalid_token"
-      ? "That sign-in link is invalid or has expired. Please request a new one."
+      ? "Session invalid or expired. Please sign in again."
       : null;
 
   return (
@@ -123,159 +173,177 @@ function SignInForm() {
             </Box>
           </Box>
 
-          {status === "sent" ? (
-            <Box sx={{ textAlign: "center", py: 2 }}>
-              <Box
-                sx={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: "50%",
-                  bgcolor: "#e6f4ea",
-                  color: "#1e8e3e",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mb: 2,
-                }}
-              >
-                <MailOutlineIcon sx={{ fontSize: 32 }} />
-              </Box>
-              <Typography
-                sx={{
-                  fontFamily: "'Outfit', 'Inter', sans-serif",
-                  fontSize: "1.1rem",
-                  fontWeight: 600,
-                  color: "#1f1f1f",
-                  mb: 1,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                Check your inbox
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.85rem",
-                  color: "#5f6368",
-                  lineHeight: 1.5,
-                  mb: 2,
-                }}
-              >
-                If your email is on the allow-list, a sign-in link is on its way. It expires in 15 minutes.
-              </Typography>
+          {tokenError && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontSize: "0.8rem" }}>
+              {tokenError}
+            </Alert>
+          )}
 
-              {devLink && (
+          {step === "email" ? (
+            <form onSubmit={onEmailSubmit}>
+              <TextField
+                type="email"
+                label="Corporate email"
+                placeholder="yourname@angst-pfister.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                fullWidth
+                required
+                autoFocus
+                disabled={status === "sending"}
+                sx={{ mb: 2 }}
+              />
+              <Button
+                type="submit"
+                disabled={status === "sending" || !email.trim()}
+                fullWidth
+                sx={{
+                  bgcolor: "#ed1b2f",
+                  color: "#fff",
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  py: 1.25,
+                  boxShadow: "none",
+                  "&:hover": { bgcolor: "#d80901", boxShadow: "none" },
+                  "&.Mui-disabled": { bgcolor: "#fbb1b8", color: "#fff" },
+                }}
+              >
+                {status === "sending" ? (
+                  <CircularProgress size={18} sx={{ color: "#fff" }} />
+                ) : (
+                  "Send sign-in code"
+                )}
+              </Button>
+              {status === "error" && (
+                <Alert severity="error" sx={{ mt: 2, borderRadius: 2, fontSize: "0.8rem" }}>
+                  {errorMsg}
+                </Alert>
+              )}
+            </form>
+          ) : (
+            <form onSubmit={onCodeSubmit}>
+              <Box sx={{ textAlign: "center", mb: 2 }}>
                 <Box
                   sx={{
-                    mt: 1,
-                    mb: 2,
-                    p: 2,
-                    bgcolor: "#fef7e0",
-                    border: "1px solid #fbbc04",
-                    borderRadius: 2,
-                    textAlign: "left",
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    bgcolor: "#e8f0fe",
+                    color: "#274e64",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    mb: 1.5,
                   }}
                 >
-                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#b06000", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>
-                    ⚠ Dev mode — direct link
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: "#3c4043", mb: 1.5 }}>
-                    Mail delivery is bypassed. Click below to sign in directly.
-                  </Typography>
-                  <Button
-                    component="a"
-                    href={devLink}
-                    fullWidth
-                    sx={{
-                      bgcolor: "#274e64",
-                      color: "#fff",
-                      textTransform: "none",
-                      fontWeight: 600,
-                      fontSize: "0.78rem",
-                      borderRadius: 999,
-                      py: 1,
-                      "&:hover": { bgcolor: "#1a3a4c" },
-                    }}
-                  >
-                    Sign in now
-                  </Button>
+                  <LockOutlinedIcon sx={{ fontSize: 28 }} />
                 </Box>
-              )}
+                <Typography
+                  sx={{
+                    fontFamily: "'Outfit', 'Inter', sans-serif",
+                    fontSize: "1.1rem",
+                    fontWeight: 600,
+                    color: "#1f1f1f",
+                    letterSpacing: "-0.01em",
+                    mb: 0.5,
+                  }}
+                >
+                  Enter your code
+                </Typography>
+                <Typography sx={{ fontSize: "0.82rem", color: "#5f6368", lineHeight: 1.5 }}>
+                  We sent a 6-digit code to <strong>{email}</strong>
+                </Typography>
+              </Box>
+
+              <TextField
+                value={code}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                  setCode(v);
+                }}
+                placeholder="000000"
+                fullWidth
+                autoFocus
+                disabled={status === "verifying"}
+                inputProps={{
+                  maxLength: 6,
+                  inputMode: "numeric",
+                  pattern: "[0-9]*",
+                  style: {
+                    textAlign: "center",
+                    fontSize: "1.8rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.5em",
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                  },
+                }}
+                sx={{ mb: 2 }}
+              />
 
               <Button
-                onClick={() => {
-                  setStatus("idle");
-                  setEmail("");
-                  setDevLink(null);
-                }}
+                type="submit"
+                disabled={status === "verifying" || code.length !== 6}
+                fullWidth
                 sx={{
-                  fontSize: "0.78rem",
-                  color: "#5f6368",
+                  bgcolor: "#ed1b2f",
+                  color: "#fff",
+                  borderRadius: 999,
                   textTransform: "none",
-                  "&:hover": { bgcolor: "#f1f3f4" },
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  py: 1.25,
+                  boxShadow: "none",
+                  "&:hover": { bgcolor: "#d80901", boxShadow: "none" },
+                  "&.Mui-disabled": { bgcolor: "#fbb1b8", color: "#fff" },
                 }}
               >
-                Use a different email
+                {status === "verifying" ? (
+                  <CircularProgress size={18} sx={{ color: "#fff" }} />
+                ) : (
+                  "Verify"
+                )}
               </Button>
-            </Box>
-          ) : (
-            <>
-              {tokenError && (
-                <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontSize: "0.8rem" }}>
-                  {tokenError}
+
+              {status === "error" && (
+                <Alert severity="error" sx={{ mt: 2, borderRadius: 2, fontSize: "0.8rem" }}>
+                  {errorMsg}
                 </Alert>
               )}
 
-              <form onSubmit={onSubmit}>
-                <TextField
-                  type="email"
-                  label="Corporate email"
-                  placeholder="yourname@angst-pfister.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  fullWidth
-                  required
-                  autoFocus
-                  disabled={status === "sending"}
-                  sx={{ mb: 2 }}
-                />
+              <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
                 <Button
-                  type="submit"
-                  disabled={status === "sending" || !email.trim()}
-                  fullWidth
+                  onClick={() => {
+                    setStep("email");
+                    setCode("");
+                    setStatus("idle");
+                    setErrorMsg("");
+                  }}
                   sx={{
-                    bgcolor: "#ed1b2f",
-                    color: "#fff",
-                    borderRadius: 999,
+                    fontSize: "0.78rem",
+                    color: "#5f6368",
                     textTransform: "none",
-                    fontWeight: 600,
-                    fontSize: "0.9rem",
-                    py: 1.25,
-                    boxShadow: "none",
-                    "&:hover": { bgcolor: "#d80901", boxShadow: "none" },
-                    "&.Mui-disabled": {
-                      bgcolor: "#fbb1b8",
-                      color: "#fff",
-                    },
+                    "&:hover": { bgcolor: "#f1f3f4" },
                   }}
                 >
-                  {status === "sending" ? (
-                    <CircularProgress size={18} sx={{ color: "#fff" }} />
-                  ) : (
-                    "Send sign-in link"
-                  )}
+                  Change email
                 </Button>
-                {status === "error" && (
-                  <Alert
-                    severity="error"
-                    sx={{ mt: 2, borderRadius: 2, fontSize: "0.8rem" }}
-                  >
-                    {errorMsg}
-                  </Alert>
-                )}
-              </form>
-            </>
+                <Button
+                  onClick={() => sendCode()}
+                  disabled={cooldown > 0 || status === "sending"}
+                  sx={{
+                    fontSize: "0.78rem",
+                    color: cooldown > 0 ? "#9aa0a6" : "#274e64",
+                    textTransform: "none",
+                    "&:hover": { bgcolor: "#f1f3f4" },
+                  }}
+                >
+                  {cooldown > 0 ? `Resend (${cooldown}s)` : "Resend code"}
+                </Button>
+              </Box>
+            </form>
           )}
-
         </CardContent>
       </Card>
     </Box>

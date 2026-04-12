@@ -11,8 +11,8 @@ import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
 const PUBLIC_PREFIXES = [
   "/signin",
-  "/api/auth/send-magic-link",
-  "/api/auth/verify",
+  "/api/auth/send-code",
+  "/api/auth/verify-code",
   "/api/auth/signout",
   "/_next",
   "/favicon",
