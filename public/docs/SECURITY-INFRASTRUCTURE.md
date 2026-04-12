@@ -22,55 +22,54 @@ The hub is designed around seven non-negotiable principles.
 
 ## 2. Authentication
 
-Authentication is implemented in two stages. Phase 1 uses a stateless magic-link flow so the hub can enforce access control immediately, without waiting for corporate identity infrastructure. Phase 2 upgrades to Microsoft Entra ID once the Angst+Pfister tenant app registration is provisioned by Group IT.
+Authentication is implemented in two stages. Phase 1 uses a shared master password with email domain verification so the hub can enforce access control immediately, without waiting for corporate identity infrastructure or external email delivery services. Phase 2 upgrades to Microsoft Entra ID once the Angst+Pfister tenant app registration is provisioned by Group IT.
 
-### Phase 1 — Magic-link authentication (active from day one)
+### Phase 1 — Password-based authentication (active from day one)
 
-The hub is protected behind a magic-link sign-in flow on every route. No anonymous access is allowed.
+The hub is protected behind a password sign-in flow on every route. No anonymous access is allowed.
 
 **How it works:**
 
 1. A user visits any page on the hub. Middleware checks for a signed session cookie.
 2. Without a valid cookie, the user is redirected to `/signin`.
-3. The user enters their corporate email address.
-4. The server validates that the domain is on the allow-list (`angst-pfister.com` or `apsoparts.com`). If not, the server returns a generic "check your inbox" response (to prevent email enumeration) but never sends a link.
-5. For allowed addresses, the server signs a short-lived JWT (15-minute expiry) containing the email and sends a sign-in link to that address via **Resend** (transactional email provider).
-6. The user clicks the link. The server verifies the JWT signature and expiry, issues a second JWT as a 12-hour session cookie, and redirects to the hub.
-7. The session cookie is `httpOnly`, `secure`, `sameSite=lax` — inaccessible to JavaScript, sent only over HTTPS.
+3. The user enters their corporate email address and the master password.
+4. The server validates two things in a single step: (a) the email domain is on the allow-list (`angst-pfister.com` or `apsoparts.com`), and (b) the password matches `AUTH_MASTER_PASSWORD`. If either check fails, the server returns a generic "Invalid credentials" response — it never reveals which check failed (preventing email enumeration).
+5. On success, the server signs a 12-hour session JWT and sets it as an HTTP-only cookie.
+6. The session cookie is `httpOnly`, `secure`, `sameSite=lax` — inaccessible to JavaScript, sent only over HTTPS.
 
 **Security properties:**
 
 | Property | Mechanism |
 |---|---|
-| No passwords | Impossible to leak or brute force — nothing to steal |
-| Domain restriction | Server-side check on every request before generating a link |
-| Token tampering | JWTs signed with HS256 using a 32+ character `AUTH_SECRET` env var |
-| Token replay | Each link is single-use in practice because the session is issued once and the user immediately signs in; the short TTL bounds the window |
+| Domain restriction | Server-side email allow-list check on every login attempt |
+| Password protection | Constant-time comparison prevents timing attacks |
+| Token tampering | Session JWTs signed with HS256 using a 32+ character `AUTH_SECRET` env var |
 | Session theft | `httpOnly` cookies prevent XSS-based token theft |
-| Enumeration | Response never reveals whether an email is on the allow-list |
-| Rate limiting | 20 requests / minute / IP on the send-magic-link endpoint (added in API security section) |
+| Enumeration | Generic error response never reveals whether the email or password was wrong |
+| Brute force | Rate limiting on `/api/auth/login` (10 req / min / IP) |
 
 **Phase 1 implementation specifics:**
 
 | Setting | Value |
 |---|---|
 | Library | `jose` (JWT sign/verify, Edge-runtime compatible) |
-| Email delivery | Resend REST API with HTML template |
+| Auth method | Email domain check + shared master password |
 | Allow-list | `angst-pfister.com`, `apsoparts.com` — server-side only |
-| Magic link TTL | 15 minutes |
 | Session TTL | 12 hours |
 | Session cookie | `aph_session`, `httpOnly`, `secure`, `sameSite=lax`, path `/` |
 | Signing algorithm | HS256 with `AUTH_SECRET` |
-| Required env vars | `AUTH_SECRET`, `RESEND_API_KEY`, `AUTH_EMAIL_FROM` |
-| Middleware coverage | Every route except `/signin`, `/api/auth/*`, `/docs/*`, Next.js internals |
+| Required env vars | `AUTH_SECRET`, `AUTH_MASTER_PASSWORD` |
+| Middleware coverage | Every route except `/signin`, `/api/auth/*`, Next.js internals |
 | Sign-out | `GET /api/auth/signout` clears the cookie and redirects to `/signin` |
 
 **Why this is acceptable for Phase 1:**
 
-- It enforces access control **today**, with no dependency on Group IT, Azure, AWS or any corporate identity system
+- It enforces access control **today**, with no dependency on Group IT, Azure, AWS, or any external email delivery service
+- No reliance on transactional email providers (Resend, SendGrid) that can be blocked by corporate mail filters
 - It can be deployed by the external agency on Railway immediately
 - It protects the same surfaces that Entra ID will later protect — only the identity provider changes
-- The JWT allow-list pattern is a standard, audited approach used by many production applications (e.g. Vercel, GitHub deploy previews, Stripe dashboard invites)
+- The master password is stored as a Railway environment variable, never in source code
+- The small Phase 1 team (3–5 marketing users) makes a shared password practical; per-user credentials come with Entra ID in Phase 2
 - Upgrading to Entra ID in Phase 2 is a ~15-line code change to the auth module; the middleware, session cookie format and allow-list logic stay identical
 
 ### Phase 2 — Microsoft Entra ID (Azure AD)
@@ -136,9 +135,8 @@ Role assignment is done by an Admin in the hub's Settings page and requires Grou
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Railway environment variable | Quarterly |
 | `GEMINI_API_KEY` | Railway environment variable | Quarterly |
-| `AUTH_SECRET` (magic-link JWT signing key) | Railway environment variable | On incident only |
-| `RESEND_API_KEY` (magic-link email delivery) | Railway environment variable | Quarterly |
-| `AUTH_EMAIL_FROM` (verified sender) | Railway environment variable | Not secret, but kept in env vars for deployment portability |
+| `AUTH_SECRET` (session JWT signing key) | Railway environment variable | On incident only |
+| `AUTH_MASTER_PASSWORD` (shared team password) | Railway environment variable | Quarterly or on team change |
 
 **Hard rules:**
 - No `NEXT_PUBLIC_*` prefix on any secret — that prefix bundles the value into browser JS.

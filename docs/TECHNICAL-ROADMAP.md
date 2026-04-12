@@ -139,7 +139,7 @@ No outbound publishing automation whatsoever in Phase 1.
 - ❌ Still no outbound publishing to LinkedIn or Magento without a separate Phase 3 review
 
 **Authentication upgrade**
-- Replace Phase 1 magic-link auth with **Microsoft Entra ID (Azure AD)** OAuth 2.0, restricted to the Angst+Pfister Microsoft 365 tenant
+- Replace Phase 1 password-based auth with **Microsoft Entra ID (Azure AD)** OAuth 2.0, restricted to the Angst+Pfister Microsoft 365 tenant
 - MFA enforced at the tenant level via the existing Conditional Access policy (same policy as Outlook / SharePoint / Teams)
 - Session tokens stored in secure, httpOnly, sameSite cookies
 - 12-hour session timeout, sliding refresh
