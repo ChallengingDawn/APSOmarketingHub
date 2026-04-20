@@ -21,7 +21,7 @@ type Filters = {
 
 type ProposeBody = {
   topic?: string;
-  channel?: "linkedin" | "newsletter" | "blog" | "product" | "seo";
+  channel?: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
   filters?: Filters;
 };
 
@@ -139,6 +139,20 @@ export async function POST(req: NextRequest) {
       ? `- "imagePrompt": a concrete visual brief for the image that accompanies the post. Industrial aesthetic, hands/tools/components in realistic context. Never CAD, never stock suits, never white-background product shots, never promotional badges.`
       : `- "imagePrompt": leave as an empty string.`;
 
+    const channelExpectations: Record<string, string> = {
+      linkedin:
+        `Each "body" MUST be an actual LinkedIn post (80–160 words, 1–3 short paragraphs with blank lines between them, a scroll-stopping first line, a soft CTA, and 2–4 hashtags at the bottom).`,
+      newsletter:
+        `Each "body" MUST start with "Subject: ..." on line 1, "Preheader: ..." on line 2, then the email body (220–350 words, 2–4 short sections) ending with "— APSOparts".`,
+      blog:
+        `Each "body" MUST be a 600–900 word blog article in markdown: "# H1", then 2–3 sentence intro, then 3–5 "## Section" headings, with at least one bulleted list of specs or criteria.`,
+      ad: `Each "body" MUST contain exactly three labelled lines: "HEADLINE: ...", "BODY: ...", "CTA: ...". No other text. Keep the total under 50 words.`,
+      product:
+        `Each "body" MUST be a full product page using markdown H2 sections in this order: Product Summary, Key Benefits, Typical Applications, Material Explanation, Technical Specifications (markdown table Property | Value | Unit), Selection Guidance, Variants / Dimensions.`,
+      seo: `Each "body" MUST contain exactly four labelled blocks: "META TITLE: ...", "META DESCRIPTION: ...", "H1: ...", "INTRO PARAGRAPH: ...". Nothing else. Obey char limits from the system prompt.`,
+    };
+    const channelExpectation = channelExpectations[channel] ?? "";
+
     const langLead =
       filters.language === "DE"
         ? `ALLE Inhalte (Headline, Body, Image-Brief) MÜSSEN auf Deutsch sein. Kein Englisch. `
@@ -157,14 +171,18 @@ export async function POST(req: NextRequest) {
           content: [
             `${langLead}Produce 3 distinct ${channel} proposals${topic ? ` about: ${topic}` : ""}.`,
             ``,
+            channelExpectation ? `FORMAT (mandatory): ${channelExpectation}` : "",
+            channelExpectation ? "" : "",
             `For each proposal, return:`,
             `- "headline": a scroll-stopping opening line (max 12 words)`,
-            `- "body": the full ${channel} content, following the personality, framework, length and filters defined above.`,
+            `- "body": the full ${channel} content, exactly in the format required above.`,
             imageRule,
             ``,
-            `Return ONLY a JSON array of 3 objects with exactly these keys. No markdown, no commentary, no code fences. Example:`,
+            `Return ONLY a JSON array of 3 objects with exactly these keys. No markdown, no commentary, no code fences. The "body" value is a plain string; when it contains markdown (blog, product) or labelled blocks (ad, seo, newsletter), keep it inside the JSON string with \\n line breaks. Example:`,
             `[{"headline":"...","body":"...","imagePrompt":"..."}, ...]`,
-          ].join("\n"),
+          ]
+            .filter((l) => l !== "")
+            .join("\n"),
         },
       ],
     });

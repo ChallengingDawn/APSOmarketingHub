@@ -24,8 +24,11 @@ export async function POST(req: NextRequest) {
   }
 
   const type = asRecord?.type;
-  if (type !== "like" && type !== "dislike") {
-    return NextResponse.json({ error: "type must be 'like' or 'dislike'" }, { status: 400 });
+  if (type !== "like" && type !== "dislike" && type !== "comment") {
+    return NextResponse.json(
+      { error: "type must be 'like', 'dislike' or 'comment'" },
+      { status: 400 }
+    );
   }
 
   const entry = await addLogEntry({
@@ -36,6 +39,7 @@ export async function POST(req: NextRequest) {
     prompt: typeof asRecord.prompt === "string" ? asRecord.prompt : undefined,
     filters: (asRecord.filters as Record<string, unknown>) ?? undefined,
     correction: typeof asRecord.correction === "string" ? asRecord.correction : undefined,
+    note: typeof asRecord.note === "string" ? asRecord.note : undefined,
   } as Omit<LogEntry, "id" | "ts">);
 
   return NextResponse.json({ entry });

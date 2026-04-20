@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type GenerateBody = {
-  channel: "linkedin" | "newsletter" | "blog" | "product" | "seo" | "studio" | "freeform";
+  channel: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo" | "studio" | "freeform";
   prompt: string;
   model?: "claude" | "gemini";
   context?: Record<string, unknown>;

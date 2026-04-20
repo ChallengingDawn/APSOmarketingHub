@@ -3,16 +3,19 @@ import path from "node:path";
 
 const LOGS_PATH = path.join(process.cwd(), "src", "data", "logs.json");
 
+export type LogEntryType = "like" | "dislike" | "comment";
+
 export type LogEntry = {
   id: string;
   ts: string;
-  type: "like" | "dislike";
+  type: LogEntryType;
   channel: string;
   headline?: string;
   body?: string;
   prompt?: string;
   filters?: Record<string, unknown>;
   correction?: string;
+  note?: string;
   userDefault?: string;
 };
 

@@ -136,8 +136,7 @@ export default function ComposerAndProposals({
     [contentType]
   );
 
-  const channelForApi =
-    contentType === "ad" ? "linkedin" : contentType === "seo" ? "seo" : contentType;
+  const channelForApi = contentType;
 
   const filterContext = useMemo(
     () => ({
@@ -369,11 +368,11 @@ export default function ComposerAndProposals({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: "like",
+          type: "comment",
           channel: channelForApi,
           body: composer,
           filters: filterContext,
-          correction: `[note] ${commentText.trim()}`,
+          note: commentText.trim(),
         }),
       });
       setCommentText("");

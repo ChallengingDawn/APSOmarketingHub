@@ -13,17 +13,19 @@ import Snackbar from "@mui/material/Snackbar";
 import Alert from "@mui/material/Alert";
 import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import SaveIcon from "@mui/icons-material/Save";
 
 type LogEntry = {
   id: string;
   ts: string;
-  type: "like" | "dislike";
+  type: "like" | "dislike" | "comment";
   channel: string;
   headline?: string;
   body?: string;
   prompt?: string;
   correction?: string;
+  note?: string;
   filters?: Record<string, unknown>;
 };
 
@@ -33,16 +35,52 @@ type LogsFile = {
   entries: LogEntry[];
 };
 
+type Filter = "all" | "like" | "dislike" | "comment";
+
+const LABEL: Record<LogEntry["type"], string> = {
+  like: "Approved",
+  dislike: "Disliked",
+  comment: "Comment",
+};
+
+const ACCENT: Record<LogEntry["type"], { border: string; bg: string; fg: string; icon: React.ReactNode }> = {
+  like: {
+    border: "#c8e6c9",
+    bg: "#f1f8f3",
+    fg: "#2e7d32",
+    icon: <ThumbUpIcon sx={{ fontSize: 16, color: "#2e7d32" }} />,
+  },
+  dislike: {
+    border: "#ffcdd2",
+    bg: "#fff5f5",
+    fg: "#ed1b2f",
+    icon: <ThumbDownIcon sx={{ fontSize: 16, color: "#ed1b2f" }} />,
+  },
+  comment: {
+    border: "#bbdefb",
+    bg: "#f5f9ff",
+    fg: "#274e64",
+    icon: <ChatBubbleOutlineIcon sx={{ fontSize: 16, color: "#274e64" }} />,
+  },
+};
+
 export default function LogsClient({ initial }: { initial: LogsFile }) {
   const [file, setFile] = useState<LogsFile>(initial);
   const [defaults, setDefaults] = useState(initial.userDefaults);
-  const [filter, setFilter] = useState<"all" | "like" | "dislike">("all");
+  const [filter, setFilter] = useState<Filter>("all");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ open: boolean; msg: string; sev: "success" | "error" }>({
     open: false,
     msg: "",
     sev: "success",
   });
+
+  const stats = useMemo(() => {
+    const likes = file.entries.filter((e) => e.type === "like").length;
+    const dislikes = file.entries.filter((e) => e.type === "dislike").length;
+    const comments = file.entries.filter((e) => e.type === "comment").length;
+    return { likes, dislikes, comments, total: file.entries.length };
+  }, [file.entries]);
 
   const entries = useMemo(
     () => (filter === "all" ? file.entries : file.entries.filter((e) => e.type === filter)),
@@ -67,12 +105,6 @@ export default function LogsClient({ initial }: { initial: LogsFile }) {
     }
   }
 
-  const stats = useMemo(() => {
-    const likes = file.entries.filter((e) => e.type === "like").length;
-    const dislikes = file.entries.filter((e) => e.type === "dislike").length;
-    return { likes, dislikes, total: file.entries.length };
-  }, [file.entries]);
-
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Paper
@@ -94,18 +126,18 @@ export default function LogsClient({ initial }: { initial: LogsFile }) {
             variant="contained"
             startIcon={<SaveIcon />}
             sx={{
-              bgcolor: "#274e64",
+              bgcolor: "#ed1b2f",
               textTransform: "none",
               fontWeight: 600,
-              "&:hover": { bgcolor: "#1a3a4c" },
+              "&:hover": { bgcolor: "#c91528" },
             }}
           >
             {saving ? "Saving…" : "Save defaults"}
           </Button>
         </Box>
         <Typography sx={{ fontSize: 12, color: "#5f6368", mb: 1.5 }}>
-          Plain text. Example: <em>"Always finish posts with a question. Avoid the word 'solution'.
-          For blogs, aim for 600 words minimum."</em>
+          Plain text. Example: <em>&quot;Always finish posts with a question. Avoid the word
+          &apos;solution&apos;. For blogs, aim for 600 words minimum.&quot;</em>
         </Typography>
         <TextField
           multiline
@@ -133,8 +165,9 @@ export default function LogsClient({ initial }: { initial: LogsFile }) {
           </Typography>
           <Box sx={{ display: "flex", gap: 0.75 }}>
             <Stat value={stats.total.toString()} label="Total" />
-            <Stat value={stats.likes.toString()} label="Likes" color="#2e7d32" />
-            <Stat value={stats.dislikes.toString()} label="Dislikes" color="#ed1b2f" />
+            <Stat value={stats.likes.toString()} label="Approved" color="#2e7d32" />
+            <Stat value={stats.dislikes.toString()} label="Disliked" color="#ed1b2f" />
+            <Stat value={stats.comments.toString()} label="Comments" color="#274e64" />
           </Box>
           <ToggleButtonGroup
             value={filter}
@@ -146,10 +179,13 @@ export default function LogsClient({ initial }: { initial: LogsFile }) {
               All
             </ToggleButton>
             <ToggleButton value="like" sx={{ textTransform: "none", fontSize: 12 }}>
-              Likes
+              Approved
             </ToggleButton>
             <ToggleButton value="dislike" sx={{ textTransform: "none", fontSize: 12 }}>
-              Dislikes
+              Disliked
+            </ToggleButton>
+            <ToggleButton value="comment" sx={{ textTransform: "none", fontSize: 12 }}>
+              Comments
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
@@ -165,74 +201,102 @@ export default function LogsClient({ initial }: { initial: LogsFile }) {
             }}
           >
             <Typography sx={{ fontSize: 13, color: "#5f6368" }}>
-              No entries yet. Like or dislike a proposal on the Content Generation page to start
-              teaching the bot.
+              No entries yet. Like, dislike, or comment on a proposal on the Content Generation
+              page to start teaching the bot.
             </Typography>
           </Box>
         ) : (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            {entries.map((e) => (
-              <Box
-                key={e.id}
-                sx={{
-                  p: 2,
-                  borderRadius: 2,
-                  border: `1px solid ${e.type === "like" ? "#c8e6c9" : "#ffcdd2"}`,
-                  bgcolor: e.type === "like" ? "#f1f8f3" : "#fff5f5",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 1,
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  {e.type === "like" ? (
-                    <ThumbUpIcon sx={{ fontSize: 16, color: "#2e7d32" }} />
-                  ) : (
-                    <ThumbDownIcon sx={{ fontSize: 16, color: "#ed1b2f" }} />
-                  )}
-                  <Chip
-                    size="small"
-                    label={e.channel}
-                    sx={{ height: 20, fontSize: 10.5, bgcolor: "#fff", border: "1px solid #dde1e6" }}
-                  />
-                  <Typography sx={{ fontSize: 11, color: "#5f6368", flex: 1 }}>
-                    {new Date(e.ts).toLocaleString()}
-                  </Typography>
-                </Box>
-                {e.headline && (
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: "#1a3a4c" }}>
-                    {e.headline}
-                  </Typography>
-                )}
-                {e.body && (
-                  <Typography
-                    sx={{
-                      fontSize: 12.5,
-                      color: "#3c4043",
-                      whiteSpace: "pre-wrap",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {e.body}
-                  </Typography>
-                )}
-                {e.correction && (
-                  <Box
-                    sx={{
-                      p: 1.25,
-                      borderRadius: 1,
-                      bgcolor: "#fdebed",
-                      border: "1px dashed #ed1b2f",
-                    }}
-                  >
-                    <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "#ed1b2f", mb: 0.5 }}>
-                      CORRECTION
+            {entries.map((e) => {
+              const accent = ACCENT[e.type];
+              return (
+                <Box
+                  key={e.id}
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    border: `1px solid ${accent.border}`,
+                    bgcolor: accent.bg,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 1,
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    {accent.icon}
+                    <Chip
+                      label={LABEL[e.type]}
+                      size="small"
+                      sx={{
+                        height: 20,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        bgcolor: "#fff",
+                        color: accent.fg,
+                        border: `1px solid ${accent.border}`,
+                      }}
+                    />
+                    {e.channel && (
+                      <Chip
+                        size="small"
+                        label={e.channel}
+                        sx={{ height: 20, fontSize: 10.5, bgcolor: "#fff", border: "1px solid #dde1e6" }}
+                      />
+                    )}
+                    <Typography sx={{ fontSize: 11, color: "#5f6368", flex: 1 }}>
+                      {new Date(e.ts).toLocaleString()}
                     </Typography>
-                    <Typography sx={{ fontSize: 12.5, color: "#3c4043" }}>{e.correction}</Typography>
                   </Box>
-                )}
-              </Box>
-            ))}
+                  {e.headline && (
+                    <Typography sx={{ fontSize: 13, fontWeight: 700, color: "#1a3a4c" }}>
+                      {e.headline}
+                    </Typography>
+                  )}
+                  {e.body && (
+                    <Typography
+                      sx={{
+                        fontSize: 12.5,
+                        color: "#3c4043",
+                        whiteSpace: "pre-wrap",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {e.body}
+                    </Typography>
+                  )}
+                  {e.correction && (
+                    <Box
+                      sx={{
+                        p: 1.25,
+                        borderRadius: 1,
+                        bgcolor: "#fdebed",
+                        border: "1px dashed #ed1b2f",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "#ed1b2f", mb: 0.5 }}>
+                        CORRECTION
+                      </Typography>
+                      <Typography sx={{ fontSize: 12.5, color: "#3c4043" }}>{e.correction}</Typography>
+                    </Box>
+                  )}
+                  {e.note && (
+                    <Box
+                      sx={{
+                        p: 1.25,
+                        borderRadius: 1,
+                        bgcolor: "#f5f9ff",
+                        border: "1px dashed #274e64",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "#274e64", mb: 0.5 }}>
+                        NOTE
+                      </Typography>
+                      <Typography sx={{ fontSize: 12.5, color: "#3c4043" }}>{e.note}</Typography>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
           </Box>
         )}
       </Paper>
@@ -269,7 +333,7 @@ function Stat({
         bgcolor: "#fafbfc",
         border: "1px solid #dde1e6",
         textAlign: "center",
-        minWidth: 52,
+        minWidth: 60,
       }}
     >
       <Typography sx={{ fontSize: 15, fontWeight: 800, color: color ?? "#1a3a4c", lineHeight: 1 }}>
