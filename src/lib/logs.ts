@@ -16,13 +16,31 @@ export type LogEntry = {
   userDefault?: string;
 };
 
+export type BatchProposal = {
+  headline: string;
+  body: string;
+  imagePrompt: string;
+  imageUrl: string;
+  imageSource: "gemini" | "fallback";
+  imageError?: string;
+  imagePending?: boolean;
+};
+
+export type CurrentBatch = {
+  channel: string;
+  filters: Record<string, unknown>;
+  proposals: BatchProposal[];
+  generatedAt: string;
+};
+
 type LogsFile = {
   version: number;
   userDefaults: string;
   entries: LogEntry[];
+  currentBatch?: CurrentBatch | null;
 };
 
-const EMPTY: LogsFile = { version: 1, userDefaults: "", entries: [] };
+const EMPTY: LogsFile = { version: 1, userDefaults: "", entries: [], currentBatch: null };
 
 export async function readLogs(): Promise<LogsFile> {
   try {
@@ -55,4 +73,24 @@ export async function setUserDefaults(text: string): Promise<LogsFile> {
   file.userDefaults = text;
   await writeLogs(file);
   return file;
+}
+
+export async function saveCurrentBatch(batch: CurrentBatch): Promise<void> {
+  const file = await readLogs();
+  file.currentBatch = batch;
+  await writeLogs(file);
+}
+
+export async function updateCurrentBatchImage(
+  index: number,
+  patch: Partial<BatchProposal>
+): Promise<CurrentBatch | null> {
+  const file = await readLogs();
+  if (!file.currentBatch) return null;
+  const proposals = file.currentBatch.proposals.slice();
+  if (index < 0 || index >= proposals.length) return file.currentBatch;
+  proposals[index] = { ...proposals[index], ...patch };
+  file.currentBatch = { ...file.currentBatch, proposals };
+  await writeLogs(file);
+  return file.currentBatch;
 }

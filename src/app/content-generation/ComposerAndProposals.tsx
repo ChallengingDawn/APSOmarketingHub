@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -28,6 +28,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DownloadIcon from "@mui/icons-material/Download";
 import ImageIcon from "@mui/icons-material/Image";
 import EditIcon from "@mui/icons-material/EditOutlined";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
@@ -36,7 +37,9 @@ import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import CheckIcon from "@mui/icons-material/Check";
 import PublicIcon from "@mui/icons-material/Public";
 import TuneIcon from "@mui/icons-material/Tune";
+import Skeleton from "@mui/material/Skeleton";
 import type { Brain } from "@/lib/brain";
+import type { CurrentBatch } from "@/lib/logs";
 
 type Proposal = {
   headline: string;
@@ -45,12 +48,12 @@ type Proposal = {
   imageUrl: string;
   imageSource: "gemini" | "fallback";
   imageError?: string;
+  imagePending?: boolean;
   feedback?: "like" | "dislike";
   correction?: string;
 };
 
 type ContentType = "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
-type Language = "EN" | "DE";
 type Framework = "auto" | "ican" | "ease" | "recognition";
 type Length = "short" | "medium" | "long";
 
@@ -90,30 +93,39 @@ const AUDIENCES = [
   "C-level / technical directors",
 ];
 
-export default function ComposerAndProposals({ brain }: { brain: Brain }) {
+export default function ComposerAndProposals({
+  brain,
+  initialBatch,
+}: {
+  brain: Brain;
+  initialBatch: CurrentBatch | null;
+}) {
   const [composer, setComposer] = useState("");
   const [topic, setTopic] = useState("");
   const [contentType, setContentType] = useState<ContentType>("linkedin");
-  const [language, setLanguage] = useState<Language>("EN");
   const [framework, setFramework] = useState<Framework>("auto");
   const [audience, setAudience] = useState<string>(AUDIENCES[0]);
   const [category, setCategory] = useState<string>("");
   const [length, setLength] = useState<Length>("short");
   const [creativity, setCreativity] = useState<number>(70);
-  const [model, setModel] = useState<"claude" | "gemini">("claude");
   const [selectedTones, setSelectedTones] = useState<string[]>(
     brain.brandVoice.toneAdjectives.slice(0, 2)
   );
   const [selectedPhrases, setSelectedPhrases] = useState<string[]>([]);
 
   const [generating, setGenerating] = useState(false);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>(
+    (initialBatch?.proposals ?? []) as Proposal[]
+  );
+  const imageFetchedRef = useRef<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerImage, setComposerImage] = useState<{
     url: string;
     source: "gemini" | "fallback";
     error?: string;
+    prompt?: string;
+    pending?: boolean;
   } | null>(null);
   const [composerFeedback, setComposerFeedback] = useState<"like" | "dislike" | null>(null);
   const [showComment, setShowComment] = useState(false);
@@ -130,7 +142,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
   const filterContext = useMemo(
     () => ({
       contentType,
-      language,
+      language: "EN",
       framework,
       audience,
       category,
@@ -140,7 +152,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
       emphasizePhrases: selectedPhrases,
       wantsImage: activeType.withImage,
     }),
-    [contentType, language, framework, audience, category, length, creativity, selectedTones, selectedPhrases, activeType.withImage]
+    [contentType, framework, audience, category, length, creativity, selectedTones, selectedPhrases, activeType.withImage]
   );
 
   const toggleTone = (t: string) =>
@@ -154,7 +166,6 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     );
 
   const resetFilters = () => {
-    setLanguage("EN");
     setFramework("auto");
     setAudience(AUDIENCES[0]);
     setCategory("");
@@ -176,7 +187,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
         body: JSON.stringify({
           channel: channelForApi,
           prompt: composer,
-          model,
+          model: "claude",
           context: filterContext,
           withImage: activeType.withImage,
         }),
@@ -191,6 +202,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
             url: data.imageUrl,
             source: data.imageSource ?? "fallback",
             error: data.imageError,
+            prompt: data.imageBrief ?? "",
           });
         }
       }
@@ -201,10 +213,92 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     }
   }
 
+  async function fetchImageFor(index: number, prompt: string, force = false) {
+    if (!force && imageFetchedRef.current.has(index)) return;
+    imageFetchedRef.current.add(index);
+    try {
+      const res = await fetch("/api/propose/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ index, imagePrompt: prompt }),
+      });
+      const data = await res.json();
+      setProposals((cur) =>
+        cur.map((p, i) =>
+          i === index
+            ? {
+                ...p,
+                imageUrl: data.imageUrl ?? p.imageUrl,
+                imageSource: data.imageSource ?? p.imageSource,
+                imageError: data.imageError ?? p.imageError,
+                imagePending: false,
+              }
+            : p
+        )
+      );
+    } catch (err) {
+      setProposals((cur) =>
+        cur.map((p, i) =>
+          i === index ? { ...p, imagePending: false, imageError: String(err) } : p
+        )
+      );
+    }
+  }
+
+  async function repromptComposerImage(newPrompt: string) {
+    setComposerImage((cur) =>
+      cur ? { ...cur, pending: true, error: undefined, prompt: newPrompt } : cur
+    );
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: newPrompt }),
+      });
+      const data = await res.json();
+      setComposerImage((cur) =>
+        cur
+          ? {
+              ...cur,
+              url: data.imageUrl ?? cur.url,
+              source: data.imageSource ?? cur.source,
+              error: data.imageError,
+              pending: false,
+            }
+          : cur
+      );
+    } catch (err) {
+      setComposerImage((cur) =>
+        cur ? { ...cur, pending: false, error: String(err) } : cur
+      );
+    }
+  }
+
+  function repromptProposalImage(index: number, newPrompt: string) {
+    setProposals((cur) =>
+      cur.map((p, i) =>
+        i === index
+          ? { ...p, imagePrompt: newPrompt, imagePending: true, imageError: undefined }
+          : p
+      )
+    );
+    fetchImageFor(index, newPrompt, true);
+  }
+
+  useEffect(() => {
+    proposals.forEach((p, i) => {
+      if (p.imagePending && p.imagePrompt && !imageFetchedRef.current.has(i)) {
+        fetchImageFor(i, p.imagePrompt);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposals]);
+
   async function propose() {
     setGenerating(true);
     setError(null);
     setProposals([]);
+    imageFetchedRef.current.clear();
     try {
       const res = await fetch("/api/propose", {
         method: "POST",
@@ -330,8 +424,6 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
         brain={brain}
         contentType={contentType}
         setContentType={setContentType}
-        language={language}
-        setLanguage={setLanguage}
         framework={framework}
         setFramework={setFramework}
         audience={audience}
@@ -342,8 +434,6 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
         setLength={setLength}
         creativity={creativity}
         setCreativity={setCreativity}
-        model={model}
-        setModel={setModel}
         selectedTones={selectedTones}
         toggleTone={toggleTone}
         selectedPhrases={selectedPhrases}
@@ -363,6 +453,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           brainStoryline={brain.brandVoice.storyline}
           image={composerImage}
           onClearImage={() => setComposerImage(null)}
+          onRepromptImage={repromptComposerImage}
           onLike={() => logComposer("like")}
           onDislike={() => logComposer("dislike")}
           composerFeedback={composerFeedback}
@@ -386,6 +477,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           onDownload={downloadImage}
           onSend={sendToComposer}
           onFeedback={logProposal}
+          onRepromptImage={repromptProposalImage}
         />
       </Box>
     </Box>
@@ -396,8 +488,6 @@ function FilterPanel(props: {
   brain: Brain;
   contentType: ContentType;
   setContentType: (v: ContentType) => void;
-  language: Language;
-  setLanguage: (v: Language) => void;
   framework: Framework;
   setFramework: (v: Framework) => void;
   audience: string;
@@ -408,8 +498,6 @@ function FilterPanel(props: {
   setLength: (v: Length) => void;
   creativity: number;
   setCreativity: (v: number) => void;
-  model: "claude" | "gemini";
-  setModel: (v: "claude" | "gemini") => void;
   selectedTones: string[];
   toggleTone: (t: string) => void;
   selectedPhrases: string[];
@@ -482,17 +570,6 @@ function FilterPanel(props: {
             );
           })}
         </Box>
-      </Section>
-
-      <Section label="Language">
-        <ChipGroup
-          value={props.language}
-          options={[
-            { id: "EN", label: "English" },
-            { id: "DE", label: "Deutsch" },
-          ]}
-          onChange={(v) => props.setLanguage(v as Language)}
-        />
       </Section>
 
       <Section label="Framework">
@@ -632,18 +709,6 @@ function FilterPanel(props: {
         </Box>
       </Section>
 
-      <Divider />
-
-      <Section label="Model">
-        <ChipGroup
-          value={props.model}
-          options={[
-            { id: "claude", label: "Claude" },
-            { id: "gemini", label: "Gemini" },
-          ]}
-          onChange={(v) => props.setModel(v as "claude" | "gemini")}
-        />
-      </Section>
     </Paper>
   );
 }
@@ -657,8 +722,15 @@ function ComposerCard(props: {
   onEnhance: () => void;
   brainStrapline: string;
   brainStoryline: string;
-  image: { url: string; source: "gemini" | "fallback"; error?: string } | null;
+  image: {
+    url: string;
+    source: "gemini" | "fallback";
+    error?: string;
+    prompt?: string;
+    pending?: boolean;
+  } | null;
   onClearImage: () => void;
+  onRepromptImage: (newPrompt: string) => void;
   onLike: () => void;
   onDislike: () => void;
   composerFeedback: "like" | "dislike" | null;
@@ -668,6 +740,8 @@ function ComposerCard(props: {
   toggleComment: () => void;
   submitComment: () => void;
 }) {
+  const [editingImage, setEditingImage] = useState(false);
+  const [draftImagePrompt, setDraftImagePrompt] = useState(props.image?.prompt ?? "");
   return (
     <Paper
       elevation={0}
@@ -731,76 +805,165 @@ function ComposerCard(props: {
         {props.loading && <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />}
       </Box>
       {props.image && (
-        <Box
-          sx={{
-            position: "relative",
-            width: "100%",
-            aspectRatio: "16 / 9",
-            bgcolor: "#eceff1",
-            borderTop: "1px solid #ececec",
-            borderBottom: "1px solid #ececec",
-          }}
-        >
-          <Image
-            src={props.image.url}
-            alt="Generated image"
-            fill
-            sizes="(min-width: 900px) 800px, 100vw"
-            style={{ objectFit: "cover" }}
-            unoptimized={props.image.url.startsWith("data:")}
-          />
-          <Chip
-            label={props.image.source === "gemini" ? "Gemini image" : "Mood library"}
-            size="small"
-            icon={<ImageIcon sx={{ fontSize: 12 }} />}
+        <>
+          <Box
             sx={{
-              position: "absolute",
-              top: 10,
-              left: 10,
-              bgcolor:
-                props.image.source === "gemini"
-                  ? "rgba(237,27,47,0.9)"
-                  : "rgba(15,20,26,0.78)",
-              color: "#fff",
-              fontSize: 10,
-              fontWeight: 600,
-              height: 22,
-              "& .MuiChip-icon": { color: "#fff" },
-            }}
-          />
-          <IconButton
-            size="small"
-            onClick={props.onClearImage}
-            sx={{
-              position: "absolute",
-              top: 6,
-              right: 6,
-              bgcolor: "rgba(15,20,26,0.7)",
-              color: "#fff",
-              "&:hover": { bgcolor: "rgba(15,20,26,0.9)" },
+              position: "relative",
+              width: "100%",
+              aspectRatio: "16 / 9",
+              bgcolor: "#eceff1",
+              borderTop: "1px solid #ececec",
+              borderBottom: "1px solid #ececec",
             }}
           >
-            <EditIcon fontSize="small" />
-          </IconButton>
-          {props.image.error && (
-            <Box
+            {props.image.pending ? (
+              <Skeleton
+                variant="rectangular"
+                animation="wave"
+                width="100%"
+                height="100%"
+                sx={{ bgcolor: "rgba(237,27,47,0.08)" }}
+              />
+            ) : (
+              <Image
+                src={props.image.url}
+                alt="Generated image"
+                fill
+                sizes="(min-width: 900px) 800px, 100vw"
+                style={{ objectFit: "cover" }}
+                unoptimized={props.image.url.startsWith("data:")}
+              />
+            )}
+            <Chip
+              label={
+                props.image.pending
+                  ? "Rendering…"
+                  : props.image.source === "gemini"
+                    ? "Gemini image"
+                    : "Mood library"
+              }
+              size="small"
+              icon={<ImageIcon sx={{ fontSize: 12 }} />}
               sx={{
                 position: "absolute",
-                bottom: 10,
+                top: 10,
                 left: 10,
-                right: 10,
-                bgcolor: "rgba(255,255,255,0.9)",
-                borderRadius: 1,
-                px: 1,
-                py: 0.5,
+                bgcolor: props.image.pending
+                  ? "rgba(39,78,100,0.9)"
+                  : props.image.source === "gemini"
+                    ? "rgba(237,27,47,0.9)"
+                    : "rgba(15,20,26,0.78)",
+                color: "#fff",
+                fontSize: 10,
+                fontWeight: 600,
+                height: 22,
+                "& .MuiChip-icon": { color: "#fff" },
               }}
-            >
-              <Typography sx={{ fontSize: 10.5, color: "#ed1b2f", fontStyle: "italic" }}>
-                {props.image.error}
+            />
+            <Box sx={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 0.5 }}>
+              <Tooltip title="Reprompt image">
+                <IconButton
+                  size="small"
+                  disabled={props.image.pending}
+                  onClick={() => {
+                    setDraftImagePrompt(props.image?.prompt ?? "");
+                    setEditingImage((v) => !v);
+                  }}
+                  sx={{
+                    bgcolor: "rgba(15,20,26,0.72)",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "rgba(237,27,47,0.9)" },
+                  }}
+                >
+                  <AutoFixHighIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Remove image">
+                <IconButton
+                  size="small"
+                  onClick={props.onClearImage}
+                  sx={{
+                    bgcolor: "rgba(15,20,26,0.7)",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "rgba(15,20,26,0.9)" },
+                  }}
+                >
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            {props.image.error && (
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: 10,
+                  left: 10,
+                  right: 10,
+                  bgcolor: "rgba(255,255,255,0.9)",
+                  borderRadius: 1,
+                  px: 1,
+                  py: 0.5,
+                }}
+              >
+                <Typography sx={{ fontSize: 10.5, color: "#ed1b2f", fontStyle: "italic" }}>
+                  {props.image.error}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+          {editingImage && (
+            <Box sx={{ px: 2.5, py: 1.5, bgcolor: "#f7f9fc", borderBottom: "1px dashed #ed1b2f" }}>
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  color: "#ed1b2f",
+                  mb: 0.5,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                Image brief
               </Typography>
+              <TextField
+                multiline
+                minRows={2}
+                fullWidth
+                size="small"
+                value={draftImagePrompt}
+                onChange={(e) => setDraftImagePrompt(e.target.value)}
+                placeholder="Describe the image you want — hands, components, context…"
+              />
+              <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<AutoFixHighIcon fontSize="small" />}
+                  onClick={() => {
+                    if (!draftImagePrompt.trim()) return;
+                    props.onRepromptImage(draftImagePrompt.trim());
+                    setEditingImage(false);
+                  }}
+                  sx={{
+                    bgcolor: "#ed1b2f",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    "&:hover": { bgcolor: "#c91528" },
+                  }}
+                >
+                  Regenerate image
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => setEditingImage(false)}
+                  sx={{ textTransform: "none", color: "#5f6368" }}
+                >
+                  Cancel
+                </Button>
+              </Box>
             </Box>
           )}
-        </Box>
+        </>
       )}
       {props.showComment && (
         <Box sx={{ px: 2.5, py: 1.5, bgcolor: "#fafbfc", borderTop: "1px solid #ececec" }}>
@@ -917,6 +1080,7 @@ function ProposalsSection(props: {
   onDownload: (p: Proposal, i: number) => void;
   onSend: (p: Proposal) => void;
   onFeedback: (p: Proposal, i: number, action: "like" | "dislike", correction?: string) => void;
+  onRepromptImage: (i: number, newPrompt: string) => void;
 }) {
   return (
     <Paper
@@ -960,7 +1124,11 @@ function ProposalsSection(props: {
             "&:hover": { bgcolor: "#c91528" },
           }}
         >
-          {props.generating ? "Generating…" : "Propose 3"}
+          {props.generating
+            ? "Generating…"
+            : props.proposals.length > 0
+              ? "Repropose 3"
+              : "Propose 3"}
         </Button>
       </Box>
       {props.generating && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
@@ -1014,6 +1182,7 @@ function ProposalsSection(props: {
             onDownload={props.onDownload}
             onSend={props.onSend}
             onFeedback={props.onFeedback}
+            onRepromptImage={props.onRepromptImage}
           />
         ))}
       </Box>
@@ -1029,6 +1198,7 @@ function ProposalCard({
   onDownload,
   onSend,
   onFeedback,
+  onRepromptImage,
 }: {
   proposal: Proposal;
   index: number;
@@ -1037,9 +1207,12 @@ function ProposalCard({
   onDownload: (p: Proposal, i: number) => void;
   onSend: (p: Proposal) => void;
   onFeedback: (p: Proposal, i: number, action: "like" | "dislike", correction?: string) => void;
+  onRepromptImage: (i: number, newPrompt: string) => void;
 }) {
   const [showCorrection, setShowCorrection] = useState(false);
   const [correction, setCorrection] = useState("");
+  const [editingImage, setEditingImage] = useState(false);
+  const [draftPrompt, setDraftPrompt] = useState(p.imagePrompt);
 
   const submitDislike = () => {
     if (!correction.trim()) return;
@@ -1078,23 +1251,43 @@ function ProposalCard({
             bgcolor: "#eceff1",
           }}
         >
-          <Image
-            src={p.imageUrl}
-            alt={p.headline}
-            fill
-            sizes="(min-width: 900px) 280px, 90vw"
-            style={{ objectFit: "cover" }}
-            unoptimized={p.imageUrl.startsWith("data:")}
-          />
+          {p.imagePending ? (
+            <Skeleton
+              variant="rectangular"
+              animation="wave"
+              width="100%"
+              height="100%"
+              sx={{ bgcolor: "rgba(237,27,47,0.08)" }}
+            />
+          ) : (
+            <Image
+              src={p.imageUrl}
+              alt={p.headline}
+              fill
+              sizes="(min-width: 900px) 280px, 90vw"
+              style={{ objectFit: "cover" }}
+              unoptimized={p.imageUrl.startsWith("data:")}
+            />
+          )}
           <Chip
-            label={p.imageSource === "gemini" ? "Gemini" : "Mood library"}
+            label={
+              p.imagePending
+                ? "Rendering…"
+                : p.imageSource === "gemini"
+                  ? "Gemini"
+                  : "Mood library"
+            }
             size="small"
             icon={<ImageIcon sx={{ fontSize: 12 }} />}
             sx={{
               position: "absolute",
               top: 8,
               left: 8,
-              bgcolor: p.imageSource === "gemini" ? "rgba(237,27,47,0.9)" : "rgba(15,20,26,0.78)",
+              bgcolor: p.imagePending
+                ? "rgba(39,78,100,0.9)"
+                : p.imageSource === "gemini"
+                  ? "rgba(237,27,47,0.9)"
+                  : "rgba(15,20,26,0.78)",
               color: "#fff",
               fontSize: 10,
               fontWeight: 600,
@@ -1102,6 +1295,78 @@ function ProposalCard({
               "& .MuiChip-icon": { color: "#fff" },
             }}
           />
+          <Tooltip title="Reprompt image">
+            <IconButton
+              size="small"
+              onClick={() => {
+                setDraftPrompt(p.imagePrompt);
+                setEditingImage((v) => !v);
+              }}
+              disabled={p.imagePending}
+              sx={{
+                position: "absolute",
+                top: 6,
+                right: 6,
+                bgcolor: "rgba(15,20,26,0.72)",
+                color: "#fff",
+                "&:hover": { bgcolor: "rgba(237,27,47,0.9)" },
+              }}
+            >
+              <AutoFixHighIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
+
+      {editingImage && wantsImage && (
+        <Box sx={{ px: 2, py: 1.5, bgcolor: "#f7f9fc", borderTop: "1px dashed #ed1b2f" }}>
+          <Typography
+            sx={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "#ed1b2f",
+              mb: 0.5,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            Image brief
+          </Typography>
+          <TextField
+            multiline
+            minRows={2}
+            fullWidth
+            size="small"
+            value={draftPrompt}
+            onChange={(e) => setDraftPrompt(e.target.value)}
+          />
+          <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AutoFixHighIcon fontSize="small" />}
+              onClick={() => {
+                if (!draftPrompt.trim()) return;
+                onRepromptImage(i, draftPrompt.trim());
+                setEditingImage(false);
+              }}
+              sx={{
+                bgcolor: "#ed1b2f",
+                textTransform: "none",
+                fontWeight: 600,
+                "&:hover": { bgcolor: "#c91528" },
+              }}
+            >
+              Regenerate image
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setEditingImage(false)}
+              sx={{ textTransform: "none", color: "#5f6368" }}
+            >
+              Cancel
+            </Button>
+          </Box>
         </Box>
       )}
       <Box sx={{ p: 2, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>

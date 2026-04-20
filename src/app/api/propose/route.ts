@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
-import { generateApsoImage } from "@/lib/images";
-import { readLogs } from "@/lib/logs";
+import { readLogs, saveCurrentBatch } from "@/lib/logs";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -33,6 +32,7 @@ type Proposal = {
   imageUrl: string;
   imageSource: "gemini" | "fallback";
   imageError?: string;
+  imagePending?: boolean;
 };
 
 const FALLBACK_IMAGES = ["/mood/oring.png", "/mood/no-surcharge.png", "/mood/oring.png"];
@@ -188,41 +188,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    const proposals: Proposal[] = [];
+    const proposals: Proposal[] = parsed.slice(0, 3).map((p, i) => ({
+      headline: p.headline ?? "",
+      body: p.body ?? "",
+      imagePrompt: p.imagePrompt ?? "",
+      imageUrl: FALLBACK_IMAGES[i % FALLBACK_IMAGES.length],
+      imageSource: "fallback",
+      imagePending: Boolean(wantsImage && (p.imagePrompt?.trim() ?? "").length > 0),
+    }));
 
-    for (let i = 0; i < parsed.length && i < 3; i++) {
-      const p = parsed[i];
-      let imageUrl = FALLBACK_IMAGES[i % FALLBACK_IMAGES.length];
-      let imageSource: Proposal["imageSource"] = "fallback";
-      let imageError: string | undefined;
-
-      if (wantsImage && geminiKey && p.imagePrompt) {
-        const fullPrompt =
-          `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
-          `${p.imagePrompt}. ` +
-          `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
-          `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`;
-        const result = await generateApsoImage(geminiKey, fullPrompt);
-        if (result.ok) {
-          imageUrl = result.dataUrl;
-          imageSource = "gemini";
-        } else {
-          imageError = result.error;
-        }
-      } else if (wantsImage && !geminiKey) {
-        imageError = "GEMINI_API_KEY not configured";
-      }
-
-      proposals.push({
-        headline: p.headline ?? "",
-        body: p.body ?? "",
-        imagePrompt: p.imagePrompt ?? "",
-        imageUrl,
-        imageSource,
-        imageError,
-      });
-    }
+    // Persist the batch so it can be rehydrated on the client next visit.
+    await saveCurrentBatch({
+      channel,
+      filters,
+      proposals,
+      generatedAt: new Date().toISOString(),
+    });
 
     return NextResponse.json({ proposals });
   } catch (err) {

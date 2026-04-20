@@ -2,12 +2,14 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import { readBrain } from "@/lib/brain";
+import { readLogs } from "@/lib/logs";
 import ComposerAndProposals from "./ComposerAndProposals";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContentGenerationPage() {
-  const brain = await readBrain();
+  const [brain, logs] = await Promise.all([readBrain(), readLogs()]);
+  const currentBatch = logs.currentBatch ?? null;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -34,7 +36,7 @@ export default async function ContentGenerationPage() {
           copy, download, or send to the composer for editing.
         </Typography>
       </Box>
-      <ComposerAndProposals brain={brain} />
+      <ComposerAndProposals brain={brain} initialBatch={currentBatch} />
     </Box>
   );
 }
