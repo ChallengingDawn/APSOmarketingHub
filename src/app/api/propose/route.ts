@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenAI } from "@google/genai";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
+import { generateApsoImage } from "@/lib/images";
+import { readLogs } from "@/lib/logs";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -39,7 +40,13 @@ const FALLBACK_IMAGES = ["/mood/oring.png", "/mood/no-surcharge.png", "/mood/ori
 function buildFilterInstructions(filters: Filters | undefined): string {
   if (!filters) return "";
   const lines: string[] = [];
-  if (filters.language) lines.push(`- Language: write ALL output in ${filters.language === "DE" ? "German (Deutsch)" : "English"}.`);
+  if (filters.language === "DE") {
+    lines.push(
+      `- LANGUAGE: Output language is GERMAN (Deutsch). Write EVERY field — headline, body, imagePrompt — in fluent industrial German. Do not mix English and German. Keep brand names (APSOparts, Angst+Pfister, DirectCUT, Quickorder) untranslated.`
+    );
+  } else if (filters.language === "EN") {
+    lines.push(`- LANGUAGE: Output language is ENGLISH. All fields in English.`);
+  }
   if (filters.framework && filters.framework !== "auto") {
     const fw =
       filters.framework === "ican"
@@ -72,6 +79,32 @@ function buildFilterInstructions(filters: Filters | undefined): string {
   return lines.length ? `\n\n# FILTERS\n${lines.join("\n")}` : "";
 }
 
+type SimpleLog = { headline?: string; body?: string; correction?: string };
+
+function buildFeedbackBlock(userDefaults: string, likes: SimpleLog[], dislikes: SimpleLog[]): string {
+  const parts: string[] = [];
+  if (userDefaults?.trim()) {
+    parts.push(`\n\n# USER DEFAULTS (always apply)\n${userDefaults.trim()}`);
+  }
+  if (likes.length) {
+    const examples = likes
+      .map((l, i) => `Example ${i + 1}:\n${l.headline ? `Headline: ${l.headline}\n` : ""}${l.body ?? ""}`)
+      .join("\n\n---\n\n");
+    parts.push(`\n\n# LIKED EXAMPLES (imitate style & framing)\n${examples}`);
+  }
+  if (dislikes.length) {
+    const examples = dislikes
+      .map((l, i) => {
+        const sample = `${l.headline ? `Headline: ${l.headline}\n` : ""}${l.body ?? ""}`;
+        const fix = l.correction ? `\nUser correction: ${l.correction}` : "";
+        return `Example ${i + 1}:\n${sample}${fix}`;
+      })
+      .join("\n\n---\n\n");
+    parts.push(`\n\n# DISLIKED EXAMPLES (avoid these patterns; apply corrections)\n${examples}`);
+  }
+  return parts.join("");
+}
+
 export async function POST(req: NextRequest) {
   let body: ProposeBody = {};
   try {
@@ -95,12 +128,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const brain = await readBrain();
-    const system = brandSystemPrompt(brain, channel) + buildFilterInstructions(filters);
+    const logs = await readLogs();
+    const likes = logs.entries.filter((e) => e.type === "like").slice(0, 6);
+    const dislikes = logs.entries.filter((e) => e.type === "dislike").slice(0, 6);
+    const feedbackBlock = buildFeedbackBlock(logs.userDefaults, likes, dislikes);
+    const system = brandSystemPrompt(brain, channel) + buildFilterInstructions(filters) + feedbackBlock;
     const anthropic = new Anthropic({ apiKey: anthropicKey });
 
     const imageRule = wantsImage
       ? `- "imagePrompt": a concrete visual brief for the image that accompanies the post. Industrial aesthetic, hands/tools/components in realistic context. Never CAD, never stock suits, never white-background product shots, never promotional badges.`
       : `- "imagePrompt": leave as an empty string.`;
+
+    const langLead =
+      filters.language === "DE"
+        ? `ALLE Inhalte (Headline, Body, Image-Brief) MÜSSEN auf Deutsch sein. Kein Englisch. `
+        : filters.language === "EN"
+          ? `All content in English. `
+          : "";
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -111,7 +155,7 @@ export async function POST(req: NextRequest) {
         {
           role: "user",
           content: [
-            `Produce 3 distinct ${channel} proposals${topic ? ` about: ${topic}` : ""}.`,
+            `${langLead}Produce 3 distinct ${channel} proposals${topic ? ` about: ${topic}` : ""}.`,
             ``,
             `For each proposal, return:`,
             `- "headline": a scroll-stopping opening line (max 12 words)`,
@@ -154,47 +198,17 @@ export async function POST(req: NextRequest) {
       let imageError: string | undefined;
 
       if (wantsImage && geminiKey && p.imagePrompt) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const imgRes = await ai.models.generateContent({
-            model: "gemini-2.5-flash-image-preview",
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text:
-                      `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
-                      `${p.imagePrompt}. ` +
-                      `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
-                      `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`,
-                  },
-                ],
-              },
-            ],
-            config: {
-              responseModalities: ["IMAGE"],
-            },
-          });
-
-          const parts = imgRes.candidates?.[0]?.content?.parts ?? [];
-          let foundImage = false;
-          for (const part of parts) {
-            const inline = (part as { inlineData?: { data?: string; mimeType?: string } })
-              .inlineData;
-            if (inline?.data) {
-              const mime = inline.mimeType ?? "image/png";
-              imageUrl = `data:${mime};base64,${inline.data}`;
-              imageSource = "gemini";
-              foundImage = true;
-              break;
-            }
-          }
-          if (!foundImage) {
-            imageError = "Gemini returned no image data";
-          }
-        } catch (err) {
-          imageError = err instanceof Error ? err.message : String(err);
+        const fullPrompt =
+          `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
+          `${p.imagePrompt}. ` +
+          `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
+          `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`;
+        const result = await generateApsoImage(geminiKey, fullPrompt);
+        if (result.ok) {
+          imageUrl = result.dataUrl;
+          imageSource = "gemini";
+        } else {
+          imageError = result.error;
         }
       } else if (wantsImage && !geminiKey) {
         imageError = "GEMINI_API_KEY not configured";

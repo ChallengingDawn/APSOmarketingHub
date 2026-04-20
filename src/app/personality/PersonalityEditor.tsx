@@ -74,29 +74,37 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
   const meta = openId ? SECTION_TITLES[openId] : null;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <Paper sx={{ p: 2, borderRadius: 3, bgcolor: "#ffffff" }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5, px: 0.5 }}>
-          <Typography sx={{ fontSize: 13, color: "#5f6368" }}>
-            Click any node to edit. Links show how the brain's context flows into the content engine.
-          </Typography>
-          <Button
-            onClick={save}
-            disabled={saving}
-            variant="contained"
-            startIcon={<SaveIcon />}
-            sx={{
-              bgcolor: "#274e64",
-              textTransform: "none",
-              fontWeight: 600,
-              "&:hover": { bgcolor: "#1a3a4c" },
-            }}
-          >
-            {saving ? "Saving…" : "Save Brain"}
-          </Button>
-        </Box>
-        <BrainGraph activeId={openId ?? undefined} onNodeClick={(id) => setOpenId(id)} />
-      </Paper>
+    <Box sx={{ display: "flex", flexDirection: "column" }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          px: 3,
+          pb: 1.5,
+          gap: 2,
+        }}
+      >
+        <Typography sx={{ fontSize: 13, color: "#5f6368", flex: 1 }}>
+          Click any node to edit, drag to reshape. Links show how the brain's context flows into the
+          content engine.
+        </Typography>
+        <Button
+          onClick={save}
+          disabled={saving}
+          variant="contained"
+          startIcon={<SaveIcon />}
+          sx={{
+            bgcolor: "#274e64",
+            textTransform: "none",
+            fontWeight: 600,
+            "&:hover": { bgcolor: "#1a3a4c" },
+          }}
+        >
+          {saving ? "Saving…" : "Save Brain"}
+        </Button>
+      </Box>
+      <BrainGraph activeId={openId ?? undefined} onNodeClick={(id) => setOpenId(id)} />
 
       <Dialog
         open={!!openId}

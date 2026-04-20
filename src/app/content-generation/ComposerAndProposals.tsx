@@ -33,6 +33,9 @@ import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import SendIcon from "@mui/icons-material/SendOutlined";
+import ThumbUpIcon from "@mui/icons-material/ThumbUp";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
+import CheckIcon from "@mui/icons-material/Check";
 import PublicIcon from "@mui/icons-material/Public";
 import TuneIcon from "@mui/icons-material/Tune";
 import type { Brain } from "@/lib/brain";
@@ -44,6 +47,8 @@ type Proposal = {
   imageUrl: string;
   imageSource: "gemini" | "fallback";
   imageError?: string;
+  feedback?: "like" | "dislike";
+  correction?: string;
 };
 
 type ContentType = "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
@@ -71,7 +76,20 @@ const AUDIENCES = [
   "Maintenance engineers",
   "Procurement / buyers",
   "Design engineers",
+  "R&D engineers",
   "Plant managers",
+  "Production / operations",
+  "Quality assurance",
+  "Automation engineers",
+  "Facility managers",
+  "MRO / aftermarket technicians",
+  "OEM product managers",
+  "Food & beverage engineers",
+  "Chemical process engineers",
+  "Pharma / GMP engineers",
+  "Hydraulics & pneumatics specialists",
+  "Distributors / resellers",
+  "C-level / technical directors",
 ];
 
 export default function ComposerAndProposals({ brain }: { brain: Brain }) {
@@ -94,6 +112,11 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [composerLoading, setComposerLoading] = useState(false);
+  const [composerImage, setComposerImage] = useState<{
+    url: string;
+    source: "gemini" | "fallback";
+    error?: string;
+  } | null>(null);
 
   const activeType = useMemo(
     () => CONTENT_TYPES.find((c) => c.id === contentType)!,
@@ -144,6 +167,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     if (!composer.trim()) return;
     setComposerLoading(true);
     setError(null);
+    setComposerImage(null);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -153,6 +177,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           prompt: composer,
           model,
           context: filterContext,
+          withImage: activeType.withImage,
         }),
       });
       const data = await res.json();
@@ -160,6 +185,13 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
         setError(data.error ?? "Generation failed");
       } else {
         setComposer(data.content ?? composer);
+        if (data.imageUrl) {
+          setComposerImage({
+            url: data.imageUrl,
+            source: data.imageSource ?? "fallback",
+            error: data.imageError,
+          });
+        }
       }
     } catch (err) {
       setError(String(err));
@@ -215,6 +247,34 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  async function logProposal(
+    p: Proposal,
+    index: number,
+    action: "like" | "dislike",
+    correction?: string
+  ) {
+    setProposals((cur) =>
+      cur.map((x, i) => (i === index ? { ...x, feedback: action, correction } : x))
+    );
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: action,
+          channel: channelForApi,
+          headline: p.headline,
+          body: p.body,
+          prompt: topic,
+          filters: filterContext,
+          correction,
+        }),
+      });
+    } catch {
+      // silent
+    }
+  }
+
   return (
     <Box
       sx={{
@@ -259,6 +319,8 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           onEnhance={composeFromScratch}
           brainStrapline={brain.brandVoice.strapline}
           brainStoryline={brain.brandVoice.storyline}
+          image={composerImage}
+          onClearImage={() => setComposerImage(null)}
         />
 
         <ProposalsSection
@@ -273,6 +335,7 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           onCopy={copyProposal}
           onDownload={downloadImage}
           onSend={sendToComposer}
+          onFeedback={logProposal}
         />
       </Box>
     </Box>
@@ -544,6 +607,8 @@ function ComposerCard(props: {
   onEnhance: () => void;
   brainStrapline: string;
   brainStoryline: string;
+  image: { url: string; source: "gemini" | "fallback"; error?: string } | null;
+  onClearImage: () => void;
 }) {
   return (
     <Paper
@@ -607,6 +672,78 @@ function ComposerCard(props: {
         />
         {props.loading && <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />}
       </Box>
+      {props.image && (
+        <Box
+          sx={{
+            position: "relative",
+            width: "100%",
+            aspectRatio: "16 / 9",
+            bgcolor: "#eceff1",
+            borderTop: "1px solid #ececec",
+            borderBottom: "1px solid #ececec",
+          }}
+        >
+          <Image
+            src={props.image.url}
+            alt="Generated image"
+            fill
+            sizes="(min-width: 900px) 800px, 100vw"
+            style={{ objectFit: "cover" }}
+            unoptimized={props.image.url.startsWith("data:")}
+          />
+          <Chip
+            label={props.image.source === "gemini" ? "Gemini image" : "Mood library"}
+            size="small"
+            icon={<ImageIcon sx={{ fontSize: 12 }} />}
+            sx={{
+              position: "absolute",
+              top: 10,
+              left: 10,
+              bgcolor:
+                props.image.source === "gemini"
+                  ? "rgba(237,27,47,0.9)"
+                  : "rgba(15,20,26,0.78)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 600,
+              height: 22,
+              "& .MuiChip-icon": { color: "#fff" },
+            }}
+          />
+          <IconButton
+            size="small"
+            onClick={props.onClearImage}
+            sx={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              bgcolor: "rgba(15,20,26,0.7)",
+              color: "#fff",
+              "&:hover": { bgcolor: "rgba(15,20,26,0.9)" },
+            }}
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
+          {props.image.error && (
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 10,
+                left: 10,
+                right: 10,
+                bgcolor: "rgba(255,255,255,0.9)",
+                borderRadius: 1,
+                px: 1,
+                py: 0.5,
+              }}
+            >
+              <Typography sx={{ fontSize: 10.5, color: "#ed1b2f", fontStyle: "italic" }}>
+                {props.image.error}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
       <Divider />
       <Box
         sx={{
@@ -664,6 +801,7 @@ function ProposalsSection(props: {
   onCopy: (p: Proposal) => void;
   onDownload: (p: Proposal, i: number) => void;
   onSend: (p: Proposal) => void;
+  onFeedback: (p: Proposal, i: number, action: "like" | "dislike", correction?: string) => void;
 }) {
   return (
     <Paper
@@ -752,121 +890,221 @@ function ProposalsSection(props: {
         }}
       >
         {props.proposals.map((p, i) => (
-          <Paper
+          <ProposalCard
             key={i}
-            variant="outlined"
+            proposal={p}
+            index={i}
+            wantsImage={props.wantsImage}
+            onCopy={props.onCopy}
+            onDownload={props.onDownload}
+            onSend={props.onSend}
+            onFeedback={props.onFeedback}
+          />
+        ))}
+      </Box>
+    </Paper>
+  );
+}
+
+function ProposalCard({
+  proposal: p,
+  index: i,
+  wantsImage,
+  onCopy,
+  onDownload,
+  onSend,
+  onFeedback,
+}: {
+  proposal: Proposal;
+  index: number;
+  wantsImage: boolean;
+  onCopy: (p: Proposal) => void;
+  onDownload: (p: Proposal, i: number) => void;
+  onSend: (p: Proposal) => void;
+  onFeedback: (p: Proposal, i: number, action: "like" | "dislike", correction?: string) => void;
+}) {
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [correction, setCorrection] = useState("");
+
+  const submitDislike = () => {
+    if (!correction.trim()) return;
+    onFeedback(p, i, "dislike", correction.trim());
+    setShowCorrection(false);
+  };
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        bgcolor: "#ffffff",
+        borderColor:
+          p.feedback === "like"
+            ? "#2e7d32"
+            : p.feedback === "dislike"
+              ? "#ed1b2f"
+              : "#dde1e6",
+        transition: "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
+        "&:hover": {
+          transform: "translateY(-2px)",
+          boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+        },
+      }}
+    >
+      {wantsImage && (
+        <Box
+          sx={{
+            position: "relative",
+            width: "100%",
+            aspectRatio: "4 / 3",
+            bgcolor: "#eceff1",
+          }}
+        >
+          <Image
+            src={p.imageUrl}
+            alt={p.headline}
+            fill
+            sizes="(min-width: 900px) 280px, 90vw"
+            style={{ objectFit: "cover" }}
+            unoptimized={p.imageUrl.startsWith("data:")}
+          />
+          <Chip
+            label={p.imageSource === "gemini" ? "Gemini" : "Mood library"}
+            size="small"
+            icon={<ImageIcon sx={{ fontSize: 12 }} />}
             sx={{
-              borderRadius: 2,
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              bgcolor: "#ffffff",
-              borderColor: "#dde1e6",
-              transition: "transform 0.2s, box-shadow 0.2s",
-              "&:hover": {
-                transform: "translateY(-2px)",
-                boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
-              },
+              position: "absolute",
+              top: 8,
+              left: 8,
+              bgcolor: p.imageSource === "gemini" ? "rgba(237,27,47,0.9)" : "rgba(15,20,26,0.78)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 600,
+              height: 22,
+              "& .MuiChip-icon": { color: "#fff" },
+            }}
+          />
+        </Box>
+      )}
+      <Box sx={{ p: 2, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a3a4c", lineHeight: 1.3 }}>
+          {p.headline}
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: 13,
+            color: "#3c4043",
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            flex: 1,
+          }}
+        >
+          {p.body}
+        </Typography>
+        {p.imagePrompt && wantsImage && (
+          <Typography
+            sx={{
+              fontSize: 11,
+              color: "#5f6368",
+              fontStyle: "italic",
+              mt: 0.5,
+              borderTop: "1px dashed #ececec",
+              pt: 1,
             }}
           >
-            {props.wantsImage && (
-              <Box
-                sx={{
-                  position: "relative",
-                  width: "100%",
-                  aspectRatio: "4 / 3",
-                  bgcolor: "#eceff1",
-                }}
-              >
-                <Image
-                  src={p.imageUrl}
-                  alt={p.headline}
-                  fill
-                  sizes="(min-width: 900px) 280px, 90vw"
-                  style={{ objectFit: "cover" }}
-                  unoptimized={p.imageUrl.startsWith("data:")}
-                />
-                <Chip
-                  label={p.imageSource === "gemini" ? "Gemini" : "Mood library"}
-                  size="small"
-                  icon={<ImageIcon sx={{ fontSize: 12 }} />}
-                  sx={{
-                    position: "absolute",
-                    top: 8,
-                    left: 8,
-                    bgcolor: p.imageSource === "gemini" ? "rgba(237,27,47,0.9)" : "rgba(15,20,26,0.78)",
-                    color: "#fff",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    height: 22,
-                    "& .MuiChip-icon": { color: "#fff" },
-                  }}
-                />
-              </Box>
-            )}
-            <Box sx={{ p: 2, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-              <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a3a4c", lineHeight: 1.3 }}>
-                {p.headline}
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: 13,
-                  color: "#3c4043",
-                  lineHeight: 1.5,
-                  whiteSpace: "pre-wrap",
-                  flex: 1,
-                }}
-              >
-                {p.body}
-              </Typography>
-              {p.imagePrompt && props.wantsImage && (
-                <Typography
-                  sx={{
-                    fontSize: 11,
-                    color: "#5f6368",
-                    fontStyle: "italic",
-                    mt: 0.5,
-                    borderTop: "1px dashed #ececec",
-                    pt: 1,
-                  }}
-                >
-                  Image brief: {p.imagePrompt}
-                </Typography>
-              )}
-              {p.imageError && (
-                <Typography sx={{ fontSize: 10.5, color: "#ed1b2f", fontStyle: "italic" }}>
-                  Image gen: {p.imageError}
-                </Typography>
-              )}
-            </Box>
-            <Divider />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.75, bgcolor: "#fafbfc" }}>
-              <Tooltip title="Send to composer">
-                <IconButton size="small" onClick={() => props.onSend(p)} sx={{ color: "#274e64" }}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Copy text">
-                <IconButton size="small" onClick={() => props.onCopy(p)}>
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {props.wantsImage && (
-                <Tooltip title="Download image">
-                  <IconButton size="small" onClick={() => props.onDownload(p, i)}>
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-              <Box sx={{ flex: 1 }} />
-              <Chip
-                label={`#${i + 1}`}
-                size="small"
-                sx={{ bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 700, height: 20 }}
-              />
-            </Box>
-          </Paper>
-        ))}
+            Image brief: {p.imagePrompt}
+          </Typography>
+        )}
+        {p.imageError && (
+          <Typography sx={{ fontSize: 10.5, color: "#ed1b2f", fontStyle: "italic" }}>
+            Image gen: {p.imageError}
+          </Typography>
+        )}
+      </Box>
+
+      {showCorrection && (
+        <Box sx={{ px: 2, py: 1.5, bgcolor: "#fff5f5", borderTop: "1px dashed #ed1b2f" }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#ed1b2f", mb: 0.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            What would you have preferred?
+          </Typography>
+          <TextField
+            multiline
+            minRows={2}
+            fullWidth
+            size="small"
+            placeholder="e.g. 'too long, aim for 80 words' or 'don't mention competitors'"
+            value={correction}
+            onChange={(e) => setCorrection(e.target.value)}
+          />
+          <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+            <Button
+              size="small"
+              onClick={submitDislike}
+              disabled={!correction.trim()}
+              variant="contained"
+              startIcon={<CheckIcon fontSize="small" />}
+              sx={{ bgcolor: "#ed1b2f", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: "#c91528" } }}
+            >
+              Save correction
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setShowCorrection(false)}
+              sx={{ textTransform: "none", color: "#5f6368" }}
+            >
+              Cancel
+            </Button>
+          </Box>
+        </Box>
+      )}
+
+      <Divider />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.75, bgcolor: "#fafbfc" }}>
+        <Tooltip title={p.feedback === "like" ? "Liked — saved to logs" : "Like (save as good example)"}>
+          <IconButton
+            size="small"
+            onClick={() => onFeedback(p, i, "like")}
+            sx={{ color: p.feedback === "like" ? "#2e7d32" : "#5f6368" }}
+          >
+            {p.feedback === "like" ? <ThumbUpIcon fontSize="small" /> : <ThumbUpOffAltIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={p.feedback === "dislike" ? "Disliked — correction saved" : "Dislike (add correction)"}>
+          <IconButton
+            size="small"
+            onClick={() => setShowCorrection(true)}
+            sx={{ color: p.feedback === "dislike" ? "#ed1b2f" : "#5f6368" }}
+          >
+            {p.feedback === "dislike" ? <ThumbDownIcon fontSize="small" /> : <ThumbDownIcon fontSize="small" sx={{ opacity: 0.6 }} />}
+          </IconButton>
+        </Tooltip>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
+        <Tooltip title="Send to composer">
+          <IconButton size="small" onClick={() => onSend(p)} sx={{ color: "#274e64" }}>
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Copy text">
+          <IconButton size="small" onClick={() => onCopy(p)}>
+            <ContentCopyIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        {wantsImage && (
+          <Tooltip title="Download image">
+            <IconButton size="small" onClick={() => onDownload(p, i)}>
+              <DownloadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        <Box sx={{ flex: 1 }} />
+        <Chip
+          label={`#${i + 1}`}
+          size="small"
+          sx={{ bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 700, height: 20 }}
+        />
       </Box>
     </Paper>
   );

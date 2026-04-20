@@ -227,10 +227,9 @@ export default function BrainGraph({
       sx={{
         position: "relative",
         width: "100%",
-        aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
-        borderRadius: 3,
+        height: "calc(100vh - 140px)",
+        minHeight: 560,
         overflow: "hidden",
-        border: "1px solid #101520",
         background: "#05080d",
         touchAction: "none",
       }}
@@ -261,7 +260,7 @@ export default function BrainGraph({
 
       <svg
         viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="none"
         style={{
           position: "absolute",
           inset: 0,
@@ -423,65 +422,68 @@ export default function BrainGraph({
       <Box
         sx={{
           position: "absolute",
-          top: 16,
+          top: 14,
           left: 18,
           display: "flex",
           alignItems: "center",
           gap: 1,
+          pointerEvents: "none",
+          opacity: 0.7,
         }}
       >
         <Box
           sx={{
-            width: 8,
-            height: 8,
+            width: 7,
+            height: 7,
             borderRadius: "50%",
             bgcolor: "#ff2e63",
-            boxShadow: "0 0 14px rgba(255,46,99,0.9)",
+            boxShadow: "0 0 12px rgba(255,46,99,0.9)",
             animation: "apsoPulseDot 1.4s ease-in-out infinite",
           }}
         />
         <Typography
           sx={{
-            fontSize: 11,
+            fontSize: 10,
             color: "#e4e8ef",
             textTransform: "uppercase",
-            letterSpacing: "0.12em",
+            letterSpacing: "0.14em",
             fontWeight: 700,
           }}
         >
-          Live brain · drag to reshape
+          Live brain
         </Typography>
       </Box>
 
       <Box
         sx={{
           position: "absolute",
-          bottom: 16,
+          bottom: 14,
           left: 18,
           display: "flex",
           gap: 1.25,
-          p: 0.9,
+          p: 0.75,
           pr: 1.25,
           borderRadius: 999,
-          bgcolor: "rgba(15,20,26,0.65)",
+          bgcolor: "rgba(15,20,26,0.55)",
           backdropFilter: "blur(8px)",
           border: "1px solid rgba(255,255,255,0.08)",
+          pointerEvents: "none",
         }}
       >
         {(Object.keys(COLORS) as Kind[]).map((k) => (
-          <Box key={k} sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 0.5 }}>
+          <Box key={k} sx={{ display: "flex", alignItems: "center", gap: 0.6, px: 0.5 }}>
             <Box
               sx={{
-                width: 10,
-                height: 10,
+                width: 8,
+                height: 8,
                 borderRadius: "50%",
                 bgcolor: COLORS[k].core,
-                boxShadow: `0 0 10px ${COLORS[k].glow}`,
+                boxShadow: `0 0 8px ${COLORS[k].glow}`,
               }}
             />
             <Typography
               sx={{
-                fontSize: 10.5,
+                fontSize: 10,
                 color: "#e4e8ef",
                 textTransform: "capitalize",
                 letterSpacing: "0.05em",
@@ -493,20 +495,6 @@ export default function BrainGraph({
           </Box>
         ))}
       </Box>
-
-      <Typography
-        sx={{
-          position: "absolute",
-          top: 16,
-          right: 18,
-          fontSize: 11,
-          color: "rgba(228,232,239,0.7)",
-          fontStyle: "italic",
-          letterSpacing: "0.02em",
-        }}
-      >
-        Click to edit · drag to move
-      </Typography>
 
       <style>{`
         @keyframes apsoAurora {

@@ -10,8 +10,8 @@ export default async function PersonalityPage() {
   const brain = await readBrain();
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1200, mx: "auto" }}>
-      <Box sx={{ mb: 3 }}>
+    <Box sx={{ p: 0 }}>
+      <Box sx={{ px: 3, pt: 3, pb: 2 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
           <Typography sx={{ fontSize: 28, fontWeight: 700, color: "#1a3a4c", letterSpacing: "-0.01em" }}>
             Personality
