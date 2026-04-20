@@ -4,7 +4,14 @@ type ImageResult =
   | { ok: true; dataUrl: string; model: string }
   | { ok: false; error: string };
 
-const MODELS = ["gemini-2.5-flash-image"];
+// Preferred order: Nano Banana Pro (higher quality) -> flash (fallback).
+// Users can override entirely by setting GEMINI_IMAGE_MODEL in env —
+// that wins and no fallback is attempted so quota/errors are clear.
+const DEFAULT_MODELS = [
+  "gemini-3-pro-image-preview", // Nano Banana Pro
+  "gemini-2.5-pro-image",
+  "gemini-2.5-flash-image",
+];
 
 function summarizeError(raw: string): string {
   try {
@@ -46,7 +53,10 @@ export async function generateApsoImage(
   const ai = new GoogleGenAI({ apiKey });
   const errors: string[] = [];
 
-  for (const model of MODELS) {
+  const override = process.env.GEMINI_IMAGE_MODEL?.trim();
+  const models = override ? [override] : DEFAULT_MODELS;
+
+  for (const model of models) {
     try {
       const res = await ai.models.generateContent({
         model,
