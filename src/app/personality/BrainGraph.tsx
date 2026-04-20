@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
@@ -40,128 +40,16 @@ type LiveNode = NodeDef & {
   r: number;
 };
 
-export type BrainGraphHandle = {
-  getNodeRect: (id: string) => DOMRect | null;
-};
-
 const NODES: NodeDef[] = [
-  {
-    id: "engine",
-    label: "Content Engine",
-    sub: "Claude + Gemini",
-    kind: "derived",
-    mass: 1.45,
-    color: "#ed1b2f",
-    accent: "#ff6478",
-    icon: <AutoAwesomeIcon />,
-    orbitRadius: 0,
-    orbitPeriod: 0,
-    orbitPhase: 0,
-  },
-  {
-    id: "voice",
-    label: "Brand Voice",
-    sub: "Tone · Storyline",
-    kind: "editable",
-    mass: 1.1,
-    color: "#6f42c1",
-    accent: "#b197ff",
-    icon: <RecordVoiceOverIcon />,
-    orbitRadius: 10,
-    orbitPeriod: 14000,
-    orbitPhase: 0.0,
-  },
-  {
-    id: "guard",
-    label: "Positioning Guard",
-    sub: "APSOparts vs A+P",
-    kind: "editable",
-    mass: 1,
-    color: "#1d4ed8",
-    accent: "#6d8fe3",
-    icon: <ShieldIcon />,
-    orbitRadius: 9,
-    orbitPeriod: 16000,
-    orbitPhase: 0.8,
-  },
-  {
-    id: "phrases",
-    label: "Signature Phrases",
-    sub: "Reusable library",
-    kind: "editable",
-    mass: 1,
-    color: "#0d9488",
-    accent: "#5ccfc3",
-    icon: <FormatQuoteIcon />,
-    orbitRadius: 10,
-    orbitPeriod: 12000,
-    orbitPhase: 1.7,
-  },
-  {
-    id: "product",
-    label: "Product Rules",
-    sub: "Page structure",
-    kind: "editable",
-    mass: 1,
-    color: "#ea580c",
-    accent: "#ffa06a",
-    icon: <Inventory2Icon />,
-    orbitRadius: 11,
-    orbitPeriod: 18000,
-    orbitPhase: 2.3,
-  },
-  {
-    id: "social",
-    label: "Social Rules",
-    sub: "LinkedIn template",
-    kind: "editable",
-    mass: 1,
-    color: "#0a66c2",
-    accent: "#6aa9ed",
-    icon: <ShareIcon />,
-    orbitRadius: 9,
-    orbitPeriod: 15000,
-    orbitPhase: 3.1,
-  },
-  {
-    id: "gold",
-    label: "Gold Examples",
-    sub: "7 posts · 3 ads",
-    kind: "editable",
-    mass: 1,
-    color: "#d4a017",
-    accent: "#ffd969",
-    icon: <EmojiEventsIcon />,
-    orbitRadius: 10,
-    orbitPeriod: 13000,
-    orbitPhase: 4.2,
-  },
-  {
-    id: "category",
-    label: "Category Intel",
-    sub: "411 · 304 gaps",
-    kind: "ingested",
-    mass: 1,
-    color: "#15803d",
-    accent: "#6cd19a",
-    icon: <AccountTreeIcon />,
-    orbitRadius: 10,
-    orbitPeriod: 20000,
-    orbitPhase: 5.0,
-  },
-  {
-    id: "keywords",
-    label: "Keyword Signals",
-    sub: "FFKM · DE codes",
-    kind: "ingested",
-    mass: 1,
-    color: "#be185d",
-    accent: "#ee7daf",
-    icon: <ManageSearchIcon />,
-    orbitRadius: 9,
-    orbitPeriod: 17000,
-    orbitPhase: 5.7,
-  },
+  { id: "engine", label: "Content Engine", sub: "Claude + Gemini", kind: "derived", mass: 1.45, color: "#ed1b2f", accent: "#ff6478", icon: <AutoAwesomeIcon />, orbitRadius: 0, orbitPeriod: 0, orbitPhase: 0 },
+  { id: "voice", label: "Brand Voice", sub: "Tone · Storyline", kind: "editable", mass: 1.1, color: "#6f42c1", accent: "#b197ff", icon: <RecordVoiceOverIcon />, orbitRadius: 10, orbitPeriod: 14000, orbitPhase: 0.0 },
+  { id: "guard", label: "Positioning Guard", sub: "APSOparts vs A+P", kind: "editable", mass: 1, color: "#1d4ed8", accent: "#6d8fe3", icon: <ShieldIcon />, orbitRadius: 9, orbitPeriod: 16000, orbitPhase: 0.8 },
+  { id: "phrases", label: "Signature Phrases", sub: "Reusable library", kind: "editable", mass: 1, color: "#0d9488", accent: "#5ccfc3", icon: <FormatQuoteIcon />, orbitRadius: 10, orbitPeriod: 12000, orbitPhase: 1.7 },
+  { id: "product", label: "Product Rules", sub: "Page structure", kind: "editable", mass: 1, color: "#ea580c", accent: "#ffa06a", icon: <Inventory2Icon />, orbitRadius: 11, orbitPeriod: 18000, orbitPhase: 2.3 },
+  { id: "social", label: "Social Rules", sub: "LinkedIn template", kind: "editable", mass: 1, color: "#0a66c2", accent: "#6aa9ed", icon: <ShareIcon />, orbitRadius: 9, orbitPeriod: 15000, orbitPhase: 3.1 },
+  { id: "gold", label: "Gold Examples", sub: "7 posts · 3 ads", kind: "editable", mass: 1, color: "#d4a017", accent: "#ffd969", icon: <EmojiEventsIcon />, orbitRadius: 10, orbitPeriod: 13000, orbitPhase: 4.2 },
+  { id: "category", label: "Category Intel", sub: "411 · 304 gaps", kind: "ingested", mass: 1, color: "#15803d", accent: "#6cd19a", icon: <AccountTreeIcon />, orbitRadius: 10, orbitPeriod: 20000, orbitPhase: 5.0 },
+  { id: "keywords", label: "Keyword Signals", sub: "FFKM · DE codes", kind: "ingested", mass: 1, color: "#be185d", accent: "#ee7daf", icon: <ManageSearchIcon />, orbitRadius: 9, orbitPeriod: 17000, orbitPhase: 5.7 },
 ];
 
 const EDGES: Edge[] = [
@@ -218,6 +106,17 @@ function initLayout(): LiveNode[] {
   });
 }
 
+// Bubble field — Apple-style multi-color translucent blobs drifting slowly
+const BUBBLES = [
+  { size: 520, color: "rgba(111,66,193,0.28)", left: "8%", top: "12%", dur: 22, delay: 0 },
+  { size: 420, color: "rgba(237,27,47,0.22)", left: "62%", top: "55%", dur: 26, delay: -6 },
+  { size: 460, color: "rgba(29,78,216,0.22)", left: "75%", top: "8%", dur: 30, delay: -12 },
+  { size: 380, color: "rgba(13,148,136,0.24)", left: "5%", top: "62%", dur: 28, delay: -3 },
+  { size: 340, color: "rgba(234,88,12,0.22)", left: "82%", top: "72%", dur: 24, delay: -8 },
+  { size: 300, color: "rgba(212,160,23,0.22)", left: "38%", top: "78%", dur: 20, delay: -15 },
+  { size: 360, color: "rgba(190,24,93,0.2)", left: "48%", top: "5%", dur: 25, delay: -10 },
+];
+
 export default function BrainGraph({
   activeId,
   onNodeClick,
@@ -226,10 +125,13 @@ export default function BrainGraph({
   onNodeClick?: (id: string, rect: DOMRect) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const nodeRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const edgeLineRefs = useRef<(SVGLineElement | null)[]>([]);
+  const particleRefs = useRef<(SVGCircleElement | null)[]>([]);
   const nodesRef = useRef<LiveNode[]>(initLayout());
-  const [, setTick] = useState(0);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const hoverIdRef = useRef<string | null>(null);
+  const activeIdRef = useRef<string | undefined>(activeId);
   const dragRef = useRef<{
     id: string;
     dx: number;
@@ -240,21 +142,32 @@ export default function BrainGraph({
   const animRef = useRef<number | null>(null);
   const timeRef = useRef(0);
 
-  const focusId = hoverId ?? activeId ?? null;
-  const focusSet = new Set<string>();
-  if (focusId) {
-    focusSet.add(focusId);
-    EDGES.forEach((e) => {
-      if (e.from === focusId) focusSet.add(e.to);
-      if (e.to === focusId) focusSet.add(e.from);
-    });
-  }
+  useEffect(() => {
+    hoverIdRef.current = hoverId;
+  }, [hoverId]);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
-  const step = useCallback(() => {
+  const focusSet = useMemo(() => {
+    const fid = hoverId ?? activeId ?? null;
+    const set = new Set<string>();
+    if (fid) {
+      set.add(fid);
+      EDGES.forEach((e) => {
+        if (e.from === fid) set.add(e.to);
+        if (e.to === fid) set.add(e.from);
+      });
+    }
+    return set;
+  }, [hoverId, activeId]);
+
+  const step = useCallback((dtMs: number) => {
     const nodes = nodesRef.current;
-    const anchorK = 0.05;
+    const dt = Math.min(32, dtMs) / 16.67;
+    const anchorK = 0.05 * dt;
     const repel = 70000;
-    const damping = 0.7;
+    const damping = Math.pow(0.7, dt);
     const time = timeRef.current;
 
     for (let i = 0; i < nodes.length; i++) {
@@ -285,15 +198,54 @@ export default function BrainGraph({
         if (d2 < minDist * minDist) {
           const d = Math.sqrt(d2);
           const f = repel / d2;
-          a.vx += (dx / d) * f * 0.05;
-          a.vy += (dy / d) * f * 0.05;
+          a.vx += (dx / d) * f * 0.05 * dt;
+          a.vy += (dy / d) * f * 0.05 * dt;
         }
       }
 
       a.vx *= damping;
       a.vy *= damping;
-      a.x += a.vx;
-      a.y += a.vy;
+      a.x += a.vx * dt;
+      a.y += a.vy * dt;
+    }
+  }, []);
+
+  const paint = useCallback(() => {
+    const nodes = nodesRef.current;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const scaleX = rect.width / CANVAS_W;
+    const scaleY = rect.height / CANVAS_H;
+
+    // Nodes: CSS translate in container pixel space
+    for (const n of nodes) {
+      const el = nodeRefs.current.get(n.id);
+      if (!el) continue;
+      const px = n.x * scaleX;
+      const py = n.y * scaleY;
+      el.style.transform = `translate3d(${px}px, ${py}px, 0) translate(-50%, -50%)`;
+    }
+
+    // Edges + particles: update SVG attributes directly
+    for (let i = 0; i < EDGES.length; i++) {
+      const e = EDGES[i];
+      const a = nodes.find((n) => n.id === e.from)!;
+      const b = nodes.find((n) => n.id === e.to)!;
+      const line = edgeLineRefs.current[i];
+      if (line) {
+        line.setAttribute("x1", String(a.x));
+        line.setAttribute("y1", String(a.y));
+        line.setAttribute("x2", String(b.x));
+        line.setAttribute("y2", String(b.y));
+      }
+      const circle = particleRefs.current[i];
+      if (circle) {
+        const t = ((timeRef.current / 3200) + i * 0.17) % 1;
+        const pX = a.x + (b.x - a.x) * t;
+        const pY = a.y + (b.y - a.y) * t;
+        circle.setAttribute("cx", String(pX));
+        circle.setAttribute("cy", String(pY));
+      }
     }
   }, []);
 
@@ -303,15 +255,15 @@ export default function BrainGraph({
       const dt = t - last;
       last = t;
       timeRef.current += dt;
-      step();
-      setTick((v) => v + 1);
+      step(dt);
+      paint();
       animRef.current = requestAnimationFrame(loop);
     };
     animRef.current = requestAnimationFrame(loop);
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [step]);
+  }, [step, paint]);
 
   const toLocal = (clientX: number, clientY: number) => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -352,9 +304,6 @@ export default function BrainGraph({
     }
   };
 
-  const nodes = nodesRef.current;
-  const getNode = (id: string) => nodes.find((n) => n.id === id)!;
-
   return (
     <Box
       ref={containerRef}
@@ -371,6 +320,36 @@ export default function BrainGraph({
         boxShadow: "inset 0 0 0 1px rgba(39,78,100,0.08)",
       }}
     >
+      {/* Apple-style translucent bubbles */}
+      <Box
+        aria-hidden
+        sx={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden",
+          pointerEvents: "none",
+          mixBlendMode: "multiply",
+        }}
+      >
+        {BUBBLES.map((b, i) => (
+          <Box
+            key={i}
+            sx={{
+              position: "absolute",
+              width: b.size,
+              height: b.size,
+              left: b.left,
+              top: b.top,
+              borderRadius: "50%",
+              background: `radial-gradient(circle at 35% 30%, ${b.color}, transparent 70%)`,
+              filter: "blur(40px)",
+              animation: `apsoBubble ${b.dur}s ease-in-out ${b.delay}s infinite alternate`,
+              willChange: "transform",
+            }}
+          />
+        ))}
+      </Box>
+
       <Box
         sx={{
           position: "absolute",
@@ -378,16 +357,6 @@ export default function BrainGraph({
           backgroundImage:
             "radial-gradient(circle at 1px 1px, rgba(26,58,76,0.10) 1px, transparent 0)",
           backgroundSize: "26px 26px",
-          pointerEvents: "none",
-        }}
-      />
-      <Box
-        sx={{
-          position: "absolute",
-          inset: "8% 14%",
-          borderRadius: "50%",
-          background:
-            "radial-gradient(circle, rgba(237,27,47,0.08) 0%, transparent 55%)",
           pointerEvents: "none",
         }}
       />
@@ -408,7 +377,7 @@ export default function BrainGraph({
             const from = NODES.find((n) => n.id === e.from)!;
             const to = NODES.find((n) => n.id === e.to)!;
             return (
-              <linearGradient key={i} id={`edge-grad-${i}`} gradientUnits="userSpaceOnUse">
+              <linearGradient key={i} id={`edge-grad-${i}`} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={CANVAS_W} y2={CANVAS_H}>
                 <stop offset="0%" stopColor={from.color} stopOpacity="0.75" />
                 <stop offset="100%" stopColor={to.color} stopOpacity="0.75" />
               </linearGradient>
@@ -424,54 +393,52 @@ export default function BrainGraph({
         </defs>
 
         {EDGES.map((e, i) => {
-          const a = getNode(e.from);
-          const b = getNode(e.to);
-          const isFocus = focusId && focusSet.has(a.id) && focusSet.has(b.id);
-          const gradId = `edge-grad-${i}`;
-          const key = `${e.from}-${e.to}`;
-          const length = Math.hypot(b.x - a.x, b.y - a.y);
-          const tOffset = ((timeRef.current / 3200) + i * 0.17) % 1;
-          const pX = a.x + (b.x - a.x) * tOffset;
-          const pY = a.y + (b.y - a.y) * tOffset;
+          const a = nodesRef.current.find((n) => n.id === e.from)!;
+          const b = nodesRef.current.find((n) => n.id === e.to)!;
+          const isFocus = focusSet.size > 0 && focusSet.has(a.id) && focusSet.has(b.id);
           return (
-            <g key={key}>
+            <g key={`${e.from}-${e.to}`}>
               <line
+                ref={(el) => {
+                  edgeLineRefs.current[i] = el;
+                }}
                 x1={a.x}
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke={`url(#${gradId})`}
+                stroke={`url(#edge-grad-${i})`}
                 strokeWidth={isFocus ? 3 : 1.4}
-                opacity={focusId ? (isFocus ? 0.95 : 0.12) : 0.36}
+                opacity={focusSet.size > 0 ? (isFocus ? 0.95 : 0.12) : 0.36}
+                style={{ transition: "opacity 0.2s ease, stroke-width 0.2s ease" }}
               />
-              {(!focusId || isFocus) && length > 60 && (
-                <circle
-                  cx={pX}
-                  cy={pY}
-                  r={isFocus ? 4 : 2.8}
-                  fill={a.accent}
-                  opacity={isFocus ? 1 : 0.8}
-                  filter="url(#particle-glow)"
-                />
-              )}
+              <circle
+                ref={(el) => {
+                  particleRefs.current[i] = el;
+                }}
+                r={isFocus ? 4 : 2.8}
+                fill={a.accent}
+                opacity={focusSet.size > 0 ? (isFocus ? 1 : 0) : 0.8}
+                filter="url(#particle-glow)"
+                style={{ transition: "opacity 0.2s ease, r 0.2s ease" }}
+              />
             </g>
           );
         })}
       </svg>
 
-      {nodes.map((n) => {
-        const focused = focusId === n.id;
-        const neighbor = focusId !== null && focusId !== n.id && focusSet.has(n.id);
-        const dimmed = focusId !== null && !focused && !neighbor;
-        const xPct = (n.x / CANVAS_W) * 100;
-        const yPct = (n.y / CANVAS_H) * 100;
+      {nodesRef.current.map((n) => {
+        const focused = (hoverId ?? activeId) === n.id;
+        const fid = hoverId ?? activeId ?? null;
+        const neighbor = fid !== null && fid !== n.id && focusSet.has(n.id);
+        const dimmed = fid !== null && !focused && !neighbor;
         const borderStyle = n.kind === "ingested" ? "dashed" : "solid";
         const iconSize = 20 + n.mass * 6;
         return (
           <Box
             key={n.id}
             ref={(el) => {
-              if (el) nodeRefs.current.set(n.id, el as HTMLElement);
+              if (el) nodeRefs.current.set(n.id, el as HTMLDivElement);
+              else nodeRefs.current.delete(n.id);
             }}
             role="button"
             tabIndex={0}
@@ -489,12 +456,10 @@ export default function BrainGraph({
             }}
             sx={{
               position: "absolute",
-              left: `${xPct}%`,
-              top: `${yPct}%`,
+              left: 0,
+              top: 0,
               width: n.r * 2,
               height: n.r * 2,
-              marginLeft: `-${n.r}px`,
-              marginTop: `-${n.r}px`,
               borderRadius: "50%",
               display: "flex",
               flexDirection: "column",
@@ -504,6 +469,7 @@ export default function BrainGraph({
               cursor: "grab",
               userSelect: "none",
               touchAction: "none",
+              willChange: "transform, opacity, box-shadow",
               background: `radial-gradient(circle at 32% 28%, ${n.color}FF, ${n.color}E5 55%, ${n.color}BF 100%)`,
               border: `2px ${borderStyle} ${n.color}`,
               color: "#ffffff",
@@ -511,10 +477,9 @@ export default function BrainGraph({
                 ? `0 0 0 8px ${n.color}26, 0 14px 36px ${n.color}55, inset 0 -6px 14px rgba(0,0,0,0.18)`
                 : `0 6px 22px ${n.color}40, inset 0 -4px 10px rgba(0,0,0,0.14)`,
               opacity: dimmed ? 0.35 : 1,
-              transform: focused ? "scale(1.08)" : neighbor ? "scale(1.03)" : "scale(1)",
-              transition: "opacity 0.3s ease, box-shadow 0.25s ease, transform 0.25s ease",
+              transition:
+                "opacity 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease",
               "&:active": { cursor: "grabbing" },
-              "&:hover": { transform: "scale(1.08)" },
               "&:focus-visible": {
                 outline: `3px solid ${n.color}`,
                 outlineOffset: 4,
@@ -570,32 +535,45 @@ export default function BrainGraph({
           top: 14,
           left: 20,
           display: "flex",
-          alignItems: "center",
-          gap: 1,
+          flexDirection: "column",
+          gap: 0.4,
           pointerEvents: "none",
-          opacity: 0.85,
+          maxWidth: 340,
         }}
       >
-        <Box
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            bgcolor: "#ed1b2f",
-            boxShadow: "0 0 10px rgba(237,27,47,0.7)",
-            animation: "apsoPulseDot 1.4s ease-in-out infinite",
-          }}
-        />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, opacity: 0.9 }}>
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              bgcolor: "#ed1b2f",
+              boxShadow: "0 0 10px rgba(237,27,47,0.7)",
+              animation: "apsoPulseDot 1.4s ease-in-out infinite",
+            }}
+          />
+          <Typography
+            sx={{
+              fontSize: 10,
+              color: "#1a3a4c",
+              textTransform: "uppercase",
+              letterSpacing: "0.14em",
+              fontWeight: 700,
+            }}
+          >
+            Live brain
+          </Typography>
+        </Box>
         <Typography
           sx={{
-            fontSize: 10,
-            color: "#1a3a4c",
-            textTransform: "uppercase",
-            letterSpacing: "0.14em",
-            fontWeight: 700,
+            fontSize: 11,
+            color: "#5f6368",
+            lineHeight: 1.4,
+            fontWeight: 500,
           }}
         >
-          Live brain
+          Click any node to edit, drag to reshape. Links show how the brain's context flows into the
+          content engine.
         </Typography>
       </Box>
 
@@ -652,11 +630,14 @@ export default function BrainGraph({
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.4); opacity: 0.6; }
         }
+        @keyframes apsoBubble {
+          0% { transform: translate3d(0, 0, 0) scale(1); }
+          50% { transform: translate3d(40px, -30px, 0) scale(1.08); }
+          100% { transform: translate3d(-30px, 20px, 0) scale(0.95); }
+        }
       `}</style>
     </Box>
   );
 }
-
-import React from "react";
 
 export { NODES as BRAIN_NODES };

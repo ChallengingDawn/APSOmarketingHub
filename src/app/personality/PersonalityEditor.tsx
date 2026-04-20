@@ -18,6 +18,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import Divider from "@mui/material/Divider";
+import Grow from "@mui/material/Grow";
 import BrainGraph from "./BrainGraph";
 import type { Brain } from "@/lib/brain";
 
@@ -80,26 +81,21 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
         sx={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           px: 3,
           pb: 1.5,
-          gap: 2,
         }}
       >
-        <Typography sx={{ fontSize: 13, color: "#5f6368", flex: 1 }}>
-          Click any node to edit, drag to reshape. Links show how the brain's context flows into the
-          content engine.
-        </Typography>
         <Button
           onClick={save}
           disabled={saving}
           variant="contained"
           startIcon={<SaveIcon />}
           sx={{
-            bgcolor: "#274e64",
+            bgcolor: "#ed1b2f",
             textTransform: "none",
             fontWeight: 600,
-            "&:hover": { bgcolor: "#1a3a4c" },
+            "&:hover": { bgcolor: "#c91528" },
           }}
         >
           {saving ? "Saving…" : "Save Brain"}
@@ -118,35 +114,28 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
         onClose={() => setOpenId(null)}
         maxWidth="md"
         fullWidth
-        keepMounted={false}
+        slots={{ transition: Grow }}
         slotProps={{
-          paper: {
-            sx: {
-              borderRadius: 3,
+          transition: {
+            timeout: { enter: 420, exit: 320 },
+            style: {
               transformOrigin: origin
                 ? `${origin.x}px ${origin.y}px`
                 : "center center",
-              animation: "apsoSplitOpen 0.42s cubic-bezier(0.2, 0.85, 0.3, 1.05)",
-              "@keyframes apsoSplitOpen": {
-                from: {
-                  opacity: 0,
-                  transform: "scale(0.2)",
-                  filter: "blur(8px)",
-                  clipPath: "circle(12% at 50% 50%)",
-                },
-                to: {
-                  opacity: 1,
-                  transform: "scale(1)",
-                  filter: "blur(0)",
-                  clipPath: "circle(150% at 50% 50%)",
-                },
-              },
+              transitionTimingFunction: "cubic-bezier(0.2, 0.9, 0.3, 1)",
+            },
+          },
+          paper: {
+            sx: {
+              borderRadius: 3,
+              overflow: "hidden",
             },
           },
           backdrop: {
             sx: {
-              bgcolor: "rgba(15,20,26,0.55)",
-              backdropFilter: "blur(6px)",
+              bgcolor: "rgba(15,20,26,0.45)",
+              backdropFilter: "blur(8px)",
+              transition: "opacity 320ms cubic-bezier(0.2, 0.9, 0.3, 1) !important",
             },
           },
         }}
