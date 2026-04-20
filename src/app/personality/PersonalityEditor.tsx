@@ -36,6 +36,7 @@ const SECTION_TITLES: Record<string, { label: string; desc: string }> = {
 export default function PersonalityEditor({ initial }: { initial: Brain }) {
   const [brain, setBrain] = useState<Brain>(initial);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>(
     { open: false, msg: "", severity: "success" }
@@ -104,14 +105,51 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
           {saving ? "Saving…" : "Save Brain"}
         </Button>
       </Box>
-      <BrainGraph activeId={openId ?? undefined} onNodeClick={(id) => setOpenId(id)} />
+      <BrainGraph
+        activeId={openId ?? undefined}
+        onNodeClick={(id, rect) => {
+          setOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+          setOpenId(id);
+        }}
+      />
 
       <Dialog
         open={!!openId}
         onClose={() => setOpenId(null)}
         maxWidth="md"
         fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+        keepMounted={false}
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: 3,
+              transformOrigin: origin
+                ? `${origin.x}px ${origin.y}px`
+                : "center center",
+              animation: "apsoSplitOpen 0.42s cubic-bezier(0.2, 0.85, 0.3, 1.05)",
+              "@keyframes apsoSplitOpen": {
+                from: {
+                  opacity: 0,
+                  transform: "scale(0.2)",
+                  filter: "blur(8px)",
+                  clipPath: "circle(12% at 50% 50%)",
+                },
+                to: {
+                  opacity: 1,
+                  transform: "scale(1)",
+                  filter: "blur(0)",
+                  clipPath: "circle(150% at 50% 50%)",
+                },
+              },
+            },
+          },
+          backdrop: {
+            sx: {
+              bgcolor: "rgba(15,20,26,0.55)",
+              backdropFilter: "blur(6px)",
+            },
+          },
+        }}
       >
         <DialogTitle sx={{ pr: 6 }}>
           <Typography sx={{ fontSize: 18, fontWeight: 700, color: "#1a3a4c" }}>
