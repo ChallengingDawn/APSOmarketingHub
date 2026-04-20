@@ -309,9 +309,9 @@ export default function BrainGraph({
       ref={containerRef}
       sx={{
         position: "relative",
-        width: "100%",
-        height: "calc(100vh - 140px)",
-        minHeight: 560,
+        flex: 1,
+        minWidth: 0,
+        minHeight: 440,
         overflow: "hidden",
         borderRadius: 0,
         background:

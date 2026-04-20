@@ -76,31 +76,7 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
   const meta = openId ? SECTION_TITLES[openId] : null;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column" }}>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          px: 3,
-          pb: 1.5,
-        }}
-      >
-        <Button
-          onClick={save}
-          disabled={saving}
-          variant="contained"
-          startIcon={<SaveIcon />}
-          sx={{
-            bgcolor: "#ed1b2f",
-            textTransform: "none",
-            fontWeight: 600,
-            "&:hover": { bgcolor: "#c91528" },
-          }}
-        >
-          {saving ? "Saving…" : "Save Brain"}
-        </Button>
-      </Box>
+    <Box sx={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
       <BrainGraph
         activeId={openId ?? undefined}
         onNodeClick={(id, rect) => {
@@ -108,6 +84,25 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
           setOpenId(id);
         }}
       />
+      <Button
+        onClick={save}
+        disabled={saving}
+        variant="contained"
+        startIcon={<SaveIcon />}
+        sx={{
+          position: "absolute",
+          top: 14,
+          right: 20,
+          zIndex: 5,
+          bgcolor: "#ed1b2f",
+          textTransform: "none",
+          fontWeight: 600,
+          boxShadow: "0 4px 14px rgba(237,27,47,0.3)",
+          "&:hover": { bgcolor: "#c91528" },
+        }}
+      >
+        {saving ? "Saving…" : "Save Brain"}
+      </Button>
 
       <Dialog
         open={!!openId}

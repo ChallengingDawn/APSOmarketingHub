@@ -23,6 +23,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const allowDirect = isPhase1(pathname) || isDocs(pathname);
+  const isFullBleed = pathname === "/personality";
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f0f2f5" }}>
@@ -32,8 +33,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          p: allowDirect ? 2 : 0,
-          overflow: "auto",
+          p: isFullBleed ? 0 : allowDirect ? 2 : 0,
+          overflow: isFullBleed ? "hidden" : "auto",
+          height: isFullBleed ? "100vh" : "auto",
         }}
       >
         {allowDirect ? children : <Phase2Gate>{children}</Phase2Gate>}
