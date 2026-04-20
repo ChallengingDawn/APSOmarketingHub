@@ -42,18 +42,18 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "Overview",
-    items: [
-      { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
-      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
-    ],
-  },
-  {
     title: "Phase 1",
     items: [
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "Public" },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "Overview",
+    items: [
+      { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
+      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
     ],
   },
   {
