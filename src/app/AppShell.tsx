@@ -2,6 +2,7 @@
 import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
+import RightRail from "./RightRail";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -25,6 +26,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       >
         {children}
       </Box>
+      <RightRail />
     </Box>
   );
 }

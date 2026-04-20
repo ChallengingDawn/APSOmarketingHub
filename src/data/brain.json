@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-20T00:00:00Z",
+  "brandVoice": {
+    "strapline": "Engineering solutions. One click away.",
+    "storyline": "We've already met — online, on time.",
+    "seriesFramework": "I can do this now",
+    "toneAdjectives": [
+      "calm",
+      "confident",
+      "technical-but-not-academic",
+      "practical",
+      "grounded",
+      "reliable"
+    ],
+    "audience": "Maintenance engineers, procurement, and technical buyers at industrial OEMs and production plants. B2B. They already know what they need; they want to order it without friction.",
+    "messagingPillars": [
+      "Engineering solutions, one click away",
+      "Recognition — 'We've already met'",
+      "Speed & availability: in-stock items 48/72h across Europe",
+      "Ease: DirectCUT, DirectUP, 3D files, track & trace, no small-order surcharge",
+      "Human support: 1:1 live chat & email in 7 languages"
+    ],
+    "signaturePhrases": [
+      "Engineering solutions. One click away.",
+      "We've already met – online, on time.",
+      "I can do this now",
+      "You noticed it first.",
+      "Our standard components are ready when you are.",
+      "Fast ordering made easy"
+    ],
+    "dos": [
+      "Short, clear sentences",
+      "Natural language, practical phrasing",
+      "Explain the 'why' behind technical specifications",
+      "Use bullet points and tables for scannability",
+      "Consistent terminology",
+      "Translate technical data into user value",
+      "SI units (°C, Shore A, mm)"
+    ],
+    "donts": [
+      "No product-push or promotional posts",
+      "No discount/urgency tactics or 'SALE' badges",
+      "No fear-based or catastrophic-failure imagery",
+      "No CAD drawings or schematic visuals",
+      "No generic stock photos (people in suits)",
+      "No engineering-solution-design territory (that's Angst+Pfister parent)",
+      "No HR-style employee content",
+      "No copying supplier text raw",
+      "No walls of text",
+      "No vague marketing language"
+    ]
+  },
+  "positioningGuard": {
+    "apsoparts": "Standard components, fast transactional e-commerce, 100K+ products, 48/72h EU delivery",
+    "angstPfisterParent": "Custom engineering solutions, bespoke design, project work",
+    "rule": "APSOparts content must never cross into custom/design/bespoke engineering territory. Keep the brand in the standard-component transactional lane. When a customer need sounds like custom work, refer to the parent (Angst+Pfister) rather than quoting custom capability on APSOparts channels."
+  },
+  "productContentRules": {
+    "pageStructure": [
+      "Product Summary (2–3 sentences)",
+      "Key Benefits (3–5 bullets)",
+      "Typical Applications",
+      "Material Explanation",
+      "Technical Specifications (table format)",
+      "Selection Guidance ('Choose this if / Consider alternatives if')",
+      "Variants / Dimensions",
+      "Downloads (supporting only — never for key info)"
+    ],
+    "styleRules": [
+      "Write for decision-making, not just data delivery",
+      "Clear, simple industrial language",
+      "Consistent terminology across pages",
+      "Scannable layout — bullets, tables, short chunks",
+      "SI units mandatory (°C, Shore A, mm, bar)"
+    ]
+  },
+  "socialMediaRules": {
+    "primaryChannel": "LinkedIn",
+    "postTemplate": [
+      "Recognize a situation",
+      "Show early warning signs",
+      "Provide simple guidance",
+      "Reinforce ease of replacement / remove friction"
+    ],
+    "lengthGuidance": "Short paragraphs, mobile-first. Capture attention within the first second.",
+    "visualRules": [
+      "Clean industrial aesthetic",
+      "Premium but not glossy",
+      "Realistic environments (hands + tools + components in context)",
+      "Avoid: white-background isolated product shots, CAD, stock suits, promotional badges"
+    ]
+  },
+  "goldExamples": {
+    "linkedinPosts": [
+      { "title": "5 Signs Your Seal Needs Replacement", "framework": "I can do this now", "category": "Sealing Technology" },
+      { "title": "Preventive Seal Maintenance in Rotating Machinery", "framework": "I can do this now", "category": "Sealing Technology" },
+      { "title": "Essential Spare Parts for Food Production", "framework": "I can do this now", "category": "Multi-category" },
+      { "title": "O-Rings That Survive Chemical Processing", "framework": "I can do this now", "category": "Sealing Technology" },
+      { "title": "Quickorder – Reordering Standard Components", "framework": "Ease / feature focus", "category": "Shop feature" },
+      { "title": "No Surcharge for Small Orders", "framework": "Ease / feature focus", "category": "Shop feature" },
+      { "title": "DirectCUT – Configuring Standard Plastic Parts", "framework": "Ease / feature focus", "category": "Plastics" }
+    ],
+    "paidAds": [
+      { "headline": "You noticed it first.", "body": "When it's time to replace a worn seal, APSOparts has the right standard components ready to ship." },
+      { "headline": "Our standard components are ready when you are.", "body": "17,000 customers trust APSOparts for fast, in-stock delivery of seals, plastics, fluid and drive parts." },
+      { "headline": "We've already met – online, on time.", "body": "Engineering solutions one click away. 100,000+ products. 48/72h delivery across Europe." }
+    ]
+  },
+  "keywordSignals": {
+    "internalSearchTrends": [
+      { "term": "ffkm", "signal": "6× YoY spike (158 → 991 sessions Mar 2026). Priority opportunity." },
+      { "term": "ptfe", "signal": "High sustained volume, strong commercial intent" },
+      { "term": "epdm", "signal": "High sustained volume" },
+      { "term": "o-ring", "signal": "Core category, consistent demand" },
+      { "term": "schlauch", "signal": "German-language hose demand — external EN keyword list misses this" }
+    ],
+    "brandTermsMissingLandingPages": ["kapsto", "apsovib", "ferflex", "storz", "band-it", "flexilon", "airspir"],
+    "externalListGaps": "External SEO list is English and generic (pods, hoses, brackets — ambiguous). Internal Magento search is German technical codes (ffkm, epdm, moosgummi). The SEO list does not reflect actual customer demand."
+  },
+  "categoryIntelligence": {
+    "topLevel": [
+      { "en": "Sealing Technology", "de": "Dichtungstechnik", "code": "DT" },
+      { "en": "Engineering Plastics Technology", "de": "Kunststofftechnik", "code": "KT" },
+      { "en": "Fluid Handling Technology", "de": "Fluidtechnik", "code": "FT" },
+      { "en": "Antivibration Technology", "de": "Schwingungstechnik", "code": "ST" },
+      { "en": "Drive Technology", "de": "Antriebstechnik", "code": "AT" },
+      { "en": "Sensors and Power", "de": "Sensoren und Powertechnik", "code": "SP" }
+    ],
+    "totalLeafCategories": 411,
+    "categoriesWithSeoText": 107,
+    "contentGap": "304 leaf categories (74%) have no SEO category text. Primary first-workflow opportunity for the hub."
+  },
+  "trainingSources": [
+    { "file": "APSOparts_Brochure_EN.pdf", "type": "brand" },
+    { "file": "SoMe Guidelines APSOparts.docx", "type": "voice" },
+    { "file": "Product_Content_Guidelines.docx", "type": "content-rules" },
+    { "file": "Keywordlist EN - A+P Apsoparts.xlsx", "type": "seo-keywords" },
+    { "file": "Internal Search queries March 2026 Magenot APSOparts.xlsx", "type": "seo-internal" },
+    { "file": "Copy of H1_CategoryStructure_EN_philipp-260203.xlsx", "type": "taxonomy" },
+    { "file": "Copy of H1_CategoryStructure_DE_philipp-260209.xlsx", "type": "taxonomy" },
+    { "file": "APSOparts organic paid social LinkedIn.xlsx", "type": "roadmap" }
+  ]
+}
