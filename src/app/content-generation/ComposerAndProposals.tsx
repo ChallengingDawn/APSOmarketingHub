@@ -31,8 +31,6 @@ import EditIcon from "@mui/icons-material/EditOutlined";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
-import RepeatIcon from "@mui/icons-material/Repeat";
-import SendIcon from "@mui/icons-material/SendOutlined";
 import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import CheckIcon from "@mui/icons-material/Check";
@@ -117,6 +115,9 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     source: "gemini" | "fallback";
     error?: string;
   } | null>(null);
+  const [composerFeedback, setComposerFeedback] = useState<"like" | "dislike" | null>(null);
+  const [showComment, setShowComment] = useState(false);
+  const [commentText, setCommentText] = useState("");
 
   const activeType = useMemo(
     () => CONTENT_TYPES.find((c) => c.id === contentType)!,
@@ -247,6 +248,47 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  async function logComposer(action: "like" | "dislike", correction?: string) {
+    if (!composer.trim()) return;
+    setComposerFeedback(action);
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: action,
+          channel: channelForApi,
+          body: composer,
+          filters: filterContext,
+          correction,
+        }),
+      });
+    } catch {
+      // silent
+    }
+  }
+
+  async function logComposerComment() {
+    if (!composer.trim() || !commentText.trim()) return;
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "like",
+          channel: channelForApi,
+          body: composer,
+          filters: filterContext,
+          correction: `[note] ${commentText.trim()}`,
+        }),
+      });
+      setCommentText("");
+      setShowComment(false);
+    } catch {
+      // silent
+    }
+  }
+
   async function logProposal(
     p: Proposal,
     index: number,
@@ -321,6 +363,14 @@ export default function ComposerAndProposals({ brain }: { brain: Brain }) {
           brainStoryline={brain.brandVoice.storyline}
           image={composerImage}
           onClearImage={() => setComposerImage(null)}
+          onLike={() => logComposer("like")}
+          onDislike={() => logComposer("dislike")}
+          composerFeedback={composerFeedback}
+          showComment={showComment}
+          commentText={commentText}
+          setCommentText={setCommentText}
+          toggleComment={() => setShowComment((v) => !v)}
+          submitComment={logComposerComment}
         />
 
         <ProposalsSection
@@ -609,6 +659,14 @@ function ComposerCard(props: {
   brainStoryline: string;
   image: { url: string; source: "gemini" | "fallback"; error?: string } | null;
   onClearImage: () => void;
+  onLike: () => void;
+  onDislike: () => void;
+  composerFeedback: "like" | "dislike" | null;
+  showComment: boolean;
+  commentText: string;
+  setCommentText: (v: string) => void;
+  toggleComment: () => void;
+  submitComment: () => void;
 }) {
   return (
     <Paper
@@ -744,6 +802,40 @@ function ComposerCard(props: {
           )}
         </Box>
       )}
+      {props.showComment && (
+        <Box sx={{ px: 2.5, py: 1.5, bgcolor: "#fafbfc", borderTop: "1px solid #ececec" }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#5f6368", mb: 0.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Note / comment (saved to logs)
+          </Typography>
+          <TextField
+            multiline
+            minRows={2}
+            fullWidth
+            size="small"
+            placeholder="Add context for future generations — e.g. 'this angle works for Q3'"
+            value={props.commentText}
+            onChange={(e) => props.setCommentText(e.target.value)}
+          />
+          <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+            <Button
+              size="small"
+              onClick={props.submitComment}
+              disabled={!props.commentText.trim()}
+              variant="contained"
+              sx={{ bgcolor: "#274e64", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: "#1a3a4c" } }}
+            >
+              Save note
+            </Button>
+            <Button
+              size="small"
+              onClick={props.toggleComment}
+              sx={{ textTransform: "none", color: "#5f6368" }}
+            >
+              Cancel
+            </Button>
+          </Box>
+        </Box>
+      )}
       <Divider />
       <Box
         sx={{
@@ -755,11 +847,34 @@ function ComposerCard(props: {
           bgcolor: "#fafbfc",
         }}
       >
-        <Box sx={{ display: "flex", gap: 1.5 }}>
-          <ActionIcon icon={<ThumbUpOffAltIcon fontSize="small" />} label="Like" />
-          <ActionIcon icon={<ChatBubbleOutlineIcon fontSize="small" />} label="Comment" />
-          <ActionIcon icon={<RepeatIcon fontSize="small" />} label="Repost" />
-          <ActionIcon icon={<SendIcon fontSize="small" />} label="Send" />
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <FeedbackButton
+            icon={<ThumbUpOffAltIcon fontSize="small" />}
+            activeIcon={<ThumbUpIcon fontSize="small" />}
+            label="Like"
+            color="#2e7d32"
+            active={props.composerFeedback === "like"}
+            onClick={props.onLike}
+            disabled={!props.composer.trim()}
+          />
+          <FeedbackButton
+            icon={<ThumbDownIcon fontSize="small" sx={{ opacity: 0.65 }} />}
+            activeIcon={<ThumbDownIcon fontSize="small" />}
+            label="Dislike"
+            color="#ed1b2f"
+            active={props.composerFeedback === "dislike"}
+            onClick={props.onDislike}
+            disabled={!props.composer.trim()}
+          />
+          <FeedbackButton
+            icon={<ChatBubbleOutlineIcon fontSize="small" />}
+            activeIcon={<ChatBubbleOutlineIcon fontSize="small" />}
+            label="Comment"
+            color="#274e64"
+            active={props.showComment}
+            onClick={props.toggleComment}
+            disabled={!props.composer.trim()}
+          />
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
           <Button
@@ -1067,18 +1182,33 @@ function ProposalCard({
           <IconButton
             size="small"
             onClick={() => onFeedback(p, i, "like")}
-            sx={{ color: p.feedback === "like" ? "#2e7d32" : "#5f6368" }}
+            sx={{
+              color: "#2e7d32",
+              bgcolor: p.feedback === "like" ? "rgba(46,125,50,0.14)" : "transparent",
+              "&:hover": { bgcolor: "rgba(46,125,50,0.12)" },
+            }}
           >
-            {p.feedback === "like" ? <ThumbUpIcon fontSize="small" /> : <ThumbUpOffAltIcon fontSize="small" />}
+            {p.feedback === "like" ? (
+              <ThumbUpIcon fontSize="small" />
+            ) : (
+              <ThumbUpOffAltIcon fontSize="small" sx={{ opacity: 0.8 }} />
+            )}
           </IconButton>
         </Tooltip>
         <Tooltip title={p.feedback === "dislike" ? "Disliked — correction saved" : "Dislike (add correction)"}>
           <IconButton
             size="small"
             onClick={() => setShowCorrection(true)}
-            sx={{ color: p.feedback === "dislike" ? "#ed1b2f" : "#5f6368" }}
+            sx={{
+              color: "#ed1b2f",
+              bgcolor: p.feedback === "dislike" ? "rgba(237,27,47,0.14)" : "transparent",
+              "&:hover": { bgcolor: "rgba(237,27,47,0.12)" },
+            }}
           >
-            {p.feedback === "dislike" ? <ThumbDownIcon fontSize="small" /> : <ThumbDownIcon fontSize="small" sx={{ opacity: 0.6 }} />}
+            <ThumbDownIcon
+              fontSize="small"
+              sx={{ opacity: p.feedback === "dislike" ? 1 : 0.8 }}
+            />
           </IconButton>
         </Tooltip>
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
@@ -1178,22 +1308,48 @@ function ChipGroup<T extends string>({
   );
 }
 
-function ActionIcon({ icon, label }: { icon: React.ReactNode; label: string }) {
+function FeedbackButton({
+  icon,
+  activeIcon,
+  label,
+  color,
+  active,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  activeIcon: React.ReactNode;
+  label: string;
+  color: string;
+  active: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Box
+      onClick={disabled ? undefined : onClick}
       sx={{
         display: "flex",
         alignItems: "center",
         gap: 0.5,
-        px: 1,
-        py: 0.5,
-        borderRadius: 1,
-        color: "#5f6368",
-        cursor: "default",
+        px: 1.25,
+        py: 0.6,
+        borderRadius: 1.5,
+        color: active ? color : "#5f6368",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
+        transition: "background-color 0.15s ease, color 0.15s ease",
+        bgcolor: active ? `${color}15` : "transparent",
+        "&:hover": disabled
+          ? undefined
+          : {
+              bgcolor: `${color}18`,
+              color,
+            },
       }}
     >
-      {icon}
-      <Typography sx={{ fontSize: 12, fontWeight: 500 }}>{label}</Typography>
+      {active ? activeIcon : icon}
+      <Typography sx={{ fontSize: 12, fontWeight: active ? 700 : 500 }}>{label}</Typography>
     </Box>
   );
 }

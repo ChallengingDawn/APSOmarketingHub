@@ -16,6 +16,8 @@ type NodeDef = {
 type Edge = { from: string; to: string };
 
 type LiveNode = NodeDef & {
+  ax: number; // anchor x
+  ay: number; // anchor y
   x: number;
   y: number;
   vx: number;
@@ -24,51 +26,70 @@ type LiveNode = NodeDef & {
 };
 
 const NODES: NodeDef[] = [
-  { id: "voice", label: "Brand Voice", sub: "Tone · Storyline · DNA", kind: "editable", mass: 1.4 },
+  { id: "engine", label: "Content Engine", sub: "Claude + Gemini", kind: "derived", mass: 1.5 },
+  { id: "voice", label: "Brand Voice", sub: "Tone · Storyline · DNA", kind: "editable", mass: 1.15 },
   { id: "guard", label: "Positioning Guard", sub: "APSOparts vs A+P", kind: "editable", mass: 1 },
   { id: "phrases", label: "Signature Phrases", sub: "Reusable library", kind: "editable", mass: 1 },
-  { id: "product", label: "Product Rules", sub: "Page structure", kind: "editable", mass: 0.95 },
-  { id: "social", label: "Social Rules", sub: "LinkedIn template", kind: "editable", mass: 0.95 },
+  { id: "product", label: "Product Rules", sub: "Page structure", kind: "editable", mass: 1 },
+  { id: "social", label: "Social Rules", sub: "LinkedIn template", kind: "editable", mass: 1 },
   { id: "gold", label: "Gold Examples", sub: "7 posts · 3 ads", kind: "editable", mass: 1 },
-  { id: "category", label: "Category Intel", sub: "411 leafs · 304 gaps", kind: "ingested", mass: 1.05 },
-  { id: "keywords", label: "Keyword Signals", sub: "FFKM spike · DE codes", kind: "ingested", mass: 1.05 },
-  { id: "engine", label: "Content Engine", sub: "Claude + Gemini", kind: "derived", mass: 1.6 },
+  { id: "category", label: "Category Intel", sub: "411 leafs · 304 gaps", kind: "ingested", mass: 1 },
+  { id: "keywords", label: "Keyword Signals", sub: "FFKM spike · DE codes", kind: "ingested", mass: 1 },
 ];
 
 const EDGES: Edge[] = [
-  { from: "voice", to: "guard" },
-  { from: "voice", to: "phrases" },
-  { from: "voice", to: "social" },
-  { from: "guard", to: "product" },
-  { from: "guard", to: "social" },
-  { from: "phrases", to: "gold" },
-  { from: "social", to: "gold" },
+  { from: "voice", to: "engine" },
+  { from: "guard", to: "engine" },
+  { from: "phrases", to: "engine" },
   { from: "product", to: "engine" },
   { from: "social", to: "engine" },
   { from: "gold", to: "engine" },
   { from: "category", to: "engine" },
   { from: "keywords", to: "engine" },
+  { from: "voice", to: "guard" },
+  { from: "voice", to: "phrases" },
+  { from: "social", to: "gold" },
+  { from: "product", to: "social" },
 ];
 
-const COLORS: Record<Kind, { core: string; glow: string; label: string; particle: string }> = {
-  editable: { core: "#38d0a8", glow: "rgba(56,208,168,0.55)", label: "#c6f7e6", particle: "#7dffcf" },
-  ingested: { core: "#ffb347", glow: "rgba(255,179,71,0.5)", label: "#ffe4b5", particle: "#ffcf7a" },
-  derived: { core: "#ff2e63", glow: "rgba(255,46,99,0.65)", label: "#ffd5dd", particle: "#ff7ea1" },
+const COLORS: Record<Kind, { core: string; glow: string; particle: string }> = {
+  editable: { core: "#2fb48a", glow: "rgba(47,180,138,0.4)", particle: "#4ad0a4" },
+  ingested: { core: "#d99429", glow: "rgba(217,148,41,0.38)", particle: "#eeb04f" },
+  derived: { core: "#ed1b2f", glow: "rgba(237,27,47,0.45)", particle: "#ff5c73" },
 };
 
-const BASE_RADIUS = 38;
-const CANVAS_W = 1000;
-const CANVAS_H = 560;
+const BASE_RADIUS = 48;
+const CANVAS_W = 1600;
+const CANVAS_H = 900;
 const CENTER = { x: CANVAS_W / 2, y: CANVAS_H / 2 };
+const RING_R = 340;
+
+function computeAnchors(): Record<string, { x: number; y: number }> {
+  const outer = ["voice", "phrases", "gold", "social", "product", "guard", "keywords", "category"];
+  const anchors: Record<string, { x: number; y: number }> = {
+    engine: { x: CENTER.x, y: CENTER.y },
+  };
+  const startAngle = -Math.PI / 2;
+  for (let i = 0; i < outer.length; i++) {
+    const t = startAngle + (i / outer.length) * Math.PI * 2;
+    anchors[outer[i]] = {
+      x: CENTER.x + Math.cos(t) * RING_R,
+      y: CENTER.y + Math.sin(t) * RING_R,
+    };
+  }
+  return anchors;
+}
 
 function initLayout(): LiveNode[] {
-  return NODES.map((n, i) => {
-    const angle = (i / NODES.length) * Math.PI * 2;
-    const radius = 220;
+  const anchors = computeAnchors();
+  return NODES.map((n) => {
+    const a = anchors[n.id];
     return {
       ...n,
-      x: CENTER.x + Math.cos(angle) * radius + (Math.random() - 0.5) * 20,
-      y: CENTER.y + Math.sin(angle) * radius + (Math.random() - 0.5) * 20,
+      ax: a.x,
+      ay: a.y,
+      x: a.x,
+      y: a.y,
       vx: 0,
       vy: 0,
       r: BASE_RADIUS * n.mass,
@@ -109,58 +130,35 @@ export default function BrainGraph({
 
   const step = useCallback(() => {
     const nodes = nodesRef.current;
-    const repel = 6800;
-    const springLen = 170;
-    const springK = 0.02;
-    const centerK = 0.004;
-    const damping = 0.86;
+    const anchorK = 0.028;
+    const repel = 36000;
+    const damping = 0.78;
 
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
       if (dragRef.current?.id === a.id) continue;
+      a.vx += (a.ax - a.x) * anchorK;
+      a.vy += (a.ay - a.y) * anchorK;
+
       for (let j = 0; j < nodes.length; j++) {
         if (i === j) continue;
         const b = nodes[j];
         const dx = a.x - b.x;
         const dy = a.y - b.y;
-        const d2 = Math.max(40, dx * dx + dy * dy);
-        const f = repel / d2;
-        const d = Math.sqrt(d2);
-        a.vx += (dx / d) * f * 0.016;
-        a.vy += (dy / d) * f * 0.016;
+        const d2 = Math.max(900, dx * dx + dy * dy);
+        const minDist = (a.r + b.r) * 1.15;
+        if (d2 < minDist * minDist) {
+          const d = Math.sqrt(d2);
+          const f = repel / d2;
+          a.vx += (dx / d) * f * 0.05;
+          a.vy += (dy / d) * f * 0.05;
+        }
       }
-    }
 
-    for (const e of EDGES) {
-      const a = nodes.find((n) => n.id === e.from)!;
-      const b = nodes.find((n) => n.id === e.to)!;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const diff = d - springLen;
-      const fx = (dx / d) * diff * springK;
-      const fy = (dy / d) * diff * springK;
-      if (dragRef.current?.id !== a.id) {
-        a.vx += fx;
-        a.vy += fy;
-      }
-      if (dragRef.current?.id !== b.id) {
-        b.vx -= fx;
-        b.vy -= fy;
-      }
-    }
-
-    for (const n of nodes) {
-      if (dragRef.current?.id === n.id) continue;
-      n.vx += (CENTER.x - n.x) * centerK;
-      n.vy += (CENTER.y - n.y) * centerK;
-      n.vx *= damping;
-      n.vy *= damping;
-      n.x += n.vx;
-      n.y += n.vy;
-      const margin = n.r + 12;
-      n.x = Math.max(margin, Math.min(CANVAS_W - margin, n.x));
-      n.y = Math.max(margin, Math.min(CANVAS_H - margin, n.y));
+      a.vx *= damping;
+      a.vy *= damping;
+      a.x += a.vx;
+      a.y += a.vy;
     }
   }, []);
 
@@ -230,30 +228,28 @@ export default function BrainGraph({
         height: "calc(100vh - 140px)",
         minHeight: 560,
         overflow: "hidden",
-        background: "#05080d",
+        background:
+          "radial-gradient(circle at 50% 45%, #ffffff 0%, #f3f5f8 55%, #e8ecf2 100%)",
         touchAction: "none",
       }}
     >
       <Box
         sx={{
           position: "absolute",
-          inset: -40,
-          background:
-            "radial-gradient(60% 60% at 20% 30%, rgba(56,208,168,0.18) 0%, transparent 60%), " +
-            "radial-gradient(60% 60% at 80% 70%, rgba(255,46,99,0.2) 0%, transparent 60%), " +
-            "radial-gradient(50% 50% at 50% 50%, rgba(255,179,71,0.1) 0%, transparent 70%)",
-          animation: "apsoAurora 18s ease-in-out infinite alternate",
-          filter: "blur(24px)",
+          inset: 0,
+          backgroundImage:
+            "radial-gradient(circle at 1px 1px, rgba(26,58,76,0.08) 1px, transparent 0)",
+          backgroundSize: "28px 28px",
           pointerEvents: "none",
         }}
       />
       <Box
         sx={{
           position: "absolute",
-          inset: 0,
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0)",
-          backgroundSize: "24px 24px",
+          inset: "10% 10% 10% 10%",
+          borderRadius: "50%",
+          background:
+            "radial-gradient(circle, rgba(237,27,47,0.08) 0%, transparent 60%)",
           pointerEvents: "none",
         }}
       />
@@ -275,13 +271,13 @@ export default function BrainGraph({
             const toKind = NODES.find((n) => n.id === e.to)!.kind;
             return (
               <linearGradient key={i} id={`edge-grad-${i}`} gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor={COLORS[fromKind].core} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={COLORS[toKind].core} stopOpacity="0.9" />
+                <stop offset="0%" stopColor={COLORS[fromKind].core} stopOpacity="0.75" />
+                <stop offset="100%" stopColor={COLORS[toKind].core} stopOpacity="0.75" />
               </linearGradient>
             );
           })}
-          <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
+          <filter id="particle-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -297,7 +293,7 @@ export default function BrainGraph({
           const fromColors = COLORS[a.kind];
           const key = `${e.from}-${e.to}`;
           const length = Math.hypot(b.x - a.x, b.y - a.y);
-          const tOffset = ((timeRef.current / 2600) + i * 0.17) % 1;
+          const tOffset = ((timeRef.current / 2800) + i * 0.17) % 1;
           const pX = a.x + (b.x - a.x) * tOffset;
           const pY = a.y + (b.y - a.y) * tOffset;
           return (
@@ -308,17 +304,17 @@ export default function BrainGraph({
                 x2={b.x}
                 y2={b.y}
                 stroke={`url(#${gradId})`}
-                strokeWidth={isFocus ? 2.2 : 1.2}
-                opacity={focusId ? (isFocus ? 0.95 : 0.15) : 0.55}
+                strokeWidth={isFocus ? 3 : 1.5}
+                opacity={focusId ? (isFocus ? 0.95 : 0.12) : 0.4}
               />
-              {(!focusId || isFocus) && length > 40 && (
+              {(!focusId || isFocus) && length > 60 && (
                 <circle
                   cx={pX}
                   cy={pY}
-                  r={isFocus ? 3.4 : 2.4}
+                  r={isFocus ? 4 : 3}
                   fill={fromColors.particle}
-                  opacity={isFocus ? 1 : 0.75}
-                  filter="url(#node-glow)"
+                  opacity={isFocus ? 1 : 0.8}
+                  filter="url(#particle-glow)"
                 />
               )}
             </g>
@@ -331,7 +327,6 @@ export default function BrainGraph({
         const focused = focusId === n.id;
         const neighbor = focusId !== null && focusId !== n.id && focusSet.has(n.id);
         const dimmed = focusId !== null && !focused && !neighbor;
-        const ringPulse = focused ? "apsoPulseStrong" : "apsoPulse";
         const xPct = (n.x / CANVAS_W) * 100;
         const yPct = (n.y / CANVAS_H) * 100;
         return (
@@ -367,50 +362,49 @@ export default function BrainGraph({
               cursor: "grab",
               userSelect: "none",
               touchAction: "none",
-              background: `radial-gradient(circle at 30% 30%, ${colors.core}F0, ${colors.core}90 55%, ${colors.core}55 100%)`,
-              border: `1.5px solid ${colors.core}`,
-              color: colors.label,
+              background: `radial-gradient(circle at 35% 30%, ${colors.core}FF, ${colors.core}D8 60%, ${colors.core}B0 100%)`,
+              border: `2px solid ${colors.core}`,
+              color: "#ffffff",
               boxShadow: focused
-                ? `0 0 0 4px ${colors.glow}, 0 0 30px 4px ${colors.glow}, inset 0 0 14px rgba(255,255,255,0.18)`
-                : `0 0 18px ${colors.glow}, inset 0 0 10px rgba(255,255,255,0.12)`,
-              opacity: dimmed ? 0.25 : 1,
+                ? `0 0 0 8px ${colors.glow}, 0 14px 36px ${colors.glow}, inset 0 -6px 12px rgba(0,0,0,0.15)`
+                : `0 6px 22px ${colors.glow}, inset 0 -4px 10px rgba(0,0,0,0.12)`,
+              opacity: dimmed ? 0.35 : 1,
               transform: focused
-                ? "scale(1.12)"
+                ? "scale(1.08)"
                 : neighbor
-                  ? "scale(1.05)"
+                  ? "scale(1.03)"
                   : "scale(1)",
               transition: "transform 0.25s ease, opacity 0.3s ease, box-shadow 0.25s ease",
-              animation: `${ringPulse} ${focused ? 1.8 : 2.6}s ease-in-out infinite`,
               "&:active": { cursor: "grabbing" },
-              "&:hover": { transform: "scale(1.12)" },
+              "&:hover": { transform: "scale(1.08)" },
               "&:focus-visible": {
-                outline: `2px solid ${colors.core}`,
+                outline: `3px solid ${colors.core}`,
                 outlineOffset: 4,
               },
             }}
           >
             <Typography
               sx={{
-                fontSize: 11 * n.mass,
+                fontSize: 12 * n.mass,
                 fontWeight: 800,
                 color: "#ffffff",
-                lineHeight: 1.08,
-                px: 0.6,
-                textShadow: "0 1px 6px rgba(0,0,0,0.55)",
-                letterSpacing: "-0.01em",
+                lineHeight: 1.1,
+                px: 1,
+                textShadow: "0 1px 6px rgba(0,0,0,0.35)",
+                letterSpacing: "-0.005em",
               }}
             >
               {n.label}
             </Typography>
             <Typography
               sx={{
-                fontSize: 8.8 * n.mass,
-                color: colors.label,
-                opacity: 0.9,
+                fontSize: 9.5 * n.mass,
+                color: "rgba(255,255,255,0.92)",
                 lineHeight: 1.2,
-                mt: 0.3,
-                px: 0.6,
+                mt: 0.4,
+                px: 1,
                 fontWeight: 500,
+                textShadow: "0 1px 3px rgba(0,0,0,0.3)",
               }}
             >
               {n.sub}
@@ -423,28 +417,28 @@ export default function BrainGraph({
         sx={{
           position: "absolute",
           top: 14,
-          left: 18,
+          left: 20,
           display: "flex",
           alignItems: "center",
           gap: 1,
           pointerEvents: "none",
-          opacity: 0.7,
+          opacity: 0.8,
         }}
       >
         <Box
           sx={{
-            width: 7,
-            height: 7,
+            width: 8,
+            height: 8,
             borderRadius: "50%",
-            bgcolor: "#ff2e63",
-            boxShadow: "0 0 12px rgba(255,46,99,0.9)",
+            bgcolor: "#ed1b2f",
+            boxShadow: "0 0 10px rgba(237,27,47,0.7)",
             animation: "apsoPulseDot 1.4s ease-in-out infinite",
           }}
         />
         <Typography
           sx={{
             fontSize: 10,
-            color: "#e4e8ef",
+            color: "#1a3a4c",
             textTransform: "uppercase",
             letterSpacing: "0.14em",
             fontWeight: 700,
@@ -458,15 +452,15 @@ export default function BrainGraph({
         sx={{
           position: "absolute",
           bottom: 14,
-          left: 18,
+          left: 20,
           display: "flex",
           gap: 1.25,
           p: 0.75,
           pr: 1.25,
           borderRadius: 999,
-          bgcolor: "rgba(15,20,26,0.55)",
+          bgcolor: "rgba(255,255,255,0.75)",
           backdropFilter: "blur(8px)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid rgba(26,58,76,0.08)",
           pointerEvents: "none",
         }}
       >
@@ -484,7 +478,7 @@ export default function BrainGraph({
             <Typography
               sx={{
                 fontSize: 10,
-                color: "#e4e8ef",
+                color: "#3c4043",
                 textTransform: "capitalize",
                 letterSpacing: "0.05em",
                 fontWeight: 600,
@@ -497,18 +491,6 @@ export default function BrainGraph({
       </Box>
 
       <style>{`
-        @keyframes apsoAurora {
-          0% { transform: translate(-10px, -10px) scale(1); }
-          100% { transform: translate(20px, 14px) scale(1.08); }
-        }
-        @keyframes apsoPulse {
-          0%, 100% { filter: brightness(1); }
-          50% { filter: brightness(1.12); }
-        }
-        @keyframes apsoPulseStrong {
-          0%, 100% { filter: brightness(1.05); }
-          50% { filter: brightness(1.3); }
-        }
         @keyframes apsoPulseDot {
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.4); opacity: 0.6; }
