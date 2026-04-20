@@ -10,7 +10,7 @@ export default async function ContentGenerationPage() {
   const brain = await readBrain();
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900, mx: "auto" }}>
+    <Box sx={{ p: 3 }}>
       <Box sx={{ mb: 3 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
           <Typography sx={{ fontSize: 28, fontWeight: 700, color: "#1a3a4c", letterSpacing: "-0.01em" }}>
@@ -34,10 +34,7 @@ export default async function ContentGenerationPage() {
           copy, download, or send to the composer for editing.
         </Typography>
       </Box>
-      <ComposerAndProposals
-        strapline={brain.brandVoice.strapline}
-        storyline={brain.brandVoice.storyline}
-      />
+      <ComposerAndProposals brain={brain} />
     </Box>
   );
 }

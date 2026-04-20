@@ -29,6 +29,10 @@ export async function POST(req: NextRequest) {
 
   const brain = await readBrain();
   const system = brandSystemPrompt(brain, channel);
+  const creativity = typeof (context as { creativity?: number } | undefined)?.creativity === "number"
+    ? ((context as { creativity: number }).creativity)
+    : 70;
+  const temperature = Math.max(0.2, Math.min(1, creativity / 100));
 
   const userMessage = [
     `Channel: ${channel}`,
@@ -56,7 +60,7 @@ export async function POST(req: NextRequest) {
         contents: [{ role: "user", parts: [{ text: userMessage }] }],
         config: {
           systemInstruction: system,
-          temperature: 0.7,
+          temperature,
           maxOutputTokens: 2000,
         },
       });
@@ -80,7 +84,7 @@ export async function POST(req: NextRequest) {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 2000,
-      temperature: 0.7,
+      temperature,
       system: [
         {
           type: "text",
