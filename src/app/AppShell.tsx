@@ -7,6 +7,8 @@ import RightRail from "./RightRail";
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthRoute = pathname?.startsWith("/signin");
+  const hideRail =
+    pathname?.startsWith("/content-generation") || pathname?.startsWith("/personality");
 
   if (isAuthRoute) {
     return <>{children}</>;
@@ -26,7 +28,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       >
         {children}
       </Box>
-      <RightRail />
+      {!hideRail && <RightRail />}
     </Box>
   );
 }

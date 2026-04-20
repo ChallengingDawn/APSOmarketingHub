@@ -8,35 +8,38 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Snackbar from "@mui/material/Snackbar";
 import Alert from "@mui/material/Alert";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
-import Divider from "@mui/material/Divider";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import IconButton from "@mui/material/IconButton";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import CloseIcon from "@mui/icons-material/Close";
+import Divider from "@mui/material/Divider";
 import BrainGraph from "./BrainGraph";
 import type { Brain } from "@/lib/brain";
 
-const SECTIONS = [
-  { id: "voice", label: "Brand Voice" },
-  { id: "guard", label: "Positioning Guard" },
-  { id: "phrases", label: "Signature Phrases" },
-  { id: "product", label: "Product Rules" },
-  { id: "social", label: "Social Rules" },
-  { id: "gold", label: "Gold Examples" },
-  { id: "category", label: "Category Intel" },
-  { id: "keywords", label: "Keyword Signals" },
-];
+const SECTION_TITLES: Record<string, { label: string; desc: string }> = {
+  voice: { label: "Brand Voice", desc: "Strapline, tone, messaging pillars, do's and don'ts." },
+  guard: { label: "Positioning Guard", desc: "APSOparts vs Angst+Pfister parent lane separation." },
+  phrases: { label: "Signature Phrases", desc: "Short expressions the bot should reuse naturally across channels." },
+  product: { label: "Product Content Rules", desc: "Page structure and style rules for product descriptions." },
+  social: { label: "Social Media Rules", desc: "LinkedIn template and visual rules for social posts." },
+  gold: { label: "Gold Examples", desc: "Canonical LinkedIn drafts and approved paid ad variants." },
+  category: { label: "Category Intelligence", desc: "Ingested taxonomy — 6 top-level, 411 leafs, SEO gap signals." },
+  keywords: { label: "Keyword Signals", desc: "Internal search trends + brand-term gaps from Magento + external SEO list." },
+  engine: { label: "Content Engine", desc: "How Claude and Gemini pull from every node to generate content." },
+};
 
 export default function PersonalityEditor({ initial }: { initial: Brain }) {
   const [brain, setBrain] = useState<Brain>(initial);
-  const [tab, setTab] = useState(0);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>(
     { open: false, msg: "", severity: "success" }
   );
-
-  const active = SECTIONS[tab].id;
 
   async function save() {
     setSaving(true);
@@ -68,28 +71,15 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
     }));
   };
 
+  const meta = openId ? SECTION_TITLES[openId] : null;
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <Paper sx={{ p: 2, borderRadius: 2 }}>
-        <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 1.5, color: "#1a3a4c" }}>
-          Neuro-linked brain
-        </Typography>
-        <BrainGraph activeId={active} />
-      </Paper>
-
-      <Paper sx={{ borderRadius: 2, overflow: "hidden" }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, pt: 1 }}>
-          <Tabs
-            value={tab}
-            onChange={(_, v) => setTab(v)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ "& .MuiTab-root": { textTransform: "none", fontSize: 13, minHeight: 42 } }}
-          >
-            {SECTIONS.map((s) => (
-              <Tab key={s.id} label={s.label} />
-            ))}
-          </Tabs>
+      <Paper sx={{ p: 2, borderRadius: 3, bgcolor: "#ffffff" }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5, px: 0.5 }}>
+          <Typography sx={{ fontSize: 13, color: "#5f6368" }}>
+            Click any node to edit. Links show how the brain's context flows into the content engine.
+          </Typography>
           <Button
             onClick={save}
             disabled={saving}
@@ -98,16 +88,40 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
             sx={{
               bgcolor: "#274e64",
               textTransform: "none",
+              fontWeight: 600,
               "&:hover": { bgcolor: "#1a3a4c" },
             }}
           >
             {saving ? "Saving…" : "Save Brain"}
           </Button>
         </Box>
-        <Divider />
-        <Box sx={{ p: 2.5 }}>
-          {active === "voice" && (
-            <VoiceTab
+        <BrainGraph activeId={openId ?? undefined} onNodeClick={(id) => setOpenId(id)} />
+      </Paper>
+
+      <Dialog
+        open={!!openId}
+        onClose={() => setOpenId(null)}
+        maxWidth="md"
+        fullWidth
+        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+      >
+        <DialogTitle sx={{ pr: 6 }}>
+          <Typography sx={{ fontSize: 18, fontWeight: 700, color: "#1a3a4c" }}>
+            {meta?.label}
+          </Typography>
+          <Typography sx={{ fontSize: 13, color: "#5f6368", mt: 0.5 }}>
+            {meta?.desc}
+          </Typography>
+          <IconButton
+            onClick={() => setOpenId(null)}
+            sx={{ position: "absolute", right: 12, top: 12, color: "#5f6368" }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: "#fafbfc" }}>
+          {openId === "voice" && (
+            <VoiceEditor
               brain={brain}
               onChange={(patch) =>
                 setBrain((b) => ({ ...b, brandVoice: { ...b.brandVoice, ...patch } }))
@@ -115,8 +129,8 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
               onListChange={(field, next) => updateList("brandVoice", field, next)}
             />
           )}
-          {active === "guard" && (
-            <GuardTab
+          {openId === "guard" && (
+            <GuardEditor
               brain={brain}
               onChange={(patch) =>
                 setBrain((b) => ({
@@ -126,26 +140,21 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
               }
             />
           )}
-          {active === "phrases" && (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              <Typography sx={{ fontSize: 12, color: "#5f6368" }}>
-                Short expressions the bot should reuse naturally across channels.
-              </Typography>
-              <ListEditor
-                label="Signature Phrases"
-                items={brain.brandVoice.signaturePhrases}
-                onChange={(next: string[]) => updateList("brandVoice", "signaturePhrases", next)}
-              />
-            </Box>
+          {openId === "phrases" && (
+            <ListEditor
+              label="Signature Phrases"
+              items={brain.brandVoice.signaturePhrases}
+              onChange={(next: string[]) => updateList("brandVoice", "signaturePhrases", next)}
+            />
           )}
-          {active === "product" && (
-            <ProductRulesTab
+          {openId === "product" && (
+            <ProductEditor
               brain={brain}
               onListChange={(field, next) => updateList("productContentRules", field, next)}
             />
           )}
-          {active === "social" && (
-            <SocialRulesTab
+          {openId === "social" && (
+            <SocialEditor
               brain={brain}
               onChange={(patch) =>
                 setBrain((b) => ({
@@ -156,16 +165,41 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
               onListChange={(field, next) => updateList("socialMediaRules", field, next)}
             />
           )}
-          {active === "gold" && (
-            <GoldTab
+          {openId === "gold" && (
+            <GoldEditor
               brain={brain}
-              onChange={(next) => setBrain((b) => ({ ...b, goldExamples: next }))}
+              onChange={(next: Brain["goldExamples"]) =>
+                setBrain((b) => ({ ...b, goldExamples: next }))
+              }
             />
           )}
-          {active === "category" && <CategoryTab brain={brain} />}
-          {active === "keywords" && <KeywordsTab brain={brain} />}
-        </Box>
-      </Paper>
+          {openId === "category" && <CategoryView brain={brain} />}
+          {openId === "keywords" && <KeywordsView brain={brain} />}
+          {openId === "engine" && <EngineView />}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setOpenId(null)} sx={{ textTransform: "none" }}>
+            Close
+          </Button>
+          <Button
+            onClick={async () => {
+              await save();
+              setOpenId(null);
+            }}
+            variant="contained"
+            disabled={saving}
+            startIcon={<SaveIcon />}
+            sx={{
+              bgcolor: "#ed1b2f",
+              textTransform: "none",
+              fontWeight: 600,
+              "&:hover": { bgcolor: "#c91528" },
+            }}
+          >
+            {saving ? "Saving…" : "Save & Close"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={toast.open}
@@ -181,7 +215,7 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
   );
 }
 
-function VoiceTab({
+function VoiceEditor({
   brain,
   onChange,
   onListChange,
@@ -246,7 +280,7 @@ function VoiceTab({
   );
 }
 
-function GuardTab({
+function GuardEditor({
   brain,
   onChange,
 }: {
@@ -286,7 +320,7 @@ function GuardTab({
   );
 }
 
-function ProductRulesTab({
+function ProductEditor({
   brain,
   onListChange,
 }: {
@@ -309,7 +343,7 @@ function ProductRulesTab({
   );
 }
 
-function SocialRulesTab({
+function SocialEditor({
   brain,
   onChange,
   onListChange,
@@ -350,7 +384,7 @@ function SocialRulesTab({
   );
 }
 
-function GoldTab({
+function GoldEditor({
   brain,
   onChange,
 }: {
@@ -486,7 +520,7 @@ function GoldTab({
   );
 }
 
-function CategoryTab({ brain }: { brain: Brain }) {
+function CategoryView({ brain }: { brain: Brain }) {
   const ci = brain.categoryIntelligence;
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -535,7 +569,7 @@ function CategoryTab({ brain }: { brain: Brain }) {
   );
 }
 
-function KeywordsTab({ brain }: { brain: Brain }) {
+function KeywordsView({ brain }: { brain: Brain }) {
   const ks = brain.keywordSignals;
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -691,6 +725,55 @@ function ChipListEditor({
         >
           Add
         </Button>
+      </Box>
+    </Box>
+  );
+}
+
+function EngineView() {
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Typography sx={{ fontSize: 13, color: "#3c4043" }}>
+        The Content Engine is the derived output layer. It reads every editable and ingested
+        node, merges them into a single system prompt, and routes the request to either
+        Claude (long-form, product copy, LinkedIn drafts) or Gemini (bulk keyword work,
+        image generation for social posts). You don&apos;t edit the engine directly — it
+        updates automatically whenever you save the brain.
+      </Typography>
+      <Box sx={{ display: "flex", gap: 2 }}>
+        <Box
+          sx={{
+            flex: 1,
+            p: 2,
+            bgcolor: "#e8f0f4",
+            borderRadius: 2,
+            border: "1px solid #274e64",
+          }}
+        >
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#274e64", mb: 0.5 }}>
+            Claude Sonnet 4.6
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: "#3c4043" }}>
+            Long-form content, product pages, LinkedIn drafts. Prompt-cached system prompt
+            keeps cost low.
+          </Typography>
+        </Box>
+        <Box
+          sx={{
+            flex: 1,
+            p: 2,
+            bgcolor: "#fdebed",
+            borderRadius: 2,
+            border: "1px solid #ed1b2f",
+          }}
+        >
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#ed1b2f", mb: 0.5 }}>
+            Gemini 2.5 Flash
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: "#3c4043" }}>
+            Fast A/B comparison, keyword-scale work, image generation for social proposals.
+          </Typography>
+        </Box>
       </Box>
     </Box>
   );
