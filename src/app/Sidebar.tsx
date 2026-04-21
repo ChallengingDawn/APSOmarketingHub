@@ -23,14 +23,24 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
+import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import LogoutIcon from "@mui/icons-material/Logout";
 import Link from "next/link";
 
 const DRAWER_WIDTH = 264;
 
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  badge?: string;
+  external?: boolean;
+}
+
 interface NavSection {
   title: string;
-  items: { label: string; href: string; icon: React.ReactNode; badge?: string }[];
+  items: NavItem[];
 }
 
 const navSections: NavSection[] = [
@@ -78,6 +88,17 @@ const navSections: NavSection[] = [
       { label: "Knowledge Base", href: "/knowledge-base", icon: <MenuBookIcon fontSize="small" /> },
       { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "Sister apps",
+    items: [
+      {
+        label: "Pricing Hub",
+        href: "https://apsopricinghub-production.up.railway.app/",
+        icon: <RequestQuoteIcon fontSize="small" />,
+        external: true,
+      },
     ],
   },
 ];
@@ -200,11 +221,21 @@ export default function Sidebar() {
             <List dense disablePadding sx={{ px: 1.5, py: 0 }}>
               {section.items.map((item) => {
                 const active = pathname === item.href;
+                const externalProps = item.external
+                  ? {
+                      component: "a" as const,
+                      href: item.href,
+                      target: "_blank",
+                      rel: "noopener noreferrer",
+                    }
+                  : {
+                      component: Link,
+                      href: item.href,
+                    };
                 return (
                   <ListItemButton
                     key={item.href}
-                    component={Link}
-                    href={item.href}
+                    {...externalProps}
                     disableRipple
                     sx={{
                       borderRadius: 999,
@@ -260,6 +291,11 @@ export default function Sidebar() {
                           color: "#fff",
                           ml: 0.5,
                         }}
+                      />
+                    )}
+                    {item.external && (
+                      <OpenInNewIcon
+                        sx={{ fontSize: 14, color: "#5f6368", ml: 0.5, opacity: 0.7 }}
                       />
                     )}
                   </ListItemButton>
