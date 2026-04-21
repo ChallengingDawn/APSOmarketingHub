@@ -2,27 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
 import { readLogs, saveCurrentBatch } from "@/lib/logs";
+import {
+  buildFilterInstructions,
+  buildFeedbackBlock,
+  type GenerationFilters,
+} from "@/lib/filters";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-type Filters = {
-  contentType?: string;
-  language?: string;
-  framework?: string;
-  audience?: string;
-  category?: string;
-  length?: string;
-  creativity?: number;
-  emphasizeTones?: string[];
-  emphasizePhrases?: string[];
-  wantsImage?: boolean;
-};
-
 type ProposeBody = {
   topic?: string;
   channel?: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
-  filters?: Filters;
+  filters?: GenerationFilters;
 };
 
 type Proposal = {
@@ -36,74 +28,6 @@ type Proposal = {
 };
 
 const FALLBACK_IMAGES = ["/mood/oring.png", "/mood/no-surcharge.png", "/mood/oring.png"];
-
-function buildFilterInstructions(filters: Filters | undefined): string {
-  if (!filters) return "";
-  const lines: string[] = [];
-  if (filters.language === "DE") {
-    lines.push(
-      `- LANGUAGE: Output language is GERMAN (Deutsch). Write EVERY field — headline, body, imagePrompt — in fluent industrial German. Do not mix English and German. Keep brand names (APSOparts, Angst+Pfister, DirectCUT, Quickorder) untranslated.`
-    );
-  } else if (filters.language === "EN") {
-    lines.push(`- LANGUAGE: Output language is ENGLISH. All fields in English.`);
-  }
-  if (filters.framework && filters.framework !== "auto") {
-    const fw =
-      filters.framework === "ican"
-        ? "Use the 'I can do this now' framework: recognize a situation → early warning signs → simple guidance → remove friction."
-        : filters.framework === "ease"
-          ? "Use the 'Ease / feature focus' framework: highlight a concrete shop feature (DirectCUT, Quickorder, no-surcharge, 48/72h delivery) that removes friction."
-          : filters.framework === "recognition"
-            ? "Use the 'We've already met' framework: recognition narrative — the customer already knows these parts and this situation."
-            : "";
-    if (fw) lines.push(`- Framework: ${fw}`);
-  }
-  if (filters.audience) lines.push(`- Audience: write for ${filters.audience}.`);
-  if (filters.category) lines.push(`- Category focus: ${filters.category}. Every proposal should be relevant to this product family.`);
-  if (filters.length) {
-    const lenMap: Record<string, string> = {
-      short: "Short — 80–120 words for posts, 2 sentences for headlines.",
-      medium: "Medium — 140–220 words for posts, 1–2 paragraphs.",
-      long: "Long — 300+ words, multiple short paragraphs with clear structure.",
-    };
-    lines.push(`- Length: ${lenMap[filters.length] ?? filters.length}`);
-  }
-  if (filters.emphasizeTones?.length) lines.push(`- Emphasize these tone adjectives: ${filters.emphasizeTones.join(", ")}.`);
-  if (filters.emphasizePhrases?.length) {
-    lines.push(
-      `- Force-include (naturally, not forced) at least one of these signature phrases: ${filters.emphasizePhrases
-        .map((p) => `"${p}"`)
-        .join(" ; ")}.`
-    );
-  }
-  return lines.length ? `\n\n# FILTERS\n${lines.join("\n")}` : "";
-}
-
-type SimpleLog = { headline?: string; body?: string; correction?: string };
-
-function buildFeedbackBlock(userDefaults: string, likes: SimpleLog[], dislikes: SimpleLog[]): string {
-  const parts: string[] = [];
-  if (userDefaults?.trim()) {
-    parts.push(`\n\n# USER DEFAULTS (always apply)\n${userDefaults.trim()}`);
-  }
-  if (likes.length) {
-    const examples = likes
-      .map((l, i) => `Example ${i + 1}:\n${l.headline ? `Headline: ${l.headline}\n` : ""}${l.body ?? ""}`)
-      .join("\n\n---\n\n");
-    parts.push(`\n\n# LIKED EXAMPLES (imitate style & framing)\n${examples}`);
-  }
-  if (dislikes.length) {
-    const examples = dislikes
-      .map((l, i) => {
-        const sample = `${l.headline ? `Headline: ${l.headline}\n` : ""}${l.body ?? ""}`;
-        const fix = l.correction ? `\nUser correction: ${l.correction}` : "";
-        return `Example ${i + 1}:\n${sample}${fix}`;
-      })
-      .join("\n\n---\n\n");
-    parts.push(`\n\n# DISLIKED EXAMPLES (avoid these patterns; apply corrections)\n${examples}`);
-  }
-  return parts.join("");
-}
 
 export async function POST(req: NextRequest) {
   let body: ProposeBody = {};
@@ -132,7 +56,11 @@ export async function POST(req: NextRequest) {
     const likes = logs.entries.filter((e) => e.type === "like").slice(0, 6);
     const dislikes = logs.entries.filter((e) => e.type === "dislike").slice(0, 6);
     const feedbackBlock = buildFeedbackBlock(logs.userDefaults, likes, dislikes);
-    const system = brandSystemPrompt(brain, channel) + buildFilterInstructions(filters) + feedbackBlock;
+    const filtersForBrief: GenerationFilters = { ...filters, wantsImage };
+    const system =
+      brandSystemPrompt(brain, channel) +
+      buildFilterInstructions(filtersForBrief) +
+      feedbackBlock;
     const anthropic = new Anthropic({ apiKey: anthropicKey });
 
     const imageRule = wantsImage

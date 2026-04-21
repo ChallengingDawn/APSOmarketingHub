@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
 import { readLogs } from "@/lib/logs";
 import { generateApsoImage } from "@/lib/images";
+import { buildFilterInstructions, type GenerationFilters } from "@/lib/filters";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -91,10 +92,13 @@ export async function POST(req: NextRequest) {
   const defaultsBlock = logs.userDefaults?.trim()
     ? `\n\n# USER DEFAULTS (always apply)\n${logs.userDefaults.trim()}`
     : "";
-  const system = brandSystemPrompt(brain, channel) + defaultsBlock;
-  const creativity = typeof (context as { creativity?: number } | undefined)?.creativity === "number"
-    ? ((context as { creativity: number }).creativity)
-    : 70;
+  const filters = (context ?? {}) as GenerationFilters;
+  // Composer always asks for an image alongside text, so teach the image
+  // brief to honour the active audience/category too.
+  const filtersForBrief: GenerationFilters = { ...filters, wantsImage: withImage };
+  const filterBlock = buildFilterInstructions(filtersForBrief);
+  const system = brandSystemPrompt(brain, channel) + filterBlock + defaultsBlock;
+  const creativity = typeof filters.creativity === "number" ? filters.creativity : 70;
   const temperature = Math.max(0.2, Math.min(1, creativity / 100));
 
   const userMessage = [
