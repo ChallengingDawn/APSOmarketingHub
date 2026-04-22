@@ -32,6 +32,8 @@ export type PhotoSlot = {
   mask?: "cloud" | "rect";
 };
 
+export type CoverRegion = { x: number; y: number; w: number; h: number; color: string };
+
 export type TemplateSpec = {
   id: string;
   name: string;
@@ -40,6 +42,10 @@ export type TemplateSpec = {
   src: string;
   width: number;
   height: number;
+  // Big background cover blocks painted AFTER bg image, BEFORE text. Use these
+  // to wipe out the baked-in placeholder text in one go — much more reliable
+  // than tiny per-field cover rects with mm-precision coordinates.
+  coverRegions?: CoverRegion[];
   fields: TextField[];
   photoSlot?: PhotoSlot;
 };
@@ -65,6 +71,10 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/save-the-date-light.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 60, y: 250, w: 920, h: 350, color: GREEN_LIGHT },
+      { x: 0, y: 615, w: 1200, h: 585, color: WHITE },
+    ],
     fields: [
       {
         id: "title",
@@ -140,6 +150,10 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/save-the-date-dark.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 60, y: 250, w: 920, h: 350, color: GREEN_DARK },
+      { x: 0, y: 615, w: 1200, h: 585, color: WHITE },
+    ],
     fields: [
       {
         id: "title",
@@ -215,6 +229,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/event-teaser-dark.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 0, y: 260, w: 1200, h: 500, color: SKY_LIGHT },
+    ],
     fields: [
       {
         id: "headline",
@@ -273,6 +290,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/event-recap-light.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 0, y: 820, w: 1200, h: 380, color: GREEN_LIGHT },
+    ],
     fields: [
       {
         id: "headline",
@@ -316,6 +336,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/event-recap-dark.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 0, y: 760, w: 1200, h: 440, color: GREEN_DARK },
+    ],
     fields: [
       {
         id: "headline",
@@ -359,6 +382,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/post-event-highlight.jpg",
     width: 1200,
     height: 1200,
+    coverRegions: [
+      { x: 0, y: 760, w: 1200, h: 440, color: APSO_RED },
+    ],
     fields: [
       {
         id: "headline",
@@ -404,6 +430,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/sig-option-1.jpg",
     width: 800,
     height: 250,
+    coverRegions: [
+      { x: 270, y: 0, w: 530, h: 250, color: APSO_RED },
+    ],
     fields: [
       {
         id: "headline",
@@ -474,6 +503,9 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/sig-option-2.jpg",
     width: 800,
     height: 250,
+    coverRegions: [
+      { x: 0, y: 60, w: 800, h: 140, color: APSO_RED },
+    ],
     fields: [
       {
         id: "headline",

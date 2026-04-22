@@ -40,6 +40,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import Skeleton from "@mui/material/Skeleton";
 import type { Brain } from "@/lib/brain";
 import type { CurrentBatch } from "@/lib/logs";
+import { pushToGallery } from "@/lib/imageGallery";
 
 type Proposal = {
   headline: string;
@@ -203,6 +204,11 @@ export default function ComposerAndProposals({
             error: data.imageError,
             prompt: data.imageBrief ?? "",
           });
+          pushToGallery({
+            url: data.imageUrl,
+            brief: data.imageBrief ?? composer.slice(0, 80),
+            source: "composer",
+          });
         }
       }
     } catch (err) {
@@ -222,6 +228,9 @@ export default function ComposerAndProposals({
         body: JSON.stringify({ index, imagePrompt: prompt }),
       });
       const data = await res.json();
+      if (data.imageUrl) {
+        pushToGallery({ url: data.imageUrl, brief: prompt, source: "proposal" });
+      }
       setProposals((cur) =>
         cur.map((p, i) =>
           i === index
@@ -255,6 +264,9 @@ export default function ComposerAndProposals({
         body: JSON.stringify({ prompt: newPrompt }),
       });
       const data = await res.json();
+      if (data.imageUrl) {
+        pushToGallery({ url: data.imageUrl, brief: newPrompt, source: "composer" });
+      }
       setComposerImage((cur) =>
         cur
           ? {

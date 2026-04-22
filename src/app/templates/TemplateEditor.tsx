@@ -15,7 +15,12 @@ import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ImageIcon from "@mui/icons-material/Image";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
 import type { TemplateSpec, TextField as TemplateField } from "@/data/templates";
+import { readGallery, pushToGallery, type GalleryImage } from "@/lib/imageGallery";
 
 type Values = Record<string, string>;
 
@@ -131,8 +136,20 @@ export default function TemplateEditor({ template }: { template: TemplateSpec })
   const [photoPrompt, setPhotoPrompt] = useState<string>("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gallery, setGallery] = useState<GalleryImage[]>([]);
   const bgImgRef = useRef<HTMLImageElement | null>(null);
   const photoImgRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    setGallery(readGallery());
+    const onUpdate = () => setGallery(readGallery());
+    window.addEventListener("apsoMH:gallery:update", onUpdate);
+    window.addEventListener("storage", onUpdate);
+    return () => {
+      window.removeEventListener("apsoMH:gallery:update", onUpdate);
+      window.removeEventListener("storage", onUpdate);
+    };
+  }, []);
 
   // Load the template background once.
   useEffect(() => {
@@ -193,6 +210,14 @@ export default function TemplateEditor({ template }: { template: TemplateSpec })
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
 
+    // Big background covers — wipe baked-in placeholder text in one pass.
+    if (template.coverRegions) {
+      for (const r of template.coverRegions) {
+        ctx.fillStyle = r.color;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      }
+    }
+
     // Photo slot (below text so text stays readable on top of photo).
     if (template.photoSlot && photoImgRef.current) {
       const slot = template.photoSlot;
@@ -251,6 +276,7 @@ export default function TemplateEditor({ template }: { template: TemplateSpec })
       const data = await res.json();
       if (data.imageUrl) {
         setPhotoUrl(data.imageUrl);
+        pushToGallery({ url: data.imageUrl, brief, source: "template" });
       } else {
         setError(data.imageError ?? data.error ?? "Image generation failed");
       }
@@ -438,6 +464,68 @@ export default function TemplateEditor({ template }: { template: TemplateSpec })
                   Photo slot
                 </Typography>
               </Box>
+              {gallery.length > 0 && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="gallery-label">Use generated photo</InputLabel>
+                  <Select
+                    labelId="gallery-label"
+                    label="Use generated photo"
+                    value={gallery.find((g) => g.url === photoUrl)?.url ?? ""}
+                    onChange={(e) => {
+                      const url = String(e.target.value);
+                      const hit = gallery.find((g) => g.url === url);
+                      if (hit) {
+                        setPhotoUrl(hit.url);
+                        if (!photoPrompt.trim() && hit.brief) setPhotoPrompt(hit.brief);
+                      }
+                    }}
+                    renderValue={(val) => {
+                      const hit = gallery.find((g) => g.url === val);
+                      if (!hit) return "Pick from recently generated";
+                      return (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Box
+                            component="img"
+                            src={hit.url}
+                            alt=""
+                            sx={{ width: 28, height: 28, borderRadius: 0.5, objectFit: "cover" }}
+                          />
+                          <Typography sx={{ fontSize: 12, color: "#1a3a4c" }} noWrap>
+                            {hit.brief || hit.source}
+                          </Typography>
+                        </Box>
+                      );
+                    }}
+                  >
+                    {gallery.map((g) => (
+                      <MenuItem key={g.url} value={g.url} sx={{ py: 1 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                          <Box
+                            component="img"
+                            src={g.url}
+                            alt=""
+                            sx={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: 0.5,
+                              objectFit: "cover",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ fontSize: 12, fontWeight: 600, color: "#1a3a4c" }} noWrap>
+                              {g.brief || "(no brief)"}
+                            </Typography>
+                            <Typography sx={{ fontSize: 10, color: "#5f6368" }}>
+                              from {g.source}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
               <TextField
                 label="Image brief"
                 placeholder="What should the photo show?"
