@@ -23,6 +23,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
+import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -56,6 +57,7 @@ const navSections: NavSection[] = [
     items: [
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "Public" },
+      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
   },
