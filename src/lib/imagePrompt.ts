@@ -1,4 +1,4 @@
-import type { Brain, PhotoGuidelines } from "@/lib/brain";
+import type { Brain } from "@/lib/brain";
 import type { GenerationFilters } from "@/lib/filters";
 
 export type ImagePromptInput = {
@@ -17,7 +17,6 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
   );
   sections.push(`SUBJECT BRIEF: ${input.brief.trim()}`);
 
-  // Aspect (Gemini Nano Banana Pro respects framing cues but not strict --ar; we tell it descriptively).
   if (input.aspect && input.aspect !== "1:1") {
     const fmt: Record<string, string> = {
       "16:9": "wide cinematic horizontal frame (16:9)",
@@ -27,6 +26,26 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     sections.push(`FRAMING: ${fmt[input.aspect]}.`);
   } else {
     sections.push("FRAMING: square 1:1 frame.");
+  }
+
+  // Creativity = strictness signal. Low creativity = the brief is a literal
+  // instruction; high = the model has room to interpret. This is the single
+  // most useful knob against hallucination — a low-creativity image must hew
+  // to the literal scene, not invent additional elements.
+  const creativity =
+    typeof input.filters?.creativity === "number" ? input.filters.creativity : 70;
+  if (creativity <= 30) {
+    sections.push(
+      `STRICTNESS: HIGH (creativity ${creativity}/100). Reproduce the brief literally. Do NOT invent extra props, extra people, decorative elements, or scene drama. If the brief mentions one component, show one. If it mentions one operation, show that exact operation — no embellishment.`
+    );
+  } else if (creativity <= 60) {
+    sections.push(
+      `STRICTNESS: MEDIUM (creativity ${creativity}/100). Stay close to the brief. Modest tasteful additions (background context that fits the scene) are fine, but do not invent additional people, additional operations, or fictional tools.`
+    );
+  } else {
+    sections.push(
+      `STRICTNESS: RELAXED (creativity ${creativity}/100). Interpret the brief with editorial flair, but every visible tool must still match the operation realistically (see SCENE RULES).`
+    );
   }
 
   if (g) {
@@ -48,7 +67,6 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     for (const r of g.hardNo) sections.push(`- ${r}`);
   }
 
-  // Audience-driven scene hint.
   const audienceHint =
     input.filters?.audience && g?.audienceSceneHints[input.filters.audience];
   if (audienceHint) {
@@ -58,7 +76,6 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     sections.push(`Setting: ${audienceHint}.`);
   }
 
-  // Category-driven scene hint — this is what stops "hand-cutting plastic" type errors.
   const categoryHint =
     input.filters?.category && g?.categorySceneHints[input.filters.category];
   if (categoryHint) {
@@ -71,7 +88,6 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     );
   }
 
-  // Midjourney pattern translation hint — gives Gemini concrete style anchors.
   if (g?.midjourneyTranslation?.patterns?.length) {
     sections.push("");
     sections.push("# STYLE ANCHORS (match the visual language of these examples)");
@@ -80,19 +96,37 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     }
   }
 
-  // Reference notes uploaded by the user.
   if (input.referenceNotes?.trim()) {
     sections.push("");
     sections.push("# USER-PROVIDED REFERENCES");
     sections.push(input.referenceNotes.trim());
   }
 
-  // Final terminal guards — repeat the most-violated rules at the end so the model
-  // does not "forget" them after a long prompt.
+  // ── Anti-hallucination terminal block ─────────────────────────────────
+  // Repeat the category override and the highest-violation rules right at the
+  // end so the model cannot "drift" through a long prompt and forget them.
   sections.push("");
+  sections.push("# FINAL CHECKLIST — verify BEFORE producing the image:");
   sections.push(
-    "FINAL CHECKS before generating: (1) Is every tool the correct tool for the operation shown? (2) Is the lighting natural and soft, not glossy studio? (3) No CAD, no white-isolated product shot, no stock-suit people, no promotional badges or rendered text overlays. (4) Does the scene look like an honest workshop / lab / plant a real engineer would recognize?"
+    "1. Tools must match the operation. Cutting plastic stock = CNC mill / bandsaw / precision saw, NEVER a hand cutter or utility knife. Replacing an O-ring = pick tool, NEVER pliers. Tightening a fitting = correct-size wrench, NEVER a generic adjustable spanner on a precision component."
   );
+  sections.push(
+    "2. No invented props. Do not add components, people, machinery, or workshop elements that the brief did not request. Empty space is acceptable."
+  );
+  sections.push(
+    "3. Hands and gloves must match the context (bare for clean small-seal assembly, nitrile for chemical/food/pharma, leather for heavy hardware). Hands must hold tools in physically plausible ways."
+  );
+  sections.push(
+    "4. No CAD, no isolated white-bg product shots, no stock-photo people in suits, no promotional badges or rendered text overlays, no fear/catastrophe drama."
+  );
+  sections.push(
+    "5. Lighting is soft and natural. No glossy studio rim-light. No HDR. No neon."
+  );
+  if (categoryHint) {
+    sections.push(
+      `6. The scene must look like the production context for ${input.filters!.category}: ${categoryHint}. If the brief drifts, the category wins.`
+    );
+  }
 
   return sections.join("\n");
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -19,6 +19,35 @@ const CATEGORY_ORDER: TemplateSpec["category"][] = ["LinkedIn event", "Email sig
 export default function TemplatesClient({ templates }: { templates: TemplateSpec[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [tab, setTab] = useState<TemplateSpec["category"]>("LinkedIn event");
+  const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
+
+  // On mount, honour ?openId=<id> from /photos "Send to template" handoff,
+  // and pull the pending image (if any) out of sessionStorage so the editor
+  // can preselect it. We also switch the active tab to the chosen template's
+  // category so the user sees consistent state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const requestedId = params.get("openId");
+    let payload: { templateId: string; url: string; brief?: string } | null = null;
+    try {
+      const raw = sessionStorage.getItem("apsoMH:pendingTemplateImage");
+      if (raw) payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+    const targetId = requestedId ?? payload?.templateId ?? null;
+    if (!targetId) return;
+    const target = templates.find((t) => t.id === targetId);
+    if (!target) return;
+    setTab(target.category);
+    setOpenId(target.id);
+    if (payload?.url && payload.templateId === target.id) {
+      setPendingPhotoUrl(payload.url);
+    }
+    // Consume the handoff so a refresh doesn't re-open the dialog.
+    sessionStorage.removeItem("apsoMH:pendingTemplateImage");
+  }, [templates]);
 
   const grouped = useMemo(() => {
     const acc: Record<string, TemplateSpec[]> = {};
@@ -196,7 +225,7 @@ export default function TemplatesClient({ templates }: { templates: TemplateSpec
             >
               <CloseIcon />
             </IconButton>
-            <TemplateEditor template={active} />
+            <TemplateEditor template={active} initialPhotoUrl={pendingPhotoUrl ?? undefined} />
           </Box>
         )}
       </Dialog>

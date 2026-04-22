@@ -17,6 +17,7 @@ import InputLabel from "@mui/material/InputLabel";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Slider from "@mui/material/Slider";
+import Menu from "@mui/material/Menu";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import AutoAwesomeMotionIcon from "@mui/icons-material/AutoAwesomeMotion";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -29,6 +30,9 @@ import ThumbDownOffAltIcon from "@mui/icons-material/ThumbDownOffAlt";
 import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import EditNoteIcon from "@mui/icons-material/EditNote";
+import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
+import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
+import AddIcon from "@mui/icons-material/Add";
 import { pushToGallery } from "@/lib/imageGallery";
 import {
   archivePhoto,
@@ -40,12 +44,30 @@ import {
   PHOTO_ARCHIVE_CAP,
   type ArchivedPhoto,
 } from "@/lib/photoArchive";
+import {
+  addReference as addLibraryReference,
+  deleteReference as deleteLibraryReference,
+  listReferences,
+  REFERENCE_LIBRARY_EVENT,
+  REFERENCE_LIBRARY_CAP,
+  type LibraryReference,
+} from "@/lib/referenceLibrary";
+import { TEMPLATES, type TemplateSpec } from "@/data/templates";
 
 type Aspect = "1:1" | "16:9" | "4:5" | "3:2";
 type ContentType = "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
 type Framework = "auto" | "ican" | "ease" | "recognition";
 type Reference = { id: string; dataUrl: string; note: string };
-type Result = { id: string; url: string; brief: string; pending?: boolean; error?: string };
+type Result = {
+  id: string;
+  url: string;
+  brief: string;
+  aspect: Aspect;
+  audience?: string;
+  category?: string;
+  pending?: boolean;
+  error?: string;
+};
 
 const CONTENT_TYPES: { id: ContentType; label: string }[] = [
   { id: "linkedin", label: "LinkedIn post" },
@@ -62,6 +84,8 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
   { id: "ease", label: "Ease / feature" },
   { id: "recognition", label: "We've already met" },
 ];
+
+const TEMPLATES_WITH_PHOTO = TEMPLATES.filter((t) => t.photoSlot);
 
 export default function PhotoStudio({
   audiences,
@@ -87,21 +111,29 @@ export default function PhotoStudio({
   const [error, setError] = useState<string | null>(null);
   const [archive, setArchive] = useState<ArchivedPhoto[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(true);
+  const [library, setLibrary] = useState<LibraryReference[]>([]);
 
   useEffect(() => {
     let alive = true;
-    const refresh = async () => {
+    const refreshArchive = async () => {
       const list = await listArchive();
       if (alive) {
         setArchive(list);
         setArchiveLoading(false);
       }
     };
-    void refresh();
-    window.addEventListener(PHOTO_ARCHIVE_EVENT, refresh);
+    const refreshLibrary = async () => {
+      const list = await listReferences();
+      if (alive) setLibrary(list);
+    };
+    void refreshArchive();
+    void refreshLibrary();
+    window.addEventListener(PHOTO_ARCHIVE_EVENT, refreshArchive);
+    window.addEventListener(REFERENCE_LIBRARY_EVENT, refreshLibrary);
     return () => {
       alive = false;
-      window.removeEventListener(PHOTO_ARCHIVE_EVENT, refresh);
+      window.removeEventListener(PHOTO_ARCHIVE_EVENT, refreshArchive);
+      window.removeEventListener(REFERENCE_LIBRARY_EVENT, refreshLibrary);
     };
   }, []);
 
@@ -118,8 +150,6 @@ export default function PhotoStudio({
     [contentType, framework, audience, category, creativity, selectedTones]
   );
 
-  // Brief placeholder adapts to the selected filters so the user gets a concrete
-  // example of the kind of brief that lands well on the current setup.
   const adaptivePlaceholder = useMemo(() => {
     const audPart =
       audience === "Chemical process engineers"
@@ -148,30 +178,35 @@ export default function PhotoStudio({
     return `${audPart}${catPart}, soft natural daylight from a workshop window.`;
   }, [audience, category]);
 
-  function onUploadRef(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onUploadRef(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setRefs((cur) => [
-            ...cur,
-            { id: crypto.randomUUID(), dataUrl: reader.result as string, note: "" },
-          ]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    for (const file of files) {
+      const dataUrl = await readFileAsDataUrl(file);
+      // Add to current session refs.
+      setRefs((cur) => [
+        ...cur,
+        { id: crypto.randomUUID(), dataUrl, note: "" },
+      ]);
+      // AND save to the permanent library so the user can reuse next session.
+      await addLibraryReference({ dataUrl, label: file.name, note: "" });
+    }
     e.target.value = "";
   }
 
-  function removeRef(id: string) {
+  function removeSessionRef(id: string) {
     setRefs((cur) => cur.filter((r) => r.id !== id));
   }
 
   function setRefNote(id: string, note: string) {
     setRefs((cur) => cur.map((r) => (r.id === id ? { ...r, note } : r)));
+  }
+
+  function addLibraryToSession(lr: LibraryReference) {
+    setRefs((cur) => [
+      ...cur,
+      { id: crypto.randomUUID(), dataUrl: lr.dataUrl, note: lr.note },
+    ]);
   }
 
   async function generate(briefOverride?: string, parentId?: string) {
@@ -183,14 +218,28 @@ export default function PhotoStudio({
     setError(null);
     setBusy(true);
     const id = crypto.randomUUID();
-    setResults((cur) => [{ id, url: "", brief: finalBrief, pending: true }, ...cur]);
+    const finalAspect = aspect;
+    const finalAudience = audience || undefined;
+    const finalCategory = category || undefined;
+    setResults((cur) => [
+      {
+        id,
+        url: "",
+        brief: finalBrief,
+        aspect: finalAspect,
+        audience: finalAudience,
+        category: finalCategory,
+        pending: true,
+      },
+      ...cur,
+    ]);
     try {
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: finalBrief,
-          aspect,
+          aspect: finalAspect,
           filters: filterContext,
           references: refs.map((r) => ({ dataUrl: r.dataUrl, note: r.note })),
           referenceNotes: refs
@@ -204,13 +253,12 @@ export default function PhotoStudio({
         setResults((cur) =>
           cur.map((r) => (r.id === id ? { ...r, url: data.imageUrl, pending: false } : r))
         );
-        // Persist to the page archive (IndexedDB) and the cross-app gallery (localStorage).
         await archivePhoto({
           url: data.imageUrl,
           brief: finalBrief,
-          audience: audience || undefined,
-          category: category || undefined,
-          aspect,
+          audience: finalAudience,
+          category: finalCategory,
+          aspect: finalAspect,
           source: "studio",
           parentId,
         });
@@ -267,8 +315,15 @@ export default function PhotoStudio({
   }
 
   // Retouch: load the source image as a reference, prefill the brief with a
-  // "modify" prefix, scroll the brief into view. Triggers a new generation cycle.
-  function retouchFromArchive(p: ArchivedPhoto) {
+  // "modify" prefix, restore any known filter context. Works for both archive
+  // entries AND in-session results (synthesised into ArchivedPhoto shape).
+  function retouch(p: {
+    url: string;
+    brief: string;
+    audience?: string;
+    category?: string;
+    aspect?: string;
+  }) {
     setRefs((cur) => [
       ...cur,
       {
@@ -290,6 +345,15 @@ export default function PhotoStudio({
     const next = p.feedback === fb ? undefined : fb;
     setArchive((cur) => cur.map((x) => (x.id === p.id ? { ...x, feedback: next } : x)));
     await updateArchive(p.id, { feedback: next });
+  }
+
+  function sendToTemplate(image: { url: string; brief: string }, template: TemplateSpec) {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem(
+      "apsoMH:pendingTemplateImage",
+      JSON.stringify({ templateId: template.id, url: image.url, brief: image.brief })
+    );
+    window.location.href = `/templates?openId=${encodeURIComponent(template.id)}`;
   }
 
   return (
@@ -400,7 +464,7 @@ export default function PhotoStudio({
             <Box>
               <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.25 }}>
                 <Typography sx={{ fontSize: 11, fontWeight: 600, color: "#5f6368" }}>
-                  Creativity
+                  Creativity {creativity <= 30 ? "· strict" : creativity <= 60 ? "· medium" : "· relaxed"}
                 </Typography>
                 <Typography sx={{ fontSize: 11, color: "#1a3a4c", fontWeight: 700 }}>
                   {creativity}
@@ -415,6 +479,9 @@ export default function PhotoStudio({
                 onChange={(_, v) => setCreativity(v as number)}
                 sx={{ color: "#ed1b2f" }}
               />
+              <Typography sx={{ fontSize: 10, color: "#9aa0a6" }}>
+                Lower = more literal, fewer invented props (helps against hallucinations).
+              </Typography>
             </Box>
 
             <Box>
@@ -458,7 +525,7 @@ export default function PhotoStudio({
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
             <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Reference photos
+              References (this run)
             </Typography>
             <Button
               component="label"
@@ -472,9 +539,8 @@ export default function PhotoStudio({
           </Box>
           {refs.length === 0 ? (
             <Typography sx={{ fontSize: 11, color: "#9aa0a6", fontStyle: "italic" }}>
-              Drop in 1–3 reference photos (Midjourney exports, mood images, ANP samples). The
-              model uses them as style anchors. The Retouch action on archive items also lands
-              here.
+              Upload to add references for this generation. Uploads are also saved to the
+              permanent <b>Reference library</b> below for reuse next session.
             </Typography>
           ) : (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -493,9 +559,100 @@ export default function PhotoStudio({
                     size="small"
                     fullWidth
                   />
-                  <IconButton size="small" onClick={() => removeRef(r.id)}>
+                  <IconButton size="small" onClick={() => removeSessionRef(r.id)}>
                     <DeleteOutlineIcon fontSize="small" />
                   </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Paper>
+
+        {/* Permanent reference library — survives across sessions */}
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <BookmarkAddOutlinedIcon sx={{ fontSize: 18, color: "#274e64" }} />
+            <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.06em", flex: 1 }}>
+              Reference library
+            </Typography>
+            <Chip
+              label={`${library.length} / ${REFERENCE_LIBRARY_CAP}`}
+              size="small"
+              sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
+            />
+          </Box>
+          {library.length === 0 ? (
+            <Typography sx={{ fontSize: 11, color: "#9aa0a6", fontStyle: "italic" }}>
+              No saved references yet. Anything you upload above is auto-saved here.
+            </Typography>
+          ) : (
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75 }}>
+              {library.map((lr) => (
+                <Box
+                  key={lr.id}
+                  sx={{
+                    position: "relative",
+                    aspectRatio: "1 / 1",
+                    borderRadius: 1,
+                    overflow: "hidden",
+                    border: "1px solid #dde1e6",
+                    "&:hover .lib-actions": { opacity: 1 },
+                  }}
+                  title={lr.label || "reference"}
+                >
+                  <Box
+                    component="img"
+                    src={lr.dataUrl}
+                    alt={lr.label}
+                    sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                  <Box
+                    className="lib-actions"
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      bgcolor: "rgba(15,20,26,0.55)",
+                      opacity: 0,
+                      transition: "opacity 0.15s",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 0.5,
+                    }}
+                  >
+                    <Tooltip title="Add to this run">
+                      <IconButton
+                        size="small"
+                        onClick={() => addLibraryToSession(lr)}
+                        sx={{
+                          width: 22,
+                          height: 22,
+                          bgcolor: "#fff",
+                          color: "#274e64",
+                          "&:hover": { bgcolor: "#fff" },
+                        }}
+                      >
+                        <AddIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Remove from library">
+                      <IconButton
+                        size="small"
+                        onClick={async () => {
+                          await deleteLibraryReference(lr.id);
+                        }}
+                        sx={{
+                          width: 22,
+                          height: 22,
+                          bgcolor: "#fff",
+                          color: "#ed1b2f",
+                          "&:hover": { bgcolor: "#fff" },
+                        }}
+                      >
+                        <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Box>
               ))}
             </Box>
@@ -585,56 +742,22 @@ export default function PhotoStudio({
               }}
             >
               {results.map((r) => (
-                <Paper key={r.id} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
-                  <Box
-                    sx={{
-                      width: "100%",
-                      aspectRatio: aspectRatioCss(aspect),
-                      bgcolor: "#eceff1",
-                      position: "relative",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {r.pending ? (
-                      <Box sx={{ textAlign: "center" }}>
-                        <LinearProgress sx={{ width: 120, mb: 1 }} />
-                        <Typography sx={{ fontSize: 11, color: "#5f6368" }}>Generating…</Typography>
-                      </Box>
-                    ) : r.url ? (
-                      <Box
-                        component="img"
-                        src={r.url}
-                        alt={r.brief}
-                        sx={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      />
-                    ) : (
-                      <Typography sx={{ fontSize: 11, color: "#ed1b2f", px: 2, textAlign: "center" }}>
-                        {r.error ?? "No image"}
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Typography
-                      sx={{ fontSize: 11, color: "#5f6368", flex: 1, minWidth: 0 }}
-                      noWrap
-                      title={r.brief}
-                    >
-                      {r.brief}
-                    </Typography>
-                    <Tooltip title="Download">
-                      <span>
-                        <IconButton size="small" disabled={!r.url} onClick={() => downloadUrl(r.url, r.id)}>
-                          <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => removeResult(r.id)}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Paper>
+                <ResultTile
+                  key={r.id}
+                  result={r}
+                  onRetouch={() =>
+                    retouch({
+                      url: r.url,
+                      brief: r.brief,
+                      audience: r.audience,
+                      category: r.category,
+                      aspect: r.aspect,
+                    })
+                  }
+                  onDownload={() => downloadUrl(r.url, r.id)}
+                  onRemove={() => removeResult(r.id)}
+                  onSendToTemplate={(t) => sendToTemplate({ url: r.url, brief: r.brief }, t)}
+                />
               ))}
             </Box>
           )}
@@ -668,9 +791,8 @@ export default function PhotoStudio({
             )}
           </Box>
           <Typography sx={{ fontSize: 11, color: "#9aa0a6", mb: 1.25 }}>
-            Browser-local (IndexedDB), survives reload. Like / dislike to teach the model. Retouch
-            sends the image back into the references and prefills the brief. Phase 2 (AWS) will
-            move this to a persistent gold-image library.
+            Browser-local (IndexedDB), survives reload. Like / dislike to teach the model.
+            Retouch sends the image back into the references and prefills the brief.
           </Typography>
           {archiveLoading ? (
             <LinearProgress />
@@ -703,10 +825,19 @@ export default function PhotoStudio({
                   onLike={() => setFeedback(p, "like")}
                   onDislike={() => setFeedback(p, "dislike")}
                   onDownload={() => downloadUrl(p.url, `archive-${p.createdAt}`)}
-                  onRetouch={() => retouchFromArchive(p)}
+                  onRetouch={() =>
+                    retouch({
+                      url: p.url,
+                      brief: p.brief,
+                      audience: p.audience,
+                      category: p.category,
+                      aspect: p.aspect,
+                    })
+                  }
                   onDelete={async () => {
                     await deleteArchive(p.id);
                   }}
+                  onSendToTemplate={(t) => sendToTemplate({ url: p.url, brief: p.brief }, t)}
                 />
               ))}
             </Box>
@@ -717,6 +848,86 @@ export default function PhotoStudio({
   );
 }
 
+// ─────────────────────────── Tiles ─────────────────────────────────────
+
+function ResultTile({
+  result,
+  onRetouch,
+  onDownload,
+  onRemove,
+  onSendToTemplate,
+}: {
+  result: Result;
+  onRetouch: () => void;
+  onDownload: () => void;
+  onRemove: () => void;
+  onSendToTemplate: (t: TemplateSpec) => void;
+}) {
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", position: "relative", "&:hover .result-actions": { opacity: 1 } }}>
+      <Box
+        sx={{
+          width: "100%",
+          aspectRatio: aspectRatioCss(result.aspect),
+          bgcolor: "#eceff1",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {result.pending ? (
+          <Box sx={{ textAlign: "center" }}>
+            <LinearProgress sx={{ width: 120, mb: 1 }} />
+            <Typography sx={{ fontSize: 11, color: "#5f6368" }}>Generating…</Typography>
+          </Box>
+        ) : result.url ? (
+          <Box
+            component="img"
+            src={result.url}
+            alt={result.brief}
+            sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <Typography sx={{ fontSize: 11, color: "#ed1b2f", px: 2, textAlign: "center" }}>
+            {result.error ?? "No image"}
+          </Typography>
+        )}
+        {result.url && (
+          <Box
+            className="result-actions"
+            sx={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              display: "flex",
+              gap: 0.25,
+              opacity: 0,
+              transition: "opacity 0.2s",
+            }}
+          >
+            <ActionIcon title="Retouch" onClick={onRetouch} color="#274e64">
+              <EditNoteIcon sx={{ fontSize: 14 }} />
+            </ActionIcon>
+            <SendToTemplateButton url={result.url} brief={result.brief} onPick={onSendToTemplate} />
+            <ActionIcon title="Download" onClick={onDownload} color="#274e64">
+              <DownloadIcon sx={{ fontSize: 14 }} />
+            </ActionIcon>
+            <ActionIcon title="Remove from session" onClick={onRemove} color="#5f6368">
+              <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+            </ActionIcon>
+          </Box>
+        )}
+      </Box>
+      <Box sx={{ p: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Typography sx={{ fontSize: 11, color: "#5f6368", flex: 1, minWidth: 0 }} noWrap title={result.brief}>
+          {result.brief}
+        </Typography>
+      </Box>
+    </Paper>
+  );
+}
+
 function ArchiveTile({
   photo,
   onLike,
@@ -724,6 +935,7 @@ function ArchiveTile({
   onDownload,
   onRetouch,
   onDelete,
+  onSendToTemplate,
 }: {
   photo: ArchivedPhoto;
   onLike: () => void;
@@ -731,6 +943,7 @@ function ArchiveTile({
   onDownload: () => void;
   onRetouch: () => void;
   onDelete: () => void;
+  onSendToTemplate: (t: TemplateSpec) => void;
 }) {
   return (
     <Paper
@@ -796,6 +1009,7 @@ function ArchiveTile({
         <ActionIcon title="Retouch" onClick={onRetouch} color="#274e64">
           <EditNoteIcon sx={{ fontSize: 14 }} />
         </ActionIcon>
+        <SendToTemplateButton url={photo.url} brief={photo.brief} onPick={onSendToTemplate} />
         <ActionIcon title="Download" onClick={onDownload} color="#274e64">
           <DownloadIcon sx={{ fontSize: 14 }} />
         </ActionIcon>
@@ -833,6 +1047,68 @@ function ArchiveTile({
   );
 }
 
+function SendToTemplateButton({
+  onPick,
+}: {
+  url: string;
+  brief: string;
+  onPick: (t: TemplateSpec) => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <Tooltip title="Send to template">
+        <IconButton
+          size="small"
+          onClick={(e) => setAnchor(e.currentTarget)}
+          sx={{
+            width: 24,
+            height: 24,
+            bgcolor: "rgba(255,255,255,0.92)",
+            color: "#ed1b2f",
+            "&:hover": { bgcolor: "#fff" },
+          }}
+        >
+          <DashboardCustomizeIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={() => setAnchor(null)}
+        slotProps={{ paper: { sx: { maxHeight: 320, minWidth: 240 } } }}
+      >
+        <MenuItem disabled sx={{ fontSize: 11, color: "#5f6368", py: 0.5 }}>
+          Templates with photo slot
+        </MenuItem>
+        {TEMPLATES_WITH_PHOTO.map((t) => (
+          <MenuItem
+            key={t.id}
+            onClick={() => {
+              onPick(t);
+              setAnchor(null);
+            }}
+            sx={{ display: "flex", gap: 1, py: 1 }}
+          >
+            <Box
+              component="img"
+              src={t.src}
+              alt={t.name}
+              sx={{ width: 32, height: 32, borderRadius: 0.5, objectFit: "cover", flexShrink: 0 }}
+            />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 600, color: "#1a3a4c" }} noWrap>
+                {t.name}
+              </Typography>
+              <Typography sx={{ fontSize: 10, color: "#5f6368" }}>{t.category}</Typography>
+            </Box>
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  );
+}
+
 function ActionIcon({
   title,
   active,
@@ -867,4 +1143,16 @@ function ActionIcon({
 
 function aspectRatioCss(a: Aspect): string {
   return a.replace(":", " / ");
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("not a data URL"));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }

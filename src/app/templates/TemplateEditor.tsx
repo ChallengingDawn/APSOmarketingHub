@@ -127,12 +127,18 @@ function cloudPath(
   ctx.closePath();
 }
 
-export default function TemplateEditor({ template }: { template: TemplateSpec }) {
+export default function TemplateEditor({
+  template,
+  initialPhotoUrl,
+}: {
+  template: TemplateSpec;
+  initialPhotoUrl?: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [values, setValues] = useState<Values>(() =>
     Object.fromEntries(template.fields.map((f) => [f.id, f.defaultValue]))
   );
-  const [photoUrl, setPhotoUrl] = useState<string>("");
+  const [photoUrl, setPhotoUrl] = useState<string>(initialPhotoUrl ?? "");
   const [photoPrompt, setPhotoPrompt] = useState<string>("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +161,9 @@ export default function TemplateEditor({ template }: { template: TemplateSpec })
   useEffect(() => {
     let cancelled = false;
     setValues(Object.fromEntries(template.fields.map((f) => [f.id, f.defaultValue])));
-    setPhotoUrl("");
+    // Honour the handoff: if /photos opened this template with a preselected
+    // image, keep it; otherwise reset like before.
+    setPhotoUrl(initialPhotoUrl ?? "");
     setPhotoPrompt("");
     bgImgRef.current = null;
     photoImgRef.current = null;
