@@ -47,10 +47,14 @@ export type TemplateSpec = {
   src: string;
   width: number;
   height: number;
-  // Big background cover blocks painted AFTER bg image, BEFORE text. Use these
-  // to wipe out the baked-in placeholder text in one go — much more reliable
-  // than tiny per-field cover rects with mm-precision coordinates.
+  // Big background cover blocks painted AFTER bg image, BEFORE photo. Use to
+  // wipe out the baked-in placeholder text and provide a flat fallback when
+  // the user has not uploaded a photo.
   coverRegions?: CoverRegion[];
+  // Painted AFTER the photo but BEFORE the text fields. Use for ONE big
+  // semi-transparent text scrim that spans every text band — replaces fragile
+  // per-field scrim rects with gaps between them.
+  photoOverlays?: CoverRegion[];
   fields: TextField[];
   photoSlot?: PhotoSlot;
 };
@@ -75,9 +79,13 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/save-the-date-light.jpg",
     width: 1200,
     height: 1200,
-    // Full-canvas green fallback when no photo is uploaded.
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
+    ],
+    // ONE continuous bottom scrim covers all bottom text in a single band —
+    // no gaps, no striping.
+    photoOverlays: [
+      { x: 0, y: 620, w: 1200, h: 580, color: "rgba(0,0,0,0.5)" },
     ],
     fields: [
       {
@@ -115,7 +123,6 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        cover: { x: 0, y: 645, w: 1200, h: 200, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "dateTime",
@@ -129,7 +136,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 40,
         lineHeight: 1.1,
         color: WHITE,
-        cover: { x: 0, y: 840, w: 1200, h: 62, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "sub",
@@ -145,7 +151,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 34,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 0, y: 930, w: 1200, h: 130, color: "rgba(0,0,0,0.45)" },
       },
     ],
     photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
@@ -160,6 +165,9 @@ export const TEMPLATES: TemplateSpec[] = [
     height: 1200,
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
+    ],
+    photoOverlays: [
+      { x: 0, y: 620, w: 1200, h: 580, color: "rgba(0,0,0,0.6)" },
     ],
     fields: [
       {
@@ -194,7 +202,6 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        cover: { x: 0, y: 645, w: 1200, h: 200, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "dateTime",
@@ -208,7 +215,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 40,
         lineHeight: 1.1,
         color: WHITE,
-        cover: { x: 0, y: 840, w: 1200, h: 62, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "sub",
@@ -224,7 +230,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 34,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 0, y: 930, w: 1200, h: 130, color: "rgba(0,0,0,0.6)" },
       },
     ],
     photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
@@ -239,6 +244,9 @@ export const TEMPLATES: TemplateSpec[] = [
     height: 1200,
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: SKY_LIGHT },
+    ],
+    photoOverlays: [
+      { x: 0, y: 250, w: 1200, h: 510, color: "rgba(0,0,0,0.45)" },
     ],
     fields: [
       {
@@ -256,7 +264,6 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        cover: { x: 0, y: 265, w: 1200, h: 220, color: "rgba(0,0,0,0.4)" },
         textShadow: { color: "rgba(0,0,0,0.55)", blur: 12 },
       },
       {
@@ -271,7 +278,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 40,
         lineHeight: 1.1,
         color: WHITE,
-        cover: { x: 0, y: 510, w: 1200, h: 62, color: "rgba(0,0,0,0.4)" },
         textShadow: { color: "rgba(0,0,0,0.55)", blur: 8 },
       },
       {
@@ -288,7 +294,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 34,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 0, y: 605, w: 1200, h: 130, color: "rgba(0,0,0,0.4)" },
         textShadow: { color: "rgba(0,0,0,0.55)", blur: 8 },
       },
     ],
@@ -302,12 +307,11 @@ export const TEMPLATES: TemplateSpec[] = [
     src: "/templates/event-recap-light.jpg",
     width: 1200,
     height: 1200,
-    // Fallback paint under the photo: if the user has not dropped an image yet,
-    // we still hide the baked-in cloud + green block with a flat green so the
-    // template never looks broken. Once the photo paints (full canvas, below
-    // the logo strip) the green disappears entirely.
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
+    ],
+    photoOverlays: [
+      { x: 0, y: 820, w: 1200, h: 380, color: "rgba(0,0,0,0.5)" },
     ],
     fields: [
       {
@@ -323,9 +327,6 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        // Semi-transparent dark scrim painted at field-render time, AFTER the
-        // photo, so the text reads on any image without an opaque colour bar.
-        cover: { x: 0, y: 850, w: 1200, h: 130, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "sub",
@@ -341,7 +342,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 36,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.45)" },
       },
     ],
     photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
@@ -357,6 +357,9 @@ export const TEMPLATES: TemplateSpec[] = [
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
     ],
+    photoOverlays: [
+      { x: 0, y: 820, w: 1200, h: 380, color: "rgba(0,0,0,0.6)" },
+    ],
     fields: [
       {
         id: "headline",
@@ -371,7 +374,6 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        cover: { x: 0, y: 850, w: 1200, h: 130, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "sub",
@@ -387,7 +389,6 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 36,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.6)" },
       },
     ],
     photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },

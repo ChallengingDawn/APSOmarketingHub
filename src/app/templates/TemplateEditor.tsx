@@ -277,6 +277,16 @@ export default function TemplateEditor({
       ctx.restore();
     }
 
+    // Continuous text-band scrim(s) painted on top of the photo, BEFORE the
+    // text. Avoids the striping that came from per-field scrim rects with
+    // gaps between them.
+    if (template.photoOverlays) {
+      for (const r of template.photoOverlays) {
+        ctx.fillStyle = r.color;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      }
+    }
+
     // Text fields
     for (const field of template.fields) {
       drawField(ctx, field, values[field.id] ?? "");
