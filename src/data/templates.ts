@@ -286,12 +286,16 @@ export const TEMPLATES: TemplateSpec[] = [
     id: "event-recap-light",
     name: "Event Recap — Light",
     category: "LinkedIn event",
-    description: "Big cloud photo slot, red headline on green hill.",
+    description: "Photo fills the canvas; white headline + sub overlay on a soft dark scrim.",
     src: "/templates/event-recap-light.jpg",
     width: 1200,
     height: 1200,
+    // Fallback paint under the photo: if the user has not dropped an image yet,
+    // we still hide the baked-in cloud + green block with a flat green so the
+    // template never looks broken. Once the photo paints (full canvas, below
+    // the logo strip) the green disappears entirely.
     coverRegions: [
-      { x: 0, y: 820, w: 1200, h: 380, color: GREEN_LIGHT },
+      { x: 0, y: 80, w: 1200, h: 1120, color: GREEN_LIGHT },
     ],
     fields: [
       {
@@ -305,9 +309,11 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 800,
         fontSize: 100,
         lineHeight: 1.05,
-        color: APSO_RED,
+        color: WHITE,
         uppercase: true,
-        cover: { x: 60, y: 850, w: 1060, h: 130, color: GREEN_LIGHT },
+        // Semi-transparent dark scrim painted at field-render time, AFTER the
+        // photo, so the text reads on any image without an opaque colour bar.
+        cover: { x: 0, y: 850, w: 1200, h: 130, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "sub",
@@ -322,22 +328,22 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 400,
         fontSize: 36,
         lineHeight: 1.3,
-        color: INK,
-        cover: { x: 60, y: 985, w: 1060, h: 140, color: GREEN_LIGHT },
+        color: WHITE,
+        cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.45)" },
       },
     ],
-    photoSlot: { x: 345, y: 110, w: 510, h: 250, mask: "cloud" },
+    photoSlot: { x: 0, y: 80, w: 1200, h: 1120, mask: "rect" },
   },
   {
     id: "event-recap-dark",
     name: "Event Recap — Dark",
     category: "LinkedIn event",
-    description: "Big cloud photo slot, white headline on dark hill.",
+    description: "Photo fills the canvas; white headline + sub overlay on a stronger dark scrim.",
     src: "/templates/event-recap-dark.jpg",
     width: 1200,
     height: 1200,
     coverRegions: [
-      { x: 0, y: 760, w: 1200, h: 440, color: GREEN_DARK },
+      { x: 0, y: 80, w: 1200, h: 1120, color: GREEN_DARK },
     ],
     fields: [
       {
@@ -345,7 +351,7 @@ export const TEMPLATES: TemplateSpec[] = [
         label: "Event headline",
         defaultValue: "EVENT RECAP",
         x: 80,
-        y: 840,
+        y: 900,
         maxWidth: 1040,
         fontFamily: HEAD_FONT,
         fontWeight: 800,
@@ -353,7 +359,7 @@ export const TEMPLATES: TemplateSpec[] = [
         lineHeight: 1.05,
         color: WHITE,
         uppercase: true,
-        cover: { x: 60, y: 790, w: 1060, h: 130, color: GREEN_DARK },
+        cover: { x: 0, y: 850, w: 1200, h: 130, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "sub",
@@ -362,17 +368,17 @@ export const TEMPLATES: TemplateSpec[] = [
         multiline: true,
         maxLines: 2,
         x: 80,
-        y: 945,
+        y: 1005,
         maxWidth: 1040,
         fontFamily: BODY_FONT,
         fontWeight: 400,
         fontSize: 36,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 60, y: 925, w: 1060, h: 140, color: GREEN_DARK },
+        cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.6)" },
       },
     ],
-    photoSlot: { x: 345, y: 110, w: 510, h: 250, mask: "cloud" },
+    photoSlot: { x: 0, y: 80, w: 1200, h: 1120, mask: "rect" },
   },
   {
     id: "post-event-highlight",
