@@ -21,6 +21,7 @@ import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import type { TemplateSpec, TextField as TemplateField } from "@/data/templates";
 import { readGallery, pushToGallery, type GalleryImage } from "@/lib/imageGallery";
+import { archivePhoto } from "@/lib/photoArchive";
 
 type Values = Record<string, string>;
 
@@ -85,9 +86,11 @@ function drawField(
   field: TemplateField,
   value: string
 ) {
-  // Cover placeholder
-  ctx.fillStyle = field.cover.color;
-  ctx.fillRect(field.cover.x, field.cover.y, field.cover.w, field.cover.h);
+  // Optional cover (brand-colour wipe or semi-transparent scrim).
+  if (field.cover) {
+    ctx.fillStyle = field.cover.color;
+    ctx.fillRect(field.cover.x, field.cover.y, field.cover.w, field.cover.h);
+  }
 
   // Text
   const text = field.uppercase ? value.toUpperCase() : value;
@@ -95,6 +98,16 @@ function drawField(
   ctx.textBaseline = "top";
   ctx.textAlign = field.align ?? "left";
   ctx.font = `${field.fontWeight} ${field.fontSize}px ${field.fontFamily}`;
+
+  // Optional drop shadow for legibility on photos. Only set when the field
+  // declares it; reset back so subsequent fields are not affected.
+  const hasShadow = !!field.textShadow;
+  if (hasShadow) {
+    ctx.shadowColor = field.textShadow!.color;
+    ctx.shadowBlur = field.textShadow!.blur;
+    ctx.shadowOffsetX = field.textShadow!.offsetX ?? 0;
+    ctx.shadowOffsetY = field.textShadow!.offsetY ?? 0;
+  }
 
   const lines = wrapLines(ctx, text, field.maxWidth, field.maxLines ?? 4);
   const lh = field.fontSize * field.lineHeight;
@@ -105,6 +118,13 @@ function drawField(
     } else {
       ctx.fillText(lines[i], field.x, y);
     }
+  }
+
+  if (hasShadow) {
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
   }
 }
 
@@ -285,6 +305,7 @@ export default function TemplateEditor({
       if (data.imageUrl) {
         setPhotoUrl(data.imageUrl);
         pushToGallery({ url: data.imageUrl, brief, source: "template" });
+        void archivePhoto({ url: data.imageUrl, brief, source: "template" });
       } else {
         setError(data.imageError ?? data.error ?? "Image generation failed");
       }

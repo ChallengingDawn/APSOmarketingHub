@@ -41,6 +41,7 @@ import Skeleton from "@mui/material/Skeleton";
 import type { Brain } from "@/lib/brain";
 import type { CurrentBatch } from "@/lib/logs";
 import { pushToGallery } from "@/lib/imageGallery";
+import { archivePhoto } from "@/lib/photoArchive";
 
 type Proposal = {
   headline: string;
@@ -209,6 +210,13 @@ export default function ComposerAndProposals({
             brief: data.imageBrief ?? composer.slice(0, 80),
             source: "composer",
           });
+          void archivePhoto({
+            url: data.imageUrl,
+            brief: data.imageBrief ?? composer.slice(0, 80),
+            audience,
+            category: category || undefined,
+            source: "composer",
+          });
         }
       }
     } catch (err) {
@@ -230,6 +238,13 @@ export default function ComposerAndProposals({
       const data = await res.json();
       if (data.imageUrl) {
         pushToGallery({ url: data.imageUrl, brief: prompt, source: "proposal" });
+        void archivePhoto({
+          url: data.imageUrl,
+          brief: prompt,
+          audience,
+          category: category || undefined,
+          source: "proposal",
+        });
       }
       setProposals((cur) =>
         cur.map((p, i) =>
@@ -266,6 +281,13 @@ export default function ComposerAndProposals({
       const data = await res.json();
       if (data.imageUrl) {
         pushToGallery({ url: data.imageUrl, brief: newPrompt, source: "composer" });
+        void archivePhoto({
+          url: data.imageUrl,
+          brief: newPrompt,
+          audience,
+          category: category || undefined,
+          source: "composer",
+        });
       }
       setComposerImage((cur) =>
         cur

@@ -19,8 +19,13 @@ export type TextField = {
   align?: TextAlign;
   uppercase?: boolean;
   letterSpacing?: number;
-  // Cover rect painted under the text to hide the baked-in placeholder
-  cover: { x: number; y: number; w: number; h: number; color: string };
+  // Optional cover rect painted under the text. Use a brand colour to wipe a
+  // baked-in placeholder, or a semi-transparent rgba() to scrim text on a photo.
+  // Leave undefined when the text reads on the bg as-is.
+  cover?: { x: number; y: number; w: number; h: number; color: string };
+  // Optional drop-shadow for legibility on photos. Used when the template
+  // accepts a photoSlot and the text overlays the image without an opaque cover.
+  textShadow?: { color: string; blur: number; offsetX?: number; offsetY?: number };
 };
 
 export type PhotoSlot = {
@@ -60,20 +65,19 @@ const GREEN_DARK = "#788d2c";
 const GREEN_LIGHT = "#a3bf5c";
 const WHITE = "#ffffff";
 const APSO_RED = "#ed1b2f";
-const INK = "#111111";
 
 export const TEMPLATES: TemplateSpec[] = [
   {
     id: "save-the-date-light",
     name: "Save The Date — Light",
     category: "LinkedIn event",
-    description: "Sky + green hills, black title on hill, red headline below.",
+    description: "Photo fills canvas. Green SAVE THE DATE block stays opaque; bottom text overlays on a scrim.",
     src: "/templates/save-the-date-light.jpg",
     width: 1200,
     height: 1200,
+    // Full-canvas green fallback when no photo is uploaded.
     coverRegions: [
-      { x: 60, y: 250, w: 920, h: 350, color: GREEN_LIGHT },
-      { x: 0, y: 615, w: 1200, h: 585, color: WHITE },
+      { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
     ],
     fields: [
       {
@@ -89,8 +93,11 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 800,
         fontSize: 135,
         lineHeight: 1.0,
-        color: INK,
+        color: WHITE,
         uppercase: true,
+        // Opaque GREEN_LIGHT block painted AFTER the photo at field-render
+        // time — keeps the iconic SAVE THE DATE block visible even when a
+        // photo fills the rest of the canvas.
         cover: { x: 60, y: 255, w: 920, h: 340, color: GREEN_LIGHT },
       },
       {
@@ -106,9 +113,9 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 800,
         fontSize: 76,
         lineHeight: 1.05,
-        color: APSO_RED,
+        color: WHITE,
         uppercase: true,
-        cover: { x: 60, y: 645, w: 1060, h: 200, color: WHITE },
+        cover: { x: 0, y: 645, w: 1200, h: 200, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "dateTime",
@@ -121,8 +128,8 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 700,
         fontSize: 40,
         lineHeight: 1.1,
-        color: INK,
-        cover: { x: 60, y: 840, w: 1060, h: 62, color: WHITE },
+        color: WHITE,
+        cover: { x: 0, y: 840, w: 1200, h: 62, color: "rgba(0,0,0,0.45)" },
       },
       {
         id: "sub",
@@ -137,22 +144,22 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 400,
         fontSize: 34,
         lineHeight: 1.3,
-        color: INK,
-        cover: { x: 60, y: 930, w: 1060, h: 130, color: WHITE },
+        color: WHITE,
+        cover: { x: 0, y: 930, w: 1200, h: 130, color: "rgba(0,0,0,0.45)" },
       },
     ],
+    photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
   },
   {
     id: "save-the-date-dark",
     name: "Save The Date — Dark",
     category: "LinkedIn event",
-    description: "Sky + dark hills, white title on hill, red headline below.",
+    description: "Photo fills canvas. Dark green SAVE THE DATE block stays opaque; bottom text overlays on a stronger scrim.",
     src: "/templates/save-the-date-dark.jpg",
     width: 1200,
     height: 1200,
     coverRegions: [
-      { x: 60, y: 250, w: 920, h: 350, color: GREEN_DARK },
-      { x: 0, y: 615, w: 1200, h: 585, color: WHITE },
+      { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
     ],
     fields: [
       {
@@ -185,9 +192,9 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 800,
         fontSize: 76,
         lineHeight: 1.05,
-        color: APSO_RED,
+        color: WHITE,
         uppercase: true,
-        cover: { x: 60, y: 645, w: 1060, h: 200, color: WHITE },
+        cover: { x: 0, y: 645, w: 1200, h: 200, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "dateTime",
@@ -200,8 +207,8 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 700,
         fontSize: 40,
         lineHeight: 1.1,
-        color: INK,
-        cover: { x: 60, y: 840, w: 1060, h: 62, color: WHITE },
+        color: WHITE,
+        cover: { x: 0, y: 840, w: 1200, h: 62, color: "rgba(0,0,0,0.6)" },
       },
       {
         id: "sub",
@@ -216,21 +223,22 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 400,
         fontSize: 34,
         lineHeight: 1.3,
-        color: INK,
-        cover: { x: 60, y: 930, w: 1060, h: 130, color: WHITE },
+        color: WHITE,
+        cover: { x: 0, y: 930, w: 1200, h: 130, color: "rgba(0,0,0,0.6)" },
       },
     ],
+    photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
   },
   {
     id: "event-teaser-dark",
     name: "Event Teaser — Dark",
     category: "LinkedIn event",
-    description: "Moody sky, red + white headline, strapline footer.",
+    description: "Photo fills canvas. Headline + date + sub overlay on a soft scrim, white text with shadow.",
     src: "/templates/event-teaser-dark.jpg",
     width: 1200,
     height: 1200,
     coverRegions: [
-      { x: 0, y: 260, w: 1200, h: 500, color: SKY_LIGHT },
+      { x: 0, y: 0, w: 1200, h: 1200, color: SKY_LIGHT },
     ],
     fields: [
       {
@@ -246,9 +254,10 @@ export const TEMPLATES: TemplateSpec[] = [
         fontWeight: 800,
         fontSize: 82,
         lineHeight: 1.05,
-        color: APSO_RED,
+        color: WHITE,
         uppercase: true,
-        cover: { x: 60, y: 265, w: 1060, h: 220, color: SKY_LIGHT },
+        cover: { x: 0, y: 265, w: 1200, h: 220, color: "rgba(0,0,0,0.4)" },
+        textShadow: { color: "rgba(0,0,0,0.55)", blur: 12 },
       },
       {
         id: "dateTime",
@@ -262,7 +271,8 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 40,
         lineHeight: 1.1,
         color: WHITE,
-        cover: { x: 60, y: 510, w: 1060, h: 62, color: SKY_LIGHT },
+        cover: { x: 0, y: 510, w: 1200, h: 62, color: "rgba(0,0,0,0.4)" },
+        textShadow: { color: "rgba(0,0,0,0.55)", blur: 8 },
       },
       {
         id: "sub",
@@ -278,9 +288,11 @@ export const TEMPLATES: TemplateSpec[] = [
         fontSize: 34,
         lineHeight: 1.3,
         color: WHITE,
-        cover: { x: 60, y: 605, w: 1060, h: 130, color: SKY_LIGHT },
+        cover: { x: 0, y: 605, w: 1200, h: 130, color: "rgba(0,0,0,0.4)" },
+        textShadow: { color: "rgba(0,0,0,0.55)", blur: 8 },
       },
     ],
+    photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
   },
   {
     id: "event-recap-light",
@@ -295,7 +307,7 @@ export const TEMPLATES: TemplateSpec[] = [
     // template never looks broken. Once the photo paints (full canvas, below
     // the logo strip) the green disappears entirely.
     coverRegions: [
-      { x: 0, y: 80, w: 1200, h: 1120, color: GREEN_LIGHT },
+      { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
     ],
     fields: [
       {
@@ -332,7 +344,7 @@ export const TEMPLATES: TemplateSpec[] = [
         cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.45)" },
       },
     ],
-    photoSlot: { x: 0, y: 80, w: 1200, h: 1120, mask: "rect" },
+    photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
   },
   {
     id: "event-recap-dark",
@@ -343,7 +355,7 @@ export const TEMPLATES: TemplateSpec[] = [
     width: 1200,
     height: 1200,
     coverRegions: [
-      { x: 0, y: 80, w: 1200, h: 1120, color: GREEN_DARK },
+      { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
     ],
     fields: [
       {
@@ -378,7 +390,7 @@ export const TEMPLATES: TemplateSpec[] = [
         cover: { x: 0, y: 980, w: 1200, h: 200, color: "rgba(0,0,0,0.6)" },
       },
     ],
-    photoSlot: { x: 0, y: 80, w: 1200, h: 1120, mask: "rect" },
+    photoSlot: { x: 0, y: 0, w: 1200, h: 1200, mask: "rect" },
   },
   {
     id: "post-event-highlight",
