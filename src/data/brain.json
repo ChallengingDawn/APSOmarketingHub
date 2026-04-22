@@ -131,6 +131,84 @@
     "categoriesWithSeoText": 107,
     "contentGap": "304 leaf categories (74%) have no SEO category text. Primary first-workflow opportunity for the hub."
   },
+  "photoGuidelines": {
+    "imageDNA": {
+      "purpose": "Visual consistency for APSOparts content across external digital channels and shop mood images. Adapts the Angst+Pfister group visual language for cross-brand recognition (parent: bolder hero, custom-engineering studio look; APSOparts: same family, but lighter, more transactional, peer-to-peer with maintenance/procurement).",
+      "moodAdjectives": [
+        "calm",
+        "premium-but-not-glossy",
+        "industrial-real",
+        "natural-light",
+        "honest-workshop",
+        "peer-to-peer"
+      ],
+      "lighting": "Soft natural daylight from a window or overhead diffused. Avoid harsh studio rim-light or saturated marketing rendering. Subtle warm shadows are fine; never neon or HDR.",
+      "palette": "Industrial neutrals (steel grey, brushed metal, raw concrete, oiled wood). APSO red (#ed1b2f) only as a small accent — a tool handle, a brand mark, a thread of light. Never red as the dominant color of a scene.",
+      "framing": "Eye-level or slightly top-down workbench angles. Hands-and-tools-in-context shots are the signature. Wide-establishing plant overviews are fine for plant-manager content. Never centered, symmetrical hero compositions.",
+      "depthOfField": "Real photographic DoF. Background slightly out of focus, subject in focus. No tilt-shift, no fake bokeh.",
+      "anpFamilyRule": "Cross-brand recognition: same lighting language and palette as Angst+Pfister parent. Difference is subject — parent shows custom solutions / engineered prototypes, APSOparts shows standard components in honest use."
+    },
+    "sceneRules": [
+      "Match the operation to the right tool. Cutting plastic stock = CNC mill, bandsaw, or precision saw — NEVER a hand cutter or utility knife. Replacing an O-ring = gloved hand + correct pick tool — NEVER pliers. Tightening a fitting = correct wrench size — NEVER adjustable spanner on a precision part.",
+      "Show realistic component sizes. An O-ring on a fingertip is fine; an O-ring being lifted with two hands is not.",
+      "Components must be installed/handled in plausible context. PEEK rod stock belongs near a CNC, not a workbench with a knife. Hydraulic seals belong in a hydraulic cylinder cross-section, not floating on white.",
+      "Hands and gloves should match the operation. Bare hands for clean assembly of small seals; nitrile gloves for chemical/food/pharma; leather work gloves for heavy hardware.",
+      "Wear and weathering are honest. Tools and benches can show real use. People should not look like models.",
+      "No impossible physics: no liquids defying gravity, no parts hovering, no perfectly aligned identical parts in unrealistic patterns."
+    ],
+    "hardNo": [
+      "No CAD renders, exploded views, schematics, blueprint overlays.",
+      "No white-background isolated product shots (those belong on the PDP, not in mood imagery).",
+      "No stock-photo people in business suits.",
+      "No fear or catastrophe imagery (broken parts, leaks framed as drama, alarm-red overlays).",
+      "No promotional badges, price tags, percentage signs, sale stickers.",
+      "No HR/team-building shots (handshakes, conference rooms, smiling team huddles).",
+      "No futuristic sci-fi (chrome robots, neon, hologram UIs) unless explicitly the automation/sensors brief.",
+      "No watermarks, no logos overlaid, no text rendered into the image."
+    ],
+    "audienceSceneHints": {
+      "Maintenance engineers": "industrial workshop, hands with correct tool (right spanner, pick), components on a worn-but-clean workbench",
+      "Procurement / buyers": "office-in-plant setting, parts boxes or catalogue pages, laptop showing shop UI",
+      "Design engineers": "engineering office, physical prototype samples in hand, clean workshop adjacent",
+      "R&D engineers": "R&D lab, test rig, gloved hand inspecting a component under measurement",
+      "Plant managers": "production floor overview, elevated angle over machinery, safety gear on a nearby operator",
+      "Production / operations": "live production line, machine in motion, operator in context",
+      "Quality assurance": "QA bench, calipers/gauges, precision measurement of a part",
+      "Automation engineers": "industrial automation skid, sensors and cables, control cabinet in background",
+      "Facility managers": "building plant room, pipework, valves and facility infrastructure",
+      "MRO / aftermarket technicians": "field service context, service van or toolbox, technician swapping a part on site",
+      "OEM product managers": "OEM assembly line, subassembly in focus, premium industrial aesthetic",
+      "Food & beverage engineers": "food-grade clean stainless environment, CIP piping, sanitary seals/fittings",
+      "Chemical process engineers": "chemical plant, stainless reactor or piping, chemical-resistant seals/gaskets",
+      "Pharma / GMP engineers": "GMP clean room, white surfaces, sanitary components, operator in clean garments",
+      "Hydraulics & pneumatics specialists": "hydraulic power unit, pneumatic cylinders, pressure gauges visible",
+      "Distributors / resellers": "warehouse aisle, neutral B2B logistics, packaged components on racks",
+      "C-level / technical directors": "wider plant overview, strategic calm composition"
+    },
+    "categorySceneHints": {
+      "Sealing Technology": "O-rings, gaskets and seals shown in real context (on a flange, hydraulic cylinder, or rotating shaft). Cross-section vignettes acceptable if they look like real cuts, not CAD.",
+      "Engineering Plastics Technology": "PEEK / POM / PTFE plastic stock and machined parts shown next to a CNC mill, bandsaw or precision lathe — never a hand cutter on plastic stock.",
+      "Fluid Handling Technology": "hoses, couplings, clamps, check valves on a real fluid circuit. Pressure gauge or test bench in frame is a plus.",
+      "Antivibration Technology": "vibration mounts, bushings, buffers installed on a machine frame or motor mount.",
+      "Drive Technology": "timing belts, pulleys, couplings, brackets on a real drive train.",
+      "Sensors and Power": "industrial sensors, cables and control components wired into a machine."
+    },
+    "midjourneyTranslation": {
+      "note": "Midjourney prompt patterns from the existing APSO image library. Translate intent (not literal syntax) into Gemini Nano Banana Pro prompts, which prefer descriptive sentences over comma-stacked tags.",
+      "patterns": [
+        { "mj": "industrial workshop, hands working, soft natural light, shallow depth of field, 35mm, --ar 16:9 --style raw", "gemini": "Photorealistic editorial photograph of an industrial workshop. Hands in the foreground working on a component with the correct tool. Soft natural light from a side window. Shallow depth of field — subject sharp, background gently out of focus. 35mm-like perspective. Honest, peer-to-peer industrial mood, not glossy stock." },
+        { "mj": "hydraulic cylinder cutaway, EPDM seal install, macro detail, studio softbox, --ar 1:1", "gemini": "Realistic close-up macro photograph of a hydraulic cylinder with an EPDM seal being installed in its groove using the correct pick tool. Soft, even diffused light (no studio rim glare). Sharp subject in focus, the cylinder body fading out of focus. Square framing. No CAD or schematic look." },
+        { "mj": "GMP clean room, sanitary piping, operator in clean suit, soft daylight, --ar 16:9", "gemini": "Realistic photograph of a GMP clean room with sanitary stainless piping. An operator in a clean garment is checking a sanitary seal. Soft, neutral daylight. White surfaces, no neon or color tint. Calm composition, eye-level perspective. No futuristic sci-fi styling." }
+      ]
+    },
+    "goldImageReferences": [
+      {
+        "title": "PEEK / POM rod stock at machining station (training reference 2026-04)",
+        "url": "",
+        "notes": "Plastic engineering rods staged on a brushed-steel workbench near a CNC. This is the correct way to show machinable plastics. NOT with a utility knife."
+      }
+    ]
+  },
   "trainingSources": [
     { "file": "APSOparts_Brochure_EN.pdf", "type": "brand" },
     { "file": "SoMe Guidelines APSOparts.docx", "type": "voice" },

@@ -46,9 +46,12 @@ function extractInlineImage(parts: unknown[]): { data: string; mime: string } | 
   return null;
 }
 
+export type ReferenceImage = { dataUrl: string; note?: string };
+
 export async function generateApsoImage(
   apiKey: string,
-  prompt: string
+  prompt: string,
+  references: ReferenceImage[] = []
 ): Promise<ImageResult> {
   const ai = new GoogleGenAI({ apiKey });
   const errors: string[] = [];
@@ -56,17 +59,30 @@ export async function generateApsoImage(
   const override = process.env.GEMINI_IMAGE_MODEL?.trim();
   const models = override ? [override] : DEFAULT_MODELS;
 
+  // Build multimodal parts — text first, then optional reference images.
+  const parts: Array<
+    { text: string } | { inlineData: { data: string; mimeType: string } }
+  > = [{ text: prompt }];
+  for (const ref of references) {
+    const m = /^data:([^;]+);base64,(.+)$/.exec(ref.dataUrl);
+    if (!m) continue;
+    parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+    if (ref.note?.trim()) {
+      parts.push({ text: `Reference note: ${ref.note.trim()}` });
+    }
+  }
+
   for (const model of models) {
     try {
       const res = await ai.models.generateContent({
         model,
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        contents: [{ role: "user", parts }],
         config: {
           responseModalities: ["TEXT", "IMAGE"],
         },
       });
-      const parts = res.candidates?.[0]?.content?.parts ?? [];
-      const found = extractInlineImage(parts);
+      const responseParts = res.candidates?.[0]?.content?.parts ?? [];
+      const found = extractInlineImage(responseParts);
       if (found) {
         return { ok: true, dataUrl: `data:${found.mime};base64,${found.data}`, model };
       }

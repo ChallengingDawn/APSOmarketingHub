@@ -47,7 +47,29 @@ export type Brain = {
     categoriesWithSeoText: number;
     contentGap: string;
   };
+  photoGuidelines?: PhotoGuidelines;
   trainingSources: { file: string; type: string }[];
+};
+
+export type PhotoGuidelines = {
+  imageDNA: {
+    purpose: string;
+    moodAdjectives: string[];
+    lighting: string;
+    palette: string;
+    framing: string;
+    depthOfField: string;
+    anpFamilyRule: string;
+  };
+  sceneRules: string[];
+  hardNo: string[];
+  audienceSceneHints: Record<string, string>;
+  categorySceneHints: Record<string, string>;
+  midjourneyTranslation: {
+    note: string;
+    patterns: { mj: string; gemini: string }[];
+  };
+  goldImageReferences: { title: string; url: string; notes: string }[];
 };
 
 export async function readBrain(): Promise<Brain> {

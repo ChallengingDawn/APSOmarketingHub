@@ -225,7 +225,7 @@ export default function ComposerAndProposals({
       const res = await fetch("/api/propose/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index, imagePrompt: prompt }),
+        body: JSON.stringify({ index, imagePrompt: prompt, filters: filterContext }),
       });
       const data = await res.json();
       if (data.imageUrl) {
@@ -261,7 +261,7 @@ export default function ComposerAndProposals({
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: newPrompt }),
+        body: JSON.stringify({ prompt: newPrompt, filters: filterContext }),
       });
       const data = await res.json();
       if (data.imageUrl) {

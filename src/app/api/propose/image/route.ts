@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateApsoImage } from "@/lib/images";
 import { updateCurrentBatchImage } from "@/lib/logs";
+import { readBrain } from "@/lib/brain";
+import { buildImagePrompt } from "@/lib/imagePrompt";
+import type { GenerationFilters } from "@/lib/filters";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,6 +11,7 @@ export const maxDuration = 60;
 type ImageBody = {
   index: number;
   imagePrompt: string;
+  filters?: GenerationFilters;
 };
 
 export async function POST(req: NextRequest) {
@@ -31,11 +35,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const fullPrompt =
-    `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
-    `${imagePrompt}. ` +
-    `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
-    `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`;
+  const brain = await readBrain();
+  const fullPrompt = buildImagePrompt(brain, {
+    brief: imagePrompt,
+    filters: body.filters,
+  });
 
   const result = await generateApsoImage(geminiKey, fullPrompt);
 

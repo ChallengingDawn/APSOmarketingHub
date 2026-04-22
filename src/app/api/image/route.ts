@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateApsoImage } from "@/lib/images";
+import { generateApsoImage, type ReferenceImage } from "@/lib/images";
+import { readBrain } from "@/lib/brain";
+import { buildImagePrompt, type ImagePromptInput } from "@/lib/imagePrompt";
+import type { GenerationFilters } from "@/lib/filters";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Body = { prompt: string };
+type Body = {
+  prompt: string;
+  filters?: GenerationFilters;
+  references?: ReferenceImage[];
+  referenceNotes?: string;
+  aspect?: ImagePromptInput["aspect"];
+};
 
 export async function POST(req: NextRequest) {
   let body: Body;
@@ -13,8 +22,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  const prompt = body.prompt?.trim();
-  if (!prompt) {
+  const brief = body.prompt?.trim();
+  if (!brief) {
     return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
   }
 
@@ -26,17 +35,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const fullPrompt =
-    `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
-    `${prompt}. ` +
-    `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
-    `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`;
+  const brain = await readBrain();
+  const fullPrompt = buildImagePrompt(brain, {
+    brief,
+    filters: body.filters,
+    referenceNotes: body.referenceNotes,
+    aspect: body.aspect,
+  });
 
-  const result = await generateApsoImage(geminiKey, fullPrompt);
+  const result = await generateApsoImage(geminiKey, fullPrompt, body.references ?? []);
   if (result.ok) {
     return NextResponse.json({
       imageUrl: result.dataUrl,
       imageSource: "gemini",
+      imageBrief: brief,
     });
   }
   return NextResponse.json({
