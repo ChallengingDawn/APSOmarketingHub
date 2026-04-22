@@ -55,6 +55,8 @@ export default async function PhotosPage() {
       <PhotoStudio
         audiences={Object.keys(g?.audienceSceneHints ?? {})}
         categories={Object.keys(g?.categorySceneHints ?? {})}
+        toneAdjectives={brain.brandVoice.toneAdjectives}
+        signaturePhrases={brain.brandVoice.signaturePhrases}
       />
     </Box>
   );

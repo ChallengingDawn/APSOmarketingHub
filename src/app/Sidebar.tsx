@@ -58,8 +58,8 @@ const navSections: NavSection[] = [
     items: [
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "Public" },
-      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" />, badge: "AI" },
+      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
   },
