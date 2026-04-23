@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -35,6 +36,7 @@ const SECTION_TITLES: Record<string, { label: string; desc: string }> = {
 };
 
 export default function PersonalityEditor({ initial }: { initial: Brain }) {
+  const router = useRouter();
   const [brain, setBrain] = useState<Brain>(initial);
   const [openId, setOpenId] = useState<string | null>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
@@ -54,6 +56,10 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
       if (!res.ok) throw new Error(await res.text());
       const saved = (await res.json()) as Brain;
       setBrain(saved);
+      // Flush the Next router cache so /content-generation, /photos etc. pick
+      // up the new brain values on the next navigation instead of reusing the
+      // stale RSC payload that was rendered before this save.
+      router.refresh();
       setToast({ open: true, msg: "Brain updated", severity: "success" });
     } catch (err) {
       setToast({ open: true, msg: `Save failed: ${String(err)}`, severity: "error" });

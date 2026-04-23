@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { readBrain, writeBrain, type Brain } from "@/lib/brain";
 
 export async function GET() {
@@ -18,6 +19,14 @@ export async function POST(req: NextRequest) {
     const next = (await req.json()) as Brain;
     await writeBrain(next);
     const saved = await readBrain();
+    // Invalidate every page that depends on brain data so the next navigation
+    // re-renders with the fresh values (composer dropdown, image studio
+    // filters, photo guidelines etc.).
+    revalidatePath("/personality");
+    revalidatePath("/content-generation");
+    revalidatePath("/photos");
+    revalidatePath("/templates");
+    revalidatePath("/");
     return NextResponse.json(saved);
   } catch (err) {
     return NextResponse.json(
