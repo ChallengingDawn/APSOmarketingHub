@@ -81,6 +81,44 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Color-key composite: clip a rect from the bg image, mask out every pixel
+// that is NOT reddish (R dominates G + B), then paint what is left on top of
+// the canvas. Used to restore the red DNA wireframe over a photo without
+// dragging the sky pixels along with it.
+function paintRedKey(
+  ctx: CanvasRenderingContext2D,
+  bg: HTMLImageElement,
+  d: { srcX: number; srcY: number; srcW: number; srcH: number; destX: number; destY: number; destW: number; destH: number }
+) {
+  const off = document.createElement("canvas");
+  off.width = d.srcW;
+  off.height = d.srcH;
+  const offCtx = off.getContext("2d", { willReadFrequently: true });
+  if (!offCtx) return;
+  offCtx.drawImage(bg, d.srcX, d.srcY, d.srcW, d.srcH, 0, 0, d.srcW, d.srcH);
+  let img: ImageData;
+  try {
+    img = offCtx.getImageData(0, 0, d.srcW, d.srcH);
+  } catch {
+    // CORS-tainted canvas — silently bail and leave the photo unmodified
+    // rather than throwing in the render loop.
+    return;
+  }
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    // Reddish: R clearly dominates the other channels and is bright enough
+    // to count. Tweakable — current settings catch the APSO red wireframe
+    // (#ed1b2f-ish) reliably while ignoring grey/sky pixels.
+    const isRed = r > 110 && r - Math.max(g, b) > 35;
+    if (!isRed) data[i + 3] = 0;
+  }
+  offCtx.putImageData(img, 0, 0);
+  ctx.drawImage(off, 0, 0, d.srcW, d.srcH, d.destX, d.destY, d.destW, d.destH);
+}
+
 function drawField(
   ctx: CanvasRenderingContext2D,
   field: TemplateField,
@@ -279,20 +317,26 @@ export default function TemplateEditor({
 
     // Brand chrome — re-paste regions of the bg JPG (logo bar, red DNA
     // wireframe) on top of the photo so we keep brand identity even when the
-    // photoSlot covers the full canvas.
+    // photoSlot covers the full canvas. "redKey" mode masks out everything
+    // except reddish pixels so we can composite the DNA wireframe without
+    // bringing the sky background along with it.
     if (template.bgDecorations) {
       for (const d of template.bgDecorations) {
-        ctx.drawImage(
-          bg,
-          d.srcX,
-          d.srcY,
-          d.srcW,
-          d.srcH,
-          d.destX,
-          d.destY,
-          d.destW,
-          d.destH
-        );
+        if (d.mode === "redKey") {
+          paintRedKey(ctx, bg, d);
+        } else {
+          ctx.drawImage(
+            bg,
+            d.srcX,
+            d.srcY,
+            d.srcW,
+            d.srcH,
+            d.destX,
+            d.destY,
+            d.destW,
+            d.destH
+          );
+        }
       }
     }
 

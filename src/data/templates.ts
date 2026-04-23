@@ -43,7 +43,15 @@ export type CoverRegion = { x: number; y: number; w: number; h: number; color: s
 // restore brand chrome (APSOparts logo bar, red DNA wireframe decoration)
 // that the full-canvas photo would otherwise hide. src* and dest* are usually
 // equal — the same rect on the bg redrawn at the same place on the canvas.
+//
+// mode:
+//   "rect"   (default) — straight rect copy, brings any pixels along with it.
+//   "redKey" — pixel-mask the source rect to keep only reddish pixels and
+//              composite them on top of the photo. Used for the red wireframe
+//              "DNA" element when we cannot easily separate it from the sky
+//              pixels behind it on the bg JPG.
 export type BgDecoration = {
+  mode?: "rect" | "redKey";
   srcX: number;
   srcY: number;
   srcW: number;
@@ -103,8 +111,11 @@ export const TEMPLATES: TemplateSpec[] = [
     ],
     // Re-paste the APSOparts logo bar from the bg JPG on top of the photo so
     // the brand strip stays visible even when the photoSlot fills the canvas.
+    // Then color-key the entire bg to extract the red DNA wireframe and
+    // composite it on top of the photo.
     bgDecorations: [
       { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+      { mode: "redKey", srcX: 0, srcY: 0, srcW: 1200, srcH: 1200, destX: 0, destY: 0, destW: 1200, destH: 1200 },
     ],
     // ONE continuous bottom scrim covers all bottom text in a single band —
     // no gaps, no striping.
@@ -192,6 +203,7 @@ export const TEMPLATES: TemplateSpec[] = [
     ],
     bgDecorations: [
       { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+      { mode: "redKey", srcX: 0, srcY: 0, srcW: 1200, srcH: 1200, destX: 0, destY: 0, destW: 1200, destH: 1200 },
     ],
     photoOverlays: [
       { x: 0, y: 620, w: 1200, h: 580, color: "rgba(0,0,0,0.6)" },
@@ -274,6 +286,7 @@ export const TEMPLATES: TemplateSpec[] = [
     ],
     bgDecorations: [
       { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+      { mode: "redKey", srcX: 0, srcY: 0, srcW: 1200, srcH: 1200, destX: 0, destY: 0, destW: 1200, destH: 1200 },
     ],
     photoOverlays: [
       { x: 0, y: 250, w: 1200, h: 510, color: "rgba(0,0,0,0.45)" },
