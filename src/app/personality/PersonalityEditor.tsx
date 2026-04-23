@@ -278,13 +278,18 @@ function VoiceEditor({
         fullWidth
       />
       <TextField
-        label="Audience"
+        label="Audience (prose description)"
         value={brain.brandVoice.audience}
         onChange={(e) => onChange({ audience: e.target.value })}
         size="small"
         fullWidth
         multiline
         rows={2}
+      />
+      <ChipListEditor
+        label="Audiences (dropdown options in content generator)"
+        items={brain.brandVoice.audiences ?? []}
+        onChange={(next) => onListChange("audiences", next)}
       />
       <ChipListEditor
         label="Tone adjectives"
