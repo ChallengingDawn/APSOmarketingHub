@@ -75,24 +75,12 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
   { id: "recognition", label: "We've already met" },
 ];
 
-const AUDIENCES = [
+// Fallback if the brain hasn't declared a structured audiences list. Kept
+// short and brand-aligned, not the old 17-entry catch-all.
+const FALLBACK_AUDIENCES = [
   "Maintenance engineers",
   "Procurement / buyers",
-  "Design engineers",
-  "R&D engineers",
-  "Plant managers",
-  "Production / operations",
-  "Quality assurance",
-  "Automation engineers",
-  "Facility managers",
-  "MRO / aftermarket technicians",
-  "OEM product managers",
-  "Food & beverage engineers",
-  "Chemical process engineers",
-  "Pharma / GMP engineers",
-  "Hydraulics & pneumatics specialists",
-  "Distributors / resellers",
-  "C-level / technical directors",
+  "Technical buyers (OEM / plants)",
 ];
 
 export default function ComposerAndProposals({
@@ -102,6 +90,13 @@ export default function ComposerAndProposals({
   brain: Brain;
   initialBatch: CurrentBatch | null;
 }) {
+  // Audiences come from the brain so the dropdown reflects the brand's
+  // actual targets, not a hardcoded catch-all.
+  const AUDIENCES =
+    brain.brandVoice.audiences && brain.brandVoice.audiences.length > 0
+      ? brain.brandVoice.audiences
+      : FALLBACK_AUDIENCES;
+
   const [composer, setComposer] = useState("");
   const [topic, setTopic] = useState("");
   const [contentType, setContentType] = useState<ContentType>("linkedin");
@@ -538,6 +533,10 @@ function FilterPanel(props: {
   onReset: () => void;
 }) {
   const { brain } = props;
+  const AUDIENCES =
+    brain.brandVoice.audiences && brain.brandVoice.audiences.length > 0
+      ? brain.brandVoice.audiences
+      : FALLBACK_AUDIENCES;
   return (
     <Paper
       elevation={0}

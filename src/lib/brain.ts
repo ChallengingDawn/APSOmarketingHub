@@ -12,6 +12,10 @@ export type Brain = {
     seriesFramework: string;
     toneAdjectives: string[];
     audience: string;
+    // Structured short list of the brand's actual target audiences. Populates
+    // the audience dropdown in the content generator. Keep this in sync with
+    // the prose `audience` description above.
+    audiences?: string[];
     messagingPillars: string[];
     signaturePhrases: string[];
     dos: string[];

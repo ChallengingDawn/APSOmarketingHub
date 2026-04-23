@@ -14,6 +14,11 @@
       "reliable"
     ],
     "audience": "Maintenance engineers, procurement, and technical buyers at industrial OEMs and production plants. B2B. They already know what they need; they want to order it without friction.",
+    "audiences": [
+      "Maintenance engineers",
+      "Procurement / buyers",
+      "Technical buyers (OEM / plants)"
+    ],
     "messagingPillars": [
       "Engineering solutions, one click away",
       "Recognition — 'We've already met'",
