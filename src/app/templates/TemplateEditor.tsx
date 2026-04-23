@@ -277,6 +277,25 @@ export default function TemplateEditor({
       ctx.restore();
     }
 
+    // Brand chrome — re-paste regions of the bg JPG (logo bar, red DNA
+    // wireframe) on top of the photo so we keep brand identity even when the
+    // photoSlot covers the full canvas.
+    if (template.bgDecorations) {
+      for (const d of template.bgDecorations) {
+        ctx.drawImage(
+          bg,
+          d.srcX,
+          d.srcY,
+          d.srcW,
+          d.srcH,
+          d.destX,
+          d.destY,
+          d.destW,
+          d.destH
+        );
+      }
+    }
+
     // Continuous text-band scrim(s) painted on top of the photo, BEFORE the
     // text. Avoids the striping that came from per-field scrim rects with
     // gaps between them.

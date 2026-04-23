@@ -39,6 +39,21 @@ export type PhotoSlot = {
 
 export type CoverRegion = { x: number; y: number; w: number; h: number; color: string };
 
+// A rectangular region of the bg JPG re-pasted on top of the photo. Used to
+// restore brand chrome (APSOparts logo bar, red DNA wireframe decoration)
+// that the full-canvas photo would otherwise hide. src* and dest* are usually
+// equal — the same rect on the bg redrawn at the same place on the canvas.
+export type BgDecoration = {
+  srcX: number;
+  srcY: number;
+  srcW: number;
+  srcH: number;
+  destX: number;
+  destY: number;
+  destW: number;
+  destH: number;
+};
+
 export type TemplateSpec = {
   id: string;
   name: string;
@@ -55,6 +70,10 @@ export type TemplateSpec = {
   // semi-transparent text scrim that spans every text band — replaces fragile
   // per-field scrim rects with gaps between them.
   photoOverlays?: CoverRegion[];
+  // Brand chrome (logo bar, red DNA wireframe) re-pasted from the bg JPG on
+  // top of the photo so the photoSlot can fill the full canvas without losing
+  // brand identity. Painted between photoSlot and photoOverlays.
+  bgDecorations?: BgDecoration[];
   fields: TextField[];
   photoSlot?: PhotoSlot;
 };
@@ -81,6 +100,11 @@ export const TEMPLATES: TemplateSpec[] = [
     height: 1200,
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
+    ],
+    // Re-paste the APSOparts logo bar from the bg JPG on top of the photo so
+    // the brand strip stays visible even when the photoSlot fills the canvas.
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
     ],
     // ONE continuous bottom scrim covers all bottom text in a single band —
     // no gaps, no striping.
@@ -166,6 +190,9 @@ export const TEMPLATES: TemplateSpec[] = [
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
     ],
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+    ],
     photoOverlays: [
       { x: 0, y: 620, w: 1200, h: 580, color: "rgba(0,0,0,0.6)" },
     ],
@@ -245,6 +272,9 @@ export const TEMPLATES: TemplateSpec[] = [
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: SKY_LIGHT },
     ],
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+    ],
     photoOverlays: [
       { x: 0, y: 250, w: 1200, h: 510, color: "rgba(0,0,0,0.45)" },
     ],
@@ -310,6 +340,9 @@ export const TEMPLATES: TemplateSpec[] = [
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_LIGHT },
     ],
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+    ],
     photoOverlays: [
       { x: 0, y: 820, w: 1200, h: 380, color: "rgba(0,0,0,0.5)" },
     ],
@@ -357,6 +390,9 @@ export const TEMPLATES: TemplateSpec[] = [
     coverRegions: [
       { x: 0, y: 0, w: 1200, h: 1200, color: GREEN_DARK },
     ],
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
+    ],
     photoOverlays: [
       { x: 0, y: 820, w: 1200, h: 380, color: "rgba(0,0,0,0.6)" },
     ],
@@ -403,6 +439,9 @@ export const TEMPLATES: TemplateSpec[] = [
     height: 1200,
     coverRegions: [
       { x: 0, y: 760, w: 1200, h: 440, color: APSO_RED },
+    ],
+    bgDecorations: [
+      { srcX: 0, srcY: 0, srcW: 1200, srcH: 110, destX: 0, destY: 0, destW: 1200, destH: 110 },
     ],
     fields: [
       {
