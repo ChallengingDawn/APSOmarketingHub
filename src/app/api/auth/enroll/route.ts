@@ -58,5 +58,5 @@ export async function POST(req: Request) {
   await setSessionCookie(
     await signSession({ uid: u.id, username: u.username, role: u.role }),
   );
-  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/personality' });
 }

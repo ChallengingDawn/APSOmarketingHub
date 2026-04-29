@@ -35,7 +35,7 @@ export default function ChangePasswordPage() {
       });
       const body = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
       if (!r.ok) throw new Error(body.error || "Failed to change password");
-      router.push("/");
+      router.push("/personality");
     } catch (err) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Failed to change password");

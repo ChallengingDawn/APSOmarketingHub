@@ -4,7 +4,15 @@ import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
 import Phase2Gate from "./Phase2Gate";
 
-const PHASE_1_PATHS = ["/personality", "/content-generation", "/logs"];
+const PHASE_1_PATHS = [
+  "/personality",
+  "/content-generation",
+  "/photos",
+  "/templates",
+  "/settings",
+  "/admin",
+  "/logs",
+];
 
 function isPhase1(pathname: string) {
   return PHASE_1_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

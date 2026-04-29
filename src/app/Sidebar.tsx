@@ -25,7 +25,6 @@ import PsychologyIcon from "@mui/icons-material/Psychology";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
-import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -94,17 +93,6 @@ const navSections: NavSection[] = [
       { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
       { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
-    ],
-  },
-  {
-    title: "Sister apps",
-    items: [
-      {
-        label: "Pricing Hub",
-        href: "https://apsopricinghub-production.up.railway.app/",
-        icon: <RequestQuoteIcon fontSize="small" />,
-        external: true,
-      },
     ],
   },
 ];
