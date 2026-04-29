@@ -20,6 +20,7 @@ import NewspaperIcon from "@mui/icons-material/Newspaper";
 import ArticleIcon from "@mui/icons-material/Article";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
+import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
@@ -92,6 +93,7 @@ const navSections: NavSection[] = [
       { label: "Knowledge Base", href: "/knowledge-base", icon: <MenuBookIcon fontSize="small" /> },
       { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+      { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
     ],
   },
   {

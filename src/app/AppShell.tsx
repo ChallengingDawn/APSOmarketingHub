@@ -16,7 +16,11 @@ function isDocs(pathname: string) {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
-  const isAuthRoute = pathname.startsWith("/signin");
+  const isAuthRoute =
+    pathname.startsWith("/signin") ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/enroll") ||
+    pathname.startsWith("/change-password");
 
   if (isAuthRoute) {
     return <>{children}</>;

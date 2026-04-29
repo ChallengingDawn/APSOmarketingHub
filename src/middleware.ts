@@ -1,21 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { jwtVerify } from "jose";
 
-/**
- * Protects every route behind a session cookie.
- * Unauthenticated requests are redirected to /signin with a `next` param
- * so we can return the user to where they were after a successful sign-in.
- *
- * Public paths (sign-in flow, public docs, Next.js internals) are allow-listed.
- */
-
+const SESSION_COOKIE = "apsomarketinghub_session";
 const PUBLIC_PREFIXES = [
   "/signin",
-  "/api/auth/login",
-  "/api/auth/signout",
+  "/login",
+  "/login/totp",
+  "/enroll",
+  "/api/auth/",
   "/_next",
   "/favicon",
+  "/icon",
 ];
+
+function getSecret(): Uint8Array {
+  const secret = process.env.SESSION_SECRET || process.env.AUTH_SECRET;
+  if (!secret) throw new Error("SESSION_SECRET (or AUTH_SECRET) is not set");
+  return new TextEncoder().encode(secret);
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -31,25 +33,19 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const session = await verifySessionToken(token);
-  if (!session) {
+  try {
+    const { payload } = await jwtVerify(token, getSecret());
+    if (payload.typ !== "session") throw new Error("wrong type");
+    return NextResponse.next();
+  } catch {
     const url = new URL("/signin", req.url);
     if (pathname !== "/") url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-
-  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimisation)
-     * - favicon.ico
-     * - public files served directly
-     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.ico$).*)",
   ],
 };

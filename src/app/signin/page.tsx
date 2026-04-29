@@ -15,29 +15,27 @@ function SignInForm() {
   const router = useRouter();
   const errorParam = searchParams.get("error");
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) return;
+    if (!identifier.trim() || !password) return;
     setStatus("loading");
     setErrorMsg("");
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
       });
-      const body = await r.json().catch(() => ({} as Record<string, unknown>));
+      const body = (await r.json().catch(() => ({}))) as { error?: string; next?: string };
       if (!r.ok) {
-        throw new Error(
-          typeof body.error === "string" ? body.error : "Sign in failed"
-        );
+        throw new Error(body.error || "Sign in failed");
       }
-      router.push("/");
+      router.push(body.next ?? "/");
     } catch (err) {
       setStatus("error");
       setErrorMsg(
@@ -122,11 +120,10 @@ function SignInForm() {
 
           <form onSubmit={onSubmit}>
             <TextField
-              type="email"
-              label="Corporate email"
+              label="Email or username"
               placeholder="yourname@angst-pfister.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               fullWidth
               required
               autoFocus
@@ -145,7 +142,7 @@ function SignInForm() {
             />
             <Button
               type="submit"
-              disabled={status === "loading" || !email.trim() || !password}
+              disabled={status === "loading" || !identifier.trim() || !password}
               fullWidth
               sx={{
                 bgcolor: "#ed1b2f",

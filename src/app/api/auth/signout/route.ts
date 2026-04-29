@@ -1,24 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { NextResponse } from 'next/server';
+import { clearAuthCookies } from '@/lib/auth/session';
 
-export const runtime = "nodejs";
+export const runtime = 'nodejs';
 
-function clearAndRedirect(req: NextRequest) {
-  const response = NextResponse.redirect(new URL("/signin", req.url));
-  response.cookies.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 0,
-    path: "/",
-  });
-  return response;
+function signinUrl(req: Request): URL {
+  const host =
+    req.headers.get('x-forwarded-host') ??
+    req.headers.get('host') ??
+    new URL(req.url).host;
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+  return new URL('/signin', `${proto}://${host}`);
 }
 
-export async function GET(req: NextRequest) {
-  return clearAndRedirect(req);
+export async function GET(req: Request) {
+  await clearAuthCookies();
+  return NextResponse.redirect(signinUrl(req));
 }
 
-export async function POST(req: NextRequest) {
-  return clearAndRedirect(req);
+export async function POST(req: Request) {
+  await clearAuthCookies();
+  return NextResponse.redirect(signinUrl(req));
 }
