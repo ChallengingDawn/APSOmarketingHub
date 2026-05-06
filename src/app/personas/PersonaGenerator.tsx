@@ -85,6 +85,7 @@ export default function PersonaGenerator({
   const [output, setOutput] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [imageError, setImageError] = useState<string>("");
+  const [imageLoading, setImageLoading] = useState<boolean>(false);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string>("");
@@ -101,7 +102,20 @@ export default function PersonaGenerator({
     setOutput("");
     setImageUrl("");
     setImageError("");
+    setImageLoading(false);
     setGenerating(true);
+
+    const filterContext = {
+      contentType,
+      language: effectiveLang,
+      length,
+      creativity,
+      audience: `${selected.code} — ${selected.name} (${selected.role})`,
+    };
+
+    // Step 1 — always fetch TEXT-ONLY first. This keeps the request fast
+    // and avoids Railway / fetch timeouts when image generation is slow.
+    let text = "";
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -110,36 +124,72 @@ export default function PersonaGenerator({
           channel: contentType,
           prompt:
             topic.trim() ||
-            `Write a ${activeType.label} for persona ${selected.code} ${selected.name} about a topic naturally relevant to their day-to-day buying needs.`,
+            `Write a ${activeType.label} for persona ${selected.code} ${selected.role} about a topic naturally relevant to their day-to-day buying needs. Use a neutral salutation — never address the reader by the persona archetype name.`,
           model: "claude",
           personaId: selected.id,
-          withImage,
-          context: {
-            contentType,
-            language: effectiveLang,
-            length,
-            creativity,
-            audience: `${selected.code} — ${selected.name} (${selected.role})`,
-          },
+          withImage: false,
+          context: filterContext,
         }),
       });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `HTTP ${res.status}`);
       }
+      const data = (await res.json()) as { content: string };
+      text = data.content;
+      setOutput(text);
+    } catch (e) {
+      setError(`Text generation failed: ${e instanceof Error ? e.message : String(e)}`);
+      setGenerating(false);
+      return;
+    }
+
+    setGenerating(false);
+
+    // Step 2 — if the user wants an image, fire a SEPARATE call. This is
+    // best-effort: if Gemini is overloaded the text is still on screen.
+    if (!withImage) return;
+
+    const brief =
+      (topic.trim() ||
+        `${selected.role} working scene relevant to: ${selected.description}`) +
+      ` — channel: ${activeType.label}.`;
+
+    setImageLoading(true);
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: brief, filters: filterContext }),
+      });
       const data = (await res.json()) as {
-        content: string;
         imageUrl?: string;
         imageError?: string;
       };
-      setOutput(data.content);
-      if (data.imageUrl) setImageUrl(data.imageUrl);
-      if (data.imageError) setImageError(data.imageError);
+      if (data.imageUrl) {
+        setImageUrl(data.imageUrl);
+      } else {
+        setImageError(prettifyImageError(data.imageError));
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setImageError(prettifyImageError(e instanceof Error ? e.message : String(e)));
     } finally {
-      setGenerating(false);
+      setImageLoading(false);
     }
+  }
+
+  // Turn the cascading Gemini error string into one short user-facing line.
+  function prettifyImageError(raw: string | undefined): string {
+    if (!raw) return "Image generation unavailable right now. Try again in a minute.";
+    if (/high demand|RESOURCE_EXHAUSTED|429|overload/i.test(raw))
+      return "Image model is currently overloaded — try again in a minute.";
+    if (/quota/i.test(raw))
+      return "Image generation quota reached for now. Try again later.";
+    if (/not found|404|not available/i.test(raw))
+      return "Image model not available on this API key.";
+    if (/permission|403|key/i.test(raw))
+      return "Image API key lacks permission.";
+    return "Image generation unavailable right now.";
   }
 
   async function copyOutput() {
@@ -449,21 +499,59 @@ export default function PersonaGenerator({
                 {output}
               </Box>
             )}
-            {imageUrl && (
+            {(imageLoading || imageUrl || imageError) && (
               <Box sx={{ mt: 2 }}>
                 <Typography sx={{ fontSize: 11, color: "#5f6368", mb: 0.5 }}>
-                  Image draft (Gemini)
+                  Image draft
                 </Typography>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl}
-                  alt="Generated"
-                  style={{ width: "100%", maxWidth: 720, borderRadius: 8, border: "1px solid #e4e7eb" }}
-                />
-                {imageError && (
-                  <Typography sx={{ fontSize: 11, color: "#ed1b2f", mt: 0.5 }}>
-                    Image fallback used: {imageError}
-                  </Typography>
+                {imageLoading && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "100%",
+                      maxWidth: 720,
+                      aspectRatio: "1 / 1",
+                      bgcolor: "#fafbfc",
+                      borderRadius: 1,
+                      border: "1px dashed #d0d4d9",
+                    }}
+                  >
+                    <Box sx={{ textAlign: "center" }}>
+                      <LinearProgress sx={{ width: 200, mb: 1, "& .MuiLinearProgress-bar": { bgcolor: "#7c3aed" } }} />
+                      <Typography sx={{ fontSize: 11, color: "#5f6368" }}>
+                        Generating image — this can take 10–30s
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+                {imageUrl && !imageLoading && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={imageUrl}
+                    alt="Generated"
+                    style={{ width: "100%", maxWidth: 720, borderRadius: 8, border: "1px solid #e4e7eb" }}
+                  />
+                )}
+                {imageError && !imageLoading && !imageUrl && (
+                  <Box
+                    sx={{
+                      width: "100%",
+                      maxWidth: 720,
+                      p: 2,
+                      bgcolor: "#fdf2f4",
+                      border: "1px dashed #ed1b2f",
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: 12, color: "#ed1b2f", fontWeight: 600 }}>
+                      {imageError}
+                    </Typography>
+                    <Typography sx={{ fontSize: 11, color: "#5f6368", mt: 0.5 }}>
+                      The text above is ready to use. You can re-run with the Image toggle on later when the model is back.
+                    </Typography>
+                  </Box>
                 )}
               </Box>
             )}
