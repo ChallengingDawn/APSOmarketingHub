@@ -214,6 +214,160 @@
       }
     ]
   },
+  "personas": [
+    {
+      "id": "p1_dach_oem_purchaser",
+      "code": "P1",
+      "name": "Markus Weber",
+      "role": "DACH OEM Strategic Purchaser",
+      "description": "Risk-averse strategic purchaser running corporate procurement at a mid-large German-speaking machine builder.",
+      "internalNotes": "country IN ('DE','CH','AT') AND apic_ap STARTS_WITH '1.1' AND (job_position='Purchaser' OR jobtitle CONTAINS einkauf|leiter einkauf). Population: ~1,000 companies, ~1,400 contacts. Revenue 2025: ~CHF 1.8M.",
+      "roles": "Strategischer Einkäufer / Leiter Einkauf at a 50-500 FTE machine-building OEM. Owns supplier consolidation, frame agreements, ERP / e-procurement integration, approved-vendor list. Reports to COO.",
+      "goals": "Find a reliable, certified second source that fits the existing e-procurement flow without re-spec'ing approved parts. Vendor consolidation, predictable lead time, price stability, frame agreements, compliance docs on demand.",
+      "challenges": "Approved-vendor list slow to change. Entrenched incumbents with real switching cost. Risk-averse — needs references, audit history, samples. ERP/EDI integration is a hard requirement.",
+      "demographics": {
+        "age": "35-55",
+        "incomeRange": "EUR 75,000 - 110,000 gross",
+        "education": "Diplom-Ingenieur / Bachelor in engineering or business, often dual-track",
+        "location": "DACH industrial belt — Baden-Württemberg, Bavaria, Swiss Mittelland, Vorarlberg"
+      },
+      "story": "Markus has spent 15 years inside the same machine-building OEM, working his way from operative buyer to Leiter Einkauf. He runs SAP Ariba, manages a 2-person team, reports to the COO. Annual KPIs: supplier reduction (-10% per year) and OTIF >95%. He distrusts marketing pitches and only opens emails from suppliers who passed his audit. He'll meet at Hannover Messe, listen carefully, and ask for a sample plus three reference customers before agreeing to the next step. Winning Markus takes six months; once won, the relationship lasts a decade.",
+      "hubspotValue": "persona_2"
+    },
+    {
+      "id": "p2_digital_purchaser",
+      "code": "P2",
+      "name": "Sophie Müller",
+      "role": "Modern Digital Purchaser (Gen Y)",
+      "description": "Online-first Gen-Y purchaser running procurement on tools, not phone calls.",
+      "internalNotes": "apso_customer IN ('APSOgrowth','Growth Engine Customer') AND (job_position='Purchaser' OR jobtitle CONTAINS einkauf|buyer|acheteur|acquisti). Population: ~836 companies, ~1,267 contacts. Revenue 2025: ~CHF 3.5M.",
+      "roles": "Operative Einkäuferin / digital procurement lead at a 30-150 FTE growth-stage SME. Often the only buyer at the company. Reports directly to operations or finance.",
+      "goals": "Get the right part today with full price + lead-time transparency. End-to-end self-service, saved carts, recurring orders, account pricing, mobile-friendly experience, automated tracking.",
+      "challenges": "Internal procurement still on paper POs and manual approval flows. Delivery time outside DE/CH on niche items. Trust threshold for online ordering >CHF 5,000.",
+      "demographics": {
+        "age": "28-42",
+        "incomeRange": "EUR 55,000 - 80,000 gross",
+        "education": "Bachelor in business administration or supply-chain management",
+        "location": "Cross-DACH and EU Tier-2 cities, hybrid working"
+      },
+      "story": "Sophie joined her current employer three years ago as the first dedicated procurement hire. Half her week is on Slack and the e-shop, the other half firefighting late deliveries from incumbents. She found APSOparts via Google when she searched for a specific part number a colleague had bookmarked. She placed her first order on her phone, in the warehouse, with a coffee in her other hand. She's open to switching suppliers if the digital experience is better — already done it once with another category.",
+      "hubspotValue": "persona_3"
+    },
+    {
+      "id": "p3_italy",
+      "code": "P3",
+      "name": "Pietro Rossi",
+      "role": "Italian / Southern Europe Purchaser",
+      "description": "Northern-Italian procurement lead who builds long relationships and expects an Italian-speaking partner.",
+      "internalNotes": "country='Italy' OR hs_country_code='IT' OR hs_language='it'. Population: ~4,133 companies, ~5,243 contacts (12% of base — completely missing from previous deck). Revenue 2025: ~CHF 1.2M.",
+      "roles": "Responsabile Acquisti or Ufficio Acquisti at a 20-200 FTE Italian SME — manufacturing, food/beverage, pharma. Often reports directly to Titolare.",
+      "goals": "Build a relationship with a partner he can call directly, in Italian, that ships quickly to Northern Italy. Italian-language e-shop, datasheets, support, invoicing. References from Italian Pharma / Food / Mechanics customers.",
+      "challenges": "Trust threshold higher with foreign suppliers — face-to-face is non-negotiable for the first deal. Italian competitors entrenched (PIANCONI, Sealmaster). Payment-term expectations 60-90 days vs DACH 30. English-only assets a non-starter.",
+      "demographics": {
+        "age": "35-55",
+        "incomeRange": "EUR 40,000 - 60,000 gross",
+        "education": "Diploma di perito tecnico or Laurea in Ingegneria; often family-business background",
+        "location": "Lombardy / Veneto / Emilia-Romagna"
+      },
+      "story": "Pietro has been at the same family-run mechanical-components SME for 12 years, hired straight out of his perito industriale qualification. He rarely leaves Italy except for MECSPE (Parma) and A&T (Turin). He'd rather hear 'Salve Pietro, sono Marco da APSO' on the phone than open a marketing email. When he changes supplier — twice a decade — it's because his cousin at another factory recommended them. Localised content, an Italian sales rep, and stock in Northern Italy turn him from 'diffidente' into a long-term advocate.",
+      "hubspotValue": "persona_4"
+    },
+    {
+      "id": "p4_kmu_owner",
+      "code": "P4",
+      "name": "Andreas Schmidt",
+      "role": "KMU Owner-Manager",
+      "description": "Owner-manager of a small DACH SME — relationship-led, time-poor, sceptical of digital channels.",
+      "internalNotes": "(job_position IN ('Managing Director/CEO','Owner') OR jobtitle CONTAINS geschäftsführer|inhaber|owner|gf|ceo) AND country IN ('DE','CH','AT'). Population: ~1,949 companies, ~2,026 contacts. Revenue 2025: ~CHF 770K.",
+      "roles": "Geschäftsführer / Inhaber of a 1-50 FTE family-owned manufacturing or service business. Often founder or 2nd-generation. Wears every hat — sales, finance, sometimes operating the machines himself.",
+      "goals": "Don't waste my time. One trustworthy partner, fair prices, one named contact across all orders. Loyalty pricing, long-term frame agreements, on-call technical support.",
+      "challenges": "Highly loyal to incumbents — switching is rare. Time-poor — won't engage with long content or onboarding. Sceptical of digital channels and marketing automation. Price decisive only when relationships are equal.",
+      "demographics": {
+        "age": "45-65",
+        "incomeRange": "EUR 90,000 - 200,000 (variable, tied to company performance)",
+        "education": "Mix of Meister, Berufsausbildung + part-time business school, or hands-on family-business training",
+        "location": "DACH rural and Mittelstand — small towns, industrial estates outside major cities"
+      },
+      "story": "Andreas inherited his father's 25-person component shop fifteen years ago. He still walks the workshop floor every morning, knows every customer by first name, and signs every PO over CHF 5,000. The fastest way to lose his business is to send him a marketing email; the fastest way to win it is to show up at his Rotary lunch with a hand-signed letter from a senior executive. He buys from suppliers his father bought from, and when he changes — usually after a delivery failure — the new one tends to keep his business for the next decade.",
+      "hubspotValue": "persona_5"
+    },
+    {
+      "id": "p5_c2s",
+      "code": "P5",
+      "name": "Luca Liebertz",
+      "role": "C2S / Zerspaner Workshop Owner",
+      "description": "Cut-to-size workshop owner who has to win quotes in 48 hours on commodity-priced plastics.",
+      "internalNotes": "apic_ap = '4.1 Processing Companies, Toll Manufact.'. Population: 4,028 companies, 6,138 contacts. Revenue 2025: CHF 2.35M.",
+      "roles": "Inhaber, Werkstattleiter, AVOR, or Chef d'atelier of a 5-50 FTE turning-and-milling workshop, plastic processor, or seal manufacturer. Often family-run.",
+      "goals": "Win the end-customer offer in 48 hours by quoting the cheapest available semi-finished material in the size required. DirectCut configurator, real-time stock + lead-time, no MOQ pain on commodities, food-grade certified material with documentation in one click.",
+      "challenges": "Heavy price competition — margin-thin commodity plastics. MOQs hurt on niche materials. Older workshops with low tech-savviness — UX must be simple. Order changes after submission a friction point.",
+      "demographics": {
+        "age": "30-60",
+        "incomeRange": "EUR 50,000 - 90,000 (variable, tied to workshop revenue)",
+        "education": "Mechanical Berufsausbildung + Meisterbrief; in IT/FR equivalent diploma di perito or BTS productique",
+        "location": "DACH + Northern Italy + Eastern France industrial pockets"
+      },
+      "story": "Luca took over his father's plastics workshop ten years ago and now runs it with five employees. His phone rings with a customer RFQ at 9 a.m.; by 5 p.m. he must have a quote out, knowing his customer is calling three of his competitors at the same time. The deciding factor is rarely the workshop's craft — it's whether the raw material is in stock and shipping today at a price that leaves him 8% margin. APSOparts' DirectCut feature is the difference between sending a quote in 30 minutes versus losing the deal because the raw-material supplier didn't reply on time.",
+      "hubspotValue": "persona_6"
+    },
+    {
+      "id": "p6_mro",
+      "code": "P6",
+      "name": "Tomas Becker",
+      "role": "MRO / Reactive Maintenance Buyer",
+      "description": "Plant-floor maintenance lead who buys when something breaks — speed, not price, decides.",
+      "internalNotes": "apic_ap LIKE '2.%' OR job_position='Maintenance' OR jobtitle CONTAINS mechaniker|wartung|maintenance|manutenzione. Population: 3,524 companies, 6,221 contacts. Revenue 2025: CHF 1.71M.",
+      "roles": "Maintenance technician / Mechaniker / Betriebsmechaniker / Responsable maintenance / Manutentore at a manufacturing, food, pharma, or public-services plant. Reports to plant manager. Buys when production breaks.",
+      "goals": "Drop-in replacement, in stock, shipped today — line back up before the next shift. Same-day or next-day delivery. Cross-reference search (competitor part → APSOparts equivalent). Mobile-friendly stock view. Sales rep on the phone NOW.",
+      "challenges": "Competitor parts already in machines — switching means re-engineering. Procurement approval delays during downtime are unacceptable. Need exact-match certifications (FDA, ATEX, food contact). International delivery time can lose the order.",
+      "demographics": {
+        "age": "35-60",
+        "incomeRange": "EUR 45,000 - 70,000 gross",
+        "education": "Mechanical or electrical Berufsausbildung; often Meister or Industriemeister",
+        "location": "Manufacturing belts across DACH and EU — automotive corridors, food clusters, pharma hubs"
+      },
+      "story": "Tomas works the early shift at a packaging plant. At 4:47 a.m. one Monday a conveyor seal failed and the line went down. By 5:30 a.m. he had searched APSOparts on his tablet (covered in machine grease), found the food-grade equivalent of the OEM part, called the +41 number, paid by company card, and had the part delivered before lunch. He doesn't read marketing emails. He doesn't attend webinars. But he saves the supplier who got him out of trouble at 5 a.m., and tells the next plant he visits.",
+      "hubspotValue": "persona_7"
+    },
+    {
+      "id": "p7_engineer",
+      "code": "P7",
+      "name": "Jan Hoffmann",
+      "role": "Engineer / Technical Influencer",
+      "description": "OEM design engineer who specs-in parts at the drawing stage — never signs the PO but always blocks it.",
+      "internalNotes": "hs_role='engineering' OR job_position IN ('Engineer','Project Leader') OR jobtitle CONTAINS konstrukteur|projektleiter|engineer|techniker|ingegnere. Population: ~3,004 companies, ~3,882 contacts. Revenue 2025: CHF 2.7M (lifetime value much higher — spec-in compounds for 10+ years).",
+      "roles": "Konstrukteur / Projektleiter / Entwicklungsingenieur / R&D Engineer at an OEM (machine builder, pharma, pumps & valves, semicon, aviation). Owns the design specification.",
+      "goals": "Find the right material spec for the application without spending a week reading datasheets. Application-engineer access for spec reviews. Sample programme. Configurable / engineered solutions. Searchable certification library (FDA, EC1935, ATEX).",
+      "challenges": "Will dismiss any 'too-marketing' content. Loyal to brands once spec'd in. Rarely engages in commercial conversations — passes the baton to procurement. Will reject a supplier outright if the datasheet doesn't match field-test results.",
+      "demographics": {
+        "age": "28-55",
+        "incomeRange": "EUR 70,000 - 110,000 gross",
+        "education": "Diplom-Ingenieur or M.Sc. in mechanical, materials, or chemical engineering; FH/HES or Fachhochschule background",
+        "location": "OEM R&D centres — Stuttgart, Munich, Zurich, Linz, Milan, Eindhoven"
+      },
+      "story": "Jan spends most of his time in CAD and FEA, with the rest in technical meetings and prototype labs. Suppliers who send him glossy brochures get filtered. Suppliers who send him an application note with FEA results, three reference customers in his industry, and a sample within five days get a meeting. Once he writes the supplier's part number into the BOM, that supplier owns the line for the lifetime of the product — which in industrial machinery is 10-15 years. A sale to Jan looks small at first; it compounds for a decade.",
+      "hubspotValue": "persona_8"
+    },
+    {
+      "id": "p8_reseller",
+      "code": "P8",
+      "name": "Reseller Partner",
+      "role": "Authorised / Certified Channel Partner",
+      "description": "Authorised channel partner who resells APSOparts in their territory, balancing margin against end-customer service.",
+      "internalNotes": "apic_ap IN ('3.1 Certified Partner','3.2 Authorized Reseller','3.3 Reseller'). Population: 1,052 companies, ~2,611 contacts. Revenue 2025: CHF 3.5M (channel-attributed).",
+      "roles": "Geschäftsführer or Country Manager of an industrial distributor / regional dealer / value-added reseller (5-200 FTE). Holds the relationship with end-customers and decides which suppliers to push.",
+      "goals": "Win the end-customer with a competitive partner price + reliable supply, while keeping enough margin to fund their own sales effort. Tiered partner programme, co-funded marketing (MDF), priority technical support, lead-sharing pipeline.",
+      "challenges": "Channel conflict if APSOparts sells direct in their territory at a lower price. Margin pressure forces them to shop alternatives. Onboarding cost — partners need product training. Lead-flow disputes when attribution is unclear.",
+      "demographics": {
+        "age": "35-60 (decision-maker level)",
+        "incomeRange": "highly variable — sole traders to EUR 50M+ distributors",
+        "education": "Business or technical degree + 10-20 years in industrial distribution",
+        "location": "EU markets where APSOparts has limited direct presence — Eastern Europe, Iberia, Nordics, parts of IT/FR"
+      },
+      "story": "The Reseller Partner runs a 30-person distribution business that has sold seals, plastics, and fluid-handling components in their region for two decades. They manage 12 supplier brands and decide each year which ones to feature on their cover catalogue. APSOparts won them three years ago because of stock availability and technical support; they keep the relationship because of margin protection (no direct undercutting in their territory) and because a dedicated APSO partner manager flies out twice a year for joint customer visits. Their sales team is APSOparts' field force in regions APSOparts cannot cover directly.",
+      "hubspotValue": "persona_9"
+    }
+  ],
   "trainingSources": [
     { "file": "APSOparts_Brochure_EN.pdf", "type": "brand" },
     { "file": "SoMe Guidelines APSOparts.docx", "type": "voice" },

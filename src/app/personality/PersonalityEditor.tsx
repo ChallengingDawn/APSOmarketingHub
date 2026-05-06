@@ -20,8 +20,12 @@ import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import Divider from "@mui/material/Divider";
 import Grow from "@mui/material/Grow";
+import Accordion from "@mui/material/Accordion";
+import AccordionSummary from "@mui/material/AccordionSummary";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import BrainGraph from "./BrainGraph";
-import type { Brain } from "@/lib/brain";
+import type { Brain, Persona } from "@/lib/brain";
 
 const SECTION_TITLES: Record<string, { label: string; desc: string }> = {
   voice: { label: "Brand Voice", desc: "Strapline, tone, messaging pillars, do's and don'ts." },
@@ -32,6 +36,7 @@ const SECTION_TITLES: Record<string, { label: string; desc: string }> = {
   gold: { label: "Gold Examples", desc: "Canonical LinkedIn drafts and approved paid ad variants." },
   category: { label: "Category Intelligence", desc: "Ingested taxonomy — 6 top-level, 411 leafs, SEO gap signals." },
   keywords: { label: "Keyword Signals", desc: "Internal search trends + brand-term gaps from Magento + external SEO list." },
+  personas: { label: "Personas", desc: "8 buyer archetypes that target audience and content. Click each persona to edit name, role, goals, challenges, demographics, and story." },
   engine: { label: "Content Engine", desc: "How Claude and Gemini pull from every node to generate content." },
 };
 
@@ -211,6 +216,12 @@ export default function PersonalityEditor({ initial }: { initial: Brain }) {
           )}
           {openId === "category" && <CategoryView brain={brain} />}
           {openId === "keywords" && <KeywordsView brain={brain} />}
+          {openId === "personas" && (
+            <PersonasEditor
+              personas={brain.personas ?? []}
+              onChange={(next) => setBrain((b) => ({ ...b, personas: next }))}
+            />
+          )}
           {openId === "engine" && <EngineView />}
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
@@ -767,6 +778,183 @@ function ChipListEditor({
           Add
         </Button>
       </Box>
+    </Box>
+  );
+}
+
+function PersonasEditor({
+  personas,
+  onChange,
+}: {
+  personas: Persona[];
+  onChange: (next: Persona[]) => void;
+}) {
+  const update = (idx: number, patch: Partial<Persona>) => {
+    const next = [...personas];
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+  const updateDemo = (idx: number, patch: Partial<Persona["demographics"]>) => {
+    const next = [...personas];
+    next[idx] = { ...next[idx], demographics: { ...next[idx].demographics, ...patch } };
+    onChange(next);
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <Typography sx={{ fontSize: 12, color: "#5f6368", mb: 1 }}>
+        Each persona is a clickable card. Open one to edit its description, goals,
+        challenges, demographics, and story. Saved personas drive the{" "}
+        <strong>/personas</strong> generator and feed the system prompt whenever a
+        persona is selected anywhere in the hub.
+      </Typography>
+      {personas.map((p, i) => (
+        <Accordion
+          key={p.id}
+          disableGutters
+          elevation={0}
+          sx={{
+            border: "1px solid #e4e7eb",
+            borderRadius: 2,
+            "&:before": { display: "none" },
+            overflow: "hidden",
+          }}
+        >
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            sx={{ bgcolor: "#fafbfc", "&:hover": { bgcolor: "#f3f4f6" } }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flex: 1 }}>
+              <Chip
+                label={p.code}
+                size="small"
+                sx={{
+                  bgcolor: "#7c3aed",
+                  color: "#fff",
+                  fontWeight: 700,
+                  height: 22,
+                  minWidth: 36,
+                }}
+              />
+              <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a3a4c" }}>
+                {p.name}
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: "#5f6368", flex: 1 }}>
+                {p.role}
+              </Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ display: "flex", flexDirection: "column", gap: 1.5, bgcolor: "#fff" }}>
+            <Box sx={{ display: "flex", gap: 1.5 }}>
+              <TextField
+                label="Name"
+                size="small"
+                value={p.name}
+                onChange={(e) => update(i, { name: e.target.value })}
+                sx={{ flex: 1 }}
+              />
+              <TextField
+                label="Role"
+                size="small"
+                value={p.role}
+                onChange={(e) => update(i, { role: e.target.value })}
+                sx={{ flex: 2 }}
+              />
+            </Box>
+            <TextField
+              label="Description (1 line)"
+              size="small"
+              fullWidth
+              value={p.description}
+              onChange={(e) => update(i, { description: e.target.value })}
+            />
+            <TextField
+              label="Internal notes (HubSpot filter, population, revenue)"
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+              value={p.internalNotes}
+              onChange={(e) => update(i, { internalNotes: e.target.value })}
+            />
+            <TextField
+              label="Roles & seniority"
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+              value={p.roles}
+              onChange={(e) => update(i, { roles: e.target.value })}
+            />
+            <TextField
+              label="Goals"
+              size="small"
+              fullWidth
+              multiline
+              rows={3}
+              value={p.goals}
+              onChange={(e) => update(i, { goals: e.target.value })}
+            />
+            <TextField
+              label="Challenges"
+              size="small"
+              fullWidth
+              multiline
+              rows={3}
+              value={p.challenges}
+              onChange={(e) => update(i, { challenges: e.target.value })}
+            />
+            <Box sx={{ display: "flex", gap: 1.5 }}>
+              <TextField
+                label="Age"
+                size="small"
+                value={p.demographics.age}
+                onChange={(e) => updateDemo(i, { age: e.target.value })}
+                sx={{ flex: 1 }}
+              />
+              <TextField
+                label="Income range"
+                size="small"
+                value={p.demographics.incomeRange}
+                onChange={(e) => updateDemo(i, { incomeRange: e.target.value })}
+                sx={{ flex: 2 }}
+              />
+            </Box>
+            <Box sx={{ display: "flex", gap: 1.5 }}>
+              <TextField
+                label="Education"
+                size="small"
+                value={p.demographics.education}
+                onChange={(e) => updateDemo(i, { education: e.target.value })}
+                sx={{ flex: 2 }}
+              />
+              <TextField
+                label="Location"
+                size="small"
+                value={p.demographics.location}
+                onChange={(e) => updateDemo(i, { location: e.target.value })}
+                sx={{ flex: 2 }}
+              />
+            </Box>
+            <TextField
+              label="Story"
+              size="small"
+              fullWidth
+              multiline
+              rows={5}
+              value={p.story}
+              onChange={(e) => update(i, { story: e.target.value })}
+            />
+            <TextField
+              label="HubSpot internal value (hs_persona)"
+              size="small"
+              value={p.hubspotValue}
+              onChange={(e) => update(i, { hubspotValue: e.target.value })}
+              sx={{ maxWidth: 280 }}
+            />
+          </AccordionDetails>
+        </Accordion>
+      ))}
     </Box>
   );
 }

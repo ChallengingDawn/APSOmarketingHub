@@ -11,6 +11,7 @@ import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import GroupsIcon from "@mui/icons-material/Groups";
 
 type Kind = "editable" | "ingested" | "derived";
 
@@ -50,6 +51,7 @@ const NODES: NodeDef[] = [
   { id: "gold", label: "Gold Examples", sub: "7 posts · 3 ads", kind: "editable", mass: 1, color: "#d4a017", accent: "#ffd969", icon: <EmojiEventsIcon />, orbitRadius: 10, orbitPeriod: 13000, orbitPhase: 4.2 },
   { id: "category", label: "Category Intel", sub: "411 · 304 gaps", kind: "ingested", mass: 1, color: "#15803d", accent: "#6cd19a", icon: <AccountTreeIcon />, orbitRadius: 10, orbitPeriod: 20000, orbitPhase: 5.0 },
   { id: "keywords", label: "Keyword Signals", sub: "FFKM · DE codes", kind: "ingested", mass: 1, color: "#be185d", accent: "#ee7daf", icon: <ManageSearchIcon />, orbitRadius: 9, orbitPeriod: 17000, orbitPhase: 5.7 },
+  { id: "personas", label: "Personas", sub: "8 buyer archetypes", kind: "editable", mass: 1.05, color: "#7c3aed", accent: "#b69aff", icon: <GroupsIcon />, orbitRadius: 10, orbitPeriod: 15500, orbitPhase: 6.4 },
 ];
 
 const EDGES: Edge[] = [
@@ -65,6 +67,9 @@ const EDGES: Edge[] = [
   { from: "voice", to: "phrases" },
   { from: "social", to: "gold" },
   { from: "product", to: "social" },
+  { from: "personas", to: "engine" },
+  { from: "personas", to: "voice" },
+  { from: "personas", to: "category" },
 ];
 
 const BASE_RADIUS = 52;
@@ -74,7 +79,7 @@ const CENTER = { x: CANVAS_W / 2, y: CANVAS_H / 2 };
 const RING_R = 360;
 
 function computeAnchors(): Record<string, { x: number; y: number }> {
-  const outer = ["voice", "phrases", "gold", "social", "product", "guard", "keywords", "category"];
+  const outer = ["voice", "phrases", "gold", "social", "product", "guard", "keywords", "category", "personas"];
   const anchors: Record<string, { x: number; y: number }> = {
     engine: { x: CENTER.x, y: CENTER.y },
   };

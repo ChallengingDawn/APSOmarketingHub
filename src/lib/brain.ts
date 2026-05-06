@@ -52,7 +52,30 @@ export type Brain = {
     contentGap: string;
   };
   photoGuidelines?: PhotoGuidelines;
+  personas?: Persona[];
   trainingSources: { file: string; type: string }[];
+};
+
+export type PersonaDemographics = {
+  age: string;
+  incomeRange: string;
+  education: string;
+  location: string;
+};
+
+export type Persona = {
+  id: string;                // stable slug, e.g. "p1_dach_oem_purchaser"
+  code: string;              // short code shown in UI: "P1"..."P8"
+  name: string;              // archetype name: "Markus Weber"
+  role: string;              // role label: "DACH OEM Strategic Purchaser"
+  description: string;       // 1-line positioning
+  internalNotes: string;     // HubSpot filter + population stats
+  roles: string;             // expanded role/seniority paragraph
+  goals: string;
+  challenges: string;
+  demographics: PersonaDemographics;
+  story: string;             // narrative
+  hubspotValue: string;      // hs_persona internal value (persona_2 etc.)
 };
 
 export type PhotoGuidelines = {
@@ -149,11 +172,18 @@ const CHANNEL_RULES: Record<string, string[]> = {
   ],
 };
 
-export function brandSystemPrompt(brain: Brain, channel?: string): string {
+export function brandSystemPrompt(
+  brain: Brain,
+  channel?: string,
+  personaId?: string
+): string {
   const bv = brain.brandVoice;
   const pg = brain.positioningGuard;
   const sm = brain.socialMediaRules;
   const pc = brain.productContentRules;
+  const persona = personaId
+    ? (brain.personas ?? []).find((p) => p.id === personaId)
+    : undefined;
 
   const isSocial = channel === "linkedin" || channel === "newsletter";
   const isProduct = channel === "product" || channel === "seo";
@@ -186,6 +216,25 @@ export function brandSystemPrompt(brain: Brain, channel?: string): string {
     `APSOparts lane: ${pg.apsoparts}`,
     `Parent brand (Angst+Pfister) lane: ${pg.angstPfisterParent}`,
     `Rule: ${pg.rule}`,
+    ...(persona
+      ? [
+          ``,
+          `# TARGET PERSONA — write everything for THIS reader`,
+          `Code: ${persona.code} — ${persona.name} (${persona.role})`,
+          `Positioning: ${persona.description}`,
+          `Roles & seniority: ${persona.roles}`,
+          `What they want (goals): ${persona.goals}`,
+          `What blocks them (challenges): ${persona.challenges}`,
+          `Demographics: age ${persona.demographics.age}, ${persona.demographics.location}, education ${persona.demographics.education}`,
+          `Story snapshot: ${persona.story}`,
+          ``,
+          `# PERSONA WRITING RULES`,
+          `- Vocabulary, examples, and pain points must speak directly to ${persona.name} (${persona.role}). Never default to generic "maintenance engineer" framing unless the persona is actually maintenance.`,
+          `- The hook line must reference a situation this persona recognises within seconds.`,
+          `- The CTA must match the persona's buying behaviour (e.g. P4 KMU Owner prefers a phone call, P2 Digital Purchaser prefers an e-shop click).`,
+          `- Keep all language in the persona's region/language preference (e.g. P3 Pietro Rossi = Italian; P4 Andreas Schmidt = German; cross-DACH personas = German with English fallback).`,
+        ]
+      : []),
     ...(channelRules.length ? ["", ...channelRules] : []),
     ...(isSocial
       ? [

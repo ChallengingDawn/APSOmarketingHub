@@ -22,6 +22,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import GroupsIcon from "@mui/icons-material/Groups";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
@@ -57,6 +58,7 @@ const navSections: NavSection[] = [
     title: "Phase 1",
     items: [
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+      { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" />, badge: "AI" },
       { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "Public" },
       { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" />, badge: "AI" },
       { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },

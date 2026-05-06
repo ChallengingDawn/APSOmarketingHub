@@ -15,6 +15,7 @@ type GenerateBody = {
   model?: "claude" | "gemini";
   context?: Record<string, unknown>;
   withImage?: boolean;
+  personaId?: string;
 };
 
 const IMAGE_TAG = /<image-brief>([\s\S]*?)<\/image-brief>/i;
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { channel, prompt, model = "claude", context, withImage = false } = body;
+  const { channel, prompt, model = "claude", context, withImage = false, personaId } = body;
 
   if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
     return NextResponse.json({ error: "Missing 'prompt'" }, { status: 400 });
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
   // brief to honour the active audience/category too.
   const filtersForBrief: GenerationFilters = { ...filters, wantsImage: withImage };
   const filterBlock = buildFilterInstructions(filtersForBrief);
-  const system = brandSystemPrompt(brain, channel) + filterBlock + defaultsBlock;
+  const system = brandSystemPrompt(brain, channel, personaId) + filterBlock + defaultsBlock;
   const creativity = typeof filters.creativity === "number" ? filters.creativity : 70;
   const temperature = Math.max(0.2, Math.min(1, creativity / 100));
 
