@@ -14,6 +14,9 @@ import InputLabel from "@mui/material/InputLabel";
 import FormControl from "@mui/material/FormControl";
 import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import ImageIcon from "@mui/icons-material/Image";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -28,15 +31,27 @@ import type { Brain, Persona } from "@/lib/brain";
 
 type ContentType = "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
 type Length = "short" | "medium" | "long";
-type Lang = "auto" | "EN" | "DE" | "FR" | "IT";
+type Lang = "auto" | "EN" | "DE" | "FR" | "IT" | "NL" | "PL" | "ES";
 
-const CONTENT_TYPES: { id: ContentType; label: string; icon: React.ReactNode; withImage: boolean }[] = [
-  { id: "linkedin", label: "LinkedIn", icon: <LinkedInIcon fontSize="small" />, withImage: true },
-  { id: "newsletter", label: "Newsletter", icon: <NewspaperIcon fontSize="small" />, withImage: false },
-  { id: "blog", label: "Blog", icon: <ArticleIcon fontSize="small" />, withImage: false },
-  { id: "ad", label: "Paid ad", icon: <CampaignIcon fontSize="small" />, withImage: true },
-  { id: "product", label: "Product", icon: <ShoppingCartIcon fontSize="small" />, withImage: false },
-  { id: "seo", label: "SEO", icon: <TravelExploreIcon fontSize="small" />, withImage: false },
+// All 7 APSOparts customer-facing languages.
+const LANGUAGE_OPTIONS: { value: Lang; label: string }[] = [
+  { value: "auto", label: "Auto (per persona)" },
+  { value: "EN", label: "English" },
+  { value: "DE", label: "Deutsch" },
+  { value: "FR", label: "Français" },
+  { value: "IT", label: "Italiano" },
+  { value: "NL", label: "Nederlands" },
+  { value: "PL", label: "Polski" },
+  { value: "ES", label: "Español" },
+];
+
+const CONTENT_TYPES: { id: ContentType; label: string; icon: React.ReactNode; defaultImage: boolean }[] = [
+  { id: "linkedin", label: "LinkedIn", icon: <LinkedInIcon fontSize="small" />, defaultImage: true },
+  { id: "newsletter", label: "Newsletter", icon: <NewspaperIcon fontSize="small" />, defaultImage: false },
+  { id: "blog", label: "Blog", icon: <ArticleIcon fontSize="small" />, defaultImage: false },
+  { id: "ad", label: "Paid ad", icon: <CampaignIcon fontSize="small" />, defaultImage: true },
+  { id: "product", label: "Product", icon: <ShoppingCartIcon fontSize="small" />, defaultImage: false },
+  { id: "seo", label: "SEO", icon: <TravelExploreIcon fontSize="small" />, defaultImage: false },
 ];
 
 // Persona → suggested default language (matches the persona's region).
@@ -64,6 +79,9 @@ export default function PersonaGenerator({
   const [length, setLength] = useState<Length>("short");
   const [creativity, setCreativity] = useState<number>(70);
   const [lang, setLang] = useState<Lang>("auto");
+  // Image generation toggle — defaults to the channel's typical setting
+  // but the user can flip it for any content type.
+  const [withImage, setWithImage] = useState<boolean>(true);
   const [output, setOutput] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [imageError, setImageError] = useState<string>("");
@@ -95,7 +113,7 @@ export default function PersonaGenerator({
             `Write a ${activeType.label} for persona ${selected.code} ${selected.name} about a topic naturally relevant to their day-to-day buying needs.`,
           model: "claude",
           personaId: selected.id,
-          withImage: activeType.withImage,
+          withImage,
           context: {
             contentType,
             language: effectiveLang,
@@ -266,7 +284,10 @@ export default function PersonaGenerator({
                   key={c.id}
                   label={c.label}
                   icon={c.icon as React.ReactElement}
-                  onClick={() => setContentType(c.id)}
+                  onClick={() => {
+                    setContentType(c.id);
+                    setWithImage(c.defaultImage);
+                  }}
                   sx={{
                     bgcolor: active ? "#7c3aed" : "#f3f4f6",
                     color: active ? "#fff" : "#3c4043",
@@ -319,11 +340,9 @@ export default function PersonaGenerator({
                 value={lang}
                 onChange={(e) => setLang(e.target.value as Lang)}
               >
-                <MenuItem value="auto">Auto (per persona)</MenuItem>
-                <MenuItem value="EN">English</MenuItem>
-                <MenuItem value="DE">German</MenuItem>
-                <MenuItem value="FR">French</MenuItem>
-                <MenuItem value="IT">Italian</MenuItem>
+                {LANGUAGE_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                ))}
               </Select>
             </FormControl>
             <Box sx={{ gridColumn: { xs: "1 / -1", md: "span 2" } }}>
@@ -341,7 +360,7 @@ export default function PersonaGenerator({
               />
             </Box>
           </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <Button
               variant="contained"
               startIcon={<AutoAwesomeIcon />}
@@ -356,6 +375,28 @@ export default function PersonaGenerator({
             >
               {generating ? "Generating…" : `Generate for ${selected?.code ?? ""}`}
             </Button>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={withImage}
+                  onChange={(e) => setWithImage(e.target.checked)}
+                  sx={{
+                    "& .MuiSwitch-switchBase.Mui-checked": { color: "#7c3aed" },
+                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#7c3aed" },
+                  }}
+                />
+              }
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <ImageIcon sx={{ fontSize: 16, color: withImage ? "#7c3aed" : "#9aa0a6" }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: withImage ? "#3c4043" : "#9aa0a6" }}>
+                    Image
+                  </Typography>
+                </Box>
+              }
+              sx={{ ml: 0 }}
+            />
             {effectiveLang !== "EN" && (
               <Chip
                 label={`Output: ${effectiveLang}`}

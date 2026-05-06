@@ -69,12 +69,19 @@ export function buildFilterInstructions(filters: GenerationFilters | undefined):
   if (!filters) return "";
   const lines: string[] = [];
 
-  if (filters.language === "DE") {
-    lines.push(
-      `- LANGUAGE: Output language is GERMAN (Deutsch). Write EVERY field — headline, body, imagePrompt — in fluent industrial German. Do not mix English and German. Keep brand names (APSOparts, Angst+Pfister, DirectCUT, Quickorder) untranslated.`
-    );
-  } else if (filters.language === "EN") {
-    lines.push(`- LANGUAGE: Output language is ENGLISH. All fields in English.`);
+  // APSOparts supports 7 customer-facing languages. Brand names are never translated:
+  // APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder.
+  const LANG_DIRECTIVES: Record<string, string> = {
+    EN: `- LANGUAGE: Output language is ENGLISH. All fields in fluent industrial English. Keep brand names (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder) untranslated.`,
+    DE: `- LANGUAGE: Output language is GERMAN (Deutsch). Write EVERY field — headline, body, imagePrompt — in fluent industrial German. Do not mix English and German. Keep brand names untranslated.`,
+    FR: `- LANGUE: Sortie en FRANÇAIS industriel courant. Tous les champs en français. Ne pas traduire les noms de marque (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder). Pas de mélange anglais/français.`,
+    IT: `- LINGUA: Output in ITALIANO industriale fluente. Tutti i campi in italiano. Non tradurre i nomi dei marchi (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder). Non mischiare inglese e italiano.`,
+    NL: `- TAAL: Uitvoer in vloeiend industrieel NEDERLANDS. Alle velden in het Nederlands. Vertaal de merknamen niet (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder). Geen mix van Engels en Nederlands.`,
+    PL: `- JĘZYK: Wyjście w płynnym przemysłowym JĘZYKU POLSKIM. Wszystkie pola po polsku. Nie tłumacz nazw marek (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder). Nie mieszaj angielskiego i polskiego.`,
+    ES: `- IDIOMA: Salida en ESPAÑOL industrial fluido. Todos los campos en español. No traducir nombres de marca (APSOparts, Angst+Pfister, DirectCUT, DirectUP, Quickorder). Sin mezcla inglés/español.`,
+  };
+  if (filters.language && LANG_DIRECTIVES[filters.language]) {
+    lines.push(LANG_DIRECTIVES[filters.language]);
   }
 
   if (filters.framework && filters.framework !== "auto") {

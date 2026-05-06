@@ -6,6 +6,7 @@ import Phase2Gate from "./Phase2Gate";
 
 const PHASE_1_PATHS = [
   "/personality",
+  "/personas",
   "/content-generation",
   "/photos",
   "/templates",
