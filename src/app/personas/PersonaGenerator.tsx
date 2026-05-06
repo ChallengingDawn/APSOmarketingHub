@@ -17,6 +17,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import ImageIcon from "@mui/icons-material/Image";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -83,6 +84,7 @@ export default function PersonaGenerator({
   // but the user can flip it for any content type.
   const [withImage, setWithImage] = useState<boolean>(true);
   const [output, setOutput] = useState<string>("");
+  const [imageBrief, setImageBrief] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [imageError, setImageError] = useState<string>("");
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -96,26 +98,29 @@ export default function PersonaGenerator({
   const effectiveLang =
     lang !== "auto" ? lang : PERSONA_DEFAULT_LANG[selectedId] ?? "EN";
 
+  const filterContext = () => ({
+    contentType,
+    language: effectiveLang,
+    length,
+    creativity,
+    audience: selected ? `${selected.code} — ${selected.name} (${selected.role})` : "",
+  });
+
   async function handleGenerate() {
     if (!selected) return;
     setError("");
     setOutput("");
+    setImageBrief("");
     setImageUrl("");
     setImageError("");
     setImageLoading(false);
     setGenerating(true);
 
-    const filterContext = {
-      contentType,
-      language: effectiveLang,
-      length,
-      creativity,
-      audience: `${selected.code} — ${selected.name} (${selected.role})`,
-    };
-
-    // Step 1 — always fetch TEXT-ONLY first. This keeps the request fast
-    // and avoids Railway / fetch timeouts when image generation is slow.
-    let text = "";
+    // Step 1 — fetch text + LLM-generated image brief in one fast call.
+    // wantBrief=true tells the API to emit an <image-brief> tag and return
+    // it as `imageBrief` WITHOUT actually generating the image (so we don't
+    // hit Railway timeouts when Gemini is overloaded).
+    let brief = "";
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -128,16 +133,18 @@ export default function PersonaGenerator({
           model: "claude",
           personaId: selected.id,
           withImage: false,
-          context: filterContext,
+          wantBrief: true,
+          context: filterContext(),
         }),
       });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `HTTP ${res.status}`);
       }
-      const data = (await res.json()) as { content: string };
-      text = data.content;
-      setOutput(text);
+      const data = (await res.json()) as { content: string; imageBrief?: string };
+      setOutput(data.content);
+      brief = (data.imageBrief ?? "").trim();
+      if (brief) setImageBrief(brief);
     } catch (e) {
       setError(`Text generation failed: ${e instanceof Error ? e.message : String(e)}`);
       setGenerating(false);
@@ -146,21 +153,24 @@ export default function PersonaGenerator({
 
     setGenerating(false);
 
-    // Step 2 — if the user wants an image, fire a SEPARATE call. This is
-    // best-effort: if Gemini is overloaded the text is still on screen.
-    if (!withImage) return;
+    // Step 2 — fire image gen with the LLM brief if the user wants one.
+    if (withImage && brief) {
+      void runImageGen(brief);
+    }
+  }
 
-    const brief =
-      (topic.trim() ||
-        `${selected.role} working scene relevant to: ${selected.description}`) +
-      ` — channel: ${activeType.label}.`;
-
+  async function runImageGen(brief: string) {
+    if (!brief.trim()) {
+      setImageError("Image brief is empty — write a scene to generate.");
+      return;
+    }
+    setImageError("");
     setImageLoading(true);
     try {
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: brief, filters: filterContext }),
+        body: JSON.stringify({ prompt: brief, filters: filterContext() }),
       });
       const data = (await res.json()) as {
         imageUrl?: string;
@@ -168,7 +178,9 @@ export default function PersonaGenerator({
       };
       if (data.imageUrl) {
         setImageUrl(data.imageUrl);
+        setImageError("");
       } else {
+        setImageUrl("");
         setImageError(prettifyImageError(data.imageError));
       }
     } catch (e) {
@@ -499,8 +511,47 @@ export default function PersonaGenerator({
                 {output}
               </Box>
             )}
-            {(imageLoading || imageUrl || imageError) && (
+            {imageBrief && (
               <Box sx={{ mt: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                  <Typography sx={{ fontSize: 11, color: "#5f6368", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Image brief
+                  </Typography>
+                  <Typography sx={{ fontSize: 10, color: "#9aa0a6" }}>
+                    edit and click Regenerate to refine the image
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon fontSize="small" />}
+                    onClick={() => runImageGen(imageBrief)}
+                    disabled={imageLoading || !imageBrief.trim()}
+                    sx={{
+                      textTransform: "none",
+                      color: "#7c3aed",
+                      "&:hover": { bgcolor: "#ede7f9" },
+                    }}
+                  >
+                    {imageUrl ? "Regenerate image" : "Generate image"}
+                  </Button>
+                </Box>
+                <TextField
+                  multiline
+                  fullWidth
+                  minRows={3}
+                  maxRows={8}
+                  value={imageBrief}
+                  onChange={(e) => setImageBrief(e.target.value)}
+                  placeholder="Describe the scene, lighting, framing, and props…"
+                  sx={{
+                    "& .MuiInputBase-input": { fontSize: 12, lineHeight: 1.5, fontFamily: "monospace" },
+                    mb: 1.5,
+                  }}
+                />
+              </Box>
+            )}
+            {(imageLoading || imageUrl || imageError) && (
+              <Box sx={{ mt: imageBrief ? 0 : 2 }}>
                 <Typography sx={{ fontSize: 11, color: "#5f6368", mb: 0.5 }}>
                   Image draft
                 </Typography>

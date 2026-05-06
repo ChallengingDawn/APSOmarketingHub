@@ -15,6 +15,11 @@ type GenerateBody = {
   model?: "claude" | "gemini";
   context?: Record<string, unknown>;
   withImage?: boolean;
+  // When true, ask the LLM to emit an <image-brief>...</image-brief> at the end
+  // and return it as `imageBrief` in the response, but do NOT actually generate
+  // the image. Lets the caller decouple image generation while still getting a
+  // high-quality, content-aware brief. Default: false.
+  wantBrief?: boolean;
   personaId?: string;
 };
 
@@ -35,7 +40,9 @@ async function maybeGenerateImage(
   const brief = tag?.[1]?.trim() ?? "";
   const content = raw.replace(IMAGE_TAG, "").trim();
 
-  if (!wantImage) return { content, imagePayload: {} };
+  // Even when we don't generate the image, return the LLM-emitted brief so
+  // the caller can render it for editing and fire /api/image separately.
+  if (!wantImage) return { content, imagePayload: brief ? { imageBrief: brief } : {} };
 
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!geminiKey) {
@@ -82,7 +89,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { channel, prompt, model = "claude", context, withImage = false, personaId } = body;
+  const { channel, prompt, model = "claude", context, withImage = false, wantBrief = false, personaId } = body;
 
   if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
     return NextResponse.json({ error: "Missing 'prompt'" }, { status: 400 });
@@ -102,6 +109,7 @@ export async function POST(req: NextRequest) {
   const creativity = typeof filters.creativity === "number" ? filters.creativity : 70;
   const temperature = Math.max(0.2, Math.min(1, creativity / 100));
 
+  const briefRequested = withImage || wantBrief;
   const userMessage = [
     `Channel: ${channel}`,
     context ? `Context: ${JSON.stringify(context)}` : null,
@@ -109,8 +117,8 @@ export async function POST(req: NextRequest) {
     `Request: ${prompt}`,
     ``,
     `Produce content that matches the brand voice, respects the positioning guard, and reuses signature phrases naturally. If the channel is LinkedIn or newsletter, follow the post template. If the channel is product or SEO, follow the product content page structure.`,
-    withImage
-      ? `\nAt the very end, append a concrete image brief inside exactly this tag (on its own lines): <image-brief>...</image-brief>. The brief should describe a photorealistic industrial scene (hands, tools, components in context, no CAD, no stock suits, no white-bg product shots, no text overlays).`
+    briefRequested
+      ? `\nAt the very end, append a concrete image brief inside exactly this tag (on its own lines): <image-brief>...</image-brief>. The brief must be 60-120 words and must reference the SPECIFIC scene the body of the content describes — not a generic workshop. Tie the image to the persona's day (workshop floor for P5/P6, R&D lab for P7, SAP/Ariba office for P1, Italian SME shop floor for P3, owner-on-shop-floor for P4, growth-stage open office for P2, distributor warehouse for P8). Include: subject + setting + lighting + camera angle + 35mm-like depth-of-field. No CAD, no stock suits, no white-bg product shots, no text overlays, no logos.`
       : null,
   ]
     .filter(Boolean)
