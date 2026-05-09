@@ -17,7 +17,21 @@
     "audiences": [
       "Maintenance engineers",
       "Procurement / buyers",
-      "Technical buyers (OEM / plants)"
+      "Design engineers",
+      "R&D engineers",
+      "Plant managers",
+      "Production / operations",
+      "Quality assurance",
+      "Automation engineers",
+      "Facility managers",
+      "MRO / aftermarket technicians",
+      "OEM product managers",
+      "Food & beverage engineers",
+      "Chemical process engineers",
+      "Pharma / GMP engineers",
+      "Hydraulics & pneumatics specialists",
+      "Distributors / resellers",
+      "C-level / technical directors"
     ],
     "messagingPillars": [
       "Engineering solutions, one click away",

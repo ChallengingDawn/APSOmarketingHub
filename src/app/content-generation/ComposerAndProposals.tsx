@@ -75,12 +75,28 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
   { id: "recognition", label: "We've already met" },
 ];
 
-// Fallback if the brain hasn't declared a structured audiences list. Kept
-// short and brand-aligned, not the old 17-entry catch-all.
+// Fallback if the brain hasn't declared a structured audiences list. Mirrors
+// the canonical 17 the brain ships with so we never silently drop choices
+// when audiences[] is missing — pruning belongs in the Personality editor,
+// not in this fallback.
 const FALLBACK_AUDIENCES = [
   "Maintenance engineers",
   "Procurement / buyers",
-  "Technical buyers (OEM / plants)",
+  "Design engineers",
+  "R&D engineers",
+  "Plant managers",
+  "Production / operations",
+  "Quality assurance",
+  "Automation engineers",
+  "Facility managers",
+  "MRO / aftermarket technicians",
+  "OEM product managers",
+  "Food & beverage engineers",
+  "Chemical process engineers",
+  "Pharma / GMP engineers",
+  "Hydraulics & pneumatics specialists",
+  "Distributors / resellers",
+  "C-level / technical directors",
 ];
 
 export default function ComposerAndProposals({
