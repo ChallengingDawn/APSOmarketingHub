@@ -1,6 +1,7 @@
 # APSOparts Marketing Hub — Security Infrastructure
 
-**Status:** Draft for Group Security review
+**Status:** Phase 1 live (per-user accounts + mandatory TOTP). Draft for Group Security review.
+**Last updated:** 2026-05-20
 **Owner:** APSOparts Marketing / Angst+Pfister Group IT Security
 **Related document:** `TECHNICAL-ROADMAP.md`
 
@@ -22,72 +23,83 @@ The hub is designed around seven non-negotiable principles.
 
 ## 2. Authentication
 
-Authentication is implemented in two stages. Phase 1 uses a shared master password with email domain verification so the hub can enforce access control immediately, without waiting for corporate identity infrastructure or external email delivery services. Phase 2 upgrades to Microsoft Entra ID once the Angst+Pfister tenant app registration is provisioned by Group IT.
+Authentication is implemented in two layers in Phase 1: a bcrypt-hashed password stored in a Postgres-backed user table, followed by a mandatory TOTP second factor. Phase 2 adds Microsoft Entra ID SSO on top of the same user table, so single sign-on can replace the password layer while preserving the existing user, role and audit model.
 
-### Phase 1 — Password-based authentication (active from day one)
+### Phase 1 — Per-user accounts + mandatory TOTP (live as of 2026-05-20)
 
-The hub is protected behind a password sign-in flow on every route. No anonymous access is allowed.
+The hub is protected behind a two-step sign-in flow on every route. No anonymous access is allowed.
 
 **How it works:**
 
-1. A user visits any page on the hub. Middleware checks for a signed session cookie.
+1. A user visits any page on the hub. Edge middleware checks for a signed `apsomarketinghub_session` cookie.
 2. Without a valid cookie, the user is redirected to `/signin`.
-3. The user enters their corporate email address and the master password.
-4. The server validates two things in a single step: (a) the email domain is on the allow-list (`angst-pfister.com` or `apsoparts.com`), and (b) the password matches `AUTH_MASTER_PASSWORD`. If either check fails, the server returns a generic "Invalid credentials" response — it never reveals which check failed (preventing email enumeration).
-5. On success, the server signs a 12-hour session JWT and sets it as an HTTP-only cookie.
-6. The session cookie is `httpOnly`, `secure`, `sameSite=lax` — inaccessible to JavaScript, sent only over HTTPS.
+3. The user enters their **username or email** and **personal password**. The server looks up the row in the `apsomh_users` Postgres table and verifies the password with bcrypt (`bcryptjs`, cost factor 12). A failed lookup and a wrong password return the same generic `401 Invalid credentials` response — the response never reveals which check failed (preventing user enumeration).
+4. On success the server issues a short-lived `apsomarketinghub_pre2fa` cookie (5-minute JWT, `typ: pre2fa`) and tells the client where to go next: `/enroll` if the user has never enrolled TOTP, otherwise `/login/totp`.
+5. **First-time enrolment** at `/enroll` shows a QR code (issuer `APSOmarketingHub`, SHA-1, 6 digits, 30-second period) that the user scans with an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password, etc.). The user submits the first 6-digit code; only on successful verification does the server flip `totp_enrolled = TRUE` and persist the secret.
+6. **Returning users** at `/login/totp` enter a 6-digit code (validated with a ±1 period acceptance window). On success the pre-2FA cookie is cleared and a 12-hour `apsomarketinghub_session` cookie is issued.
+7. Both cookies are `httpOnly`, `secure` (in production), `sameSite=lax` — inaccessible to JavaScript, sent only over HTTPS.
+8. If `must_change_password = TRUE` on the user record (the default for every admin-provisioned account), the post-login UI forces a password change before any other page becomes usable.
 
 **Security properties:**
 
 | Property | Mechanism |
 |---|---|
-| Domain restriction | Server-side email allow-list check on every login attempt |
-| Password protection | Constant-time comparison prevents timing attacks |
-| Token tampering | Session JWTs signed with HS256 using a 32+ character `AUTH_SECRET` env var |
-| Session theft | `httpOnly` cookies prevent XSS-based token theft |
-| Enumeration | Generic error response never reveals whether the email or password was wrong |
-| Brute force | Rate limiting on `/api/auth/login` (10 req / min / IP) |
+| Password storage | bcrypt, cost factor 12, per-user salt — never reversible |
+| Password strength | ≥10 chars, must contain upper + lower + digit (enforced server-side) |
+| Forced rotation | `must_change_password` flag on every provisioned account |
+| Second factor | TOTP (RFC 6238) — mandatory before any session is issued |
+| Enrolment integrity | Secret is only persisted after the user proves possession with a valid code |
+| Token tampering | Both cookies are JWTs signed with HS256 using a ≥32-character `SESSION_SECRET` |
+| Session theft | `httpOnly` + `secure` + `sameSite=lax` cookies block XSS / CSRF token theft |
+| Enumeration | Login and TOTP errors return generic responses for unknown user, wrong password and wrong code |
+| Replay | TOTP `window=1` accepts only the current ±1 period; the pre-2FA cookie cannot be exchanged for a session without a valid code and expires in 5 min |
 
 **Phase 1 implementation specifics:**
 
 | Setting | Value |
 |---|---|
-| Library | `jose` (JWT sign/verify, Edge-runtime compatible) |
-| Auth method | Email domain check + shared master password |
-| Allow-list | `angst-pfister.com`, `apsoparts.com` — server-side only |
-| Session TTL | 12 hours |
-| Session cookie | `aph_session`, `httpOnly`, `secure`, `sameSite=lax`, path `/` |
-| Signing algorithm | HS256 with `AUTH_SECRET` |
-| Required env vars | `AUTH_SECRET`, `AUTH_MASTER_PASSWORD` |
-| Middleware coverage | Every route except `/signin`, `/api/auth/*`, Next.js internals |
-| Sign-out | `GET /api/auth/signout` clears the cookie and redirects to `/signin` |
+| Library | `jose` (JWT sign/verify), `bcryptjs` (password hash), `otpauth` (TOTP), `qrcode` (enrolment QR) |
+| User store | PostgreSQL table `apsomh_users` (Railway-managed Postgres, EU region) |
+| Identity | Per-user account: `username` (unique), optional `email`, `full_name`, `role`, `is_active`, `must_change_password`, `totp_secret`, `totp_enrolled`, `last_login` |
+| Roles | `admin` / `user` / `viewer` (see §3) |
+| Bootstrap | `POST /api/auth/setup` creates the first admin only when `apsomh_users` is empty; self-disables after the first row exists |
+| User provisioning | Admin-only `POST /api/admin/users` — creates user with `must_change_password = TRUE` |
+| Pre-2FA cookie | `apsomarketinghub_pre2fa`, JWT `typ: pre2fa`, 5-minute TTL, `httpOnly`, `secure`, `sameSite=lax` |
+| Session cookie | `apsomarketinghub_session`, JWT `typ: session`, 12-hour TTL, `httpOnly`, `secure`, `sameSite=lax`, path `/` |
+| Signing algorithm | HS256 with `SESSION_SECRET` (or `AUTH_SECRET` as legacy alias) |
+| TOTP parameters | Issuer `APSOmarketingHub` (overridable via `TOTP_ISSUER`), SHA-1, 6 digits, 30 s period, 20-byte base32 secret, ±1 period acceptance window |
+| Required env vars | `DATABASE_URL`, `SESSION_SECRET` (≥32 chars), `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
+| Optional env vars | `TOTP_ISSUER`, `AUTH_SECRET` (alias for `SESSION_SECRET`) |
+| Middleware coverage | Every route except `/signin`, `/login`, `/login/totp`, `/enroll`, `/api/auth/*`, Next.js internals |
+| Sign-out | `POST /api/auth/logout` (and legacy `GET /api/auth/signout`) clears both cookies and redirects to `/signin` |
+| Password change | `POST /api/auth/change-password` — requires current password, validates strength, clears `must_change_password` |
 
 **Why this is acceptable for Phase 1:**
 
-- It enforces access control **today**, with no dependency on Group IT, Azure, AWS, or any external email delivery service
-- No reliance on transactional email providers (Resend, SendGrid) that can be blocked by corporate mail filters
-- It can be deployed by the external agency on Railway immediately
-- It protects the same surfaces that Entra ID will later protect — only the identity provider changes
-- The master password is stored as a Railway environment variable, never in source code
-- The small Phase 1 team (3–5 marketing users) makes a shared password practical; per-user credentials come with Entra ID in Phase 2
-- Upgrading to Entra ID in Phase 2 is a ~15-line code change to the auth module; the middleware, session cookie format and allow-list logic stay identical
+- Real per-user identity from day one — no shared passwords, full audit attribution
+- MFA is enforced inside the application; no dependency on Group IT, Azure, AWS or any external email/push provider for the second factor
+- bcrypt + TOTP is the same authenticator threat model as Entra ID with a software TOTP — Entra in Phase 2 brings centralised provisioning and SSO, not a stronger primitive
+- All identity material (password hashes, TOTP secrets) lives in the Railway-managed Postgres database in the EU region; the application process holds no long-lived credentials in memory beyond the request lifecycle
+- The `apsomh_users` schema and the role model carry forward unchanged into Phase 2 — only the password+TOTP step is swapped for an Entra SSO callback that hydrates the same session cookie format
 
-### Phase 2 — Microsoft Entra ID (Azure AD)
+### Phase 2 — Microsoft Entra ID (Azure AD) SSO
 
-When Group IT provisions the Entra ID app registration in the Angst+Pfister Microsoft 365 tenant, the magic-link provider is replaced by Microsoft Entra ID SSO. Because Angst+Pfister and APSOparts already run Microsoft 365 (Outlook, Teams, SharePoint), the hub joins the same Single Sign-On umbrella — no new identity system, no parallel MFA enrolment, no duplicate password. Users click "Sign in with Microsoft", authenticate against the Angst+Pfister tenant with their usual corporate credentials, MFA is enforced by the existing Conditional Access policy, and the hub receives a short-lived session cookie. The hub never sees or stores the user's password.
+When Group IT provisions the Entra ID app registration in the Angst+Pfister Microsoft 365 tenant, the password + TOTP login form is replaced by a "Sign in with Microsoft" callback. Because Angst+Pfister and APSOparts already run Microsoft 365 (Outlook, Teams, SharePoint), the hub joins the same Single Sign-On umbrella — no new identity system, no parallel MFA enrolment, no duplicate password. MFA is enforced by the existing Conditional Access policy, the in-app TOTP enrolment is retired (or kept as a break-glass fallback for admins), and the hub receives the same `apsomarketinghub_session` cookie format it uses today.
 
 ### Phase 2 OAuth implementation specifics
 
 | Setting | Value |
 |---|---|
-| Library | NextAuth.js (Auth.js v5) |
+| Library | NextAuth.js (Auth.js v5) or equivalent Entra ID OIDC client |
 | Identity provider | Microsoft Entra ID (Azure AD) — Angst+Pfister tenant |
 | Tenant restriction | Single-tenant app registration in the Angst+Pfister Microsoft 365 tenant; users from any other tenant are rejected by Microsoft before the callback is even called |
 | Allowed email domains | `@angst-pfister.com`, `@apsoparts.com` — additional server-side check as a second line of defence |
 | Flow | Authorization Code with PKCE |
+| Account linking | Entra `oid` claim is matched to `apsomh_users.email` (or a new `entra_oid` column) — existing roles, permissions and audit history are preserved |
 | Token storage | Server-side session, never stored in browser localStorage or sessionStorage |
-| Session cookie | `httpOnly`, `secure`, `sameSite=lax`, 12-hour sliding expiry |
+| Session cookie | `apsomarketinghub_session`, `httpOnly`, `secure`, `sameSite=lax`, 12-hour sliding expiry — same format as Phase 1 |
 | MFA | Enforced at the Microsoft 365 tenant level via Conditional Access (same policy as Outlook) |
+| Local TOTP | Retired for normal users; optionally retained for admin break-glass |
 | Logout | Clears hub session + redirects to `login.microsoftonline.com/common/oauth2/logout` for full sign-out |
 | CSRF protection | Built into NextAuth — double-submit cookie pattern |
 | App registration owner | Angst+Pfister IT (creates the Entra ID app registration and shares the Client ID + Secret with the development team via secure channel) |
@@ -114,16 +126,18 @@ All OAuth refresh tokens are stored in **AWS Secrets Manager** (Phase 2) or **Ra
 
 ## 3. Authorization (who can do what)
 
-Three roles, defined in the database and enforced on every API route.
+Three roles, stored on `apsomh_users.role` and enforced on every protected route. Role names match the database values.
 
-| Role | Can view | Can generate | Can approve | Can schedule | Can manage KB | Can manage users |
+| Role | Sign in | View content & logs | Generate / propose | Edit PERSONALITY brain | Manage templates | Manage users |
 |---|---|---|---|---|---|---|
-| **Viewer** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Editor** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Approver** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Admin** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **viewer** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **user** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **admin** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-Role assignment is done by an Admin in the hub's Settings page and requires Group IT approval for any new Admin.
+- The first account, created via `/api/auth/setup`, is forced to `admin` — the bootstrap caller chose the password directly, so `must_change_password` is `FALSE` for this row only.
+- Every other account is created by an admin via `POST /api/admin/users`, defaults to `must_change_password = TRUE`, and must complete TOTP enrolment before any application route becomes accessible.
+- Role changes and account deactivation (`is_active = FALSE`) take effect on the user's next request; the session cookie is not invalidated server-side, but `requireUser` re-reads the row on every render of a protected page, so a deactivated user is locked out within seconds.
+- Promotion to `admin` requires Group IT approval (process-level rule, not enforced in code).
 
 ---
 
@@ -133,15 +147,19 @@ Role assignment is done by an Admin in the hub's Settings page and requires Grou
 
 | Secret | Where | Rotation |
 |---|---|---|
+| `DATABASE_URL` | Railway-managed Postgres connection string | On incident only |
+| `SESSION_SECRET` (alias: `AUTH_SECRET`) | Railway environment variable, ≥32 chars — signs both the pre-2FA and session JWTs | On incident only |
 | `ANTHROPIC_API_KEY` | Railway environment variable | Quarterly |
 | `GEMINI_API_KEY` | Railway environment variable | Quarterly |
-| `AUTH_SECRET` (session JWT signing key) | Railway environment variable | On incident only |
-| `AUTH_MASTER_PASSWORD` (shared team password) | Railway environment variable | Quarterly or on team change |
+| `TOTP_ISSUER` *(optional)* | Railway environment variable — controls the issuer label shown in authenticator apps | Never (cosmetic) |
+| User passwords | bcrypt hashes in `apsomh_users.password_hash` | User-driven; admin can force via `must_change_password = TRUE` |
+| TOTP secrets | `apsomh_users.totp_secret` (base32) | Rotated by admin on 2FA reset |
 
 **Hard rules:**
 - No `NEXT_PUBLIC_*` prefix on any secret — that prefix bundles the value into browser JS.
-- No secrets in source code, `.env` files committed to git, Docker images, CI logs, or Slack.
+- No secrets in source code, `.env` files committed to git, Docker images, CI logs or Slack.
 - `.gitignore` excludes `.env`, `.env.local`, `.env.*.local` (verified in repo).
+- `/api/auth/setup` self-disables as soon as one user row exists — there is no permanent "create admin" endpoint.
 
 ### Phase 2 (AWS)
 
