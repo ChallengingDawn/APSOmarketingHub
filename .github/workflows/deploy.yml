@@ -1,0 +1,50 @@
+name: Build and push image to ECR
+
+# Phase 1: build the container image and push it to Amazon ECR.
+# (Once True Soft creates the Fargate service, add an ECS deploy step here —
+#  see the commented block at the bottom.)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write      # required for OIDC — lets configure-aws-credentials get a token
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: eu-central-1
+          role-to-assume: arn:aws:iam::905418292914:role/apso-github-actions-role
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}   # no trailing slash
+          REPOSITORY: apsomarketinghub
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:prod" .
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPOSITORY:prod"
+
+# ── Add after True Soft provisions the ECS cluster + service ──────────────
+#      - name: Deploy to ECS Fargate
+#        run: |
+#          aws ecs update-service \
+#            --cluster  <cluster-name> \
+#            --service  <service-name> \
+#            --force-new-deployment
+#   (and grant the role ecs:UpdateService / ecs:DescribeServices / iam:PassRole)
