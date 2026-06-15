@@ -8,6 +8,7 @@ const PUBLIC_PREFIXES = [
   "/login/totp",
   "/enroll",
   "/api/auth/",
+  "/api/health",
   "/_next",
   "/favicon",
   "/icon",
