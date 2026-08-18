@@ -19,7 +19,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const { id } = await params;
   const userId = Number(id);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -29,6 +29,19 @@ export async function PATCH(
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
 
   const b = parsed.data;
+
+  // Block self-lockout: an admin must not be able to demote or disable
+  // themselves through this endpoint. They can still change their own
+  // password via /api/auth/change-password and rotate their TOTP from
+  // the enrolment flow.
+  if (userId === me.id) {
+    if (b.isActive === false) {
+      return NextResponse.json({ error: 'Cannot deactivate yourself' }, { status: 400 });
+    }
+    if (b.role !== undefined && b.role !== 'admin') {
+      return NextResponse.json({ error: 'Cannot demote yourself' }, { status: 400 });
+    }
+  }
   const sets: string[] = [];
   const vals: unknown[] = [];
   const push = (col: string, val: unknown) => {
@@ -64,11 +77,14 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const { id } = await params;
   const userId = Number(id);
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+  }
+  if (userId === me.id) {
+    return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
   }
   await query(`DELETE FROM apsomh_users WHERE id = $1`, [userId]);
   return NextResponse.json({ ok: true });

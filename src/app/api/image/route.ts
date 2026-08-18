@@ -3,6 +3,7 @@ import { generateApsoImage, type ReferenceImage } from "@/lib/images";
 import { readBrain } from "@/lib/brain";
 import { buildImagePrompt, type ImagePromptInput } from "@/lib/imagePrompt";
 import type { GenerationFilters } from "@/lib/filters";
+import { BODY_LIMIT_LARGE, tooLarge } from "@/lib/httpGuard";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,6 +17,9 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
+  if (tooLarge(req, BODY_LIMIT_LARGE)) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
   let body: Body;
   try {
     body = (await req.json()) as Body;

@@ -191,10 +191,7 @@ export async function POST(req: NextRequest) {
       ...imagePayload,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: "Generation failed", details: message },
-      { status: 500 }
-    );
+    console.error("[generate] error", err);
+    return NextResponse.json({ error: "Generation failed" }, { status: 500 });
   }
 }

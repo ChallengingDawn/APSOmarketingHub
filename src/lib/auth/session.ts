@@ -30,7 +30,7 @@ export async function signSession(p: SessionPayload): Promise<string> {
 
 export async function verifySession(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== 'session') return null;
     if (typeof payload.uid !== 'number') return null;
     return {
@@ -55,7 +55,7 @@ export async function readPre2fa(): Promise<{ uid: number } | null> {
   const c = (await cookies()).get(PRE_2FA_COOKIE)?.value;
   if (!c) return null;
   try {
-    const { payload } = await jwtVerify(c, getSecret());
+    const { payload } = await jwtVerify(c, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== 'pre2fa') return null;
     return { uid: payload.uid as number };
   } catch {

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 const LOGS_PATH = path.join(process.cwd(), "src", "data", "logs.json");
 
@@ -61,7 +62,7 @@ export async function writeLogs(next: LogsFile): Promise<void> {
 export async function addLogEntry(entry: Omit<LogEntry, "id" | "ts">): Promise<LogEntry> {
   const file = await readLogs();
   const full: LogEntry = {
-    id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    id: randomUUID(),
     ts: new Date().toISOString(),
     ...entry,
   };

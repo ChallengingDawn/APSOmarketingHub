@@ -4,6 +4,7 @@ import { ensureSchema, type UserRow } from '@/lib/db/init';
 import { query } from '@/lib/db/client';
 import { verifyPassword } from '@/lib/auth/password';
 import { setPre2faCookie, signPre2fa } from '@/lib/auth/session';
+import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -15,15 +16,27 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  const rlKey = clientKey(req, 'login');
+  const rl = checkRateLimit(rlKey);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Try again later.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    );
+  }
   try {
     await ensureSchema();
     const parsed = Body.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
+      recordFailure(rlKey);
       return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
     }
     const id = (parsed.data.identifier ?? parsed.data.email ?? parsed.data.username ?? '')
       .toLowerCase();
-    if (!id) return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
+    if (!id) {
+      recordFailure(rlKey);
+      return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
+    }
 
     const r = await query<UserRow>(
       `SELECT * FROM apsomh_users WHERE username = $1 OR email = $1 LIMIT 1`,
@@ -31,19 +44,21 @@ export async function POST(req: Request) {
     );
     const u = r.rows[0];
     if (!u || !u.is_active) {
+      recordFailure(rlKey);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
     const ok = await verifyPassword(parsed.data.password, u.password_hash);
-    if (!ok) return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    if (!ok) {
+      recordFailure(rlKey);
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
 
+    recordSuccess(rlKey);
     await setPre2faCookie(await signPre2fa(u.id));
     return NextResponse.json({ next: u.totp_enrolled ? '/login/totp' : '/enroll' });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[login] error', err);
-    return NextResponse.json(
-      { error: 'Server error — likely the database is not initialized.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

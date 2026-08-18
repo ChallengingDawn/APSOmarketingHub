@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { timingSafeEqual } from 'node:crypto';
 import { ensureSchema } from '@/lib/db/init';
 import { query } from '@/lib/db/client';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 
 export const runtime = 'nodejs';
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 const Body = z.object({
   username: z.string().trim().min(2).max(255),
@@ -14,9 +22,19 @@ const Body = z.object({
 });
 
 // Bootstrap the very first admin. Idempotent: only fires when apsomh_users
-// is empty. Self-disables once a user exists.
+// is empty. Self-disables once a user exists. When SETUP_TOKEN is configured,
+// callers must present it in the x-setup-token header — protects fresh deploys
+// from a race where an attacker claims the admin account before the operator.
 export async function POST(req: Request) {
   try {
+    const required = process.env.SETUP_TOKEN;
+    if (required) {
+      const presented = req.headers.get('x-setup-token') ?? '';
+      if (!constantTimeEqual(presented, required)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
     await ensureSchema();
     const parsed = Body.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {

@@ -35,7 +35,7 @@ export async function middleware(req: NextRequest) {
   }
 
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== "session") throw new Error("wrong type");
     return NextResponse.next();
   } catch {

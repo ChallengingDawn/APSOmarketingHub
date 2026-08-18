@@ -1,21 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { readBrain, writeBrain, type Brain } from "@/lib/brain";
+import { requireAdmin } from "@/lib/auth/guard";
+import { BODY_LIMIT_MEDIUM, tooLarge } from "@/lib/httpGuard";
+
+export const runtime = "nodejs";
 
 export async function GET() {
   try {
     const brain = await readBrain();
     return NextResponse.json(brain);
   } catch (err) {
-    return NextResponse.json(
-      { error: "Failed to read brain", details: String(err) },
-      { status: 500 }
-    );
+    console.error("[personality] GET error", err);
+    return NextResponse.json({ error: "Failed to read brain" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    await requireAdmin();
+    if (tooLarge(req, BODY_LIMIT_MEDIUM)) {
+      return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+    }
     const next = (await req.json()) as Brain;
     await writeBrain(next);
     const saved = await readBrain();
@@ -29,9 +35,7 @@ export async function POST(req: NextRequest) {
     revalidatePath("/");
     return NextResponse.json(saved);
   } catch (err) {
-    return NextResponse.json(
-      { error: "Failed to write brain", details: String(err) },
-      { status: 500 }
-    );
+    console.error("[personality] POST error", err);
+    return NextResponse.json({ error: "Failed to write brain" }, { status: 500 });
   }
 }
