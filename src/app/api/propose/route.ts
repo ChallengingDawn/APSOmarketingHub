@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
 import { readLogs, saveCurrentBatch } from "@/lib/logs";
 import {
@@ -7,9 +7,10 @@ import {
   buildFeedbackBlock,
   type GenerationFilters,
 } from "@/lib/filters";
+import { getAnthropic, channelBudget, claudeText } from "@/lib/ai/claude";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 type ProposeBody = {
   topic?: string;
@@ -29,6 +30,45 @@ type Proposal = {
 
 const FALLBACK_IMAGES = ["/mood/oring.png", "/mood/no-surcharge.png", "/mood/oring.png"];
 
+// Each of the three parallel proposals gets a distinct angle so they don't
+// converge on the same idea (structured runs are near-deterministic).
+const ANGLES = [
+  `Angle for THIS proposal: problem-first. Open on a concrete pain, failure mode, or costly mistake the reader recognises from their own work, then resolve it.`,
+  `Angle for THIS proposal: ease-first. Lead with a specific APSOparts shop capability that removes friction (DirectCUT, Quickorder, 48/72h delivery, no-surcharge) and what it changes in the reader's day.`,
+  `Angle for THIS proposal: knowledge-first. Lead with a genuinely useful technical insight, rule of thumb, or comparison the reader will want to save — the brand appears only as the competent source.`,
+];
+
+const PROPOSAL_SCHEMA = {
+  type: "object",
+  properties: {
+    headline: {
+      type: "string",
+      description: "Scroll-stopping opening line, max 12 words, in the requested language.",
+    },
+    body: {
+      type: "string",
+      description:
+        "The full channel content, exactly in the mandated channel format, in the requested language.",
+    },
+    imagePrompt: {
+      type: "string",
+      description:
+        "Concrete visual brief for an accompanying image, or empty string when no image is wanted.",
+    },
+  },
+  required: ["headline", "body", "imagePrompt"],
+  additionalProperties: false,
+} as const;
+
+const channelExpectations: Record<string, string> = {
+  linkedin: `The "body" MUST be an actual LinkedIn post (80–160 words, 1–3 short paragraphs with blank lines between them, a scroll-stopping first line, a soft CTA, and 2–4 hashtags at the bottom).`,
+  newsletter: `The "body" MUST start with "Subject: ..." on line 1, "Preheader: ..." on line 2, then the email body (220–350 words, 2–4 short sections) ending with "— APSOparts".`,
+  blog: `The "body" MUST be a 600–900 word blog article in markdown: "# H1", then 2–3 sentence intro, then 3–5 "## Section" headings (each opening with a direct 1–2 sentence answer), at least one bulleted list of specs or criteria, a closing "## FAQ" section with 3–5 self-contained Q&As (40–60 words each), and a trailing \`\`\`json fenced block with schema.org Article + FAQPage JSON-LD built from the actual content.`,
+  ad: `The "body" MUST contain exactly three labelled lines: "HEADLINE: ...", "BODY: ...", "CTA: ...". No other text. Keep the total under 50 words.`,
+  product: `The "body" MUST be a full product page using markdown H2 sections in this order: Product Summary, Key Benefits, Typical Applications, Material Explanation, Technical Specifications (markdown table Property | Value | Unit), Selection Guidance, Variants / Dimensions.`,
+  seo: `The "body" MUST contain exactly five labelled blocks: "META TITLE: ...", "META DESCRIPTION: ...", "H1: ...", "INTRO PARAGRAPH: ...", "FAQ: ..." (3 lines "Q: ... — A: ..."). Nothing else. Obey char limits from the system prompt.`,
+};
+
 export async function POST(req: NextRequest) {
   let body: ProposeBody = {};
   try {
@@ -39,11 +79,11 @@ export async function POST(req: NextRequest) {
   const channel = body.channel ?? "linkedin";
   const topic = body.topic?.trim() ?? "";
   const filters = body.filters ?? {};
-  const wantsImage = filters.wantsImage ?? (channel === "linkedin" || channel === "newsletter" || channel === "blog");
-  const temperature = Math.max(0.2, Math.min(1, (filters.creativity ?? 70) / 100));
+  const wantsImage =
+    filters.wantsImage ?? (channel === "linkedin" || channel === "newsletter" || channel === "blog");
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
+  const anthropic = getAnthropic();
+  if (!anthropic) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY not configured", proposals: [] },
       { status: 503 }
@@ -53,83 +93,78 @@ export async function POST(req: NextRequest) {
   try {
     const brain = await readBrain();
     const logs = await readLogs();
-    const likes = logs.entries.filter((e) => e.type === "like").slice(0, 6);
-    const dislikes = logs.entries.filter((e) => e.type === "dislike").slice(0, 6);
-    const feedbackBlock = buildFeedbackBlock(logs.userDefaults, likes, dislikes);
+    const likes = logs.entries
+      .filter((e) => e.type === "like" && (!e.channel || e.channel === channel))
+      .slice(0, 6);
+    const dislikes = logs.entries
+      .filter((e) => e.type === "dislike" && (!e.channel || e.channel === channel))
+      .slice(0, 6);
     const filtersForBrief: GenerationFilters = { ...filters, wantsImage };
-    const system =
-      brandSystemPrompt(brain, channel) +
+
+    // Stable, cacheable brand/channel block + volatile filters/feedback block.
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      {
+        type: "text",
+        text: brandSystemPrompt(brain, channel),
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+    const volatile =
       buildFilterInstructions(filtersForBrief) +
-      feedbackBlock;
-    const anthropic = new Anthropic({ apiKey: anthropicKey });
+      buildFeedbackBlock(logs.userDefaults, likes, dislikes);
+    if (volatile.trim()) systemBlocks.push({ type: "text", text: volatile });
 
     const imageRule = wantsImage
-      ? `- "imagePrompt": a concrete visual brief for the image that accompanies the post. Industrial aesthetic, hands/tools/components in realistic context. Never CAD, never stock suits, never white-background product shots, never promotional badges.`
-      : `- "imagePrompt": leave as an empty string.`;
+      ? `"imagePrompt": a concrete visual brief for the image that accompanies the post. Industrial aesthetic, hands/tools/components in realistic context. Never CAD, never stock suits, never white-background product shots, never promotional badges.`
+      : `"imagePrompt": return an empty string.`;
 
-    const channelExpectations: Record<string, string> = {
-      linkedin:
-        `Each "body" MUST be an actual LinkedIn post (80–160 words, 1–3 short paragraphs with blank lines between them, a scroll-stopping first line, a soft CTA, and 2–4 hashtags at the bottom).`,
-      newsletter:
-        `Each "body" MUST start with "Subject: ..." on line 1, "Preheader: ..." on line 2, then the email body (220–350 words, 2–4 short sections) ending with "— APSOparts".`,
-      blog:
-        `Each "body" MUST be a 600–900 word blog article in markdown: "# H1", then 2–3 sentence intro, then 3–5 "## Section" headings, with at least one bulleted list of specs or criteria.`,
-      ad: `Each "body" MUST contain exactly three labelled lines: "HEADLINE: ...", "BODY: ...", "CTA: ...". No other text. Keep the total under 50 words.`,
-      product:
-        `Each "body" MUST be a full product page using markdown H2 sections in this order: Product Summary, Key Benefits, Typical Applications, Material Explanation, Technical Specifications (markdown table Property | Value | Unit), Selection Guidance, Variants / Dimensions.`,
-      seo: `Each "body" MUST contain exactly four labelled blocks: "META TITLE: ...", "META DESCRIPTION: ...", "H1: ...", "INTRO PARAGRAPH: ...". Nothing else. Obey char limits from the system prompt.`,
-    };
-    const channelExpectation = channelExpectations[channel] ?? "";
+    const budget = channelBudget(channel);
+    const expectation = channelExpectations[channel] ?? "";
 
-    const langLead =
-      filters.language === "DE"
-        ? `ALLE Inhalte (Headline, Body, Image-Brief) MÜSSEN auf Deutsch sein. Kein Englisch. `
-        : filters.language === "EN"
-          ? `All content in English. `
-          : "";
-
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2800,
-      temperature,
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages: [
-        {
-          role: "user",
-          content: [
-            `${langLead}Produce 3 distinct ${channel} proposals${topic ? ` about: ${topic}` : ""}.`,
+    // Three independent proposals in parallel — each gets its own token
+    // budget (fixes the old single-call truncation on long channels) and a
+    // guaranteed-valid JSON shape via structured outputs.
+    const results = await Promise.all(
+      ANGLES.map((angle) =>
+        claudeText({
+          client: anthropic,
+          system: systemBlocks,
+          user: [
+            `Produce ONE ${channel} proposal${topic ? ` about: ${topic}` : ""}.`,
             ``,
-            channelExpectation ? `FORMAT (mandatory): ${channelExpectation}` : "",
-            channelExpectation ? "" : "",
-            `For each proposal, return:`,
-            `- "headline": a scroll-stopping opening line (max 12 words)`,
-            `- "body": the full ${channel} content, exactly in the format required above.`,
+            angle,
+            ``,
+            expectation ? `FORMAT (mandatory): ${expectation}` : ``,
             imageRule,
-            ``,
-            `Return ONLY a JSON array of 3 objects with exactly these keys. No markdown, no commentary, no code fences. The "body" value is a plain string; when it contains markdown (blog, product) or labelled blocks (ad, seo, newsletter), keep it inside the JSON string with \\n line breaks. Example:`,
-            `[{"headline":"...","body":"...","imagePrompt":"..."}, ...]`,
           ]
-            .filter((l) => l !== "")
+            .filter(Boolean)
             .join("\n"),
-        },
-      ],
-    });
+          budget,
+          outputFormat: {
+            type: "json_schema",
+            schema: PROPOSAL_SCHEMA as unknown as Record<string, unknown>,
+          },
+        })
+      )
+    );
 
-    const text = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { type: "text"; text: string }).text)
-      .join("\n")
-      .trim();
+    const parsed: { headline: string; body: string; imagePrompt: string }[] = [];
+    const errors: string[] = [];
+    for (const r of results) {
+      if (!r.ok) {
+        errors.push(r.failure.error);
+        continue;
+      }
+      try {
+        parsed.push(JSON.parse(r.text));
+      } catch {
+        errors.push("Model returned unparseable JSON");
+      }
+    }
 
-    const jsonStart = text.indexOf("[");
-    const jsonEnd = text.lastIndexOf("]");
-    const json = jsonStart >= 0 && jsonEnd >= 0 ? text.slice(jsonStart, jsonEnd + 1) : text;
-    let parsed: { headline: string; body: string; imagePrompt: string }[] = [];
-    try {
-      parsed = JSON.parse(json);
-    } catch {
+    if (parsed.length === 0) {
       return NextResponse.json(
-        { error: "Model returned non-JSON", raw: text },
+        { error: errors[0] ?? "Proposal generation failed", proposals: [] },
         { status: 502 }
       );
     }
@@ -151,7 +186,7 @@ export async function POST(req: NextRequest) {
       generatedAt: new Date().toISOString(),
     });
 
-    return NextResponse.json({ proposals });
+    return NextResponse.json({ proposals, ...(errors.length ? { partialErrors: errors } : {}) });
   } catch (err) {
     console.error("[propose] error", err);
     return NextResponse.json({ error: "Proposal generation failed" }, { status: 500 });

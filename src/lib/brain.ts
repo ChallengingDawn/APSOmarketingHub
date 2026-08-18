@@ -131,11 +131,18 @@ const CHANNEL_RULES: Record<string, string[]> = {
   blog: [
     `# BLOG ARTICLE RULES`,
     `- Length: 600–900 words. Written as a useful technical article, not a promo piece.`,
-    `- Structure: an H1 title (one line, clear and specific), a 2–3 sentence intro that frames the problem, then 3–5 H2 sections that answer it in order, and a short "Choose this if / Consider alternatives if" closing block.`,
+    `- Structure: an H1 title (one line, clear and specific), a 2–3 sentence intro that frames the problem, then 3–5 H2 sections that answer it in order, a short "Choose this if / Consider alternatives if" closing block, then a "## FAQ" section.`,
     `- Use markdown: "# Title", "## Section" headings, "-" bullets, short paragraphs. No H3 unless truly needed.`,
     `- Include at least one numbered/bulleted list with concrete specs or decision criteria. Units in SI (°C, Shore A, mm, bar).`,
     `- Optionally cite a real APSOparts feature (DirectCUT, Quickorder, 48/72h delivery) in ONE place where it's genuinely useful, not as an ad.`,
     `- No meta-talk ("In this article, we will explore…"); get into the substance immediately.`,
+    ``,
+    `# GEO RULES (write so AI answer engines cite this article)`,
+    `- Every "## Section" opens with a DIRECT 1–2 sentence answer to the question its heading implies — never a run-up like "Let's look at why...". AI engines quote section openings.`,
+    `- Each section must contain at least one self-contained block of 40–60 words that makes complete sense with zero surrounding context (a definition, a rule of thumb, a spec comparison). Bullets, numbered lists, and comparison tables beat paragraph walls.`,
+    `- Prefer specific, dated, verifiable facts over vague claims ("EPDM handles −40 °C to +130 °C" beats "EPDM handles a wide temperature range"). Use ONLY facts supplied in this prompt or general well-established material science — NEVER invent statistics, percentages, or study citations. If no verified number exists, write without one.`,
+    `- Close with "## FAQ": 3–5 questions phrased the way a customer would ask them, each answered in ONE self-contained 40–60-word paragraph.`,
+    `- After the article, append a fenced \`\`\`json code block containing schema.org JSON-LD: an Article object (headline, description) plus a FAQPage object built ONLY from the FAQ section's actual questions and answers. Nothing invented.`,
   ],
   ad: [
     `# PAID AD RULES (LinkedIn / display)`,
@@ -167,10 +174,16 @@ const CHANNEL_RULES: Record<string, string[]> = {
     `  META DESCRIPTION: <140–155 characters, includes the primary keyword naturally, one concrete value prop, no clickbait>`,
     `  H1: <clear, includes primary keyword, no brand name>`,
     `  INTRO PARAGRAPH: <80–120 words, 2 short paragraphs at most, primary keyword in the first sentence, one secondary keyword somewhere else, ends with a natural internal link suggestion like "See all <category> at APSOparts.">`,
+    `  FAQ: <exactly 3 lines, each "Q: <customer-phrased question> — A: <one self-contained 40–60-word answer>". These feed the page's FAQ block and JSON-LD.>`,
     `- Use German only if the filters ask for it; otherwise English.`,
     `- No keyword stuffing — each keyword appears at most twice in the intro.`,
+    `- GEO: the INTRO PARAGRAPH's first sentence must directly answer the searcher's implied question (what/which/how) — AI answer engines extract opening sentences. Facts must be verifiable; never invent numbers.`,
   ],
 };
+
+// Channels whose output contract REQUIRES markdown. Everything else must be
+// plain text (LinkedIn/email render markdown literally).
+const MARKDOWN_CHANNELS = new Set(["blog", "product"]);
 
 export function brandSystemPrompt(
   brain: Brain,
@@ -187,8 +200,26 @@ export function brandSystemPrompt(
 
   const isSocial = channel === "linkedin" || channel === "newsletter";
   const isProduct = channel === "product" || channel === "seo";
+  // Channels that benefit from real demand/category data in the prompt.
+  const wantsIntelligence =
+    channel === "blog" || channel === "seo" || channel === "product" || channel === "freeform";
+  const usesMarkdown = channel ? MARKDOWN_CHANNELS.has(channel) : false;
 
   const channelRules = channel && CHANNEL_RULES[channel] ? CHANNEL_RULES[channel] : [];
+
+  const formatRules = usesMarkdown
+    ? [
+        `# OUTPUT FORMAT`,
+        `- This channel REQUIRES markdown structure: "# Title" / "## Section" headings, "-" bullets, and tables where the channel rules ask for them.`,
+        `- No decorative markdown beyond structure: no bold/italic mid-sentence for emphasis, no emoji.`,
+      ]
+    : [
+        `# OUTPUT FORMAT — STRICT`,
+        `- Plain text only. NEVER use markdown bold (**word** or __word__), italic markers (*word*, _word_), backticks, or heading symbols (#, ##).`,
+        `- LinkedIn, email and most CMS surfaces do not render markdown — emphasis written with asterisks shows up literally as **text** to the reader.`,
+        `- For emphasis use natural language: a short label followed by a colon, an em-dash, capitalised key terms, or a "→" bullet. Never decorate.`,
+        `- Bulleted lists use a plain "- " or "→ " prefix on each line, never "* ".`,
+      ];
 
   return [
     `You are the APSOparts marketing content assistant. You write on behalf of APSOparts — a B2B e-commerce brand for standard industrial components (seals, plastics, fluid, drive, antivibration, sensors).`,
@@ -212,11 +243,7 @@ export function brandSystemPrompt(
     `# DO NOT`,
     ...bv.donts.map((d) => `- ${d}`),
     ``,
-    `# OUTPUT FORMAT — STRICT`,
-    `- Plain text only. NEVER use markdown bold (**word** or __word__), italic markers (*word*, _word_), backticks, or heading symbols (#, ##).`,
-    `- LinkedIn, email and most CMS surfaces do not render markdown — emphasis written with asterisks shows up literally as **text** to the reader.`,
-    `- For emphasis use natural language: a short label followed by a colon, an em-dash, capitalised key terms, or a "→" bullet. Never decorate.`,
-    `- Bulleted lists use a plain "- " or "→ " prefix on each line, never "* ".`,
+    ...formatRules,
     ``,
     `# POSITIONING GUARD`,
     `APSOparts lane: ${pg.apsoparts}`,
@@ -267,6 +294,29 @@ export function brandSystemPrompt(
           ``,
           `Style:`,
           ...pc.styleRules.map((s) => `- ${s}`),
+        ]
+      : []),
+    ...(channel === "ad" && brain.goldExamples.paidAds.length
+      ? [
+          ``,
+          `# GOLD AD EXAMPLES (proven ads — match this tone and compression)`,
+          ...brain.goldExamples.paidAds.map(
+            (a, i) => `Example ${i + 1}:\nHEADLINE: ${a.headline}\nBODY: ${a.body}`
+          ),
+        ]
+      : []),
+    ...(wantsIntelligence
+      ? [
+          ``,
+          `# REAL DEMAND SIGNALS (from APSOparts internal search + SEO analysis — use to pick angles and keywords)`,
+          ...brain.keywordSignals.internalSearchTrends.map((t) => `- "${t.term}": ${t.signal}`),
+          `- Brand terms customers search for that have NO landing page yet: ${brain.keywordSignals.brandTermsMissingLandingPages.join(", ")}.`,
+          `- Context: ${brain.keywordSignals.externalListGaps}`,
+          ``,
+          `# CATEGORY CONTENT CONTEXT`,
+          `- Shop top-level categories: ${brain.categoryIntelligence.topLevel.map((c) => c.en).join(", ")}.`,
+          `- ${brain.categoryIntelligence.contentGap}`,
+          `- When the request names a category, ground the content in that category's real materials, failure modes and use cases.`,
         ]
       : []),
   ].join("\n");

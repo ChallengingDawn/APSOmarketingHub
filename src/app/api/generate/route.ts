@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
 import { readLogs } from "@/lib/logs";
 import { generateApsoImage } from "@/lib/images";
-import { buildFilterInstructions, type GenerationFilters } from "@/lib/filters";
+import {
+  buildFilterInstructions,
+  buildFeedbackBlock,
+  type GenerationFilters,
+} from "@/lib/filters";
+import { getAnthropic, CLAUDE_MODEL, channelBudget, claudeText } from "@/lib/ai/claude";
+import { validateChannelOutput } from "@/lib/ai/validate";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 type GenerateBody = {
   channel: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo" | "studio" | "freeform";
@@ -97,22 +103,27 @@ export async function POST(req: NextRequest) {
 
   const brain = await readBrain();
   const logs = await readLogs();
-  const defaultsBlock = logs.userDefaults?.trim()
-    ? `\n\n# USER DEFAULTS (always apply)\n${logs.userDefaults.trim()}`
-    : "";
   const filters = (context ?? {}) as GenerationFilters;
   // Composer always asks for an image alongside text, so teach the image
   // brief to honour the active audience/category too.
   const filtersForBrief: GenerationFilters = { ...filters, wantsImage: withImage };
-  const filterBlock = buildFilterInstructions(filtersForBrief);
-  const system = brandSystemPrompt(brain, channel, personaId) + filterBlock + defaultsBlock;
-  const creativity = typeof filters.creativity === "number" ? filters.creativity : 70;
-  const temperature = Math.max(0.2, Math.min(1, creativity / 100));
+
+  // Stable block (cacheable — changes only when the brain or channel changes)
+  const stableSystem = brandSystemPrompt(brain, channel, personaId);
+  // Volatile block: filters + the like/dislike learning loop, channel-matched.
+  const likes = logs.entries
+    .filter((e) => e.type === "like" && (!e.channel || e.channel === channel))
+    .slice(0, 6);
+  const dislikes = logs.entries
+    .filter((e) => e.type === "dislike" && (!e.channel || e.channel === channel))
+    .slice(0, 6);
+  const volatileSystem =
+    buildFilterInstructions(filtersForBrief) +
+    buildFeedbackBlock(logs.userDefaults, likes, dislikes);
 
   const briefRequested = withImage || wantBrief;
   const userMessage = [
     `Channel: ${channel}`,
-    context ? `Context: ${JSON.stringify(context)}` : null,
     ``,
     `Request: ${prompt}`,
     ``,
@@ -124,6 +135,8 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
+  const budget = channelBudget(channel);
+
   try {
     if (model === "gemini") {
       const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -133,14 +146,15 @@ export async function POST(req: NextRequest) {
           { status: 503 }
         );
       }
+      const creativity = typeof filters.creativity === "number" ? filters.creativity : 70;
       const ai = new GoogleGenAI({ apiKey });
       const result = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ text: userMessage }] }],
         config: {
-          systemInstruction: system,
-          temperature,
-          maxOutputTokens: 2000,
+          systemInstruction: stableSystem + volatileSystem,
+          temperature: Math.max(0.2, Math.min(1, creativity / 100)),
+          maxOutputTokens: Math.min(budget.maxTokens, 8192),
         },
       });
       const rawContent = result.text ?? "";
@@ -153,41 +167,66 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const anthropic = getAnthropic();
+    if (!anthropic) {
       return NextResponse.json(
         { error: "ANTHROPIC_API_KEY not configured" },
         { status: 503 }
       );
     }
-    const anthropic = new Anthropic({ apiKey });
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2000,
-      temperature,
-      system: [
-        {
-          type: "text",
-          text: system,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content: userMessage }],
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+      ...(volatileSystem.trim()
+        ? [{ type: "text" as const, text: volatileSystem }]
+        : []),
+    ];
+
+    const first = await claudeText({
+      client: anthropic,
+      system: systemBlocks,
+      user: userMessage,
+      budget,
     });
+    if (!first.ok) {
+      return NextResponse.json({ error: first.failure.error }, { status: first.failure.status });
+    }
 
-    const rawContent = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { type: "text"; text: string }).text)
-      .join("\n");
+    // Deterministic contract check + at most ONE revise pass.
+    let finalText = first.text;
+    let usage = first.usage;
+    let revised = false;
+    const bodyOnly = finalText.replace(IMAGE_TAG, "").trim();
+    const violations = validateChannelOutput(channel, bodyOnly);
+    if (violations.length) {
+      const revise = await claudeText({
+        client: anthropic,
+        system: systemBlocks,
+        user:
+          `Here is a draft you produced for the ${channel} channel:\n\n<draft>\n${finalText}\n</draft>\n\n` +
+          `It violates these channel rules:\n${violations.map((v) => `- ${v}`).join("\n")}\n\n` +
+          `Return the corrected content in full, fixing every violation while keeping the substance and voice. Output ONLY the corrected content${briefRequested ? " (keep the <image-brief> tag at the end)" : ""}.`,
+        budget,
+      });
+      if (revise.ok) {
+        finalText = revise.text;
+        usage = revise.usage;
+        revised = true;
+      }
+      // If the revise pass fails, ship the first draft rather than erroring.
+    }
 
-    const { content, imagePayload } = await maybeGenerateImage(rawContent, withImage);
+    const { content, imagePayload } = await maybeGenerateImage(finalText, withImage);
 
     return NextResponse.json({
       content,
-      model: "claude-sonnet-4-6",
+      model: CLAUDE_MODEL,
       provider: "claude",
-      usage: response.usage,
+      usage,
+      quality: {
+        violationsFound: violations,
+        revised,
+      },
       ...imagePayload,
     });
   } catch (err) {

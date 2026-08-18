@@ -9,6 +9,9 @@ export type GenerationFilters = {
   emphasizeTones?: string[];
   emphasizePhrases?: string[];
   wantsImage?: boolean;
+  // SEO / GEO targeting — drives keyword placement in blog/seo/product output.
+  primaryKeyword?: string;
+  secondaryKeywords?: string[];
 };
 
 type SimpleLog = { headline?: string; body?: string; correction?: string };
@@ -115,6 +118,33 @@ export function buildFilterInstructions(filters: GenerationFilters | undefined):
       long: "Long — 300+ words, multiple short paragraphs with clear structure.",
     };
     lines.push(`- Length: ${lenMap[filters.length] ?? filters.length}`);
+  }
+
+  if (filters.primaryKeyword?.trim()) {
+    lines.push(
+      `- PRIMARY KEYWORD: "${filters.primaryKeyword.trim()}". It must appear in the title/headline, in the first paragraph, and naturally 2–3 more times in the body. Never stuffed.`
+    );
+  }
+  if (filters.secondaryKeywords?.length) {
+    lines.push(
+      `- SECONDARY KEYWORDS (each used once, naturally): ${filters.secondaryKeywords
+        .filter((k) => k.trim())
+        .map((k) => `"${k.trim()}"`)
+        .join(", ")}.`
+    );
+  }
+
+  {
+    const c = typeof filters.creativity === "number" ? filters.creativity : 70;
+    const directive =
+      c <= 30
+        ? `conservative — stay close to proven framings and gold examples; precision over novelty`
+        : c <= 60
+          ? `balanced — solid professional angle with one fresh element (an unexpected number, a sharp observation)`
+          : c <= 85
+            ? `fresh — prefer an angle we have NOT used before; surprising-but-true hooks; claims stay verifiable`
+            : `bold — take a genuinely unconventional angle (contrarian take, vivid scene, unusual structure) while staying factually grounded and on-brand`;
+    lines.push(`- CREATIVITY: ${directive}.`);
   }
 
   if (filters.emphasizeTones?.length) {
