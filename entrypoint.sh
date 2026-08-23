@@ -9,12 +9,11 @@ set -e
 export HOSTNAME=0.0.0.0
 export PORT="${PORT:-3000}"
 
-# The app reads a single DATABASE_URL. In dev/test we inject DATABASE_URL
-# directly as a secret. In prod we inject the Aurora-managed secret's parts
-# (PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE) so password rotation works —
-# assemble DATABASE_URL from them here, with no app code change.
-if [ -z "$DATABASE_URL" ] && [ -n "$PGHOST" ]; then
-  export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT:-5432}/${PGDATABASE}"
-fi
+# Database credentials: dev/test injects DATABASE_URL directly; prod injects
+# the Aurora-managed secret's parts (PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE)
+# so password rotation works. The node client (src/lib/db/client.ts) assembles
+# the connection string from those parts natively, URL-encoding the password —
+# do NOT reintroduce shell concatenation here, it breaks on rotated passwords
+# containing '@', ':', '/' or '%'.
 
 exec node server.js

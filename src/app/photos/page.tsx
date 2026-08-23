@@ -29,7 +29,6 @@ export default async function PhotosPage() {
             size="small"
             sx={{ bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 600 }}
           />
-          <Chip label="Phase 1" size="small" variant="outlined" sx={{ fontWeight: 600 }} />
           {g ? (
             <Chip
               label={`${g.sceneRules.length} scene rules · ${g.hardNo.length} hard no`}
@@ -49,7 +48,7 @@ export default async function PhotosPage() {
           Generate brand-consistent APSOparts photography. Every prompt is layered with the
           brain&apos;s image DNA, audience &amp; category scene rules, and realism guards (so
           plastic stock never gets cut with a hand cutter). Upload reference photos to nudge the
-          model toward a specific style — Phase 2 will pipe these into a persistent gold library.
+          model toward a specific style — a persistent gold library is in development.
         </Typography>
       </Box>
       <PhotoStudio

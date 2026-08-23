@@ -133,7 +133,14 @@ export default function ContentCalendarPage() {
       <Box>
         <PageHeader
           title="Content Calendar"
-          subtitle="Plan, schedule & manage content across all channels"
+          subtitle="Plan, schedule & manage content across all channels — illustrative sample plan; persistent scheduling is in development"
+          rightSlot={
+            <Chip
+              label="SAMPLE"
+              size="small"
+              sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+            />
+          }
         />
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>

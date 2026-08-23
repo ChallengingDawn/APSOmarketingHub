@@ -42,7 +42,7 @@ export default async function PersonalityPage() {
           Personality
         </Typography>
         <Chip
-          label="Phase 1 · Central brain"
+          label="Central brain"
           size="small"
           sx={{ bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 600, height: 22 }}
         />

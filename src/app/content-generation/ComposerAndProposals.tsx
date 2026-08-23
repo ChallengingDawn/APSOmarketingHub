@@ -75,6 +75,10 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
   { id: "recognition", label: "We've already met" },
 ];
 
+// Channels where SEO keyword targeting makes sense — the API reads
+// filters.primaryKeyword / filters.secondaryKeywords for these.
+const KEYWORD_CHANNELS: ContentType[] = ["blog", "seo", "product"];
+
 // Fallback if the brain hasn't declared a structured audiences list. Mirrors
 // the canonical 17 the brain ships with so we never silently drop choices
 // when audiences[] is missing — pruning belongs in the Personality editor,
@@ -102,9 +106,11 @@ const FALLBACK_AUDIENCES = [
 export default function ComposerAndProposals({
   brain,
   initialBatch,
+  lockedChannel,
 }: {
   brain: Brain;
   initialBatch: CurrentBatch | null;
+  lockedChannel?: string;
 }) {
   // Audiences come from the brain so the dropdown reflects the brand's
   // actual targets, not a hardcoded catch-all.
@@ -113,9 +119,12 @@ export default function ComposerAndProposals({
       ? brain.brandVoice.audiences
       : FALLBACK_AUDIENCES;
 
+  // When a page pins the channel (e.g. /blog), the selector is fixed to it.
+  const lockedType = CONTENT_TYPES.find((c) => c.id === lockedChannel)?.id;
+
   const [composer, setComposer] = useState("");
   const [topic, setTopic] = useState("");
-  const [contentType, setContentType] = useState<ContentType>("linkedin");
+  const [contentType, setContentType] = useState<ContentType>(lockedType ?? "linkedin");
   const [framework, setFramework] = useState<Framework>("auto");
   const [audience, setAudience] = useState<string>(AUDIENCES[0]);
   const [category, setCategory] = useState<string>("");
@@ -125,6 +134,8 @@ export default function ComposerAndProposals({
     brain.brandVoice.toneAdjectives.slice(0, 2)
   );
   const [selectedPhrases, setSelectedPhrases] = useState<string[]>([]);
+  const [primaryKeyword, setPrimaryKeyword] = useState("");
+  const [secondaryKeywordsRaw, setSecondaryKeywordsRaw] = useState("");
 
   const [generating, setGenerating] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>(
@@ -151,8 +162,14 @@ export default function ComposerAndProposals({
 
   const channelForApi = contentType;
 
-  const filterContext = useMemo(
-    () => ({
+  const supportsKeywords = KEYWORD_CHANNELS.includes(contentType);
+
+  const filterContext = useMemo(() => {
+    const secondaryKeywords = secondaryKeywordsRaw
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    return {
       contentType,
       language: "EN",
       framework,
@@ -163,9 +180,12 @@ export default function ComposerAndProposals({
       emphasizeTones: selectedTones,
       emphasizePhrases: selectedPhrases,
       wantsImage: activeType.withImage,
-    }),
-    [contentType, framework, audience, category, length, creativity, selectedTones, selectedPhrases, activeType.withImage]
-  );
+      ...(supportsKeywords && primaryKeyword.trim()
+        ? { primaryKeyword: primaryKeyword.trim() }
+        : {}),
+      ...(supportsKeywords && secondaryKeywords.length > 0 ? { secondaryKeywords } : {}),
+    };
+  }, [contentType, framework, audience, category, length, creativity, selectedTones, selectedPhrases, activeType.withImage, supportsKeywords, primaryKeyword, secondaryKeywordsRaw]);
 
   const toggleTone = (t: string) =>
     setSelectedTones((cur) =>
@@ -185,6 +205,8 @@ export default function ComposerAndProposals({
     setCreativity(70);
     setSelectedTones(brain.brandVoice.toneAdjectives.slice(0, 2));
     setSelectedPhrases([]);
+    setPrimaryKeyword("");
+    setSecondaryKeywordsRaw("");
   };
 
   async function composeFromScratch() {
@@ -468,6 +490,7 @@ export default function ComposerAndProposals({
         brain={brain}
         contentType={contentType}
         setContentType={setContentType}
+        lockedChannel={lockedType}
         framework={framework}
         setFramework={setFramework}
         audience={audience}
@@ -482,6 +505,10 @@ export default function ComposerAndProposals({
         toggleTone={toggleTone}
         selectedPhrases={selectedPhrases}
         togglePhrase={togglePhrase}
+        primaryKeyword={primaryKeyword}
+        setPrimaryKeyword={setPrimaryKeyword}
+        secondaryKeywordsRaw={secondaryKeywordsRaw}
+        setSecondaryKeywordsRaw={setSecondaryKeywordsRaw}
         onReset={resetFilters}
       />
 
@@ -532,6 +559,7 @@ function FilterPanel(props: {
   brain: Brain;
   contentType: ContentType;
   setContentType: (v: ContentType) => void;
+  lockedChannel?: ContentType;
   framework: Framework;
   setFramework: (v: Framework) => void;
   audience: string;
@@ -546,6 +574,10 @@ function FilterPanel(props: {
   toggleTone: (t: string) => void;
   selectedPhrases: string[];
   togglePhrase: (t: string) => void;
+  primaryKeyword: string;
+  setPrimaryKeyword: (v: string) => void;
+  secondaryKeywordsRaw: string;
+  setSecondaryKeywordsRaw: (v: string) => void;
   onReset: () => void;
 }) {
   const { brain } = props;
@@ -584,13 +616,18 @@ function FilterPanel(props: {
 
       <Section label="Content type">
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.75 }}>
-          {CONTENT_TYPES.map((t) => {
+          {(props.lockedChannel
+            ? CONTENT_TYPES.filter((t) => t.id === props.lockedChannel)
+            : CONTENT_TYPES
+          ).map((t) => {
             const active = props.contentType === t.id;
+            const locked = Boolean(props.lockedChannel);
             return (
               <Box
                 key={t.id}
                 role="button"
-                onClick={() => props.setContentType(t.id)}
+                aria-disabled={locked || undefined}
+                onClick={locked ? undefined : () => props.setContentType(t.id)}
                 sx={{
                   py: 1,
                   px: 0.5,
@@ -598,16 +635,18 @@ function FilterPanel(props: {
                   border: `1.5px solid ${active ? "#ed1b2f" : "#dde1e6"}`,
                   bgcolor: active ? "#fdebed" : "#fafbfc",
                   color: active ? "#ed1b2f" : "#3c4043",
-                  cursor: "pointer",
+                  cursor: locked ? "default" : "pointer",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   gap: 0.35,
                   transition: "all 0.15s ease",
-                  "&:hover": {
-                    borderColor: "#ed1b2f",
-                    bgcolor: "#fdebed",
-                  },
+                  "&:hover": locked
+                    ? undefined
+                    : {
+                        borderColor: "#ed1b2f",
+                        bgcolor: "#fdebed",
+                      },
                 }}
               >
                 {t.icon}
@@ -647,6 +686,30 @@ function FilterPanel(props: {
           </Select>
         </FormControl>
       </Section>
+
+      {KEYWORD_CHANNELS.includes(props.contentType) && (
+        <>
+          <Section label="Primary keyword">
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="e.g. FFKM o-rings"
+              value={props.primaryKeyword}
+              onChange={(e) => props.setPrimaryKeyword(e.target.value)}
+            />
+          </Section>
+
+          <Section label="Secondary keywords">
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Comma-separated, e.g. chemical resistance, high temperature"
+              value={props.secondaryKeywordsRaw}
+              onChange={(e) => props.setSecondaryKeywordsRaw(e.target.value)}
+            />
+          </Section>
+        </>
+      )}
 
       <Section label="Audience">
         <FormControl size="small" fullWidth>

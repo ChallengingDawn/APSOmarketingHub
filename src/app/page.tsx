@@ -94,7 +94,7 @@ export default function MissionControl() {
     <Box>
       <PageHeader
         title="Mission Control"
-        subtitle="Real-time overview of your digital growth pipeline"
+        subtitle="Overview of your digital growth pipeline — illustrative sample data until the GA4 / Search Console integrations land"
         rightSlot={
           <Box
             sx={{
@@ -252,11 +252,18 @@ export default function MissionControl() {
                     Approval Queue
                   </Typography>
                 </Box>
-                <Chip
-                  label="9 pending"
-                  size="small"
-                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
-                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                  <Chip
+                    label="SAMPLE"
+                    size="small"
+                    sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                  />
+                  <Chip
+                    label="9 pending"
+                    size="small"
+                    sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
+                  />
+                </Box>
               </Box>
               <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
                 Drafts waiting for human review
@@ -353,11 +360,18 @@ export default function MissionControl() {
                     This Week's Schedule
                   </Typography>
                 </Box>
-                <Chip
-                  label="7 items"
-                  size="small"
-                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#e8f0fe", color: "#1a73e8", border: "none" }}
-                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                  <Chip
+                    label="SAMPLE"
+                    size="small"
+                    sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                  />
+                  <Chip
+                    label="7 items"
+                    size="small"
+                    sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#e8f0fe", color: "#1a73e8", border: "none" }}
+                  />
+                </Box>
               </Box>
               <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
                 Upcoming content scheduled for publication
@@ -461,6 +475,11 @@ export default function MissionControl() {
                 <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
                   Content Pipeline
                 </Typography>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
               </Box>
               <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 3 }}>
                 {pipelineTotal} total items across all stages
@@ -552,14 +571,15 @@ export default function MissionControl() {
                   </Typography>
                 </Box>
                 <Chip
-                  label="Live"
+                  label="SAMPLE"
                   size="small"
                   sx={{
                     height: 22,
                     fontSize: "0.65rem",
-                    fontWeight: 600,
-                    bgcolor: "#e6f4ea",
-                    color: "#1e8e3e",
+                    fontWeight: 700,
+                    letterSpacing: "0.05em",
+                    bgcolor: "#fdebed",
+                    color: "#ed1b2f",
                     border: "none",
                     "& .MuiChip-label": { px: 1.25 },
                   }}

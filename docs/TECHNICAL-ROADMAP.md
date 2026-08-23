@@ -14,31 +14,33 @@ The hub is deployed in **three phases**, each unlocking more capability as secur
 
 ---
 
-## 1a. What is Railway?
+## 1a. Hosting: Railway prototype → AWS (current)
+
+> **Status update:** the Railway phase is complete. The hub now runs on Angst+Pfister-controlled **AWS infrastructure (ECS Fargate, EU region)**, deployed from container images built by the CI pipeline and pushed to **AWS ECR**. The Railway explainer below is kept for historical context of the Phase 1 prototype.
 
 Railway is a Platform-as-a-Service (PaaS) hosting provider, equivalent in function to services such as Vercel, Heroku, Render, Google Cloud Run or AWS App Runner. It lets teams deploy web applications without managing servers, load balancers or operating systems directly.
 
 **Relevant facts for this project:**
-- Headquartered in San Francisco, but Railway operates data centers in multiple regions including the **European Union** (Frankfurt, Amsterdam, Paris). Our Phase 1 deployment is pinned to an EU region.
+- Headquartered in San Francisco, but Railway operates data centers in multiple regions including the **European Union** (Frankfurt, Amsterdam, Paris). The Phase 1 prototype deployment was pinned to an EU region.
 - The platform runs applications in isolated Linux containers, provides HTTPS with automatic TLS certificates, and exposes a web dashboard plus CLI for deployments and log inspection.
 - Environment variables (where API keys live) are stored encrypted and are only injected into the running application at runtime — they are never exposed to the browser or committed to source code.
 - Railway is SOC 2 Type II compliant and signs Data Processing Agreements with customers operating in the EU.
 - Competitor equivalents the IT team may be more familiar with: **Microsoft Azure App Service**, **AWS App Runner**, **Google Cloud Run**. Railway is in the same category but with less configuration overhead, which is why the external agency uses it for rapid prototype deployments.
 
-**Why Railway for Phase 1 and not directly AWS?**
-- **AWS is not yet available to the group** — AWS onboarding for Angst+Pfister is planned for June, so Phase 1 has to start on an alternative EU-compliant platform in the meantime. Railway fills that gap without blocking the evaluation.
+**Why Railway for the Phase 1 prototype and not directly AWS?**
+- **AWS was not yet available to the group at the start of Phase 1** — AWS onboarding for Angst+Pfister completed later, so Phase 1 had to start on an alternative EU-compliant platform in the meantime. Railway filled that gap without blocking the evaluation.
 - The external digital agency already operates the Railway account and bears the hosting cost during the prototype phase.
 - Zero infrastructure setup — the team focuses on evaluating the AI agent, not on configuring VPCs or IAM.
 - Railway can be torn down in one click at the end of Phase 1 with zero residual footprint.
 - No corporate data is ever connected to this instance — it is, by design, an isolated sandbox.
 
-**Transition to Phase 2:** at the end of Phase 1, the source code (which lives in a git repository independent of Railway) is redeployed onto Angst+Pfister-controlled AWS infrastructure. Nothing needs to be rewritten — only the deployment target changes. This reversibility is a core design decision.
+**Transition to AWS — completed:** the source code (which lives in a git repository independent of any hosting provider) has been redeployed onto Angst+Pfister-controlled AWS infrastructure: the application runs on **ECS Fargate**, deployed from container images built in CI and pushed to **AWS ECR**. Nothing needed to be rewritten — only the deployment target changed. This reversibility was a core design decision.
 
 ---
 
-## 1b. Phase 1 cost estimate
+## 1b. Phase 1 cost estimate (historical — Railway prototype period)
 
-Phase 1 runs on the external agency's Railway account and a small number of metered AI API calls. Total monthly cost during the evaluation phase stays **well under 100 CHF / month**.
+Phase 1 initially ran on the external agency's Railway account and a small number of metered AI API calls. Total monthly cost during the evaluation phase stayed **well under 100 CHF / month**. Hosting has since moved to AWS (see §1a).
 
 | Cost line | Estimate (CHF / month) | Notes |
 |---|---|---|
@@ -51,7 +53,7 @@ Phase 1 runs on the external agency's Railway account and a small number of mete
 
 **Important:** Phase 1 has no SaaS licenses, no database costs, no monitoring contracts, no CDN fees and no data transfer charges beyond what is included in the Railway plan.
 
-Phase 2 cost estimates will be prepared separately when the AWS architecture is sized and when HubSpot / GA4 / GSC read access is granted.
+Phase 2 cost estimates will be prepared separately when HubSpot / GA4 / GSC read access is granted (these integrations remain **planned — Phase 2/3**, none are connected yet).
 
 ---
 
@@ -74,9 +76,9 @@ In plain terms: nothing is really connected. The hub in Phase 1 is a standalone 
 No confidential document, no customer record, no internal email, no contract, no pricing list and no personal data ever enters the system in Phase 1. If the Railway instance were compromised tomorrow, the attacker would find nothing beyond what is already published on apsoparts.com.
 
 **Hosting**
-- Next.js 15 application deployed to **Railway** (EU region — Frankfurt / Amsterdam / Paris).
-- Platform operated by the external digital agency on their corporate Railway account.
-- HTTPS/TLS 1.3 enforced by Railway's edge layer.
+- Next.js 15 application initially deployed to **Railway** (EU region — Frankfurt / Amsterdam / Paris) for the prototype; **since migrated to AWS ECS Fargate (EU region), deployed from container images built in CI and pushed to AWS ECR**.
+- Prototype platform was operated by the external digital agency on their corporate Railway account.
+- HTTPS/TLS 1.3 enforced at the edge.
 - EU data residency confirmed and documented (Schrems II / GDPR Art. 44 compliance).
 
 **Integrations (strictly limited)**
@@ -129,7 +131,7 @@ No outbound publishing automation whatsoever in Phase 1.
 - Infrastructure defined as code (Terraform / AWS CDK) and version-controlled
 - DNS via Route 53, WAF rules for rate limiting and OWASP Top 10 protection
 
-**New integrations**
+**New integrations** — *status: planned. None of these integrations are connected yet; they arrive with Phase 2/3.*
 - ✅ Google Analytics 4 — **read-only** scope (`analytics.readonly`)
 - ✅ Google Search Console — **read-only** scope (`webmasters.readonly`)
 - ✅ Magento product catalog — **read-only** API user (catalog_read)
@@ -139,11 +141,11 @@ No outbound publishing automation whatsoever in Phase 1.
 - ❌ Still no outbound publishing to LinkedIn or Magento without a separate Phase 3 review
 
 **Authentication upgrade**
-- Replace Phase 1 password-based auth with **Microsoft Entra ID (Azure AD)** OAuth 2.0, restricted to the Angst+Pfister Microsoft 365 tenant
+- Replace the Phase 1 per-user password + mandatory-TOTP login with **Microsoft Entra ID (Azure AD)** OAuth 2.0, restricted to the Angst+Pfister Microsoft 365 tenant
 - MFA enforced at the tenant level via the existing Conditional Access policy (same policy as Outlook / SharePoint / Teams)
 - Session tokens stored in secure, httpOnly, sameSite cookies
 - 12-hour session timeout, sliding refresh
-- Microsoft Entra ID is moved to Phase 2 because it requires a tenant app registration by Group IT, which is being coordinated alongside the AWS onboarding scheduled for June
+- Microsoft Entra ID is moved to Phase 2 because it requires a tenant app registration by Group IT, which is being coordinated by Group IT
 
 **New capabilities unlocked**
 - Real traffic / keyword / ranking data on the SEO Command Center

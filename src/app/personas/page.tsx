@@ -25,12 +25,6 @@ export default async function PersonasPage() {
             Personas
           </Typography>
           <Chip
-            label="Phase 1"
-            size="small"
-            variant="outlined"
-            sx={{ fontWeight: 600 }}
-          />
-          <Chip
             label={`${personas.length} archetypes`}
             size="small"
             sx={{ bgcolor: "#ede7f9", color: "#5b21b6", fontWeight: 600 }}

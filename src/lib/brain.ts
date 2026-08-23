@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { kvGet, kvSet } from "./db/init";
 
+// Bundled baseline — used to seed the database on first read and as a
+// read-only fallback when the database is unreachable.
 const BRAIN_PATH = path.join(process.cwd(), "src", "data", "brain.json");
+
+const BRAIN_KEY = "brain";
 
 export type Brain = {
   version: number;
@@ -100,13 +105,26 @@ export type PhotoGuidelines = {
 };
 
 export async function readBrain(): Promise<Brain> {
+  try {
+    const stored = await kvGet<Brain>(BRAIN_KEY);
+    if (stored) return stored;
+  } catch {
+    // Database unreachable — fall through to the bundled file so generation
+    // keeps working read-only.
+  }
   const raw = await fs.readFile(BRAIN_PATH, "utf8");
-  return JSON.parse(raw) as Brain;
+  const brain = JSON.parse(raw) as Brain;
+  try {
+    await kvSet(BRAIN_KEY, brain);
+  } catch {
+    // Seeding is best-effort; the next successful write will persist it.
+  }
+  return brain;
 }
 
 export async function writeBrain(next: Brain): Promise<void> {
   next.updatedAt = new Date().toISOString();
-  await fs.writeFile(BRAIN_PATH, JSON.stringify(next, null, 2), "utf8");
+  await kvSet(BRAIN_KEY, next);
 }
 
 const CHANNEL_RULES: Record<string, string[]> = {

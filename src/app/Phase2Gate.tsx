@@ -77,7 +77,7 @@ export default function Phase2Gate({ children }: { children: React.ReactNode }) 
           mb: 1,
         }}
       >
-        Planned for Phase 2
+        Illustrative data — live integration planned
       </Typography>
       <Typography
         sx={{
@@ -88,8 +88,9 @@ export default function Phase2Gate({ children }: { children: React.ReactNode }) 
           lineHeight: 1.55,
         }}
       >
-        This area isn't connected yet. You can explore it, but everything you see is sample data —
-        nothing syncs to HubSpot, Magento, GA4 or LinkedIn until Phase 2.
+        Everything you see in this area is illustrative sample data. The live integrations
+        (Google Search Console, GA4, HubSpot, Magento, LinkedIn) are planned — nothing here
+        reads from or writes to any external system yet.
       </Typography>
       <Button
         onClick={dismiss}

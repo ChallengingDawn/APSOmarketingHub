@@ -112,7 +112,7 @@ export default function Sidebar() {
           width: DRAWER_WIDTH,
           boxSizing: "border-box",
           bgcolor: "#ffffff",
-          borderRight: "1px solid #ececec",
+          borderRight: "1px solid #e6e8ec",
           position: "relative",
           overflow: "hidden",
         },
@@ -143,7 +143,7 @@ export default function Sidebar() {
           position: "relative",
           zIndex: 2,
           bgcolor: "#ffffff",
-          borderBottom: "1px solid #ececec",
+          borderBottom: "1px solid #e6e8ec",
         }}
       >
         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.25 }}>
@@ -234,22 +234,23 @@ export default function Sidebar() {
                     {...externalProps}
                     disableRipple
                     sx={{
-                      borderRadius: 999,
+                      borderRadius: 1,
                       mb: 0.25,
                       py: 0.85,
                       px: 2,
                       minHeight: 40,
-                      bgcolor: active ? "#e8f0f4" : "rgba(255,255,255,0.55)",
-                      backdropFilter: "blur(6px)",
-                      color: active ? "#1a3a4c" : "#3c4043",
-                      transition: "background-color 0.2s ease, transform 0.2s ease",
+                      position: "relative",
+                      bgcolor: active ? "#274e64" : "transparent",
+                      color: active ? "#ffffff" : "#363c44",
+                      boxShadow: active ? "0 1px 2px rgba(26,58,76,0.25), 0 4px 12px rgba(26,58,76,0.18)" : "none",
+                      transition: "background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease",
                       "&:hover": {
-                        bgcolor: active ? "#dbe7ed" : "rgba(255,255,255,0.92)",
-                        transform: "translateX(2px)",
+                        bgcolor: active ? "#1a3a4c" : "#f1f3f5",
                       },
                       "& .MuiListItemIcon-root": {
-                        color: active ? "#274e64" : "#5f6368",
+                        color: active ? "#ffffff" : "#5b6470",
                         minWidth: 32,
+                        transition: "color 0.18s ease",
                       },
                     }}
                   >
@@ -269,7 +270,7 @@ export default function Sidebar() {
                           sx: {
                             fontSize: 14,
                             fontWeight: active ? 600 : 500,
-                            color: active ? "#1a3a4c" : "#3c4043",
+                            color: active ? "#ffffff" : "#3c4043",
                             letterSpacing: "-0.005em",
                           },
                         },
@@ -283,8 +284,8 @@ export default function Sidebar() {
                           height: 20,
                           fontSize: 10,
                           fontWeight: 700,
-                          bgcolor: active ? "#274e64" : "#ed1b2f",
-                          color: "#fff",
+                          bgcolor: active ? "#ffffff" : "#ed1b2f",
+                          color: active ? "#274e64" : "#fff",
                           ml: 0.5,
                         }}
                       />
@@ -303,18 +304,18 @@ export default function Sidebar() {
       </Box>
 
       {/* Bottom Status + Sign out */}
-      <Box sx={{ px: 2, py: 2, borderTop: "1px solid #ececec", position: "relative", zIndex: 1, bgcolor: "rgba(255,255,255,0.7)", backdropFilter: "blur(8px)" }}>
-        <Box sx={{ px: 1, mb: 1.25 }}>
+      <Box sx={{ px: 2, py: 2, borderTop: "1px solid #e6e8ec", position: "relative", zIndex: 1, bgcolor: "#ffffff" }}>
+        <Box sx={{ mb: 1.5, px: 1.5, py: 1.1, borderRadius: 1, bgcolor: "#f5f6f8", border: "1px solid #e6e8ec" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
             <Box
-              sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#34a853" }}
+              sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#1e7e45", boxShadow: "0 0 0 3px rgba(30,126,69,0.15)" }}
               className="animate-pulse-dot"
             />
-            <Typography sx={{ fontSize: 12, fontWeight: 500, color: "#1f1f1f" }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 600, color: "#1a1d21" }}>
               Pipeline Active
             </Typography>
           </Box>
-          <Typography sx={{ fontSize: 11, color: "#5f6368" }}>
+          <Typography sx={{ fontSize: 11, color: "#5b6470" }}>
             Draft-only mode enabled
           </Typography>
         </Box>
@@ -323,20 +324,19 @@ export default function Sidebar() {
           href="/api/auth/signout"
           disableRipple
           sx={{
-            borderRadius: 999,
+            borderRadius: 1,
             py: 0.85,
             px: 2,
             minHeight: 40,
-            color: "#3c4043",
+            color: "#363c44",
+            borderLeft: "3px solid transparent",
             "&:hover": {
               bgcolor: "#fdebed",
               color: "#ed1b2f",
+              borderLeftColor: "#ed1b2f",
               "& .MuiListItemIcon-root": { color: "#ed1b2f" },
             },
-            "& .MuiListItemIcon-root": {
-              minWidth: 32,
-              color: "#5f6368",
-            },
+            "& .MuiListItemIcon-root": { minWidth: 32, color: "#5b6470" },
           }}
         >
           <ListItemIcon>

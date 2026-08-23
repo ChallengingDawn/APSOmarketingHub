@@ -16,7 +16,7 @@
   }
 }
 
-/* ── Custom scrollbar ── */
+/* ── Custom scrollbar — thin, square, neutral ── */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -25,12 +25,13 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #dadce0;
-  border-radius: 4px;
+  background: #cdd2d9;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #bdc1c6;
+  background: #aeb4bd;
 }
+* { scrollbar-width: thin; scrollbar-color: #cdd2d9 transparent; }
 
 /* ──────────────────────────────────────────
    ANIMATIONS
@@ -156,11 +157,11 @@
 /* ── Hover lift utility ── */
 
 .hover-lift {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease;
 }
 .hover-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(39, 78, 100, 0.08);
+  box-shadow: 0 2px 4px rgba(26,58,76,0.06), 0 8px 24px rgba(26,58,76,0.08);
 }
 
 /* ── Card top accent (APSO red) ── */
@@ -276,24 +277,9 @@
   56%, 100%                  { color: #274e64; transform: rotateY(720deg); }
 }
 
-/* ── Active nav icon animation ── */
-@keyframes navIconBreathe {
-  0%, 100% {
-    transform: scale(1) rotate(0deg);
-  }
-  25% {
-    transform: scale(1.12) rotate(-3deg);
-  }
-  50% {
-    transform: scale(1.18) rotate(0deg);
-  }
-  75% {
-    transform: scale(1.12) rotate(3deg);
-  }
-}
-
+/* ── Active nav icon — restrained scale only, no wobble ── */
 .nav-icon-active {
-  animation: navIconBreathe 3s ease-in-out infinite;
+  transform: scale(1.05);
   transform-origin: center;
 }
 

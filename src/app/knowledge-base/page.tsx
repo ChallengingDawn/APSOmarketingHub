@@ -77,7 +77,7 @@ export default function KnowledgeBasePage() {
         <Box sx={{ flex: 1 }}>
           <PageHeader
             title="Knowledge Base"
-            subtitle="Manage brand guidelines, product catalogs & domain knowledge for AI-powered content generation"
+            subtitle="Manage brand guidelines, product catalogs & domain knowledge for AI-powered content generation — illustrative sample data; the live document store is in development"
           />
         </Box>
         <Button
@@ -128,6 +128,11 @@ export default function KnowledgeBasePage() {
             <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
               Documents
             </Typography>
+            <Chip
+              label="SAMPLE"
+              size="small"
+              sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+            />
           </Box>
         </CardContent>
         <TableContainer>

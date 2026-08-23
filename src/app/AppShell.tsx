@@ -39,7 +39,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isFullBleed = pathname === "/personality";
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f0f2f5" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f5f6f8" }}>
       <Sidebar />
       <Box
         component="main"

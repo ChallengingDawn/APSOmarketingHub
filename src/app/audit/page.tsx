@@ -88,7 +88,7 @@ const complianceCards = [
 /* ── data flow steps ── */
 
 const dataFlowSteps = [
-  { label: "GSC/GA4", subtitle: "(read-only)", description: "Search & analytics data ingested via API. No write access." },
+  { label: "GSC/GA4", subtitle: "(planned — read-only)", description: "Search & analytics data will be ingested via API once the integration lands. No write access." },
   { label: "APSO Server", subtitle: "(EU)", description: "All processing in EU-West-1. Data encrypted at rest and in transit." },
   { label: "Claude API", subtitle: "(EU)", description: "EU endpoint only. No data retention. Opted out of training." },
   { label: "Draft Content", subtitle: "", description: "AI output stored as draft. Never auto-published." },
@@ -109,7 +109,7 @@ export default function AuditPage() {
     <Box sx={{ py: 4, px: { xs: 2, md: 4 } }}>
       <PageHeader
         title="Audit & Compliance"
-        subtitle="Full transparency — every AI decision, every prompt, every output logged and traceable"
+        subtitle="Full transparency — every AI decision, every prompt, every output logged and traceable. Entries below are illustrative sample data; the persistent audit store is in development"
       />
 
       {/* ── Compliance Status Cards ── */}
@@ -168,6 +168,11 @@ export default function AuditPage() {
             <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
               Audit Log
             </Typography>
+            <Chip
+              label="SAMPLE"
+              size="small"
+              sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+            />
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Complete record of every action, AI generation, approval, and system event

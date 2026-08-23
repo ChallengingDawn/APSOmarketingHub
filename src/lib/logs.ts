@@ -1,8 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { ensureSchema, kvGet, kvSet } from "./db/init";
 
+// Legacy container file — only used to seed the database once on first read.
 const LOGS_PATH = path.join(process.cwd(), "src", "data", "logs.json");
+
+const KEY_ENTRIES = "logs.entries";
+const KEY_USER_DEFAULTS = "logs.userDefaults";
+const KEY_CURRENT_BATCH = "logs.currentBatch";
+const MAX_ENTRIES = 500;
 
 export type LogEntryType = "like" | "dislike" | "comment";
 
@@ -46,17 +53,60 @@ type LogsFile = {
 
 const EMPTY: LogsFile = { version: 1, userDefaults: "", entries: [], currentBatch: null };
 
-export async function readLogs(): Promise<LogsFile> {
+/**
+ * One-time migration: when none of the kv keys exist yet but the legacy
+ * src/data/logs.json is present in the container, copy it into the database.
+ * Returns the seeded file, or null when there was nothing to seed.
+ */
+async function seedFromLegacyFile(): Promise<LogsFile | null> {
+  let file: LogsFile;
   try {
     const raw = await fs.readFile(LOGS_PATH, "utf8");
-    return JSON.parse(raw) as LogsFile;
+    file = JSON.parse(raw) as LogsFile;
+  } catch {
+    return null;
+  }
+  const seeded: LogsFile = {
+    version: 1,
+    userDefaults: file.userDefaults ?? "",
+    entries: Array.isArray(file.entries) ? file.entries.slice(0, MAX_ENTRIES) : [],
+    currentBatch: file.currentBatch ?? null,
+  };
+  await kvSet(KEY_ENTRIES, seeded.entries);
+  await kvSet(KEY_USER_DEFAULTS, seeded.userDefaults);
+  await kvSet(KEY_CURRENT_BATCH, seeded.currentBatch);
+  return seeded;
+}
+
+export async function readLogs(): Promise<LogsFile> {
+  try {
+    await ensureSchema();
+    const [entries, userDefaults, currentBatch] = await Promise.all([
+      kvGet<LogEntry[]>(KEY_ENTRIES),
+      kvGet<string>(KEY_USER_DEFAULTS),
+      kvGet<CurrentBatch | null>(KEY_CURRENT_BATCH),
+    ]);
+    if (entries === undefined && userDefaults === undefined && currentBatch === undefined) {
+      const seeded = await seedFromLegacyFile();
+      if (seeded) return seeded;
+    }
+    return {
+      version: 1,
+      userDefaults: userDefaults ?? "",
+      entries: entries ?? [],
+      currentBatch: currentBatch ?? null,
+    };
   } catch {
     return EMPTY;
   }
 }
 
 export async function writeLogs(next: LogsFile): Promise<void> {
-  await fs.writeFile(LOGS_PATH, JSON.stringify(next, null, 2), "utf8");
+  await ensureSchema();
+  const entries = (next.entries ?? []).slice(0, MAX_ENTRIES);
+  await kvSet(KEY_ENTRIES, entries);
+  await kvSet(KEY_USER_DEFAULTS, next.userDefaults ?? "");
+  await kvSet(KEY_CURRENT_BATCH, next.currentBatch ?? null);
 }
 
 export async function addLogEntry(entry: Omit<LogEntry, "id" | "ts">): Promise<LogEntry> {
@@ -66,23 +116,21 @@ export async function addLogEntry(entry: Omit<LogEntry, "id" | "ts">): Promise<L
     ts: new Date().toISOString(),
     ...entry,
   };
-  file.entries.unshift(full);
-  if (file.entries.length > 500) file.entries = file.entries.slice(0, 500);
-  await writeLogs(file);
+  const entries = [full, ...file.entries].slice(0, MAX_ENTRIES);
+  await kvSet(KEY_ENTRIES, entries);
   return full;
 }
 
 export async function setUserDefaults(text: string): Promise<LogsFile> {
   const file = await readLogs();
-  file.userDefaults = text;
-  await writeLogs(file);
-  return file;
+  await kvSet(KEY_USER_DEFAULTS, text);
+  return { ...file, userDefaults: text };
 }
 
 export async function saveCurrentBatch(batch: CurrentBatch): Promise<void> {
-  const file = await readLogs();
-  file.currentBatch = batch;
-  await writeLogs(file);
+  // readLogs first so the legacy-file seed runs before we overwrite the batch key.
+  await readLogs();
+  await kvSet(KEY_CURRENT_BATCH, batch);
 }
 
 export async function updateCurrentBatchImage(
@@ -94,7 +142,7 @@ export async function updateCurrentBatchImage(
   const proposals = file.currentBatch.proposals.slice();
   if (index < 0 || index >= proposals.length) return file.currentBatch;
   proposals[index] = { ...proposals[index], ...patch };
-  file.currentBatch = { ...file.currentBatch, proposals };
-  await writeLogs(file);
-  return file.currentBatch;
+  const nextBatch: CurrentBatch = { ...file.currentBatch, proposals };
+  await kvSet(KEY_CURRENT_BATCH, nextBatch);
+  return nextBatch;
 }

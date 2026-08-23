@@ -142,7 +142,7 @@ export default function AnalyticsPage() {
     <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1400, mx: "auto" }}>
       <PageHeader
         title="Analytics & Reporting"
-        subtitle="Content performance, ROI metrics & quality monitoring"
+        subtitle="Content performance, ROI metrics & quality monitoring — illustrative sample data; live GA4 / Search Console integration is planned"
       />
 
       {/* ── Time Period Selector ── */}
@@ -310,9 +310,16 @@ export default function AnalyticsPage() {
         <Grid size={{ xs: 12, md: 6 }}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Channel Breakdown
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography variant="h6" gutterBottom>
+                  Channel Breakdown
+                </Typography>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
               <Typography
                 variant="body2"
                 sx={{ color: "text.secondary", mb: 2 }}
@@ -369,9 +376,16 @@ export default function AnalyticsPage() {
         <Grid size={{ xs: 12, md: 6 }}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Quality Scores
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography variant="h6" gutterBottom>
+                  Quality Scores
+                </Typography>
+                <Chip
+                  label="SAMPLE"
+                  size="small"
+                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+                />
+              </Box>
               <Typography
                 variant="body2"
                 sx={{ color: "text.secondary", mb: 2 }}
@@ -690,9 +704,16 @@ export default function AnalyticsPage() {
       {/* ── Content Performance Table ── */}
       <Card sx={{ mb: 4 }}>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Content Performance
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Typography variant="h6" gutterBottom>
+              Content Performance
+            </Typography>
+            <Chip
+              label="SAMPLE"
+              size="small"
+              sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
+            />
+          </Box>
           <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
             Individual content metrics sorted by views
           </Typography>

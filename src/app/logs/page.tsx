@@ -17,7 +17,6 @@ export default async function LogsPage() {
             Logs
           </Typography>
           <Chip label="Feedback & learning" size="small" sx={{ bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 600 }} />
-          <Chip label="Phase 1" size="small" variant="outlined" sx={{ fontWeight: 600 }} />
         </Box>
         <Typography sx={{ fontSize: 13, color: "#5f6368", maxWidth: 780 }}>
           Every <strong>like</strong> is saved as a good example the AI should imitate. Every{" "}
