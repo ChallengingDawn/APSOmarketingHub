@@ -48,28 +48,21 @@ interface NavSection {
 
 const navSections: NavSection[] = [
   {
-    title: "Documentation for GDS",
-    items: [
-      { label: "Technical Roadmap", href: "/docs/technical-roadmap", icon: <DescriptionIcon fontSize="small" /> },
-      { label: "Security Infrastructure", href: "/docs/security-infrastructure", icon: <SecurityIcon fontSize="small" /> },
-    ],
-  },
-  {
-    title: "Phase 1",
-    items: [
-      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
-      { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" />, badge: "AI" },
-      { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "Public" },
-      { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" />, badge: "AI" },
-      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
-      { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
-    ],
-  },
-  {
     title: "Overview",
     items: [
       { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
       { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "AI Engine",
+    items: [
+      { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "AI" },
+      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+      { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" /> },
+      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+      { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
   },
   {
@@ -95,6 +88,8 @@ const navSections: NavSection[] = [
       { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
       { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
+      { label: "Technical Roadmap", href: "/docs/technical-roadmap", icon: <DescriptionIcon fontSize="small" /> },
+      { label: "Security Infrastructure", href: "/docs/security-infrastructure", icon: <SecurityIcon fontSize="small" /> },
     ],
   },
 ];
