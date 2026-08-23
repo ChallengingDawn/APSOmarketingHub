@@ -1,10 +1,12 @@
 "use client";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
+import Collapse from "@mui/material/Collapse";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
@@ -26,29 +28,28 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
+import ShareIcon from "@mui/icons-material/Share";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LogoutIcon from "@mui/icons-material/Logout";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
 
 const DRAWER_WIDTH = 264;
-
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ReactNode;
-  badge?: string;
-  external?: boolean;
-}
+const RED = "#ed1b2f";
 
 interface NavSection {
   title: string;
-  items: NavItem[];
+  icon: React.ReactNode;
+  color: string;
+  items: { label: string; href: string; icon: React.ReactNode; badge?: string }[];
 }
 
 const navSections: NavSection[] = [
   {
     title: "Overview",
+    icon: <BarChartIcon />,
+    color: "#0a84ff",
     items: [
       { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
       { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
@@ -56,6 +57,8 @@ const navSections: NavSection[] = [
   },
   {
     title: "AI Engine",
+    icon: <AutoAwesomeIcon />,
+    color: RED,
     items: [
       { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "AI" },
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
@@ -67,6 +70,8 @@ const navSections: NavSection[] = [
   },
   {
     title: "SEO & Content",
+    icon: <TravelExploreIcon />,
+    color: "#34c759",
     items: [
       { label: "SEO Command Center", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
       { label: "Content Calendar", href: "/calendar", icon: <CalendarMonthIcon fontSize="small" /> },
@@ -75,6 +80,8 @@ const navSections: NavSection[] = [
   },
   {
     title: "Channels",
+    icon: <ShareIcon />,
+    color: "#ff9f0a",
     items: [
       { label: "LinkedIn", href: "/linkedin", icon: <LinkedInIcon fontSize="small" /> },
       { label: "Newsletter", href: "/newsletter", icon: <NewspaperIcon fontSize="small" /> },
@@ -83,6 +90,8 @@ const navSections: NavSection[] = [
   },
   {
     title: "Governance",
+    icon: <SecurityIcon />,
+    color: "#8e8e93",
     items: [
       { label: "Knowledge Base", href: "/knowledge-base", icon: <MenuBookIcon fontSize="small" /> },
       { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
@@ -96,6 +105,26 @@ const navSections: NavSection[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+
+  // Only ONE item active: the longest href that is an exact or parent-prefix
+  // match. Stops "/docs" collisions and "/" lighting up everywhere.
+  const activeHref = (() => {
+    const all = navSections.flatMap((s) => s.items.map((i) => i.href));
+    const matches = all.filter(
+      (h) => pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
+    );
+    return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
+  })();
+
+  const activeSectionTitle = navSections.find((s) => s.items.some((i) => i.href === activeHref))?.title;
+
+  // Collapsible sections — accordion, only one open; the active section
+  // starts open and re-opens on navigation.
+  const [open, setOpen] = useState<string | null>(activeSectionTitle ?? null);
+  useEffect(() => {
+    if (activeSectionTitle) setOpen(activeSectionTitle);
+  }, [activeSectionTitle]);
+  const toggle = (t: string) => setOpen((cur) => (cur === t ? null : t));
 
   return (
     <Drawer
@@ -113,23 +142,7 @@ export default function Sidebar() {
         },
       }}
     >
-      {/* ── Animated Background: flat Google-style compass ── */}
-      <Box className="sidebar-bg">
-        <Box className="sidebar-icon-bg sidebar-icon-compass">
-          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="50" cy="50" r="42" stroke="#274e64" strokeWidth="5" fill="none" />
-            <circle cx="50" cy="50" r="34" stroke="#274e64" strokeWidth="2" fill="none" opacity="0.5" />
-            <path
-              d="M50 18 L58 50 L50 82 L42 50 Z"
-              fill="#ed1b2f"
-            />
-            <circle cx="50" cy="50" r="4" fill="#274e64" />
-          </svg>
-        </Box>
-      </Box>
-      <Box className="sidebar-dots" />
-
-      {/* Brand Header — animated marketing typography */}
+      {/* Brand Header */}
       <Box
         sx={{
           px: 3,
@@ -155,24 +168,14 @@ export default function Sidebar() {
           <Box
             component="span"
             className="brand-display"
-            sx={{
-              fontSize: 22,
-              color: "#3c4043",
-              fontWeight: 400,
-              ml: 0.25,
-            }}
+            sx={{ fontSize: 22, color: "#3c4043", fontWeight: 400, ml: 0.25 }}
           >
             Marketing
           </Box>
           <Box
             component="span"
             className="brand-display"
-            sx={{
-              fontSize: 32,
-              color: "#ed1b2f",
-              fontWeight: 800,
-              ml: 0.25,
-            }}
+            sx={{ fontSize: 32, color: RED, fontWeight: 800, ml: 0.25 }}
           >
             Hub
           </Box>
@@ -191,111 +194,145 @@ export default function Sidebar() {
         </Typography>
       </Box>
 
-      {/* Navigation Sections */}
-      <Box sx={{ flex: 1, overflow: "auto", py: 0.5, position: "relative", zIndex: 1 }}>
-        {navSections.map((section) => (
-          <Box key={section.title} sx={{ mb: 0.5 }}>
-            <Typography
-              sx={{
-                px: 3,
-                pt: 2,
-                pb: 0.75,
-                fontSize: 11,
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                color: "#3c4043",
-              }}
-            >
-              {section.title}
-            </Typography>
-            <List dense disablePadding sx={{ px: 1.5, py: 0 }}>
-              {section.items.map((item) => {
-                const active = pathname === item.href;
-                const externalProps = item.external
-                  ? {
-                      component: "a" as const,
-                      href: item.href,
-                      target: "_blank",
-                      rel: "noopener noreferrer",
-                    }
-                  : {
-                      component: Link,
-                      href: item.href,
-                    };
-                return (
-                  <ListItemButton
-                    key={item.href}
-                    {...externalProps}
-                    disableRipple
-                    sx={{
-                      borderRadius: 1,
-                      mb: 0.25,
-                      py: 0.85,
-                      px: 2,
-                      minHeight: 40,
-                      position: "relative",
-                      bgcolor: active ? "#274e64" : "transparent",
-                      color: active ? "#ffffff" : "#363c44",
-                      boxShadow: active ? "0 1px 2px rgba(26,58,76,0.25), 0 4px 12px rgba(26,58,76,0.18)" : "none",
-                      transition: "background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease",
-                      "&:hover": {
-                        bgcolor: active ? "#1a3a4c" : "#f1f3f5",
-                      },
-                      "& .MuiListItemIcon-root": {
-                        color: active ? "#ffffff" : "#5b6470",
-                        minWidth: 32,
-                        transition: "color 0.18s ease",
-                      },
-                    }}
-                  >
-                    <ListItemIcon>
-                      <Box
-                        component="span"
-                        className={active ? "nav-icon-active" : undefined}
-                        sx={{ display: "inline-flex", alignItems: "center" }}
-                      >
-                        {item.icon}
-                      </Box>
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.label}
-                      slotProps={{
-                        primary: {
-                          sx: {
-                            fontSize: 14,
-                            fontWeight: active ? 600 : 500,
-                            color: active ? "#ffffff" : "#3c4043",
-                            letterSpacing: "-0.005em",
-                          },
-                        },
-                      }}
-                    />
-                    {item.badge && (
-                      <Chip
-                        label={item.badge}
-                        size="small"
+      {/* Navigation Sections — collapsible, iOS Settings rows */}
+      <Box sx={{ flex: 1, overflow: "auto", py: 0, position: "relative", zIndex: 1 }}>
+        {navSections.map((section) => {
+          const isOpen = open === section.title;
+          return (
+            <Box key={section.title} sx={{ borderBottom: "0.5px solid #ececef" }}>
+              {/* Category row */}
+              <Box
+                onClick={() => toggle(section.title)}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  px: 3,
+                  py: 1.35,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  bgcolor: isOpen ? "#f3f4f6" : "transparent",
+                  transition: "background-color 0.16s ease",
+                  "&:hover": { bgcolor: "#f3f4f6" },
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 1.75,
+                    bgcolor: section.color,
+                    color: "#ffffff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.14)",
+                    "& svg": { fontSize: 19 },
+                  }}
+                >
+                  {section.icon}
+                </Box>
+                <Typography
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                    lineHeight: 1.2,
+                    color: "#1d1d1f",
+                  }}
+                >
+                  {section.title}
+                </Typography>
+                <KeyboardArrowRightIcon
+                  sx={{
+                    fontSize: 21,
+                    flexShrink: 0,
+                    color: "#c7c7cc",
+                    transform: isOpen ? "rotate(90deg)" : "none",
+                    transition: "transform 0.22s ease",
+                  }}
+                />
+              </Box>
+
+              {/* Items */}
+              <Collapse in={isOpen} timeout={240} unmountOnExit>
+                <List dense disablePadding sx={{ px: 1.5, py: 0.4 }}>
+                  {section.items.map((item) => {
+                    const active = item.href === activeHref;
+                    return (
+                      <ListItemButton
+                        key={item.href}
+                        component={Link}
+                        href={item.href}
+                        disableRipple
                         sx={{
-                          height: 20,
-                          fontSize: 10,
-                          fontWeight: 700,
-                          bgcolor: active ? "#ffffff" : "#ed1b2f",
-                          color: active ? "#274e64" : "#fff",
-                          ml: 0.5,
+                          borderRadius: 1,
+                          mb: 0.25,
+                          py: 0.85,
+                          px: 2,
+                          minHeight: 40,
+                          position: "relative",
+                          bgcolor: active ? RED : "transparent",
+                          color: active ? "#ffffff" : "#363c44",
+                          boxShadow: active ? "0 1px 2px rgba(237,27,47,0.25), 0 4px 12px rgba(237,27,47,0.18)" : "none",
+                          transition: "background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease",
+                          "&:hover": {
+                            bgcolor: active ? "#d81528" : "#f1f3f5",
+                          },
+                          "& .MuiListItemIcon-root": {
+                            color: active ? "#ffffff" : "#5b6470",
+                            minWidth: 32,
+                            transition: "color 0.18s ease",
+                          },
                         }}
-                      />
-                    )}
-                    {item.external && (
-                      <OpenInNewIcon
-                        sx={{ fontSize: 14, color: "#5f6368", ml: 0.5, opacity: 0.7 }}
-                      />
-                    )}
-                  </ListItemButton>
-                );
-              })}
-            </List>
-          </Box>
-        ))}
+                      >
+                        <ListItemIcon>
+                          <Box
+                            component="span"
+                            className={active ? "nav-icon-active" : undefined}
+                            sx={{ display: "inline-flex", alignItems: "center" }}
+                          >
+                            {item.icon}
+                          </Box>
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={item.label}
+                          slotProps={{
+                            primary: {
+                              sx: {
+                                fontSize: 14,
+                                fontWeight: active ? 600 : 500,
+                                color: active ? "#ffffff" : "#3c4043",
+                                letterSpacing: "-0.005em",
+                              },
+                            },
+                          }}
+                        />
+                        {item.badge && (
+                          <Chip
+                            label={item.badge}
+                            size="small"
+                            sx={{
+                              height: 20,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              bgcolor: active ? "#ffffff" : RED,
+                              color: active ? RED : "#fff",
+                              ml: 0.5,
+                            }}
+                          />
+                        )}
+                      </ListItemButton>
+                    );
+                  })}
+                </List>
+              </Collapse>
+            </Box>
+          );
+        })}
       </Box>
 
       {/* Bottom Status + Sign out */}
@@ -307,11 +344,11 @@ export default function Sidebar() {
               className="animate-pulse-dot"
             />
             <Typography sx={{ fontSize: 12, fontWeight: 600, color: "#1a1d21" }}>
-              Pipeline Active
+              System Active
             </Typography>
           </Box>
           <Typography sx={{ fontSize: 11, color: "#5b6470" }}>
-            Draft-only mode enabled
+            Content engine online
           </Typography>
         </Box>
         <ListItemButton
@@ -327,9 +364,9 @@ export default function Sidebar() {
             borderLeft: "3px solid transparent",
             "&:hover": {
               bgcolor: "#fdebed",
-              color: "#ed1b2f",
-              borderLeftColor: "#ed1b2f",
-              "& .MuiListItemIcon-root": { color: "#ed1b2f" },
+              color: RED,
+              borderLeftColor: RED,
+              "& .MuiListItemIcon-root": { color: RED },
             },
             "& .MuiListItemIcon-root": { minWidth: 32, color: "#5b6470" },
           }}
@@ -341,11 +378,7 @@ export default function Sidebar() {
             primary="Sign out"
             slotProps={{
               primary: {
-                sx: {
-                  fontSize: 14,
-                  fontWeight: 500,
-                  letterSpacing: "-0.005em",
-                },
+                sx: { fontSize: 14, fontWeight: 500, letterSpacing: "-0.005em" },
               },
             }}
           />

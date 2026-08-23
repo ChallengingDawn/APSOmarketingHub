@@ -139,7 +139,7 @@ export default function AnalyticsPage() {
   );
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1400, mx: "auto" }}>
+    <Box sx={{ p: 1 }}>
       <PageHeader
         title="Analytics & Reporting"
         subtitle="Content performance, ROI metrics & quality monitoring — illustrative sample data; live GA4 / Search Console integration is planned"

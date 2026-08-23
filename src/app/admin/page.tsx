@@ -30,7 +30,7 @@ export default async function AdminPage() {
   );
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1100, mx: "auto" }}>
+    <Box sx={{ p: 1 }}>
       <Box sx={{ mb: 3 }}>
         <Typography sx={{ fontFamily: "'Outfit', sans-serif", fontSize: "1.6rem", fontWeight: 600, color: "#1f1f1f" }}>
           Admin · Users
