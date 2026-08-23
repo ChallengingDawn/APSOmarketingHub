@@ -36,6 +36,11 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import ReplayIcon from "@mui/icons-material/Replay";
+import ThumbUpIcon from "@mui/icons-material/ThumbUp";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
+import MarkdownPreview from "./MarkdownPreview";
 import Link from "next/link";
 
 /* ── types ── */
@@ -133,6 +138,25 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [refining, setRefining] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [copied, setCopied] = useState("");
+  const [draftFb, setDraftFb] = useState<"" | "like" | "dislike">("");
+  const [conceptFb, setConceptFb] = useState<Record<number, string>>({});
+  const [editMode, setEditMode] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const [briefText, setBriefText] = useState("");
+
+  const mdChannel = channel === "blog" || channel === "product";
+
+  /* feedback loop -> /api/logs (teaches the engine; non-blocking) */
+  const sendFeedback = (kind: "like" | "dislike", payload: { headline?: string; body: string }, done?: () => void) => {
+    fetch("/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: kind, channel, prompt: topic.slice(0, 500), ...payload }),
+    }).catch(() => {});
+    done?.();
+  };
 
   useEffect(() => {
     fetch("/api/personality")
@@ -218,7 +242,13 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
         });
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
-        else setDraft({ content: data.content, draftId: data.draftId, quality: data.quality, imageBrief: data.imageBrief });
+        else {
+          setDraft({ content: data.content, draftId: data.draftId, quality: data.quality, imageBrief: data.imageBrief });
+          setDraftFb("");
+          setEditMode(false);
+          setShowRaw(false);
+          setBriefText(data.imageBrief ?? "");
+        }
       } else {
         const res = await fetch("/api/propose", {
           method: "POST",
@@ -262,6 +292,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       else {
         setDraft({ content: data.content, draftId: data.draftId, quality: data.quality, imageBrief: draft.imageBrief, imageUrl: draft.imageUrl });
         setRefineText("");
+        setDraftFb("");
+        setEditMode(false);
       }
     } catch {
       setError("Network error during refinement");
@@ -277,7 +309,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: draft.imageBrief || draft.content.slice(0, 280), filters }),
+        body: JSON.stringify({ prompt: briefText.trim() || draft.content.slice(0, 280), filters }),
       });
       const data = await res.json();
       if (data.imageUrl) setDraft((d) => (d ? { ...d, imageUrl: data.imageUrl } : d));
@@ -305,6 +337,32 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       );
     } catch {
       setConcepts((cur) => cur.map((x, i) => (i === idx ? { ...x, imageBusy: false } : x)));
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!draft || savingEdit) return;
+    const next = editText.trim();
+    if (!next) return;
+    setSavingEdit(true);
+    try {
+      if (draft.draftId) {
+        const res = await fetch(`/api/content/${draft.draftId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: next }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setError(d.error ?? "Saving the edit failed");
+          setSavingEdit(false);
+          return;
+        }
+      }
+      setDraft((d) => (d ? { ...d, content: next } : d));
+      setEditMode(false);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -617,24 +675,100 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   <img src={draft.imageUrl} alt="" style={{ width: "100%", borderRadius: 8, marginBottom: 14 }} />
                 )}
 
-                <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.7, color: "#1a1d21" }}>
-                  {draft.content}
-                </Typography>
+                {editMode ? (
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={10}
+                    maxRows={30}
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.7, fontFamily: "inherit" } }}
+                  />
+                ) : mdChannel && !showRaw ? (
+                  <MarkdownPreview text={draft.content} />
+                ) : (
+                  <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.7, color: "#1a1d21" }}>
+                    {draft.content}
+                  </Typography>
+                )}
 
                 <Divider sx={{ my: 2 }} />
-                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                  <Tooltip title="Good one — the engine learns from this">
+                    <Button
+                      startIcon={<ThumbUpIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => sendFeedback("like", { body: draft.content }, () => setDraftFb("like"))}
+                      sx={{ fontWeight: 700, color: draftFb === "like" ? "#fff" : "#1e7e45", bgcolor: draftFb === "like" ? "#1e7e45" : "transparent", "&:hover": { bgcolor: draftFb === "like" ? "#17643a" : "#e5f3ea" } }}
+                    >
+                      {draftFb === "like" ? "Learned ✓" : "Like"}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Not this — type a refine instruction too and it becomes the correction">
+                    <Button
+                      startIcon={<ThumbDownIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => {
+                        fetch("/api/logs", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ type: "dislike", channel, prompt: topic.slice(0, 500), body: draft.content, correction: refineText.trim() || undefined }),
+                        }).catch(() => {});
+                        setDraftFb("dislike");
+                      }}
+                      sx={{ fontWeight: 700, color: draftFb === "dislike" ? "#fff" : "#c5221f", bgcolor: draftFb === "dislike" ? "#c5221f" : "transparent", "&:hover": { bgcolor: draftFb === "dislike" ? "#a51b1a" : "#fdebed" } }}
+                    >
+                      {draftFb === "dislike" ? "Noted ✓" : "Dislike"}
+                    </Button>
+                  </Tooltip>
+                  <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                  {editMode ? (
+                    <Button startIcon={savingEdit ? <CircularProgress size={14} /> : <SaveIcon />} onClick={saveEdit} disabled={savingEdit} variant="contained" sx={{ bgcolor: NAVY, fontWeight: 700 }}>
+                      {savingEdit ? "Saving…" : "Save edit"}
+                    </Button>
+                  ) : (
+                    <Button startIcon={<EditIcon />} onClick={() => { setEditText(draft.content); setEditMode(true); }} sx={{ fontWeight: 600, color: NAVY }}>
+                      Edit
+                    </Button>
+                  )}
+                  {mdChannel && !editMode && (
+                    <Button onClick={() => setShowRaw((v) => !v)} sx={{ fontWeight: 600, color: "#5b6470" }}>
+                      {showRaw ? "Preview" : "Raw markdown"}
+                    </Button>
+                  )}
                   <Button startIcon={<ContentCopyIcon />} onClick={() => copy(draft.content, "draft")} sx={{ fontWeight: 600 }}>
                     {copied === "draft" ? "Copied!" : "Copy"}
                   </Button>
-                  {withImage && !draft.imageUrl && (
-                    <Button startIcon={imageBusy ? <CircularProgress size={14} /> : <ImageIcon />} onClick={createImage} disabled={imageBusy} sx={{ fontWeight: 600, color: NAVY }}>
-                      {imageBusy ? "Painting…" : "Create image"}
-                    </Button>
-                  )}
                   <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
-                    Open in Library
+                    Library
                   </Button>
                 </Box>
+
+                {withImage && (
+                  <Box sx={{ mt: 2, p: 1.5, borderRadius: 1.5, bgcolor: "#fafbfc", border: "1px solid #f1f3f4" }}>
+                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                      Image brief — edit before painting
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={2}
+                      maxRows={6}
+                      size="small"
+                      placeholder="Describe the scene — subject, setting, lighting, camera angle"
+                      value={briefText}
+                      onChange={(e) => setBriefText(e.target.value)}
+                      sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5, bgcolor: "#fff" } }}
+                    />
+                    <Button
+                      startIcon={imageBusy ? <CircularProgress size={14} /> : <ImageIcon />}
+                      onClick={createImage}
+                      disabled={imageBusy || !briefText.trim()}
+                      sx={{ mt: 1, fontWeight: 700, color: NAVY }}
+                    >
+                      {imageBusy ? "Painting…" : draft.imageUrl ? "Regenerate image" : "Create image"}
+                    </Button>
+                  </Box>
+                )}
 
                 {/* refine loop */}
                 <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
@@ -685,6 +819,22 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                             {c.imageBusy ? "Painting…" : "Create image"}
                           </Button>
                         )}
+                        <Button
+                          size="small"
+                          startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
+                          onClick={() => sendFeedback("like", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "like" })))}
+                          sx={{ fontWeight: 700, color: conceptFb[i] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[i] === "like" ? "#1e7e45" : "transparent" }}
+                        >
+                          {conceptFb[i] === "like" ? "✓" : "Like"}
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
+                          onClick={() => sendFeedback("dislike", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "dislike" })))}
+                          sx={{ fontWeight: 700, color: conceptFb[i] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[i] === "dislike" ? "#c5221f" : "transparent" }}
+                        >
+                          {conceptFb[i] === "dislike" ? "✓" : "Dislike"}
+                        </Button>
                       </Box>
                     </Collapse>
                   </Box>

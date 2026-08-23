@@ -128,3 +128,30 @@ export async function updateContentStatus(
   );
   return r.rows.length ? toItem(r.rows[0]) : null;
 }
+
+export type ContentPatch = {
+  status?: ContentStatus;
+  title?: string | null;
+  body?: string;
+  imageUrl?: string | null;
+};
+
+export async function updateContent(id: number, patch: ContentPatch): Promise<ContentItem | null> {
+  await ensureSchema();
+  const sets: string[] = [];
+  const params: unknown[] = [id];
+  const add = (col: string, value: unknown) => {
+    params.push(value);
+    sets.push(`${col} = $${params.length}`);
+  };
+  if (patch.status !== undefined) add("status", patch.status);
+  if (patch.title !== undefined) add("title", patch.title);
+  if (patch.body !== undefined) add("body", patch.body);
+  if (patch.imageUrl !== undefined) add("image_url", patch.imageUrl);
+  if (!sets.length) return getContent(id);
+  const r = await query<ContentRow>(
+    `UPDATE apsomh_content SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+    params
+  );
+  return r.rows.length ? toItem(r.rows[0]) : null;
+}
