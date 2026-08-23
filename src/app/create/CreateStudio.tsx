@@ -654,6 +654,88 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
             </Alert>
           )}
 
+        </Grid>
+
+        {/* ── RIGHT: engine intelligence ── */}
+        <Grid size={{ xs: 12, md: 3 }}>
+          <Card sx={{ position: { md: "sticky" }, top: { md: 16 } }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                <PsychologyIcon sx={{ fontSize: 20, color: RED }} />
+                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21" }}>Engine intelligence</Typography>
+              </Box>
+
+              {activePersonas.length > 0 ? (
+                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "#e8f0f4", mb: 1.5 }}>
+                  <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>
+                    Writing for {activePersonas.map((p) => p.code).join(" + ")}
+                  </Typography>
+                  {activePersonas.map((p) => (
+                    <Typography key={p.id} sx={{ fontSize: 11.5, color: "#3c4043", mt: 0.5, lineHeight: 1.5 }}>
+                      <strong>{p.name}</strong> — {p.role}
+                    </Typography>
+                  ))}
+                  {activePersonas.length > 1 && (
+                    <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 0.75 }}>
+                      Multi-reader mode: shared pain points, one CTA that fits all.
+                    </Typography>
+                  )}
+                </Box>
+              ) : (
+                <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 1.5 }}>
+                  No persona selected — pure brand voice. Pick one on the left for vocabulary, pain points and CTA matched to a real buyer type.
+                </Typography>
+              )}
+
+              <Divider sx={{ my: 1.5 }} />
+              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+                Feeding this generation
+              </Typography>
+              {[
+                { label: `${trends.length} live demand signals`, on: trends.length > 0 },
+                { label: `${brain?.categoryIntelligence?.totalLeafCategories ?? "—"} categories mapped (${(brain?.categoryIntelligence?.totalLeafCategories ?? 0) - (brain?.categoryIntelligence?.categoriesWithSeoText ?? 0)} content gaps)`, on: Boolean(brain) },
+                { label: `${brain?.brandVoice?.signaturePhrases?.length ?? 0} signature phrases`, on: Boolean(brain?.brandVoice?.signaturePhrases?.length) },
+                { label: `${(brain?.goldExamples?.linkedinPosts?.length ?? 0) + (brain?.goldExamples?.paidAds?.length ?? 0)} gold examples`, on: Boolean(brain?.goldExamples) },
+                { label: "Anti-fabrication guard (no invented specs)", on: true },
+                { label: "Like/dislike learning loop", on: true },
+              ].map((f) => (
+                <Box key={f.label} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+                  <CheckCircleIcon sx={{ fontSize: 15, color: f.on ? "#1e7e45" : "#c7c7cc" }} />
+                  <Typography sx={{ fontSize: 12, color: "#3c4043", lineHeight: 1.4 }}>{f.label}</Typography>
+                </Box>
+              ))}
+
+              {geoChannels.has(channel) && (
+                <>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+                    GEO mode active
+                  </Typography>
+                  {[
+                    "Direct answers open every section",
+                    "40–60-word extractable blocks",
+                    "Customer-phrased FAQ",
+                    "Article + FAQPage JSON-LD",
+                    "Verifiable facts only",
+                  ].map((r) => (
+                    <Box key={r} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.6 }}>
+                      <AutoAwesomeIcon sx={{ fontSize: 13, color: RED }} />
+                      <Typography sx={{ fontSize: 12, color: "#3c4043" }}>{r}</Typography>
+                    </Box>
+                  ))}
+                  <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 1, lineHeight: 1.5 }}>
+                    Written so ChatGPT, Perplexity and Google AI can quote it — structure, FAQ and schema included automatically.
+                  </Typography>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* ── RESULTS — full width ── */}
+      {(draft || concepts.length > 0) && (
+        <Box sx={{ mt: 2.5 }}>
           {/* single draft result */}
           {draft && (
             <Card>
@@ -790,141 +872,77 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
             </Card>
           )}
 
-          {/* 3 concepts */}
-          {concepts.map((c, i) => (
-            <Card key={i} sx={{ mb: 2 }}>
-              <CardContent sx={{ p: 2.5 }}>
-                <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25 }}>
-                  <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: NAVY, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0, mt: 0.25 }}>
-                    {i + 1}
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21", cursor: "pointer" }} onClick={() => setConcepts((cur) => cur.map((x, j) => (j === i ? { ...x, expanded: !x.expanded } : x)))}>
-                      {c.headline}
-                    </Typography>
-                    <Collapse in={c.expanded}>
-                      {c.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={c.imageUrl} alt="" style={{ width: "100%", borderRadius: 8, margin: "10px 0" }} />
-                      )}
-                      <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.65, color: "#1a1d21", mt: 1 }}>
-                        {c.body}
-                      </Typography>
-                      <Box sx={{ display: "flex", gap: 1, mt: 1.5 }}>
-                        <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />} onClick={() => copy(c.body, `c${i}`)} sx={{ fontWeight: 600 }}>
-                          {copied === `c${i}` ? "Copied!" : "Copy"}
-                        </Button>
-                        {c.imagePrompt && !c.imageUrl && (
-                          <Button size="small" startIcon={c.imageBusy ? <CircularProgress size={12} /> : <ImageIcon sx={{ fontSize: 14 }} />} disabled={c.imageBusy} onClick={() => createConceptImage(i)} sx={{ fontWeight: 600, color: NAVY }}>
-                            {c.imageBusy ? "Painting…" : "Create image"}
-                          </Button>
-                        )}
-                        <Button
-                          size="small"
-                          startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
-                          onClick={() => sendFeedback("like", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "like" })))}
-                          sx={{ fontWeight: 700, color: conceptFb[i] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[i] === "like" ? "#1e7e45" : "transparent" }}
-                        >
-                          {conceptFb[i] === "like" ? "✓" : "Like"}
-                        </Button>
-                        <Button
-                          size="small"
-                          startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
-                          onClick={() => sendFeedback("dislike", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "dislike" })))}
-                          sx={{ fontWeight: 700, color: conceptFb[i] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[i] === "dislike" ? "#c5221f" : "transparent" }}
-                        >
-                          {conceptFb[i] === "dislike" ? "✓" : "Dislike"}
-                        </Button>
-                      </Box>
-                    </Collapse>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
           {concepts.length > 0 && (
-            <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
-              All three concepts are saved in the Library as drafts.
-            </Alert>
+            <>
+              <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
+                All three concepts are saved in the Library as drafts — compare them side by side.
+              </Alert>
+              <Grid container spacing={2} alignItems="stretch">
+                {concepts.map((c, i) => (
+                  <Grid key={i} size={{ xs: 12, md: 4 }}>
+                    <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                      {c.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.imageUrl} alt="" style={{ width: "100%", aspectRatio: "16/10", objectFit: "cover" }} />
+                      ) : (
+                        <Box sx={{ width: "100%", aspectRatio: "16/10", bgcolor: "#f0f2f4", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 1 }}>
+                          <ImageIcon sx={{ fontSize: 30, color: "#c7ccd2" }} />
+                          {c.imagePrompt && (
+                            <Button size="small" startIcon={c.imageBusy ? <CircularProgress size={12} /> : <ImageIcon sx={{ fontSize: 14 }} />} disabled={c.imageBusy} onClick={() => createConceptImage(i)} sx={{ fontWeight: 700, color: NAVY }}>
+                              {c.imageBusy ? "Painting…" : "Create image"}
+                            </Button>
+                          )}
+                        </Box>
+                      )}
+                      <CardContent sx={{ p: 2, display: "flex", flexDirection: "column", flex: 1 }}>
+                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1 }}>
+                          <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: NAVY, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0, mt: 0.25 }}>
+                            {i + 1}
+                          </Box>
+                          <Typography sx={{ fontSize: 14.5, fontWeight: 700, color: "#1a1d21", lineHeight: 1.3 }}>
+                            {c.headline}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ flex: 1, overflow: "auto", maxHeight: 340, pr: 0.5, mb: 1.5 }}>
+                          <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.6, color: "#1a1d21" }}>
+                            {c.body}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: "auto" }}>
+                          <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 13 }} />} onClick={() => copy(c.body, `c${i}`)} sx={{ fontWeight: 600, minWidth: 0 }}>
+                            {copied === `c${i}` ? "✓" : "Copy"}
+                          </Button>
+                          {c.imagePrompt && c.imageUrl && (
+                            <Button size="small" startIcon={c.imageBusy ? <CircularProgress size={12} /> : <ReplayIcon sx={{ fontSize: 13 }} />} disabled={c.imageBusy} onClick={() => createConceptImage(i)} sx={{ fontWeight: 600, color: NAVY, minWidth: 0 }}>
+                            {c.imageBusy ? "…" : "New image"}
+                            </Button>
+                          )}
+                          <Button
+                            size="small"
+                            startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
+                            onClick={() => sendFeedback("like", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "like" })))}
+                            sx={{ fontWeight: 700, minWidth: 0, color: conceptFb[i] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[i] === "like" ? "#1e7e45" : "transparent" }}
+                          >
+                            {conceptFb[i] === "like" ? "✓" : "Like"}
+                          </Button>
+                          <Button
+                            size="small"
+                            startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
+                            onClick={() => sendFeedback("dislike", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "dislike" })))}
+                            sx={{ fontWeight: 700, minWidth: 0, color: conceptFb[i] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[i] === "dislike" ? "#c5221f" : "transparent" }}
+                          >
+                            {conceptFb[i] === "dislike" ? "✓" : "Dislike"}
+                          </Button>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </>
           )}
-        </Grid>
-
-        {/* ── RIGHT: engine intelligence ── */}
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card sx={{ position: { md: "sticky" }, top: { md: 16 } }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-                <PsychologyIcon sx={{ fontSize: 20, color: RED }} />
-                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21" }}>Engine intelligence</Typography>
-              </Box>
-
-              {activePersonas.length > 0 ? (
-                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "#e8f0f4", mb: 1.5 }}>
-                  <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>
-                    Writing for {activePersonas.map((p) => p.code).join(" + ")}
-                  </Typography>
-                  {activePersonas.map((p) => (
-                    <Typography key={p.id} sx={{ fontSize: 11.5, color: "#3c4043", mt: 0.5, lineHeight: 1.5 }}>
-                      <strong>{p.name}</strong> — {p.role}
-                    </Typography>
-                  ))}
-                  {activePersonas.length > 1 && (
-                    <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 0.75 }}>
-                      Multi-reader mode: shared pain points, one CTA that fits all.
-                    </Typography>
-                  )}
-                </Box>
-              ) : (
-                <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 1.5 }}>
-                  No persona selected — pure brand voice. Pick one on the left for vocabulary, pain points and CTA matched to a real buyer type.
-                </Typography>
-              )}
-
-              <Divider sx={{ my: 1.5 }} />
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                Feeding this generation
-              </Typography>
-              {[
-                { label: `${trends.length} live demand signals`, on: trends.length > 0 },
-                { label: `${brain?.categoryIntelligence?.totalLeafCategories ?? "—"} categories mapped (${(brain?.categoryIntelligence?.totalLeafCategories ?? 0) - (brain?.categoryIntelligence?.categoriesWithSeoText ?? 0)} content gaps)`, on: Boolean(brain) },
-                { label: `${brain?.brandVoice?.signaturePhrases?.length ?? 0} signature phrases`, on: Boolean(brain?.brandVoice?.signaturePhrases?.length) },
-                { label: `${(brain?.goldExamples?.linkedinPosts?.length ?? 0) + (brain?.goldExamples?.paidAds?.length ?? 0)} gold examples`, on: Boolean(brain?.goldExamples) },
-                { label: "Anti-fabrication guard (no invented specs)", on: true },
-                { label: "Like/dislike learning loop", on: true },
-              ].map((f) => (
-                <Box key={f.label} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
-                  <CheckCircleIcon sx={{ fontSize: 15, color: f.on ? "#1e7e45" : "#c7c7cc" }} />
-                  <Typography sx={{ fontSize: 12, color: "#3c4043", lineHeight: 1.4 }}>{f.label}</Typography>
-                </Box>
-              ))}
-
-              {geoChannels.has(channel) && (
-                <>
-                  <Divider sx={{ my: 1.5 }} />
-                  <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                    GEO mode active
-                  </Typography>
-                  {[
-                    "Direct answers open every section",
-                    "40–60-word extractable blocks",
-                    "Customer-phrased FAQ",
-                    "Article + FAQPage JSON-LD",
-                    "Verifiable facts only",
-                  ].map((r) => (
-                    <Box key={r} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.6 }}>
-                      <AutoAwesomeIcon sx={{ fontSize: 13, color: RED }} />
-                      <Typography sx={{ fontSize: 12, color: "#3c4043" }}>{r}</Typography>
-                    </Box>
-                  ))}
-                  <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 1, lineHeight: 1.5 }}>
-                    Written so ChatGPT, Perplexity and Google AI can quote it — structure, FAQ and schema included automatically.
-                  </Typography>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      )}
     </Box>
   );
 }
