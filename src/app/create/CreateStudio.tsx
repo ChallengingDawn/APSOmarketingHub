@@ -320,8 +320,18 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
         body: JSON.stringify({ prompt: promptStr.trim(), filters }),
       });
       const data = await res.json();
-      if (data.imageUrl) setDraft((d) => (d ? { ...d, imageUrl: data.imageUrl } : d));
-      else setError(data.imageError ?? "Image generation failed");
+      if (data.imageUrl) {
+        setDraft((d) => {
+          if (d?.draftId) {
+            fetch(`/api/content/${d.draftId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageUrl: data.imageUrl }),
+            }).catch(() => {});
+          }
+          return d ? { ...d, imageUrl: data.imageUrl } : d;
+        });
+      } else setError(data.imageError ?? "Image generation failed");
     } catch {
       setError("Network error during image generation");
     } finally {
@@ -890,6 +900,11 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
                     Library
                   </Button>
+                  {draft.draftId && draft.imageUrl && (
+                    <Button component={Link} href={`/editor?item=${draft.draftId}`} startIcon={<EditIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
+                      Open in editor
+                    </Button>
+                  )}
                 </Box>
 
                 {withImage && (

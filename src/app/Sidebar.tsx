@@ -55,6 +55,7 @@ const navSections: NavSection[] = [
     items: [
       { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
+      { label: "Visual Editor", href: "/editor", icon: <DashboardCustomizeIcon fontSize="small" />, badge: "New" },
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },

@@ -15,6 +15,7 @@ const PHASE_1_PATHS = [
   "/logs",
   "/library",
   "/create",
+  "/editor",
 ];
 
 function isPhase1(pathname: string) {

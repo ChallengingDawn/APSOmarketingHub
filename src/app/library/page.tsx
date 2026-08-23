@@ -23,6 +23,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PublishIcon from "@mui/icons-material/Publish";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import BrushIcon from "@mui/icons-material/Brush";
+import Link from "next/link";
 
 type ContentItem = {
   id: number;
@@ -264,6 +266,9 @@ export default function LibraryPage() {
               </Typography>
             </DialogContent>
             <DialogActions sx={{ px: 3, py: 1.5 }}>
+              <Button component={Link} href={`/editor?item=${viewing.id}`} startIcon={<BrushIcon />} sx={{ color: "#ed1b2f", fontWeight: 700 }}>
+                Open in editor
+              </Button>
               <Button startIcon={<ContentCopyIcon />} onClick={() => copyBody(viewing.body)}>
                 {copied ? "Copied!" : "Copy"}
               </Button>
