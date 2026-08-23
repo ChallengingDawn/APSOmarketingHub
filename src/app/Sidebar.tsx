@@ -17,19 +17,14 @@ import EditNoteIcon from "@mui/icons-material/EditNote";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
-import LinkedInIcon from "@mui/icons-material/LinkedIn";
-import NewspaperIcon from "@mui/icons-material/Newspaper";
-import ArticleIcon from "@mui/icons-material/Article";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import GroupsIcon from "@mui/icons-material/Groups";
-import PublicIcon from "@mui/icons-material/Public";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
-import ShareIcon from "@mui/icons-material/Share";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
@@ -62,7 +57,6 @@ const navSections: NavSection[] = [
     items: [
       { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
-      { label: "Proposals Board", href: "/content-generation", icon: <PublicIcon fontSize="small" /> },
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" /> },
       { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" /> },
@@ -78,16 +72,6 @@ const navSections: NavSection[] = [
       { label: "SEO Command Center", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
       { label: "Content Calendar", href: "/calendar", icon: <CalendarMonthIcon fontSize="small" /> },
       { label: "Content Studio", href: "/studio", icon: <EditNoteIcon fontSize="small" />, badge: "AI" },
-    ],
-  },
-  {
-    title: "Channels",
-    icon: <ShareIcon />,
-    color: "#ff9f0a",
-    items: [
-      { label: "LinkedIn", href: "/linkedin", icon: <LinkedInIcon fontSize="small" /> },
-      { label: "Newsletter", href: "/newsletter", icon: <NewspaperIcon fontSize="small" /> },
-      { label: "Blog", href: "/blog", icon: <ArticleIcon fontSize="small" /> },
     ],
   },
   {

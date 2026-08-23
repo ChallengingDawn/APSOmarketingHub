@@ -61,6 +61,7 @@ type GenerateBody = {
   // high-quality, content-aware brief. Default: false.
   wantBrief?: boolean;
   personaId?: string;
+  personaIds?: string[];
 };
 
 const IMAGE_TAG = /<image-brief>([\s\S]*?)<\/image-brief>/i;
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { channel, prompt, model = "claude", context, withImage = false, wantBrief = false, personaId } = body;
+  const { channel, prompt, model = "claude", context, withImage = false, wantBrief = false, personaId, personaIds } = body;
 
   if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
     return NextResponse.json({ error: "Missing 'prompt'" }, { status: 400 });
@@ -143,7 +144,8 @@ export async function POST(req: NextRequest) {
   const filtersForBrief: GenerationFilters = { ...filters, wantsImage: withImage };
 
   // Stable block (cacheable — changes only when the brain or channel changes)
-  const stableSystem = brandSystemPrompt(brain, channel, personaId);
+  const personaSelection = personaIds?.length ? personaIds : personaId;
+  const stableSystem = brandSystemPrompt(brain, channel, personaSelection);
   // Volatile block: filters + the like/dislike learning loop, channel-matched.
   const likes = logs.entries
     .filter((e) => e.type === "like" && (!e.channel || e.channel === channel))

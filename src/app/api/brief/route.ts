@@ -11,6 +11,7 @@ type Body = {
   channel?: string;
   topic?: string;
   personaId?: string;
+  personaIds?: string[];
   filters?: GenerationFilters;
 };
 
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     const system: Anthropic.TextBlockParam[] = [
       {
         type: "text",
-        text: brandSystemPrompt(brain, channel, body.personaId),
+        text: brandSystemPrompt(brain, channel, body.personaIds?.length ? body.personaIds : body.personaId),
         cache_control: { type: "ephemeral" },
       },
       {

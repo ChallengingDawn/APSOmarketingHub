@@ -206,15 +206,18 @@ const MARKDOWN_CHANNELS = new Set(["blog", "product"]);
 export function brandSystemPrompt(
   brain: Brain,
   channel?: string,
-  personaId?: string
+  personaIds?: string | string[]
 ): string {
   const bv = brain.brandVoice;
   const pg = brain.positioningGuard;
   const sm = brain.socialMediaRules;
   const pc = brain.productContentRules;
-  const persona = personaId
-    ? (brain.personas ?? []).find((p) => p.id === personaId)
-    : undefined;
+  const ids = Array.isArray(personaIds) ? personaIds : personaIds ? [personaIds] : [];
+  const selectedPersonas = ids
+    .map((id) => (brain.personas ?? []).find((p) => p.id === id))
+    .filter((p): p is Persona => Boolean(p));
+  const persona = selectedPersonas[0];
+  const extraPersonas = selectedPersonas.slice(1);
 
   const isSocial = channel === "linkedin" || channel === "newsletter";
   const isProduct = channel === "product" || channel === "seo";
@@ -279,6 +282,21 @@ export function brandSystemPrompt(
           `What blocks them (challenges): ${persona.challenges}`,
           `Demographics: age ${persona.demographics.age}, ${persona.demographics.location}, education ${persona.demographics.education}`,
           `Story snapshot for context: ${persona.story}`,
+          ...extraPersonas.flatMap((p) => [
+            ``,
+            `# ADDITIONAL TARGET READER: "${p.code} — ${p.name}" (also a research archetype)`,
+            `Reader role: ${p.role} — ${p.description}`,
+            `Goals: ${p.goals}`,
+            `Challenges: ${p.challenges}`,
+          ]),
+          ...(extraPersonas.length
+            ? [
+                ``,
+                `# MULTI-READER RULE`,
+                `- This piece targets ${selectedPersonas.length} reader archetypes at once. Write to the SHARED ground between them — the pain points, situations and vocabulary they have in common. Where their needs diverge, lead with the FIRST archetype's perspective and make sure nothing alienates the others.`,
+                `- Pick ONE CTA that works for the first archetype and is still natural for the rest.`,
+              ]
+            : []),
           ``,
           `# PERSONA WRITING RULES (read carefully)`,
           `- "${persona.name}" is the NAME OF A FICTIONAL RESEARCH PERSONA. Do NOT greet the reader by this name. Do NOT write "Hallo ${persona.name}", "Hi ${persona.name}", "Dear ${persona.name}" or any variant. The reader is a real customer who happens to match this archetype — they have their own name we don't know.`,

@@ -19,6 +19,7 @@ type ProposeBody = {
   channel?: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo";
   filters?: GenerationFilters;
   personaId?: string;
+  personaIds?: string[];
 };
 
 type Proposal = {
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
     const systemBlocks: Anthropic.TextBlockParam[] = [
       {
         type: "text",
-        text: brandSystemPrompt(brain, channel, body.personaId),
+        text: brandSystemPrompt(brain, channel, body.personaIds?.length ? body.personaIds : body.personaId),
         cache_control: { type: "ephemeral" },
       },
     ];
