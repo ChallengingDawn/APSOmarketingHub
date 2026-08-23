@@ -248,6 +248,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           setEditMode(false);
           setShowRaw(false);
           setBriefText(data.imageBrief ?? "");
+          // Adobe-Express-style pipeline: the image paints itself, no extra click
+          if (withImage && data.imageBrief) paintDraft(data.imageBrief);
         }
       } else {
         const res = await fetch("/api/propose", {
@@ -257,10 +259,16 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
         });
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
-        else
-          setConcepts(
-            (data.proposals ?? []).map((p: Concept, i: number) => ({ ...p, expanded: i === 0 }))
-          );
+        else {
+          const list: Concept[] = (data.proposals ?? []).map((p: Concept, i: number) => ({ ...p, expanded: i === 0 }));
+          setConcepts(list);
+          setConceptFb({});
+          if (withImage) {
+            list.forEach((p, i) => {
+              if (p.imagePrompt) paintConcept(i, p.imagePrompt);
+            });
+          }
+        }
       }
     } catch {
       setError("Network error — try again");
@@ -302,14 +310,14 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
     }
   };
 
-  const createImage = async () => {
-    if (!draft || imageBusy) return;
+  const paintDraft = async (promptStr: string) => {
+    if (imageBusy || !promptStr.trim()) return;
     setImageBusy(true);
     try {
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: briefText.trim() || draft.content.slice(0, 280), filters }),
+        body: JSON.stringify({ prompt: promptStr.trim(), filters }),
       });
       const data = await res.json();
       if (data.imageUrl) setDraft((d) => (d ? { ...d, imageUrl: data.imageUrl } : d));
@@ -321,15 +329,19 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
     }
   };
 
-  const createConceptImage = async (idx: number) => {
-    const c = concepts[idx];
-    if (!c || c.imageBusy) return;
+  const createImage = () => {
+    if (!draft) return;
+    paintDraft(briefText.trim() || draft.content.slice(0, 280));
+  };
+
+  const paintConcept = async (idx: number, promptStr: string) => {
+    if (!promptStr.trim()) return;
     setConcepts((cur) => cur.map((x, i) => (i === idx ? { ...x, imageBusy: true } : x)));
     try {
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: c.imagePrompt || c.body.slice(0, 280), filters }),
+        body: JSON.stringify({ prompt: promptStr.trim(), filters }),
       });
       const data = await res.json();
       setConcepts((cur) =>
@@ -338,6 +350,12 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
     } catch {
       setConcepts((cur) => cur.map((x, i) => (i === idx ? { ...x, imageBusy: false } : x)));
     }
+  };
+
+  const createConceptImage = (idx: number) => {
+    const c = concepts[idx];
+    if (!c || c.imageBusy) return;
+    paintConcept(idx, c.imagePrompt || c.body.slice(0, 280));
   };
 
   const saveEdit = async () => {
@@ -734,8 +752,50 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       </Grid>
 
       {/* ── RESULTS — full width ── */}
-      {(draft || concepts.length > 0) && (
-        <Box sx={{ mt: 2.5 }}>
+      {busy && (
+        <Box sx={{ mt: 2.5 }} aria-hidden="true">
+          {mode === "draft" ? (
+            <Card>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+                  <Box className="shimmer" sx={{ width: 140, height: 24 }} />
+                  <Box className="shimmer" sx={{ width: 200, height: 24 }} />
+                </Box>
+                {withImage && <Box className="shimmer" sx={{ width: "100%", maxWidth: 640, aspectRatio: "16/9", mb: 2 }} />}
+                <Box className="shimmer" sx={{ width: "55%", height: 26, mb: 1.5 }} />
+                {[92, 100, 97, 88, 100, 94, 60].map((w, i) => (
+                  <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
+                ))}
+                <Box className="shimmer" sx={{ width: "40%", height: 22, mt: 2, mb: 1 }} />
+                {[95, 90, 70].map((w, i) => (
+                  <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
+                ))}
+                <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 2 }}>
+                  Opus 5 is writing{withImage ? " — the image follows automatically" : ""}…
+                </Typography>
+              </CardContent>
+            </Card>
+          ) : (
+            <Grid container spacing={2}>
+              {[0, 1, 2].map((i) => (
+                <Grid key={i} size={{ xs: 12, md: 4 }}>
+                  <Card sx={{ height: "100%" }}>
+                    <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/10", borderRadius: 0 }} />
+                    <CardContent sx={{ p: 2 }}>
+                      <Box className="shimmer" sx={{ width: "85%", height: 18, mb: 1.5 }} />
+                      {[100, 95, 98, 90, 55].map((w, j) => (
+                        <Box key={j} className="shimmer" sx={{ width: `${w}%`, height: 12, mb: 0.9 }} />
+                      ))}
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+      )}
+      {!busy && (draft || concepts.length > 0) && (
+        <Box sx={{ mt: 2.5 }} className="fade-in-result">
           {/* single draft result */}
           {draft && (
             <Card>
@@ -752,10 +812,17 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   )}
                 </Box>
 
-                {draft.imageUrl && (
+                {draft.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={draft.imageUrl} alt="" style={{ width: "100%", borderRadius: 8, marginBottom: 14 }} />
-                )}
+                  <img src={draft.imageUrl} alt="" style={{ width: "100%", maxWidth: 720, borderRadius: 10, marginBottom: 14, boxShadow: "0 2px 12px rgba(22,48,63,0.10)" }} />
+                ) : imageBusy ? (
+                  <Box sx={{ mb: 2, maxWidth: 720 }}>
+                    <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/9" }} />
+                    <Typography sx={{ fontSize: 11.5, color: "#5b6470", mt: 0.75 }}>
+                      Painting the scene from the image brief…
+                    </Typography>
+                  </Box>
+                ) : null}
 
                 {editMode ? (
                   <TextField
@@ -884,12 +951,18 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                       {c.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={c.imageUrl} alt="" style={{ width: "100%", aspectRatio: "16/10", objectFit: "cover" }} />
+                      ) : c.imageBusy ? (
+                        <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/10", borderRadius: 0, display: "flex", alignItems: "flex-end", p: 1.5 }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 600, color: "#8a93a0", position: "relative", zIndex: 1 }}>
+                            Painting…
+                          </Typography>
+                        </Box>
                       ) : (
-                        <Box sx={{ width: "100%", aspectRatio: "16/10", bgcolor: "#f0f2f4", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 1 }}>
-                          <ImageIcon sx={{ fontSize: 30, color: "#c7ccd2" }} />
+                        <Box sx={{ width: "100%", aspectRatio: "16/10", background: "linear-gradient(135deg, #eef1f4 0%, #e3e8ee 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 1 }}>
+                          <ImageIcon sx={{ fontSize: 28, color: "#b7bfc9" }} />
                           {c.imagePrompt && (
-                            <Button size="small" startIcon={c.imageBusy ? <CircularProgress size={12} /> : <ImageIcon sx={{ fontSize: 14 }} />} disabled={c.imageBusy} onClick={() => createConceptImage(i)} sx={{ fontWeight: 700, color: NAVY }}>
-                              {c.imageBusy ? "Painting…" : "Create image"}
+                            <Button size="small" startIcon={<ImageIcon sx={{ fontSize: 14 }} />} onClick={() => createConceptImage(i)} sx={{ fontWeight: 700, color: NAVY }}>
+                              Create image
                             </Button>
                           )}
                         </Box>

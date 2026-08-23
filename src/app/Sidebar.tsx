@@ -21,10 +21,8 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
-import GroupsIcon from "@mui/icons-material/Groups";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
-import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
@@ -58,8 +56,6 @@ const navSections: NavSection[] = [
       { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
-      { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" /> },
-      { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" /> },
       { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
