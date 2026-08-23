@@ -60,8 +60,9 @@ const navSections: NavSection[] = [
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [
-      { label: "Content Generation", href: "/content-generation", icon: <PublicIcon fontSize="small" />, badge: "AI" },
+      { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
+      { label: "Proposals Board", href: "/content-generation", icon: <PublicIcon fontSize="small" /> },
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Personas", href: "/personas", icon: <GroupsIcon fontSize="small" /> },
       { label: "Image Studio", href: "/photos", icon: <PhotoCameraIcon fontSize="small" /> },
