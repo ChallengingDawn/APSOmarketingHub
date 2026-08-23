@@ -125,7 +125,7 @@ export default function MissionControl() {
           const bars = [40, 65, 50, 80, 55, 90, 70];
 
           return (
-            <Grid key={kpi.key} size={{ xs: 6, sm: 4, md: 3, lg: 1.5 }}>
+            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
               <Card
                 component={Link}
                 href={kpi.href}
