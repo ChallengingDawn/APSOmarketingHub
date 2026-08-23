@@ -13,6 +13,7 @@ const PHASE_1_PATHS = [
   "/settings",
   "/admin",
   "/logs",
+  "/library",
 ];
 
 function isPhase1(pathname: string) {

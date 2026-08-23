@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
@@ -28,11 +28,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import Link from "next/link";
 import PageHeader from "./PageHeader";
 
-import {
-  kpiData,
-  contentPipelineData,
-  activityFeed,
-} from "@/lib/mockData";
+import { kpiData, activityFeed } from "@/lib/mockData";
 
 /* ── helpers ── */
 
@@ -78,23 +74,80 @@ const kpiCards: KpiCardConfig[] = [
   { label: "Avg. SERP Position", key: "avgPosition", icon: <BarChartIcon />, color: "#fbbc04", bgColor: "#fef7e0", href: "/seo" },
   { label: "Click-Through Rate", key: "clickThroughRate", icon: <AdsClickIcon />, color: "#4285f4", bgColor: "#e8f0fe", href: "/analytics" },
   { label: "Planned Items", key: "pipelineItems", icon: <PendingActionsIcon />, color: "#9334e6", bgColor: "#f3e8fd", href: "/calendar" },
-  { label: "Drafts Pending", key: "draftsPending", icon: <PendingActionsIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/studio" },
+  { label: "Drafts Pending", key: "draftsPending", icon: <PendingActionsIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/library" },
   { label: "Knowledge Docs", key: "knowledgeDocs", icon: <ArticleIcon />, color: "#274e64", bgColor: "#e8f0f4", href: "/knowledge-base" },
 ];
 
 /* ── page ── */
 
+type LibItem = {
+  id: number;
+  channel: string;
+  title: string | null;
+  body: string;
+  status: string;
+  createdAt: string;
+};
+
+const CH_COLORS: Record<string, string> = {
+  linkedin: "#0077b5",
+  newsletter: "#274e64",
+  blog: "#ed1b2f",
+  ad: "#9334e6",
+  product: "#34a853",
+  seo: "#fbbc04",
+};
+
+function timeAgo(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 export default function MissionControl() {
+  // Live library data — the real pipeline. Falls back to empty on error.
+  const [items, setItems] = useState<LibItem[]>([]);
+  useEffect(() => {
+    fetch("/api/content?limit=100")
+      .then((r) => r.json())
+      .then((d) => setItems(Array.isArray(d.items) ? d.items : []))
+      .catch(() => {});
+  }, []);
+
+  const drafts = useMemo(() => items.filter((i) => i.status === "draft"), [items]);
+  const livePipeline = useMemo(
+    () => [
+      { status: "Draft", count: drafts.length, color: "#f59e0b" },
+      { status: "Approved", count: items.filter((i) => i.status === "approved").length, color: "#10b981" },
+      { status: "Published", count: items.filter((i) => i.status === "published").length, color: "#3b82f6" },
+    ],
+    [items, drafts]
+  );
+  const kpi = useMemo(
+    () => ({
+      ...kpiData,
+      contentPieces: {
+        value: items.filter((i) => i.status !== "archived").length,
+        change: 0,
+        period: "items in library",
+      },
+      draftsPending: { value: drafts.length, change: 0, period: "awaiting approval" },
+    }),
+    [items, drafts]
+  );
+
   const pipelineTotal = useMemo(
-    () => contentPipelineData.reduce((sum, d) => sum + d.count, 0),
-    []
+    () => livePipeline.reduce((sum, d) => sum + d.count, 0),
+    [livePipeline]
   );
 
   return (
     <Box>
       <PageHeader
         title="Mission Control"
-        subtitle="Overview of your digital growth pipeline — illustrative sample data until the GA4 / Search Console integrations land"
+        subtitle="Live pipeline from your content library — traffic and ranking metrics arrive with the GA4 / Search Console integrations"
         rightSlot={
           <Box
             sx={{
@@ -118,17 +171,17 @@ export default function MissionControl() {
 
       {/* ── KPI Grid (redesigned: horizontal, with sparkbar) ── */}
       <Grid container spacing={2} className="stagger-children" sx={{ mb: 3 }}>
-        {kpiCards.map((kpi) => {
-          const data = kpiData[kpi.key];
+        {kpiCards.map((kpiCard) => {
+          const data = kpi[kpiCard.key];
           const hasData = data.value !== null;
           // Mock sparkline bars per card (visual interest only)
           const bars = [40, 65, 50, 80, 55, 90, 70];
 
           return (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+            <Grid key={kpiCard.key} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
               <Card
                 component={Link}
-                href={kpi.href}
+                href={kpiCard.href}
                 className="hover-lift"
                 sx={{
                   height: "100%",
@@ -140,7 +193,7 @@ export default function MissionControl() {
                   textDecoration: "none",
                   display: "block",
                   overflow: "hidden",
-                  borderTop: `3px solid ${kpi.color}`,
+                  borderTop: `3px solid ${kpiCard.color}`,
                 }}
               >
                 <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
@@ -150,8 +203,8 @@ export default function MissionControl() {
                         width: 32,
                         height: 32,
                         borderRadius: 2,
-                        bgcolor: kpi.bgColor,
-                        color: kpi.color,
+                        bgcolor: kpiCard.bgColor,
+                        color: kpiCard.color,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -159,7 +212,7 @@ export default function MissionControl() {
                         "& .MuiSvgIcon-root": { fontSize: 18 },
                       }}
                     >
-                      {kpi.icon}
+                      {kpiCard.icon}
                     </Box>
                     <Typography
                       sx={{
@@ -171,7 +224,7 @@ export default function MissionControl() {
                         lineHeight: 1.2,
                       }}
                     >
-                      {kpi.label}
+                      {kpiCard.label}
                     </Typography>
                   </Box>
 
@@ -222,7 +275,7 @@ export default function MissionControl() {
                         sx={{
                           flex: 1,
                           height: `${hasData ? h : 20}%`,
-                          bgcolor: hasData ? kpi.color : "#ececec",
+                          bgcolor: hasData ? kpiCard.color : "#ececec",
                           opacity: hasData ? 0.35 + (i / bars.length) * 0.65 : 0.5,
                           borderRadius: 0.5,
                         }}
@@ -252,30 +305,28 @@ export default function MissionControl() {
                     Approval Queue
                   </Typography>
                 </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                  <Chip
-                    label="SAMPLE"
-                    size="small"
-                    sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
-                  />
-                  <Chip
-                    label="9 pending"
-                    size="small"
-                    sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
-                  />
-                </Box>
+                <Chip
+                  label={`${drafts.length} pending`}
+                  size="small"
+                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
+                />
               </Box>
               <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
                 Drafts waiting for human review
               </Typography>
 
+              {drafts.length === 0 && (
+                <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", textAlign: "center", py: 3 }}>
+                  No drafts pending — generate content and it lands here.
+                </Typography>
+              )}
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {[
-                  { ch: "LinkedIn", chColor: "#0077b5", title: "FKM vs FFKM: choosing your o-ring for chemical resistance", time: "8 min ago" },
-                  { ch: "Newsletter", chColor: "#274e64", title: "Q2 2026 — New FFKM range, expanded PEEK catalog", time: "1h ago" },
-                  { ch: "Blog", chColor: "#ed1b2f", title: "O-Ring Material Selection Guide: FKM, FFKM & Silicone", time: "3h ago" },
-                  { ch: "LinkedIn", chColor: "#0077b5", title: "PEEK in aerospace: the high-performance plastic explained", time: "22 min ago" },
-                ].map((item, i) => (
+                {drafts.slice(0, 4).map((d) => ({
+                  ch: d.channel,
+                  chColor: CH_COLORS[d.channel] ?? "#5b6470",
+                  title: d.title || d.body.slice(0, 90),
+                  time: timeAgo(d.createdAt),
+                })).map((item, i) => (
                   <Box
                     key={i}
                     sx={{
@@ -306,7 +357,7 @@ export default function MissionControl() {
                     </Box>
                     <Button
                       component={Link}
-                      href="/studio"
+                      href="/library"
                       size="small"
                       sx={{
                         minWidth: 0,
@@ -330,11 +381,11 @@ export default function MissionControl() {
               <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid #f1f3f4", textAlign: "center" }}>
                 <Button
                   component={Link}
-                  href="/studio"
+                  href="/library"
                   endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />}
                   sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64", textTransform: "none", "&:hover": { bgcolor: "transparent", color: "#1a3a4c" } }}
                 >
-                  View all 9 drafts in Content Studio
+                  Open the Content Library
                 </Button>
               </Box>
             </CardContent>
@@ -487,7 +538,7 @@ export default function MissionControl() {
 
               {/* Pipeline stages */}
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1.75 }}>
-                {contentPipelineData.map((stage, idx) => (
+                {livePipeline.map((stage, idx) => (
                   <Box
                     key={stage.status}
                     sx={{
@@ -533,7 +584,7 @@ export default function MissionControl() {
               {/* Bottom summary bar */}
               <Box sx={{ mt: 3, pt: 2.5, borderTop: "1px solid #f1f3f4" }}>
                 <Box sx={{ display: "flex", height: 6, borderRadius: 4, overflow: "hidden", bgcolor: "#f1f3f4" }}>
-                  {contentPipelineData.map((item) => (
+                  {livePipeline.map((item) => (
                     <Box
                       key={item.status}
                       sx={{

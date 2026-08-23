@@ -11,6 +11,40 @@ import {
 } from "@/lib/filters";
 import { getAnthropic, CLAUDE_MODEL, channelBudget, claudeText } from "@/lib/ai/claude";
 import { validateChannelOutput } from "@/lib/ai/validate";
+import { saveContent } from "@/lib/content";
+import { getOptionalUser } from "@/lib/auth/guard";
+
+/** Derive a library title from generated content: H1, Subject line, or first line. */
+function deriveTitle(text: string): string {
+  const h1 = text.match(/^# (.+)$/m)?.[1];
+  const subject = text.match(/^subject:\s*(.+)$/im)?.[1];
+  const firstLine = text.split("\n").find((l) => l.trim().length > 0) ?? "";
+  return (h1 ?? subject ?? firstLine).slice(0, 160);
+}
+
+/** Best-effort draft save — generation must never fail because the library write did. */
+async function saveDraft(params: {
+  channel: string;
+  body: string;
+  imageUrl?: string;
+  filters: GenerationFilters;
+}): Promise<number | undefined> {
+  try {
+    const user = await getOptionalUser();
+    const item = await saveContent({
+      channel: params.channel,
+      title: deriveTitle(params.body),
+      body: params.body,
+      imageUrl: params.imageUrl ?? null,
+      filters: params.filters as Record<string, unknown>,
+      createdBy: user?.username ?? null,
+    });
+    return item.id;
+  } catch (err) {
+    console.error("[generate] draft save failed", err);
+    return undefined;
+  }
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -159,10 +193,17 @@ export async function POST(req: NextRequest) {
       });
       const rawContent = result.text ?? "";
       const { content, imagePayload } = await maybeGenerateImage(rawContent, withImage);
+      const draftId = await saveDraft({
+        channel,
+        body: content,
+        imageUrl: imagePayload.imageUrl,
+        filters,
+      });
       return NextResponse.json({
         content,
         model: "gemini-2.5-flash",
         provider: "gemini",
+        draftId,
         ...imagePayload,
       });
     }
@@ -217,12 +258,19 @@ export async function POST(req: NextRequest) {
     }
 
     const { content, imagePayload } = await maybeGenerateImage(finalText, withImage);
+    const draftId = await saveDraft({
+      channel,
+      body: content,
+      imageUrl: imagePayload.imageUrl,
+      filters,
+    });
 
     return NextResponse.json({
       content,
       model: CLAUDE_MODEL,
       provider: "claude",
       usage,
+      draftId,
       quality: {
         violationsFound: violations,
         revised,

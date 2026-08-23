@@ -8,6 +8,8 @@ import {
   type GenerationFilters,
 } from "@/lib/filters";
 import { getAnthropic, channelBudget, claudeText } from "@/lib/ai/claude";
+import { saveContent } from "@/lib/content";
+import { getOptionalUser } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -185,6 +187,24 @@ export async function POST(req: NextRequest) {
       proposals,
       generatedAt: new Date().toISOString(),
     });
+
+    // Every proposal also lands in the library as a draft (best-effort).
+    try {
+      const user = await getOptionalUser();
+      await Promise.all(
+        proposals.map((p) =>
+          saveContent({
+            channel,
+            title: p.headline.slice(0, 160) || null,
+            body: p.body,
+            filters: filters as Record<string, unknown>,
+            createdBy: user?.username ?? null,
+          })
+        )
+      );
+    } catch (err) {
+      console.error("[propose] draft save failed", err);
+    }
 
     return NextResponse.json({ proposals, ...(errors.length ? { partialErrors: errors } : {}) });
   } catch (err) {
