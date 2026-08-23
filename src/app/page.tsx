@@ -1,84 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
-import Avatar from "@mui/material/Avatar";
-import Divider from "@mui/material/Divider";
 import Button from "@mui/material/Button";
-import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import CircularProgress from "@mui/material/CircularProgress";
+import Tooltip from "@mui/material/Tooltip";
 import ArticleIcon from "@mui/icons-material/Article";
-import SearchIcon from "@mui/icons-material/Search";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import InfoIcon from "@mui/icons-material/Info";
-import SettingsIcon from "@mui/icons-material/Settings";
-import LinkIcon from "@mui/icons-material/Link";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import TrackChangesIcon from "@mui/icons-material/TrackChanges";
-import BarChartIcon from "@mui/icons-material/BarChart";
-import AdsClickIcon from "@mui/icons-material/AdsClick";
-import AssignmentIcon from "@mui/icons-material/Assignment";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import PublishIcon from "@mui/icons-material/Publish";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import InsightsIcon from "@mui/icons-material/Insights";
+import CableIcon from "@mui/icons-material/Cable";
 import Link from "next/link";
-import PageHeader from "./PageHeader";
 
-import { kpiData, activityFeed } from "@/lib/mockData";
-
-/* ── helpers ── */
-
-const today = new Date().toLocaleDateString("en-US", {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
-
-const statusColorMap: Record<string, string> = {
-  positive: "#34a853",
-  approved: "#34a853",
-  published: "#274e64",
-  pending_review: "#fbbc04",
-  action_needed: "#ed1b2f",
-  rejected: "#ea4335",
-  info: "#4285f4",
-};
-
-const typeIconMap: Record<string, React.ReactNode> = {
-  content: <ArticleIcon fontSize="small" />,
-  seo: <SearchIcon fontSize="small" />,
-  approval: <CheckCircleIcon fontSize="small" />,
-  system: <SettingsIcon fontSize="small" />,
-};
-
-/* ── KPI configs ── */
-
-interface KpiCardConfig {
-  label: string;
-  key: keyof typeof kpiData;
-  icon: React.ReactNode;
-  color: string;
-  bgColor: string;
-  href: string;
-}
-
-const kpiCards: KpiCardConfig[] = [
-  { label: "Organic Traffic", key: "organicTraffic", icon: <TrendingUpIcon />, color: "#274e64", bgColor: "#e8f0f4", href: "/analytics" },
-  { label: "Keywords Tracked", key: "keywordRankings", icon: <TrackChangesIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/seo" },
-  { label: "Content in Pipeline", key: "contentPieces", icon: <AssignmentIcon />, color: "#34a853", bgColor: "#e6f4ea", href: "/calendar" },
-  { label: "Avg. SERP Position", key: "avgPosition", icon: <BarChartIcon />, color: "#fbbc04", bgColor: "#fef7e0", href: "/seo" },
-  { label: "Click-Through Rate", key: "clickThroughRate", icon: <AdsClickIcon />, color: "#4285f4", bgColor: "#e8f0fe", href: "/analytics" },
-  { label: "Planned Items", key: "pipelineItems", icon: <PendingActionsIcon />, color: "#9334e6", bgColor: "#f3e8fd", href: "/calendar" },
-  { label: "Drafts Pending", key: "draftsPending", icon: <PendingActionsIcon />, color: "#ed1b2f", bgColor: "#fdebed", href: "/library" },
-  { label: "Knowledge Docs", key: "knowledgeDocs", icon: <ArticleIcon />, color: "#274e64", bgColor: "#e8f0f4", href: "/knowledge-base" },
-];
-
-/* ── page ── */
+/* ── types ── */
 
 type LibItem = {
   id: number;
@@ -87,7 +37,10 @@ type LibItem = {
   body: string;
   status: string;
   createdAt: string;
+  updatedAt: string;
 };
+
+type Trend = { term: string; signal: string };
 
 const CH_COLORS: Record<string, string> = {
   linkedin: "#0077b5",
@@ -98,293 +51,318 @@ const CH_COLORS: Record<string, string> = {
   seo: "#fbbc04",
 };
 
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  draft: { bg: "#fff4e0", fg: "#c77700" },
+  approved: { bg: "#e5f3ea", fg: "#1e7e45" },
+  published: { bg: "#e3edf7", fg: "#2563a8" },
+  archived: { bg: "#f0f1f3", fg: "#5b6470" },
+};
+
+const QG_CHANNELS = ["linkedin", "blog", "newsletter", "ad", "seo", "product"];
+
 function timeAgo(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins} min ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/* ── page ── */
+
 export default function MissionControl() {
-  // Live library data — the real pipeline. Falls back to empty on error.
   const [items, setItems] = useState<LibItem[]>([]);
-  useEffect(() => {
+  const [trends, setTrends] = useState<Trend[]>([]);
+  const [contentGap, setContentGap] = useState<string>("");
+  const [greeting, setGreeting] = useState("Welcome back");
+  const [today, setToday] = useState("");
+
+  const loadItems = useCallback(() => {
     fetch("/api/content?limit=100")
       .then((r) => r.json())
       .then((d) => setItems(Array.isArray(d.items) ? d.items : []))
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    loadItems();
+    fetch("/api/personality")
+      .then((r) => r.json())
+      .then((brain) => {
+        setTrends(brain?.keywordSignals?.internalSearchTrends?.slice(0, 4) ?? []);
+        setContentGap(brain?.categoryIntelligence?.contentGap ?? "");
+      })
+      .catch(() => {});
+    const h = new Date().getHours();
+    setGreeting(h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening");
+    setToday(
+      new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    );
+  }, [loadItems]);
+
   const drafts = useMemo(() => items.filter((i) => i.status === "draft"), [items]);
-  const livePipeline = useMemo(
-    () => [
-      { status: "Draft", count: drafts.length, color: "#f59e0b" },
-      { status: "Approved", count: items.filter((i) => i.status === "approved").length, color: "#10b981" },
-      { status: "Published", count: items.filter((i) => i.status === "published").length, color: "#3b82f6" },
-    ],
-    [items, drafts]
-  );
-  const kpi = useMemo(
+  const counts = useMemo(
     () => ({
-      ...kpiData,
-      contentPieces: {
-        value: items.filter((i) => i.status !== "archived").length,
-        change: 0,
-        period: "items in library",
-      },
-      draftsPending: { value: drafts.length, change: 0, period: "awaiting approval" },
+      total: items.filter((i) => i.status !== "archived").length,
+      drafts: drafts.length,
+      approved: items.filter((i) => i.status === "approved").length,
+      published: items.filter((i) => i.status === "published").length,
     }),
     [items, drafts]
   );
-
-  const pipelineTotal = useMemo(
-    () => livePipeline.reduce((sum, d) => sum + d.count, 0),
-    [livePipeline]
+  const pipeline = useMemo(
+    () => [
+      { status: "Draft", count: counts.drafts, color: "#f59e0b" },
+      { status: "Approved", count: counts.approved, color: "#10b981" },
+      { status: "Published", count: counts.published, color: "#3b82f6" },
+    ],
+    [counts]
   );
+  const pipelineTotal = pipeline.reduce((s, p) => s + p.count, 0);
+
+  /* Quick Generate — generation on main */
+  const [qgChannel, setQgChannel] = useState("linkedin");
+  const [qgTopic, setQgTopic] = useState("");
+  const [qgBusy, setQgBusy] = useState(false);
+  const [qgResult, setQgResult] = useState<{ content?: string; error?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const quickGenerate = async () => {
+    if (!qgTopic.trim() || qgBusy) return;
+    setQgBusy(true);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: qgChannel, prompt: qgTopic.trim(), wantBrief: false }),
+      });
+      const data = await res.json();
+      setQgResult(res.ok ? { content: data.content } : { error: data.error ?? "Generation failed" });
+      loadItems();
+    } catch {
+      setQgResult({ error: "Network error — try again" });
+    } finally {
+      setQgBusy(false);
+    }
+  };
+
+  const generateFromSignal = (term: string) => {
+    setQgChannel("blog");
+    setQgTopic(
+      `In-depth technical guide targeting the search term "${term}" — what buyers searching this need to know`
+    );
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const copyResult = async () => {
+    if (qgResult?.content) {
+      await navigator.clipboard.writeText(qgResult.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  const kpis = [
+    { label: "In Library", value: counts.total, period: "active items", icon: <ArticleIcon />, color: "#274e64", bg: "#e8f0f4", href: "/library" },
+    { label: "Drafts Pending", value: counts.drafts, period: "awaiting review", icon: <PendingActionsIcon />, color: "#ed1b2f", bg: "#fdebed", href: "/library" },
+    { label: "Approved", value: counts.approved, period: "ready to publish", icon: <CheckCircleIcon />, color: "#1e7e45", bg: "#e5f3ea", href: "/library" },
+    { label: "Published", value: counts.published, period: "live content", icon: <PublishIcon />, color: "#2563a8", bg: "#e3edf7", href: "/library" },
+  ];
 
   return (
     <Box>
-      <PageHeader
-        title="Mission Control"
-        subtitle="Live pipeline from your content library — traffic and ranking metrics arrive with the GA4 / Search Console integrations"
-        rightSlot={
+      {/* ── Hero: greeting + Quick Generate ── */}
+      <Card
+        sx={{
+          mb: 2.5,
+          background: "linear-gradient(120deg, #16303f 0%, #274e64 55%, #35657f 100%)",
+          color: "#fff",
+          border: "none",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <Box
+          sx={{
+            position: "absolute",
+            right: -60,
+            top: -60,
+            width: 260,
+            height: 260,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(237,27,47,0.35) 0%, rgba(237,27,47,0) 70%)",
+          }}
+        />
+        <CardContent sx={{ p: { xs: 2.5, md: 3.5 }, position: "relative" }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1 }}>
+            <Box>
+              <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: { xs: 24, md: 30 }, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15 }}>
+                {greeting}.
+              </Typography>
+              <Typography sx={{ fontSize: 14, color: "rgba(255,255,255,0.75)", mt: 0.5 }} suppressHydrationWarning>
+                {today} · {counts.drafts > 0 ? `${counts.drafts} draft${counts.drafts === 1 ? "" : "s"} waiting for your review` : "pipeline is clear"}
+              </Typography>
+            </Box>
+            <Chip
+              icon={<AutoAwesomeIcon sx={{ color: "#fff !important", fontSize: 16 }} />}
+              label="Claude Opus 5 engine"
+              sx={{ bgcolor: "rgba(255,255,255,0.12)", color: "#fff", fontWeight: 600, fontSize: 12 }}
+            />
+          </Box>
+
+          {/* Quick Generate bar */}
           <Box
             sx={{
+              mt: 3,
               display: "flex",
+              gap: 1.25,
               alignItems: "center",
-              gap: 1.5,
-              px: 2.5,
-              py: 1.25,
-              borderRadius: 999,
-              bgcolor: "#fff",
-              border: "1px solid #ececec",
+              flexWrap: { xs: "wrap", md: "nowrap" },
+              bgcolor: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 2,
+              p: 1.25,
+              backdropFilter: "blur(6px)",
             }}
           >
-            <CalendarTodayIcon sx={{ fontSize: 16, color: "#5f6368" }} />
-            <Typography sx={{ fontSize: 13, fontWeight: 500, color: "#3c4043" }}>
-              {today}
-            </Typography>
+            <TextField
+              select
+              size="small"
+              value={qgChannel}
+              onChange={(e) => setQgChannel(e.target.value)}
+              sx={{
+                minWidth: 140,
+                "& .MuiOutlinedInput-root": { bgcolor: "#fff", borderRadius: 1.5 },
+              }}
+            >
+              {QG_CHANNELS.map((c) => (
+                <MenuItem key={c} value={c}>
+                  {c}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder='What should we create? e.g. "FFKM o-rings for chemical processing — when FKM is not enough"'
+              value={qgTopic}
+              onChange={(e) => setQgTopic(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") quickGenerate();
+              }}
+              sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", borderRadius: 1.5 } }}
+            />
+            <Button
+              onClick={quickGenerate}
+              disabled={qgBusy || !qgTopic.trim()}
+              variant="contained"
+              startIcon={qgBusy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
+              sx={{
+                bgcolor: "#ed1b2f",
+                whiteSpace: "nowrap",
+                px: 3,
+                "&:hover": { bgcolor: "#d81528" },
+                "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.6)" },
+              }}
+            >
+              {qgBusy ? "Writing…" : "Generate"}
+            </Button>
           </Box>
-        }
-      />
+          <Typography sx={{ fontSize: 11.5, color: "rgba(255,255,255,0.55)", mt: 1, ml: 0.5 }}>
+            Full control — personas, keywords, images — in{" "}
+            <Link href="/content-generation" style={{ color: "#fff", fontWeight: 600 }}>
+              Content Generation
+            </Link>
+            . Every result is saved to the Library as a draft.
+          </Typography>
+        </CardContent>
+      </Card>
 
-      {/* ── KPI Grid (redesigned: horizontal, with sparkbar) ── */}
-      <Grid container spacing={2} className="stagger-children" sx={{ mb: 3 }}>
-        {kpiCards.map((kpiCard) => {
-          const data = kpi[kpiCard.key];
-          const hasData = data.value !== null;
-          // Mock sparkline bars per card (visual interest only)
-          const bars = [40, 65, 50, 80, 55, 90, 70];
-
-          return (
-            <Grid key={kpiCard.key} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-              <Card
-                component={Link}
-                href={kpiCard.href}
-                className="hover-lift"
-                sx={{
-                  height: "100%",
-                  border: "1px solid #ececec",
-                  borderRadius: 4,
-                  position: "relative",
-                  cursor: "pointer",
-                  bgcolor: "#ffffff",
-                  textDecoration: "none",
-                  display: "block",
-                  overflow: "hidden",
-                  borderTop: `3px solid ${kpiCard.color}`,
-                }}
-              >
-                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1.25 }}>
-                    <Box
-                      sx={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 2,
-                        bgcolor: kpiCard.bgColor,
-                        color: kpiCard.color,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                        "& .MuiSvgIcon-root": { fontSize: 18 },
-                      }}
-                    >
-                      {kpiCard.icon}
-                    </Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.62rem",
-                        color: "#5f6368",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {kpiCard.label}
-                    </Typography>
-                  </Box>
-
-                  {hasData ? (
-                    <Typography
-                      sx={{
-                        fontSize: "1.85rem",
-                        fontWeight: 700,
-                        color: "#1f1f1f",
-                        lineHeight: 1,
-                        letterSpacing: "-0.02em",
-                        mb: 0.75,
-                      }}
-                    >
-                      {data.value}
-                    </Typography>
-                  ) : (
-                    <Typography
-                      sx={{
-                        fontSize: "1.85rem",
-                        fontWeight: 400,
-                        color: "#dadce0",
-                        lineHeight: 1,
-                        mb: 0.75,
-                      }}
-                    >
-                      —
-                    </Typography>
-                  )}
-
-                  <Typography
-                    sx={{
-                      fontSize: "0.65rem",
-                      color: "#5f6368",
-                      lineHeight: 1.3,
-                      fontWeight: 500,
-                      mb: 1,
-                    }}
-                  >
-                    {data.period}
-                  </Typography>
-
-                  {/* Mini sparkbar (decorative) */}
-                  <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.4, height: 18 }}>
-                    {bars.map((h, i) => (
-                      <Box
-                        key={i}
-                        sx={{
-                          flex: 1,
-                          height: `${hasData ? h : 20}%`,
-                          bgcolor: hasData ? kpiCard.color : "#ececec",
-                          opacity: hasData ? 0.35 + (i / bars.length) * 0.65 : 0.5,
-                          borderRadius: 0.5,
-                        }}
-                      />
-                    ))}
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          );
-        })}
-      </Grid>
-
-      {/* ── New row: Approval Queue + This Week's Schedule ── */}
-      <Grid container spacing={2.5} sx={{ mb: 3 }}>
-        {/* Approval Queue */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card
-            className="animate-fade-in-up hover-lift"
-            sx={{ height: "100%", border: "1px solid #ececec", borderRadius: 4 }}
-          >
-            <CardContent sx={{ p: 3 }}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+      {/* ── KPI row (all live) ── */}
+      <Grid container spacing={2} sx={{ mb: 2.5 }}>
+        {kpis.map((k) => (
+          <Grid key={k.label} size={{ xs: 6, lg: 3 }}>
+            <Card
+              component={Link}
+              href={k.href}
+              className="hover-lift"
+              sx={{ display: "block", textDecoration: "none", borderTop: `3px solid ${k.color}`, height: "100%" }}
+            >
+              <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#fbbc04" }} />
-                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
-                    Approval Queue
+                  <Box sx={{ width: 34, height: 34, borderRadius: 1.5, bgcolor: k.bg, color: k.color, display: "flex", alignItems: "center", justifyContent: "center", "& svg": { fontSize: 19 } }}>
+                    {k.icon}
+                  </Box>
+                  <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    {k.label}
                   </Typography>
                 </Box>
-                <Chip
-                  label={`${drafts.length} pending`}
-                  size="small"
-                  sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000", border: "none" }}
-                />
-              </Box>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
-                Drafts waiting for human review
-              </Typography>
-
-              {drafts.length === 0 && (
-                <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", textAlign: "center", py: 3 }}>
-                  No drafts pending — generate content and it lands here.
+                <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: 30, fontWeight: 700, color: "#1a1d21", mt: 1, lineHeight: 1 }}>
+                  {k.value}
                 </Typography>
-              )}
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {drafts.slice(0, 4).map((d) => ({
-                  ch: d.channel,
-                  chColor: CH_COLORS[d.channel] ?? "#5b6470",
-                  title: d.title || d.body.slice(0, 90),
-                  time: timeAgo(d.createdAt),
-                })).map((item, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1.25,
-                      p: 1.25,
-                      borderRadius: 2,
-                      border: "1px solid #f1f3f4",
-                      transition: "all 0.2s",
-                      "&:hover": { bgcolor: "#fafbfc", borderColor: "#ececec" },
-                    }}
-                  >
-                    <Box sx={{ width: 3, height: 28, borderRadius: 2, bgcolor: item.chColor, flexShrink: 0 }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {item.title}
-                      </Typography>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25 }}>
-                        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: item.chColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                          {item.ch}
+                <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 0.5 }}>{k.period}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* ── Integrations strip ── */}
+      <Card sx={{ mb: 2.5, bgcolor: "#fbfbfc" }}>
+        <CardContent sx={{ py: 1.5, px: 2.5, "&:last-child": { pb: 1.5 }, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+          <CableIcon sx={{ fontSize: 18, color: "#5b6470" }} />
+          <Typography sx={{ fontSize: 13, color: "#3c4043", flex: 1, minWidth: 240 }}>
+            <strong>Traffic & ranking metrics are one connection away</strong> — GA4, Search Console and HubSpot integrations are prepared and waiting for credentials.
+          </Typography>
+          {["GA4", "Search Console", "HubSpot"].map((n) => (
+            <Chip key={n} label={n} size="small" sx={{ fontWeight: 600, bgcolor: "#f0f1f3", color: "#5b6470" }} />
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* ── Approval queue + Demand signals ── */}
+      <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#fbbc04" }} />
+                  <Typography sx={{ fontSize: 16, fontWeight: 700, color: "#1a1d21" }}>Approval Queue</Typography>
+                </Box>
+                <Chip label={`${counts.drafts} pending`} size="small" sx={{ fontWeight: 700, bgcolor: "#fef7e0", color: "#b06000" }} />
+              </Box>
+              {drafts.length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 4 }}>
+                  Queue is clear — generate something above.
+                </Typography>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {drafts.slice(0, 5).map((d) => (
+                    <Box
+                      key={d.id}
+                      sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: 1.5, border: "1px solid #f1f3f4", "&:hover": { bgcolor: "#fafbfc" } }}
+                    >
+                      <Box sx={{ width: 3, height: 30, borderRadius: 2, bgcolor: CH_COLORS[d.channel] ?? "#5b6470", flexShrink: 0 }} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>
+                          {d.title || d.body.slice(0, 90)}
                         </Typography>
-                        <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: "#dadce0" }} />
-                        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
-                          {item.time}
+                        <Typography sx={{ fontSize: 11, color: "#5b6470" }}>
+                          <Box component="span" sx={{ color: CH_COLORS[d.channel], fontWeight: 700, textTransform: "uppercase" }}>{d.channel}</Box>
+                          {" · "}{timeAgo(d.createdAt)}
                         </Typography>
                       </Box>
+                      <Button component={Link} href="/library" size="small" variant="contained" sx={{ bgcolor: "#1e7e45", fontSize: 11.5, px: 1.5, py: 0.4, "&:hover": { bgcolor: "#17643a" } }}>
+                        Review
+                      </Button>
                     </Box>
-                    <Button
-                      component={Link}
-                      href="/library"
-                      size="small"
-                      sx={{
-                        minWidth: 0,
-                        px: 1.25,
-                        py: 0.4,
-                        borderRadius: 1.5,
-                        fontSize: "0.65rem",
-                        fontWeight: 700,
-                        bgcolor: "#34a853",
-                        color: "#fff",
-                        textTransform: "none",
-                        "&:hover": { bgcolor: "#1e8e3e" },
-                      }}
-                    >
-                      Review
-                    </Button>
-                  </Box>
-                ))}
-              </Box>
-
-              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid #f1f3f4", textAlign: "center" }}>
-                <Button
-                  component={Link}
-                  href="/library"
-                  endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />}
-                  sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64", textTransform: "none", "&:hover": { bgcolor: "transparent", color: "#1a3a4c" } }}
-                >
+                  ))}
+                </Box>
+              )}
+              <Box sx={{ mt: 1.5, textAlign: "center" }}>
+                <Button component={Link} href="/library" endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />} sx={{ fontSize: 12.5, fontWeight: 600, color: "#274e64" }}>
                   Open the Content Library
                 </Button>
               </Box>
@@ -392,339 +370,152 @@ export default function MissionControl() {
           </Card>
         </Grid>
 
-        {/* This Week's Schedule */}
         <Grid size={{ xs: 12, md: 6 }}>
-          <Card
-            className="animate-fade-in-up hover-lift"
-            sx={{
-              height: "100%",
-              border: "1px solid #ececec",
-              borderRadius: 4,
-              "& a": { color: "inherit", textDecoration: "none" },
-            }}
-          >
-            <CardContent sx={{ p: 3 }}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#4285f4" }} />
-                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
-                    This Week's Schedule
-                  </Typography>
-                </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                  <Chip
-                    label="SAMPLE"
-                    size="small"
-                    sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
-                  />
-                  <Chip
-                    label="7 items"
-                    size="small"
-                    sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, bgcolor: "#e8f0fe", color: "#1a73e8", border: "none" }}
-                  />
-                </Box>
-              </Box>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
-                Upcoming content scheduled for publication
-              </Typography>
-
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {[
-                  { day: "Tue", date: "07", channel: "Blog", chColor: "#ed1b2f", title: "O-Ring Material Selection Guide", status: "Draft" },
-                  { day: "Wed", date: "08", channel: "LinkedIn", chColor: "#0077b5", title: "New PEEK Machined Components Range", status: "Approved" },
-                  { day: "Fri", date: "10", channel: "Blog", chColor: "#ed1b2f", title: "POM-C Acetal — Applications & Tolerances", status: "Idea" },
-                  { day: "Sat", date: "11", channel: "Newsletter", chColor: "#274e64", title: "O-Rings & Plastics Q2 Update", status: "In Review" },
-                ].map((item, i) => (
-                  <Box
-                    key={i}
-                    component={Link}
-                    href="/calendar"
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1.5,
-                      p: 1.25,
-                      borderRadius: 2,
-                      border: "1px solid #f1f3f4",
-                      transition: "all 0.2s",
-                      textDecoration: "none",
-                      cursor: "pointer",
-                      "&:hover": { bgcolor: "#e8f0fe", borderColor: "#4285f4" },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 1.5,
-                        bgcolor: "#f8f9fa",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                        border: "1px solid #ececec",
-                      }}
-                    >
-                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1 }}>
-                        {item.day}
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#1f1f1f", lineHeight: 1.1 }}>
-                        {item.date}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#1f1f1f", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {item.title}
-                      </Typography>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25 }}>
-                        <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: item.chColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                          {item.channel}
-                        </Typography>
-                        <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: "#dadce0" }} />
-                        <Typography sx={{ fontSize: "0.62rem", color: "#5f6368", fontWeight: 500 }}>
-                          {item.status}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-
-              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid #f1f3f4", textAlign: "center" }}>
-                <Button
-                  component={Link}
-                  href="/calendar"
-                  endIcon={<ArrowForwardIcon sx={{ fontSize: 14 }} />}
-                  sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#274e64", textTransform: "none", "&:hover": { bgcolor: "transparent", color: "#1a3a4c" } }}
-                >
-                  Open full editorial calendar
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* ── Two-column: Pipeline + Activity Feed ── */}
-      <Grid container spacing={2.5}>
-        {/* Content Pipeline */}
-        <Grid size={{ xs: 12, md: 5 }}>
-          <Card
-            className="animate-fade-in-up hover-lift"
-            sx={{
-              height: "100%",
-              border: "1px solid #ececec",
-              borderRadius: 4,
-              animationDelay: "0.1s",
-              animationFillMode: "both",
-            }}
-          >
-            <CardContent sx={{ p: 3.5 }}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ p: 2.5 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
-                <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
-                <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
-                  Content Pipeline
-                </Typography>
-                <Chip
-                  label="SAMPLE"
-                  size="small"
-                  sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.05em", bgcolor: "#fdebed", color: "#ed1b2f", border: "none" }}
-                />
+                <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#ed1b2f" }} />
+                <Typography sx={{ fontSize: 16, fontWeight: 700, color: "#1a1d21" }}>Demand Signals</Typography>
+                <Chip label="from real shop search data" size="small" sx={{ fontWeight: 600, fontSize: 10.5, bgcolor: "#e5f3ea", color: "#1e7e45" }} />
               </Box>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 3 }}>
-                {pipelineTotal} total items across all stages
+              <Typography sx={{ fontSize: 12.5, color: "#5b6470", ml: 1.75, mb: 1.5 }}>
+                What APSOparts customers are actually searching — turn a signal into content in one click.
               </Typography>
-
-              {/* Pipeline stages */}
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.75 }}>
-                {livePipeline.map((stage, idx) => (
-                  <Box
-                    key={stage.status}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                      animation: "fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-                      animationDelay: `${0.3 + idx * 0.08}s`,
-                      opacity: 0,
-                    }}
-                  >
-                    <Box sx={{ width: 70, display: "flex", alignItems: "center", gap: 1 }}>
-                      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: stage.color }} />
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 500, color: "#3c4043" }}>
-                        {stage.status}
-                      </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {trends.map((t) => (
+                  <Box key={t.term} sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: 1.5, border: "1px solid #f1f3f4" }}>
+                    <TrendingUpIcon sx={{ fontSize: 18, color: "#ed1b2f", flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#1a1d21" }}>{t.term}</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>{t.signal}</Typography>
                     </Box>
-                    <Box sx={{ flex: 1, height: 28, bgcolor: "#f8f9fa", borderRadius: 1.5, overflow: "hidden", position: "relative" }}>
-                      <Box
-                        sx={{
-                          height: "100%",
-                          width: `${(stage.count / pipelineTotal) * 100}%`,
-                          bgcolor: stage.color,
-                          borderRadius: 1.5,
-                          minWidth: stage.count > 0 ? 28 : 0,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transition: "width 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
-                          animation: "barGrow 1s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-                          animationDelay: `${0.4 + idx * 0.08}s`,
-                        }}
-                      >
-                        <Typography sx={{ color: "#fff", fontSize: "0.75rem", fontWeight: 700 }}>
-                          {stage.count}
-                        </Typography>
-                      </Box>
-                    </Box>
+                    <Tooltip title="Prefill the generator with this signal">
+                      <Button size="small" onClick={() => generateFromSignal(t.term)} startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />} sx={{ fontSize: 11.5, fontWeight: 700, color: "#ed1b2f", whiteSpace: "nowrap" }}>
+                        Generate
+                      </Button>
+                    </Tooltip>
                   </Box>
                 ))}
-              </Box>
-
-              {/* Bottom summary bar */}
-              <Box sx={{ mt: 3, pt: 2.5, borderTop: "1px solid #f1f3f4" }}>
-                <Box sx={{ display: "flex", height: 6, borderRadius: 4, overflow: "hidden", bgcolor: "#f1f3f4" }}>
-                  {livePipeline.map((item) => (
-                    <Box
-                      key={item.status}
-                      sx={{
-                        width: `${(item.count / pipelineTotal) * 100}%`,
-                        bgcolor: item.color,
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Activity Feed */}
-        <Grid size={{ xs: 12, md: 7 }}>
-          <Card
-            className="animate-fade-in-up hover-lift"
-            sx={{
-              height: "100%",
-              border: "1px solid #ececec",
-              borderRadius: 4,
-              display: "flex",
-              flexDirection: "column",
-              animationDelay: "0.2s",
-              animationFillMode: "both",
-            }}
-          >
-            <CardContent sx={{ p: 3.5, flex: 1, display: "flex", flexDirection: "column" }}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                  <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#ed1b2f" }} />
-                  <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.01em" }}>
-                    Activity Feed
+                {trends.length === 0 && (
+                  <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 3 }}>
+                    Loading signals…
                   </Typography>
+                )}
+              </Box>
+              {contentGap && (
+                <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 1.5, bgcolor: "#fdf6ec", border: "1px solid #f5e3c4", display: "flex", gap: 1, alignItems: "flex-start" }}>
+                  <InsightsIcon sx={{ fontSize: 17, color: "#c77700", mt: 0.2 }} />
+                  <Typography sx={{ fontSize: 12, color: "#7a5200", lineHeight: 1.5 }}>{contentGap}</Typography>
                 </Box>
-                <Chip
-                  label="SAMPLE"
-                  size="small"
-                  sx={{
-                    height: 22,
-                    fontSize: "0.65rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.05em",
-                    bgcolor: "#fdebed",
-                    color: "#ed1b2f",
-                    border: "none",
-                    "& .MuiChip-label": { px: 1.25 },
-                  }}
-                />
-              </Box>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", ml: 1.75, mb: 2 }}>
-                Latest updates across your content operations
-              </Typography>
-
-              <Box
-                sx={{
-                  flex: 1,
-                  overflowY: "auto",
-                  maxHeight: 460,
-                  pr: 1,
-                  ml: -0.5,
-                }}
-              >
-                {activityFeed.map((item, idx) => {
-                  const statusColor = statusColorMap[item.status] || "#5f6368";
-                  return (
-                    <Box
-                      key={item.id}
-                      sx={{
-                        animation: "fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-                        animationDelay: `${0.3 + idx * 0.06}s`,
-                        opacity: 0,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          gap: 2,
-                          py: 1.75,
-                          px: 1.5,
-                          borderRadius: 2,
-                          transition: "background-color 0.2s ease",
-                          "&:hover": { bgcolor: "#f8f9fa" },
-                        }}
-                      >
-                        <Avatar
-                          sx={{
-                            width: 36,
-                            height: 36,
-                            bgcolor: `${statusColor}1a`,
-                            color: statusColor,
-                            flexShrink: 0,
-                            mt: 0.25,
-                            border: `1px solid ${statusColor}33`,
-                          }}
-                        >
-                          {typeIconMap[item.type] || <InfoIcon fontSize="small" />}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography sx={{ fontSize: "0.875rem", lineHeight: 1.5, color: "#1f1f1f", fontWeight: 400 }}>
-                            {item.message}
-                          </Typography>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
-                            <Box
-                              sx={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: "50%",
-                                bgcolor: statusColor,
-                                flexShrink: 0,
-                              }}
-                              className={item.status === "pending_review" ? "animate-pulse-dot" : undefined}
-                            />
-                            <Typography sx={{ fontSize: "0.7rem", color: "#5f6368", fontWeight: 500 }}>
-                              {item.time}
-                            </Typography>
-                            <Typography sx={{ fontSize: "0.7rem", color: "#dadce0" }}>·</Typography>
-                            <Typography
-                              sx={{
-                                fontSize: "0.7rem",
-                                fontWeight: 500,
-                                color: statusColor,
-                                textTransform: "capitalize",
-                              }}
-                            >
-                              {item.status.replace(/_/g, " ")}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </Box>
-                      {idx < activityFeed.length - 1 && <Divider sx={{ ml: 7, borderColor: "#f1f3f4" }} />}
-                    </Box>
-                  );
-                })}
-              </Box>
+              )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+
+      {/* ── Pipeline + Recent activity ── */}
+      <Grid container spacing={2.5} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 12, md: 5 }}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 2 }}>
+                <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#34a853" }} />
+                <Typography sx={{ fontSize: 16, fontWeight: 700, color: "#1a1d21" }}>Content Pipeline</Typography>
+                <Chip label={`${pipelineTotal} items`} size="small" sx={{ fontWeight: 700, bgcolor: "#f0f1f3", color: "#3c4043" }} />
+              </Box>
+              {pipeline.map((stage) => (
+                <Box key={stage.status} sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5 }}>
+                  <Typography sx={{ width: 84, fontSize: 12.5, fontWeight: 600, color: "#3c4043" }}>{stage.status}</Typography>
+                  <Box sx={{ flex: 1, height: 22, bgcolor: "#f0f1f3", borderRadius: 1, overflow: "hidden" }}>
+                    <Box
+                      sx={{
+                        width: pipelineTotal ? `${Math.max(6, (stage.count / pipelineTotal) * 100)}%` : "0%",
+                        height: "100%",
+                        bgcolor: stage.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        pr: 1,
+                        transition: "width 0.6s ease",
+                      }}
+                    >
+                      {stage.count > 0 && (
+                        <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#fff" }}>{stage.count}</Typography>
+                      )}
+                    </Box>
+                  </Box>
+                </Box>
+              ))}
+              {pipelineTotal === 0 && (
+                <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 2 }}>
+                  Pipeline is empty — everything starts with a generation.
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 7 }}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1.5 }}>
+                <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+                <Typography sx={{ fontSize: 16, fontWeight: 700, color: "#1a1d21" }}>Recent Activity</Typography>
+              </Box>
+              {items.length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 4 }}>
+                  No activity yet.
+                </Typography>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+                  {items.slice(0, 6).map((i) => {
+                    const sc = STATUS_COLORS[i.status] ?? STATUS_COLORS.archived;
+                    return (
+                      <Box key={i.id} sx={{ display: "flex", alignItems: "center", gap: 1.25, py: 0.75, borderBottom: "1px solid #f5f6f8", "&:last-child": { borderBottom: "none" } }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: CH_COLORS[i.channel] ?? "#5b6470", flexShrink: 0 }} />
+                        <Typography noWrap sx={{ flex: 1, fontSize: 13, color: "#1a1d21", minWidth: 0 }}>
+                          {i.title || i.body.slice(0, 80)}
+                        </Typography>
+                        <Chip label={i.status} size="small" sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: sc.bg, color: sc.fg }} />
+                        <Typography sx={{ fontSize: 11.5, color: "#5b6470", whiteSpace: "nowrap" }}>{timeAgo(i.updatedAt)}</Typography>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* ── Quick Generate result ── */}
+      <Dialog open={Boolean(qgResult)} onClose={() => setQgResult(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {qgResult?.error ? "Generation failed" : "Draft created and saved to the Library"}
+        </DialogTitle>
+        <DialogContent dividers>
+          {qgResult?.error ? (
+            <Typography sx={{ fontSize: 14, color: "#c5221f" }}>{qgResult.error}</Typography>
+          ) : (
+            <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.65 }}>
+              {qgResult?.content}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 1.5 }}>
+          {!qgResult?.error && (
+            <>
+              <Button startIcon={<ContentCopyIcon />} onClick={copyResult}>
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+              <Button component={Link} href="/library" variant="contained" sx={{ bgcolor: "#274e64" }}>
+                Open in Library
+              </Button>
+            </>
+          )}
+          <Button onClick={() => setQgResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
