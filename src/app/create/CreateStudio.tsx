@@ -456,7 +456,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
 
       <Grid container spacing={2.5}>
         {/* ── LEFT: setup ── */}
-        <Grid size={{ xs: 12, md: 3.5 }}>
+        <Grid size={{ xs: 12, md: 3 }}>
           <Card>
             <CardContent sx={{ p: 2.5 }}>
               <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
@@ -643,85 +643,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
               </Collapse>
             </CardContent>
           </Card>
-        </Grid>
-
-        {/* ── CENTER: brief + results ── */}
-        <Grid size={{ xs: 12, md: 5.5 }}>
-          <Card sx={{ mb: 2.5 }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  The brief
-                </Typography>
-                <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)}>
-                  <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
-                  <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-              <TextField
-                fullWidth
-                multiline
-                minRows={4}
-                maxRows={14}
-                placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
-              />
-              {trends.length > 0 && (
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
-                  <TrendingUpIcon sx={{ fontSize: 15, color: RED }} />
-                  <Typography sx={{ fontSize: 11.5, color: "#5b6470", fontWeight: 600 }}>Hot demand:</Typography>
-                  {trends.slice(0, 4).map((t) => (
-                    <Chip
-                      key={t.term}
-                      label={t.term}
-                      size="small"
-                      onClick={() => setTopic((cur) => (cur ? `${cur} — target the search term "${t.term}"` : `Content targeting the hot search term "${t.term}" (${t.signal})`))}
-                      sx={{ height: 22, fontSize: 11, fontWeight: 700, bgcolor: "#fdebed", color: RED, "&:hover": { bgcolor: "#fbd8dc" } }}
-                    />
-                  ))}
-                </Box>
-              )}
-              <Box sx={{ display: "flex", gap: 1.25, mt: 2 }}>
-                <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
-                  <span>
-                    <Button
-                      onClick={enhanceBrief}
-                      disabled={enhancing || !topic.trim()}
-                      startIcon={enhancing ? <CircularProgress size={14} /> : <BoltIcon />}
-                      sx={{ fontWeight: 700, color: NAVY }}
-                    >
-                      {enhancing ? "Enhancing…" : "Enhance brief"}
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Box sx={{ flex: 1 }} />
-                <Button
-                  onClick={generate}
-                  disabled={busy || !topic.trim()}
-                  variant="contained"
-                  size="large"
-                  startIcon={busy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
-                  sx={{ bgcolor: RED, px: 4, fontWeight: 700, "&:hover": { bgcolor: "#d81528" } }}
-                >
-                  {busy ? (mode === "draft" ? "Writing…" : "Creating 3 concepts…") : "Generate"}
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-
-          {error && (
-            <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2.5 }}>
-              {error}
-            </Alert>
-          )}
-
-        </Grid>
-
-        {/* ── RIGHT: engine intelligence ── */}
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card sx={{ position: { md: "sticky" }, top: { md: 16 } }}>
+          <Box sx={{ mt: 2.5 }}>
+          <Card>
             <CardContent sx={{ p: 2.5 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
                 <PsychologyIcon sx={{ fontSize: 20, color: RED }} />
@@ -793,8 +716,80 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
               )}
             </CardContent>
           </Card>
+          </Box>
         </Grid>
-      </Grid>
+
+        {/* ── CENTER: brief + results ── */}
+        <Grid size={{ xs: 12, md: 9 }}>
+          <Card sx={{ mb: 2.5 }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  The brief
+                </Typography>
+                <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)}>
+                  <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
+                  <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              <TextField
+                fullWidth
+                multiline
+                minRows={4}
+                maxRows={14}
+                placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
+              />
+              {trends.length > 0 && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
+                  <TrendingUpIcon sx={{ fontSize: 15, color: RED }} />
+                  <Typography sx={{ fontSize: 11.5, color: "#5b6470", fontWeight: 600 }}>Hot demand:</Typography>
+                  {trends.slice(0, 4).map((t) => (
+                    <Chip
+                      key={t.term}
+                      label={t.term}
+                      size="small"
+                      onClick={() => setTopic((cur) => (cur ? `${cur} — target the search term "${t.term}"` : `Content targeting the hot search term "${t.term}" (${t.signal})`))}
+                      sx={{ height: 22, fontSize: 11, fontWeight: 700, bgcolor: "#fdebed", color: RED, "&:hover": { bgcolor: "#fbd8dc" } }}
+                    />
+                  ))}
+                </Box>
+              )}
+              <Box sx={{ display: "flex", gap: 1.25, mt: 2 }}>
+                <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
+                  <span>
+                    <Button
+                      onClick={enhanceBrief}
+                      disabled={enhancing || !topic.trim()}
+                      startIcon={enhancing ? <CircularProgress size={14} /> : <BoltIcon />}
+                      sx={{ fontWeight: 700, color: NAVY }}
+                    >
+                      {enhancing ? "Enhancing…" : "Enhance brief"}
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  onClick={generate}
+                  disabled={busy || !topic.trim()}
+                  variant="contained"
+                  size="large"
+                  startIcon={busy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
+                  sx={{ bgcolor: RED, px: 4, fontWeight: 700, "&:hover": { bgcolor: "#d81528" } }}
+                >
+                  {busy ? (mode === "draft" ? "Writing…" : "Creating 3 concepts…") : "Generate"}
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+
+          {error && (
+            <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2.5 }}>
+              {error}
+            </Alert>
+          )}
 
       {/* ── RESULTS — full width ── */}
       {busy && (
@@ -1114,6 +1109,10 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           )}
         </Box>
       )}
+
+        </Grid>
+      </Grid>
+
     </Box>
   );
 }
