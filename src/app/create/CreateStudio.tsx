@@ -167,6 +167,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [savingEdit, setSavingEdit] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [briefText, setBriefText] = useState("");
+  const [personasOpen, setPersonasOpen] = useState(false);
+  const [intelOpen, setIntelOpen] = useState(false);
   const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
 
   const mdChannel = channel === "blog" || channel === "product";
@@ -287,7 +289,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
         else {
-          const list: Concept[] = (data.proposals ?? []).map((p: Concept, i: number) => ({ ...p, expanded: i === 0 }));
+          const list: Concept[] = (data.proposals ?? []).map((p: Concept, i: number) => ({ ...p, expanded: i === 0, imageUrl: p.imageUrl && !p.imageUrl.startsWith("/mood/") ? p.imageUrl : undefined }));
           setConcepts(list);
           setConceptFb({});
           setDesigning({ target: "concept", idx: 0 });
@@ -456,7 +458,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
 
       <Grid container spacing={2.5}>
         {/* ── LEFT: setup ── */}
-        <Grid size={{ xs: 12, md: 3 }}>
+        <Grid size={{ xs: 12, md: 2.7 }}>
           <Card>
             <CardContent sx={{ p: 2.5 }}>
               <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
@@ -480,9 +482,16 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                 ))}
               </Box>
 
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                Write for
-              </Typography>
+              <Box
+                onClick={() => setPersonasOpen((v) => !v)}
+                sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", mb: 1 }}
+              >
+                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Write for{personaIds.length ? ` · ${personaIds.length} selected` : " · general"}
+                </Typography>
+                <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: personasOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+              </Box>
+              <Collapse in={personasOpen}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 2 }}>
                 <Box
                   onClick={() => setPersonaIds([])}
@@ -531,6 +540,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   </Typography>
                 )}
               </Box>
+              </Collapse>
 
               <Grid container spacing={1.25} sx={{ mb: 1.5 }}>
                 <Grid size={6}>
@@ -646,10 +656,16 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           <Box sx={{ mt: 2.5 }}>
           <Card>
             <CardContent sx={{ p: 2.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+              <Box
+                onClick={() => setIntelOpen((v) => !v)}
+                sx={{ display: "flex", alignItems: "center", gap: 1, cursor: "pointer" }}
+              >
                 <PsychologyIcon sx={{ fontSize: 20, color: RED }} />
-                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21" }}>Engine intelligence</Typography>
+                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21", flex: 1 }}>Engine intelligence</Typography>
+                <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: intelOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
               </Box>
+              <Collapse in={intelOpen}>
+              <Box sx={{ mt: 1.5 }} />
 
               {activePersonas.length > 0 ? (
                 <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "#e8f0f4", mb: 1.5 }}>
@@ -714,13 +730,14 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   </Typography>
                 </>
               )}
+              </Collapse>
             </CardContent>
           </Card>
           </Box>
         </Grid>
 
         {/* ── CENTER: brief + results ── */}
-        <Grid size={{ xs: 12, md: 9 }}>
+        <Grid size={{ xs: 12, md: 9.3 }}>
           <Card sx={{ mb: 2.5 }}>
             <CardContent sx={{ p: 2.5 }}>
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
@@ -913,6 +930,13 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                         ]
                     : undefined
                 }
+                painting={
+                  designing.target === "draft"
+                    ? imageBusy && !draft?.imageUrl
+                    : designing.target === "concept"
+                      ? Boolean(concepts[designing.idx]?.imageBusy) && !concepts[designing.idx]?.imageUrl
+                      : false
+                }
                 onExported={(url) => {
                   if (designing.target === "draft") {
                     setDraft((d) => (d ? { ...d, imageUrl: url } : d));
@@ -1084,6 +1108,30 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   >
                     New background
                   </Button>
+                  <Box sx={{ flexBasis: "100%", display: "flex", gap: 1, mt: 1 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      multiline
+                      maxRows={4}
+                      placeholder="Reprompt the image — describe the scene you want instead"
+                      value={concepts[designing.idx].imagePrompt}
+                      onChange={(e) => {
+                        const idx = designing.idx;
+                        setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imagePrompt: e.target.value } : x)));
+                      }}
+                      sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5 } }}
+                    />
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={concepts[designing.idx].imageBusy || !concepts[designing.idx].imagePrompt.trim()}
+                      onClick={() => paintConcept(designing.idx, concepts[designing.idx].imagePrompt)}
+                      sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
+                    >
+                      Repaint
+                    </Button>
+                  </Box>
                   <Button
                     size="small"
                     startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}

@@ -100,12 +100,15 @@ export default function EditorCanvas({
   initialImage,
   initialTemplateId,
   initialTexts,
+  painting,
   onExported,
 }: {
   itemId?: number;
   initialImage?: string | null;
   initialTemplateId?: string;
   initialTexts?: SeedText[];
+  /** Background image is being generated — show the painting state on the artboard. */
+  painting?: boolean;
   /** Called with the exported PNG data URL after Attach / Use design. */
   onExported?: (dataUrl: string) => void;
 }) {
@@ -681,8 +684,30 @@ export default function EditorCanvas({
           </Alert>
         )}
 
-        {/* canvas */}
-        <Box sx={{ display: "inline-block", boxShadow: "0 4px 24px rgba(22,48,63,0.14)", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
+        {/* workspace surface — the artboard floats on a neutral dotted board like a real design tool */}
+        <Box
+          sx={{
+            bgcolor: "#eef1f5",
+            backgroundImage: "radial-gradient(#d5dbe3 1px, transparent 1px)",
+            backgroundSize: "18px 18px",
+            borderRadius: 1.5,
+            border: "1px solid #e2e6eb",
+            p: { xs: 1.5, md: 3 },
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+        <Box sx={{ display: "inline-block", boxShadow: "0 8px 32px rgba(22,48,63,0.18)", borderRadius: 0.5, overflow: "hidden", bgcolor: "#fff", position: "relative" }}>
+          {painting && !bgImage && (
+            <Box
+              className="shimmer"
+              sx={{ position: "absolute", inset: 0, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", borderRadius: 0 }}
+            >
+              <Typography sx={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: "#5b6470", bgcolor: "rgba(255,255,255,0.85)", px: 2, py: 0.75, borderRadius: 1 }}>
+                Gemini is painting the background…
+              </Typography>
+            </Box>
+          )}
           <Stage
             ref={stageRef}
             width={canvas.w * scale}
@@ -807,6 +832,7 @@ export default function EditorCanvas({
               />
             </Layer>
           </Stage>
+        </Box>
         </Box>
       </Box>
     </Box>
