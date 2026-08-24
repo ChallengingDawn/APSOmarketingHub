@@ -74,7 +74,17 @@ export function ensureSchema(): Promise<void> {
 export async function kvGet<T>(key: string): Promise<T | undefined> {
   await ensureSchema();
   const r = await query<{ v: T }>(`SELECT v FROM apsomh_kv WHERE k = $1 LIMIT 1`, [key]);
-  return r.rows.length ? r.rows[0].v : undefined;
+  if (!r.rows.length) return undefined;
+  const v = r.rows[0].v;
+  // Self-heal double-encoded rows (jsonb holding a JSON string scalar).
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v) as T;
+    } catch {
+      return v as T;
+    }
+  }
+  return v ?? undefined;
 }
 
 /** Upsert a JSON value into the apsomh_kv store. */

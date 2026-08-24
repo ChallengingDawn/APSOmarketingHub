@@ -151,7 +151,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [savingEdit, setSavingEdit] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [briefText, setBriefText] = useState("");
-  const [designing, setDesigning] = useState<null | { target: "draft" } | { target: "concept"; idx: number }>(null);
+  const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
 
   const mdChannel = channel === "blog" || channel === "product";
 
@@ -168,7 +168,10 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   useEffect(() => {
     fetch("/api/personality")
       .then((r) => r.json())
-      .then(setBrain)
+      .then((b) => {
+        // Only accept a real brain — a 500 {error} payload must not blank the studio.
+        if (b && !b.error && b.brandVoice) setBrain(b);
+      })
       .catch(() => {});
   }, []);
 
@@ -421,9 +424,16 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
             One place for everything — persona, keywords, GEO structure and imagery, powered by the brain.
           </Typography>
         </Box>
-        <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: NAVY }}>
-          Library
-        </Button>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          {!designing && (
+            <Button onClick={() => setDesigning({ target: "scratch" })} startIcon={<BrushIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
+              Design canvas
+            </Button>
+          )}
+          <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: NAVY }}>
+            Library
+          </Button>
+        </Box>
       </Box>
 
       <Grid container spacing={2.5}>
@@ -811,7 +821,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           )}
         </Box>
       )}
-      {!busy && (draft || concepts.length > 0) && (
+      {!busy && (draft || concepts.length > 0 || designing) && (
         <Box sx={{ mt: 2.5 }} className="fade-in-result">
           {/* single draft result */}
           {draft && (
@@ -1049,7 +1059,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
                   <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
-                    Design editor — {designing.target === "draft" ? "draft image" : `concept ${designing.idx + 1}`}
+                    Design editor — {designing.target === "draft" ? "draft image" : designing.target === "concept" ? `concept ${designing.idx + 1}` : "blank canvas"}
                   </Typography>
                 </Box>
                 <Button startIcon={<CloseIcon />} onClick={() => setDesigning(null)} sx={{ fontWeight: 600, color: "#5b6470" }}>
@@ -1058,17 +1068,18 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
               </Box>
               <Box sx={{ p: 2 }}>
                 <EditorCanvas
-                  key={designing.target === "draft" ? `draft-${draft?.draftId ?? "x"}` : `concept-${designing.idx}`}
+                  key={designing.target === "draft" ? `draft-${draft?.draftId ?? "x"}` : designing.target === "concept" ? `concept-${designing.idx}` : "scratch"}
                   itemId={designing.target === "draft" ? draft?.draftId : undefined}
-                  initialImage={designing.target === "draft" ? draft?.imageUrl ?? null : concepts[designing.idx]?.imageUrl ?? null}
+                  initialImage={designing.target === "draft" ? draft?.imageUrl ?? null : designing.target === "concept" ? concepts[designing.idx]?.imageUrl ?? null : null}
                   onExported={(url) => {
                     if (designing.target === "draft") {
                       setDraft((d) => (d ? { ...d, imageUrl: url } : d));
-                    } else {
+                      setDesigning(null);
+                    } else if (designing.target === "concept") {
                       const idx = designing.idx;
                       setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
+                      setDesigning(null);
                     }
-                    setDesigning(null);
                   }}
                 />
               </Box>

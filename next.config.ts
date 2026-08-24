@@ -31,6 +31,11 @@ const nextConfig: NextConfig = {
   // Produce a lean, self-contained server bundle for the container image
   // (.next/standalone/server.js) — required for the AWS Fargate Dockerfile.
   output: "standalone",
+  // Guarantee runtime-read JSON data (brain seed, template specs) ships in
+  // the standalone bundle — fs.readFile paths aren't always traced.
+  outputFileTracingIncludes: {
+    "/**": ["./src/data/**/*.json"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
