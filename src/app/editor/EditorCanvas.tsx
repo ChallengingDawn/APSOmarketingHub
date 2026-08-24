@@ -22,6 +22,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import SaveIcon from "@mui/icons-material/Save";
 import FlipToFrontIcon from "@mui/icons-material/FlipToFront";
 import FlipToBackIcon from "@mui/icons-material/FlipToBack";
+import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import { TEMPLATES, type TemplateSpec } from "@/data/templates";
 
 /* ── palette & canvas presets ── */
@@ -37,18 +38,27 @@ const CANVAS_PRESETS: Record<string, { w: number; h: number; label: string }> = 
 
 type NodeSpec = {
   id: string;
-  kind: "text" | "rect";
+  kind: "text" | "rect" | "image";
   x: number;
   y: number;
   text?: string;
   fontKey?: "inter" | "outfit";
   fontSize?: number;
-  fontStyle?: string; // "normal" | "bold"
+  fontStyle?: string; // combinations of "bold" / "italic" / "normal"
   fill: string;
   width?: number;
   height?: number;
   align?: "left" | "center" | "right";
   cornerRadius?: number;
+  lineHeight?: number;
+  opacity?: number;
+  src?: string; // image nodes
+};
+
+/** Seed text placed on the canvas by the studio after generation. */
+export type SeedText = {
+  text: string;
+  role: "headline" | "body";
 };
 
 let idSeq = 1;
@@ -89,11 +99,13 @@ export default function EditorCanvas({
   itemId,
   initialImage,
   initialTemplateId,
+  initialTexts,
   onExported,
 }: {
   itemId?: number;
   initialImage?: string | null;
   initialTemplateId?: string;
+  initialTexts?: SeedText[];
   /** Called with the exported PNG data URL after Attach / Use design. */
   onExported?: (dataUrl: string) => void;
 }) {
@@ -128,6 +140,87 @@ export default function EditorCanvas({
   const scale = Math.min(viewW / canvas.w, 640 / canvas.h, 1);
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
+
+  /* seed generated text onto the canvas (once per mount) */
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !initialTexts?.length) return;
+    seededRef.current = true;
+    const seeds: NodeSpec[] = [];
+    let y = canvas.h * 0.08;
+    for (const t of initialTexts) {
+      const isH = t.role === "headline";
+      const fontSize = isH ? Math.round(canvas.w / 16) : Math.round(canvas.w / 40);
+      seeds.push({
+        id: nid(),
+        kind: "text",
+        x: canvas.w * 0.06,
+        y,
+        text: t.text,
+        fontKey: isH ? "outfit" : "inter",
+        fontSize,
+        fontStyle: isH ? "bold" : "normal",
+        fill: "#ffffff",
+        width: canvas.w * 0.88,
+        align: "left",
+        lineHeight: 1.2,
+      });
+      y += fontSize * 1.5 * Math.max(1, Math.ceil(t.text.length / 40));
+    }
+    setNodes(seeds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTexts]);
+
+  /* uploaded/imported image elements cache */
+  const [imgEls, setImgEls] = useState<Record<string, HTMLImageElement>>({});
+  const loadNodeImage = useCallback((id: string, src: string) => {
+    const el = new window.Image();
+    el.crossOrigin = "anonymous";
+    el.onload = () => setImgEls((cur) => ({ ...cur, [id]: el }));
+    el.src = src;
+  }, []);
+
+  /* keyboard delete */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+        setNodes((cur) => cur.filter((n) => n.id !== selectedId));
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
+  /* ensure every image node has a loaded element (e.g. after remount) */
+  useEffect(() => {
+    nodes.forEach((n) => {
+      if (n.kind === "image" && n.src && !imgEls[n.id]) loadNodeImage(n.id, n.src);
+    });
+  }, [nodes, imgEls, loadNodeImage]);
+
+  const importImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = String(reader.result);
+      const el = new window.Image();
+      el.onload = () => {
+        const id = nid();
+        const maxW = canvas.w * 0.35;
+        const sc = Math.min(1, maxW / el.width);
+        setImgEls((cur) => ({ ...cur, [id]: el }));
+        setNodes((cur) => [
+          ...cur,
+          { id, kind: "image", x: canvas.w * 0.06, y: canvas.h * 0.06, width: el.width * sc, height: el.height * sc, fill: "#fff", src, opacity: 1 },
+        ]);
+        setSelectedId(id);
+      };
+      el.src = src;
+    };
+    reader.readAsDataURL(file);
+  };
 
   /* transformer binding */
   useEffect(() => {
@@ -373,6 +466,19 @@ export default function EditorCanvas({
               </IconButton>
             </Tooltip>
           </Box>
+          <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700, mb: 2 }}>
+            Import photo / logo
+            <input
+              hidden
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importImage(f);
+                e.currentTarget.value = "";
+              }}
+            />
+          </Button>
 
           <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
             Canvas
@@ -398,7 +504,7 @@ export default function EditorCanvas({
             </MenuItem>
           </TextField>
           <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background colour</Typography>
-          <Box sx={{ display: "flex", gap: 0.5, mb: 2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 0.5, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
             {BRAND_COLORS.map((c) => (
               <Box
                 key={c}
@@ -406,6 +512,7 @@ export default function EditorCanvas({
                 sx={{ width: 22, height: 22, borderRadius: 0.75, bgcolor: c, cursor: "pointer", border: bgColor === c ? "2px solid #274e64" : "1px solid #d5d9df" }}
               />
             ))}
+            <input type="color" value={bgColor.startsWith("#") ? bgColor : "#ffffff"} onChange={(e) => setBgColor(e.target.value)} style={{ width: 30, height: 26, border: "1px solid #d5d9df", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }} title="Custom colour" />
           </Box>
 
           <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
@@ -447,8 +554,13 @@ export default function EditorCanvas({
                     />
                     <Button
                       size="small"
-                      variant={selected.fontStyle === "bold" ? "contained" : "outlined"}
-                      onClick={() => patch(selected.id, { fontStyle: selected.fontStyle === "bold" ? "normal" : "bold" })}
+                      variant={selected.fontStyle?.includes("bold") ? "contained" : "outlined"}
+                      onClick={() => {
+                        const bold = selected.fontStyle?.includes("bold");
+                        const italic = selected.fontStyle?.includes("italic");
+                        const next = [bold ? "" : "bold", italic ? "italic" : ""].filter(Boolean).join(" ") || "normal";
+                        patch(selected.id, { fontStyle: next });
+                      }}
                       sx={{ fontWeight: 800, minWidth: 40 }}
                     >
                       B
@@ -466,15 +578,55 @@ export default function EditorCanvas({
                     </TextField>
                   </>
                 )}
-                <Box sx={{ display: "flex", gap: 0.5 }}>
-                  {BRAND_COLORS.map((c) => (
-                    <Box
-                      key={c}
-                      onClick={() => patch(selected.id, { fill: c })}
-                      sx={{ width: 20, height: 20, borderRadius: 0.75, bgcolor: c, cursor: "pointer", border: selected.fill === c ? "2px solid #274e64" : "1px solid #d5d9df" }}
-                    />
-                  ))}
-                </Box>
+                {selected.kind !== "image" && (
+                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                    {BRAND_COLORS.map((c) => (
+                      <Box
+                        key={c}
+                        onClick={() => patch(selected.id, { fill: c })}
+                        sx={{ width: 20, height: 20, borderRadius: 0.75, bgcolor: c, cursor: "pointer", border: selected.fill === c ? "2px solid #274e64" : "1px solid #d5d9df" }}
+                      />
+                    ))}
+                    <input type="color" value={selected.fill.startsWith("#") ? selected.fill : "#000000"} onChange={(e) => patch(selected.id, { fill: e.target.value })} style={{ width: 28, height: 24, border: "1px solid #d5d9df", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }} title="Custom colour" />
+                  </Box>
+                )}
+                {selected.kind === "text" && (
+                  <>
+                    <Button
+                      size="small"
+                      variant={selected.fontStyle?.includes("italic") ? "contained" : "outlined"}
+                      onClick={() => {
+                        const bold = selected.fontStyle?.includes("bold");
+                        const italic = selected.fontStyle?.includes("italic");
+                        const next = [bold ? "bold" : "", italic ? "" : "italic"].filter(Boolean).join(" ") || "normal";
+                        patch(selected.id, { fontStyle: next });
+                      }}
+                      sx={{ fontStyle: "italic", fontWeight: 700, minWidth: 40 }}
+                    >
+                      I
+                    </Button>
+                    <Tooltip title="Line height">
+                      <TextField
+                        type="number"
+                        size="small"
+                        value={selected.lineHeight ?? 1.25}
+                        onChange={(e) => patch(selected.id, { lineHeight: Math.min(3, Math.max(0.8, Number(e.target.value) || 1.25)) })}
+                        inputProps={{ step: 0.05 }}
+                        sx={{ width: 78 }}
+                      />
+                    </Tooltip>
+                  </>
+                )}
+                <Tooltip title="Opacity">
+                  <TextField
+                    type="number"
+                    size="small"
+                    value={Math.round((selected.opacity ?? 1) * 100)}
+                    onChange={(e) => patch(selected.id, { opacity: Math.min(100, Math.max(5, Number(e.target.value) || 100)) / 100 })}
+                    inputProps={{ step: 5 }}
+                    sx={{ width: 78 }}
+                  />
+                </Tooltip>
                 <Tooltip title="Bring forward">
                   <IconButton size="small" onClick={() => moveLayer(1)}>
                     <FlipToFrontIcon fontSize="small" />
@@ -561,7 +713,8 @@ export default function EditorCanvas({
                     fontStyle={n.fontStyle}
                     fill={n.fill}
                     align={n.align}
-                    lineHeight={1.25}
+                    lineHeight={n.lineHeight ?? 1.25}
+                    opacity={n.opacity ?? 1}
                     draggable
                     onClick={() => setSelectedId(n.id)}
                     onTap={() => setSelectedId(n.id)}
@@ -580,6 +733,33 @@ export default function EditorCanvas({
                       t.scaleY(1);
                     }}
                   />
+                ) : n.kind === "image" ? (
+                  <KImage
+                    key={n.id}
+                    id={n.id}
+                    x={n.x}
+                    y={n.y}
+                    width={n.width}
+                    height={n.height}
+                    image={imgEls[n.id]}
+                    opacity={n.opacity ?? 1}
+                    draggable
+                    onClick={() => setSelectedId(n.id)}
+                    onTap={() => setSelectedId(n.id)}
+                    onDragMove={onDragMove}
+                    onDragEnd={(e) => onDragEnd(e, n.id)}
+                    onTransformEnd={(e) => {
+                      const t = e.target;
+                      patch(n.id, {
+                        x: t.x(),
+                        y: t.y(),
+                        width: Math.max(16, (n.width ?? 100) * t.scaleX()),
+                        height: Math.max(16, (n.height ?? 100) * t.scaleY()),
+                      });
+                      t.scaleX(1);
+                      t.scaleY(1);
+                    }}
+                  />
                 ) : (
                   <Rect
                     key={n.id}
@@ -590,6 +770,7 @@ export default function EditorCanvas({
                     height={n.height}
                     fill={n.fill}
                     cornerRadius={n.cornerRadius}
+                    opacity={n.opacity ?? 1}
                     draggable
                     onClick={() => setSelectedId(n.id)}
                     onTap={() => setSelectedId(n.id)}

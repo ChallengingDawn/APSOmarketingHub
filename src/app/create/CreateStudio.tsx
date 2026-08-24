@@ -19,6 +19,7 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Collapse from "@mui/material/Collapse";
 import Alert from "@mui/material/Alert";
 import Tooltip from "@mui/material/Tooltip";
+import IconButton from "@mui/material/IconButton";
 import Divider from "@mui/material/Divider";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -44,6 +45,9 @@ import MarkdownPreview from "./MarkdownPreview";
 import dynamic from "next/dynamic";
 import CloseIcon from "@mui/icons-material/Close";
 import BrushIcon from "@mui/icons-material/Brush";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import type { SeedText } from "../editor/EditorCanvas";
 
 // Konva is client-only
 const EditorCanvas = dynamic(() => import("../editor/EditorCanvas"), { ssr: false });
@@ -104,6 +108,18 @@ const NAVY = "#274e64";
 const RED = "#ed1b2f";
 
 const geoChannels = new Set(["blog", "seo"]);
+
+/** Seed the canvas with the generated copy: headline always, body for short channels. */
+function seedTextsFor(channel: string, content: string): SeedText[] {
+  const firstLine = content.split("\n").find((l) => l.trim().length > 0)?.replace(/^#+\s*/, "") ?? "";
+  const seeds: SeedText[] = [{ text: firstLine.slice(0, 120), role: "headline" }];
+  if (channel === "linkedin" || channel === "ad") {
+    const rest = content.slice(content.indexOf(firstLine) + firstLine.length).trim();
+    if (rest) seeds.push({ text: rest.slice(0, 500), role: "body" });
+  }
+  return seeds;
+}
+
 
 /* ── page ── */
 
@@ -258,6 +274,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           setEditMode(false);
           setShowRaw(false);
           setBriefText(data.imageBrief ?? "");
+          setDesigning({ target: "draft" });
           // Adobe-Express-style pipeline: the image paints itself, no extra click
           if (withImage && data.imageBrief) paintDraft(data.imageBrief);
         }
@@ -273,6 +290,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           const list: Concept[] = (data.proposals ?? []).map((p: Concept, i: number) => ({ ...p, expanded: i === 0 }));
           setConcepts(list);
           setConceptFb({});
+          setDesigning({ target: "concept", idx: 0 });
           if (withImage) {
             list.forEach((p, i) => {
               if (p.imagePrompt) paintConcept(i, p.imagePrompt);
@@ -821,11 +839,105 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
           )}
         </Box>
       )}
-      {!busy && (draft || concepts.length > 0 || designing) && (
+      {!busy && designing && (
         <Box sx={{ mt: 2.5 }} className="fade-in-result">
-          {/* single draft result */}
-          {draft && (
-            <Card>
+          {/* ── Canvas hero — everything happens here ── */}
+          <Card>
+            <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+              <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
+              <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
+                {designing.target === "draft"
+                  ? `Canvas — your draft${draft?.draftId ? ` (#${draft.draftId})` : ""}`
+                  : designing.target === "concept"
+                    ? `Canvas — concept ${designing.idx + 1} of ${concepts.length}`
+                    : "Canvas — blank"}
+              </Typography>
+              {designing.target === "concept" && concepts.length > 1 && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1 }}>
+                  <IconButton
+                    size="small"
+                    onClick={() => setDesigning({ target: "concept", idx: (designing.idx + concepts.length - 1) % concepts.length })}
+                    sx={{ border: "1px solid #e6e8ec" }}
+                  >
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                  {concepts.map((_, i) => (
+                    <Box
+                      key={i}
+                      onClick={() => setDesigning({ target: "concept", idx: i })}
+                      sx={{ width: 8, height: 8, borderRadius: "50%", cursor: "pointer", bgcolor: i === designing.idx ? "#ed1b2f" : "#d5d9df" }}
+                    />
+                  ))}
+                  <IconButton
+                    size="small"
+                    onClick={() => setDesigning({ target: "concept", idx: (designing.idx + 1) % concepts.length })}
+                    sx={{ border: "1px solid #e6e8ec" }}
+                  >
+                    <ChevronRightIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )}
+              <Box sx={{ flex: 1 }} />
+              {draft && designing.target !== "draft" && (
+                <Button size="small" onClick={() => setDesigning({ target: "draft" })} sx={{ fontWeight: 700, color: NAVY }}>
+                  Back to draft
+                </Button>
+              )}
+              {concepts.length > 0 && designing.target !== "concept" && (
+                <Button size="small" onClick={() => setDesigning({ target: "concept", idx: 0 })} sx={{ fontWeight: 700, color: NAVY }}>
+                  Concepts
+                </Button>
+              )}
+            </Box>
+            <Box sx={{ p: 2 }}>
+              <EditorCanvas
+                key={
+                  designing.target === "draft"
+                    ? `draft-${draft?.draftId ?? "x"}-${draft?.imageUrl ? "img" : "noimg"}`
+                    : designing.target === "concept"
+                      ? `concept-${designing.idx}-${concepts[designing.idx]?.imageUrl ? "img" : "noimg"}`
+                      : "scratch"
+                }
+                itemId={designing.target === "draft" ? draft?.draftId : undefined}
+                initialImage={
+                  designing.target === "draft"
+                    ? draft?.imageUrl ?? null
+                    : designing.target === "concept"
+                      ? concepts[designing.idx]?.imageUrl ?? null
+                      : null
+                }
+                initialTexts={
+                  designing.target === "draft" && draft
+                    ? seedTextsFor(channel, draft.content)
+                    : designing.target === "concept" && concepts[designing.idx]
+                      ? [
+                          { text: concepts[designing.idx].headline, role: "headline" as const },
+                          ...(channel === "linkedin" || channel === "ad"
+                            ? [{ text: concepts[designing.idx].body.slice(0, 400), role: "body" as const }]
+                            : []),
+                        ]
+                    : undefined
+                }
+                onExported={(url) => {
+                  if (designing.target === "draft") {
+                    setDraft((d) => (d ? { ...d, imageUrl: url } : d));
+                  } else if (designing.target === "concept") {
+                    const idx = designing.idx;
+                    setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
+                  }
+                }}
+              />
+              {(designing.target === "draft" ? imageBusy : concepts[designing.target === "concept" ? designing.idx : 0]?.imageBusy) && (
+                <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 1 }}>
+                  Painting the background image — it will appear on the canvas when ready (switch views to refresh)…
+                </Typography>
+              )}
+            </Box>
+          </Card>
+
+          {/* ── Draft text panel ── */}
+          {designing.target === "draft" && draft && (
+            <Card sx={{ mt: 2 }}>
               <CardContent sx={{ p: 2.5 }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5, flexWrap: "wrap" }}>
                   {draft.draftId && (
@@ -838,18 +950,6 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                     <Chip label="Auto-refined once ✓" size="small" sx={{ fontWeight: 600, bgcolor: "#fdf6ec", color: "#c77700" }} />
                   )}
                 </Box>
-
-                {draft.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={draft.imageUrl} alt="" style={{ width: "100%", maxWidth: 720, borderRadius: 10, marginBottom: 14, boxShadow: "0 2px 12px rgba(22,48,63,0.10)" }} />
-                ) : imageBusy ? (
-                  <Box sx={{ mb: 2, maxWidth: 720 }}>
-                    <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/9" }} />
-                    <Typography sx={{ fontSize: 11.5, color: "#5b6470", mt: 0.75 }}>
-                      Painting the scene from the image brief…
-                    </Typography>
-                  </Box>
-                ) : null}
 
                 {editMode ? (
                   <TextField
@@ -880,7 +980,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                       {draftFb === "like" ? "Learned ✓" : "Like"}
                     </Button>
                   </Tooltip>
-                  <Tooltip title="Not this — type a refine instruction too and it becomes the correction">
+                  <Tooltip title="Not this — a refine instruction below becomes the correction">
                     <Button
                       startIcon={<ThumbDownIcon sx={{ fontSize: 16 }} />}
                       onClick={() => {
@@ -917,17 +1017,29 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
                     Library
                   </Button>
-                  {draft.imageUrl && (
-                    <Button onClick={() => setDesigning({ target: "draft" })} startIcon={<BrushIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
-                      Edit design
-                    </Button>
-                  )}
+                </Box>
+
+                {/* refine loop */}
+                <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder='Refine it — "shorter", "more technical", "open with the 991-session FFKM spike"…'
+                    value={refineText}
+                    onChange={(e) => setRefineText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") refine();
+                    }}
+                  />
+                  <Button onClick={refine} disabled={refining || !refineText.trim()} startIcon={refining ? <CircularProgress size={14} /> : <ReplayIcon />} variant="outlined" sx={{ whiteSpace: "nowrap", fontWeight: 700 }}>
+                    {refining ? "Refining…" : "Refine"}
+                  </Button>
                 </Box>
 
                 {withImage && (
                   <Box sx={{ mt: 2, p: 1.5, borderRadius: 1.5, bgcolor: "#fafbfc", border: "1px solid #f1f3f4" }}>
                     <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                      Image brief — edit before painting
+                      Image brief — edit and repaint the canvas background
                     </Typography>
                     <TextField
                       fullWidth
@@ -946,143 +1058,58 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                       disabled={imageBusy || !briefText.trim()}
                       sx={{ mt: 1, fontWeight: 700, color: NAVY }}
                     >
-                      {imageBusy ? "Painting…" : draft.imageUrl ? "Regenerate image" : "Create image"}
+                      {imageBusy ? "Painting…" : draft.imageUrl ? "Repaint background" : "Paint background"}
                     </Button>
                   </Box>
                 )}
-
-                {/* refine loop */}
-                <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder='Refine it — "shorter", "more technical", "open with the 991-session FFKM spike"…'
-                    value={refineText}
-                    onChange={(e) => setRefineText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") refine();
-                    }}
-                  />
-                  <Button onClick={refine} disabled={refining || !refineText.trim()} startIcon={refining ? <CircularProgress size={14} /> : <ReplayIcon />} variant="outlined" sx={{ whiteSpace: "nowrap", fontWeight: 700 }}>
-                    {refining ? "Refining…" : "Refine"}
-                  </Button>
-                </Box>
               </CardContent>
             </Card>
           )}
 
-          {concepts.length > 0 && (
-            <>
-              <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
-                All three concepts are saved in the Library as drafts — compare them side by side.
-              </Alert>
-              <Grid container spacing={2} alignItems="stretch">
-                {concepts.map((c, i) => (
-                  <Grid key={i} size={{ xs: 12, md: 4 }}>
-                    <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
-                      {c.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={c.imageUrl} alt="" style={{ width: "100%", aspectRatio: "16/10", objectFit: "cover" }} />
-                      ) : c.imageBusy ? (
-                        <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/10", borderRadius: 0, display: "flex", alignItems: "flex-end", p: 1.5 }}>
-                          <Typography sx={{ fontSize: 11, fontWeight: 600, color: "#8a93a0", position: "relative", zIndex: 1 }}>
-                            Painting…
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Box sx={{ width: "100%", aspectRatio: "16/10", background: "linear-gradient(135deg, #eef1f4 0%, #e3e8ee 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 1 }}>
-                          <ImageIcon sx={{ fontSize: 28, color: "#b7bfc9" }} />
-                          {c.imagePrompt && (
-                            <Button size="small" startIcon={<ImageIcon sx={{ fontSize: 14 }} />} onClick={() => createConceptImage(i)} sx={{ fontWeight: 700, color: NAVY }}>
-                              Create image
-                            </Button>
-                          )}
-                        </Box>
-                      )}
-                      <CardContent sx={{ p: 2, display: "flex", flexDirection: "column", flex: 1 }}>
-                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1 }}>
-                          <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: NAVY, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0, mt: 0.25 }}>
-                            {i + 1}
-                          </Box>
-                          <Typography sx={{ fontSize: 14.5, fontWeight: 700, color: "#1a1d21", lineHeight: 1.3 }}>
-                            {c.headline}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ flex: 1, overflow: "auto", maxHeight: 340, pr: 0.5, mb: 1.5 }}>
-                          <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.6, color: "#1a1d21" }}>
-                            {c.body}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: "auto" }}>
-                          <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 13 }} />} onClick={() => copy(c.body, `c${i}`)} sx={{ fontWeight: 600, minWidth: 0 }}>
-                            {copied === `c${i}` ? "✓" : "Copy"}
-                          </Button>
-                          {c.imagePrompt && c.imageUrl && (
-                            <Button size="small" startIcon={c.imageBusy ? <CircularProgress size={12} /> : <ReplayIcon sx={{ fontSize: 13 }} />} disabled={c.imageBusy} onClick={() => createConceptImage(i)} sx={{ fontWeight: 600, color: NAVY, minWidth: 0 }}>
-                            {c.imageBusy ? "…" : "New image"}
-                            </Button>
-                          )}
-                          {c.imageUrl && (
-                            <Button size="small" startIcon={<BrushIcon sx={{ fontSize: 13 }} />} onClick={() => setDesigning({ target: "concept", idx: i })} sx={{ fontWeight: 700, color: "#ed1b2f", minWidth: 0 }}>
-                              Edit
-                            </Button>
-                          )}
-                          <Button
-                            size="small"
-                            startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
-                            onClick={() => sendFeedback("like", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "like" })))}
-                            sx={{ fontWeight: 700, minWidth: 0, color: conceptFb[i] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[i] === "like" ? "#1e7e45" : "transparent" }}
-                          >
-                            {conceptFb[i] === "like" ? "✓" : "Like"}
-                          </Button>
-                          <Button
-                            size="small"
-                            startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
-                            onClick={() => sendFeedback("dislike", { headline: c.headline, body: c.body }, () => setConceptFb((cur) => ({ ...cur, [i]: "dislike" })))}
-                            sx={{ fontWeight: 700, minWidth: 0, color: conceptFb[i] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[i] === "dislike" ? "#c5221f" : "transparent" }}
-                          >
-                            {conceptFb[i] === "dislike" ? "✓" : "Dislike"}
-                          </Button>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
-            </>
-          )}
-
-          {/* ── Embedded design editor ── */}
-          {designing && (
-            <Card sx={{ mt: 2.5 }} className="fade-in-result">
-              <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
-                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
-                    Design editor — {designing.target === "draft" ? "draft image" : designing.target === "concept" ? `concept ${designing.idx + 1}` : "blank canvas"}
-                  </Typography>
+          {/* ── Concept text panel ── */}
+          {designing.target === "concept" && concepts[designing.idx] && (
+            <Card sx={{ mt: 2 }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21", mb: 1 }}>
+                  {concepts[designing.idx].headline}
+                </Typography>
+                <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.65, color: "#1a1d21", mb: 1.5 }}>
+                  {concepts[designing.idx].body}
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />} onClick={() => copy(concepts[designing.idx].body, `c${designing.idx}`)} sx={{ fontWeight: 600 }}>
+                    {copied === `c${designing.idx}` ? "Copied!" : "Copy"}
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={concepts[designing.idx].imageBusy ? <CircularProgress size={12} /> : <ReplayIcon sx={{ fontSize: 14 }} />}
+                    disabled={concepts[designing.idx].imageBusy}
+                    onClick={() => createConceptImage(designing.idx)}
+                    sx={{ fontWeight: 600, color: NAVY }}
+                  >
+                    New background
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
+                    onClick={() => sendFeedback("like", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "like" })))}
+                    sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[designing.idx] === "like" ? "#1e7e45" : "transparent" }}
+                  >
+                    {conceptFb[designing.idx] === "like" ? "Learned ✓" : "Like"}
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
+                    onClick={() => sendFeedback("dislike", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "dislike" })))}
+                    sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[designing.idx] === "dislike" ? "#c5221f" : "transparent" }}
+                  >
+                    {conceptFb[designing.idx] === "dislike" ? "Noted ✓" : "Dislike"}
+                  </Button>
                 </Box>
-                <Button startIcon={<CloseIcon />} onClick={() => setDesigning(null)} sx={{ fontWeight: 600, color: "#5b6470" }}>
-                  Close
-                </Button>
-              </Box>
-              <Box sx={{ p: 2 }}>
-                <EditorCanvas
-                  key={designing.target === "draft" ? `draft-${draft?.draftId ?? "x"}` : designing.target === "concept" ? `concept-${designing.idx}` : "scratch"}
-                  itemId={designing.target === "draft" ? draft?.draftId : undefined}
-                  initialImage={designing.target === "draft" ? draft?.imageUrl ?? null : designing.target === "concept" ? concepts[designing.idx]?.imageUrl ?? null : null}
-                  onExported={(url) => {
-                    if (designing.target === "draft") {
-                      setDraft((d) => (d ? { ...d, imageUrl: url } : d));
-                      setDesigning(null);
-                    } else if (designing.target === "concept") {
-                      const idx = designing.idx;
-                      setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
-                      setDesigning(null);
-                    }
-                  }}
-                />
-              </Box>
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470", mt: 1.5 }}>
+                  All three concepts are saved in the Library as drafts. Canvas edits stay with this view — click "Use design" on the canvas toolbar to bake them onto this concept's image.
+                </Typography>
+              </CardContent>
             </Card>
           )}
         </Box>
