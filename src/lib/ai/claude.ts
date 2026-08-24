@@ -24,8 +24,11 @@ const BUDGETS: Record<string, ChannelBudget> = {
   blog: { maxTokens: 20000, effort: "high" },
   product: { maxTokens: 16000, effort: "high" },
   seo: { maxTokens: 6000, effort: "medium" },
-  newsletter: { maxTokens: 8000, effort: "medium" },
-  linkedin: { maxTokens: 6000, effort: "medium" },
+  // LinkedIn and newsletter are the flagship channels — quality beats latency,
+  // so they run at high effort. maxTokens carries extra headroom because the
+  // cap covers adaptive thinking + response text, and high effort thinks more.
+  newsletter: { maxTokens: 12000, effort: "high" },
+  linkedin: { maxTokens: 10000, effort: "high" },
   ad: { maxTokens: 4000, effort: "low" },
   studio: { maxTokens: 10000, effort: "medium" },
   freeform: { maxTokens: 10000, effort: "medium" },

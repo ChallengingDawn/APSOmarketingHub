@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-04-20T00:00:00Z",
+  "version": 2,
+  "updatedAt": "2026-08-24T00:00:00Z",
   "brandVoice": {
     "strapline": "Engineering solutions. One click away.",
     "storyline": "We've already met — online, on time.",
@@ -114,19 +114,49 @@
   },
   "goldExamples": {
     "linkedinPosts": [
-      { "title": "5 Signs Your Seal Needs Replacement", "framework": "I can do this now", "category": "Sealing Technology" },
+      {
+        "title": "5 Signs Your Seal Needs Replacement",
+        "framework": "I can do this now",
+        "category": "Sealing Technology",
+        "body": "A seal rarely fails without warning. It talks first — quietly, and usually while you're looking at something else.\n\nFive signs worth ten seconds on your next inspection round:\n\n- Hairline cracks on the outer edge: the compound is hardening\n- A flattened cross-section: compression set — the seal has lost its spring\n- A film of oil where it was dry last month\n- Swelling or discolouration: chemistry the material doesn't like\n- You keep re-torquing the same flange\n\nAny two of these together, and the seal is on borrowed time. Note the groove size and material now, and replace it at the next planned stop — on your schedule, not the machine's.\n\nThe replacement itself is the easy part: standard seals are in stock and ship in 48/72h across Europe.\n\nWhich of these signs do you catch most often?\n\n#SealingTechnology #IndustrialMaintenance #MRO"
+      },
       { "title": "Preventive Seal Maintenance in Rotating Machinery", "framework": "I can do this now", "category": "Sealing Technology" },
       { "title": "Essential Spare Parts for Food Production", "framework": "I can do this now", "category": "Multi-category" },
-      { "title": "O-Rings That Survive Chemical Processing", "framework": "I can do this now", "category": "Sealing Technology" },
-      { "title": "Quickorder – Reordering Standard Components", "framework": "Ease / feature focus", "category": "Shop feature" },
-      { "title": "No Surcharge for Small Orders", "framework": "Ease / feature focus", "category": "Shop feature" },
-      { "title": "DirectCUT – Configuring Standard Plastic Parts", "framework": "Ease / feature focus", "category": "Plastics" }
+      {
+        "title": "O-Rings That Survive Chemical Processing",
+        "framework": "I can do this now",
+        "category": "Sealing Technology",
+        "body": "Searches for FFKM on our shop grew 6× in a year — 158 to 991 sessions by March. That's a lot of engineers rethinking one seal material at the same time.\n\nHere's the short version of what they're working out:\n\n- EPDM: excellent in hot water, steam and polar media — keep it away from oils\n- FKM: the workhorse for oils, fuels and many acids, typically to around 200 °C\n- FFKM: near-universal chemical resistance and the highest temperature ceiling of the elastomer family — priced accordingly\n\nThe rule of thumb that saves budgets: specify FFKM only at the sealing points with genuine media attack, and let FKM or EPDM do the rest. Most systems need fewer FFKM positions than they fear.\n\nSame groove, same dimensions — the swap is a compound decision, not a redesign.\n\nWhich media has surprised you the most?\n\n#SealingTechnology #ChemicalProcessing #ORings"
+      },
+      {
+        "title": "Quickorder – Reordering Standard Components",
+        "framework": "Ease / feature focus",
+        "category": "Shop feature",
+        "body": "Thirty part numbers. Thirty searches. There went the afternoon.\n\nRepeat orders are the least creative work in purchasing — the thinking happened the first time you specified the parts. The reorder shouldn't need it again.\n\nQuickorder takes your part list as a CSV, exactly as it already sits in your spreadsheet. Upload it once and every position lands in the cart with quantities. The reorder becomes a two-minute review: check stock and lead time, confirm, done.\n\nThe rest of the shop plays along: 100,000+ standard components, real-time stock visibility before you commit, 48/72h delivery on in-stock items across Europe — and no small-order surcharge when the list is short.\n\nTime your next reorder against your current process. That comparison makes the argument better than we can.\n\n#Procurement #B2B #MRO"
+      },
+      {
+        "title": "No Surcharge for Small Orders",
+        "framework": "Ease / feature focus",
+        "category": "Shop feature",
+        "body": "Two seals and a hose clamp. That's the whole order — and it's a perfectly normal one.\n\nMaintenance doesn't fail in bulk. It fails one part at a time, and the order that fixes it is small by nature. Penalising that order with a minimum-order surcharge punishes people for doing their job properly.\n\nSo there isn't one at APSOparts. A two-position order gets the same treatment as a large one: real-time stock and lead-time visibility, 48/72h delivery on in-stock items across Europe, track & trace included.\n\nThe alternatives cost more anyway — padding the cart to hit a minimum, or shelving spares you may never use, just to make an order 'worth it'.\n\nOrder the two seals. That's what the shop is for.\n\nWhat's the smallest order you've ever had to justify internally?\n\n#MRO #IndustrialMaintenance #Procurement"
+      },
+      {
+        "title": "DirectCUT – Configuring Standard Plastic Parts",
+        "framework": "Ease / feature focus",
+        "category": "Plastics",
+        "body": "The RFQ lands at 9 a.m. The customer wants the quote today — and three of your competitors got the same call.\n\nWhether you win rarely comes down to your machining. It comes down to one question: is the material available, cut to size, at a price that leaves you margin?\n\nDirectCUT answers it in minutes. Choose the engineering plastic — POM, PEEK, PTFE and the other standard semi-finished stock — enter your dimensions, and the configurator prices the cut-to-size piece on the spot, with stock and lead time visible before you commit. The number you quote is a number you can hold.\n\nNo email round-trips. No 'our supplier will confirm tomorrow'. In-stock material ships in 48/72h.\n\nQuote faster than the workshop next door.\n\n#EngineeringPlastics #CutToSize #Manufacturing"
+      }
     ],
     "paidAds": [
       { "headline": "You noticed it first.", "body": "When it's time to replace a worn seal, APSOparts has the right standard components ready to ship." },
       { "headline": "Our standard components are ready when you are.", "body": "17,000 customers trust APSOparts for fast, in-stock delivery of seals, plastics, fluid and drive parts." },
       { "headline": "We've already met – online, on time.", "body": "Engineering solutions one click away. 100,000+ products. 48/72h delivery across Europe." }
-    ]
+    ],
+    "newsletterExamples": [
+      "Subject: FFKM searches grew 6× — what's behind it\nPreheader: When to pay for FFKM, when FKM does the job, and how to switch without a redesign.\n\nHello!\n\nSomething is moving in our search logs: sessions for FFKM grew six-fold within a year — from 158 to 991 by March. When that many engineers look up the same seal material at the same time, the same problem is usually landing on many desks: media that eat standard compounds.\n\nWhere FKM ends → FKM remains the workhorse for oils, fuels and many acids, typically to around 200 °C. Aggressive solvents, hot amines and steam are where it gives up. If O-rings come out of your system swollen, hardened or sticky, the media has been telling you this for a while.\n\nWhat FFKM buys → near-universal chemical resistance and the highest temperature ceiling of the elastomer family. It also costs several times more than FKM — which is exactly why the smart strategy is selective. Specify FFKM at the handful of sealing points with genuine media attack, and let FKM or EPDM handle the rest. Most plants need far fewer FFKM positions than they fear.\n\nHow to switch without drama → same groove, same standard dimensions, different compound. Check the O-ring sizes you run today, pick the FFKM equivalent for the critical points, and keep a small reserve on the shelf. Stock and lead times are visible in the shop before you order, in-stock items ship in 48/72h across Europe, and there is no small-order surcharge if you only need two.\n\nNot sure which compound fits your media? Our support answers 1:1 by live chat and email, in seven languages. A five-minute question beats a swollen seal.\n\nFind FFKM O-rings under Sealing Technology at apsoparts.com\n\n— APSOparts",
+      "Subject: Your reorder list is already written\nPreheader: Quickorder reads your CSV, DirectUP reads your PDF order — the cart fills itself.\n\nHello!\n\nThe parts you order most often barely change. The same seals, the same plastic stock, the same clamps — quarter after quarter. What changes is how much of your day the reorder consumes.\n\nTwo shop features exist to hand that time back:\n\n→ Quickorder — your part list as a CSV, exactly as it sits in your spreadsheet today. Upload it and every position lands in the cart with quantities. A thirty-line reorder becomes a two-minute review: check stock, confirm, done.\n\n→ DirectUP — your purchasing tool generates a PDF order anyway. Upload that PDF and DirectUP reads it into an APSOparts cart: positions, part numbers, quantities. No re-typing, and no transposed digit hiding in line 14. The confirmation lands in your inbox as usual, with track & trace on the shipment.\n\nBoth stand on the same foundation: 100,000+ standard components, real-time stock and lead-time visibility before you commit, and 48/72h delivery on in-stock items across Europe. And when the top-up order is small — two seals, one clamp — there is no minimum-order surcharge. A small order is a perfectly good order.\n\nA practical suggestion: take your most recent repeat order and run it through Quickorder once. Time it against your current process. That comparison settles the question better than any newsletter could.\n\nIf a position needs a human — an alternative material, a certification question, a size you can't find — 1:1 support answers by live chat and email in seven languages.\n\nUpload your list at apsoparts.com and see where the afternoon goes instead.\n\n— APSOparts"
+    ],
+    "blogSkeleton": "# EPDM vs FKM O-Rings: Which Seal Material Fits Your Application?\n\nChoosing between EPDM and FKM comes down to one question: what does the seal touch? The two compounds have almost opposite chemical personalities, and most premature O-ring failures trace back to answering that question wrong. This guide gives you the decision rule first and the reasoning behind it after.\n\n## What is the main difference between EPDM and FKM?\n\nEPDM performs in hot water, steam and polar media but degrades in contact with mineral oils; FKM is the reverse — strong in oils, fuels and many acids, weak in steam and hot water. The working rule: water-based systems take EPDM, oil-based systems take FKM.\n\nA practical way to remember it: EPDM and FKM fail in each other's home territory. An EPDM O-ring in a hydraulic circuit swells within weeks; an FKM O-ring in a steam line hardens and cracks. Neither is the better material — each is wrong exactly where the other one is right.\n\nTypical working ranges: EPDM roughly −40 °C to +130 °C, FKM roughly −20 °C to +200 °C. Always verify the specific compound's datasheet — ranges vary by formulation.\n\n## FAQ\n\nQ: Can I replace an EPDM O-ring with an FKM one of the same size? — A: Dimensionally yes — both follow the same standard O-ring sizes, so the groove stays unchanged. Chemically, only if the media allows it: FKM handles the oils and fuels that destroy EPDM but performs worse in steam and hot water. Confirm media compatibility first, then swap like for like.\n\nQ: How do I tell if a failed O-ring was the wrong material? — A: Read the failure pattern. Swelling or a sticky surface means chemical attack — the media dissolved into the compound. Hardening and radial cracks point to heat or an exceeded temperature range. A flattened cross-section is compression set. Wrong-material failures show swelling or hardening, not mechanical wear."
   },
   "keywordSignals": {
     "internalSearchTrends": [

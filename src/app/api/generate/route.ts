@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
     ``,
     `Request: ${prompt}`,
     ``,
-    `Produce content that matches the brand voice, respects the positioning guard, and reuses signature phrases naturally. If the channel is LinkedIn or newsletter, follow the post template. If the channel is product or SEO, follow the product content page structure.`,
+    `Write like a senior industrial copywriter who knows this audience personally. Specificity beats adjectives: every claim must be concrete — a number, a named shop feature, a material property, a situation the reader recognises from their own week — or it gets cut. Respect the positioning guard and reuse signature phrases only where they land naturally, never forced. If the channel is LinkedIn or newsletter, follow the post template; if product or SEO, follow the product content page structure. Before returning, read the draft once as the target reader would — skeptical, technical, short on time — and tighten anything that sounds like marketing filler or that a competitor could claim word-for-word.`,
     briefRequested
       ? `\nAt the very end, append a concrete image brief inside exactly this tag (on its own lines): <image-brief>...</image-brief>. The brief must be 60-120 words and must reference the SPECIFIC scene the body of the content describes — not a generic workshop. Tie the image to the persona's day (workshop floor for P5/P6, R&D lab for P7, SAP/Ariba office for P1, Italian SME shop floor for P3, owner-on-shop-floor for P4, growth-stage open office for P2, distributor warehouse for P8). Include: subject + setting + lighting + camera angle + 35mm-like depth-of-field. No CAD, no stock suits, no white-bg product shots, no text overlays, no logos.`
       : null,

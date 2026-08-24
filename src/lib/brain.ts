@@ -42,8 +42,17 @@ export type Brain = {
     visualRules: string[];
   };
   goldExamples: {
-    linkedinPosts: { title: string; framework: string; category: string }[];
+    // `body` (optional) holds the COMPLETE gold post. Entries with a body are
+    // injected verbatim into the LinkedIn prompt as the quality bar; entries
+    // without one only contribute their title to the tone list.
+    linkedinPosts: { title: string; framework: string; category: string; body?: string }[];
     paidAds: { headline: string; body: string }[];
+    // Complete example newsletters (Subject/Preheader/body, plain text, signed
+    // "— APSOparts") injected into the newsletter prompt as the quality bar.
+    newsletterExamples?: string[];
+    // One exemplary blog EXCERPT (H1 + first H2 with a direct-answer opening +
+    // FAQ pairs) injected into the blog prompt as the quality bar.
+    blogSkeleton?: string;
   };
   keywordSignals: {
     internalSearchTrends: { term: string; signal: string }[];
@@ -104,10 +113,45 @@ export type PhotoGuidelines = {
   goldImageReferences: { title: string; url: string; notes: string }[];
 };
 
+/**
+ * A brain stored before the full gold examples shipped lacks the LinkedIn post
+ * bodies, newsletter examples and blog skeleton. Graft the bundled examples
+ * onto the stored brain (read-only — nothing is persisted) so the quality-bar
+ * injection works without requiring a manual re-train. Stored values always
+ * win when present.
+ */
+async function withGoldExampleFallbacks(stored: Brain): Promise<Brain> {
+  const g = stored.goldExamples;
+  const hasBodies = g?.linkedinPosts?.some((p) => p.body && p.body.trim());
+  if (hasBodies && g?.newsletterExamples?.length && g?.blogSkeleton) return stored;
+  try {
+    const bundled = JSON.parse(await fs.readFile(BRAIN_PATH, "utf8")) as Brain;
+    const bg = bundled.goldExamples;
+    return {
+      ...stored,
+      goldExamples: {
+        ...g,
+        linkedinPosts: hasBodies
+          ? g.linkedinPosts
+          : (g?.linkedinPosts ?? []).map((p) => {
+              const match = bg.linkedinPosts.find((b) => b.title === p.title && b.body);
+              return match ? { ...p, body: match.body } : p;
+            }),
+        newsletterExamples: g?.newsletterExamples?.length
+          ? g.newsletterExamples
+          : bg.newsletterExamples,
+        blogSkeleton: g?.blogSkeleton || bg.blogSkeleton,
+      },
+    };
+  } catch {
+    return stored;
+  }
+}
+
 export async function readBrain(): Promise<Brain> {
   try {
     const stored = await kvGet<Brain>(BRAIN_KEY);
-    if (stored) return stored;
+    if (stored) return withGoldExampleFallbacks(stored);
   } catch {
     // Database unreachable — fall through to the bundled file so generation
     // keeps working read-only.
@@ -136,6 +180,15 @@ const CHANNEL_RULES: Record<string, string[]> = {
     `- End with a light CTA that invites a comment or a click (question, "what's your take?", link to a product family). No pushy sales language.`,
     `- 2–4 tasteful hashtags at the very bottom, industry-relevant (#SealingTechnology, #IndustrialMaintenance, #MRO, #B2B). No emoji spam — at most 1 subtle emoji if it genuinely fits.`,
     `- Never use "Excited to announce", "We are thrilled", or any promotional cliché.`,
+    ``,
+    `# HOOK CRAFT (the first line decides whether anyone reads line two)`,
+    `Pick ONE pattern and execute it sharply — a hook is a specific claim, never a warm-up:`,
+    `- Number-first: lead with one concrete figure. "Searches for FFKM on our shop grew 6× in a year."`,
+    `- Contrarian: reverse an assumption the reader holds. "The cheapest seal in your plant causes the most expensive downtime."`,
+    `- Situation-recognition: drop the reader into a moment from their own day. "The RFQ lands at 9 a.m. The quote has to go out today."`,
+    `- Cost-of-inaction: name what waiting costs. "A worn shaft seal replaces itself eventually — together with the bearing."`,
+    `- Question — only if sharp: a question the reader can answer instantly and specifically. "How many part numbers are in your reorder spreadsheet?" Never a rhetorical filler question.`,
+    `BANNED OPENERS — never start a post with these or close variants: "In today's...", "Did you know...", "Are you struggling...", "We are excited...", "Attention [audience]...", "Imagine...", "In the world of...", "Let's talk about...", "Have you ever...".`,
   ],
   newsletter: [
     `# NEWSLETTER RULES (email)`,
@@ -202,6 +255,46 @@ const CHANNEL_RULES: Record<string, string[]> = {
 // Channels whose output contract REQUIRES markdown. Everything else must be
 // plain text (LinkedIn/email render markdown literally).
 const MARKDOWN_CHANNELS = new Set(["blog", "product"]);
+
+/**
+ * Full gold examples for the flagship channels. LinkedIn gets up to three
+ * COMPLETE posts (the first three with a body), newsletter gets the two
+ * complete example newsletters. Falls back to the legacy title list when no
+ * full examples exist so older stored brains keep working.
+ */
+function goldExampleLines(brain: Brain, channel?: string): string[] {
+  const gold = brain.goldExamples;
+  const titleFallback = [
+    ``,
+    `# GOLD LINKEDIN EXAMPLES (titles — match this tone)`,
+    ...gold.linkedinPosts.map((p) => `- ${p.title} [${p.framework}]`),
+  ];
+  if (channel === "linkedin") {
+    const full = gold.linkedinPosts.filter((p) => p.body && p.body.trim());
+    if (!full.length) return titleFallback;
+    return [
+      ``,
+      `# GOLD EXAMPLES — match this exact quality bar`,
+      `These are finished APSOparts posts. Match their hook sharpness, concreteness, rhythm and restraint. Do NOT copy their wording, reuse their topics, or recycle their specific numbers — produce something equally good about the requested subject.`,
+      ...full.slice(0, 3).flatMap((p, i) => [
+        ``,
+        `--- EXAMPLE ${i + 1}: ${p.title} [${p.framework}] ---`,
+        p.body!.trim(),
+      ]),
+    ];
+  }
+  if (channel === "newsletter") {
+    const newsletters = (gold.newsletterExamples ?? []).filter((n) => n.trim());
+    if (!newsletters.length) return titleFallback;
+    return [
+      ``,
+      `# GOLD EXAMPLES — match this exact quality bar`,
+      `These are finished APSOparts newsletters. Match their structure (Subject → Preheader → labelled sections → one CTA → sign-off), their concreteness and their peer-to-peer warmth. Do NOT copy their wording or reuse their topics.`,
+      ...newsletters.slice(0, 2).flatMap((n, i) => [``, `--- EXAMPLE ${i + 1} ---`, n.trim()]),
+    ];
+  }
+  return [];
+}
 
 export function brandSystemPrompt(
   brain: Brain,
@@ -316,9 +409,14 @@ export function brandSystemPrompt(
           `Length: ${sm.lengthGuidance}`,
           `Post template:`,
           ...sm.postTemplate.map((s, i) => `${i + 1}. ${s}`),
+          ...goldExampleLines(brain, channel),
+        ]
+      : []),
+    ...(channel === "blog" && brain.goldExamples.blogSkeleton?.trim()
+      ? [
           ``,
-          `# GOLD LINKEDIN EXAMPLES (titles — match this tone)`,
-          ...brain.goldExamples.linkedinPosts.map((p) => `- ${p.title} [${p.framework}]`),
+          `# QUALITY BAR EXCERPT (opening of a finished APSOparts article — match its directness, section structure and FAQ style; do NOT reuse its topic or numbers)`,
+          brain.goldExamples.blogSkeleton.trim(),
         ]
       : []),
     ...(isProduct

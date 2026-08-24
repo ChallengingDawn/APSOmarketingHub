@@ -10,6 +10,26 @@ const BANNED_PHRASES = [
   "unlock the",
   "discover the",
   "engineered to perfection",
+  "we are excited",
+  "excited to share",
+  "game-changer",
+  "game-changing",
+  "in today's fast-paced",
+];
+
+// Generic-hook openers (mirrors the BANNED OPENERS list in
+// CHANNEL_RULES.linkedin). Checked only against the START of the first
+// non-empty line — mid-text occurrences are handled by BANNED_PHRASES.
+const BANNED_OPENERS = [
+  "in today's",
+  "did you know",
+  "are you struggling",
+  "we are excited",
+  "attention",
+  "imagine",
+  "in the world of",
+  "let's talk about",
+  "have you ever",
 ];
 
 function wordCount(text: string): number {
@@ -30,6 +50,17 @@ export function validateChannelOutput(channel: string, text: string): string[] {
 
   switch (channel) {
     case "linkedin": {
+      const firstLine =
+        text
+          .split("\n")
+          .find((l) => l.trim().length > 0)
+          ?.trim()
+          .toLowerCase() ?? "";
+      const opener = BANNED_OPENERS.find((o) => firstLine.startsWith(o));
+      if (opener)
+        violations.push(
+          `Opens with the banned generic opener "${opener}..." — rewrite the hook using one of the hook patterns (number-first, contrarian, situation-recognition, cost-of-inaction, or a sharp question).`
+        );
       const words = wordCount(text.replace(/#\w+/g, ""));
       if (words > 220) violations.push(`Post is ${words} words — LinkedIn rule is 80–160. Tighten it.`);
       const hashtags = (text.match(/#[A-Za-z]\w+/g) ?? []).length;

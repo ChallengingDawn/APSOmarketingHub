@@ -37,9 +37,9 @@ const FALLBACK_IMAGES = ["/mood/oring.png", "/mood/no-surcharge.png", "/mood/ori
 // Each of the three parallel proposals gets a distinct angle so they don't
 // converge on the same idea (structured runs are near-deterministic).
 const ANGLES = [
-  `Angle for THIS proposal: problem-first. Open on a concrete pain, failure mode, or costly mistake the reader recognises from their own work, then resolve it.`,
-  `Angle for THIS proposal: ease-first. Lead with a specific APSOparts shop capability that removes friction (DirectCUT, Quickorder, 48/72h delivery, no-surcharge) and what it changes in the reader's day.`,
-  `Angle for THIS proposal: knowledge-first. Lead with a genuinely useful technical insight, rule of thumb, or comparison the reader will want to save — the brand appears only as the competent source.`,
+  `Angle for THIS proposal: problem-first. Name ONE specific failure scenario — a moment where something concretely goes wrong (a swollen O-ring found at inspection, a line down before the morning shift, a quote lost because raw material wasn't confirmed in time) — open the piece INSIDE that moment, then resolve it. The scenario must be specific enough that a reader thinks "that exact thing happened to us". No generic "downtime is costly" framing.`,
+  `Angle for THIS proposal: ease-first. Pick exactly ONE named APSOparts shop capability — DirectCUT, Quickorder, DirectUP, no small-order surcharge, real-time stock visibility, or 48/72h delivery — and build the ENTIRE piece around it: the tedious manual process it replaces, what concretely changes in the reader's day, one before/after contrast. Do not stack or list multiple features; depth on one beats a tour of six.`,
+  `Angle for THIS proposal: knowledge-first. Teach ONE rule of thumb an engineer would screenshot and keep — a material boundary (temperature/media limits), a comparison that settles a common either/or choice, or an inspection heuristic — stated crisply enough to be quoted in a meeting. The brand appears only as the competent source; no pitch, no feature list.`,
 ];
 
 const PROPOSAL_SCHEMA = {
@@ -137,6 +137,8 @@ export async function POST(req: NextRequest) {
             `Produce ONE ${channel} proposal${topic ? ` about: ${topic}` : ""}.`,
             ``,
             angle,
+            ``,
+            `Write like a senior industrial copywriter: specificity beats adjectives, and every claim is concrete — a number, a named feature, a material property, a recognisable situation — or it gets cut. Before returning, read the draft once as the target reader would (skeptical, technical, short on time) and tighten anything that reads as marketing filler.`,
             ``,
             expectation ? `FORMAT (mandatory): ${expectation}` : ``,
             imageRule,
