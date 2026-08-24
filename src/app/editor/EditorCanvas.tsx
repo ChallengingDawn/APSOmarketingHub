@@ -25,6 +25,10 @@ import SaveIcon from "@mui/icons-material/Save";
 import FlipToFrontIcon from "@mui/icons-material/FlipToFront";
 import FlipToBackIcon from "@mui/icons-material/FlipToBack";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
+import HorizontalRuleIcon from "@mui/icons-material/HorizontalRule";
+import LockIcon from "@mui/icons-material/Lock";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -74,6 +78,9 @@ type NodeSpec = {
   lineHeight?: number;
   opacity?: number;
   src?: string; // image nodes
+  letterSpacing?: number;
+  shadow?: boolean;
+  locked?: boolean;
   background?: boolean; // text nodes: rounded pill behind the text
   backgroundFill?: string; // pill colour (auto-contrast when unset)
 };
@@ -146,6 +153,7 @@ export default function EditorCanvas({
   initialImage,
   initialTemplateId,
   initialTexts,
+  seedSignal,
   painting,
   onExported,
   toolsContainer,
@@ -154,6 +162,8 @@ export default function EditorCanvas({
   initialImage?: string | null;
   initialTemplateId?: string;
   initialTexts?: SeedText[];
+  /** Increment to append the generated text onto the canvas (no auto-seed). */
+  seedSignal?: number;
   /** Background image is being generated — show the painting state on the artboard. */
   painting?: boolean;
   /** Called with the exported PNG data URL after Attach / Use design. */
@@ -277,10 +287,10 @@ export default function EditorCanvas({
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
   /* seed generated text onto the canvas (once per mount) */
-  const seededRef = useRef(false);
+  const lastSeedRef = useRef(0);
   useEffect(() => {
-    if (seededRef.current || !initialTexts?.length) return;
-    seededRef.current = true;
+    if (!seedSignal || seedSignal === lastSeedRef.current || !initialTexts?.length) return;
+    lastSeedRef.current = seedSignal;
     const seeds: NodeSpec[] = [];
     let y = canvas.h * 0.08;
     for (const t of initialTexts) {
@@ -299,12 +309,13 @@ export default function EditorCanvas({
         width: canvas.w * 0.88,
         align: "left",
         lineHeight: 1.2,
+        background: true,
       });
-      y += fontSize * 1.5 * Math.max(1, Math.ceil(t.text.length / 40));
+      y += fontSize * 1.6 * Math.max(1, Math.ceil(t.text.length / 40));
     }
-    applyNodes(seeds);
+    commit((cur) => [...cur, ...seeds]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTexts]);
+  }, [seedSignal]);
 
   /* uploaded/imported image elements cache */
   const [imgEls, setImgEls] = useState<Record<string, HTMLImageElement>>({});
@@ -357,9 +368,10 @@ export default function EditorCanvas({
       tr.nodes([]);
       return;
     }
+    const spec = nodes.find((n) => n.id === selectedId);
     const node = stage.findOne(`#${selectedId}`);
-    if (node) tr.nodes([node as Konva.Node]);
-    else tr.nodes([]); // never leave the transformer attached to a removed node
+    if (node && !spec?.locked) tr.nodes([node as Konva.Node]);
+    else tr.nodes([]); // never leave the transformer attached to a removed or locked node
     tr.getLayer()?.batchDraw();
   }, [selectedId, nodes]);
 
@@ -399,6 +411,36 @@ export default function EditorCanvas({
       { id, kind: "rect", x: canvas.w * 0.08, y: canvas.h * 0.75, width: canvas.w * 0.28, height: Math.round(canvas.h * 0.1), fill: "#ed1b2f", cornerRadius: 6 },
     ]);
     setSelectedId(id);
+  };
+
+  const addCircle = () => {
+    const id = nid();
+    const d = Math.round(canvas.h * 0.3);
+    commit((cur) => [
+      ...cur,
+      { id, kind: "rect", x: canvas.w * 0.1, y: canvas.h * 0.3, width: d, height: d, fill: "#274e64", cornerRadius: 9999 },
+    ]);
+    setSelectedId(id);
+  };
+
+  const addLine = () => {
+    const id = nid();
+    commit((cur) => [
+      ...cur,
+      { id, kind: "rect", x: canvas.w * 0.08, y: canvas.h * 0.5, width: canvas.w * 0.4, height: 6, fill: "#1a1d21", cornerRadius: 3 },
+    ]);
+    setSelectedId(id);
+  };
+
+  const moveNode = (id: string, dir: 1 | -1) => {
+    commit((cur) => {
+      const i = cur.findIndex((n) => n.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= cur.length) return cur;
+      const next = [...cur];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
   };
 
   const removeSelected = useCallback(() => {
@@ -764,6 +806,16 @@ export default function EditorCanvas({
             <CropSquareIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        <Tooltip title="Circle">
+          <IconButton onClick={addCircle} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
+            <CircleOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Divider line">
+          <IconButton onClick={addLine} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
+            <HorizontalRuleIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
       <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700, mb: 2 }}>
         Import photo / logo
@@ -859,6 +911,49 @@ export default function EditorCanvas({
           <Chip key={t.id} label={t.name} size="small" onClick={() => loadTemplate(t)} sx={{ justifyContent: "flex-start", fontWeight: 600, bgcolor: "#f0f1f3" }} />
         ))}
       </Box>
+
+          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mt: 2, mb: 1 }}>
+            Layers
+          </Typography>
+          {nodes.length === 0 ? (
+            <Typography sx={{ fontSize: 12, color: "#8a93a0" }}>Nothing on the canvas yet.</Typography>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, maxHeight: 200, overflow: "auto" }}>
+              {[...nodes].reverse().map((n) => (
+                <Box
+                  key={n.id}
+                  onClick={() => setSelectedId(n.id)}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    px: 0.75,
+                    py: 0.4,
+                    borderRadius: 1,
+                    cursor: "pointer",
+                    bgcolor: selectedId === n.id ? "#e8f0f4" : "transparent",
+                    "&:hover": { bgcolor: selectedId === n.id ? "#e8f0f4" : "#f5f6f8" },
+                  }}
+                >
+                  <Typography noWrap sx={{ flex: 1, fontSize: 12, color: "#1a1d21", minWidth: 0 }}>
+                    {n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? "Image" : "Shape"}
+                  </Typography>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); moveNode(n.id, 1); }} sx={{ p: 0.25 }}>
+                    <FlipToFrontIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); moveNode(n.id, -1); }} sx={{ p: 0.25 }}>
+                    <FlipToBackIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); patch(n.id, { locked: !n.locked }); }} sx={{ p: 0.25, color: n.locked ? "#ed1b2f" : "#8a93a0" }}>
+                    {n.locked ? <LockIcon sx={{ fontSize: 14 }} /> : <LockOpenIcon sx={{ fontSize: 14 }} />}
+                  </IconButton>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); commit((cur) => cur.filter((x) => x.id !== n.id)); if (selectedId === n.id) setSelectedId(null); }} sx={{ p: 0.25, color: "#c5221f" }}>
+                    <DeleteIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
     </Box>
   );
 
@@ -993,6 +1088,33 @@ export default function EditorCanvas({
                     />
                   </Tooltip>
                 )}
+                {selected.kind === "text" && (
+                  <Tooltip title="Letter spacing">
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={selected.letterSpacing ?? 0}
+                      onChange={(e) => patch(selected.id, { letterSpacing: Math.min(40, Math.max(-2, Number(e.target.value) || 0)) })}
+                      inputProps={{ step: 0.5 }}
+                      sx={{ width: 78 }}
+                    />
+                  </Tooltip>
+                )}
+                <Tooltip title="Drop shadow">
+                  <Button
+                    size="small"
+                    variant={selected.shadow ? "contained" : "outlined"}
+                    onClick={() => patch(selected.id, { shadow: !selected.shadow })}
+                    sx={{ minWidth: 44, fontWeight: 700 }}
+                  >
+                    Sh
+                  </Button>
+                </Tooltip>
+                <Tooltip title={selected.locked ? "Unlock" : "Lock position"}>
+                  <IconButton size="small" onClick={() => patch(selected.id, { locked: !selected.locked })} sx={{ color: selected.locked ? "#ed1b2f" : "#5b6470" }}>
+                    {selected.locked ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Opacity">
                   <TextField
                     type="number"
@@ -1201,8 +1323,13 @@ export default function EditorCanvas({
                       fill={n.fill}
                       align={n.align}
                       lineHeight={n.lineHeight ?? 1.25}
+                      letterSpacing={n.letterSpacing ?? 0}
                       opacity={n.opacity ?? 1}
-                      draggable
+                      shadowColor="rgba(0,0,0,0.45)"
+                      shadowBlur={n.shadow ? 14 : 0}
+                      shadowOffsetY={n.shadow ? 4 : 0}
+                      shadowEnabled={Boolean(n.shadow)}
+                      draggable={!n.locked}
                       onClick={() => setSelectedId(n.id)}
                       onTap={() => setSelectedId(n.id)}
                       onDblClick={() => editTextInline(n)}
@@ -1233,7 +1360,11 @@ export default function EditorCanvas({
                     image={imgEls[n.id]}
                     cornerRadius={n.cornerRadius}
                     opacity={n.opacity ?? 1}
-                    draggable
+                    shadowColor="rgba(0,0,0,0.45)"
+                    shadowBlur={n.shadow ? 14 : 0}
+                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowEnabled={Boolean(n.shadow)}
+                    draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}
                     onTap={() => setSelectedId(n.id)}
                     onDragMove={onDragMove}
@@ -1259,9 +1390,13 @@ export default function EditorCanvas({
                     width={n.width}
                     height={n.height}
                     fill={n.fill}
-                    cornerRadius={n.cornerRadius}
+                    cornerRadius={Math.min(n.cornerRadius ?? 0, Math.min(n.width ?? 0, n.height ?? 0) / 2)}
                     opacity={n.opacity ?? 1}
-                    draggable
+                    shadowColor="rgba(0,0,0,0.45)"
+                    shadowBlur={n.shadow ? 14 : 0}
+                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowEnabled={Boolean(n.shadow)}
+                    draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}
                     onTap={() => setSelectedId(n.id)}
                     onDragMove={onDragMove}

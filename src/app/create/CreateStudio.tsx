@@ -46,6 +46,8 @@ import dynamic from "next/dynamic";
 import BrushIcon from "@mui/icons-material/Brush";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import GroupsIcon from "@mui/icons-material/Groups";
+import TitleIcon from "@mui/icons-material/Title";
 import type { SeedText } from "../editor/EditorCanvas";
 
 // Konva is client-only
@@ -109,7 +111,7 @@ const RED = "#ed1b2f";
 const geoChannels = new Set(["blog", "seo"]);
 
 /** Sidebar accordion sections. */
-type SectionKey = "setup" | "tools" | "intel";
+type SectionKey = "setup" | "personas" | "tools" | "intel";
 
 const SIDEBAR_W = 300;
 const SIDEBAR_COLLAPSED_W = 44;
@@ -172,12 +174,13 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [savingEdit, setSavingEdit] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [briefText, setBriefText] = useState("");
-  const [personasOpen, setPersonasOpen] = useState(false);
+  const [briefExpanded, setBriefExpanded] = useState(false);
+  const [seedSignal, setSeedSignal] = useState(0);
   const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
 
   /* layout: collapsible sidebar, accordion sections, content panel */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({ setup: true, tools: true, intel: false });
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({ setup: true, personas: false, tools: true, intel: false });
   const [contentOpen, setContentOpen] = useState(true);
   /* host element the canvas tools portal renders into (must exist before EditorCanvas mounts) */
   const toolsHostRef = useRef<HTMLDivElement | null>(null);
@@ -511,13 +514,18 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
             <TextField
               multiline
               minRows={1}
-              maxRows={3}
+              maxRows={briefExpanded ? 24 : 3}
               size="small"
               placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               sx={{ flex: 1, minWidth: 260, "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
             />
+            <Tooltip title={briefExpanded ? "Collapse the brief" : "Show the full brief"}>
+              <IconButton size="small" onClick={() => setBriefExpanded((v) => !v)} sx={{ mt: 0.5 }}>
+                <ChevronRightIcon sx={{ fontSize: 20, color: "#5b6470", transform: briefExpanded ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform 0.2s" }} />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
               <span>
                 <Button
@@ -598,6 +606,11 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                     <TuneIcon sx={{ fontSize: 19, color: NAVY }} />
                   </IconButton>
                 </Tooltip>
+                <Tooltip title="Personas" placement="right">
+                  <IconButton size="small" onClick={() => expandSection("personas")}>
+                    <GroupsIcon sx={{ fontSize: 19, color: NAVY }} />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Canvas tools" placement="right">
                   <IconButton size="small" onClick={() => expandSection("tools")}>
                     <BrushIcon sx={{ fontSize: 19, color: RED }} />
@@ -616,65 +629,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
               {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.setup}>
                 <Box sx={{ px: 2, pb: 2 }}>
-                  <Box
-                    onClick={() => setPersonasOpen((v) => !v)}
-                    sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", mb: 1 }}
-                  >
-                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      Write for{personaIds.length ? ` · ${personaIds.length} selected` : " · general"}
-                    </Typography>
-                    <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: personasOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
-                  </Box>
-                  <Collapse in={personasOpen}>
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 2 }}>
-                    <Box
-                      onClick={() => setPersonaIds([])}
-                      sx={{
-                        p: 1.25,
-                        borderRadius: 1.5,
-                        border: `1.5px solid ${personaIds.length === 0 ? NAVY : "#e6e8ec"}`,
-                        bgcolor: personaIds.length === 0 ? "#e8f0f4" : "#fff",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>General audience</Typography>
-                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>Brand voice — or select one or MORE personas below</Typography>
-                    </Box>
-                    {personas.map((p) => {
-                      const on = personaIds.includes(p.id);
-                      return (
-                        <Box
-                          key={p.id}
-                          onClick={() => togglePersona(p.id)}
-                          sx={{
-                            p: 1.25,
-                            borderRadius: 1.5,
-                            border: `1.5px solid ${on ? NAVY : "#e6e8ec"}`,
-                            bgcolor: on ? "#e8f0f4" : "#fff",
-                            cursor: "pointer",
-                            transition: "all 0.15s ease",
-                            "&:hover": { borderColor: NAVY },
-                          }}
-                        >
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: on ? NAVY : "#f0f1f3", color: on ? "#fff" : "#5b6470", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>
-                              {on ? "✓" : p.code}
-                            </Box>
-                            <Box sx={{ minWidth: 0, flex: 1 }}>
-                              <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>{p.name}</Typography>
-                              <Typography noWrap sx={{ fontSize: 11, color: "#5b6470" }}>{p.role}</Typography>
-                            </Box>
-                          </Box>
-                        </Box>
-                      );
-                    })}
-                    {personaIds.length > 1 && (
-                      <Typography sx={{ fontSize: 11.5, color: NAVY, fontWeight: 600, px: 0.5 }}>
-                        {personaIds.length} personas selected — the engine writes to their shared ground.
-                      </Typography>
-                    )}
-                  </Box>
-                  </Collapse>
+
 
                   <Grid container spacing={1.25} sx={{ mb: 1.5 }}>
                     <Grid size={6}>
@@ -789,6 +744,62 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
               </Collapse>
 
               {/* ── section: Canvas tools (EditorCanvas portals its tools panel here) ── */}
+              {sectionHeader("personas", `Personas${personaIds.length ? ` · ${personaIds.length}` : ""}`, <GroupsIcon sx={{ fontSize: 18, color: NAVY }} />)}
+              <Collapse in={openSections.personas}>
+                <Box sx={{ px: 2, pb: 2 }}>
+
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 2 }}>
+                    <Box
+                      onClick={() => setPersonaIds([])}
+                      sx={{
+                        p: 1.25,
+                        borderRadius: 1.5,
+                        border: `1.5px solid ${personaIds.length === 0 ? NAVY : "#e6e8ec"}`,
+                        bgcolor: personaIds.length === 0 ? "#e8f0f4" : "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>General audience</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>Brand voice — or select one or MORE personas below</Typography>
+                    </Box>
+                    {personas.map((p) => {
+                      const on = personaIds.includes(p.id);
+                      return (
+                        <Box
+                          key={p.id}
+                          onClick={() => togglePersona(p.id)}
+                          sx={{
+                            p: 1.25,
+                            borderRadius: 1.5,
+                            border: `1.5px solid ${on ? NAVY : "#e6e8ec"}`,
+                            bgcolor: on ? "#e8f0f4" : "#fff",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            "&:hover": { borderColor: NAVY },
+                          }}
+                        >
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: on ? NAVY : "#f0f1f3", color: on ? "#fff" : "#5b6470", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>
+                              {on ? "✓" : p.code}
+                            </Box>
+                            <Box sx={{ minWidth: 0, flex: 1 }}>
+                              <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>{p.name}</Typography>
+                              <Typography noWrap sx={{ fontSize: 11, color: "#5b6470" }}>{p.role}</Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                    {personaIds.length > 1 && (
+                      <Typography sx={{ fontSize: 11.5, color: NAVY, fontWeight: 600, px: 0.5 }}>
+                        {personaIds.length} personas selected — the engine writes to their shared ground.
+                      </Typography>
+                    )}
+                  </Box>
+
+                </Box>
+              </Collapse>
+
               {sectionHeader("tools", "Canvas tools", <BrushIcon sx={{ fontSize: 18, color: RED }} />)}
               <Collapse in={openSections.tools}>
                 <Box sx={{ px: 2, pb: 2 }}>
@@ -957,6 +968,13 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                     </Box>
                   )}
                   <Box sx={{ flex: 1 }} />
+                  {((designing.target === "draft" && draft) || designing.target === "concept") && (
+                    <Tooltip title="Place the generated headline and copy onto the canvas as editable text (with readable pills)">
+                      <Button size="small" onClick={() => setSeedSignal((v) => v + 1)} startIcon={<TitleIcon sx={{ fontSize: 15 }} />} sx={{ fontWeight: 700, color: NAVY }}>
+                        Insert text
+                      </Button>
+                    </Tooltip>
+                  )}
                   {draft && designing.target !== "draft" && (
                     <Button size="small" onClick={() => setDesigning({ target: "draft" })} sx={{ fontWeight: 700, color: NAVY }}>
                       Back to draft
@@ -986,7 +1004,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                           ? concepts[designing.idx]?.imageUrl ?? null
                           : null
                     }
-                    initialTexts={
+                    seedSignal={seedSignal}
+                initialTexts={
                       designing.target === "draft" && draft
                         ? seedTextsFor(channel, draft.content)
                         : designing.target === "concept" && concepts[designing.idx]
