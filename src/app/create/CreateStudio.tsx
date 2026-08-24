@@ -41,6 +41,12 @@ import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import MarkdownPreview from "./MarkdownPreview";
+import dynamic from "next/dynamic";
+import CloseIcon from "@mui/icons-material/Close";
+import BrushIcon from "@mui/icons-material/Brush";
+
+// Konva is client-only
+const EditorCanvas = dynamic(() => import("../editor/EditorCanvas"), { ssr: false });
 import Link from "next/link";
 
 /* ── types ── */
@@ -145,6 +151,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [savingEdit, setSavingEdit] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [briefText, setBriefText] = useState("");
+  const [designing, setDesigning] = useState<null | { target: "draft" } | { target: "concept"; idx: number }>(null);
 
   const mdChannel = channel === "blog" || channel === "product";
 
@@ -900,9 +907,9 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                   <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
                     Library
                   </Button>
-                  {draft.draftId && draft.imageUrl && (
-                    <Button component={Link} href={`/editor?item=${draft.draftId}`} startIcon={<EditIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
-                      Open in editor
+                  {draft.imageUrl && (
+                    <Button onClick={() => setDesigning({ target: "draft" })} startIcon={<BrushIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
+                      Edit design
                     </Button>
                   )}
                 </Box>
@@ -1005,6 +1012,11 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                             {c.imageBusy ? "…" : "New image"}
                             </Button>
                           )}
+                          {c.imageUrl && (
+                            <Button size="small" startIcon={<BrushIcon sx={{ fontSize: 13 }} />} onClick={() => setDesigning({ target: "concept", idx: i })} sx={{ fontWeight: 700, color: "#ed1b2f", minWidth: 0 }}>
+                              Edit
+                            </Button>
+                          )}
                           <Button
                             size="small"
                             startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
@@ -1028,6 +1040,39 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                 ))}
               </Grid>
             </>
+          )}
+
+          {/* ── Embedded design editor ── */}
+          {designing && (
+            <Card sx={{ mt: 2.5 }} className="fade-in-result">
+              <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
+                    Design editor — {designing.target === "draft" ? "draft image" : `concept ${designing.idx + 1}`}
+                  </Typography>
+                </Box>
+                <Button startIcon={<CloseIcon />} onClick={() => setDesigning(null)} sx={{ fontWeight: 600, color: "#5b6470" }}>
+                  Close
+                </Button>
+              </Box>
+              <Box sx={{ p: 2 }}>
+                <EditorCanvas
+                  key={designing.target === "draft" ? `draft-${draft?.draftId ?? "x"}` : `concept-${designing.idx}`}
+                  itemId={designing.target === "draft" ? draft?.draftId : undefined}
+                  initialImage={designing.target === "draft" ? draft?.imageUrl ?? null : concepts[designing.idx]?.imageUrl ?? null}
+                  onExported={(url) => {
+                    if (designing.target === "draft") {
+                      setDraft((d) => (d ? { ...d, imageUrl: url } : d));
+                    } else {
+                      const idx = designing.idx;
+                      setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
+                    }
+                    setDesigning(null);
+                  }}
+                />
+              </Box>
+            </Card>
           )}
         </Box>
       )}

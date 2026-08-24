@@ -89,10 +89,13 @@ export default function EditorCanvas({
   itemId,
   initialImage,
   initialTemplateId,
+  onExported,
 }: {
   itemId?: number;
   initialImage?: string | null;
   initialTemplateId?: string;
+  /** Called with the exported PNG data URL after Attach / Use design. */
+  onExported?: (dataUrl: string) => void;
 }) {
   const fonts = useResolvedFonts();
 
@@ -327,6 +330,7 @@ export default function EditorCanvas({
           body: JSON.stringify({ imageUrl: url }),
         });
         setNotice(res.ok ? `Design attached to draft #${itemId} in the Library.` : "Attaching failed — download instead.");
+        if (res.ok && url) onExported?.(url);
       } catch {
         setNotice("Attaching failed — download instead.");
       } finally {
@@ -496,6 +500,21 @@ export default function EditorCanvas({
             {itemId && (
               <Button onClick={attachToDraft} disabled={saving} startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />} variant="contained" sx={{ bgcolor: "#274e64", fontWeight: 700 }}>
                 {saving ? "Attaching…" : "Attach to draft"}
+              </Button>
+            )}
+            {!itemId && onExported && (
+              <Button
+                onClick={() =>
+                  requestAnimationFrame(() => {
+                    const url = exportDataUrl();
+                    if (url) onExported(url);
+                  })
+                }
+                startIcon={<SaveIcon />}
+                variant="contained"
+                sx={{ bgcolor: "#274e64", fontWeight: 700 }}
+              >
+                Use design
               </Button>
             )}
             <Button onClick={download} startIcon={<DownloadIcon />} variant="contained" sx={{ bgcolor: "#ed1b2f", fontWeight: 700 }}>
