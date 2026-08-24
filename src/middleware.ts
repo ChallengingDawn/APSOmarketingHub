@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
   "/_next",
   "/favicon",
   "/icon",
+  "/dev-canvas", // E2E canvas harness — the page itself is gated on NEXT_PUBLIC_E2E=1
 ];
 
 function getSecret(): Uint8Array {

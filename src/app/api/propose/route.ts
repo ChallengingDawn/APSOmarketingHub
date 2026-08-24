@@ -47,7 +47,8 @@ const PROPOSAL_SCHEMA = {
   properties: {
     headline: {
       type: "string",
-      description: "Scroll-stopping opening line, max 12 words, in the requested language.",
+      description:
+        "Scroll-stopping opening line that also works as a standalone visual headline over an image: max 8 words, concrete, no colon-splitting, in the requested language.",
     },
     body: {
       type: "string",
@@ -57,7 +58,7 @@ const PROPOSAL_SCHEMA = {
     imagePrompt: {
       type: "string",
       description:
-        "Concrete visual brief for an accompanying image, or empty string when no image is wanted.",
+        "Concrete brief for ONE photorealistic B2B industrial photograph with clean negative space in the lower-left third for a text overlay and no text of any kind in the image, or empty string when no image is wanted.",
     },
   },
   required: ["headline", "body", "imagePrompt"],
@@ -119,7 +120,15 @@ export async function POST(req: NextRequest) {
     if (volatile.trim()) systemBlocks.push({ type: "text", text: volatile });
 
     const imageRule = wantsImage
-      ? `"imagePrompt": a concrete visual brief for the image that accompanies the post. Industrial aesthetic, hands/tools/components in realistic context. Never CAD, never stock suits, never white-background product shots, never promotional badges.`
+      ? [
+          `"imagePrompt": a 40-80 word brief for ONE photograph that accompanies this proposal. The brief MUST follow this recipe:`,
+          `(a) a photorealistic professional B2B industrial marketing photograph directly relevant to the topic — name the concrete subject (the specific sealing component, polymer part, machine, material or engineering situation this proposal is about), shot in a real industrial context, never a generic workshop;`,
+          `(b) composition MUST reserve generous clean negative space in the lower-left third of the frame — dark, out-of-focus, or a plain uncluttered surface — for a text overlay, and the brief must say this explicitly; the subject sits right of centre or in the upper half;`,
+          `(c) subtle brand-compatible palette: deep navy and petrol tones with cool greys, at most one small red accent, no warm orange glow;`,
+          `(d) soft directional light, shallow depth of field, premium editorial look;`,
+          `(e) state that the image contains ABSOLUTELY NO text, letters, numbers, logos, watermarks, labels or UI — image models render these as gibberish;`,
+          `(f) ONE single scene: no collage, no split frame, no CAD, no schematic, no white-background product shot, no stock-photo people in suits.`,
+        ].join("\n")
       : `"imagePrompt": return an empty string.`;
 
     const budget = channelBudget(channel);
@@ -138,7 +147,7 @@ export async function POST(req: NextRequest) {
             ``,
             angle,
             ``,
-            `Write like a senior industrial copywriter: specificity beats adjectives, and every claim is concrete — a number, a named feature, a material property, a recognisable situation — or it gets cut. Before returning, read the draft once as the target reader would (skeptical, technical, short on time) and tighten anything that reads as marketing filler.`,
+            `Write like a senior industrial copywriter: specificity beats adjectives, and every claim is concrete — a number, a named feature, a material property, a recognisable situation — or it gets cut. The FIRST LINE of the "body" must work as a standalone visual headline: 8 words or fewer, concrete, no colon-splitting, readable on its own over an image. Before returning, read the draft once as the target reader would (skeptical, technical, short on time) and tighten anything that reads as marketing filler.`,
             ``,
             expectation ? `FORMAT (mandatory): ${expectation}` : ``,
             imageRule,

@@ -116,16 +116,118 @@ type SectionKey = "setup" | "personas" | "tools" | "intel";
 const SIDEBAR_W = 300;
 const SIDEBAR_COLLAPSED_W = 44;
 
-/** Seed the canvas with the generated copy: headline always, body for short channels. */
-function seedTextsFor(channel: string, content: string): SeedText[] {
-  const firstLine = content.split("\n").find((l) => l.trim().length > 0)?.replace(/^#+\s*/, "") ?? "";
-  const seeds: SeedText[] = [{ text: firstLine.slice(0, 120), role: "headline" }];
-  if (channel === "linkedin" || channel === "ad") {
-    const rest = content.slice(content.indexOf(firstLine) + firstLine.length).trim();
-    if (rest) seeds.push({ text: rest.slice(0, 500), role: "body" });
-  }
-  return seeds;
+const MD_FENCE = /```[\s\S]*?```/g;
+const LABEL = /^(subject|preheader|headline|body|cta|h1|meta title|meta description|intro paragraph|title)\s*:\s*/i;
+
+const TOPIC_TAGS: { re: RegExp; tag: string }[] = [
+  { re: /\b(o-?rings?|seals?|sealing|gaskets?|ffkm|fkm|nbr|epdm|vmq|quad-?ring)\b/i, tag: "SEALING TECHNOLOGY" },
+  { re: /\b(hoses?|tubes?|tubing|fittings?|couplings?|fluid|hydraulic|pneumatic)\b/i, tag: "FLUID HANDLING" },
+  { re: /\b(vibration|damper|damping|mounts?|isolators?|bellows?)\b/i, tag: "ANTIVIBRATION" },
+  { re: /\b(belts?|drives?|pulleys?|chains?|bearings?)\b/i, tag: "DRIVE TECHNOLOGY" },
+  { re: /\b(filters?|filtration|membranes?)\b/i, tag: "FILTRATION" },
+  { re: /\b(polymers?|plastics?|elastomers?|ptfe|peek|pom|compounds?)\b/i, tag: "POLYMER SOLUTIONS" },
+];
+
+const CHANNEL_TAGS: Record<string, string> = {
+  linkedin: "INDUSTRIAL PARTS",
+  blog: "TECHNICAL INSIGHT",
+  newsletter: "PRODUCT NEWS",
+  ad: "INDUSTRIAL PARTS",
+  product: "PRODUCT DETAIL",
+  seo: "TECHNICAL INSIGHT",
+};
+
+const CHANNEL_CTAS: Record<string, string> = {
+  linkedin: "Discover more on apsoparts.com",
+  blog: "Discover more on apsoparts.com",
+  seo: "Discover more on apsoparts.com",
+  ad: "Shop the range",
+  product: "Shop the range",
+  newsletter: "Read the full story",
+};
+
+function stripMarkdown(line: string): string {
+  return line
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/, "")
+    .replace(/^\s{0,3}>\s+/, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/, "")
+    .replace(/\*\*|__|~~|\*|`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
+
+/** Hard cap that cuts at a word boundary and never leaves dangling punctuation. */
+function clampWords(text: string, max: number): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max + 1);
+  const sp = cut.lastIndexOf(" ");
+  const out = sp > Math.floor(max * 0.5) ? cut.slice(0, sp) : cut.slice(0, max);
+  return out.replace(/[\s,;:.·–—-]+$/, "").trim();
+}
+
+function sentencesOf(text: string): string[] {
+  return (text.match(/[^.!?]+[.!?]*/g) ?? [text]).map((s) => s.trim()).filter(Boolean);
+}
+
+/** Clean, markdown-free content lines, junk (hashtags, tables, rules, sign-off) dropped. */
+function contentLines(content: string): { text: string; heading: boolean }[] {
+  return content
+    .replace(MD_FENCE, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .filter((l) => !/^#\S/.test(l))
+    .filter((l) => !/^\|/.test(l))
+    .filter((l) => !/^[-*_\s]{3,}$/.test(l))
+    .filter((l) => !/^[—-]\s*APSOparts/i.test(l))
+    .map((l) => ({ heading: /^#{1,6}\s+/.test(l), text: stripMarkdown(l.replace(LABEL, "")) }))
+    .filter((l) => l.text.length > 0);
+}
+
+/** Seed the canvas with a poster-ready set: kicker, headline, supporting line, CTA. */
+function seedTextsFor(channel: string, content: string): SeedText[] {
+  const lines = contentLines(content);
+  if (lines.length === 0) return [];
+
+  const headingIdx = lines.findIndex((l) => l.heading);
+  const headlineIdx = headingIdx >= 0 ? headingIdx : 0;
+  const headlineSrc = lines[headlineIdx].text;
+  const headline = clampWords(sentencesOf(headlineSrc)[0] ?? headlineSrc, 64);
+
+  const candidates: string[] = [];
+  lines.forEach((l, i) => {
+    if (i === headlineIdx || l.heading) return;
+    for (const s of sentencesOf(l.text)) {
+      if (s.length < 30) continue;
+      if (headlineSrc.toLowerCase().startsWith(s.slice(0, 24).toLowerCase())) continue;
+      candidates.push(s);
+    }
+  });
+  const support =
+    candidates.find((s) => s.length >= 60 && s.length <= 140) ??
+    candidates.find((s) => s.length >= 40) ??
+    candidates[0] ??
+    "";
+  const body = support ? clampWords(support, 140) : "";
+
+  const haystack = `${headlineSrc} ${lines.map((l) => l.text).join(" ")}`;
+  const tag = TOPIC_TAGS.find((t) => t.re.test(haystack))?.tag ?? CHANNEL_TAGS[channel] ?? "INDUSTRIAL PARTS";
+  const kicker = clampWords(`APSOPARTS · ${tag}`.toUpperCase(), 32);
+  const cta = clampWords(CHANNEL_CTAS[channel] ?? "Discover more on apsoparts.com", 32);
+
+  return ([
+    { text: kicker, role: "kicker" },
+    { text: headline, role: "headline" },
+    { text: body, role: "body" },
+    { text: cta, role: "cta" },
+  ] as SeedText[]).filter((s) => s.text.trim().length > 0);
+}
+
+/** Concept cards carry headline + body separately; seed them as one document. */
+const conceptContent = (c: Concept) => [c.headline, c.body].filter(Boolean).join("\n\n");
 
 
 /* ── page ── */
@@ -251,6 +353,17 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
     [language, audience, category, primaryKeyword, secondaryKeywords, creativity, length, withImage, framework, tones, phrases]
   );
 
+  /* text the ACTIVE canvas target can seed — drives both the button and initialTexts */
+  const activeSeeds = useMemo<SeedText[]>(() => {
+    if (!designing) return [];
+    if (designing.target === "draft") return draft ? seedTextsFor(channel, draft.content) : [];
+    if (designing.target === "concept") {
+      const c = concepts[designing.idx];
+      return c ? seedTextsFor(channel, conceptContent(c)) : [];
+    }
+    return [];
+  }, [designing, draft, concepts, channel]);
+
   /* ── actions ── */
 
   const enhanceBrief = async () => {
@@ -371,7 +484,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptStr.trim(), filters }),
+        body: JSON.stringify({ prompt: promptStr.trim(), filters, overlaySpace: true }),
       });
       const data = await res.json();
       if (data.imageUrl) {
@@ -405,7 +518,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptStr.trim(), filters }),
+        body: JSON.stringify({ prompt: promptStr.trim(), filters, overlaySpace: true }),
       });
       const data = await res.json();
       setConcepts((cur) =>
@@ -968,8 +1081,8 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                     </Box>
                   )}
                   <Box sx={{ flex: 1 }} />
-                  {((designing.target === "draft" && draft) || designing.target === "concept") && (
-                    <Tooltip title="Place the generated headline and copy onto the canvas as editable text (with readable pills)">
+                  {activeSeeds.length > 0 && (
+                    <Tooltip title="Place the generated kicker, headline, supporting line and CTA onto the canvas as editable text (with readable pills)">
                       <Button size="small" onClick={() => setSeedSignal((v) => v + 1)} startIcon={<TitleIcon sx={{ fontSize: 15 }} />} sx={{ fontWeight: 700, color: NAVY }}>
                         Insert text
                       </Button>
@@ -1005,18 +1118,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
                           : null
                     }
                     seedSignal={seedSignal}
-                initialTexts={
-                      designing.target === "draft" && draft
-                        ? seedTextsFor(channel, draft.content)
-                        : designing.target === "concept" && concepts[designing.idx]
-                          ? [
-                              { text: concepts[designing.idx].headline, role: "headline" as const },
-                              ...(channel === "linkedin" || channel === "ad"
-                                ? [{ text: concepts[designing.idx].body.slice(0, 400), role: "body" as const }]
-                                : []),
-                            ]
-                        : undefined
-                    }
+                    initialTexts={activeSeeds.length ? activeSeeds : undefined}
                     painting={
                       designing.target === "draft"
                         ? imageBusy && !draft?.imageUrl

@@ -14,6 +14,7 @@ type Body = {
   references?: ReferenceImage[];
   referenceNotes?: string;
   aspect?: ImagePromptInput["aspect"];
+  overlaySpace?: boolean;
 };
 
 export async function POST(req: NextRequest) {
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     filters: body.filters,
     referenceNotes: body.referenceNotes,
     aspect: body.aspect,
+    overlaySpace: body.overlaySpace ?? false,
   });
 
   const result = await generateApsoImage(geminiKey, fullPrompt, body.references ?? []);

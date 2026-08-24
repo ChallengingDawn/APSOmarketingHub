@@ -99,10 +99,12 @@ async function maybeGenerateImage(
   }
 
   const fullPrompt =
-    `Create a photorealistic marketing image for APSOparts (industrial B2B e-commerce). ` +
+    `Create a photorealistic professional B2B industrial marketing photograph for APSOparts (sealing technology and polymer components). ` +
     `${brief || content.slice(0, 280)}. ` +
-    `Clean industrial aesthetic, premium but not glossy. Realistic environments with hands, tools and components in context. ` +
-    `No CAD, no schematics, no white-background isolated product shots, no promotional badges or text overlays, no stock photos of people in suits.`;
+    `Composition: reserve generous clean negative space in the lower-left third of the frame — dark, out-of-focus or a plain uncluttered surface — for a text overlay. ` +
+    `Palette: deep navy and petrol tones with cool greys, at most one small red accent. Soft directional light, shallow depth of field, premium editorial look. ` +
+    `ONE single scene: no collage, no split frame, no CAD, no schematics, no white-background isolated product shots, no stock photos of people in suits. ` +
+    `ABSOLUTELY NO text, letters, numbers, logos, watermarks, labels or UI anywhere in the image.`;
 
   const result = await generateApsoImage(geminiKey, fullPrompt);
   if (result.ok) {
@@ -163,9 +165,15 @@ export async function POST(req: NextRequest) {
     ``,
     `Request: ${prompt}`,
     ``,
-    `Write like a senior industrial copywriter who knows this audience personally. Specificity beats adjectives: every claim must be concrete — a number, a named shop feature, a material property, a situation the reader recognises from their own week — or it gets cut. Respect the positioning guard and reuse signature phrases only where they land naturally, never forced. If the channel is LinkedIn or newsletter, follow the post template; if product or SEO, follow the product content page structure. Before returning, read the draft once as the target reader would — skeptical, technical, short on time — and tighten anything that sounds like marketing filler or that a competitor could claim word-for-word.`,
+    `Write like a senior industrial copywriter who knows this audience personally. Specificity beats adjectives: every claim must be concrete — a number, a named shop feature, a material property, a situation the reader recognises from their own week — or it gets cut. The FIRST LINE of the content must work as a standalone visual headline: 8 words or fewer, concrete, no colon-splitting, readable on its own over an image. Respect the positioning guard and reuse signature phrases only where they land naturally, never forced. If the channel is LinkedIn or newsletter, follow the post template; if product or SEO, follow the product content page structure. Before returning, read the draft once as the target reader would — skeptical, technical, short on time — and tighten anything that sounds like marketing filler or that a competitor could claim word-for-word.`,
     briefRequested
-      ? `\nAt the very end, append a concrete image brief inside exactly this tag (on its own lines): <image-brief>...</image-brief>. The brief must be 60-120 words and must reference the SPECIFIC scene the body of the content describes — not a generic workshop. Tie the image to the persona's day (workshop floor for P5/P6, R&D lab for P7, SAP/Ariba office for P1, Italian SME shop floor for P3, owner-on-shop-floor for P4, growth-stage open office for P2, distributor warehouse for P8). Include: subject + setting + lighting + camera angle + 35mm-like depth-of-field. No CAD, no stock suits, no white-bg product shots, no text overlays, no logos.`
+      ? `\nAt the very end, append the image brief inside exactly this tag (on its own lines): <image-brief>...</image-brief>. The brief is 60-120 words of plain prose describing ONE photograph, and it MUST follow this recipe:\n` +
+        `1. Subject: a photorealistic professional B2B industrial marketing photograph directly relevant to the topic — name the concrete subject (the specific sealing component, polymer part, machine, material or engineering situation this content is about), shot in a real industrial context. Never a generic workshop, never an abstract concept. Tie the setting to the persona's world when one is selected (workshop floor, R&D lab, procurement office, distributor warehouse) while keeping the named subject in focus.\n` +
+        `2. Composition: say explicitly that the lower-left third of the frame is reserved as generous, clean negative space for a text overlay — dark, out-of-focus, or a plain uncluttered surface. The subject sits right of centre or in the upper half.\n` +
+        `3. Palette: subtle and brand-compatible — deep navy and petrol tones with cool greys, at most one small red accent. No warm orange industrial glow, no saturated colour.\n` +
+        `4. Light and lens: soft directional light, shallow depth of field, 35mm-like framing, premium editorial look — a photograph shot for an engineering trade cover.\n` +
+        `5. State that the image contains ABSOLUTELY NO text, letters, numbers, logos, watermarks, labels, UI or screens — image models render these as gibberish.\n` +
+        `6. ONE single scene: no collage, no split frame, no grid, no CAD render, no schematic, no white-background product shot, no stock-photo people in suits.`
       : null,
   ]
     .filter(Boolean)

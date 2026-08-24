@@ -6,6 +6,12 @@ export type ImagePromptInput = {
   filters?: GenerationFilters;
   referenceNotes?: string;
   aspect?: "1:1" | "16:9" | "4:5" | "3:2";
+  /**
+   * The image will be used as a canvas background with headline/body/CTA text
+   * laid over its lower half, so the composition has to reserve quiet space
+   * there and must never contain lettering of its own.
+   */
+  overlaySpace?: boolean;
 };
 
 export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string {
@@ -45,6 +51,29 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
   } else {
     sections.push(
       `STRICTNESS: RELAXED (creativity ${creativity}/100). Interpret the brief with editorial flair, but every visible tool must still match the operation realistically (see SCENE RULES).`
+    );
+  }
+
+  if (input.overlaySpace) {
+    sections.push("");
+    sections.push("# COMPOSITION FOR TEXT OVERLAY (mandatory — this is a layout constraint, not a suggestion)");
+    sections.push(
+      "This photograph is a background. A headline, a paragraph and a button will be placed over its lower-left area, so compose the shot around that:"
+    );
+    sections.push(
+      "- The subject sits in the upper-right two thirds of the frame. Never centre it."
+    );
+    sections.push(
+      "- The lower-left third stays visually quiet: a dark surface, a shadowed area, or an out-of-focus background. No detail, no clutter, no bright highlights there."
+    );
+    sections.push(
+      "- Keep that quiet area tonally dark and even, so white text stays readable on it without a box behind it."
+    );
+    sections.push(
+      "- Do not fill the frame edge to edge with equally busy detail — the eye must be able to rest on the lower-left."
+    );
+    sections.push(
+      "- ZERO lettering anywhere in the image: no words, no numbers, no labels, no engraved part markings, no packaging print, no signage, no logos, no watermarks, no measurement scales with digits. Image generators render text as unreadable gibberish and it lands directly under our real headline."
     );
   }
 
@@ -117,7 +146,10 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
     "3. Hands and gloves must match the context (bare for clean small-seal assembly, nitrile for chemical/food/pharma, leather for heavy hardware). Hands must hold tools in physically plausible ways."
   );
   sections.push(
-    "4. No CAD, no isolated white-bg product shots, no stock-photo people in suits, no promotional badges or rendered text overlays, no fear/catastrophe drama."
+    "4. No CAD, no isolated white-bg product shots, no stock-photo people in suits, no promotional badges, no fear/catastrophe drama."
+  );
+  sections.push(
+    "4b. No readable lettering ANYWHERE in the frame — not as an overlay and not inside the scene. That includes printed packaging, tube and bottle labels, machine control panels, part markings, calliper scales with digits, boxes, signage and posters on the wall. Image models render these as mirrored nonsense. If the scene would naturally contain a labelled product, show it turned away, cropped, or with a plain unprinted surface."
   );
   sections.push(
     "5. Lighting is soft and natural. No glossy studio rim-light. No HDR. No neon."
@@ -125,6 +157,11 @@ export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string 
   if (categoryHint) {
     sections.push(
       `6. The scene must look like the production context for ${input.filters!.category}: ${categoryHint}. If the brief drifts, the category wins.`
+    );
+  }
+  if (input.overlaySpace) {
+    sections.push(
+      "7. The lower-left third is quiet, dark and free of detail, and the frame contains no letters or digits of any kind."
     );
   }
 
