@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Text as KText, Image as KImage, Transformer, Line } from "react-konva";
 import type Konva from "konva";
 import Box from "@mui/material/Box";
@@ -147,6 +148,7 @@ export default function EditorCanvas({
   initialTexts,
   painting,
   onExported,
+  toolsContainer,
 }: {
   itemId?: number;
   initialImage?: string | null;
@@ -156,6 +158,13 @@ export default function EditorCanvas({
   painting?: boolean;
   /** Called with the exported PNG data URL after Attach / Use design. */
   onExported?: (dataUrl: string) => void;
+  /**
+   * Host element for the tools panel. When provided, the Insert/Canvas/templates
+   * tools render into it via a portal (the studio sidebar); when undefined they
+   * render inline as a left card (standalone /editor). While the element is still
+   * null the tools stay unrendered — never fall back to inline mid-mount.
+   */
+  toolsContainer?: HTMLElement | null;
 }) {
   const fonts = useResolvedFonts();
 
@@ -231,7 +240,13 @@ export default function EditorCanvas({
     };
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // the studio sidebar collapses without a window resize — track the wrapper itself too
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro && wrapRef.current) ro.observe(wrapRef.current);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
   }, []);
 
   const fitScale = Math.min(viewW / canvas.w, 640 / canvas.h, 1);
@@ -727,127 +742,134 @@ export default function EditorCanvas({
     pill.setAttrs({ x: t.x() - px, y: t.y() - py, width: t.width() * t.scaleX() + px * 2, height: t.height() * t.scaleY() + py * 2 });
   };
 
+  /* tools panel — inline card on /editor, portaled into the studio sidebar when a container is provided */
+  const toolsPanel = (
+    <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Insert
+      </Typography>
+      <Box sx={{ display: "flex", gap: 0.75, mb: 2 }}>
+        <Tooltip title="Headline (Outfit bold)">
+          <Button onClick={() => addText("headline")} startIcon={<TitleIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
+            Headline
+          </Button>
+        </Tooltip>
+        <Tooltip title="Body text (Inter)">
+          <Button onClick={() => addText("body")} startIcon={<TextFieldsIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
+            Text
+          </Button>
+        </Tooltip>
+        <Tooltip title="Colour block / badge">
+          <IconButton onClick={addBadge} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
+            <CropSquareIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+      <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700, mb: 2 }}>
+        Import photo / logo
+        <input
+          hidden
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) importImage(f);
+            e.currentTarget.value = "";
+          }}
+        />
+      </Button>
+
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Canvas
+      </Typography>
+      <TextField
+        select
+        fullWidth
+        size="small"
+        value={Object.entries(CANVAS_PRESETS).find(([, p]) => p.w === canvas.w && p.h === canvas.h)?.[0] ?? "custom"}
+        onChange={(e) => {
+          const p = CANVAS_PRESETS[e.target.value];
+          if (p) setCanvas({ w: p.w, h: p.h });
+        }}
+        sx={{ mb: 1.25 }}
+      >
+        {Object.entries(CANVAS_PRESETS).map(([k, p]) => (
+          <MenuItem key={k} value={k}>
+            {p.label}
+          </MenuItem>
+        ))}
+        <MenuItem value="custom" disabled>
+          Custom ({canvas.w}×{canvas.h})
+        </MenuItem>
+      </TextField>
+      <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background colour</Typography>
+      <Box sx={{ display: "flex", gap: 0.5, mb: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+        {BRAND_COLORS.map((c) => (
+          <Box
+            key={c}
+            onClick={() => {
+              setBgColor(c);
+              setBgGradientId(null);
+            }}
+            sx={{
+              width: 22,
+              height: 22,
+              borderRadius: 0.75,
+              bgcolor: c,
+              cursor: "pointer",
+              border: !bgGradientId && bgColor === c ? "2px solid #274e64" : "1px solid #d5d9df",
+            }}
+          />
+        ))}
+        <input
+          type="color"
+          value={bgColor.startsWith("#") ? bgColor : "#ffffff"}
+          onChange={(e) => {
+            setBgColor(e.target.value);
+            setBgGradientId(null);
+          }}
+          style={{ width: 30, height: 26, border: "1px solid #d5d9df", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
+          title="Custom colour"
+        />
+      </Box>
+      <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background gradient</Typography>
+      <Box sx={{ display: "flex", gap: 0.5, mb: 2, alignItems: "center" }}>
+        {BG_GRADIENTS.map((g) => (
+          <Tooltip key={g.id} title={g.label}>
+            <Box
+              onClick={() => setBgGradientId(g.id)}
+              sx={{
+                width: 30,
+                height: 22,
+                borderRadius: 0.75,
+                cursor: "pointer",
+                background: `linear-gradient(135deg, ${g.from}, ${g.to})`,
+                border: bgGradientId === g.id ? "2px solid #274e64" : "1px solid #d5d9df",
+              }}
+            />
+          </Tooltip>
+        ))}
+      </Box>
+
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Brand templates
+      </Typography>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, maxHeight: 220, overflow: "auto", mb: 1 }}>
+        {TEMPLATES.filter((t) => t.category === "LinkedIn event").map((t) => (
+          <Chip key={t.id} label={t.name} size="small" onClick={() => loadTemplate(t)} sx={{ justifyContent: "flex-start", fontWeight: 600, bgcolor: "#f0f1f3" }} />
+        ))}
+      </Box>
+    </Box>
+  );
+
   return (
     <Box sx={{ display: "flex", gap: 2.5, flexDirection: { xs: "column", lg: "row" } }}>
       {/* ── left: tools ── */}
-      <Card sx={{ width: { lg: 280 }, flexShrink: 0, alignSelf: "flex-start" }}>
-        <Box sx={{ p: 2 }}>
-          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-            Insert
-          </Typography>
-          <Box sx={{ display: "flex", gap: 0.75, mb: 2 }}>
-            <Tooltip title="Headline (Outfit bold)">
-              <Button onClick={() => addText("headline")} startIcon={<TitleIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
-                Headline
-              </Button>
-            </Tooltip>
-            <Tooltip title="Body text (Inter)">
-              <Button onClick={() => addText("body")} startIcon={<TextFieldsIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
-                Text
-              </Button>
-            </Tooltip>
-            <Tooltip title="Colour block / badge">
-              <IconButton onClick={addBadge} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-                <CropSquareIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-          <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700, mb: 2 }}>
-            Import photo / logo
-            <input
-              hidden
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) importImage(f);
-                e.currentTarget.value = "";
-              }}
-            />
-          </Button>
-
-          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-            Canvas
-          </Typography>
-          <TextField
-            select
-            fullWidth
-            size="small"
-            value={Object.entries(CANVAS_PRESETS).find(([, p]) => p.w === canvas.w && p.h === canvas.h)?.[0] ?? "custom"}
-            onChange={(e) => {
-              const p = CANVAS_PRESETS[e.target.value];
-              if (p) setCanvas({ w: p.w, h: p.h });
-            }}
-            sx={{ mb: 1.25 }}
-          >
-            {Object.entries(CANVAS_PRESETS).map(([k, p]) => (
-              <MenuItem key={k} value={k}>
-                {p.label}
-              </MenuItem>
-            ))}
-            <MenuItem value="custom" disabled>
-              Custom ({canvas.w}×{canvas.h})
-            </MenuItem>
-          </TextField>
-          <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background colour</Typography>
-          <Box sx={{ display: "flex", gap: 0.5, mb: 1.25, flexWrap: "wrap", alignItems: "center" }}>
-            {BRAND_COLORS.map((c) => (
-              <Box
-                key={c}
-                onClick={() => {
-                  setBgColor(c);
-                  setBgGradientId(null);
-                }}
-                sx={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 0.75,
-                  bgcolor: c,
-                  cursor: "pointer",
-                  border: !bgGradientId && bgColor === c ? "2px solid #274e64" : "1px solid #d5d9df",
-                }}
-              />
-            ))}
-            <input
-              type="color"
-              value={bgColor.startsWith("#") ? bgColor : "#ffffff"}
-              onChange={(e) => {
-                setBgColor(e.target.value);
-                setBgGradientId(null);
-              }}
-              style={{ width: 30, height: 26, border: "1px solid #d5d9df", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" }}
-              title="Custom colour"
-            />
-          </Box>
-          <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background gradient</Typography>
-          <Box sx={{ display: "flex", gap: 0.5, mb: 2, alignItems: "center" }}>
-            {BG_GRADIENTS.map((g) => (
-              <Tooltip key={g.id} title={g.label}>
-                <Box
-                  onClick={() => setBgGradientId(g.id)}
-                  sx={{
-                    width: 30,
-                    height: 22,
-                    borderRadius: 0.75,
-                    cursor: "pointer",
-                    background: `linear-gradient(135deg, ${g.from}, ${g.to})`,
-                    border: bgGradientId === g.id ? "2px solid #274e64" : "1px solid #d5d9df",
-                  }}
-                />
-              </Tooltip>
-            ))}
-          </Box>
-
-          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-            Brand templates
-          </Typography>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, maxHeight: 220, overflow: "auto", mb: 1 }}>
-            {TEMPLATES.filter((t) => t.category === "LinkedIn event").map((t) => (
-              <Chip key={t.id} label={t.name} size="small" onClick={() => loadTemplate(t)} sx={{ justifyContent: "flex-start", fontWeight: 600, bgcolor: "#f0f1f3" }} />
-            ))}
-          </Box>
-        </Box>
-      </Card>
+      {toolsContainer === undefined ? (
+        <Card sx={{ width: { lg: 280 }, flexShrink: 0, alignSelf: "flex-start" }}>{toolsPanel}</Card>
+      ) : toolsContainer ? (
+        createPortal(toolsPanel, toolsContainer)
+      ) : null}
 
       {/* ── center: stage ── */}
       <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0 }}>

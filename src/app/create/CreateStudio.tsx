@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
@@ -43,7 +43,6 @@ import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import MarkdownPreview from "./MarkdownPreview";
 import dynamic from "next/dynamic";
-import CloseIcon from "@mui/icons-material/Close";
 import BrushIcon from "@mui/icons-material/Brush";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -109,6 +108,12 @@ const RED = "#ed1b2f";
 
 const geoChannels = new Set(["blog", "seo"]);
 
+/** Sidebar accordion sections. */
+type SectionKey = "setup" | "tools" | "intel";
+
+const SIDEBAR_W = 300;
+const SIDEBAR_COLLAPSED_W = 44;
+
 /** Seed the canvas with the generated copy: headline always, body for short channels. */
 function seedTextsFor(channel: string, content: string): SeedText[] {
   const firstLine = content.split("\n").find((l) => l.trim().length > 0)?.replace(/^#+\s*/, "") ?? "";
@@ -168,8 +173,24 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [showRaw, setShowRaw] = useState(false);
   const [briefText, setBriefText] = useState("");
   const [personasOpen, setPersonasOpen] = useState(false);
-  const [intelOpen, setIntelOpen] = useState(false);
   const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
+
+  /* layout: collapsible sidebar, accordion sections, content panel */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({ setup: true, tools: true, intel: false });
+  const [contentOpen, setContentOpen] = useState(true);
+  /* host element the canvas tools portal renders into (must exist before EditorCanvas mounts) */
+  const toolsHostRef = useRef<HTMLDivElement | null>(null);
+  const [toolsEl, setToolsEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setToolsEl(toolsHostRef.current);
+  }, []);
+
+  const toggleSection = (key: SectionKey) => setOpenSections((cur) => ({ ...cur, [key]: !cur[key] }));
+  const expandSection = (key: SectionKey) => {
+    setSidebarCollapsed(false);
+    setOpenSections((cur) => ({ ...cur, [key]: true }));
+  };
 
   const mdChannel = channel === "blog" || channel === "product";
 
@@ -432,6 +453,17 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
 
   /* ── render ── */
 
+  const sectionHeader = (key: SectionKey, label: string, icon: ReactNode) => (
+    <Box
+      onClick={() => toggleSection(key)}
+      sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.25, cursor: "pointer", borderTop: "1px solid #f0f1f3", "&:hover": { bgcolor: "#fafbfc" } }}
+    >
+      {icon}
+      <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#1a1d21", flex: 1 }}>{label}</Typography>
+      <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: openSections[key] ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+    </Box>
+  );
+
   return (
     <Box sx={{ p: 1 }}>
       {/* header */}
@@ -456,710 +488,756 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
         </Box>
       </Box>
 
-      <Grid container spacing={2.5}>
-        {/* ── LEFT: setup ── */}
-        <Grid size={{ xs: 12, md: 2.7 }}>
-          <Card>
-            <CardContent sx={{ p: 2.5 }}>
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                Channel
-              </Typography>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 2.5 }}>
-                {CHANNELS.map((c) => (
+      {/* ── top brief bar ── */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent sx={{ p: 2, "&:last-child": { pb: 1.5 } }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, flexWrap: "wrap" }}>
+            <TextField
+              select
+              size="small"
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+              sx={{ width: 160, flexShrink: 0 }}
+            >
+              {CHANNELS.map((c) => (
+                <MenuItem key={c.key} value={c.key}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                    {c.icon}
+                    {c.label}
+                  </Box>
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              multiline
+              minRows={1}
+              maxRows={3}
+              size="small"
+              placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              sx={{ flex: 1, minWidth: 260, "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
+            />
+            <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
+              <span>
+                <Button
+                  onClick={enhanceBrief}
+                  disabled={enhancing || !topic.trim()}
+                  startIcon={enhancing ? <CircularProgress size={14} /> : <BoltIcon />}
+                  sx={{ fontWeight: 700, color: NAVY, flexShrink: 0 }}
+                >
+                  {enhancing ? "Enhancing…" : "Enhance brief"}
+                </Button>
+              </span>
+            </Tooltip>
+            <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
+              <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
+              <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
+            </ToggleButtonGroup>
+            <Button
+              onClick={generate}
+              disabled={busy || !topic.trim()}
+              variant="contained"
+              startIcon={busy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
+              sx={{ bgcolor: RED, px: 3.5, fontWeight: 700, flexShrink: 0, "&:hover": { bgcolor: "#d81528" } }}
+            >
+              {busy ? (mode === "draft" ? "Writing…" : "Creating 3 concepts…") : "Generate"}
+            </Button>
+          </Box>
+          {/* slim second row: demand chips + setup summary */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
+            {trends.length > 0 && (
+              <>
+                <TrendingUpIcon sx={{ fontSize: 15, color: RED }} />
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470", fontWeight: 600 }}>Hot demand:</Typography>
+                {trends.slice(0, 4).map((t) => (
                   <Chip
-                    key={c.key}
-                    icon={c.icon}
-                    label={c.label}
-                    onClick={() => setChannel(c.key)}
-                    sx={{
-                      fontWeight: 600,
-                      bgcolor: channel === c.key ? NAVY : "#f0f1f3",
-                      color: channel === c.key ? "#fff" : "#3c4043",
-                      "& .MuiChip-icon": { color: channel === c.key ? "#fff" : "#5b6470" },
-                      "&:hover": { bgcolor: channel === c.key ? "#1a3a4c" : "#e6e8ec" },
-                    }}
+                    key={t.term}
+                    label={t.term}
+                    size="small"
+                    onClick={() => setTopic((cur) => (cur ? `${cur} — target the search term "${t.term}"` : `Content targeting the hot search term "${t.term}" (${t.signal})`))}
+                    sx={{ height: 22, fontSize: 11, fontWeight: 700, bgcolor: "#fdebed", color: RED, "&:hover": { bgcolor: "#fbd8dc" } }}
                   />
                 ))}
-              </Box>
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+              </>
+            )}
+            <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+              {activePersonas.length ? `Writing for ${activePersonas.map((p) => p.code).join(" + ")}` : "General audience"}
+              {` · ${language} · ${length}`}
+              {category ? ` · ${category}` : ""}
+              {audience ? ` · ${audience}` : ""}
+              {primaryKeyword.trim() ? ` · keyword "${primaryKeyword.trim()}"` : ""}
+            </Typography>
+          </Box>
+        </CardContent>
+      </Card>
 
-              <Box
-                onClick={() => setPersonasOpen((v) => !v)}
-                sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", mb: 1 }}
-              >
-                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Write for{personaIds.length ? ` · ${personaIds.length} selected` : " · general"}
-                </Typography>
-                <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: personasOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+      {error && (
+        <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* ── sidebar + stage ── */}
+      <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+        {/* ── LEFT: collapsible sidebar ── */}
+        <Box sx={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W, flexShrink: 0, transition: "width 0.2s ease" }}>
+          <Card>
+            <Box sx={{ display: "flex", justifyContent: sidebarCollapsed ? "center" : "flex-end", p: 0.5 }}>
+              <Tooltip title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+                <IconButton size="small" onClick={() => setSidebarCollapsed((v) => !v)}>
+                  {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+            {sidebarCollapsed && (
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5, pb: 1 }}>
+                <Tooltip title="Generate setup" placement="right">
+                  <IconButton size="small" onClick={() => expandSection("setup")}>
+                    <TuneIcon sx={{ fontSize: 19, color: NAVY }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Canvas tools" placement="right">
+                  <IconButton size="small" onClick={() => expandSection("tools")}>
+                    <BrushIcon sx={{ fontSize: 19, color: RED }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Engine intelligence" placement="right">
+                  <IconButton size="small" onClick={() => expandSection("intel")}>
+                    <PsychologyIcon sx={{ fontSize: 19, color: RED }} />
+                  </IconButton>
+                </Tooltip>
               </Box>
-              <Collapse in={personasOpen}>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 2 }}>
-                <Box
-                  onClick={() => setPersonaIds([])}
-                  sx={{
-                    p: 1.25,
-                    borderRadius: 1.5,
-                    border: `1.5px solid ${personaIds.length === 0 ? NAVY : "#e6e8ec"}`,
-                    bgcolor: personaIds.length === 0 ? "#e8f0f4" : "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>General audience</Typography>
-                  <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>Brand voice — or select one or MORE personas below</Typography>
-                </Box>
-                {personas.map((p) => {
-                  const on = personaIds.includes(p.id);
-                  return (
+            )}
+            {/* sections stay mounted while collapsed so the canvas-tools portal target survives */}
+            <Box sx={{ display: sidebarCollapsed ? "none" : "block" }}>
+              {/* ── section: Generate setup ── */}
+              {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
+              <Collapse in={openSections.setup}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <Box
+                    onClick={() => setPersonasOpen((v) => !v)}
+                    sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", mb: 1 }}
+                  >
+                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Write for{personaIds.length ? ` · ${personaIds.length} selected` : " · general"}
+                    </Typography>
+                    <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: personasOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+                  </Box>
+                  <Collapse in={personasOpen}>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mb: 2 }}>
                     <Box
-                      key={p.id}
-                      onClick={() => togglePersona(p.id)}
+                      onClick={() => setPersonaIds([])}
                       sx={{
                         p: 1.25,
                         borderRadius: 1.5,
-                        border: `1.5px solid ${on ? NAVY : "#e6e8ec"}`,
-                        bgcolor: on ? "#e8f0f4" : "#fff",
+                        border: `1.5px solid ${personaIds.length === 0 ? NAVY : "#e6e8ec"}`,
+                        bgcolor: personaIds.length === 0 ? "#e8f0f4" : "#fff",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
-                        "&:hover": { borderColor: NAVY },
                       }}
                     >
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: on ? NAVY : "#f0f1f3", color: on ? "#fff" : "#5b6470", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>
-                          {on ? "\u2713" : p.code}
+                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>General audience</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>Brand voice — or select one or MORE personas below</Typography>
+                    </Box>
+                    {personas.map((p) => {
+                      const on = personaIds.includes(p.id);
+                      return (
+                        <Box
+                          key={p.id}
+                          onClick={() => togglePersona(p.id)}
+                          sx={{
+                            p: 1.25,
+                            borderRadius: 1.5,
+                            border: `1.5px solid ${on ? NAVY : "#e6e8ec"}`,
+                            bgcolor: on ? "#e8f0f4" : "#fff",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            "&:hover": { borderColor: NAVY },
+                          }}
+                        >
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: on ? NAVY : "#f0f1f3", color: on ? "#fff" : "#5b6470", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>
+                              {on ? "✓" : p.code}
+                            </Box>
+                            <Box sx={{ minWidth: 0, flex: 1 }}>
+                              <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>{p.name}</Typography>
+                              <Typography noWrap sx={{ fontSize: 11, color: "#5b6470" }}>{p.role}</Typography>
+                            </Box>
+                          </Box>
                         </Box>
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, color: "#1a1d21" }}>{p.name}</Typography>
-                          <Typography noWrap sx={{ fontSize: 11, color: "#5b6470" }}>{p.role}</Typography>
+                      );
+                    })}
+                    {personaIds.length > 1 && (
+                      <Typography sx={{ fontSize: 11.5, color: NAVY, fontWeight: 600, px: 0.5 }}>
+                        {personaIds.length} personas selected — the engine writes to their shared ground.
+                      </Typography>
+                    )}
+                  </Box>
+                  </Collapse>
+
+                  <Grid container spacing={1.25} sx={{ mb: 1.5 }}>
+                    <Grid size={6}>
+                      <TextField select fullWidth size="small" label="Language" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                        {LANGS.map((l) => (
+                          <MenuItem key={l} value={l}>{l}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Grid>
+                    <Grid size={6}>
+                      <TextField select fullWidth size="small" label="Length" value={length} onChange={(e) => setLength(e.target.value)}>
+                        <MenuItem value="short">Short</MenuItem>
+                        <MenuItem value="medium">Medium</MenuItem>
+                        <MenuItem value="long">Long</MenuItem>
+                      </TextField>
+                    </Grid>
+                    <Grid size={12}>
+                      <TextField select fullWidth size="small" label="Product category" value={category} onChange={(e) => setCategory(e.target.value)}>
+                        <MenuItem value="">Any</MenuItem>
+                        {categories.map((c) => (
+                          <MenuItem key={c} value={c}>{c}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Grid>
+                    <Grid size={12}>
+                      <TextField select fullWidth size="small" label="Audience" value={audience} onChange={(e) => setAudience(e.target.value)}>
+                        <MenuItem value="">Any</MenuItem>
+                        {audiences.map((a) => (
+                          <MenuItem key={a} value={a}>{a}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Grid>
+                  </Grid>
+
+                  <Button onClick={() => setShowAdvanced(!showAdvanced)} startIcon={<TuneIcon />} size="small" sx={{ color: "#5b6470", fontWeight: 600, mb: 0.5 }}>
+                    {showAdvanced ? "Hide" : "Show"} SEO & style
+                  </Button>
+                  <Collapse in={showAdvanced}>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25, pt: 0.5 }}>
+                      <TextField fullWidth size="small" label="Primary keyword" placeholder="e.g. ffkm o-ring" value={primaryKeyword} onChange={(e) => setPrimaryKeyword(e.target.value)} />
+                      <TextField fullWidth size="small" label="Secondary keywords (comma-separated)" placeholder="fkm vs ffkm, chemical resistance" value={secondaryKeywords} onChange={(e) => setSecondaryKeywords(e.target.value)} />
+                      <Box sx={{ px: 0.5 }}>
+                        <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 0.5 }}>
+                          Creativity: <strong>{creativity <= 30 ? "conservative" : creativity <= 60 ? "balanced" : creativity <= 85 ? "fresh" : "bold"}</strong>
+                        </Typography>
+                        <Slider size="small" value={creativity} onChange={(_, v) => setCreativity(v as number)} sx={{ color: RED }} />
+                      </Box>
+                      <FormControlLabel
+                        control={<Switch checked={withImage} onChange={(e) => setWithImage(e.target.checked)} size="small" />}
+                        label={<Typography sx={{ fontSize: 13 }}>Prepare an image brief</Typography>}
+                      />
+                      <Box>
+                        <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                          Framework
+                        </Typography>
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                          {[
+                            { k: "auto", l: "Auto" },
+                            { k: "ican", l: "I can do this now" },
+                            { k: "ease", l: "Ease / feature" },
+                            { k: "recognition", l: "We’ve already met" },
+                          ].map((f) => (
+                            <Chip
+                              key={f.k}
+                              label={f.l}
+                              size="small"
+                              onClick={() => setFramework(f.k)}
+                              sx={{ fontWeight: 600, fontSize: 11, bgcolor: framework === f.k ? NAVY : "#f0f1f3", color: framework === f.k ? "#fff" : "#3c4043" }}
+                            />
+                          ))}
                         </Box>
                       </Box>
+                      {toneOptions.length > 0 && (
+                        <Box>
+                          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                            Emphasize tone (from brain)
+                          </Typography>
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {toneOptions.map((t) => (
+                              <Chip
+                                key={t}
+                                label={t}
+                                size="small"
+                                onClick={() => toggleTone(t)}
+                                sx={{ fontWeight: 600, fontSize: 11, bgcolor: tones.includes(t) ? RED : "#f0f1f3", color: tones.includes(t) ? "#fff" : "#3c4043" }}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      )}
+                      {phraseOptions.length > 0 && (
+                        <Box>
+                          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                            Signature phrases (force-include)
+                          </Typography>
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                            {phraseOptions.map((ph) => (
+                              <Chip
+                                key={ph}
+                                label={ph}
+                                size="small"
+                                onClick={() => togglePhrase(ph)}
+                                sx={{ fontWeight: 600, fontSize: 11, justifyContent: "flex-start", bgcolor: phrases.includes(ph) ? NAVY : "#f0f1f3", color: phrases.includes(ph) ? "#fff" : "#3c4043" }}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      )}
                     </Box>
-                  );
-                })}
-                {personaIds.length > 1 && (
-                  <Typography sx={{ fontSize: 11.5, color: NAVY, fontWeight: 600, px: 0.5 }}>
-                    {personaIds.length} personas selected — the engine writes to their shared ground.
-                  </Typography>
-                )}
-              </Box>
+                  </Collapse>
+                </Box>
               </Collapse>
 
-              <Grid container spacing={1.25} sx={{ mb: 1.5 }}>
-                <Grid size={6}>
-                  <TextField select fullWidth size="small" label="Language" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                    {LANGS.map((l) => (
-                      <MenuItem key={l} value={l}>{l}</MenuItem>
-                    ))}
-                  </TextField>
-                </Grid>
-                <Grid size={6}>
-                  <TextField select fullWidth size="small" label="Length" value={length} onChange={(e) => setLength(e.target.value)}>
-                    <MenuItem value="short">Short</MenuItem>
-                    <MenuItem value="medium">Medium</MenuItem>
-                    <MenuItem value="long">Long</MenuItem>
-                  </TextField>
-                </Grid>
-                <Grid size={12}>
-                  <TextField select fullWidth size="small" label="Product category" value={category} onChange={(e) => setCategory(e.target.value)}>
-                    <MenuItem value="">Any</MenuItem>
-                    {categories.map((c) => (
-                      <MenuItem key={c} value={c}>{c}</MenuItem>
-                    ))}
-                  </TextField>
-                </Grid>
-                <Grid size={12}>
-                  <TextField select fullWidth size="small" label="Audience" value={audience} onChange={(e) => setAudience(e.target.value)}>
-                    <MenuItem value="">Any</MenuItem>
-                    {audiences.map((a) => (
-                      <MenuItem key={a} value={a}>{a}</MenuItem>
-                    ))}
-                  </TextField>
-                </Grid>
-              </Grid>
+              {/* ── section: Canvas tools (EditorCanvas portals its tools panel here) ── */}
+              {sectionHeader("tools", "Canvas tools", <BrushIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.tools}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={toolsHostRef} />
+                  {busy && (
+                    <Typography sx={{ fontSize: 12, color: "#5b6470" }}>
+                      The canvas tools return here as soon as generation finishes.
+                    </Typography>
+                  )}
+                </Box>
+              </Collapse>
 
-              <Button onClick={() => setShowAdvanced(!showAdvanced)} startIcon={<TuneIcon />} size="small" sx={{ color: "#5b6470", fontWeight: 600, mb: 0.5 }}>
-                {showAdvanced ? "Hide" : "Show"} SEO & style
-              </Button>
-              <Collapse in={showAdvanced}>
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25, pt: 0.5 }}>
-                  <TextField fullWidth size="small" label="Primary keyword" placeholder="e.g. ffkm o-ring" value={primaryKeyword} onChange={(e) => setPrimaryKeyword(e.target.value)} />
-                  <TextField fullWidth size="small" label="Secondary keywords (comma-separated)" placeholder="fkm vs ffkm, chemical resistance" value={secondaryKeywords} onChange={(e) => setSecondaryKeywords(e.target.value)} />
-                  <Box sx={{ px: 0.5 }}>
-                    <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 0.5 }}>
-                      Creativity: <strong>{creativity <= 30 ? "conservative" : creativity <= 60 ? "balanced" : creativity <= 85 ? "fresh" : "bold"}</strong>
-                    </Typography>
-                    <Slider size="small" value={creativity} onChange={(_, v) => setCreativity(v as number)} sx={{ color: RED }} />
-                  </Box>
-                  <FormControlLabel
-                    control={<Switch checked={withImage} onChange={(e) => setWithImage(e.target.checked)} size="small" />}
-                    label={<Typography sx={{ fontSize: 13 }}>Prepare an image brief</Typography>}
-                  />
-                  <Box>
-                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                      Framework
-                    </Typography>
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                      {[
-                        { k: "auto", l: "Auto" },
-                        { k: "ican", l: "I can do this now" },
-                        { k: "ease", l: "Ease / feature" },
-                        { k: "recognition", l: "We\u2019ve already met" },
-                      ].map((f) => (
-                        <Chip
-                          key={f.k}
-                          label={f.l}
-                          size="small"
-                          onClick={() => setFramework(f.k)}
-                          sx={{ fontWeight: 600, fontSize: 11, bgcolor: framework === f.k ? NAVY : "#f0f1f3", color: framework === f.k ? "#fff" : "#3c4043" }}
-                        />
+              {/* ── section: Engine intelligence ── */}
+              {sectionHeader("intel", "Engine intelligence", <PsychologyIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.intel}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  {activePersonas.length > 0 ? (
+                    <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "#e8f0f4", mb: 1.5 }}>
+                      <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>
+                        Writing for {activePersonas.map((p) => p.code).join(" + ")}
+                      </Typography>
+                      {activePersonas.map((p) => (
+                        <Typography key={p.id} sx={{ fontSize: 11.5, color: "#3c4043", mt: 0.5, lineHeight: 1.5 }}>
+                          <strong>{p.name}</strong> — {p.role}
+                        </Typography>
                       ))}
+                      {activePersonas.length > 1 && (
+                        <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 0.75 }}>
+                          Multi-reader mode: shared pain points, one CTA that fits all.
+                        </Typography>
+                      )}
                     </Box>
-                  </Box>
-                  {toneOptions.length > 0 && (
-                    <Box>
-                      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                        Emphasize tone (from brain)
-                      </Typography>
-                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                        {toneOptions.map((t) => (
-                          <Chip
-                            key={t}
-                            label={t}
-                            size="small"
-                            onClick={() => toggleTone(t)}
-                            sx={{ fontWeight: 600, fontSize: 11, bgcolor: tones.includes(t) ? RED : "#f0f1f3", color: tones.includes(t) ? "#fff" : "#3c4043" }}
-                          />
-                        ))}
-                      </Box>
-                    </Box>
-                  )}
-                  {phraseOptions.length > 0 && (
-                    <Box>
-                      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                        Signature phrases (force-include)
-                      </Typography>
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-                        {phraseOptions.map((ph) => (
-                          <Chip
-                            key={ph}
-                            label={ph}
-                            size="small"
-                            onClick={() => togglePhrase(ph)}
-                            sx={{ fontWeight: 600, fontSize: 11, justifyContent: "flex-start", bgcolor: phrases.includes(ph) ? NAVY : "#f0f1f3", color: phrases.includes(ph) ? "#fff" : "#3c4043" }}
-                          />
-                        ))}
-                      </Box>
-                    </Box>
-                  )}
-                </Box>
-              </Collapse>
-            </CardContent>
-          </Card>
-          <Box sx={{ mt: 2.5 }}>
-          <Card>
-            <CardContent sx={{ p: 2.5 }}>
-              <Box
-                onClick={() => setIntelOpen((v) => !v)}
-                sx={{ display: "flex", alignItems: "center", gap: 1, cursor: "pointer" }}
-              >
-                <PsychologyIcon sx={{ fontSize: 20, color: RED }} />
-                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21", flex: 1 }}>Engine intelligence</Typography>
-                <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: intelOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
-              </Box>
-              <Collapse in={intelOpen}>
-              <Box sx={{ mt: 1.5 }} />
-
-              {activePersonas.length > 0 ? (
-                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "#e8f0f4", mb: 1.5 }}>
-                  <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: NAVY }}>
-                    Writing for {activePersonas.map((p) => p.code).join(" + ")}
-                  </Typography>
-                  {activePersonas.map((p) => (
-                    <Typography key={p.id} sx={{ fontSize: 11.5, color: "#3c4043", mt: 0.5, lineHeight: 1.5 }}>
-                      <strong>{p.name}</strong> — {p.role}
-                    </Typography>
-                  ))}
-                  {activePersonas.length > 1 && (
-                    <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 0.75 }}>
-                      Multi-reader mode: shared pain points, one CTA that fits all.
+                  ) : (
+                    <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 1.5 }}>
+                      No persona selected — pure brand voice. Pick one in Generate setup for vocabulary, pain points and CTA matched to a real buyer type.
                     </Typography>
                   )}
-                </Box>
-              ) : (
-                <Typography sx={{ fontSize: 12, color: "#5b6470", mb: 1.5 }}>
-                  No persona selected — pure brand voice. Pick one on the left for vocabulary, pain points and CTA matched to a real buyer type.
-                </Typography>
-              )}
 
-              <Divider sx={{ my: 1.5 }} />
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                Feeding this generation
-              </Typography>
-              {[
-                { label: `${trends.length} live demand signals`, on: trends.length > 0 },
-                { label: `${brain?.categoryIntelligence?.totalLeafCategories ?? "—"} categories mapped (${(brain?.categoryIntelligence?.totalLeafCategories ?? 0) - (brain?.categoryIntelligence?.categoriesWithSeoText ?? 0)} content gaps)`, on: Boolean(brain) },
-                { label: `${brain?.brandVoice?.signaturePhrases?.length ?? 0} signature phrases`, on: Boolean(brain?.brandVoice?.signaturePhrases?.length) },
-                { label: `${(brain?.goldExamples?.linkedinPosts?.length ?? 0) + (brain?.goldExamples?.paidAds?.length ?? 0)} gold examples`, on: Boolean(brain?.goldExamples) },
-                { label: "Anti-fabrication guard (no invented specs)", on: true },
-                { label: "Like/dislike learning loop", on: true },
-              ].map((f) => (
-                <Box key={f.label} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
-                  <CheckCircleIcon sx={{ fontSize: 15, color: f.on ? "#1e7e45" : "#c7c7cc" }} />
-                  <Typography sx={{ fontSize: 12, color: "#3c4043", lineHeight: 1.4 }}>{f.label}</Typography>
-                </Box>
-              ))}
-
-              {geoChannels.has(channel) && (
-                <>
                   <Divider sx={{ my: 1.5 }} />
                   <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-                    GEO mode active
+                    Feeding this generation
                   </Typography>
                   {[
-                    "Direct answers open every section",
-                    "40–60-word extractable blocks",
-                    "Customer-phrased FAQ",
-                    "Article + FAQPage JSON-LD",
-                    "Verifiable facts only",
-                  ].map((r) => (
-                    <Box key={r} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.6 }}>
-                      <AutoAwesomeIcon sx={{ fontSize: 13, color: RED }} />
-                      <Typography sx={{ fontSize: 12, color: "#3c4043" }}>{r}</Typography>
+                    { label: `${trends.length} live demand signals`, on: trends.length > 0 },
+                    { label: `${brain?.categoryIntelligence?.totalLeafCategories ?? "—"} categories mapped (${(brain?.categoryIntelligence?.totalLeafCategories ?? 0) - (brain?.categoryIntelligence?.categoriesWithSeoText ?? 0)} content gaps)`, on: Boolean(brain) },
+                    { label: `${brain?.brandVoice?.signaturePhrases?.length ?? 0} signature phrases`, on: Boolean(brain?.brandVoice?.signaturePhrases?.length) },
+                    { label: `${(brain?.goldExamples?.linkedinPosts?.length ?? 0) + (brain?.goldExamples?.paidAds?.length ?? 0)} gold examples`, on: Boolean(brain?.goldExamples) },
+                    { label: "Anti-fabrication guard (no invented specs)", on: true },
+                    { label: "Like/dislike learning loop", on: true },
+                  ].map((f) => (
+                    <Box key={f.label} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+                      <CheckCircleIcon sx={{ fontSize: 15, color: f.on ? "#1e7e45" : "#c7c7cc" }} />
+                      <Typography sx={{ fontSize: 12, color: "#3c4043", lineHeight: 1.4 }}>{f.label}</Typography>
                     </Box>
                   ))}
-                  <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 1, lineHeight: 1.5 }}>
-                    Written so ChatGPT, Perplexity and Google AI can quote it — structure, FAQ and schema included automatically.
-                  </Typography>
-                </>
-              )}
-              </Collapse>
-            </CardContent>
-          </Card>
-          </Box>
-        </Grid>
 
-        {/* ── CENTER: brief + results ── */}
-        <Grid size={{ xs: 12, md: 9.3 }}>
-          <Card sx={{ mb: 2.5 }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  The brief
-                </Typography>
-                <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)}>
-                  <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
-                  <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-              <TextField
-                fullWidth
-                multiline
-                minRows={4}
-                maxRows={14}
-                placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
-              />
-              {trends.length > 0 && (
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
-                  <TrendingUpIcon sx={{ fontSize: 15, color: RED }} />
-                  <Typography sx={{ fontSize: 11.5, color: "#5b6470", fontWeight: 600 }}>Hot demand:</Typography>
-                  {trends.slice(0, 4).map((t) => (
-                    <Chip
-                      key={t.term}
-                      label={t.term}
-                      size="small"
-                      onClick={() => setTopic((cur) => (cur ? `${cur} — target the search term "${t.term}"` : `Content targeting the hot search term "${t.term}" (${t.signal})`))}
-                      sx={{ height: 22, fontSize: 11, fontWeight: 700, bgcolor: "#fdebed", color: RED, "&:hover": { bgcolor: "#fbd8dc" } }}
-                    />
-                  ))}
-                </Box>
-              )}
-              <Box sx={{ display: "flex", gap: 1.25, mt: 2 }}>
-                <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
-                  <span>
-                    <Button
-                      onClick={enhanceBrief}
-                      disabled={enhancing || !topic.trim()}
-                      startIcon={enhancing ? <CircularProgress size={14} /> : <BoltIcon />}
-                      sx={{ fontWeight: 700, color: NAVY }}
-                    >
-                      {enhancing ? "Enhancing…" : "Enhance brief"}
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Box sx={{ flex: 1 }} />
-                <Button
-                  onClick={generate}
-                  disabled={busy || !topic.trim()}
-                  variant="contained"
-                  size="large"
-                  startIcon={busy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
-                  sx={{ bgcolor: RED, px: 4, fontWeight: 700, "&:hover": { bgcolor: "#d81528" } }}
-                >
-                  {busy ? (mode === "draft" ? "Writing…" : "Creating 3 concepts…") : "Generate"}
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-
-          {error && (
-            <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2.5 }}>
-              {error}
-            </Alert>
-          )}
-
-      {/* ── RESULTS — full width ── */}
-      {busy && (
-        <Box sx={{ mt: 2.5 }} aria-hidden="true">
-          {mode === "draft" ? (
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-                  <Box className="shimmer" sx={{ width: 140, height: 24 }} />
-                  <Box className="shimmer" sx={{ width: 200, height: 24 }} />
-                </Box>
-                {withImage && <Box className="shimmer" sx={{ width: "100%", maxWidth: 640, aspectRatio: "16/9", mb: 2 }} />}
-                <Box className="shimmer" sx={{ width: "55%", height: 26, mb: 1.5 }} />
-                {[92, 100, 97, 88, 100, 94, 60].map((w, i) => (
-                  <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
-                ))}
-                <Box className="shimmer" sx={{ width: "40%", height: 22, mt: 2, mb: 1 }} />
-                {[95, 90, 70].map((w, i) => (
-                  <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
-                ))}
-                <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 2 }}>
-                  Opus 5 is writing{withImage ? " — the image follows automatically" : ""}…
-                </Typography>
-              </CardContent>
-            </Card>
-          ) : (
-            <Grid container spacing={2}>
-              {[0, 1, 2].map((i) => (
-                <Grid key={i} size={{ xs: 12, md: 4 }}>
-                  <Card sx={{ height: "100%" }}>
-                    <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/10", borderRadius: 0 }} />
-                    <CardContent sx={{ p: 2 }}>
-                      <Box className="shimmer" sx={{ width: "85%", height: 18, mb: 1.5 }} />
-                      {[100, 95, 98, 90, 55].map((w, j) => (
-                        <Box key={j} className="shimmer" sx={{ width: `${w}%`, height: 12, mb: 0.9 }} />
+                  {geoChannels.has(channel) && (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+                        GEO mode active
+                      </Typography>
+                      {[
+                        "Direct answers open every section",
+                        "40–60-word extractable blocks",
+                        "Customer-phrased FAQ",
+                        "Article + FAQPage JSON-LD",
+                        "Verifiable facts only",
+                      ].map((r) => (
+                        <Box key={r} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.6 }}>
+                          <AutoAwesomeIcon sx={{ fontSize: 13, color: RED }} />
+                          <Typography sx={{ fontSize: 12, color: "#3c4043" }}>{r}</Typography>
+                        </Box>
                       ))}
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </Box>
-      )}
-      {!busy && designing && (
-        <Box sx={{ mt: 2.5 }} className="fade-in-result">
-          {/* ── Canvas hero — everything happens here ── */}
-          <Card>
-            <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-              <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
-              <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
-                {designing.target === "draft"
-                  ? `Canvas — your draft${draft?.draftId ? ` (#${draft.draftId})` : ""}`
-                  : designing.target === "concept"
-                    ? `Canvas — concept ${designing.idx + 1} of ${concepts.length}`
-                    : "Canvas — blank"}
-              </Typography>
-              {designing.target === "concept" && concepts.length > 1 && (
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1 }}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setDesigning({ target: "concept", idx: (designing.idx + concepts.length - 1) % concepts.length })}
-                    sx={{ border: "1px solid #e6e8ec" }}
-                  >
-                    <ChevronLeftIcon fontSize="small" />
-                  </IconButton>
-                  {concepts.map((_, i) => (
-                    <Box
-                      key={i}
-                      onClick={() => setDesigning({ target: "concept", idx: i })}
-                      sx={{ width: 8, height: 8, borderRadius: "50%", cursor: "pointer", bgcolor: i === designing.idx ? "#ed1b2f" : "#d5d9df" }}
-                    />
-                  ))}
-                  <IconButton
-                    size="small"
-                    onClick={() => setDesigning({ target: "concept", idx: (designing.idx + 1) % concepts.length })}
-                    sx={{ border: "1px solid #e6e8ec" }}
-                  >
-                    <ChevronRightIcon fontSize="small" />
-                  </IconButton>
+                      <Typography sx={{ fontSize: 11, color: "#5b6470", mt: 1, lineHeight: 1.5 }}>
+                        Written so ChatGPT, Perplexity and Google AI can quote it — structure, FAQ and schema included automatically.
+                      </Typography>
+                    </>
+                  )}
                 </Box>
-              )}
-              <Box sx={{ flex: 1 }} />
-              {draft && designing.target !== "draft" && (
-                <Button size="small" onClick={() => setDesigning({ target: "draft" })} sx={{ fontWeight: 700, color: NAVY }}>
-                  Back to draft
-                </Button>
-              )}
-              {concepts.length > 0 && designing.target !== "concept" && (
-                <Button size="small" onClick={() => setDesigning({ target: "concept", idx: 0 })} sx={{ fontWeight: 700, color: NAVY }}>
-                  Concepts
-                </Button>
-              )}
-            </Box>
-            <Box sx={{ p: 2 }}>
-              <EditorCanvas
-                key={
-                  designing.target === "draft"
-                    ? `draft-${draft?.draftId ?? "x"}-${draft?.imageUrl ? "img" : "noimg"}`
-                    : designing.target === "concept"
-                      ? `concept-${designing.idx}-${concepts[designing.idx]?.imageUrl ? "img" : "noimg"}`
-                      : "scratch"
-                }
-                itemId={designing.target === "draft" ? draft?.draftId : undefined}
-                initialImage={
-                  designing.target === "draft"
-                    ? draft?.imageUrl ?? null
-                    : designing.target === "concept"
-                      ? concepts[designing.idx]?.imageUrl ?? null
-                      : null
-                }
-                initialTexts={
-                  designing.target === "draft" && draft
-                    ? seedTextsFor(channel, draft.content)
-                    : designing.target === "concept" && concepts[designing.idx]
-                      ? [
-                          { text: concepts[designing.idx].headline, role: "headline" as const },
-                          ...(channel === "linkedin" || channel === "ad"
-                            ? [{ text: concepts[designing.idx].body.slice(0, 400), role: "body" as const }]
-                            : []),
-                        ]
-                    : undefined
-                }
-                painting={
-                  designing.target === "draft"
-                    ? imageBusy && !draft?.imageUrl
-                    : designing.target === "concept"
-                      ? Boolean(concepts[designing.idx]?.imageBusy) && !concepts[designing.idx]?.imageUrl
-                      : false
-                }
-                onExported={(url) => {
-                  if (designing.target === "draft") {
-                    setDraft((d) => (d ? { ...d, imageUrl: url } : d));
-                  } else if (designing.target === "concept") {
-                    const idx = designing.idx;
-                    setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
-                  }
-                }}
-              />
-              {(designing.target === "draft" ? imageBusy : concepts[designing.target === "concept" ? designing.idx : 0]?.imageBusy) && (
-                <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 1 }}>
-                  Painting the background image — it will appear on the canvas when ready (switch views to refresh)…
-                </Typography>
-              )}
+              </Collapse>
             </Box>
           </Card>
+        </Box>
 
-          {/* ── Draft text panel ── */}
-          {designing.target === "draft" && draft && (
-            <Card sx={{ mt: 2 }}>
-              <CardContent sx={{ p: 2.5 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5, flexWrap: "wrap" }}>
-                  {draft.draftId && (
-                    <Chip icon={<CheckCircleIcon sx={{ fontSize: 15 }} />} label={`Saved · draft #${draft.draftId}`} size="small" sx={{ fontWeight: 700, bgcolor: "#e5f3ea", color: "#1e7e45" }} />
-                  )}
-                  {draft.quality && draft.quality.violationsFound.length === 0 && (
-                    <Chip label="All channel & GEO checks passed" size="small" sx={{ fontWeight: 600, bgcolor: "#e3edf7", color: "#2563a8" }} />
-                  )}
-                  {draft.quality?.revised && (
-                    <Chip label="Auto-refined once ✓" size="small" sx={{ fontWeight: 600, bgcolor: "#fdf6ec", color: "#c77700" }} />
-                  )}
-                </Box>
-
-                {editMode ? (
-                  <TextField
-                    fullWidth
-                    multiline
-                    minRows={10}
-                    maxRows={30}
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.7, fontFamily: "inherit" } }}
-                  />
-                ) : mdChannel && !showRaw ? (
-                  <MarkdownPreview text={draft.content} />
-                ) : (
-                  <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.7, color: "#1a1d21" }}>
-                    {draft.content}
+        {/* ── MAIN: canvas stage + content panel ── */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {busy && (
+            <Box aria-hidden="true">
+              {mode === "draft" ? (
+                <Card>
+                  <CardContent sx={{ p: 3 }}>
+                    <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+                      <Box className="shimmer" sx={{ width: 140, height: 24 }} />
+                      <Box className="shimmer" sx={{ width: 200, height: 24 }} />
+                    </Box>
+                    {withImage && <Box className="shimmer" sx={{ width: "100%", maxWidth: 640, aspectRatio: "16/9", mb: 2 }} />}
+                    <Box className="shimmer" sx={{ width: "55%", height: 26, mb: 1.5 }} />
+                    {[92, 100, 97, 88, 100, 94, 60].map((w, i) => (
+                      <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
+                    ))}
+                    <Box className="shimmer" sx={{ width: "40%", height: 22, mt: 2, mb: 1 }} />
+                    {[95, 90, 70].map((w, i) => (
+                      <Box key={i} className="shimmer" sx={{ width: `${w}%`, height: 13, mb: 1 }} />
+                    ))}
+                    <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 2 }}>
+                      Opus 5 is writing{withImage ? " — the image follows automatically" : ""}…
+                    </Typography>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Grid container spacing={2}>
+                  {[0, 1, 2].map((i) => (
+                    <Grid key={i} size={{ xs: 12, md: 4 }}>
+                      <Card sx={{ height: "100%" }}>
+                        <Box className="shimmer" sx={{ width: "100%", aspectRatio: "16/10", borderRadius: 0 }} />
+                        <CardContent sx={{ p: 2 }}>
+                          <Box className="shimmer" sx={{ width: "85%", height: 18, mb: 1.5 }} />
+                          {[100, 95, 98, 90, 55].map((w, j) => (
+                            <Box key={j} className="shimmer" sx={{ width: `${w}%`, height: 12, mb: 0.9 }} />
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </Box>
+          )}
+          {!busy && designing && (
+            <Box className="fade-in-result">
+              {/* ── Canvas hero — everything happens here ── */}
+              <Card>
+                <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                  <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
+                    {designing.target === "draft"
+                      ? `Canvas — your draft${draft?.draftId ? ` (#${draft.draftId})` : ""}`
+                      : designing.target === "concept"
+                        ? `Canvas — concept ${designing.idx + 1} of ${concepts.length}`
+                        : "Canvas — blank"}
                   </Typography>
-                )}
-
-                <Divider sx={{ my: 2 }} />
-                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-                  <Tooltip title="Good one — the engine learns from this">
-                    <Button
-                      startIcon={<ThumbUpIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => sendFeedback("like", { body: draft.content }, () => setDraftFb("like"))}
-                      sx={{ fontWeight: 700, color: draftFb === "like" ? "#fff" : "#1e7e45", bgcolor: draftFb === "like" ? "#1e7e45" : "transparent", "&:hover": { bgcolor: draftFb === "like" ? "#17643a" : "#e5f3ea" } }}
-                    >
-                      {draftFb === "like" ? "Learned ✓" : "Like"}
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="Not this — a refine instruction below becomes the correction">
-                    <Button
-                      startIcon={<ThumbDownIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => {
-                        fetch("/api/logs", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ type: "dislike", channel, prompt: topic.slice(0, 500), body: draft.content, correction: refineText.trim() || undefined }),
-                        }).catch(() => {});
-                        setDraftFb("dislike");
-                      }}
-                      sx={{ fontWeight: 700, color: draftFb === "dislike" ? "#fff" : "#c5221f", bgcolor: draftFb === "dislike" ? "#c5221f" : "transparent", "&:hover": { bgcolor: draftFb === "dislike" ? "#a51b1a" : "#fdebed" } }}
-                    >
-                      {draftFb === "dislike" ? "Noted ✓" : "Dislike"}
-                    </Button>
-                  </Tooltip>
-                  <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-                  {editMode ? (
-                    <Button startIcon={savingEdit ? <CircularProgress size={14} /> : <SaveIcon />} onClick={saveEdit} disabled={savingEdit} variant="contained" sx={{ bgcolor: NAVY, fontWeight: 700 }}>
-                      {savingEdit ? "Saving…" : "Save edit"}
-                    </Button>
-                  ) : (
-                    <Button startIcon={<EditIcon />} onClick={() => { setEditText(draft.content); setEditMode(true); }} sx={{ fontWeight: 600, color: NAVY }}>
-                      Edit
+                  {designing.target === "concept" && concepts.length > 1 && (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => setDesigning({ target: "concept", idx: (designing.idx + concepts.length - 1) % concepts.length })}
+                        sx={{ border: "1px solid #e6e8ec" }}
+                      >
+                        <ChevronLeftIcon fontSize="small" />
+                      </IconButton>
+                      {concepts.map((_, i) => (
+                        <Box
+                          key={i}
+                          onClick={() => setDesigning({ target: "concept", idx: i })}
+                          sx={{ width: 8, height: 8, borderRadius: "50%", cursor: "pointer", bgcolor: i === designing.idx ? "#ed1b2f" : "#d5d9df" }}
+                        />
+                      ))}
+                      <IconButton
+                        size="small"
+                        onClick={() => setDesigning({ target: "concept", idx: (designing.idx + 1) % concepts.length })}
+                        sx={{ border: "1px solid #e6e8ec" }}
+                      >
+                        <ChevronRightIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  )}
+                  <Box sx={{ flex: 1 }} />
+                  {draft && designing.target !== "draft" && (
+                    <Button size="small" onClick={() => setDesigning({ target: "draft" })} sx={{ fontWeight: 700, color: NAVY }}>
+                      Back to draft
                     </Button>
                   )}
-                  {mdChannel && !editMode && (
-                    <Button onClick={() => setShowRaw((v) => !v)} sx={{ fontWeight: 600, color: "#5b6470" }}>
-                      {showRaw ? "Preview" : "Raw markdown"}
+                  {concepts.length > 0 && designing.target !== "concept" && (
+                    <Button size="small" onClick={() => setDesigning({ target: "concept", idx: 0 })} sx={{ fontWeight: 700, color: NAVY }}>
+                      Concepts
                     </Button>
                   )}
-                  <Button startIcon={<ContentCopyIcon />} onClick={() => copy(draft.content, "draft")} sx={{ fontWeight: 600 }}>
-                    {copied === "draft" ? "Copied!" : "Copy"}
-                  </Button>
-                  <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
-                    Library
-                  </Button>
                 </Box>
-
-                {/* refine loop */}
-                <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder='Refine it — "shorter", "more technical", "open with the 991-session FFKM spike"…'
-                    value={refineText}
-                    onChange={(e) => setRefineText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") refine();
+                <Box sx={{ p: 2 }}>
+                  <EditorCanvas
+                    key={
+                      designing.target === "draft"
+                        ? `draft-${draft?.draftId ?? "x"}-${draft?.imageUrl ? "img" : "noimg"}`
+                        : designing.target === "concept"
+                          ? `concept-${designing.idx}-${concepts[designing.idx]?.imageUrl ? "img" : "noimg"}`
+                          : "scratch"
+                    }
+                    itemId={designing.target === "draft" ? draft?.draftId : undefined}
+                    toolsContainer={toolsEl}
+                    initialImage={
+                      designing.target === "draft"
+                        ? draft?.imageUrl ?? null
+                        : designing.target === "concept"
+                          ? concepts[designing.idx]?.imageUrl ?? null
+                          : null
+                    }
+                    initialTexts={
+                      designing.target === "draft" && draft
+                        ? seedTextsFor(channel, draft.content)
+                        : designing.target === "concept" && concepts[designing.idx]
+                          ? [
+                              { text: concepts[designing.idx].headline, role: "headline" as const },
+                              ...(channel === "linkedin" || channel === "ad"
+                                ? [{ text: concepts[designing.idx].body.slice(0, 400), role: "body" as const }]
+                                : []),
+                            ]
+                        : undefined
+                    }
+                    painting={
+                      designing.target === "draft"
+                        ? imageBusy && !draft?.imageUrl
+                        : designing.target === "concept"
+                          ? Boolean(concepts[designing.idx]?.imageBusy) && !concepts[designing.idx]?.imageUrl
+                          : false
+                    }
+                    onExported={(url) => {
+                      if (designing.target === "draft") {
+                        setDraft((d) => (d ? { ...d, imageUrl: url } : d));
+                      } else if (designing.target === "concept") {
+                        const idx = designing.idx;
+                        setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imageUrl: url } : x)));
+                      }
                     }}
                   />
-                  <Button onClick={refine} disabled={refining || !refineText.trim()} startIcon={refining ? <CircularProgress size={14} /> : <ReplayIcon />} variant="outlined" sx={{ whiteSpace: "nowrap", fontWeight: 700 }}>
-                    {refining ? "Refining…" : "Refine"}
-                  </Button>
-                </Box>
-
-                {withImage && (
-                  <Box sx={{ mt: 2, p: 1.5, borderRadius: 1.5, bgcolor: "#fafbfc", border: "1px solid #f1f3f4" }}>
-                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                      Image brief — edit and repaint the canvas background
+                  {(designing.target === "draft" ? imageBusy : concepts[designing.target === "concept" ? designing.idx : 0]?.imageBusy) && (
+                    <Typography sx={{ fontSize: 12, color: "#5b6470", mt: 1 }}>
+                      Painting the background image — it will appear on the canvas when ready (switch views to refresh)…
                     </Typography>
-                    <TextField
-                      fullWidth
-                      multiline
-                      minRows={2}
-                      maxRows={6}
-                      size="small"
-                      placeholder="Describe the scene — subject, setting, lighting, camera angle"
-                      value={briefText}
-                      onChange={(e) => setBriefText(e.target.value)}
-                      sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5, bgcolor: "#fff" } }}
-                    />
-                    <Button
-                      startIcon={imageBusy ? <CircularProgress size={14} /> : <ImageIcon />}
-                      onClick={createImage}
-                      disabled={imageBusy || !briefText.trim()}
-                      sx={{ mt: 1, fontWeight: 700, color: NAVY }}
-                    >
-                      {imageBusy ? "Painting…" : draft.imageUrl ? "Repaint background" : "Paint background"}
-                    </Button>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* ── Concept text panel ── */}
-          {designing.target === "concept" && concepts[designing.idx] && (
-            <Card sx={{ mt: 2 }}>
-              <CardContent sx={{ p: 2.5 }}>
-                <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21", mb: 1 }}>
-                  {concepts[designing.idx].headline}
-                </Typography>
-                <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.65, color: "#1a1d21", mb: 1.5 }}>
-                  {concepts[designing.idx].body}
-                </Typography>
-                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                  <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />} onClick={() => copy(concepts[designing.idx].body, `c${designing.idx}`)} sx={{ fontWeight: 600 }}>
-                    {copied === `c${designing.idx}` ? "Copied!" : "Copy"}
-                  </Button>
-                  <Button
-                    size="small"
-                    startIcon={concepts[designing.idx].imageBusy ? <CircularProgress size={12} /> : <ReplayIcon sx={{ fontSize: 14 }} />}
-                    disabled={concepts[designing.idx].imageBusy}
-                    onClick={() => createConceptImage(designing.idx)}
-                    sx={{ fontWeight: 600, color: NAVY }}
-                  >
-                    New background
-                  </Button>
-                  <Box sx={{ flexBasis: "100%", display: "flex", gap: 1, mt: 1 }}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      multiline
-                      maxRows={4}
-                      placeholder="Reprompt the image — describe the scene you want instead"
-                      value={concepts[designing.idx].imagePrompt}
-                      onChange={(e) => {
-                        const idx = designing.idx;
-                        setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imagePrompt: e.target.value } : x)));
-                      }}
-                      sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5 } }}
-                    />
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={concepts[designing.idx].imageBusy || !concepts[designing.idx].imagePrompt.trim()}
-                      onClick={() => paintConcept(designing.idx, concepts[designing.idx].imagePrompt)}
-                      sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
-                    >
-                      Repaint
-                    </Button>
-                  </Box>
-                  <Button
-                    size="small"
-                    startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
-                    onClick={() => sendFeedback("like", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "like" })))}
-                    sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[designing.idx] === "like" ? "#1e7e45" : "transparent" }}
-                  >
-                    {conceptFb[designing.idx] === "like" ? "Learned ✓" : "Like"}
-                  </Button>
-                  <Button
-                    size="small"
-                    startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
-                    onClick={() => sendFeedback("dislike", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "dislike" })))}
-                    sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[designing.idx] === "dislike" ? "#c5221f" : "transparent" }}
-                  >
-                    {conceptFb[designing.idx] === "dislike" ? "Noted ✓" : "Dislike"}
-                  </Button>
+                  )}
                 </Box>
-                <Typography sx={{ fontSize: 11.5, color: "#5b6470", mt: 1.5 }}>
-                  All three concepts are saved in the Library as drafts. Canvas edits stay with this view — click "Use design" on the canvas toolbar to bake them onto this concept's image.
-                </Typography>
-              </CardContent>
-            </Card>
+              </Card>
+
+              {/* ── Content & refine — collapsible panel below the canvas ── */}
+              {((designing.target === "draft" && Boolean(draft)) || (designing.target === "concept" && Boolean(concepts[designing.idx]))) && (
+                <Card sx={{ mt: 2 }}>
+                  <Box
+                    onClick={() => setContentOpen((v) => !v)}
+                    sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.5, py: 1.5, cursor: "pointer", borderBottom: contentOpen ? "1px solid #e6e8ec" : "none", "&:hover": { bgcolor: "#fafbfc" } }}
+                  >
+                    <ArticleIcon sx={{ fontSize: 18, color: NAVY }} />
+                    <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#1a1d21", flex: 1 }}>Content & refine</Typography>
+                    <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: contentOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+                  </Box>
+                  <Collapse in={contentOpen}>
+                    {/* ── Draft text panel ── */}
+                    {designing.target === "draft" && draft && (
+                      <CardContent sx={{ p: 2.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5, flexWrap: "wrap" }}>
+                          {draft.draftId && (
+                            <Chip icon={<CheckCircleIcon sx={{ fontSize: 15 }} />} label={`Saved · draft #${draft.draftId}`} size="small" sx={{ fontWeight: 700, bgcolor: "#e5f3ea", color: "#1e7e45" }} />
+                          )}
+                          {draft.quality && draft.quality.violationsFound.length === 0 && (
+                            <Chip label="All channel & GEO checks passed" size="small" sx={{ fontWeight: 600, bgcolor: "#e3edf7", color: "#2563a8" }} />
+                          )}
+                          {draft.quality?.revised && (
+                            <Chip label="Auto-refined once ✓" size="small" sx={{ fontWeight: 600, bgcolor: "#fdf6ec", color: "#c77700" }} />
+                          )}
+                        </Box>
+
+                        {editMode ? (
+                          <TextField
+                            fullWidth
+                            multiline
+                            minRows={10}
+                            maxRows={30}
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            sx={{ "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.7, fontFamily: "inherit" } }}
+                          />
+                        ) : mdChannel && !showRaw ? (
+                          <MarkdownPreview text={draft.content} />
+                        ) : (
+                          <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.7, color: "#1a1d21" }}>
+                            {draft.content}
+                          </Typography>
+                        )}
+
+                        <Divider sx={{ my: 2 }} />
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                          <Tooltip title="Good one — the engine learns from this">
+                            <Button
+                              startIcon={<ThumbUpIcon sx={{ fontSize: 16 }} />}
+                              onClick={() => sendFeedback("like", { body: draft.content }, () => setDraftFb("like"))}
+                              sx={{ fontWeight: 700, color: draftFb === "like" ? "#fff" : "#1e7e45", bgcolor: draftFb === "like" ? "#1e7e45" : "transparent", "&:hover": { bgcolor: draftFb === "like" ? "#17643a" : "#e5f3ea" } }}
+                            >
+                              {draftFb === "like" ? "Learned ✓" : "Like"}
+                            </Button>
+                          </Tooltip>
+                          <Tooltip title="Not this — a refine instruction below becomes the correction">
+                            <Button
+                              startIcon={<ThumbDownIcon sx={{ fontSize: 16 }} />}
+                              onClick={() => {
+                                fetch("/api/logs", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ type: "dislike", channel, prompt: topic.slice(0, 500), body: draft.content, correction: refineText.trim() || undefined }),
+                                }).catch(() => {});
+                                setDraftFb("dislike");
+                              }}
+                              sx={{ fontWeight: 700, color: draftFb === "dislike" ? "#fff" : "#c5221f", bgcolor: draftFb === "dislike" ? "#c5221f" : "transparent", "&:hover": { bgcolor: draftFb === "dislike" ? "#a51b1a" : "#fdebed" } }}
+                            >
+                              {draftFb === "dislike" ? "Noted ✓" : "Dislike"}
+                            </Button>
+                          </Tooltip>
+                          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                          {editMode ? (
+                            <Button startIcon={savingEdit ? <CircularProgress size={14} /> : <SaveIcon />} onClick={saveEdit} disabled={savingEdit} variant="contained" sx={{ bgcolor: NAVY, fontWeight: 700 }}>
+                              {savingEdit ? "Saving…" : "Save edit"}
+                            </Button>
+                          ) : (
+                            <Button startIcon={<EditIcon />} onClick={() => { setEditText(draft.content); setEditMode(true); }} sx={{ fontWeight: 600, color: NAVY }}>
+                              Edit
+                            </Button>
+                          )}
+                          {mdChannel && !editMode && (
+                            <Button onClick={() => setShowRaw((v) => !v)} sx={{ fontWeight: 600, color: "#5b6470" }}>
+                              {showRaw ? "Preview" : "Raw markdown"}
+                            </Button>
+                          )}
+                          <Button startIcon={<ContentCopyIcon />} onClick={() => copy(draft.content, "draft")} sx={{ fontWeight: 600 }}>
+                            {copied === "draft" ? "Copied!" : "Copy"}
+                          </Button>
+                          <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
+                            Library
+                          </Button>
+                        </Box>
+
+                        {/* refine loop */}
+                        <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            placeholder='Refine it — "shorter", "more technical", "open with the 991-session FFKM spike"…'
+                            value={refineText}
+                            onChange={(e) => setRefineText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") refine();
+                            }}
+                          />
+                          <Button onClick={refine} disabled={refining || !refineText.trim()} startIcon={refining ? <CircularProgress size={14} /> : <ReplayIcon />} variant="outlined" sx={{ whiteSpace: "nowrap", fontWeight: 700 }}>
+                            {refining ? "Refining…" : "Refine"}
+                          </Button>
+                        </Box>
+
+                        {withImage && (
+                          <Box sx={{ mt: 2, p: 1.5, borderRadius: 1.5, bgcolor: "#fafbfc", border: "1px solid #f1f3f4" }}>
+                            <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                              Image brief — edit and repaint the canvas background
+                            </Typography>
+                            <TextField
+                              fullWidth
+                              multiline
+                              minRows={2}
+                              maxRows={6}
+                              size="small"
+                              placeholder="Describe the scene — subject, setting, lighting, camera angle"
+                              value={briefText}
+                              onChange={(e) => setBriefText(e.target.value)}
+                              sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5, bgcolor: "#fff" } }}
+                            />
+                            <Button
+                              startIcon={imageBusy ? <CircularProgress size={14} /> : <ImageIcon />}
+                              onClick={createImage}
+                              disabled={imageBusy || !briefText.trim()}
+                              sx={{ mt: 1, fontWeight: 700, color: NAVY }}
+                            >
+                              {imageBusy ? "Painting…" : draft.imageUrl ? "Repaint background" : "Paint background"}
+                            </Button>
+                          </Box>
+                        )}
+                      </CardContent>
+                    )}
+
+                    {/* ── Concept text panel ── */}
+                    {designing.target === "concept" && concepts[designing.idx] && (
+                      <CardContent sx={{ p: 2.5 }}>
+                        <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21", mb: 1 }}>
+                          {concepts[designing.idx].headline}
+                        </Typography>
+                        <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.65, color: "#1a1d21", mb: 1.5 }}>
+                          {concepts[designing.idx].body}
+                        </Typography>
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                          <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />} onClick={() => copy(concepts[designing.idx].body, `c${designing.idx}`)} sx={{ fontWeight: 600 }}>
+                            {copied === `c${designing.idx}` ? "Copied!" : "Copy"}
+                          </Button>
+                          <Button
+                            size="small"
+                            startIcon={concepts[designing.idx].imageBusy ? <CircularProgress size={12} /> : <ReplayIcon sx={{ fontSize: 14 }} />}
+                            disabled={concepts[designing.idx].imageBusy}
+                            onClick={() => createConceptImage(designing.idx)}
+                            sx={{ fontWeight: 600, color: NAVY }}
+                          >
+                            New background
+                          </Button>
+                          <Box sx={{ flexBasis: "100%", display: "flex", gap: 1, mt: 1 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              multiline
+                              maxRows={4}
+                              placeholder="Reprompt the image — describe the scene you want instead"
+                              value={concepts[designing.idx].imagePrompt}
+                              onChange={(e) => {
+                                const idx = designing.idx;
+                                setConcepts((cur) => cur.map((x, j) => (j === idx ? { ...x, imagePrompt: e.target.value } : x)));
+                              }}
+                              sx={{ "& .MuiOutlinedInput-root": { fontSize: 12.5 } }}
+                            />
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={concepts[designing.idx].imageBusy || !concepts[designing.idx].imagePrompt.trim()}
+                              onClick={() => paintConcept(designing.idx, concepts[designing.idx].imagePrompt)}
+                              sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
+                            >
+                              Repaint
+                            </Button>
+                          </Box>
+                          <Button
+                            size="small"
+                            startIcon={<ThumbUpIcon sx={{ fontSize: 13 }} />}
+                            onClick={() => sendFeedback("like", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "like" })))}
+                            sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "like" ? "#fff" : "#1e7e45", bgcolor: conceptFb[designing.idx] === "like" ? "#1e7e45" : "transparent" }}
+                          >
+                            {conceptFb[designing.idx] === "like" ? "Learned ✓" : "Like"}
+                          </Button>
+                          <Button
+                            size="small"
+                            startIcon={<ThumbDownIcon sx={{ fontSize: 13 }} />}
+                            onClick={() => sendFeedback("dislike", { headline: concepts[designing.idx].headline, body: concepts[designing.idx].body }, () => setConceptFb((cur) => ({ ...cur, [designing.idx]: "dislike" })))}
+                            sx={{ fontWeight: 700, color: conceptFb[designing.idx] === "dislike" ? "#fff" : "#c5221f", bgcolor: conceptFb[designing.idx] === "dislike" ? "#c5221f" : "transparent" }}
+                          >
+                            {conceptFb[designing.idx] === "dislike" ? "Noted ✓" : "Dislike"}
+                          </Button>
+                        </Box>
+                        <Typography sx={{ fontSize: 11.5, color: "#5b6470", mt: 1.5 }}>
+                          All three concepts are saved in the Library as drafts. Canvas edits stay with this view — click "Use design" on the canvas toolbar to bake them onto this concept's image.
+                        </Typography>
+                      </CardContent>
+                    )}
+                  </Collapse>
+                </Card>
+              )}
+            </Box>
           )}
         </Box>
-      )}
-
-        </Grid>
-      </Grid>
+      </Box>
 
     </Box>
   );
