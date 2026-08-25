@@ -240,16 +240,20 @@ export default function LivePageReadinessPanel() {
             <Box
               key={r.key}
               sx={{
-                display: "flex",
+                display: "grid",
                 alignItems: "center",
-                gap: 2,
+                gap: { xs: 1, sm: 2 },
+                gridTemplateColumns: {
+                  xs: "minmax(0, 1fr) auto",
+                  sm: "minmax(0, 1fr) repeat(3, minmax(64px, auto)) auto",
+                },
                 px: 2,
                 py: 1.25,
                 borderTop: `1px solid ${C.hairline}`,
                 "&:hover": { bgcolor: C.surface },
               }}
             >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Tooltip title={r.key}>
                 <Typography
                   sx={{
                     fontSize: 12.5,
@@ -257,14 +261,30 @@ export default function LivePageReadinessPanel() {
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    minWidth: 0,
                   }}
                 >
                   {r.key}
                 </Typography>
-                <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.25 }}>
-                  {fmt(r.clicks)} clicks · {fmt(r.impressions)} impressions · position {fmt(r.position, 1)}
+              </Tooltip>
+              {[
+                { k: "clicks", v: fmt(r.clicks) },
+                { k: "impressions", v: fmt(r.impressions) },
+                { k: "position", v: fmt(r.position, 1) },
+              ].map((cell) => (
+                <Typography
+                  key={cell.k}
+                  sx={{
+                    fontSize: 11.5,
+                    color: C.muted,
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    display: { xs: "none", sm: "block" },
+                  }}
+                >
+                  <strong style={{ color: C.ink, fontSize: 12.5 }}>{cell.v}</strong> {cell.k}
                 </Typography>
-              </Box>
+              ))}
               <Button
                 size="small"
                 onClick={() => {
@@ -284,55 +304,66 @@ export default function LivePageReadinessPanel() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {sourceBlock()}
-
-      <Panel sx={{ p: { xs: 2, md: 2.5 } }}>
-        <SectionLabel sx={{ mb: 1.5 }}>Audit a published URL</SectionLabel>
-        <Box
-          component="form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            runAudit(url);
-          }}
-          sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}
-        >
-          <TextField
-            size="small"
-            fullWidth
-            placeholder="https://www.apsoparts.com/…"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            sx={{ flex: 1, minWidth: 240 }}
-          />
-          <Button
-            type="submit"
-            variant="contained"
-            disableElevation
-            disabled={audit.phase === "running" || url.trim().length === 0}
-            startIcon={
-              audit.phase === "running" ? (
-                <CircularProgress size={14} sx={{ color: "inherit" }} />
-              ) : (
-                <TravelExploreIcon fontSize="small" />
-              )
-            }
-            sx={{
-              bgcolor: C.navy,
-              borderRadius: "2px",
-              textTransform: "none",
-              fontWeight: 600,
-              px: 2.5,
-              "&:hover": { bgcolor: "#1a3a4c" },
+      <Box
+        sx={{
+          display: "grid",
+          gap: 2,
+          alignItems: "start",
+          gridTemplateColumns: { xs: "1fr", lg: "minmax(340px, 0.85fr) minmax(0, 1.5fr)" },
+        }}
+      >
+        {/* The manual form comes first: it works in all three Search Console
+            states, so an unconnected property never blocks auditing a page. */}
+        <Panel sx={{ p: { xs: 2, md: 2.5 } }}>
+          <SectionLabel sx={{ mb: 1.5 }}>Audit a published URL</SectionLabel>
+          <Box
+            component="form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              runAudit(url);
             }}
+            sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}
           >
-            {audit.phase === "running" ? "Fetching…" : "Audit page"}
-          </Button>
-        </Box>
-        <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 1.25 }}>
-          The server fetches the page itself (15 s timeout). Only apsoparts.com and angst-pfister.com hosts are
-          allowed, so this cannot be used as an open proxy.
-        </Typography>
-      </Panel>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="https://www.apsoparts.com/…"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              sx={{ flex: 1, minWidth: 240 }}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              disableElevation
+              disabled={audit.phase === "running" || url.trim().length === 0}
+              startIcon={
+                audit.phase === "running" ? (
+                  <CircularProgress size={14} sx={{ color: "inherit" }} />
+                ) : (
+                  <TravelExploreIcon fontSize="small" />
+                )
+              }
+              sx={{
+                bgcolor: C.navy,
+                borderRadius: "2px",
+                textTransform: "none",
+                fontWeight: 600,
+                px: 2.5,
+                "&:hover": { bgcolor: "#1a3a4c" },
+              }}
+            >
+              {audit.phase === "running" ? "Fetching…" : "Audit page"}
+            </Button>
+          </Box>
+          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 1.25, lineHeight: 1.55 }}>
+            The server fetches the page itself (15 s timeout). Only apsoparts.com and angst-pfister.com hosts
+            are allowed, so this cannot be used as an open proxy.
+          </Typography>
+        </Panel>
+
+        {sourceBlock()}
+      </Box>
 
       {audit.phase === "error" && (
         <UpstreamErrorCard source="The page audit" error={audit.message} onRetry={() => runAudit(url)} />
@@ -342,70 +373,79 @@ export default function LivePageReadinessPanel() {
 
       {audit.phase === "done" && (
         <Panel sx={{ p: { xs: 2, md: 3 } }}>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <ScoreBadge score={audit.result.audit.score} size="lg" />
-            <Box sx={{ flex: 1, minWidth: 240 }}>
-              <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 17, fontWeight: 500, color: C.ink }}>
-                {audit.result.title ?? "(page has no <title>)"}
-              </Typography>
-              <Typography
-                component="a"
-                href={audit.result.finalUrl}
-                target="_blank"
-                rel="noreferrer"
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                  fontSize: 12,
-                  color: C.navy,
-                  mt: 0.5,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {audit.result.finalUrl}
-                <OpenInNewIcon sx={{ fontSize: 13 }} />
-              </Typography>
-              <Typography sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>
-                {audit.result.words} words of readable text extracted from the live HTML.
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2.5, lg: 4 },
+              alignItems: "start",
+              gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.2fr) minmax(320px, 1fr)" },
+            }}
+          >
+            <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <ScoreBadge score={audit.result.audit.score} size="lg" />
+              <Box sx={{ flex: 1, minWidth: 240 }}>
+                <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 17, fontWeight: 500, color: C.ink }}>
+                  {audit.result.title ?? "(page has no <title>)"}
+                </Typography>
+                <Typography
+                  component="a"
+                  href={audit.result.finalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    fontSize: 12,
+                    color: C.navy,
+                    mt: 0.5,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {audit.result.finalUrl}
+                  <OpenInNewIcon sx={{ fontSize: 13 }} />
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>
+                  {audit.result.words} words of readable text extracted from the live HTML.
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ borderLeft: { lg: `1px solid ${C.hairline}` }, pl: { lg: 4 } }}>
+              <SectionLabel sx={{ mb: 1 }}>What the published HTML carries</SectionLabel>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                <SchemaFlag
+                  ok={audit.result.page.hasFaqPageSchema}
+                  label="FAQPage JSON-LD"
+                  missingHint="No FAQPage (or QAPage) type found. Emit it from the page's actual FAQ block so the answers are machine-readable."
+                />
+                <SchemaFlag
+                  ok={audit.result.page.hasArticleSchema}
+                  label="Article JSON-LD"
+                  missingHint="No Article/TechArticle/BlogPosting type found. Emit one with headline, description and datePublished."
+                />
+                <SchemaFlag
+                  ok={audit.result.page.visibleDate !== null || audit.result.page.machineDates.length > 0}
+                  label="Date signal"
+                  missingHint="No <time datetime>, no article:published_time meta and no visible date. Add a visible 'Last updated' line and mirror it in the JSON-LD."
+                />
+              </Box>
+              <Typography sx={{ fontSize: 12, color: C.muted, mt: 1.25 }}>
+                JSON-LD types found:{" "}
+                {audit.result.page.schemaTypes.length
+                  ? audit.result.page.schemaTypes.join(", ")
+                  : audit.result.page.hasJsonLdBlock
+                    ? "a ld+json block exists but declares no @type"
+                    : "none"}
+                {audit.result.page.visibleDate ? ` · visible date: ${audit.result.page.visibleDate}` : ""}
+                {audit.result.page.machineDates.length
+                  ? ` · machine dates: ${audit.result.page.machineDates.join(", ")}`
+                  : ""}
               </Typography>
             </Box>
           </Box>
 
-          <Box sx={{ mt: 2.5 }}>
-            <SectionLabel sx={{ mb: 1 }}>What the published HTML carries</SectionLabel>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-              <SchemaFlag
-                ok={audit.result.page.hasFaqPageSchema}
-                label="FAQPage JSON-LD"
-                missingHint="No FAQPage (or QAPage) type found. Emit it from the page's actual FAQ block so the answers are machine-readable."
-              />
-              <SchemaFlag
-                ok={audit.result.page.hasArticleSchema}
-                label="Article JSON-LD"
-                missingHint="No Article/TechArticle/BlogPosting type found. Emit one with headline, description and datePublished."
-              />
-              <SchemaFlag
-                ok={audit.result.page.visibleDate !== null || audit.result.page.machineDates.length > 0}
-                label="Date signal"
-                missingHint="No <time datetime>, no article:published_time meta and no visible date. Add a visible 'Last updated' line and mirror it in the JSON-LD."
-              />
-            </Box>
-            <Typography sx={{ fontSize: 12, color: C.muted, mt: 1.25 }}>
-              JSON-LD types found:{" "}
-              {audit.result.page.schemaTypes.length
-                ? audit.result.page.schemaTypes.join(", ")
-                : audit.result.page.hasJsonLdBlock
-                  ? "a ld+json block exists but declares no @type"
-                  : "none"}
-              {audit.result.page.visibleDate ? ` · visible date: ${audit.result.page.visibleDate}` : ""}
-              {audit.result.page.machineDates.length
-                ? ` · machine dates: ${audit.result.page.machineDates.join(", ")}`
-                : ""}
-            </Typography>
-          </Box>
-
-          <Box sx={{ mt: 2.5 }}>
+          <Box sx={{ mt: 3 }}>
             <SectionLabel sx={{ mb: 0.5 }}>Check results</SectionLabel>
             <CheckResults audit={audit.result.audit} />
           </Box>

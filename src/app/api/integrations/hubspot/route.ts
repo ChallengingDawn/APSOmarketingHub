@@ -23,9 +23,23 @@ export async function GET(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const account = await fetchHubspotAccount(controller.signal);
+    // Account details need their own scope. Losing the portal id is a cosmetic
+    // loss, so it must not fail an integration whose CRM reads work — only the
+    // summary below decides whether HubSpot is genuinely reachable.
+    let account = null;
+    let accountUnavailable: string | undefined;
+    try {
+      account = await fetchHubspotAccount(controller.signal);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      accountUnavailable = describeIntegrationError(err).error;
+    }
     const summary = await fetchHubspotSummary({ days, signal: controller.signal });
-    return NextResponse.json({ configured: true, ok: true, data: { account, summary } });
+    return NextResponse.json({
+      configured: true,
+      ok: true,
+      data: { account, accountUnavailable, summary },
+    });
   } catch (err) {
     const { error, status: upstreamStatus } = describeIntegrationError(err);
     return NextResponse.json({ configured: true, ok: false, error, status: upstreamStatus });

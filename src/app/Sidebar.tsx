@@ -34,35 +34,51 @@ const RED = "#ed1b2f";
 
 interface NavSection {
   title: string;
+  /** One factual line about what the section holds — visible while collapsed. */
+  caption: string;
   icon: React.ReactNode;
   color: string;
   items: { label: string; href: string; icon: React.ReactNode; badge?: string }[];
 }
 
+/**
+ * Every href below resolves to a page under src/app — checked against the route
+ * tree, because a dead sidebar entry is worse than a missing one. Deliberately
+ * absent: /studio and /calendar (now redirects to /create and /), and
+ * /knowledge-base (retired; it redirects to /personality, which is listed).
+ *
+ * Integrations appears exactly ONCE in this app, here under Intelligence. It is
+ * what makes the live-data surfaces work, so it belongs beside them; Settings
+ * only links across to it.
+ */
 const navSections: NavSection[] = [
   {
     title: "Overview",
+    caption: "Where things stand — and the brain behind them",
     icon: <DashboardIcon />,
     color: "#274e64",
     items: [
       // The content calendar now lives on Overview — /calendar redirects here.
       { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
+      // Top level on purpose: the brain feeds every generator in the app.
+      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
     ],
   },
   {
     title: "AI Engine",
+    caption: "Generate, store and reuse content",
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [
       { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
-      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
   },
   {
     title: "Search & AI Visibility",
+    caption: "Rankings today, AI-answer readiness next",
     icon: <TravelExploreIcon />,
     color: "#34c759",
     items: [
@@ -72,6 +88,7 @@ const navSections: NavSection[] = [
   },
   {
     title: "Intelligence",
+    caption: "Live data — GA4, Search Console, HubSpot",
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
@@ -81,6 +98,7 @@ const navSections: NavSection[] = [
   },
   {
     title: "Governance",
+    caption: "Access, rules and the audit trail",
     icon: <SecurityIcon />,
     color: "#8e8e93",
     items: [
@@ -197,7 +215,7 @@ export default function Sidebar() {
                   alignItems: "center",
                   gap: 1.6,
                   px: 3.25,
-                  py: 1.65,
+                  py: 1.35,
                   cursor: "pointer",
                   userSelect: "none",
                   bgcolor: isOpen ? "#f3f4f6" : "transparent",
@@ -222,19 +240,32 @@ export default function Sidebar() {
                 >
                   {section.icon}
                 </Box>
-                <Typography
-                  sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 16,
-                    fontWeight: 600,
-                    letterSpacing: "-0.01em",
-                    lineHeight: 1.2,
-                    color: "#1d1d1f",
-                  }}
-                >
-                  {section.title}
-                </Typography>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      letterSpacing: "-0.01em",
+                      lineHeight: 1.2,
+                      color: "#1d1d1f",
+                    }}
+                  >
+                    {section.title}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: 11.5,
+                      lineHeight: 1.35,
+                      color: "#6b7280",
+                      mt: 0.25,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {section.caption}
+                  </Typography>
+                </Box>
                 <KeyboardArrowRightIcon
                   sx={{
                     fontSize: 22,

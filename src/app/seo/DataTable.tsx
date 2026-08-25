@@ -68,7 +68,7 @@ export default function DataTable<T>({
   loading,
   emptyTitle,
   emptyBody,
-  maxHeight = 520,
+  maxHeight = 620,
   toolbarLeft,
   skeletonRows = 8,
 }: Props<T>) {

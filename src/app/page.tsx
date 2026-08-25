@@ -8,13 +8,10 @@ import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
 import Button from "@mui/material/Button";
-import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
-import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -26,11 +23,13 @@ import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import PublishIcon from "@mui/icons-material/Publish";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import DesignServicesIcon from "@mui/icons-material/DesignServices";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import InsightsIcon from "@mui/icons-material/Insights";
 import CableIcon from "@mui/icons-material/Cable";
 import Link from "next/link";
+import AdvisorHero from "./overview/AdvisorHero";
+import { brainSignalsFrom, createStudioHref, type AdvisorBrainSignals } from "@/lib/advisor";
 
 /* ── types ── */
 
@@ -40,6 +39,9 @@ type LibItem = {
   title: string | null;
   body: string;
   status: string;
+  /** Null when the piece has never been given a visual — the visual editor
+   *  opens blank for these, so they must not be linked to /editor. */
+  imageUrl: string | null;
   scheduledFor: string | null;
   createdAt: string;
   updatedAt: string;
@@ -67,10 +69,24 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   archived: { bg: "#f0f1f3", fg: "#5b6470" },
 };
 
-const QG_CHANNELS = ["linkedin", "blog", "newsletter", "ad", "seo", "product"];
-
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const HAIRLINE = "#e3e6ea";
+
+/** Every day cell is the same height, so a week reads as one band. */
+const DAY_MIN_HEIGHT = 112;
+
+/** How long a dashboard source gets before it is treated as unavailable. */
+const SOURCE_TIMEOUT_MS = 12_000;
+
+/**
+ * A calendar entry, an approval-queue row and a day-dialog row all open the
+ * SAME thing: the piece's detail in the Library. The visual editor is a
+ * different tool — it renders a blank canvas for any piece without an image —
+ * so it is only ever offered as a secondary affordance on pieces that have one.
+ */
+function libraryHref(id: number): string {
+  return `/library?item=${id}`;
+}
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -93,6 +109,12 @@ export default function MissionControl() {
   const [contentGap, setContentGap] = useState<string>("");
   const [greeting, setGreeting] = useState("Welcome back");
   const [today, setToday] = useState("");
+  // The advisor must never read a failed fetch as "you have zero drafts", so a
+  // dead source is tracked separately from an empty one.
+  const [contentFailed, setContentFailed] = useState(false);
+  const [brainSignals, setBrainSignals] = useState<AdvisorBrainSignals | null>(null);
+  const [contentSettled, setContentSettled] = useState(false);
+  const [brainSettled, setBrainSettled] = useState(false);
   // Month cursor stays null until mount — "now" differs between server render
   // and client, so the grid is client-only by construction.
   const [cursor, setCursor] = useState<{ y: number; m: number } | null>(null);
@@ -101,21 +123,30 @@ export default function MissionControl() {
 
   // The calendar needs the widest window the API allows (MAX_LIMIT = 200).
   const loadItems = useCallback(() => {
-    fetch("/api/content?limit=200")
-      .then((r) => r.json())
-      .then((d) => setItems(Array.isArray(d.items) ? d.items : []))
-      .catch(() => {});
+    fetch("/api/content?limit=200", { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => {
+        setItems(Array.isArray(d.items) ? d.items : []);
+        setContentFailed(false);
+      })
+      .catch(() => setContentFailed(true))
+      .finally(() => setContentSettled(true));
   }, []);
 
   useEffect(() => {
     loadItems();
-    fetch("/api/personality")
-      .then((r) => r.json())
+    // A source that never answers must not leave the advisor and the signals
+    // spinning forever — an endless "reading…" is just a slower way of saying
+    // nothing. Time it out and fall through to the honest unavailable state.
+    fetch("/api/personality", { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((brain) => {
         setTrends(brain?.keywordSignals?.internalSearchTrends?.slice(0, 4) ?? []);
         setContentGap(brain?.categoryIntelligence?.contentGap ?? "");
+        setBrainSignals(brainSignalsFrom(brain));
       })
-      .catch(() => {});
+      .catch(() => setBrainSignals(null))
+      .finally(() => setBrainSettled(true));
     const now = new Date();
     const h = now.getHours();
     setGreeting(h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening");
@@ -226,47 +257,10 @@ export default function MissionControl() {
       })
     : "";
 
-  /* Quick Generate — generation on main */
-  const [qgChannel, setQgChannel] = useState("linkedin");
-  const [qgTopic, setQgTopic] = useState("");
-  const [qgBusy, setQgBusy] = useState(false);
-  const [qgResult, setQgResult] = useState<{ content?: string; error?: string } | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const quickGenerate = async () => {
-    if (!qgTopic.trim() || qgBusy) return;
-    setQgBusy(true);
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: qgChannel, prompt: qgTopic.trim(), wantBrief: false }),
-      });
-      const data = await res.json();
-      setQgResult(res.ok ? { content: data.content } : { error: data.error ?? "Generation failed" });
-      loadItems();
-    } catch {
-      setQgResult({ error: "Network error — try again" });
-    } finally {
-      setQgBusy(false);
-    }
-  };
-
-  const generateFromSignal = (term: string) => {
-    setQgChannel("blog");
-    setQgTopic(
-      `In-depth technical guide targeting the search term "${term}" — what buyers searching this need to know`
-    );
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const copyResult = async () => {
-    if (qgResult?.content) {
-      await navigator.clipboard.writeText(qgResult.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  };
+  /* Nothing on this page generates content any more. The Overview reports and
+   * routes; Create Studio writes. A demand signal therefore becomes a deep link
+   * into the studio carrying the term AND the evidence behind it as the topic. */
+  const signalHref = (t: Trend) => createStudioHref("blog", `${t.term} — ${t.signal}`);
 
   const kpis = [
     { label: "In Library", value: counts.total, period: "active items", icon: <ArticleIcon />, color: "#274e64", bg: "#e8f0f4", href: "/library" },
@@ -277,112 +271,14 @@ export default function MissionControl() {
 
   return (
     <Box>
-      {/* ── Hero: greeting + Quick Generate ── */}
-      <Card
-        sx={{
-          mb: 2.5,
-          background: "linear-gradient(120deg, #16303f 0%, #274e64 55%, #35657f 100%)",
-          color: "#fff",
-          border: "none",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            right: -60,
-            top: -60,
-            width: 260,
-            height: 260,
-            borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(237,27,47,0.35) 0%, rgba(237,27,47,0) 70%)",
-          }}
-        />
-        <CardContent sx={{ p: { xs: 2.5, md: 3.5 }, position: "relative" }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1 }}>
-            <Box>
-              <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: { xs: 24, md: 30 }, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, color: "#fff" }}>
-                {greeting}.
-              </Typography>
-              <Typography sx={{ fontSize: 14, color: "rgba(255,255,255,0.75)", mt: 0.5 }} suppressHydrationWarning>
-                {today} · {counts.drafts > 0 ? `${counts.drafts} draft${counts.drafts === 1 ? "" : "s"} waiting for your review` : "pipeline is clear"}
-              </Typography>
-            </Box>
-            <Chip
-              icon={<AutoAwesomeIcon sx={{ color: "#fff !important", fontSize: 16 }} />}
-              label="Claude Opus 5 engine"
-              sx={{ bgcolor: "rgba(255,255,255,0.12)", color: "#fff", fontWeight: 600, fontSize: 12 }}
-            />
-          </Box>
-
-          {/* Quick Generate bar */}
-          <Box
-            sx={{
-              mt: 3,
-              display: "flex",
-              gap: 1.25,
-              alignItems: "center",
-              flexWrap: { xs: "wrap", md: "nowrap" },
-              bgcolor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.18)",
-              borderRadius: 2,
-              p: 1.25,
-              backdropFilter: "blur(6px)",
-            }}
-          >
-            <TextField
-              select
-              size="small"
-              value={qgChannel}
-              onChange={(e) => setQgChannel(e.target.value)}
-              sx={{
-                minWidth: 140,
-                "& .MuiOutlinedInput-root": { bgcolor: "#fff", borderRadius: 1.5 },
-              }}
-            >
-              {QG_CHANNELS.map((c) => (
-                <MenuItem key={c} value={c}>
-                  {c}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder='What should we create? e.g. "FFKM o-rings for chemical processing — when FKM is not enough"'
-              value={qgTopic}
-              onChange={(e) => setQgTopic(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") quickGenerate();
-              }}
-              sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", borderRadius: 1.5 } }}
-            />
-            <Button
-              onClick={quickGenerate}
-              disabled={qgBusy || !qgTopic.trim()}
-              variant="contained"
-              startIcon={qgBusy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
-              sx={{
-                bgcolor: "#ed1b2f",
-                whiteSpace: "nowrap",
-                px: 3,
-                "&:hover": { bgcolor: "#d81528" },
-                "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.6)" },
-              }}
-            >
-              {qgBusy ? "Writing…" : "Generate"}
-            </Button>
-          </Box>
-          <Typography sx={{ fontSize: 11.5, color: "rgba(255,255,255,0.55)", mt: 1, ml: 0.5 }}>
-            Full control — personas, keywords, images — in{" "}
-            <Link href="/content-generation" style={{ color: "#fff", fontWeight: 600 }}>
-              Content Generation
-            </Link>
-            . Every result is saved to the Library as a draft.
-          </Typography>
-        </CardContent>
-      </Card>
+      {/* ── Hero: the AI advisor. It reports and routes — it never generates. ── */}
+      <AdvisorHero
+        greeting={greeting}
+        today={today}
+        items={contentFailed ? null : items}
+        brain={brainSignals}
+        ready={contentSettled && brainSettled}
+      />
 
       {/* ── KPI row (all live) ── */}
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
@@ -491,111 +387,125 @@ export default function MissionControl() {
             ))}
           </Box>
 
-          {/* month grid — 1px gaps on a hairline ground draw the rules */}
+          {/* Month grid. Each week is its OWN row bounded by a hairline above and
+              below — the outer frame draws the first row's top rule and the last
+              row's bottom rule, every other rule is a row's borderTop. Without
+              these the seven columns read as stripes, not as a calendar. */}
           <Box
             sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-              gap: "1px",
-              bgcolor: HAIRLINE,
               border: `1px solid ${HAIRLINE}`,
               borderRadius: 1.5,
               overflow: "hidden",
+              bgcolor: "#ffffff",
             }}
           >
-            {weeks.flat().map((d) => {
-              const key = dayKey(d);
-              const inMonth = cursor ? d.getMonth() === cursor.m && d.getFullYear() === cursor.y : false;
-              const dayEntries = entriesByDay.get(key) ?? [];
-              const isToday = key === todayKey;
-              return (
-                <Box
-                  key={key}
-                  onClick={() => dayEntries.length && setSelectedDay(key)}
-                  sx={{
-                    minHeight: 106,
-                    p: 0.75,
-                    bgcolor: inMonth ? "#ffffff" : "#fafbfc",
-                    cursor: dayEntries.length ? "pointer" : "default",
-                    transition: "background-color 0.15s ease",
-                    "&:hover": { bgcolor: dayEntries.length ? "#f5f6f8" : undefined },
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+            {weeks.map((week, wi) => (
+              <Box
+                key={`w${week[0].getTime()}`}
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                  borderTop: wi === 0 ? "none" : `1px solid ${HAIRLINE}`,
+                }}
+              >
+                {week.map((d, di) => {
+                  const key = dayKey(d);
+                  const inMonth = cursor
+                    ? d.getMonth() === cursor.m && d.getFullYear() === cursor.y
+                    : false;
+                  const dayEntries = entriesByDay.get(key) ?? [];
+                  const isToday = key === todayKey;
+                  return (
                     <Box
+                      key={key}
+                      onClick={() => dayEntries.length && setSelectedDay(key)}
                       sx={{
-                        width: 21,
-                        height: 21,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        bgcolor: isToday ? "#ed1b2f" : "transparent",
+                        minHeight: DAY_MIN_HEIGHT,
+                        p: 0.75,
+                        borderRight: di < 6 ? `1px solid ${HAIRLINE}` : "none",
+                        bgcolor: inMonth ? "#ffffff" : "#fafbfc",
+                        cursor: dayEntries.length ? "pointer" : "default",
+                        transition: "background-color 0.15s ease",
+                        "&:hover": { bgcolor: dayEntries.length ? "#f5f6f8" : undefined },
                       }}
                     >
-                      <Typography
-                        sx={{
-                          fontSize: 11.5,
-                          fontWeight: isToday ? 700 : 600,
-                          color: isToday ? "#fff" : inMonth ? "#1a1d21" : "#a7aeb8",
-                        }}
-                      >
-                        {d.getDate()}
-                      </Typography>
-                    </Box>
-                    {dayEntries.length > 0 && (
-                      <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#a7aeb8" }}>
-                        {dayEntries.length}
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
-                    {dayEntries.slice(0, 3).map((e) => {
-                      const color = CH_COLORS[e.item.channel] ?? "#5b6470";
-                      const scheduled = e.kind === "scheduled";
-                      return (
-                        <Tooltip
-                          key={`${e.kind}-${e.item.id}`}
-                          title={`${e.item.channel} · ${scheduled ? "scheduled" : "created"} · ${e.item.status}`}
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                        <Box
+                          sx={{
+                            width: 21,
+                            height: 21,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: isToday ? "#ed1b2f" : "transparent",
+                          }}
                         >
-                          <Box
-                            component={Link}
-                            href={`/editor?item=${e.item.id}`}
-                            onClick={(ev: React.MouseEvent) => ev.stopPropagation()}
+                          <Typography
                             sx={{
-                              display: "block",
-                              textDecoration: "none",
-                              px: 0.75,
-                              py: 0.3,
-                              borderRadius: 0.75,
-                              fontSize: 10.5,
-                              fontWeight: 600,
-                              lineHeight: 1.35,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              bgcolor: scheduled ? color : "transparent",
-                              color: scheduled ? "#ffffff" : color,
-                              border: `1px solid ${color}`,
-                              opacity: inMonth ? 1 : 0.55,
+                              fontSize: 11.5,
+                              fontWeight: isToday ? 700 : 600,
+                              color: isToday ? "#fff" : inMonth ? "#1a1d21" : "#a7aeb8",
                             }}
                           >
-                            {e.item.title || e.item.body.slice(0, 40)}
-                          </Box>
-                        </Tooltip>
-                      );
-                    })}
-                    {dayEntries.length > 3 && (
-                      <Typography
-                        sx={{ fontSize: 10.5, fontWeight: 700, color: "#274e64", px: 0.75, cursor: "pointer" }}
-                      >
-                        +{dayEntries.length - 3} more
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-              );
-            })}
+                            {d.getDate()}
+                          </Typography>
+                        </Box>
+                        {dayEntries.length > 0 && (
+                          <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#a7aeb8" }}>
+                            {dayEntries.length}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
+                        {dayEntries.slice(0, 3).map((e) => {
+                          const color = CH_COLORS[e.item.channel] ?? "#5b6470";
+                          const scheduled = e.kind === "scheduled";
+                          return (
+                            <Tooltip
+                              key={`${e.kind}-${e.item.id}`}
+                              title={`${e.item.channel} · ${scheduled ? "scheduled" : "created"} · ${e.item.status} — opens this piece in the Library`}
+                            >
+                              <Box
+                                component={Link}
+                                href={libraryHref(e.item.id)}
+                                onClick={(ev: React.MouseEvent) => ev.stopPropagation()}
+                                sx={{
+                                  display: "block",
+                                  textDecoration: "none",
+                                  px: 0.75,
+                                  py: 0.3,
+                                  borderRadius: 0.75,
+                                  fontSize: 10.5,
+                                  fontWeight: 600,
+                                  lineHeight: 1.35,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  bgcolor: scheduled ? color : "transparent",
+                                  color: scheduled ? "#ffffff" : color,
+                                  border: `1px solid ${color}`,
+                                  opacity: inMonth ? 1 : 0.55,
+                                }}
+                              >
+                                {e.item.title || e.item.body.slice(0, 40)}
+                              </Box>
+                            </Tooltip>
+                          );
+                        })}
+                        {dayEntries.length > 3 && (
+                          <Typography
+                            sx={{ fontSize: 10.5, fontWeight: 700, color: "#274e64", px: 0.75, cursor: "pointer" }}
+                          >
+                            +{dayEntries.length - 3} more
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
+            ))}
           </Box>
 
           {cursor && monthStats.total === 0 && (
@@ -638,7 +548,7 @@ export default function MissionControl() {
               </Box>
               {drafts.length === 0 ? (
                 <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 4 }}>
-                  Queue is clear — generate something above.
+                  Queue is clear — nothing is waiting for review.
                 </Typography>
               ) : (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -657,9 +567,26 @@ export default function MissionControl() {
                           {" · "}{timeAgo(d.createdAt)}
                         </Typography>
                       </Box>
-                      <Button component={Link} href="/library" size="small" variant="contained" sx={{ bgcolor: "#1e7e45", fontSize: 11.5, px: 1.5, py: 0.4, "&:hover": { bgcolor: "#17643a" } }}>
+                      {/* Review opens THIS piece in the Library, not the whole
+                          library and not the visual editor. The editor is
+                          offered separately, and only when there is a design to
+                          edit — it renders blank for an image-less piece. */}
+                      <Button component={Link} href={libraryHref(d.id)} size="small" variant="contained" sx={{ bgcolor: "#1e7e45", fontSize: 11.5, px: 1.5, py: 0.4, "&:hover": { bgcolor: "#17643a" } }}>
                         Review
                       </Button>
+                      {d.imageUrl && (
+                        <Tooltip title="Edit this piece's design in the visual editor">
+                          <IconButton
+                            component={Link}
+                            href={`/editor?item=${d.id}`}
+                            size="small"
+                            aria-label="Edit design"
+                            sx={{ color: "#5b6470" }}
+                          >
+                            <DesignServicesIcon sx={{ fontSize: 17 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   ))}
                 </Box>
@@ -682,7 +609,8 @@ export default function MissionControl() {
                 <Chip label="from real shop search data" size="small" sx={{ fontWeight: 600, fontSize: 10.5, bgcolor: "#e5f3ea", color: "#1e7e45" }} />
               </Box>
               <Typography sx={{ fontSize: 12.5, color: "#5b6470", ml: 1.75, mb: 1.5 }}>
-                What APSOparts customers are actually searching — turn a signal into content in one click.
+                What APSOparts customers are actually searching — send a signal straight to Create
+                Studio with the term and its evidence as the topic.
               </Typography>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {trends.map((t) => (
@@ -692,9 +620,15 @@ export default function MissionControl() {
                       <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#1a1d21" }}>{t.term}</Typography>
                       <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>{t.signal}</Typography>
                     </Box>
-                    <Tooltip title="Prefill the generator with this signal">
-                      <Button size="small" onClick={() => generateFromSignal(t.term)} startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />} sx={{ fontSize: 11.5, fontWeight: 700, color: "#ed1b2f", whiteSpace: "nowrap" }}>
-                        Generate
+                    <Tooltip title="Open Create Studio with this signal as the topic">
+                      <Button
+                        component={Link}
+                        href={signalHref(t)}
+                        size="small"
+                        startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+                        sx={{ fontSize: 11.5, fontWeight: 700, color: "#ed1b2f", whiteSpace: "nowrap" }}
+                      >
+                        Create
                       </Button>
                     </Tooltip>
                   </Box>
@@ -807,8 +741,6 @@ export default function MissionControl() {
                 return (
                   <Box
                     key={`${e.kind}-${e.item.id}`}
-                    component={Link}
-                    href={`/editor?item=${e.item.id}`}
                     sx={{
                       display: "flex",
                       alignItems: "center",
@@ -816,12 +748,16 @@ export default function MissionControl() {
                       p: 1.25,
                       borderRadius: 1.5,
                       border: `1px solid ${HAIRLINE}`,
-                      textDecoration: "none",
                       "&:hover": { bgcolor: "#fafbfc" },
                     }}
                   >
                     <Box sx={{ width: 3, height: 34, borderRadius: 2, bgcolor: color, flexShrink: 0 }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                    {/* The piece itself opens in the Library. */}
+                    <Box
+                      component={Link}
+                      href={libraryHref(e.item.id)}
+                      sx={{ flex: 1, minWidth: 0, textDecoration: "none" }}
+                    >
                       <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, color: "#1a1d21" }}>
                         {e.item.title || e.item.body.slice(0, 90)}
                       </Typography>
@@ -837,6 +773,18 @@ export default function MissionControl() {
                       size="small"
                       sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: sc.bg, color: sc.fg }}
                     />
+                    {/* Only a piece that HAS a design can have its design edited. */}
+                    {e.item.imageUrl && (
+                      <Button
+                        component={Link}
+                        href={`/editor?item=${e.item.id}`}
+                        size="small"
+                        startIcon={<DesignServicesIcon sx={{ fontSize: 15 }} />}
+                        sx={{ fontSize: 11.5, fontWeight: 700, color: "#274e64", whiteSpace: "nowrap" }}
+                      >
+                        Edit design
+                      </Button>
+                    )}
                   </Box>
                 );
               })}
@@ -851,34 +799,6 @@ export default function MissionControl() {
         </DialogActions>
       </Dialog>
 
-      {/* ── Quick Generate result ── */}
-      <Dialog open={Boolean(qgResult)} onClose={() => setQgResult(null)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>
-          {qgResult?.error ? "Generation failed" : "Draft created and saved to the Library"}
-        </DialogTitle>
-        <DialogContent dividers>
-          {qgResult?.error ? (
-            <Typography sx={{ fontSize: 14, color: "#c5221f" }}>{qgResult.error}</Typography>
-          ) : (
-            <Typography component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.65 }}>
-              {qgResult?.content}
-            </Typography>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5 }}>
-          {!qgResult?.error && (
-            <>
-              <Button startIcon={<ContentCopyIcon />} onClick={copyResult}>
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-              <Button component={Link} href="/library" variant="contained" sx={{ bgcolor: "#274e64" }}>
-                Open in Library
-              </Button>
-            </>
-          )}
-          <Button onClick={() => setQgResult(null)}>Close</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

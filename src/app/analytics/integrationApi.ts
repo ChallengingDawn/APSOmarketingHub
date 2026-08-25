@@ -12,7 +12,10 @@
 
 export type IntegrationResult<T> =
   | { state: "not-configured"; missing: string[]; detail: string | null }
-  | { state: "error"; error: string; status: number | null }
+  // `sites` rides along on Search Console failures: when a query is refused,
+  // the list of properties the service account can actually see is the fastest
+  // diagnosis — an empty list means it was never granted access to any.
+  | { state: "error"; error: string; status: number | null; sites?: { siteUrl: string; permissionLevel: string | null }[] }
   | { state: "ok"; data: T };
 
 /* ── GA4 (mirrors src/lib/integrations/ga4.ts) ── */
@@ -55,7 +58,12 @@ export type HubspotSummary = {
   since: string;
 };
 
-export type HubspotPayload = { account: HubspotAccount; summary: HubspotSummary };
+export type HubspotPayload = {
+  /** Null when the token lacks the account-info scope; CRM reads still work. */
+  account: HubspotAccount | null;
+  accountUnavailable?: string;
+  summary: HubspotSummary;
+};
 
 /* ── Search Console (mirrors src/lib/integrations/gsc.ts) ── */
 
@@ -156,7 +164,16 @@ export async function fetchIntegration<T>(
     optionalString(payload.error) ??
     `The API route returned neither data nor an error (HTTP ${res.status}).`;
   const status = typeof payload.status === "number" ? payload.status : res.status;
-  return { state: "error", error, status };
+  const sites = Array.isArray(payload.sites)
+    ? payload.sites.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const row = entry as Record<string, unknown>;
+        const siteUrl = optionalString(row.siteUrl);
+        if (!siteUrl) return [];
+        return [{ siteUrl, permissionLevel: optionalString(row.permissionLevel) }];
+      })
+    : undefined;
+  return { state: "error", error, status, sites };
 }
 
 /** /api/integrations/status has its own shape: { integrations: {...} }. */

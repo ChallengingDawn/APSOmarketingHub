@@ -206,7 +206,7 @@ function CommercialSignal({ payload }: { payload: HubspotPayload }) {
     <SectionCard
       title="Commercial signal · HubSpot"
       caption={
-        account.portalId === null
+        account === null || account.portalId === null
           ? "Live from the connected HubSpot private app."
           : `Live from HubSpot portal ${account.portalId}${account.uiDomain ? ` (${account.uiDomain})` : ""}.`
       }

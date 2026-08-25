@@ -48,7 +48,7 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 type TestOutcome =
   | { kind: "pending" }
   | { kind: "not-configured"; missing: string[] }
-  | { kind: "failed"; error: string; status: number | null }
+  | { kind: "failed"; error: string; status: number | null; sites?: { siteUrl: string; permissionLevel: string | null }[] }
   | { kind: "passed"; proof: string };
 
 type Definition = {
@@ -80,17 +80,24 @@ function proofFromGsc(data: GscPayload): string {
 }
 
 function proofFromHubspot(data: HubspotPayload): string {
-  const portal = data.account.portalId === null ? "an unnamed portal" : `portal ${data.account.portalId}`;
-  const domain = data.account.uiDomain ? ` (${data.account.uiDomain})` : "";
+  const portal =
+    data.account === null || data.account.portalId === null
+      ? "an unnamed portal"
+      : `portal ${data.account.portalId}`;
+  const domain = data.account?.uiDomain ? ` (${data.account.uiDomain})` : "";
+  const scopeNote =
+    data.account === null
+      ? " Portal details were refused — add the account-info scope to name the portal; CRM reads are unaffected."
+      : "";
   const contacts =
     data.summary.contacts === null ? "" : `, ${formatCount(data.summary.contacts)} contacts readable`;
-  return `HubSpot ${portal}${domain} answered${contacts}.`;
+  return `HubSpot ${portal}${domain} answered${contacts}.${scopeNote}`;
 }
 
 async function runTest<T>(url: string, proof: (data: T) => string): Promise<TestOutcome> {
   const result: IntegrationResult<T> = await fetchIntegration<T>(url);
   if (result.state === "not-configured") return { kind: "not-configured", missing: result.missing };
-  if (result.state === "error") return { kind: "failed", error: result.error, status: result.status };
+  if (result.state === "error") return { kind: "failed", error: result.error, status: result.status, sites: result.sites };
   return { kind: "passed", proof: proof(result.data) };
 }
 
@@ -350,6 +357,24 @@ function IntegrationCard({
                   ? `The route reports these variables are not set: ${outcome.missing.join(", ") || "(none named)"}`
                   : outcome.error}
             </Typography>
+            {outcome.kind === "failed" && outcome.sites !== undefined && (
+              <Typography
+                sx={{
+                  fontFamily: MONO,
+                  fontSize: "0.76rem",
+                  color: INK,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  mt: 1,
+                }}
+              >
+                {outcome.sites.length === 0
+                  ? "Search Console lists NO properties for this service account. It has not been added as a user on any property yet — that is the whole problem, not the site string. An existing owner of the apsoparts.com property has to add the service-account email under Settings → Users and permissions. If no one holds that property, it has to be created and verified first."
+                  : `Properties this service account can actually see: ${outcome.sites
+                      .map((s) => `${s.siteUrl}${s.permissionLevel ? ` (${s.permissionLevel})` : ""}`)
+                      .join(", ")}. If the one you expect is missing, it has not been shared with the service account; if it is present but spelled differently, set GSC_SITE_URL to match it exactly.`}
+              </Typography>
+            )}
           </Box>
         )}
       </Box>

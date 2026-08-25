@@ -12,12 +12,15 @@ import DataTable, { type Column } from "./DataTable";
 import {
   DISPLAY,
   Explainer,
-  HAIRLINE,
   HairlineCard,
   INK,
+  MONO,
   MUTED,
   NUMERIC,
+  PROSE_MAX,
   SectionLabel,
+  SourceNote,
+  TableHeading,
   fmtCtr,
   fmtInt,
   fmtPosition,
@@ -60,8 +63,8 @@ function KeyCell({ text, mono }: { text: string; mono?: boolean }) {
           fontSize: "0.85rem",
           fontWeight: 500,
           color: INK,
-          fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : undefined,
-          maxWidth: 420,
+          fontFamily: mono ? MONO : undefined,
+          maxWidth: { xs: 240, sm: 420, lg: 680, xl: 960 },
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
@@ -169,61 +172,87 @@ export default function SearchPerformance({
         </Grid>
       </Grid>
 
-      <Typography sx={{ mb: 3, fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
+      <Typography sx={{ mb: 3, fontSize: "0.78rem", color: MUTED, lineHeight: 1.6, maxWidth: PROSE_MAX }}>
         {range ? `Window ${range.startDate} → ${range.endDate} (${days} days). ` : `Window: last ${days} days. `}
         {scopeNote}
       </Typography>
 
-      <HairlineCard sx={{ mb: 3 }}>
-        <DataTable<GscRow>
-          columns={metricColumns("Query", false)}
-          rows={queries}
-          rowKey={rowKey}
-          searchText={searchText}
-          searchPlaceholder="Search queries"
-          initialSort={{ id: "clicks", dir: "desc" }}
-          loading={loading}
-          emptyTitle="Search Console returned no queries"
-          emptyBody="The property is connected and the call succeeded, but no query rows came back for this window. A brand-new property, a property with no impressions yet, or a window shorter than Search Console's ~2-day reporting lag all produce this."
-          toolbarLeft={
-            <Box>
-              <SectionLabel>Top queries</SectionLabel>
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>
-                Dimension <Box component="code" sx={{ fontFamily: "ui-monospace, monospace" }}>query</Box> · last {days} days
-              </Typography>
-            </Box>
-          }
-        />
-      </HairlineCard>
+      {/* Side by side once there is genuinely room for two five-column tables;
+          stacked below that, so neither ever compresses into unreadability. */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" },
+          gap: 2.5,
+          alignItems: "start",
+        }}
+      >
+        <HairlineCard>
+          <DataTable<GscRow>
+            columns={metricColumns("Query", false)}
+            rows={queries}
+            rowKey={rowKey}
+            searchText={searchText}
+            searchPlaceholder="Search queries"
+            initialSort={{ id: "clicks", dir: "desc" }}
+            loading={loading}
+            maxHeight={620}
+            emptyTitle="Search Console returned no queries"
+            emptyBody="The property is connected and the call succeeded, but no query rows came back for this window. A brand-new property, a property with no impressions yet, or a window shorter than Search Console's ~2-day reporting lag all produce this."
+            toolbarLeft={
+              <TableHeading
+                label="Top queries"
+                caption={
+                  <>
+                    Dimension{" "}
+                    <Box component="code" sx={{ fontFamily: MONO }}>
+                      query
+                    </Box>{" "}
+                    · last {days} days
+                  </>
+                }
+              />
+            }
+          />
+        </HairlineCard>
 
-      <HairlineCard>
-        <DataTable<GscRow>
-          columns={metricColumns("Page", true)}
-          rows={pages}
-          rowKey={rowKey}
-          searchText={searchText}
-          searchPlaceholder="Search pages"
-          initialSort={{ id: "clicks", dir: "desc" }}
-          loading={loading}
-          emptyTitle="Search Console returned no pages"
-          emptyBody="The call succeeded but no page rows came back for this window. Pages appear here once they receive impressions."
-          toolbarLeft={
-            <Box>
-              <SectionLabel>Top pages</SectionLabel>
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>
-                Dimension <Box component="code" sx={{ fontFamily: "ui-monospace, monospace" }}>page</Box> · paths shown, hover for the full URL
-              </Typography>
-            </Box>
-          }
-        />
-      </HairlineCard>
-
-      <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-        <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>
-          Source: Google Search Console <Box component="code" sx={{ fontFamily: "ui-monospace, monospace" }}>searchAnalytics.query</Box>. No
-          value on this page is estimated, modelled or sampled.
-        </Typography>
+        <HairlineCard>
+          <DataTable<GscRow>
+            columns={metricColumns("Page", true)}
+            rows={pages}
+            rowKey={rowKey}
+            searchText={searchText}
+            searchPlaceholder="Search pages"
+            initialSort={{ id: "clicks", dir: "desc" }}
+            loading={loading}
+            maxHeight={620}
+            emptyTitle="Search Console returned no pages"
+            emptyBody="The call succeeded but no page rows came back for this window. Pages appear here once they receive impressions."
+            toolbarLeft={
+              <TableHeading
+                label="Top pages"
+                caption={
+                  <>
+                    Dimension{" "}
+                    <Box component="code" sx={{ fontFamily: MONO }}>
+                      page
+                    </Box>{" "}
+                    · paths shown, hover for the full URL
+                  </>
+                }
+              />
+            }
+          />
+        </HairlineCard>
       </Box>
+
+      <SourceNote>
+        Source: Google Search Console{" "}
+        <Box component="code" sx={{ fontFamily: MONO }}>
+          searchAnalytics.query
+        </Box>
+        . No value on this page is estimated, modelled or sampled.
+      </SourceNote>
     </Box>
   );
 }

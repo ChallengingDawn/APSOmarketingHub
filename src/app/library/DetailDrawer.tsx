@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Typography from "@mui/material/Typography";
@@ -15,6 +15,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PublishIcon from "@mui/icons-material/Publish";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import UndoIcon from "@mui/icons-material/Undo";
+import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
+import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import Link from "next/link";
 import MarkdownPreview from "@/app/create/MarkdownPreview";
 import ContentThumb from "./ContentThumb";
@@ -23,9 +25,16 @@ import {
   displayTitle,
   fullDate,
   imageExtension,
+  stripMarkdown,
   type ContentItem,
   type ContentStatus,
 } from "./contentMeta";
+
+/**
+ * The visual is context, not the point — the text has to start above the fold.
+ * Tall images are cropped to this height until the reader asks for the full frame.
+ */
+const PREVIEW_HEIGHT = 210;
 
 const LABEL_SX = {
   fontSize: 11.5,
@@ -53,6 +62,19 @@ interface DetailDrawerProps {
 
 export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDrawerProps) {
   const [copied, setCopied] = useState(false);
+  const [fullImage, setFullImage] = useState(false);
+
+  // Every piece opens the same way: cropped visual, text ready to read.
+  useEffect(() => {
+    setFullImage(false);
+    setCopied(false);
+  }, [item?.id]);
+
+  const wordCount = useMemo(() => {
+    if (!item) return 0;
+    const words = stripMarkdown(item.body).split(/\s+/).filter(Boolean);
+    return words.length;
+  }, [item]);
 
   const copy = async (text: string) => {
     try {
@@ -109,25 +131,62 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
           </Box>
 
           <Box sx={{ flex: 1, overflowY: "auto", px: 2.5, py: 2.25 }}>
-            <Box
-              sx={{
-                borderRadius: 2,
-                overflow: "hidden",
-                border: "1px solid #e3e6ea",
-                bgcolor: "#f5f6f8",
-                aspectRatio: item.imageUrl ? "auto" : "16 / 9",
-                mb: 2.5,
-              }}
-            >
-              <ContentThumb
-                channel={item.channel}
-                imageUrl={item.imageUrl}
-                alt={displayTitle(item)}
-                natural
-              />
+            <Box sx={{ position: "relative", mb: 2.5 }}>
+              <Box
+                sx={{
+                  borderRadius: 2,
+                  overflow: "hidden",
+                  border: "1px solid #e3e6ea",
+                  bgcolor: "#f5f6f8",
+                  ...(item.imageUrl
+                    ? fullImage
+                      ? {}
+                      : { height: PREVIEW_HEIGHT }
+                    : { aspectRatio: "16 / 9" }),
+                }}
+              >
+                <ContentThumb
+                  channel={item.channel}
+                  imageUrl={item.imageUrl}
+                  alt={displayTitle(item)}
+                  natural={fullImage}
+                />
+              </Box>
+
+              {item.imageUrl && (
+                <Button
+                  size="small"
+                  onClick={() => setFullImage((v) => !v)}
+                  startIcon={fullImage ? <UnfoldLessIcon /> : <UnfoldMoreIcon />}
+                  sx={{
+                    position: "absolute",
+                    right: 8,
+                    bottom: 8,
+                    px: 1,
+                    py: 0.25,
+                    minWidth: 0,
+                    fontSize: 11.5,
+                    textTransform: "none",
+                    fontWeight: 600,
+                    color: "#1a1d21",
+                    bgcolor: "rgba(255,255,255,.92)",
+                    border: "1px solid #e3e6ea",
+                    "&:hover": { bgcolor: "#fff" },
+                  }}
+                >
+                  {fullImage ? "Crop image" : "Full image"}
+                </Button>
+              )}
             </Box>
 
-            <Typography sx={{ ...LABEL_SX, mb: 1 }}>Content</Typography>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 1 }}>
+              <Typography sx={LABEL_SX}>Content</Typography>
+              {wordCount > 0 && (
+                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                  {wordCount} word{wordCount === 1 ? "" : "s"}
+                </Typography>
+              )}
+            </Box>
             <Box
               sx={{
                 border: "1px solid #e3e6ea",

@@ -41,7 +41,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ configured: true, ok: true, data: { ...report, sites } });
   } catch (err) {
     const { error, status: upstreamStatus } = describeIntegrationError(err);
-    return NextResponse.json({ configured: true, ok: false, error, status: upstreamStatus });
+    // A failed query is usually an access problem, and the single most useful
+    // thing to show then is which properties the service account CAN see — an
+    // empty list means it was never added to any Search Console property.
+    let sites;
+    if (wantSites) {
+      try {
+        sites = await fetchGscSites(controller.signal);
+      } catch {
+        sites = undefined;
+      }
+    }
+    return NextResponse.json({ configured: true, ok: false, error, status: upstreamStatus, sites });
   } finally {
     clearTimeout(timer);
   }

@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import PageHeader from "@/app/PageHeader";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -16,6 +17,7 @@ import Tooltip from "@mui/material/Tooltip";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import LinearProgress from "@mui/material/LinearProgress";
+import CircularProgress from "@mui/material/CircularProgress";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -28,6 +30,8 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
 import FilterAltOffIcon from "@mui/icons-material/FilterAltOff";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import Link from "next/link";
 import ContentCard from "./ContentCard";
 import ContentListRow from "./ContentListRow";
@@ -45,9 +49,31 @@ import {
 
 const VIEW_KEY = "apsoMH:libraryView";
 const FETCH_LIMIT = 200; // API caps at 200; counts below are computed from what we loaded.
+const ITEM_PARAM = "item";
 
 type ViewMode = "grid" | "list";
 type StatusTab = ContentStatus | "all";
+
+/**
+ * Result of resolving `?item=<id>` when the piece is not in the loaded page.
+ * `missing` = the API answered 404; `unreachable` = the lookup itself failed;
+ * `invalid` = the link carried something that is not a piece id.
+ */
+type LinkProblem =
+  | { kind: "missing"; id: number }
+  | { kind: "unreachable"; id: number; detail: string }
+  | { kind: "invalid"; raw: string };
+
+/** `null` = no `?item=`; `"invalid"` = present but not a positive integer. */
+type RequestedItem = number | "invalid" | null;
+
+function parseItemParam(raw: string | null): RequestedItem {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return "invalid";
+  const n = Number(trimmed);
+  return Number.isInteger(n) && n > 0 ? n : "invalid";
+}
 
 const LABEL_SX = {
   fontSize: 11.5,
@@ -125,7 +151,67 @@ function StateBlock({
   );
 }
 
-export default function LibraryPage() {
+const NOTICE_TONE = {
+  warn: { bg: "#fdf4f5", border: "#f0d2d6", icon: "#ed1b2f" },
+  info: { bg: "#f2f6f9", border: "#dae3ea", icon: "#274e64" },
+} as const;
+
+/** Hairline strip above the grid — explains what a deep link did or could not do. */
+function InlineNotice({
+  tone,
+  icon,
+  title,
+  body,
+  action,
+  onDismiss,
+}: {
+  tone: keyof typeof NOTICE_TONE;
+  icon: React.ReactNode;
+  title: string;
+  body?: string;
+  action?: React.ReactNode;
+  onDismiss?: () => void;
+}) {
+  const theme = NOTICE_TONE[tone];
+  return (
+    <Paper
+      elevation={0}
+      role="status"
+      sx={{
+        border: `1px solid ${theme.border}`,
+        bgcolor: theme.bg,
+        borderRadius: 2,
+        px: 2,
+        py: 1.25,
+        mb: 2,
+        display: "flex",
+        alignItems: "center",
+        gap: 1.25,
+        flexWrap: "wrap",
+      }}
+    >
+      <Box sx={{ color: theme.icon, display: "flex", "& svg": { fontSize: 19 } }}>{icon}</Box>
+      <Box sx={{ minWidth: 0, flex: "1 1 260px" }}>
+        <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: "#1a1d21" }}>{title}</Typography>
+        {body && <Typography sx={{ fontSize: 12.5, color: "#5b6470", mt: 0.15 }}>{body}</Typography>}
+      </Box>
+      {action}
+      {onDismiss && (
+        <IconButton size="small" onClick={onDismiss} aria-label="Dismiss notice">
+          <CloseIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      )}
+    </Paper>
+  );
+}
+
+function LibraryWorkspace() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const itemParam = searchParams.get(ITEM_PARAM);
+  const queryString = searchParams.toString();
+
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,12 +225,26 @@ export default function LibraryPage() {
 
   const [selected, setSelected] = useState<number[]>([]);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  /** A piece fetched on its own because `?item=` pointed outside the loaded page. */
+  const [linkedItem, setLinkedItem] = useState<ContentItem | null>(null);
+  const [linkProblem, setLinkProblem] = useState<LinkProblem | null>(null);
+  const [resolvingId, setResolvingId] = useState<number | null>(null);
+  const [linkRetry, setLinkRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [bulk, setBulk] = useState<{ running: boolean; done: number; total: number; failed: number } | null>(
     null
   );
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * The `?item=` value we last asked the router for. `undefined` = nothing pending.
+   * router.replace lands a tick after the state change, so without this the effect
+   * below would read the stale URL and close the drawer we just opened (or reopen
+   * the one we just closed).
+   */
+  const urlIntent = useRef<number | null | undefined>(undefined);
+  /** Ids already looked up one-by-one, so a failed lookup is not retried in a loop. */
+  const lookedUp = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     const stored = window.localStorage.getItem(VIEW_KEY);
@@ -184,6 +284,54 @@ export default function LibraryPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Keep the address bar honest: `?item=<id>` while a drawer is open, gone when it closes. */
+  const syncUrl = useCallback(
+    (id: number | null) => {
+      const current = parseItemParam(itemParam);
+      const settled = typeof current === "number" ? current : null;
+      // A replace already in flight is what the URL is about to say — compare against
+      // that, so open-then-close in one tick cannot leave the id behind.
+      const heading = urlIntent.current === undefined ? settled : urlIntent.current;
+      if (heading === id && current !== "invalid") return;
+
+      const params = new URLSearchParams(queryString);
+      if (id === null) params.delete(ITEM_PARAM);
+      else params.set(ITEM_PARAM, String(id));
+      const next = params.toString();
+      urlIntent.current = id;
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+    },
+    [itemParam, queryString, pathname, router]
+  );
+
+  const openItem = useCallback(
+    (id: number) => {
+      setViewingId(id);
+      setLinkProblem(null);
+      syncUrl(id);
+    },
+    [syncUrl]
+  );
+
+  const closeDrawer = useCallback(() => {
+    setViewingId(null);
+    syncUrl(null);
+  }, [syncUrl]);
+
+  const dismissLinkProblem = useCallback(() => {
+    setLinkProblem(null);
+    syncUrl(null);
+  }, [syncUrl]);
+
+  /** Re-run the one-off lookup for the linked id (the resolver only tries once). */
+  const retryLink = useCallback(() => {
+    setLinkProblem((cur) => {
+      if (cur && cur.kind !== "invalid") lookedUp.current.delete(cur.id);
+      return null;
+    });
+    setLinkRetry((n) => n + 1);
+  }, []);
 
   const channels = useMemo(() => {
     const set = new Set(items.map((i) => i.channel));
@@ -254,7 +402,102 @@ export default function LibraryPage() {
   const toggleSelect = (id: number) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
-  const viewing = viewingId === null ? null : items.find((i) => i.id === viewingId) ?? null;
+  const viewing = useMemo(() => {
+    if (viewingId === null) return null;
+    const loaded = items.find((i) => i.id === viewingId);
+    if (loaded) return loaded;
+    return linkedItem && linkedItem.id === viewingId ? linkedItem : null;
+  }, [items, viewingId, linkedItem]);
+
+  // ?item=<id> → open that piece's drawer. Runs again when the fetch lands, so a
+  // link followed before the library loaded is honoured rather than dropped.
+  const requested = useMemo(() => parseItemParam(itemParam), [itemParam]);
+
+  useEffect(() => {
+    const target = typeof requested === "number" ? requested : null;
+
+    // Wait for our own router.replace to land before reading the URL as truth.
+    if (urlIntent.current !== undefined) {
+      if (requested === "invalid" || urlIntent.current !== target) return;
+      urlIntent.current = undefined;
+    }
+
+    if (requested === null) {
+      // Param gone (back button, or we removed it) — the drawer follows.
+      setViewingId(null);
+      setLinkProblem(null);
+      setResolvingId(null);
+      return;
+    }
+
+    if (requested === "invalid") {
+      setViewingId(null);
+      setLinkProblem({ kind: "invalid", raw: (itemParam ?? "").slice(0, 40) });
+      return;
+    }
+
+    if (requested === viewingId) return;
+    if (items.some((i) => i.id === requested)) {
+      setViewingId(requested);
+      setLinkProblem(null);
+      return;
+    }
+    if (linkedItem && linkedItem.id === requested) {
+      setViewingId(requested);
+      setLinkProblem(null);
+      return;
+    }
+    // Still fetching the library — try again once the items arrive.
+    if (loading) return;
+    // Already asked the API about this id; don't hammer it on every re-render.
+    if (lookedUp.current.has(requested)) return;
+
+    lookedUp.current.add(requested);
+    let cancelled = false;
+    let settled = false;
+    setResolvingId(requested);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/content/${requested}`);
+        if (cancelled) return;
+        if (res.status === 404) {
+          setViewingId(null);
+          setLinkProblem({ kind: "missing", id: requested });
+          return;
+        }
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as { item?: ContentItem };
+        if (cancelled) return;
+        if (!data.item) {
+          setViewingId(null);
+          setLinkProblem({ kind: "missing", id: requested });
+          return;
+        }
+        setLinkedItem(data.item);
+        setViewingId(data.item.id);
+        setLinkProblem(null);
+      } catch (err) {
+        if (cancelled) return;
+        setViewingId(null);
+        setLinkProblem({
+          kind: "unreachable",
+          id: requested,
+          detail: err instanceof Error ? err.message : "the content service did not answer",
+        });
+      } finally {
+        if (!cancelled) {
+          settled = true;
+          setResolvingId(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      // Abandoned before it answered (re-render, StrictMode remount) — allow a retry.
+      if (!settled) lookedUp.current.delete(requested);
+    };
+  }, [requested, itemParam, items, loading, viewingId, linkedItem, linkRetry]);
 
   const setItemStatus = async (id: number, next: ContentStatus) => {
     setBusy(true);
@@ -267,6 +510,8 @@ export default function LibraryPage() {
       if (!res.ok) throw new Error(`Update failed (${res.status})`);
       const { item } = (await res.json()) as { item: ContentItem };
       setItems((cur) => cur.map((i) => (i.id === id ? item : i)));
+      // A deep-linked piece may live outside the loaded page — keep its copy fresh too.
+      setLinkedItem((cur) => (cur && cur.id === id ? item : cur));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed.");
     } finally {
@@ -306,6 +551,12 @@ export default function LibraryPage() {
   };
 
   const totalLoaded = items.length;
+
+  // A linked piece can sit outside what the grid currently shows. Say so, instead of
+  // letting the drawer look like it opened on something that isn't there.
+  const outsideWindow = viewing !== null && !items.some((i) => i.id === viewing.id);
+  const outsideFilters =
+    viewing !== null && !outsideWindow && !visibleIds.includes(viewing.id);
 
   return (
     <Box sx={{ p: 1 }}>
@@ -490,6 +741,84 @@ export default function LibraryPage() {
         </Box>
       </Paper>
 
+      {/* Deep-link status — what ?item=<id> did, or could not do */}
+      {resolvingId !== null && (
+        <InlineNotice
+          tone="info"
+          icon={<CircularProgress size={16} sx={{ color: "#274e64" }} />}
+          title={`Opening piece #${resolvingId}…`}
+          body="It is not among the pieces loaded here, so it is being fetched directly."
+        />
+      )}
+
+      {linkProblem?.kind === "missing" && (
+        <InlineNotice
+          tone="warn"
+          icon={<LinkOffIcon />}
+          title={`Piece #${linkProblem.id} is no longer in the library`}
+          body="The link that brought you here points to a piece that has since been deleted."
+          onDismiss={dismissLinkProblem}
+        />
+      )}
+
+      {linkProblem?.kind === "unreachable" && (
+        <InlineNotice
+          tone="warn"
+          icon={<ErrorOutlineIcon />}
+          title={`Piece #${linkProblem.id} could not be opened`}
+          body={linkProblem.detail}
+          action={
+            <Button
+              size="small"
+              onClick={retryLink}
+              startIcon={<RefreshIcon />}
+              sx={{ textTransform: "none", fontWeight: 600, color: "#274e64" }}
+            >
+              Try again
+            </Button>
+          }
+          onDismiss={dismissLinkProblem}
+        />
+      )}
+
+      {linkProblem?.kind === "invalid" && (
+        <InlineNotice
+          tone="warn"
+          icon={<LinkOffIcon />}
+          title="That link does not name a piece"
+          body={`“${linkProblem.raw}” is not a piece id, so nothing could be opened.`}
+          onDismiss={dismissLinkProblem}
+        />
+      )}
+
+      {viewing && outsideWindow && (
+        <InlineNotice
+          tone="info"
+          icon={<InfoOutlinedIcon />}
+          title={`Showing piece #${viewing.id}, which is not among the ${FETCH_LIMIT} pieces loaded here`}
+          body="It was opened straight from the link, so it does not appear in the grid below."
+        />
+      )}
+
+      {viewing && outsideFilters && (
+        <InlineNotice
+          tone="info"
+          icon={<InfoOutlinedIcon />}
+          title={`Showing piece #${viewing.id}, which is outside the current filters`}
+          body="Clear the filters to see it in the grid as well."
+          action={
+            <Button
+              size="small"
+              onClick={clearFilters}
+              startIcon={<FilterAltOffIcon />}
+              sx={{ textTransform: "none", fontWeight: 600, color: "#274e64" }}
+            >
+              Clear filters
+            </Button>
+          }
+        />
+      )}
+
       {/* Body */}
       {loading ? (
         <Box
@@ -568,7 +897,7 @@ export default function LibraryPage() {
               item={item}
               selected={selectedSet.has(item.id)}
               onToggleSelect={toggleSelect}
-              onOpen={(i) => setViewingId(i.id)}
+              onOpen={(i) => openItem(i.id)}
             />
           ))}
         </Box>
@@ -580,7 +909,7 @@ export default function LibraryPage() {
               item={item}
               selected={selectedSet.has(item.id)}
               onToggleSelect={toggleSelect}
-              onOpen={(i) => setViewingId(i.id)}
+              onOpen={(i) => openItem(i.id)}
             />
           ))}
         </Paper>
@@ -679,12 +1008,39 @@ export default function LibraryPage() {
         </Box>
       )}
 
-      <DetailDrawer
-        item={viewing}
-        onClose={() => setViewingId(null)}
-        onStatus={setItemStatus}
-        busy={busy}
-      />
+      <DetailDrawer item={viewing} onClose={closeDrawer} onStatus={setItemStatus} busy={busy} />
     </Box>
+  );
+}
+
+/**
+ * useSearchParams needs a Suspense boundary in the App Router — the workspace reads
+ * `?item=<id>` so the Overview calendar and Approval Queue can deep-link a piece.
+ */
+export default function LibraryPage() {
+  return (
+    <Suspense
+      fallback={
+        <Box sx={{ p: 1 }}>
+          <PageHeader
+            title="Content Library"
+            subtitle="Every generated piece lands here — review the visual, approve it, publish it."
+          />
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+              gap: 2,
+            }}
+          >
+            {Array.from({ length: 8 }, (_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </Box>
+        </Box>
+      }
+    >
+      <LibraryWorkspace />
+    </Suspense>
   );
 }

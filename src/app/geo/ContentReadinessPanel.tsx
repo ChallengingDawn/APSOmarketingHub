@@ -1,142 +1,180 @@
 "use client";
 
 /**
- * Panel A — CONTENT READINESS.
+ * AUDIT · stored pieces — the worst-first readiness list.
  *
- * Audits the real library pieces returned by GET /api/content. If the content
- * service is unreachable or holds nothing, the panel says so; it never shows a
- * sample row. Every score on screen was computed from a stored body.
+ * Receives its scored pieces from the page (one library load feeds both halves
+ * of the cockpit) and renders one row per stored body. At full width the row
+ * shows *why* a piece scores what it scores: each failing check appears inline
+ * with the value that was measured and the points it is forfeiting, instead of
+ * being truncated into a chip you have to expand to read.
+ *
+ * Every score here was computed from a stored body. Nothing is illustrative.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Collapse from "@mui/material/Collapse";
-import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
+import Tooltip from "@mui/material/Tooltip";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import Link from "next/link";
 import {
-  auditGeoReadiness,
   derivedTitle,
-  geoBand,
-  geoFixList,
   GEO_BAND_LABELS,
-  SCORE_BAND_STRONG,
-  SCORE_BAND_WEAK,
-  SCORE_BAND_WORKABLE,
-  type GeoAuditResult,
   type GeoBand,
+  type GeoCheckResult,
 } from "@/lib/geo/audit";
+import { geoImproveHref, recoverablePoints } from "@/lib/geo/fixQueue";
+import type { ScoredPiece } from "./useGeoLibrary";
 import {
-  BAND_COLOR,
   C,
   DISPLAY_FONT,
-  DistributionBar,
-  EmptyStateCard,
-  LoadingCard,
+  GeoFilterBar,
   Panel,
   ScoreBadge,
   SectionLabel,
-  UpstreamErrorCard,
+  VERDICT_COLOR,
+  VERDICT_LABEL,
   VerdictChip,
 } from "./geoUi";
 import CheckResults from "./CheckResults";
 
-/** Matches the library's own ceiling — the most recent N pieces. */
-const FETCH_LIMIT = 200;
-
-/** Keeps the /create hand-off URL inside every browser's address-bar limit. */
-const FIX_PARAM_MAX_CHARS = 1400;
-
-type ContentItem = {
-  id: number;
-  channel: string;
-  title: string | null;
-  body: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type Scored = {
-  item: ContentItem;
-  audit: GeoAuditResult;
-};
-
-type LoadState =
-  | { phase: "loading" }
-  | { phase: "error"; message: string }
-  | { phase: "ready"; items: ContentItem[] };
-
-const BAND_ORDER: GeoBand[] = ["poor", "weak", "workable", "strong"];
-
-/**
- * Hands the piece and its concrete fix list to the Create studio. The studio
- * reads `channel` (its existing param); the GEO params ride alongside so the
- * brief carries the exact edits rather than "make it better".
- */
-function improveHref(scored: Scored): string {
-  const fixes = geoFixList(scored.audit).join(" | ").slice(0, FIX_PARAM_MAX_CHARS);
-  const params = new URLSearchParams({
-    channel: scored.item.channel,
-    geoPieceId: String(scored.item.id),
-    geoScore: String(scored.audit.score),
-    geoChecks: [...scored.audit.failing, ...scored.audit.warning].join(","),
-    geoFixes: fixes,
-  });
-  return `/create?${params.toString()}`;
+/** One failing or warning check, stated with the value behind the verdict. */
+function InlineCheck({ check }: { check: GeoCheckResult }) {
+  const color = VERDICT_COLOR[check.verdict];
+  const points = recoverablePoints(check);
+  return (
+    <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", minWidth: 0 }}>
+      <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: color, mt: 0.75, flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.ink, lineHeight: 1.3 }}>
+            {check.label}
+          </Typography>
+          <Tooltip
+            title={`${VERDICT_LABEL[check.verdict]} — scoring ${check.score}/100 at weight ${check.weight}, so ${points.toFixed(1)} of the piece's 100 points are unearned.`}
+          >
+            <Typography sx={{ fontSize: 11, fontWeight: 700, color, cursor: "help" }}>
+              −{points.toFixed(1)} pts
+            </Typography>
+          </Tooltip>
+        </Box>
+        <Typography
+          sx={{
+            fontSize: 12,
+            color: C.muted,
+            lineHeight: 1.45,
+            mt: 0.125,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {check.measured}
+        </Typography>
+      </Box>
+    </Box>
+  );
 }
 
-function Row({ scored, expanded, onToggle }: { scored: Scored; expanded: boolean; onToggle: () => void }) {
+function Row({
+  scored,
+  expanded,
+  onToggle,
+}: {
+  scored: ScoredPiece;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const { item, audit } = scored;
   const title = item.title?.trim() || derivedTitle(item.body) || `Piece #${item.id}`;
   const problems = audit.checks.filter((c) => c.verdict !== "pass");
 
   return (
-    <Box sx={{ borderTop: `1px solid ${C.hairline}` }}>
+    <Box sx={{ borderTop: `1px solid ${C.hairline}`, "&:hover": { bgcolor: C.surface } }}>
       <Box
         sx={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 2,
-          p: 2,
-          "&:hover": { bgcolor: C.surface },
+          display: "grid",
+          gap: { xs: 1.5, lg: 2.5 },
+          alignItems: "start",
+          px: { xs: 1.5, md: 2 },
+          py: 2,
+          gridTemplateColumns: {
+            xs: "auto minmax(0, 1fr)",
+            lg: "auto minmax(240px, 1fr) minmax(0, 1.8fr) auto",
+          },
+          gridTemplateAreas: {
+            xs: `"score meta" "checks checks" "actions actions"`,
+            lg: `"score meta checks actions"`,
+          },
         }}
       >
-        <ScoreBadge score={audit.score} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ gridArea: "score" }}>
+          <ScoreBadge score={audit.score} />
+        </Box>
+
+        <Box sx={{ gridArea: "meta", minWidth: 0 }}>
           <Typography
             sx={{
               fontFamily: DISPLAY_FONT,
-              fontSize: 15,
+              fontSize: 15.5,
               fontWeight: 500,
               color: C.ink,
               lineHeight: 1.3,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
               overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              overflowWrap: "anywhere",
             }}
           >
             {title}
           </Typography>
-          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.375 }}>
-            {item.channel} · {item.status} · {audit.stats.words} words · {item.createdAt.slice(0, 10)} ·{" "}
-            {GEO_BAND_LABELS[audit.band]}
+          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.5, lineHeight: 1.5 }}>
+            {item.channel} · {item.status} · {audit.stats.words} words · {item.createdAt.slice(0, 10)}
           </Typography>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1 }}>
-            {problems.length === 0 ? (
-              <VerdictChip verdict="pass" label="All seven checks pass" />
-            ) : (
-              problems.map((c) => (
-                <VerdictChip key={c.id} verdict={c.verdict} label={c.label} onClick={onToggle} />
-              ))
-            )}
+          <Box sx={{ mt: 0.875 }}>
+            <VerdictChip
+              verdict={problems.length === 0 ? "pass" : audit.failing.length ? "fail" : "warn"}
+              label={`${GEO_BAND_LABELS[audit.band]} · ${audit.failing.length} failing, ${audit.warning.length} warning`}
+            />
           </Box>
         </Box>
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, alignItems: "stretch" }}>
+
+        <Box sx={{ gridArea: "checks", minWidth: 0 }}>
+          {problems.length === 0 ? (
+            <Typography sx={{ fontSize: 12.5, color: VERDICT_COLOR.pass, fontWeight: 600 }}>
+              All seven checks pass — an answer engine can lift this piece as written.
+            </Typography>
+          ) : (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+                columnGap: 2.5,
+                rowGap: 1.25,
+              }}
+            >
+              {problems.map((c) => (
+                <InlineCheck key={c.id} check={c} />
+              ))}
+            </Box>
+          )}
+        </Box>
+
+        <Box
+          sx={{
+            gridArea: "actions",
+            display: "flex",
+            flexDirection: { xs: "row", lg: "column" },
+            gap: 0.75,
+            alignItems: "stretch",
+            flexShrink: 0,
+          }}
+        >
           <Button
             size="small"
             onClick={onToggle}
@@ -146,13 +184,13 @@ function Row({ scored, expanded, onToggle }: { scored: Scored; expanded: boolean
                 sx={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}
               />
             }
-            sx={{ textTransform: "none", color: C.navy, fontWeight: 600, fontSize: 12.5 }}
+            sx={{ textTransform: "none", color: C.navy, fontWeight: 600, fontSize: 12.5, whiteSpace: "nowrap" }}
           >
-            {expanded ? "Hide" : "Details"}
+            {expanded ? "Hide detail" : "Full audit"}
           </Button>
           <Button
             component={Link}
-            href={improveHref(scored)}
+            href={geoImproveHref({ channel: item.channel, pieceId: item.id, audit })}
             size="small"
             variant="outlined"
             startIcon={<AutoFixHighIcon fontSize="small" />}
@@ -164,6 +202,7 @@ function Row({ scored, expanded, onToggle }: { scored: Scored; expanded: boolean
               borderRadius: "2px",
               borderColor: C.navy,
               color: C.navy,
+              whiteSpace: "nowrap",
               "&:hover": { borderColor: C.navy, bgcolor: `${C.navy}0a` },
             }}
           >
@@ -171,8 +210,9 @@ function Row({ scored, expanded, onToggle }: { scored: Scored; expanded: boolean
           </Button>
         </Box>
       </Box>
+
       <Collapse in={expanded} unmountOnExit>
-        <Box sx={{ px: 2, pb: 2, bgcolor: C.white }}>
+        <Box sx={{ px: { xs: 1.5, md: 2 }, pb: 2.5, bgcolor: C.white }}>
           <CheckResults audit={audit} />
         </Box>
       </Collapse>
@@ -180,215 +220,60 @@ function Row({ scored, expanded, onToggle }: { scored: Scored; expanded: boolean
   );
 }
 
-export default function ContentReadinessPanel() {
-  const [state, setState] = useState<LoadState>({ phase: "loading" });
-  const [channel, setChannel] = useState("all");
-  const [band, setBand] = useState<"all" | GeoBand>("all");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    setState({ phase: "loading" });
-    try {
-      const res = await fetch(`/api/content?limit=${FETCH_LIMIT}`);
-      if (!res.ok) throw new Error(`The content service replied ${res.status}.`);
-      const data: unknown = await res.json();
-      const items = (data as { items?: unknown }).items;
-      setState({ phase: "ready", items: Array.isArray(items) ? (items as ContentItem[]) : [] });
-    } catch (err) {
-      setState({
-        phase: "error",
-        message: err instanceof Error ? err.message : "The content service could not be reached.",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const scored = useMemo<Scored[]>(() => {
-    if (state.phase !== "ready") return [];
-    return state.items
-      .filter((i) => typeof i.body === "string" && i.body.trim().length > 0)
-      .map((item) => ({
-        item,
-        audit: auditGeoReadiness(item.body, { channel: item.channel, title: item.title }),
-      }))
-      .sort((a, b) => a.audit.score - b.audit.score || b.item.id - a.item.id);
-  }, [state]);
-
-  const channels = useMemo(() => {
-    const set = new Set(scored.map((s) => s.item.channel));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [scored]);
-
-  const visible = useMemo(
-    () =>
-      scored.filter(
-        (s) => (channel === "all" || s.item.channel === channel) && (band === "all" || s.audit.band === band)
-      ),
-    [scored, channel, band]
-  );
-
-  const portfolio = useMemo(() => {
-    if (!scored.length) return null;
-    const avg = Math.round(scored.reduce((sum, s) => sum + s.audit.score, 0) / scored.length);
-    const counts: Record<GeoBand, number> = { strong: 0, workable: 0, weak: 0, poor: 0 };
-    for (const s of scored) counts[s.audit.band] += 1;
-    // The single check that drags the portfolio down the most, by lost weight.
-    const lost = new Map<string, number>();
-    for (const s of scored) {
-      for (const c of s.audit.checks) {
-        lost.set(c.label, (lost.get(c.label) ?? 0) + ((100 - c.score) * c.weight) / 100);
-      }
-    }
-    const worst = Array.from(lost.entries()).sort((a, b) => b[1] - a[1])[0] ?? null;
-    return { avg, counts, worst };
-  }, [scored]);
-
-  if (state.phase === "loading") return <LoadingCard label="Auditing the content library…" />;
-
-  if (state.phase === "error") {
-    return <UpstreamErrorCard source="The content library" error={state.message} onRetry={load} />;
-  }
-
-  if (!scored.length) {
-    return (
-      <EmptyStateCard
-        title="No content pieces to audit"
-        body="The content library returned zero stored pieces, so there is nothing to score. Generate or save a piece in the Create studio and it will appear here with its GEO score."
-        action={
-          <Button
-            component={Link}
-            href="/create"
-            variant="outlined"
-            size="small"
-            sx={{
-              borderColor: C.navy,
-              color: C.navy,
-              borderRadius: "2px",
-              textTransform: "none",
-              fontWeight: 600,
-            }}
-          >
-            Open Create Studio
-          </Button>
+export default function ContentReadinessPanel({
+  visible,
+  total,
+  channel,
+  band,
+  channels,
+  onChannel,
+  onBand,
+  expandedId,
+  onExpand,
+}: {
+  /** Pieces passing the current filters, worst first. */
+  visible: ScoredPiece[];
+  /** Pieces scored in total, before filtering. */
+  total: number;
+  channel: string;
+  band: "all" | GeoBand;
+  channels: readonly string[];
+  onChannel: (v: string) => void;
+  onBand: (v: "all" | GeoBand) => void;
+  expandedId: number | null;
+  onExpand: (id: number | null) => void;
+}) {
+  return (
+    <Panel>
+      <GeoFilterBar
+        channel={channel}
+        band={band}
+        channels={channels}
+        onChannel={onChannel}
+        onBand={onBand}
+        left={
+          <SectionLabel>
+            Worst first · {visible.length} of {total} shown
+          </SectionLabel>
         }
       />
-    );
-  }
 
-  return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {portfolio && (
-        <Panel sx={{ p: { xs: 2, md: 3 } }}>
-          <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap", alignItems: "flex-start" }}>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-              <ScoreBadge score={portfolio.avg} size="lg" title={`Portfolio average across ${scored.length} pieces`} />
-              <Box>
-                <SectionLabel>Portfolio readiness</SectionLabel>
-                <Typography sx={{ fontSize: 13, color: C.muted, mt: 0.5, maxWidth: 340 }}>
-                  Mean score across {scored.length} stored {scored.length === 1 ? "piece" : "pieces"} ·{" "}
-                  {GEO_BAND_LABELS[geoBand(portfolio.avg)]}
-                </Typography>
-              </Box>
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 260 }}>
-              <SectionLabel sx={{ mb: 1 }}>Distribution</SectionLabel>
-              <DistributionBar
-                total={scored.length}
-                segments={BAND_ORDER.map((b) => ({
-                  label: `${GEO_BAND_LABELS[b]} (${
-                    b === "strong"
-                      ? `${SCORE_BAND_STRONG}+`
-                      : b === "workable"
-                        ? `${SCORE_BAND_WORKABLE}–${SCORE_BAND_STRONG - 1}`
-                        : b === "weak"
-                          ? `${SCORE_BAND_WEAK}–${SCORE_BAND_WORKABLE - 1}`
-                          : `<${SCORE_BAND_WEAK}`
-                  })`,
-                  count: portfolio.counts[b],
-                  color: BAND_COLOR[b],
-                }))}
-              />
-              {portfolio.worst && (
-                <Typography sx={{ fontSize: 12.5, color: C.muted, mt: 1.5 }}>
-                  Biggest drag across the library: <strong style={{ color: C.ink }}>{portfolio.worst[0]}</strong> —{" "}
-                  {Math.round(portfolio.worst[1])} weighted points lost in total.
-                </Typography>
-              )}
-            </Box>
-          </Box>
-        </Panel>
-      )}
-
-      <Panel>
-        <Box
-          sx={{
-            display: "flex",
-            gap: 1.5,
-            flexWrap: "wrap",
-            alignItems: "center",
-            p: 2,
-          }}
-        >
-          <SectionLabel sx={{ mr: "auto" }}>
-            Worst first · {visible.length} of {scored.length} shown
-          </SectionLabel>
-          <TextField
-            select
-            size="small"
-            label="Channel"
-            value={channel}
-            onChange={(e) => setChannel(e.target.value)}
-            sx={{ minWidth: 150 }}
-          >
-            <MenuItem value="all">All channels</MenuItem>
-            {channels.map((c) => (
-              <MenuItem key={c} value={c}>
-                {c}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="Score band"
-            value={band}
-            onChange={(e) => setBand(e.target.value as "all" | GeoBand)}
-            sx={{ minWidth: 170 }}
-          >
-            <MenuItem value="all">All bands</MenuItem>
-            {BAND_ORDER.map((b) => (
-              <MenuItem key={b} value={b}>
-                {GEO_BAND_LABELS[b]}
-              </MenuItem>
-            ))}
-          </TextField>
+      {visible.length === 0 ? (
+        <Box sx={{ p: 4, textAlign: "center", borderTop: `1px solid ${C.hairline}` }}>
+          <Typography sx={{ fontSize: 13.5, color: C.muted }}>
+            No piece matches this channel and score band. Widen the filters — nothing is hidden beyond them.
+          </Typography>
         </Box>
-
-        {visible.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: "center", borderTop: `1px solid ${C.hairline}` }}>
-            <Typography sx={{ fontSize: 13.5, color: C.muted }}>
-              No piece matches this channel and score band. Widen the filters — nothing is hidden beyond them.
-            </Typography>
-          </Box>
-        ) : (
-          visible.map((s) => (
-            <Row
-              key={s.item.id}
-              scored={s}
-              expanded={expandedId === s.item.id}
-              onToggle={() => setExpandedId((cur) => (cur === s.item.id ? null : s.item.id))}
-            />
-          ))
-        )}
-      </Panel>
-
-      <Typography sx={{ fontSize: 11.5, color: C.muted }}>
-        Scores are computed in the browser from the stored body of each piece — the {FETCH_LIMIT} most recent
-        are loaded. Older pieces are not audited.
-      </Typography>
-    </Box>
+      ) : (
+        visible.map((s) => (
+          <Row
+            key={s.item.id}
+            scored={s}
+            expanded={expandedId === s.item.id}
+            onToggle={() => onExpand(expandedId === s.item.id ? null : s.item.id)}
+          />
+        ))
+      )}
+    </Panel>
   );
 }

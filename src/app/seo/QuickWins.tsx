@@ -16,25 +16,20 @@ import {
   type QuickWin,
 } from "./analysis";
 import DataTable, { type Column } from "./DataTable";
+import { createHref, quickWinTopic } from "./queue";
 import {
-  DISPLAY,
   Explainer,
-  HAIRLINE,
   HairlineCard,
   INK,
-  MUTED,
+  Methodology,
   NAVY,
-  SURFACE,
-  SectionLabel,
+  NUMERIC,
+  SourceNote,
+  TableHeading,
   fmtCtr,
   fmtInt,
   fmtPosition,
 } from "./ui";
-
-/** Matches the /create convention: `channel` is read by src/app/create/page.tsx. */
-function createHref(query: string): string {
-  return `/create?channel=blog&topic=${encodeURIComponent(query)}`;
-}
 
 export default function QuickWins({ queries, loading, days }: { queries: GscRow[]; loading: boolean; days: number }) {
   const rows = useMemo(() => quickWinsOf(queries), [queries]);
@@ -53,7 +48,7 @@ export default function QuickWins({ queries, loading, days }: { queries: GscRow[
               fontSize: "0.85rem",
               fontWeight: 600,
               color: INK,
-              maxWidth: 320,
+              maxWidth: { xs: 240, sm: 360, lg: 560, xl: 780 },
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -99,7 +94,7 @@ export default function QuickWins({ queries, loading, days }: { queries: GscRow[
       sortValue: (r) => r.score,
       hint: "impressions × proximity. Both inputs are in the row — nothing hidden.",
       render: (r) => (
-        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: NAVY, fontVariantNumeric: "tabular-nums" }}>
+        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: NAVY, ...NUMERIC }}>
           {fmtInt(r.score)}
         </Typography>
       ),
@@ -127,7 +122,7 @@ export default function QuickWins({ queries, loading, days }: { queries: GscRow[
       render: (r) => (
         <Button
           component={Link}
-          href={createHref(r.key)}
+          href={createHref(quickWinTopic(r.key))}
           size="small"
           variant="contained"
           disableElevation
@@ -156,29 +151,23 @@ export default function QuickWins({ queries, loading, days }: { queries: GscRow[
         already trusts you for them.
       </Explainer>
 
-      <HairlineCard sx={{ mb: 3 }}>
-        <Box sx={{ p: 2.25, bgcolor: SURFACE, borderBottom: `1px solid ${HAIRLINE}` }}>
-          <SectionLabel>How the opportunity score is computed</SectionLabel>
-          <Typography
-            sx={{
-              mt: 1,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: 13,
-              color: INK,
-              lineHeight: 1.7,
-            }}
-          >
-            proximity = ({QW_POSITION_MAX + 1} − position) ÷ {QW_POSITION_MAX + 1 - QW_POSITION_MIN}
-            <br />
-            opportunity = impressions × proximity
-          </Typography>
-          <Typography sx={{ mt: 1.25, fontSize: "0.82rem", color: MUTED, lineHeight: 1.65, maxWidth: 820 }}>
-            Demand weighted by how close the query already is to the top: a query at position {QW_POSITION_MIN} scores
-            its full impressions, one at position {QW_POSITION_MAX} scores about a tenth of them. Both inputs are
-            columns in the table, so you can always see why a row ranks where it does. Filter: position between{" "}
-            {QW_POSITION_MIN} and {QW_POSITION_MAX}, at least {QW_MIN_IMPRESSIONS} impressions in the window.
-          </Typography>
-        </Box>
+      <HairlineCard>
+        <Methodology
+          label="How the opportunity score is computed"
+          formula={
+            <>
+              proximity = ({QW_POSITION_MAX + 1} − position) ÷ {QW_POSITION_MAX + 1 - QW_POSITION_MIN}
+              <br />
+              opportunity = impressions × proximity
+            </>
+          }
+        >
+          Demand weighted by how close the query already is to the top: a query at position {QW_POSITION_MIN} scores its
+          full impressions, one at position {QW_POSITION_MAX} scores about a tenth of them. Both inputs are columns in
+          the table, so you can always see why a row ranks where it does. Filter: position between {QW_POSITION_MIN} and{" "}
+          {QW_POSITION_MAX}, at least {QW_MIN_IMPRESSIONS} impressions in the window. This score is also what the Work
+          queue normalises when it ranks quick wins against the other analyses.
+        </Methodology>
 
         <DataTable<QuickWin>
           columns={columns}
@@ -188,22 +177,23 @@ export default function QuickWins({ queries, loading, days }: { queries: GscRow[
           searchPlaceholder="Search queries"
           initialSort={{ id: "score", dir: "desc" }}
           loading={loading}
+          maxHeight={640}
           emptyTitle="No quick wins in this window"
           emptyBody={`None of the queries Search Console returned for the last ${days} days sit between position ${QW_POSITION_MIN} and ${QW_POSITION_MAX} with at least ${QW_MIN_IMPRESSIONS} impressions. Try the 90-day window, which pulls in queries with thinner daily volume.`}
           toolbarLeft={
-            <Box>
-              <SectionLabel>Ranked opportunities</SectionLabel>
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>
-                {loading ? "Loading…" : `${rows.length} qualifying quer${rows.length === 1 ? "y" : "ies"} · last ${days} days`}
-              </Typography>
-            </Box>
+            <TableHeading
+              label="Ranked opportunities"
+              caption={
+                loading
+                  ? "Loading…"
+                  : `${rows.length} qualifying quer${rows.length === 1 ? "y" : "ies"} · last ${days} days`
+              }
+            />
           }
         />
       </HairlineCard>
 
-      <Typography sx={{ fontSize: "0.75rem", color: MUTED, fontFamily: DISPLAY }}>
-        Source: Google Search Console. Rows are filtered and ranked, never generated.
-      </Typography>
+      <SourceNote>Source: Google Search Console. Rows are filtered and ranked, never generated.</SourceNote>
     </Box>
   );
 }

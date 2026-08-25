@@ -10,27 +10,24 @@ import Autorenew from "@mui/icons-material/Autorenew";
 import type { GscRow } from "./gscClient";
 import { decayOf, isDecayed, type DecayRow } from "./analysis";
 import DataTable, { type Column } from "./DataTable";
+import { createHref, decayTopic } from "./queue";
 import {
   Explainer,
-  HAIRLINE,
   HairlineCard,
   INK,
-  MUTED,
+  MONO,
+  Methodology,
   NAVY,
+  NUMERIC,
   RED,
-  SURFACE,
-  SectionLabel,
+  SourceNote,
+  TableHeading,
   fmtInt,
   fmtPct,
   fmtPosition,
   fmtSigned,
   shortPath,
 } from "./ui";
-
-/** Matches the /create convention: `channel` is read by src/app/create/page.tsx. */
-function refreshHref(url: string): string {
-  return `/create?channel=blog&topic=${encodeURIComponent(`Refresh existing page: ${url}`)}`;
-}
 
 export default function Decay({
   pagesCurrent,
@@ -61,8 +58,8 @@ export default function Decay({
               fontSize: "0.83rem",
               fontWeight: 500,
               color: INK,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              maxWidth: 340,
+              fontFamily: MONO,
+              maxWidth: { xs: 240, sm: 380, lg: 600, xl: 820 },
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -98,7 +95,7 @@ export default function Decay({
       width: 104,
       sortValue: (r) => r.deltaClicks,
       render: (r) => (
-        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: RED, fontVariantNumeric: "tabular-nums" }}>
+        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: RED, ...NUMERIC }}>
           {fmtSigned(r.deltaClicks)}
         </Typography>
       ),
@@ -137,7 +134,7 @@ export default function Decay({
       render: (r) => (
         <Button
           component={Link}
-          href={refreshHref(r.key)}
+          href={createHref(decayTopic(r.key))}
           size="small"
           variant="contained"
           disableElevation
@@ -166,33 +163,29 @@ export default function Decay({
         too, the page lost ranking and needs its content brought back up to date.
       </Explainer>
 
-      <HairlineCard sx={{ mb: 2 }}>
-        <Box sx={{ p: 2.25, bgcolor: SURFACE, borderBottom: `1px solid ${HAIRLINE}` }}>
-          <SectionLabel>How the previous period is obtained</SectionLabel>
-          <Typography
-            sx={{
-              mt: 1,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: 13,
-              color: INK,
-              lineHeight: 1.7,
-            }}
-          >
-            previous = rows(days&nbsp;=&nbsp;{days * 2}) − rows(days&nbsp;=&nbsp;{days})
-          </Typography>
-          <Typography sx={{ mt: 1.25, fontSize: "0.82rem", color: MUTED, lineHeight: 1.65, maxWidth: 840 }}>
-            The route accepts a single lookback ending today, so the cockpit calls it twice and subtracts. Clicks and
-            impressions are daily sums, so the subtraction is exact. CTR and position are averages and are never
-            subtracted — that is why no previous position is shown. Pages the wider window did not return, or where the
-            remainder comes out negative, are excluded rather than zero-filled.
-          </Typography>
-          {!loading && result.notComparable.length > 0 && (
-            <Typography sx={{ mt: 1.25, fontSize: "0.8rem", color: RED, lineHeight: 1.6 }}>
-              {result.notComparable.length} page{result.notComparable.length === 1 ? " was" : "s were"} excluded as not
-              comparable across the two windows ({result.comparable} compared).
-            </Typography>
-          )}
-        </Box>
+      <HairlineCard>
+        <Methodology
+          label="How the previous period is obtained"
+          formula={
+            <>
+              previous = rows(days&nbsp;=&nbsp;{days * 2}) − rows(days&nbsp;=&nbsp;{days})
+            </>
+          }
+          caveat={
+            !loading && result.notComparable.length > 0 ? (
+              <>
+                {result.notComparable.length} page{result.notComparable.length === 1 ? " was" : "s were"} excluded as not
+                comparable across the two windows ({result.comparable} compared).
+              </>
+            ) : undefined
+          }
+        >
+          The route accepts a single lookback ending today, so the cockpit calls it twice and subtracts. Clicks and
+          impressions are daily sums, so the subtraction is exact. CTR and position are averages and are never
+          subtracted — that is why no previous position is shown. Pages the wider window did not return, or where the
+          remainder comes out negative, are excluded rather than zero-filled. The size of the click loss is what the
+          Work queue normalises when it ranks decayed pages against the other analyses.
+        </Methodology>
 
         <DataTable<DecayRow>
           columns={columns}
@@ -202,25 +195,27 @@ export default function Decay({
           searchPlaceholder="Search pages"
           initialSort={{ id: "deltaClicks", dir: "asc" }}
           loading={loading}
+          maxHeight={640}
           emptyTitle="No page lost clicks in this window"
           emptyBody={`Across the ${result.comparable} page${result.comparable === 1 ? "" : "s"} comparable between the two windows, none earned fewer clicks in the last ${days} days than in the ${days} days before. Either nothing is decaying, or the pages that are decaying have already fallen out of the row limit the API returns.`}
           toolbarLeft={
-            <Box>
-              <SectionLabel>Declining pages</SectionLabel>
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>
-                {loading
-                  ? "Loading…"
-                  : `${rows.length} declining · ${result.comparable} comparable · worst first`}
-              </Typography>
-            </Box>
+            <TableHeading
+              label="Declining pages"
+              caption={
+                loading ? "Loading…" : `${rows.length} declining · ${result.comparable} comparable · worst first`
+              }
+            />
           }
         />
       </HairlineCard>
 
-      <Typography sx={{ fontSize: "0.75rem", color: MUTED, lineHeight: 1.6 }}>
-        Source: Google Search Console, dimension <Box component="code" sx={{ fontFamily: "ui-monospace, monospace" }}>page</Box>, two
-        calls. Deltas are computed from returned totals only.
-      </Typography>
+      <SourceNote>
+        Source: Google Search Console, dimension{" "}
+        <Box component="code" sx={{ fontFamily: MONO }}>
+          page
+        </Box>
+        , two calls. Deltas are computed from returned totals only.
+      </SourceNote>
     </Box>
   );
 }

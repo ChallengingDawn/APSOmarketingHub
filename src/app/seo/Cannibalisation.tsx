@@ -39,20 +39,24 @@ import {
   type CannibalRecommendation,
   type CompetingPage,
 } from "./analysis";
+import { cannibalTopic, createHref } from "./queue";
 import {
-  DISPLAY,
   EmptyState,
   Explainer,
   HAIRLINE,
   HairlineCard,
   INK,
+  MONO,
   MUTED,
+  Methodology,
   NAVY,
   NUMERIC,
   NotConnected,
   RED,
   SURFACE,
-  SectionLabel,
+  SourceNote,
+  TableHeading,
+  Tag,
   UpstreamError,
   fmtCtr,
   fmtInt,
@@ -105,7 +109,7 @@ function Url({ href }: { href: string }) {
       <Box
         component="code"
         sx={{
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: MONO,
           fontSize: "0.85em",
           color: NAVY,
           cursor: "help",
@@ -149,18 +153,6 @@ function RecommendationText({ rec }: { rec: CannibalRecommendation }): ReactNode
       page.
     </>
   );
-}
-
-/** Matches the /create convention: `channel` is read by src/app/create/page.tsx. */
-function createHref(group: CannibalGroup): string {
-  const rec = group.recommendation;
-  const topic =
-    rec.kind === "consolidate"
-      ? `Consolidate cannibalised pages for the query "${group.query}": fold ${rec.fold} into ${rec.keep} and rewrite the surviving page to own the query outright.`
-      : rec.kind === "assign-intent"
-        ? `Split intent for the query "${group.query}": keep ${rec.product} as the transactional page and retune ${rec.editorial} to the informational variant of the query.`
-        : `Differentiate two pages competing for the query "${group.query}": ${rec.keep} and ${rec.retarget} rank comparably — retarget one to an adjacent query or merge them into a single stronger page.`;
-  return `/create?channel=blog&topic=${encodeURIComponent(topic)}`;
 }
 
 /* ── table chrome ──────────────────────────────────────────────────────── */
@@ -256,24 +248,8 @@ function KindTag({ page }: { page: string }) {
   const kind = pageKindOf(page);
   if (kind === "unknown") return null;
   return (
-    <Box
-      component="span"
-      sx={{
-        ml: 1,
-        px: 0.7,
-        py: 0.1,
-        borderRadius: 0.75,
-        border: `1px solid ${HAIRLINE}`,
-        bgcolor: SURFACE,
-        color: MUTED,
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {kind}
+    <Box component="span" sx={{ ml: 1 }}>
+      <Tag label={kind} />
     </Box>
   );
 }
@@ -323,9 +299,9 @@ function CompetingPages({ pages, totalClicks }: { pages: CompetingPage[]; totalC
                   <Typography
                     sx={{
                       fontSize: "0.8rem",
-                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontFamily: MONO,
                       color: INK,
-                      maxWidth: 380,
+                      maxWidth: { xs: 240, sm: 400, lg: 640, xl: 900 },
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
@@ -387,7 +363,7 @@ function GroupRow({ group }: { group: CannibalGroup }) {
                 fontSize: "0.85rem",
                 fontWeight: 600,
                 color: INK,
-                maxWidth: 320,
+                maxWidth: { xs: 220, sm: 320, lg: 480, xl: 680 },
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -396,23 +372,8 @@ function GroupRow({ group }: { group: CannibalGroup }) {
               {group.query}
             </Typography>
           </Tooltip>
-          <Box
-            component="span"
-            sx={{
-              display: "inline-block",
-              mt: 0.5,
-              px: 0.8,
-              py: 0.2,
-              borderRadius: 0.75,
-              bgcolor: badge.bg,
-              color: badge.color,
-              fontSize: 10.5,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-            }}
-          >
-            {badge.label}
+          <Box sx={{ mt: 0.5 }}>
+            <Tag label={badge.label} color={badge.color} bg={badge.bg} />
           </Box>
         </TableCell>
 
@@ -440,7 +401,7 @@ function GroupRow({ group }: { group: CannibalGroup }) {
         <TableCell sx={BODY_CELL} onClick={(e) => e.stopPropagation()}>
           <Button
             component={Link}
-            href={createHref(group)}
+            href={createHref(cannibalTopic(group))}
             size="small"
             variant="contained"
             disableElevation
@@ -543,8 +504,9 @@ export default function Cannibalisation({
           }}
         >
           <Typography sx={{ fontSize: "0.83rem", color: INK, lineHeight: 1.6 }}>
-            The query+page pair call failed, so no cannibalisation could be measured for this window. The other three
-            tabs are unaffected — they use separate calls that succeeded.
+            The query+page pair call failed, so no cannibalisation could be measured for this window. The other views
+            are unaffected — they use separate calls that succeeded — and the Work queue records this analysis as
+            unavailable rather than quietly ranking without it.
           </Typography>
         </Box>
         <UpstreamError error={state.error} status={state.httpStatus} onRetry={onRetry} />
@@ -560,34 +522,28 @@ export default function Cannibalisation({
     <Box>
       {explainer}
 
-      <HairlineCard sx={{ mb: 2 }}>
-        <Box sx={{ p: 2.25, bgcolor: SURFACE, borderBottom: `1px solid ${HAIRLINE}` }}>
-          <SectionLabel>How severity is computed</SectionLabel>
-          <Typography
-            sx={{
-              mt: 1,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: 13,
-              color: INK,
-              lineHeight: 1.7,
-            }}
-          >
-            spread&nbsp;&nbsp;&nbsp;&nbsp;= position(2nd best URL) − position(best URL)
-            <br />
-            closeness = ({CANNIBAL_SPREAD_TOLERANCE} − spread) ÷ {CANNIBAL_SPREAD_TOLERANCE}, clamped to 0–1
-            <br />
-            severity&nbsp;&nbsp;= impressions × closeness
-          </Typography>
-          <Typography sx={{ mt: 1.25, fontSize: "0.82rem", color: MUTED, lineHeight: 1.65, maxWidth: 860 }}>
-            A split costs most when the two URLs sit close together — they alternate in the same result set and share
-            one pool of clicks — and when the demand being split is large. A URL {CANNIBAL_SPREAD_TOLERANCE} positions
-            or more behind the leader is a separate, deeper listing and scores zero closeness. Both inputs are columns
-            in the table, so you can always see why a row ranks where it does. Filter: at least{" "}
-            {CANNIBAL_MIN_COMPETING_PAGES} distinct URLs with {CANNIBAL_MIN_IMPRESSIONS_PER_PAGE} impression or more for
-            the same query. Where a position is missing for two or more of the URLs the spread cannot be measured, so
-            closeness is scored 0 rather than guessed and the row sinks to the bottom.
-          </Typography>
-        </Box>
+      <HairlineCard>
+        <Methodology
+          label="How severity is computed"
+          formula={
+            <>
+              spread&nbsp;&nbsp;&nbsp;&nbsp;= position(2nd best URL) − position(best URL)
+              <br />
+              closeness = ({CANNIBAL_SPREAD_TOLERANCE} − spread) ÷ {CANNIBAL_SPREAD_TOLERANCE}, clamped to 0–1
+              <br />
+              severity&nbsp;&nbsp;= impressions × closeness
+            </>
+          }
+        >
+          A split costs most when the two URLs sit close together — they alternate in the same result set and share one
+          pool of clicks — and when the demand being split is large. A URL {CANNIBAL_SPREAD_TOLERANCE} positions or more
+          behind the leader is a separate, deeper listing and scores zero closeness. Both inputs are columns in the
+          table, so you can always see why a row ranks where it does. Filter: at least {CANNIBAL_MIN_COMPETING_PAGES}{" "}
+          distinct URLs with {CANNIBAL_MIN_IMPRESSIONS_PER_PAGE} impression or more for the same query. Where a position
+          is missing for two or more of the URLs the spread cannot be measured, so closeness is scored 0 rather than
+          guessed and the row sinks to the bottom. Severity is also what the Work queue normalises when it ranks
+          cannibalised queries against the other analyses.
+        </Methodology>
 
         <Box
           sx={{
@@ -601,14 +557,15 @@ export default function Cannibalisation({
             borderBottom: `1px solid ${HAIRLINE}`,
           }}
         >
-          <Box sx={{ minWidth: 0 }}>
-            <SectionLabel>Split queries</SectionLabel>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>
-              {loading
+          <TableHeading
+            label="Split queries"
+            caption={
+              loading
                 ? "Loading…"
-                : `${groups.length} quer${groups.length === 1 ? "y" : "ies"} split across multiple URLs · ${pairRows.length} pair row${pairRows.length === 1 ? "" : "s"} scanned · last ${days} days · worst first`}
-            </Typography>
-          </Box>
+                : `${groups.length} quer${groups.length === 1 ? "y" : "ies"} split across multiple URLs · ${pairRows.length} pair row${pairRows.length === 1 ? "" : "s"} scanned · last ${days} days · worst first`
+            }
+          />
+
           <TextField
             size="small"
             value={search}
@@ -631,7 +588,7 @@ export default function Cannibalisation({
           />
         </Box>
 
-        <TableContainer sx={{ maxHeight: 560 }}>
+        <TableContainer sx={{ maxHeight: 660 }}>
           <Table stickyHeader size="small" sx={{ "& td, & th": { borderColor: HAIRLINE } }}>
             <TableHead>
               <HeadCells />
@@ -681,9 +638,7 @@ export default function Cannibalisation({
         )}
       </HairlineCard>
 
-      <Typography sx={{ fontSize: "0.75rem", color: MUTED, lineHeight: 1.6, fontFamily: DISPLAY }}>
-        {sourceNote}
-      </Typography>
+      <SourceNote>{sourceNote}</SourceNote>
     </Box>
   );
 }
