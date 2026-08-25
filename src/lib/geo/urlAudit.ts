@@ -2,6 +2,7 @@
 // fixed set of config exports from a route file, so shared helpers live here.
 
 import { type GeoAuditResult } from "@/lib/geo/audit";
+import { checkUrlShape } from "@/lib/geo/netGuard";
 
 /** Stop reading a response past this size — a page, not a download. */
 export const MAX_HTML_BYTES = 3 * 1024 * 1024;
@@ -15,7 +16,18 @@ function isAllowedHost(hostname: string): boolean {
 
 type UrlCheck = { ok: true; url: URL } | { ok: false; error: string };
 
-export function validateAuditUrl(raw: string): UrlCheck {
+export type UrlPolicy = {
+  /**
+   * "own-sites" keeps the original allowlist: only our own domains, which is
+   * what the live-page audit wants. "public" permits any public host and is
+   * used by the competitor comparison — the private/loopback/link-local
+   * refusal in `netGuard` is what makes that safe, and it still applies to
+   * "own-sites" too.
+   */
+  scope: "own-sites" | "public";
+};
+
+export function validateAuditUrl(raw: string, policy: UrlPolicy = { scope: "own-sites" }): UrlCheck {
   const value = raw.trim();
   if (!value) return { ok: false, error: "Enter a URL to audit." };
 
@@ -25,13 +37,13 @@ export function validateAuditUrl(raw: string): UrlCheck {
   } catch {
     return { ok: false, error: "That is not a valid URL." };
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return { ok: false, error: "Only http and https URLs can be audited." };
-  }
-  if (parsed.username || parsed.password) {
-    return { ok: false, error: "URLs carrying credentials are not accepted." };
-  }
-  if (!isAllowedHost(parsed.hostname)) {
+
+  // Scheme, credentials and port are judged by one shared rule set so the
+  // competitor route cannot drift away from the live-page route.
+  const shape = checkUrlShape(parsed);
+  if (!shape.ok) return { ok: false, error: shape.error };
+
+  if (policy.scope === "own-sites" && !isAllowedHost(parsed.hostname)) {
     return {
       ok: false,
       error: `Only pages on ${ALLOWED_HOSTS.join(" and ")} (and their subdomains) can be audited from here.`,
@@ -166,22 +178,25 @@ export async function readCapped(res: Response): Promise<string> {
   return text.length > MAX_HTML_BYTES ? text.slice(0, MAX_HTML_BYTES) : text;
 }
 
+/** One fetched-and-scored page. Shared by the live audit and the comparison. */
+export type GeoPageAuditData = {
+  url: string;
+  finalUrl: string;
+  status: number;
+  title: string | null;
+  words: number;
+  audit: GeoAuditResult;
+  page: {
+    schemaTypes: string[];
+    hasFaqPageSchema: boolean;
+    hasArticleSchema: boolean;
+    hasJsonLdBlock: boolean;
+    machineDates: string[];
+    visibleDate: string | null;
+  };
+};
+
 export type GeoUrlAuditResponse = {
   ok: true;
-  data: {
-    url: string;
-    finalUrl: string;
-    status: number;
-    title: string | null;
-    words: number;
-    audit: GeoAuditResult;
-    page: {
-      schemaTypes: string[];
-      hasFaqPageSchema: boolean;
-      hasArticleSchema: boolean;
-      hasJsonLdBlock: boolean;
-      machineDates: string[];
-      visibleDate: string | null;
-    };
-  };
+  data: GeoPageAuditData;
 };

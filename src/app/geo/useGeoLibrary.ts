@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Loads the stored content library once and scores every piece, so the AUDIT
- * and IMPROVE halves of the cockpit read from one identical set of numbers.
+ * Loads the stored content library once and scores every piece, so every
+ * sub-app of the cockpit reads from one identical set of numbers.
  *
- * Two halves fetching separately would be two portfolios: switching tabs could
- * change the average. This hook makes that impossible — one request, one audit
- * pass, both views.
+ * Five routes fetching separately would be five portfolios: moving between
+ * them could change the average. This hook makes that impossible — one request,
+ * one audit pass, every view. It is called once, by the GEO layout's
+ * `GeoLibraryProvider`, which App Router keeps mounted across /geo/*.
  *
  * Nothing is scored that was not stored. Pieces with an empty body are counted
  * and reported as skipped rather than given a score of zero.

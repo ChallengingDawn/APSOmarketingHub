@@ -129,9 +129,10 @@ export function Explainer({ title, children }: { title: string; children: ReactN
 }
 
 /**
- * The "here is exactly how this number is computed" band that sits above every
- * ranked table in the cockpit. One primitive rather than four hand-rolled
- * copies, so the formula, the prose and the caveat always look the same.
+ * The "here is exactly how this number is computed" band. One primitive rather
+ * than four hand-rolled copies, so the formula, the prose and the caveat always
+ * look the same. It carries no outer border of its own — every caller nests it
+ * inside a Disclosure, which owns the separating hairline.
  */
 export function Methodology({
   label,
@@ -145,7 +146,7 @@ export function Methodology({
   caveat?: ReactNode;
 }) {
   return (
-    <Box sx={{ px: { xs: 2, md: 2.5 }, py: { xs: 2, md: 2.25 }, bgcolor: SURFACE, borderBottom: `1px solid ${HAIRLINE}` }}>
+    <Box sx={{ px: { xs: 2, md: 2.5 }, pt: 0.5, pb: { xs: 2.5, md: 3 }, bgcolor: SURFACE }}>
       <SectionLabel>{label}</SectionLabel>
       {formula !== undefined && (
         <Typography component="div" sx={{ mt: 1, fontFamily: MONO, fontSize: 13, color: INK, lineHeight: 1.7 }}>
@@ -405,7 +406,16 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
  * Distinct from EmptyState on purpose: "the analyses found nothing to fix" and
  * "we could not read the data" must never look the same.
  */
-export function AllClear({ title, children }: { title: string; children: ReactNode }) {
+export function AllClear({
+  title,
+  children,
+  label = "All clear",
+}: {
+  title: string;
+  children: ReactNode;
+  /** Overline above the title. Says what kind of nothing this is. */
+  label?: string;
+}) {
   return (
     <Box sx={{ px: 3, py: { xs: 5, md: 7 }, textAlign: "center" }}>
       <Box
@@ -425,7 +435,7 @@ export function AllClear({ title, children }: { title: string; children: ReactNo
       >
         <TaskAlt sx={{ fontSize: 22 }} />
       </Box>
-      <SectionLabel>Nothing queued</SectionLabel>
+      <SectionLabel>{label}</SectionLabel>
       <Typography
         sx={{ mt: 1, fontFamily: DISPLAY, fontSize: "1.2rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}
       >

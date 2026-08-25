@@ -47,9 +47,9 @@ interface NavSection {
  * absent: /studio and /calendar (now redirects to /create and /), and
  * /knowledge-base (retired; it redirects to /personality, which is listed).
  *
- * Integrations appears exactly ONCE in this app, here under Intelligence. It is
- * what makes the live-data surfaces work, so it belongs beside them; Settings
- * only links across to it.
+ * Integrations appears exactly ONCE in this app, under Governance beside
+ * Settings — it is configuration, and a second entry under Intelligence only
+ * made people wonder which of the two was the real one.
  */
 const navSections: NavSection[] = [
   {
@@ -93,7 +93,6 @@ const navSections: NavSection[] = [
     color: "#0a84ff",
     items: [
       { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
-      { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
     ],
   },
   {
@@ -103,6 +102,7 @@ const navSections: NavSection[] = [
     color: "#8e8e93",
     items: [
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+      { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
       { label: "Audit", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
       { label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },

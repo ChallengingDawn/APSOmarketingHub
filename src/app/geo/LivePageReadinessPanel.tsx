@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * Panel B — LIVE PAGE READINESS.
+ * LIVE PAGES — score a published URL exactly as an answer engine finds it.
  *
  * Top pages come from GET /api/integrations/gsc?dimension=page. That route
  * answers in three shapes and each is handled explicitly here:
  *   { configured:false, missing }            → not-connected card
  *   { configured:true, ok:false, error }     → upstream error card
- *   { configured:true, ok:true, data }       → the real rows
+ *   { configured:true, ok:true, data }       → the real rows, as one-click targets
  * Manual URL entry stays available in all three cases, so an unconnected
  * Search Console never blocks auditing a published page.
+ *
+ * The seven-check breakdown is a diagnostic, so it opens behind "Details" —
+ * what the page leads with is the score and what the HTML actually declares.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -24,10 +27,13 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GeoAuditResult } from "@/lib/geo/audit";
 import {
   C,
+  Card,
+  Details,
   DISPLAY_FONT,
   LoadingCard,
   NotConnectedCard,
   Panel,
+  PrimaryAction,
   ScoreBadge,
   SectionLabel,
   UpstreamErrorCard,
@@ -36,7 +42,7 @@ import CheckResults from "./CheckResults";
 
 /** Window and page count requested from Search Console. */
 const GSC_DAYS = 28;
-const TOP_PAGES_SHOWN = 15;
+const TOP_PAGES_SHOWN = 12;
 
 type GscRow = {
   key: string;
@@ -80,7 +86,7 @@ function fmt(n: number | null, digits = 0): string {
   return typeof n === "number" && Number.isFinite(n) ? n.toFixed(digits) : "—";
 }
 
-function SchemaFlag({ ok, label, missingHint }: { ok: boolean; label: string; missingHint: string }) {
+export function SchemaFlag({ ok, label, missingHint }: { ok: boolean; label: string; missingHint: string }) {
   const color = ok ? "#1e7e45" : "#c5221f";
   return (
     <Tooltip title={ok ? `${label} found in the page's JSON-LD.` : missingHint}>
@@ -89,8 +95,8 @@ function SchemaFlag({ ok, label, missingHint }: { ok: boolean; label: string; mi
           display: "inline-flex",
           alignItems: "center",
           gap: 0.75,
-          px: 1,
-          py: 0.5,
+          px: 1.25,
+          py: 0.625,
           border: `1px solid ${color}55`,
           bgcolor: `${color}10`,
           borderRadius: "2px",
@@ -137,7 +143,11 @@ export default function LivePageReadinessPanel() {
         return;
       }
       if (body.ok === false) {
-        setGsc({ phase: "upstream-error", error: body.error ?? "Search Console returned no detail.", status: body.status ?? null });
+        setGsc({
+          phase: "upstream-error",
+          error: body.error ?? "Search Console returned no detail.",
+          status: body.status ?? null,
+        });
         return;
       }
       setGsc({
@@ -193,7 +203,7 @@ export default function LivePageReadinessPanel() {
           source="Google Search Console"
           missing={gsc.missing.length ? gsc.missing : ["GOOGLE_SERVICE_ACCOUNT", "GSC_SITE_URL"]}
           detail={gsc.detail}
-          unlocks="Once connected, this panel ranks the pages that already earn impressions and lets you audit each one in place — so you fix the pages an answer engine is most likely to reach first."
+          unlocks="Once connected, the pages that already earn impressions are listed here as one-click audit targets — so you fix the pages an answer engine is most likely to reach first."
         />
       );
     }
@@ -216,7 +226,7 @@ export default function LivePageReadinessPanel() {
     const rows = gsc.rows.slice(0, TOP_PAGES_SHOWN);
     return (
       <Panel>
-        <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+        <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
           <SectionLabel sx={{ mr: "auto" }}>
             Top pages · last {GSC_DAYS} days · {gsc.siteUrl || "property"}
           </SectionLabel>
@@ -230,9 +240,9 @@ export default function LivePageReadinessPanel() {
         </Box>
         {rows.length === 0 ? (
           <Box sx={{ p: 3, borderTop: `1px solid ${C.hairline}` }}>
-            <Typography sx={{ fontSize: 13.5, color: C.muted }}>
+            <Typography sx={{ fontSize: 13.5, color: C.muted, lineHeight: 1.6 }}>
               Search Console is connected but returned no page rows for the last {GSC_DAYS} days. Enter a URL
-              below to audit a page directly.
+              on the left to audit a page directly.
             </Typography>
           </Box>
         ) : (
@@ -245,10 +255,10 @@ export default function LivePageReadinessPanel() {
                 gap: { xs: 1, sm: 2 },
                 gridTemplateColumns: {
                   xs: "minmax(0, 1fr) auto",
-                  sm: "minmax(0, 1fr) repeat(3, minmax(64px, auto)) auto",
+                  sm: "minmax(0, 1fr) repeat(3, minmax(58px, auto)) auto",
                 },
-                px: 2,
-                py: 1.25,
+                px: 2.5,
+                py: 1.5,
                 borderTop: `1px solid ${C.hairline}`,
                 "&:hover": { bgcolor: C.surface },
               }}
@@ -269,8 +279,8 @@ export default function LivePageReadinessPanel() {
               </Tooltip>
               {[
                 { k: "clicks", v: fmt(r.clicks) },
-                { k: "impressions", v: fmt(r.impressions) },
-                { k: "position", v: fmt(r.position, 1) },
+                { k: "impr.", v: fmt(r.impressions) },
+                { k: "pos.", v: fmt(r.position, 1) },
               ].map((cell) => (
                 <Typography
                   key={cell.k}
@@ -303,19 +313,19 @@ export default function LivePageReadinessPanel() {
   };
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: { xs: 3, md: 4 } }}>
       <Box
         sx={{
           display: "grid",
-          gap: 2,
+          gap: { xs: 3, md: 4 },
           alignItems: "start",
-          gridTemplateColumns: { xs: "1fr", lg: "minmax(340px, 0.85fr) minmax(0, 1.5fr)" },
+          gridTemplateColumns: { xs: "1fr", lg: "minmax(340px, 0.85fr) minmax(0, 1.4fr)" },
         }}
       >
         {/* The manual form comes first: it works in all three Search Console
             states, so an unconnected property never blocks auditing a page. */}
-        <Panel sx={{ p: { xs: 2, md: 2.5 } }}>
-          <SectionLabel sx={{ mb: 1.5 }}>Audit a published URL</SectionLabel>
+        <Card>
+          <SectionLabel sx={{ mb: 2 }}>Audit a published URL</SectionLabel>
           <Box
             component="form"
             onSubmit={(e) => {
@@ -330,40 +340,42 @@ export default function LivePageReadinessPanel() {
               placeholder="https://www.apsoparts.com/…"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              sx={{ flex: 1, minWidth: 240 }}
+              sx={{ flex: 1, minWidth: 220 }}
             />
-            <Button
+            <PrimaryAction
               type="submit"
-              variant="contained"
-              disableElevation
               disabled={audit.phase === "running" || url.trim().length === 0}
-              startIcon={
+              icon={
                 audit.phase === "running" ? (
                   <CircularProgress size={14} sx={{ color: "inherit" }} />
                 ) : (
                   <TravelExploreIcon fontSize="small" />
                 )
               }
-              sx={{
-                bgcolor: C.navy,
-                borderRadius: "2px",
-                textTransform: "none",
-                fontWeight: 600,
-                px: 2.5,
-                "&:hover": { bgcolor: "#1a3a4c" },
-              }}
             >
               {audit.phase === "running" ? "Fetching…" : "Audit page"}
-            </Button>
+            </PrimaryAction>
           </Box>
-          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 1.25, lineHeight: 1.55 }}>
-            The server fetches the page itself (15 s timeout). Only apsoparts.com and angst-pfister.com hosts
-            are allowed, so this cannot be used as an open proxy.
+          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 2, lineHeight: 1.6 }}>
+            The server fetches the page itself (15 s timeout, 3 MB cap). Only apsoparts.com and
+            angst-pfister.com hosts are accepted here — the allowlist is enforced server-side and re-checked
+            on every redirect hop, so this cannot be used as an open proxy. To score anyone else&apos;s page,
+            use Competitors.
           </Typography>
-        </Panel>
+        </Card>
 
         {sourceBlock()}
       </Box>
+
+      {audit.phase === "idle" && (
+        <Panel sx={{ p: { xs: 3, md: 4 } }}>
+          <Typography sx={{ fontSize: 13.5, color: C.muted, lineHeight: 1.65, maxWidth: "78ch" }}>
+            Nothing has been fetched yet. Enter a published URL above — or pick one of the Search Console top
+            pages — and it will be fetched, converted to readable text and scored on the same seven checks the
+            stored library is scored on.
+          </Typography>
+        </Panel>
+      )}
 
       {audit.phase === "error" && (
         <UpstreamErrorCard source="The page audit" error={audit.message} onRetry={() => runAudit(url)} />
@@ -372,19 +384,19 @@ export default function LivePageReadinessPanel() {
       {audit.phase === "running" && <LoadingCard label={`Fetching ${audit.url} and scoring it…`} />}
 
       {audit.phase === "done" && (
-        <Panel sx={{ p: { xs: 2, md: 3 } }}>
+        <Card>
           <Box
             sx={{
               display: "grid",
-              gap: { xs: 2.5, lg: 4 },
+              gap: { xs: 3, lg: 5 },
               alignItems: "start",
-              gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.2fr) minmax(320px, 1fr)" },
+              gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.2fr) minmax(300px, 1fr)" },
             }}
           >
-            <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", gap: 2.5, alignItems: "flex-start", flexWrap: "wrap" }}>
               <ScoreBadge score={audit.result.audit.score} size="lg" />
-              <Box sx={{ flex: 1, minWidth: 240 }}>
-                <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 17, fontWeight: 500, color: C.ink }}>
+              <Box sx={{ flex: 1, minWidth: 220 }}>
+                <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 18, fontWeight: 500, color: C.ink }}>
                   {audit.result.title ?? "(page has no <title>)"}
                 </Typography>
                 <Typography
@@ -398,21 +410,21 @@ export default function LivePageReadinessPanel() {
                     gap: 0.5,
                     fontSize: 12,
                     color: C.navy,
-                    mt: 0.5,
+                    mt: 1,
                     overflowWrap: "anywhere",
                   }}
                 >
                   {audit.result.finalUrl}
                   <OpenInNewIcon sx={{ fontSize: 13 }} />
                 </Typography>
-                <Typography sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>
+                <Typography sx={{ fontSize: 12, color: C.muted, mt: 1 }}>
                   {audit.result.words} words of readable text extracted from the live HTML.
                 </Typography>
               </Box>
             </Box>
 
-            <Box sx={{ borderLeft: { lg: `1px solid ${C.hairline}` }, pl: { lg: 4 } }}>
-              <SectionLabel sx={{ mb: 1 }}>What the published HTML carries</SectionLabel>
+            <Box sx={{ borderLeft: { lg: `1px solid ${C.hairline}` }, pl: { lg: 5 } }}>
+              <SectionLabel sx={{ mb: 1.5 }}>What the published HTML carries</SectionLabel>
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                 <SchemaFlag
                   ok={audit.result.page.hasFaqPageSchema}
@@ -430,7 +442,7 @@ export default function LivePageReadinessPanel() {
                   missingHint="No <time datetime>, no article:published_time meta and no visible date. Add a visible 'Last updated' line and mirror it in the JSON-LD."
                 />
               </Box>
-              <Typography sx={{ fontSize: 12, color: C.muted, mt: 1.25 }}>
+              <Typography sx={{ fontSize: 12, color: C.muted, mt: 1.75, lineHeight: 1.6 }}>
                 JSON-LD types found:{" "}
                 {audit.result.page.schemaTypes.length
                   ? audit.result.page.schemaTypes.join(", ")
@@ -445,11 +457,12 @@ export default function LivePageReadinessPanel() {
             </Box>
           </Box>
 
-          <Box sx={{ mt: 3 }}>
-            <SectionLabel sx={{ mb: 0.5 }}>Check results</SectionLabel>
-            <CheckResults audit={audit.result.audit} />
+          <Box sx={{ mt: 3, pt: 2.5, borderTop: `1px solid ${C.hairline}` }}>
+            <Details label="Show all seven check results">
+              <CheckResults audit={audit.result.audit} />
+            </Details>
           </Box>
-        </Panel>
+        </Card>
       )}
     </Box>
   );

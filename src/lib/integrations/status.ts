@@ -11,9 +11,72 @@ export type IntegrationReadiness = {
   configured: boolean;
   missing: string[];
   detail?: string;
+  /** Set when the variable arrived but cannot be used — never the same as missing. */
+  invalid?: string;
 };
 
 export type IntegrationStatus = Record<IntegrationKey, IntegrationReadiness>;
+
+/**
+ * What the running container actually sees for each expected variable. Names,
+ * lengths and shapes only — never a value. This exists because "not set" and
+ * "set but unusable" look identical from the outside, and because the usual
+ * deployment mistake is an environment key that still carries the secret's
+ * `apso-dev/` name prefix, which this surfaces as a near-miss key.
+ */
+export type EnvProbe = {
+  name: string;
+  present: boolean;
+  length: number;
+  shape: string;
+};
+
+export type EnvDiagnostics = {
+  probes: EnvProbe[];
+  /** Keys that CONTAIN an expected name but are not exactly it. */
+  nearMisses: string[];
+};
+
+const EXPECTED_ENV = [
+  "GOOGLE_SERVICE_ACCOUNT",
+  "GA4_PROPERTY_ID",
+  "GSC_SITE_URL",
+  "HUBSPOT_TOKEN",
+] as const;
+
+function shapeOf(name: string, value: string): string {
+  const trimmed = value.trim();
+  if (name === "GOOGLE_SERVICE_ACCOUNT") {
+    if (trimmed.startsWith("{")) {
+      return /"private_key"/.test(trimmed) && /"client_email"/.test(trimmed)
+        ? "JSON with client_email and private_key"
+        : "JSON, but missing client_email and/or private_key — is this the Secrets Manager key/value wrapper rather than the service-account file?";
+    }
+    return /^[A-Za-z0-9+/=\s]+$/.test(trimmed) ? "base64 (will be decoded)" : "not JSON and not base64";
+  }
+  if (name === "HUBSPOT_TOKEN") {
+    return trimmed.startsWith("pat-") ? "private-app token (pat-…)" : "does not look like a HubSpot private-app token";
+  }
+  return "set";
+}
+
+export function envDiagnostics(): EnvDiagnostics {
+  const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
+    const value = process.env[name];
+    return {
+      name,
+      present: typeof value === "string" && value.length > 0,
+      length: typeof value === "string" ? value.length : 0,
+      shape: typeof value === "string" && value.length > 0 ? shapeOf(name, value) : "absent",
+    };
+  });
+
+  const nearMisses = Object.keys(process.env).filter(
+    (key) => !EXPECTED_ENV.includes(key as (typeof EXPECTED_ENV)[number]) && EXPECTED_ENV.some((name) => key.includes(name)),
+  );
+
+  return { probes, nearMisses };
+}
 
 export type GoogleServiceAccount = {
   clientEmail: string;
@@ -104,14 +167,16 @@ export function hubspotToken(): string | null {
   return env("HUBSPOT_TOKEN");
 }
 
-function googleReadiness(): { missing: string[]; detail?: string } {
+function googleReadiness(): { missing: string[]; detail?: string; invalid?: string } {
   const raw = env("GOOGLE_SERVICE_ACCOUNT");
   if (!raw) return { missing: ["GOOGLE_SERVICE_ACCOUNT"] };
   const sa = parseServiceAccount();
   if (!sa) {
+    // Deliberately NOT reported as missing: the variable arrived, so telling the
+    // user it "is not set" would send them to the wrong place entirely.
     return {
-      missing: ["GOOGLE_SERVICE_ACCOUNT"],
-      detail: "GOOGLE_SERVICE_ACCOUNT is set but is not valid service-account JSON (needs client_email and private_key).",
+      missing: [],
+      invalid: "GOOGLE_SERVICE_ACCOUNT arrived but is not valid service-account JSON (it needs client_email and private_key). If you stored the secret as a key/value pair, ECS is passing the JSON wrapper instead of the file contents — store it as plaintext, or point valueFrom at the specific key.",
     };
   }
   return { missing: [], detail: sa.clientEmail };
@@ -124,6 +189,7 @@ export function integrationStatus(): IntegrationStatus {
   const ga4: IntegrationReadiness = {
     configured: googleOk,
     missing: google.missing,
+    invalid: google.invalid,
     detail: googleOk
       ? `Property ${ga4PropertyId()} · ${google.detail}`
       : google.detail,
@@ -132,6 +198,7 @@ export function integrationStatus(): IntegrationStatus {
   const gsc: IntegrationReadiness = {
     configured: googleOk,
     missing: google.missing,
+    invalid: google.invalid,
     detail: googleOk ? `${gscSiteUrl()} · ${google.detail}` : google.detail,
   };
 

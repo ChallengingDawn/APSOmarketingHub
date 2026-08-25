@@ -92,9 +92,18 @@ export type IntegrationReadiness = {
   configured: boolean;
   missing: string[];
   detail?: string;
+  /** Present but unusable — deliberately distinct from missing. */
+  invalid?: string;
 };
 
-export type IntegrationStatusPayload = Record<IntegrationKey, IntegrationReadiness>;
+export type EnvProbe = { name: string; present: boolean; length: number; shape: string };
+export type EnvDiagnostics = { probes: EnvProbe[]; nearMisses: string[] };
+
+export type IntegrationStatusPayload = {
+  integrations: Record<IntegrationKey, IntegrationReadiness>;
+  /** Names, lengths and shapes of the expected variables — never values. */
+  env: EnvDiagnostics | null;
+};
 
 /* ── fetch ── */
 
@@ -221,7 +230,33 @@ export async function fetchIntegrationStatus(
     };
   }
 
-  return { state: "ok", data: integrations as IntegrationStatusPayload };
+  const rawEnv = (body as { env?: unknown } | null)?.env;
+  let env: EnvDiagnostics | null = null;
+  if (typeof rawEnv === "object" && rawEnv !== null) {
+    const e = rawEnv as Record<string, unknown>;
+    const probes = Array.isArray(e.probes)
+      ? e.probes.flatMap((entry) => {
+          if (typeof entry !== "object" || entry === null) return [];
+          const row = entry as Record<string, unknown>;
+          const name = optionalString(row.name);
+          if (!name) return [];
+          return [
+            {
+              name,
+              present: row.present === true,
+              length: typeof row.length === "number" ? row.length : 0,
+              shape: optionalString(row.shape) ?? "unknown",
+            },
+          ];
+        })
+      : [];
+    env = { probes, nearMisses: stringArray(e.nearMisses) };
+  }
+
+  return {
+    state: "ok",
+    data: { integrations: integrations as Record<IntegrationKey, IntegrationReadiness>, env },
+  };
 }
 
 /* ── formatting ── */

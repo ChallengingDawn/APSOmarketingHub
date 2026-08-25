@@ -1,8 +1,12 @@
 "use client";
 
 /**
- * Shared visual vocabulary for the GEO cockpit: brand tokens, the section
- * label, the score badge, the verdict chip, the paragraph-distribution bar and
+ * Shared visual vocabulary for the GEO cockpit.
+ *
+ * The cockpit is five ROUTED sub-apps, not five tabs, so the pieces here are
+ * deliberately layout-level: the persistent sub-navigation rail, the page
+ * intro (title → purpose → the one number that matters), the card, the
+ * "Details" disclosure that keeps diagnostics out of the scanning path, and
  * the three honest "there is no data" states.
  *
  * Nothing here renders a number it was not given. When a source is missing the
@@ -10,7 +14,7 @@
  * — never a blurred fake preview.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -18,12 +22,15 @@ import Button from "@mui/material/Button";
 import Tooltip from "@mui/material/Tooltip";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Collapse from "@mui/material/Collapse";
 import CircularProgress from "@mui/material/CircularProgress";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import InboxIcon from "@mui/icons-material/Inbox";
 import SettingsIcon from "@mui/icons-material/Settings";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   GEO_BAND_LABELS,
   geoBand,
@@ -65,7 +72,7 @@ export const BAND_COLOR: Record<GeoBand, string> = {
 
 export const DISPLAY_FONT = "var(--font-outfit), 'Outfit', 'Inter', sans-serif";
 
-/** Uppercase 11.5px letter-spaced label that opens every section. */
+/** Uppercase letter-spaced label that opens a block. */
 export function SectionLabel({ children, sx }: { children: ReactNode; sx?: object }) {
   return (
     <Typography
@@ -84,10 +91,6 @@ export function SectionLabel({ children, sx }: { children: ReactNode; sx?: objec
   );
 }
 
-export function Hairline({ sx }: { sx?: object }) {
-  return <Box sx={{ height: "1px", bgcolor: C.hairline, ...sx }} />;
-}
-
 /** Hairline-bordered surface used for every panel in the cockpit. */
 export function Panel({ children, sx }: { children: ReactNode; sx?: object }) {
   return (
@@ -103,6 +106,31 @@ export function Panel({ children, sx }: { children: ReactNode; sx?: object }) {
       {children}
     </Paper>
   );
+}
+
+/** A panel with real padding. The default surface for anything that reads. */
+export function Card({ children, sx }: { children: ReactNode; sx?: object }) {
+  return <Panel sx={{ p: { xs: 2.5, md: 3 }, ...sx }}>{children}</Panel>;
+}
+
+/**
+ * Wide content (tables, seven-column comparisons) scrolls inside its own box —
+ * the page body must never scroll sideways.
+ */
+export function ScrollX({ children, minWidth = 720 }: { children: ReactNode; minWidth?: number }) {
+  return (
+    <Box sx={{ width: "100%", overflowX: "auto" }}>
+      <Box sx={{ minWidth }}>{children}</Box>
+    </Box>
+  );
+}
+
+/**
+ * The cockpit runs edge to edge, but prose does not: a 200-character line is
+ * unreadable however wide the screen.
+ */
+export function Measure({ children, sx }: { children: ReactNode; sx?: object }) {
+  return <Box sx={{ maxWidth: "78ch", ...sx }}>{children}</Box>;
 }
 
 export function ScoreBadge({
@@ -149,20 +177,11 @@ export function ScoreBadge({
   );
 }
 
-export function VerdictChip({
-  verdict,
-  label,
-  onClick,
-}: {
-  verdict: GeoVerdict;
-  label: string;
-  onClick?: () => void;
-}) {
+export function VerdictChip({ verdict, label }: { verdict: GeoVerdict; label: string }) {
   const color = VERDICT_COLOR[verdict];
   return (
     <Box
-      component={onClick ? "button" : "span"}
-      onClick={onClick}
+      component="span"
       sx={{
         display: "inline-flex",
         alignItems: "center",
@@ -173,11 +192,9 @@ export function VerdictChip({
         borderRadius: "2px",
         bgcolor: `${color}10`,
         color,
-        font: "inherit",
         fontSize: 11.5,
         fontWeight: 600,
-        cursor: onClick ? "pointer" : "default",
-        textAlign: "left",
+        whiteSpace: "nowrap",
       }}
     >
       <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
@@ -203,18 +220,18 @@ export function DistributionBar({
   }
   return (
     <Box>
-      <Box sx={{ display: "flex", height: 10, borderRadius: "2px", overflow: "hidden", border: `1px solid ${C.hairline}` }}>
+      <Box sx={{ display: "flex", height: 12, borderRadius: "2px", overflow: "hidden", border: `1px solid ${C.hairline}` }}>
         {segments.map((s) => (
           <Tooltip key={s.label} title={`${s.label}: ${s.count} of ${total}`}>
             <Box sx={{ width: `${(s.count / total) * 100}%`, bgcolor: s.color, transition: "width .3s" }} />
           </Tooltip>
         ))}
       </Box>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mt: 1 }}>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 1.5 }}>
         {segments.map((s) => (
-          <Box key={s.label} sx={{ display: "flex", alignItems: "center", gap: 0.625 }}>
+          <Box key={s.label} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
             <Box sx={{ width: 8, height: 8, bgcolor: s.color, borderRadius: "1px" }} />
-            <Typography sx={{ fontSize: 11.5, color: C.muted }}>
+            <Typography sx={{ fontSize: 12, color: C.muted }}>
               {s.label} <strong style={{ color: C.ink }}>{s.count}</strong>
             </Typography>
           </Box>
@@ -223,6 +240,268 @@ export function DistributionBar({
     </Box>
   );
 }
+
+/** A number with its label underneath. The cockpit's atom of measurement. */
+export function Stat({
+  value,
+  label,
+  hint,
+  color,
+  size = "md",
+}: {
+  value: ReactNode;
+  label: string;
+  hint?: string;
+  color?: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const font = size === "lg" ? 30 : size === "md" ? 22 : 17;
+  const body = (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography
+        sx={{
+          fontFamily: DISPLAY_FONT,
+          fontSize: font,
+          fontWeight: 600,
+          lineHeight: 1.05,
+          color: color ?? C.ink,
+          letterSpacing: "-0.02em",
+        }}
+      >
+        {value}
+      </Typography>
+      <SectionLabel sx={{ fontSize: 10, mt: 0.75 }}>{label}</SectionLabel>
+    </Box>
+  );
+  return hint ? <Tooltip title={hint}>{body}</Tooltip> : body;
+}
+
+/** A single proportion, drawn. Never rendered without the count behind it. */
+export function MeterBar({
+  value,
+  max,
+  color,
+  height = 6,
+}: {
+  value: number;
+  max: number;
+  color: string;
+  height?: number;
+}) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <Box sx={{ height, bgcolor: C.surface, border: `1px solid ${C.hairline}`, borderRadius: "1px" }}>
+      <Box sx={{ width: `${pct}%`, height: "100%", bgcolor: color, transition: "width .3s" }} />
+    </Box>
+  );
+}
+
+/* ─────────────────────────── page-level structure ─────────────────────────── */
+
+/**
+ * Every sub-app opens the same way: its own title, its own one-line purpose,
+ * and — when there is one — the single number the page is about. The hierarchy
+ * is the whole point, so it is a component rather than a convention.
+ */
+export function PageIntro({
+  title,
+  purpose,
+  right,
+}: {
+  title: string;
+  purpose: string;
+  right?: ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: { xs: "flex-start", md: "flex-end" },
+        justifyContent: "space-between",
+        flexDirection: { xs: "column", md: "row" },
+        gap: 2,
+        mb: { xs: 3, md: 4 },
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography
+          sx={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: { xs: 24, md: 28 },
+            fontWeight: 600,
+            letterSpacing: "-0.025em",
+            color: C.ink,
+            lineHeight: 1.15,
+          }}
+        >
+          {title}
+        </Typography>
+        <Measure>
+          <Typography sx={{ fontSize: 13.5, color: C.muted, mt: 1, lineHeight: 1.6 }}>{purpose}</Typography>
+        </Measure>
+      </Box>
+      {right && <Box sx={{ flexShrink: 0 }}>{right}</Box>}
+    </Box>
+  );
+}
+
+/** The rule that opens a band within a sub-app. */
+export function SectionHead({ title, right, sx }: { title: string; right?: ReactNode; sx?: object }) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: 1.5,
+        flexWrap: "wrap",
+        pb: 1.25,
+        mb: 2,
+        borderBottom: `1px solid ${C.hairline}`,
+        ...sx,
+      }}
+    >
+      <Box sx={{ width: 5, height: 5, bgcolor: C.red, transform: "rotate(45deg)", alignSelf: "center" }} />
+      <SectionLabel>{title}</SectionLabel>
+      {right && <Box sx={{ ml: "auto" }}>{right}</Box>}
+    </Box>
+  );
+}
+
+/**
+ * Detail on demand.
+ *
+ * Per-check breakdowns and per-URL metrics are diagnostics, not scanning
+ * material: twenty rows have to be readable in five seconds, which they are not
+ * if each row spills its seven measured values into the list. They live behind
+ * this, closed by default.
+ */
+export function Details({
+  label = "Details",
+  openLabel,
+  children,
+  align = "left",
+}: {
+  label?: string;
+  openLabel?: string;
+  children: ReactNode;
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Box>
+      <Box sx={{ display: "flex", justifyContent: align === "right" ? "flex-end" : "flex-start" }}>
+        <Button
+          size="small"
+          onClick={() => setOpen((v) => !v)}
+          endIcon={
+            <ExpandMoreIcon
+              fontSize="small"
+              sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}
+            />
+          }
+          sx={{
+            textTransform: "none",
+            color: C.muted,
+            fontWeight: 600,
+            fontSize: 12.5,
+            px: 0.75,
+            minWidth: 0,
+            "&:hover": { color: C.navy, bgcolor: "transparent" },
+          }}
+        >
+          {open ? (openLabel ?? `Hide ${label.toLowerCase()}`) : label}
+        </Button>
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ pt: 1.5 }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+/** The one dominant action of a row or card. Everything else stays quiet. */
+export function PrimaryAction({
+  href,
+  onClick,
+  children,
+  icon,
+  disabled,
+  type,
+}: {
+  href?: string;
+  onClick?: () => void;
+  children: ReactNode;
+  icon?: ReactNode;
+  disabled?: boolean;
+  type?: "button" | "submit";
+}) {
+  const sx = {
+    bgcolor: C.navy,
+    borderRadius: "2px",
+    textTransform: "none",
+    fontWeight: 600,
+    fontSize: 13,
+    px: 2.25,
+    py: 0.875,
+    whiteSpace: "nowrap",
+    "&:hover": { bgcolor: "#1a3a4c" },
+  } as const;
+  if (href) {
+    return (
+      <Button component={Link} href={href} variant="contained" disableElevation startIcon={icon} sx={sx}>
+        {children}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      type={type ?? "button"}
+      onClick={onClick}
+      variant="contained"
+      disableElevation
+      disabled={disabled}
+      startIcon={icon}
+      sx={sx}
+    >
+      {children}
+    </Button>
+  );
+}
+
+/** A quiet secondary action: text, never a filled button. */
+export function QuietAction({
+  href,
+  onClick,
+  children,
+  icon,
+}: {
+  href?: string;
+  onClick?: () => void;
+  children: ReactNode;
+  icon?: ReactNode;
+}) {
+  const sx = {
+    textTransform: "none",
+    color: C.navy,
+    fontWeight: 600,
+    fontSize: 12.5,
+    px: 0.75,
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    "&:hover": { bgcolor: `${C.navy}0a` },
+  } as const;
+  return href ? (
+    <Button component={Link} href={href} size="small" startIcon={icon} sx={sx}>
+      {children}
+    </Button>
+  ) : (
+    <Button size="small" onClick={onClick} startIcon={icon} sx={sx}>
+      {children}
+    </Button>
+  );
+}
+
+/* ───────────────────────────── the honest states ──────────────────────────── */
 
 function CenteredCard({
   icon,
@@ -264,9 +543,8 @@ function CenteredCard({
 }
 
 /**
- * The one not-connected treatment, used identically on every surface: which
- * source is missing, the exact secret names, what appears once it is set, and
- * the way to the Integrations settings.
+ * The one not-connected treatment: which source is missing, the exact secret
+ * names, what appears once it is set, and the way to Integrations settings.
  */
 export function NotConnectedCard({
   source,
@@ -274,13 +552,9 @@ export function NotConnectedCard({
   unlocks,
   detail,
 }: {
-  /** Human name of the source, e.g. "Google Search Console". */
   source: string;
-  /** Exact env/secret names the server reported as missing. */
   missing: string[];
-  /** One line: what this panel will show once the source is connected. */
   unlocks: string;
-  /** Optional server-supplied diagnostic (e.g. malformed service account). */
   detail?: string | null;
 }) {
   return (
@@ -407,236 +681,110 @@ export function LoadingCard({ label }: { label: string }) {
   );
 }
 
-/* ───────────────────────── full-bleed layout primitives ───────────────────── */
+/* ───────────────────────── the persistent sub-app rail ────────────────────── */
 
-/**
- * The cockpit runs edge to edge, but prose does not: a 200-character line is
- * unreadable however wide the screen. Anything sentence-shaped is wrapped in
- * this so it stops at a comfortable measure while the data around it spreads.
- */
-export function Measure({ children, sx }: { children: ReactNode; sx?: object }) {
-  return <Box sx={{ maxWidth: "78ch", ...sx }}>{children}</Box>;
-}
-
-/**
- * The rule that opens a band of the page. Carries the sub-app's name on the
- * left so the section always states which half of the cockpit it belongs to,
- * and an optional control on the right.
- */
-export function SectionRule({
-  eyebrow,
-  title,
-  right,
-  sx,
-}: {
-  /** Which sub-app this band belongs to, e.g. "Audit". */
-  eyebrow: string;
-  title: string;
-  right?: ReactNode;
-  sx?: object;
-}) {
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "baseline",
-        gap: 1.5,
-        flexWrap: "wrap",
-        pb: 1,
-        mb: 1.5,
-        borderBottom: `1px solid ${C.hairline}`,
-        ...sx,
-      }}
-    >
-      <SectionLabel sx={{ color: C.navy }}>{eyebrow}</SectionLabel>
-      <Box sx={{ width: 5, height: 5, bgcolor: C.red, transform: "rotate(45deg)", alignSelf: "center" }} />
-      <SectionLabel>{title}</SectionLabel>
-      {right && <Box sx={{ ml: "auto" }}>{right}</Box>}
-    </Box>
-  );
-}
-
-/** A number with its label underneath. The cockpit's atom of measurement. */
-export function Stat({
-  value,
-  label,
-  hint,
-  color,
-  size = "md",
-}: {
-  value: ReactNode;
+export type GeoSubApp = {
+  href: string;
   label: string;
-  hint?: string;
-  color?: string;
-  size?: "sm" | "md" | "lg";
-}) {
-  const font = size === "lg" ? 30 : size === "md" ? 22 : 17;
-  const body = (
-    <Box sx={{ minWidth: 0 }}>
-      <Typography
-        sx={{
-          fontFamily: DISPLAY_FONT,
-          fontSize: font,
-          fontWeight: 600,
-          lineHeight: 1.05,
-          color: color ?? C.ink,
-          letterSpacing: "-0.02em",
-        }}
-      >
-        {value}
-      </Typography>
-      <SectionLabel sx={{ fontSize: 10, mt: 0.625 }}>{label}</SectionLabel>
-    </Box>
-  );
-  return hint ? <Tooltip title={hint}>{body}</Tooltip> : body;
-}
-
-/** A single proportion, drawn. Never rendered without the count behind it. */
-export function MeterBar({
-  value,
-  max,
-  color,
-  height = 6,
-}: {
-  value: number;
-  max: number;
-  color: string;
-  height?: number;
-}) {
-  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
-  return (
-    <Box sx={{ height, bgcolor: C.surface, border: `1px solid ${C.hairline}`, borderRadius: "1px" }}>
-      <Box sx={{ width: `${pct}%`, height: "100%", bgcolor: color, transition: "width .3s" }} />
-    </Box>
-  );
-}
-
-/* ──────────────────────────── the sub-app switch ──────────────────────────── */
-
-export type SubAppOption<K extends string> = {
-  key: K;
-  /** "01", "02" — the switch reads as a two-step workflow, not two tabs. */
-  ordinal: string;
-  title: string;
-  /** One line: what this half is for. */
-  role: string;
-  /** Live figure describing the half's current contents, or null while loading. */
-  stat: ReactNode;
+  /** One line, shown as the rail entry's tooltip and on the sub-app's own page. */
+  purpose: string;
   icon: ReactNode;
 };
 
+function isActive(pathname: string, href: string): boolean {
+  return href === "/geo" ? pathname === "/geo" : pathname === href || pathname.startsWith(`${href}/`);
+}
+
 /**
- * The primary switch between the cockpit's two sub-apps.
- *
- * Deliberately not a tab strip: each half is a different job, so each gets a
- * full card stating its role and its current numbers. The selected card is the
- * only one on white with a navy rail, and the page repeats its name in every
- * section rule beneath — there is no way to be unsure which half is open.
+ * Horizontal segmented strip at the top of the content area. Five entries stay
+ * legible because each is icon + one short word-pair with an optional figure;
+ * below the strip's comfortable width it scrolls sideways inside itself rather
+ * than wrapping into an illegible grid.
  */
-export function SubAppSwitch<K extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: K;
-  onChange: (key: K) => void;
-  options: readonly SubAppOption<K>[];
-}) {
+export function GeoSubNav({ items }: { items: readonly (GeoSubApp & { stat?: ReactNode })[] }) {
+  const pathname = usePathname() || "/geo";
   return (
     <Box
-      role="tablist"
-      aria-label="GEO cockpit sub-apps"
+      component="nav"
+      aria-label="GEO sub-apps"
       sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: `repeat(${options.length}, 1fr)` },
-        gap: { xs: 1, md: 1.5 },
+        width: "100%",
+        overflowX: "auto",
+        border: `1px solid ${C.hairline}`,
+        borderRadius: "2px",
+        bgcolor: C.surface,
+        "&::-webkit-scrollbar": { height: 6 },
+        "&::-webkit-scrollbar-thumb": { bgcolor: C.hairline, borderRadius: 3 },
       }}
     >
-      {options.map((o) => {
-        const active = o.key === value;
-        return (
-          <Box
-            key={o.key}
-            role="tab"
-            aria-selected={active}
-            tabIndex={0}
-            onClick={() => onChange(o.key)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onChange(o.key);
-              }
-            }}
-            sx={{
-              cursor: "pointer",
-              userSelect: "none",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 1.75,
-              px: { xs: 1.75, md: 2.5 },
-              py: { xs: 1.75, md: 2 },
-              bgcolor: active ? C.white : "transparent",
-              border: `1px solid ${active ? C.navy : C.hairline}`,
-              borderLeft: `3px solid ${active ? C.red : C.hairline}`,
-              borderRadius: "2px",
-              transition: "background-color .15s, border-color .15s",
-              "&:hover": { borderColor: active ? C.navy : C.muted, bgcolor: C.white },
-              "&:focus-visible": { outline: `2px solid ${C.navy}`, outlineOffset: 2 },
-            }}
-          >
-            <Box
-              sx={{
-                width: 34,
-                height: 34,
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: `1px solid ${active ? C.navy : C.hairline}`,
-                borderRadius: "2px",
-                bgcolor: active ? `${C.navy}0d` : C.white,
-                color: active ? C.navy : C.muted,
-              }}
-            >
-              {o.icon}
-            </Box>
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
-                <Typography
+      <Box sx={{ display: "flex", minWidth: 760 }}>
+        {items.map((item) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <Tooltip key={item.href} title={item.purpose} enterDelay={600}>
+              <Box
+                component={Link}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                sx={{
+                  flex: "1 1 0",
+                  minWidth: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.25,
+                  px: 2,
+                  py: 1.75,
+                  textDecoration: "none",
+                  bgcolor: active ? C.white : "transparent",
+                  borderRight: `1px solid ${C.hairline}`,
+                  borderTop: `2px solid ${active ? C.red : "transparent"}`,
+                  "&:last-of-type": { borderRight: "none" },
+                  "&:hover": { bgcolor: active ? C.white : "#eceef1" },
+                  transition: "background-color .15s",
+                }}
+              >
+                <Box
                   sx={{
-                    fontFamily: DISPLAY_FONT,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.12em",
-                    color: active ? C.red : C.muted,
+                    display: "flex",
+                    alignItems: "center",
+                    color: active ? C.navy : C.muted,
+                    flexShrink: 0,
                   }}
                 >
-                  {o.ordinal}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: DISPLAY_FONT,
-                    fontSize: 17,
-                    fontWeight: 600,
-                    letterSpacing: "0.02em",
-                    textTransform: "uppercase",
-                    color: active ? C.navy : C.ink,
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {o.title}
-                </Typography>
+                  {item.icon}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontFamily: DISPLAY_FONT,
+                      fontSize: 13.5,
+                      fontWeight: active ? 600 : 500,
+                      color: active ? C.navy : C.ink,
+                      lineHeight: 1.2,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {item.label}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: 11,
+                      color: C.muted,
+                      lineHeight: 1.3,
+                      mt: 0.25,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {item.stat ?? " "}
+                  </Typography>
+                </Box>
               </Box>
-              <Typography sx={{ fontSize: 12.5, color: C.muted, mt: 0.5, lineHeight: 1.45 }}>
-                {o.role}
-              </Typography>
-              <Box sx={{ mt: 1, fontSize: 12, color: active ? C.ink : C.muted, fontWeight: 600 }}>
-                {o.stat}
-              </Box>
-            </Box>
-          </Box>
-        );
-      })}
+            </Tooltip>
+          );
+        })}
+      </Box>
     </Box>
   );
 }
@@ -653,9 +801,9 @@ export function bandRangeLabel(band: GeoBand): string {
 }
 
 /**
- * Channel and score-band filters. One instance per half, both bound to the same
- * state in the page — filtering in AUDIT carries into IMPROVE, because they are
- * two views of one portfolio rather than two datasets.
+ * Channel and score-band filters. Bound to the state held by the GEO layout, so
+ * a filter set in the Content audit is still set in the Fix queue — they are two
+ * views of one portfolio rather than two datasets.
  */
 export function GeoFilterBar({
   channel,
@@ -681,8 +829,8 @@ export function GeoFilterBar({
         gap: 1.5,
         flexWrap: "wrap",
         alignItems: "center",
-        px: { xs: 1.5, md: 2 },
-        py: 1.5,
+        px: { xs: 2, md: 2.5 },
+        py: 2,
       }}
     >
       {left && <Box sx={{ mr: "auto", minWidth: 0 }}>{left}</Box>}
@@ -693,7 +841,7 @@ export function GeoFilterBar({
         label="Channel"
         value={channel}
         onChange={(e) => onChannel(e.target.value)}
-        sx={{ minWidth: 160 }}
+        sx={{ minWidth: 170 }}
       >
         <MenuItem value="all">All channels</MenuItem>
         {channels.map((c) => (
@@ -708,7 +856,7 @@ export function GeoFilterBar({
         label="Score band"
         value={band}
         onChange={(e) => onBand(e.target.value as "all" | GeoBand)}
-        sx={{ minWidth: 190 }}
+        sx={{ minWidth: 195 }}
       >
         <MenuItem value="all">All bands</MenuItem>
         {BAND_ORDER.map((b) => (

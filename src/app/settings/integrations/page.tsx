@@ -220,6 +220,7 @@ function IntegrationCard({
 }) {
   const badge = badgeFor(readiness, outcome);
   const missing = readiness?.missing ?? [];
+  const invalid = readiness?.invalid;
 
   return (
     <Box
@@ -251,6 +252,15 @@ function IntegrationCard({
       <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 2.5, lineHeight: 1.6 }}>
         {definition.purpose}
       </Typography>
+
+      {invalid && (
+        <Box sx={{ border: "1px solid #f2c9c6", bgcolor: "#fdf3f2", borderRadius: 1.5, p: 1.5, mb: 2 }}>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: "#c5221f", mb: 0.5 }}>
+            The variable arrived but cannot be used
+          </Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: INK, lineHeight: 1.55 }}>{invalid}</Typography>
+        </Box>
+      )}
 
       <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 2, mb: 2 }}>
         <Typography sx={{ ...LABEL_SX, mb: 1 }}>
@@ -446,7 +456,8 @@ export default function IntegrationsSettingsPage() {
       );
   }, []);
 
-  const readiness = status?.state === "ok" ? status.data : null;
+  const readiness = status?.state === "ok" ? status.data.integrations : null;
+  const envDiag = status?.state === "ok" ? status.data.env : null;
 
   return (
     <Box sx={{ p: 1 }}>
@@ -518,6 +529,48 @@ export default function IntegrationsSettingsPage() {
             </Grid>
           ))}
         </Grid>
+      )}
+
+      {envDiag && (
+        <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: 2, bgcolor: "#fff", p: { xs: 2.5, md: 3 }, mb: 4 }}>
+          <Typography sx={{ ...LABEL_SX, mb: 0.75 }}>What the running container actually sees</Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 2 }}>
+            Names, lengths and shapes only — no value is ever read into this page. If a variable you added shows as absent
+            here it did not reach the container: the service is still on the old task-definition revision, the deployment
+            has not rolled over yet, or the environment key is not spelled exactly as shown.
+          </Typography>
+          <Box sx={{ display: "grid", gap: 1 }}>
+            {envDiag.probes.map((probe) => (
+              <Box
+                key={probe.name}
+                sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", borderBottom: `1px solid ${HAIRLINE}`, pb: 1 }}
+              >
+                <Typography sx={{ fontFamily: MONO, fontSize: "0.8rem", color: INK, minWidth: 230 }}>{probe.name}</Typography>
+                <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: probe.present ? "#1e7e45" : "#c5221f", minWidth: 70 }}>
+                  {probe.present ? "present" : "absent"}
+                </Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+                  {probe.present ? `${probe.length} characters · ${probe.shape}` : "not in this container's environment"}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          {envDiag.nearMisses.length > 0 && (
+            <Box sx={{ mt: 2, border: "1px solid #f2c9c6", bgcolor: "#fdf3f2", borderRadius: 1.5, p: 1.75 }}>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#c5221f", mb: 0.5 }}>
+                Near-miss environment keys found
+              </Typography>
+              <Typography sx={{ fontFamily: MONO, fontSize: "0.78rem", color: INK, wordBreak: "break-all" }}>
+                {envDiag.nearMisses.join(", ")}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.75 }}>
+                These carry an expected name but are not spelled exactly right, so the app cannot read them. The key must be
+                the bare name — the apso-dev/ prefix belongs to the secret in Secrets Manager, never to the environment
+                variable the container receives.
+              </Typography>
+            </Box>
+          )}
+        </Box>
       )}
 
       {/* ── Setup guide ── */}

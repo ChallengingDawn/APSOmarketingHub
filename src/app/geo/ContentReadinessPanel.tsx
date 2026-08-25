@@ -1,17 +1,18 @@
 "use client";
 
 /**
- * AUDIT · stored pieces — the worst-first readiness list.
+ * The scannable worst-first list of stored pieces.
  *
- * Receives its scored pieces from the page (one library load feeds both halves
- * of the cockpit) and renders one row per stored body. At full width the row
- * shows *why* a piece scores what it scores: each failing check appears inline
- * with the value that was measured and the points it is forfeiting, instead of
- * being truncated into a chip you have to expand to read.
+ * A row states four things and no more: the score, what the piece is, the ONE
+ * reason it scores that, and the one action worth taking. Twenty rows have to
+ * be readable in about five seconds, so the full per-check breakdown — seven
+ * verdicts, their measured values and their fixes — is behind "Details" and
+ * closed by default.
  *
- * Every score here was computed from a stored body. Nothing is illustrative.
+ * Every score was computed from a stored body. Nothing here is illustrative.
  */
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -20,12 +21,7 @@ import Tooltip from "@mui/material/Tooltip";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import Link from "next/link";
-import {
-  derivedTitle,
-  GEO_BAND_LABELS,
-  type GeoBand,
-  type GeoCheckResult,
-} from "@/lib/geo/audit";
+import { derivedTitle, GEO_BAND_LABELS, type GeoBand, type GeoCheckResult } from "@/lib/geo/audit";
 import { geoImproveHref, recoverablePoints } from "@/lib/geo/fixQueue";
 import type { ScoredPiece } from "./useGeoLibrary";
 import {
@@ -36,80 +32,45 @@ import {
   ScoreBadge,
   SectionLabel,
   VERDICT_COLOR,
-  VERDICT_LABEL,
-  VerdictChip,
 } from "./geoUi";
 import CheckResults from "./CheckResults";
 
-/** One failing or warning check, stated with the value behind the verdict. */
-function InlineCheck({ check }: { check: GeoCheckResult }) {
-  const color = VERDICT_COLOR[check.verdict];
-  const points = recoverablePoints(check);
-  return (
-    <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", minWidth: 0 }}>
-      <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: color, mt: 0.75, flexShrink: 0 }} />
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.ink, lineHeight: 1.3 }}>
-            {check.label}
-          </Typography>
-          <Tooltip
-            title={`${VERDICT_LABEL[check.verdict]} — scoring ${check.score}/100 at weight ${check.weight}, so ${points.toFixed(1)} of the piece's 100 points are unearned.`}
-          >
-            <Typography sx={{ fontSize: 11, fontWeight: 700, color, cursor: "help" }}>
-              −{points.toFixed(1)} pts
-            </Typography>
-          </Tooltip>
-        </Box>
-        <Typography
-          sx={{
-            fontSize: 12,
-            color: C.muted,
-            lineHeight: 1.45,
-            mt: 0.125,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          {check.measured}
-        </Typography>
-      </Box>
-    </Box>
-  );
+/** The check costing this piece the most points — the row's one-line reason. */
+function worstCheck(checks: readonly GeoCheckResult[]): GeoCheckResult | null {
+  let worst: GeoCheckResult | null = null;
+  for (const c of checks) {
+    if (c.verdict === "pass") continue;
+    if (!worst || recoverablePoints(c) > recoverablePoints(worst)) worst = c;
+  }
+  return worst;
 }
 
-function Row({
-  scored,
-  expanded,
-  onToggle,
-}: {
-  scored: ScoredPiece;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
+function Row({ scored }: { scored: ScoredPiece }) {
+  const [open, setOpen] = useState(false);
   const { item, audit } = scored;
   const title = item.title?.trim() || derivedTitle(item.body) || `Piece #${item.id}`;
-  const problems = audit.checks.filter((c) => c.verdict !== "pass");
+  const worst = worstCheck(audit.checks);
+  const problems = audit.checks.filter((c) => c.verdict !== "pass").length;
 
   return (
-    <Box sx={{ borderTop: `1px solid ${C.hairline}`, "&:hover": { bgcolor: C.surface } }}>
+    <Box sx={{ borderTop: `1px solid ${C.hairline}` }}>
       <Box
         sx={{
           display: "grid",
-          gap: { xs: 1.5, lg: 2.5 },
-          alignItems: "start",
-          px: { xs: 1.5, md: 2 },
-          py: 2,
+          alignItems: "center",
+          columnGap: { xs: 2, lg: 3 },
+          rowGap: 1.5,
+          px: { xs: 2, md: 2.5 },
+          py: 2.25,
           gridTemplateColumns: {
             xs: "auto minmax(0, 1fr)",
-            lg: "auto minmax(240px, 1fr) minmax(0, 1.8fr) auto",
+            lg: "auto minmax(220px, 1fr) minmax(0, 1.5fr) auto",
           },
           gridTemplateAreas: {
-            xs: `"score meta" "checks checks" "actions actions"`,
-            lg: `"score meta checks actions"`,
+            xs: `"score meta" "reason reason" "action action"`,
+            lg: `"score meta reason action"`,
           },
+          "&:hover": { bgcolor: C.surface },
         }}
       >
         <Box sx={{ gridArea: "score" }}>
@@ -120,99 +81,131 @@ function Row({
           <Typography
             sx={{
               fontFamily: DISPLAY_FONT,
-              fontSize: 15.5,
+              fontSize: 15,
               fontWeight: 500,
               color: C.ink,
-              lineHeight: 1.3,
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
+              lineHeight: 1.35,
               overflow: "hidden",
-              overflowWrap: "anywhere",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
+            title={title}
           >
             {title}
           </Typography>
-          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.5, lineHeight: 1.5 }}>
-            {item.channel} · {item.status} · {audit.stats.words} words · {item.createdAt.slice(0, 10)}
+          <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.5 }}>
+            {item.channel} · {GEO_BAND_LABELS[audit.band]} · {audit.stats.words} words
           </Typography>
-          <Box sx={{ mt: 0.875 }}>
-            <VerdictChip
-              verdict={problems.length === 0 ? "pass" : audit.failing.length ? "fail" : "warn"}
-              label={`${GEO_BAND_LABELS[audit.band]} · ${audit.failing.length} failing, ${audit.warning.length} warning`}
-            />
-          </Box>
         </Box>
 
-        <Box sx={{ gridArea: "checks", minWidth: 0 }}>
-          {problems.length === 0 ? (
+        <Box sx={{ gridArea: "reason", minWidth: 0 }}>
+          {worst ? (
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, minWidth: 0 }}>
+              <Tooltip
+                title={`${worst.label} scores ${worst.score}/100 at weight ${worst.weight}, so ${recoverablePoints(
+                  worst
+                ).toFixed(1)} of this piece's 100 points are unearned.`}
+              >
+                <Typography
+                  sx={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: VERDICT_COLOR[worst.verdict],
+                    whiteSpace: "nowrap",
+                    cursor: "help",
+                  }}
+                >
+                  −{recoverablePoints(worst).toFixed(1)}
+                </Typography>
+              </Tooltip>
+              <Typography
+                sx={{
+                  fontSize: 12.5,
+                  color: C.muted,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={`${worst.label}: ${worst.measured}`}
+              >
+                <strong style={{ color: C.ink, fontWeight: 600 }}>{worst.label}</strong> — {worst.measured}
+              </Typography>
+            </Box>
+          ) : (
             <Typography sx={{ fontSize: 12.5, color: VERDICT_COLOR.pass, fontWeight: 600 }}>
               All seven checks pass — an answer engine can lift this piece as written.
             </Typography>
-          ) : (
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
-                columnGap: 2.5,
-                rowGap: 1.25,
-              }}
-            >
-              {problems.map((c) => (
-                <InlineCheck key={c.id} check={c} />
-              ))}
-            </Box>
+          )}
+          {problems > 1 && (
+            <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.5 }}>
+              {audit.failing.length} failing, {audit.warning.length} warning
+            </Typography>
           )}
         </Box>
 
         <Box
           sx={{
-            gridArea: "actions",
+            gridArea: "action",
             display: "flex",
-            flexDirection: { xs: "row", lg: "column" },
-            gap: 0.75,
-            alignItems: "stretch",
+            alignItems: "center",
+            gap: 1,
+            justifyContent: { xs: "flex-start", lg: "flex-end" },
             flexShrink: 0,
           }}
         >
           <Button
             size="small"
-            onClick={onToggle}
+            onClick={() => setOpen((v) => !v)}
             endIcon={
               <ExpandMoreIcon
                 fontSize="small"
-                sx={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}
+                sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}
               />
             }
-            sx={{ textTransform: "none", color: C.navy, fontWeight: 600, fontSize: 12.5, whiteSpace: "nowrap" }}
-          >
-            {expanded ? "Hide detail" : "Full audit"}
-          </Button>
-          <Button
-            component={Link}
-            href={geoImproveHref({ channel: item.channel, pieceId: item.id, audit })}
-            size="small"
-            variant="outlined"
-            startIcon={<AutoFixHighIcon fontSize="small" />}
-            disabled={problems.length === 0}
             sx={{
               textTransform: "none",
+              color: C.muted,
               fontWeight: 600,
               fontSize: 12.5,
-              borderRadius: "2px",
-              borderColor: C.navy,
-              color: C.navy,
+              px: 0.75,
+              minWidth: 0,
               whiteSpace: "nowrap",
-              "&:hover": { borderColor: C.navy, bgcolor: `${C.navy}0a` },
+              "&:hover": { color: C.navy, bgcolor: "transparent" },
             }}
           >
-            Improve
+            Details
           </Button>
+          {problems > 0 && (
+            <Button
+              component={Link}
+              href={geoImproveHref({ channel: item.channel, pieceId: item.id, audit })}
+              size="small"
+              variant="contained"
+              disableElevation
+              startIcon={<AutoFixHighIcon fontSize="small" />}
+              sx={{
+                bgcolor: C.navy,
+                borderRadius: "2px",
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: 12.5,
+                px: 1.75,
+                whiteSpace: "nowrap",
+                "&:hover": { bgcolor: "#1a3a4c" },
+              }}
+            >
+              Fix in Studio
+            </Button>
+          )}
         </Box>
       </Box>
 
-      <Collapse in={expanded} unmountOnExit>
-        <Box sx={{ px: { xs: 1.5, md: 2 }, pb: 2.5, bgcolor: C.white }}>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ px: { xs: 2, md: 2.5 }, pb: 3, pt: 0.5, bgcolor: C.white }}>
+          <Typography sx={{ fontSize: 11.5, color: C.muted, mb: 1 }}>
+            {item.status} · created {item.createdAt.slice(0, 10)} · piece #{item.id}
+          </Typography>
           <CheckResults audit={audit} />
         </Box>
       </Collapse>
@@ -228,8 +221,6 @@ export default function ContentReadinessPanel({
   channels,
   onChannel,
   onBand,
-  expandedId,
-  onExpand,
 }: {
   /** Pieces passing the current filters, worst first. */
   visible: ScoredPiece[];
@@ -240,8 +231,6 @@ export default function ContentReadinessPanel({
   channels: readonly string[];
   onChannel: (v: string) => void;
   onBand: (v: "all" | GeoBand) => void;
-  expandedId: number | null;
-  onExpand: (id: number | null) => void;
 }) {
   return (
     <Panel>
@@ -259,20 +248,13 @@ export default function ContentReadinessPanel({
       />
 
       {visible.length === 0 ? (
-        <Box sx={{ p: 4, textAlign: "center", borderTop: `1px solid ${C.hairline}` }}>
+        <Box sx={{ p: 5, textAlign: "center", borderTop: `1px solid ${C.hairline}` }}>
           <Typography sx={{ fontSize: 13.5, color: C.muted }}>
             No piece matches this channel and score band. Widen the filters — nothing is hidden beyond them.
           </Typography>
         </Box>
       ) : (
-        visible.map((s) => (
-          <Row
-            key={s.item.id}
-            scored={s}
-            expanded={expandedId === s.item.id}
-            onToggle={() => onExpand(expandedId === s.item.id ? null : s.item.id)}
-          />
-        ))
+        visible.map((s) => <Row key={s.item.id} scored={s} />)
       )}
     </Panel>
   );
