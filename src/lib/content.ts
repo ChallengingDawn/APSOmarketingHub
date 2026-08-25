@@ -17,6 +17,8 @@ export type ContentItem = {
   filters: Record<string, unknown> | null;
   status: ContentStatus;
   createdBy: string | null;
+  /** Planned publication date. Null means the piece is not scheduled yet. */
+  scheduledFor: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -46,6 +48,7 @@ type ContentRow = {
   filters: Record<string, unknown> | null;
   status: string;
   created_by: string | null;
+  scheduled_for: Date | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -63,6 +66,7 @@ function toItem(row: ContentRow): ContentItem {
     filters: row.filters,
     status: isContentStatus(row.status) ? row.status : "draft",
     createdBy: row.created_by,
+    scheduledFor: row.scheduled_for ? new Date(row.scheduled_for).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -134,20 +138,23 @@ export type ContentPatch = {
   title?: string | null;
   body?: string;
   imageUrl?: string | null;
+  /** ISO timestamp, or null to unschedule. */
+  scheduledFor?: string | null;
 };
 
 export async function updateContent(id: number, patch: ContentPatch): Promise<ContentItem | null> {
   await ensureSchema();
   const sets: string[] = [];
   const params: unknown[] = [id];
-  const add = (col: string, value: unknown) => {
+  const add = (col: string, value: unknown, cast = "") => {
     params.push(value);
-    sets.push(`${col} = $${params.length}`);
+    sets.push(`${col} = $${params.length}${cast}`);
   };
   if (patch.status !== undefined) add("status", patch.status);
   if (patch.title !== undefined) add("title", patch.title);
   if (patch.body !== undefined) add("body", patch.body);
   if (patch.imageUrl !== undefined) add("image_url", patch.imageUrl);
+  if (patch.scheduledFor !== undefined) add("scheduled_for", patch.scheduledFor, "::timestamptz");
   if (!sets.length) return getContent(id);
   const r = await query<ContentRow>(
     `UPDATE apsomh_content SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1 RETURNING *`,

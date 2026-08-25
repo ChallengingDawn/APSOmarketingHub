@@ -2,9 +2,13 @@
 import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
-import Phase2Gate from "./Phase2Gate";
 
-const PHASE_1_PATHS = [
+/**
+ * Routes whose page owns its own outer spacing get the shell's default padding;
+ * everything else lays out edge-to-edge. Purely a layout concern — unrelated to
+ * whether a route reads live data.
+ */
+const PADDED_PATHS = [
   "/personality",
   "/personas",
   "/content-generation",
@@ -18,12 +22,13 @@ const PHASE_1_PATHS = [
   "/editor",
 ];
 
-function isPhase1(pathname: string) {
-  return PHASE_1_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+function matchPrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-function isDocs(pathname: string) {
-  return pathname.startsWith("/docs");
+function isPadded(pathname: string) {
+  return PADDED_PATHS.some((p) => matchPrefix(pathname, p)) || pathname.startsWith("/docs");
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -38,7 +43,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const allowDirect = isPhase1(pathname) || isDocs(pathname);
+  const padded = isPadded(pathname);
   const isFullBleed = pathname === "/personality";
 
   return (
@@ -49,12 +54,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          p: isFullBleed ? 0 : allowDirect ? 2 : 0,
+          p: isFullBleed ? 0 : padded ? 2 : 0,
           overflow: isFullBleed ? "hidden" : "auto",
           height: isFullBleed ? "100vh" : "auto",
         }}
       >
-        {allowDirect ? children : <Phase2Gate>{children}</Phase2Gate>}
+        {children}
       </Box>
     </Box>
   );

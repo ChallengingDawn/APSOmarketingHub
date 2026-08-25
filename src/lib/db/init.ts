@@ -45,8 +45,16 @@ export function ensureSchema(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    // Added after the table shipped — ADD COLUMN IF NOT EXISTS keeps this
+    // bootstrap re-runnable on every boot, including on existing databases.
+    await query(
+      `ALTER TABLE apsomh_content ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ`
+    );
     await query(
       `CREATE INDEX IF NOT EXISTS idx_apsomh_content_channel_status ON apsomh_content(channel, status)`
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_scheduled_for ON apsomh_content(scheduled_for)`
     );
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_audit (

@@ -12,8 +12,9 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import EditNoteIcon from "@mui/icons-material/EditNote";
+import ManageSearchIcon from "@mui/icons-material/ManageSearch";
+import InsightsIcon from "@mui/icons-material/Insights";
+import HubIcon from "@mui/icons-material/Hub";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
@@ -28,7 +29,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
 
-const DRAWER_WIDTH = 264;
+const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
 
 interface NavSection {
@@ -41,11 +42,11 @@ interface NavSection {
 const navSections: NavSection[] = [
   {
     title: "Overview",
-    icon: <BarChartIcon />,
-    color: "#0a84ff",
+    icon: <DashboardIcon />,
+    color: "#274e64",
     items: [
+      // The content calendar now lives on Overview — /calendar redirects here.
       { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
-      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
     ],
   },
   {
@@ -61,13 +62,21 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "SEO & Content",
+    title: "Search & AI Visibility",
     icon: <TravelExploreIcon />,
     color: "#34c759",
     items: [
-      { label: "SEO Command Center", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
-      { label: "Content Calendar", href: "/calendar", icon: <CalendarMonthIcon fontSize="small" /> },
-      { label: "Content Studio", href: "/studio", icon: <EditNoteIcon fontSize="small" />, badge: "AI" },
+      { label: "SEO Cockpit", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
+      { label: "GEO Readiness", href: "/geo", icon: <ManageSearchIcon fontSize="small" />, badge: "New" },
+    ],
+  },
+  {
+    title: "Intelligence",
+    icon: <InsightsIcon />,
+    color: "#0a84ff",
+    items: [
+      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+      { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
     ],
   },
   {
@@ -75,12 +84,10 @@ const navSections: NavSection[] = [
     icon: <SecurityIcon />,
     color: "#8e8e93",
     items: [
-      { label: "Knowledge Base", href: "/knowledge-base", icon: <MenuBookIcon fontSize="small" /> },
-      { label: "Audit & Compliance", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+      { label: "Audit", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
-      { label: "Technical Roadmap", href: "/docs/technical-roadmap", icon: <DescriptionIcon fontSize="small" /> },
-      { label: "Security Infrastructure", href: "/docs/security-infrastructure", icon: <SecurityIcon fontSize="small" /> },
+      { label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
     ],
   },
 ];
@@ -127,9 +134,9 @@ export default function Sidebar() {
       {/* Brand Header */}
       <Box
         sx={{
-          px: 3,
+          px: 3.25,
           pt: 3.5,
-          pb: 2.5,
+          pb: 2.75,
           position: "relative",
           zIndex: 2,
           bgcolor: "#ffffff",
@@ -164,10 +171,10 @@ export default function Sidebar() {
         </Box>
         <Typography
           sx={{
-            fontSize: 11,
+            fontSize: 12,
             color: "#5f6368",
             fontWeight: 500,
-            mt: 0.75,
+            mt: 1,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
           }}
@@ -188,9 +195,9 @@ export default function Sidebar() {
                 sx={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 1.5,
-                  px: 3,
-                  py: 1.35,
+                  gap: 1.6,
+                  px: 3.25,
+                  py: 1.65,
                   cursor: "pointer",
                   userSelect: "none",
                   bgcolor: isOpen ? "#f3f4f6" : "transparent",
@@ -200,9 +207,9 @@ export default function Sidebar() {
               >
                 <Box
                   sx={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 1.75,
+                    width: 34,
+                    height: 34,
+                    borderRadius: 2,
                     bgcolor: section.color,
                     color: "#ffffff",
                     display: "flex",
@@ -210,7 +217,7 @@ export default function Sidebar() {
                     justifyContent: "center",
                     flexShrink: 0,
                     boxShadow: "0 1px 2px rgba(0,0,0,0.14)",
-                    "& svg": { fontSize: 19 },
+                    "& svg": { fontSize: 21 },
                   }}
                 >
                   {section.icon}
@@ -219,7 +226,7 @@ export default function Sidebar() {
                   sx={{
                     flex: 1,
                     minWidth: 0,
-                    fontSize: 15,
+                    fontSize: 16,
                     fontWeight: 600,
                     letterSpacing: "-0.01em",
                     lineHeight: 1.2,
@@ -230,7 +237,7 @@ export default function Sidebar() {
                 </Typography>
                 <KeyboardArrowRightIcon
                   sx={{
-                    fontSize: 21,
+                    fontSize: 22,
                     flexShrink: 0,
                     color: "#c7c7cc",
                     transform: isOpen ? "rotate(90deg)" : "none",
@@ -241,7 +248,7 @@ export default function Sidebar() {
 
               {/* Items */}
               <Collapse in={isOpen} timeout={240} unmountOnExit>
-                <List dense disablePadding sx={{ px: 1.5, py: 0.4 }}>
+                <List dense disablePadding sx={{ px: 2, py: 0.75 }}>
                   {section.items.map((item) => {
                     const active = item.href === activeHref;
                     return (
@@ -251,11 +258,11 @@ export default function Sidebar() {
                         href={item.href}
                         disableRipple
                         sx={{
-                          borderRadius: 1,
-                          mb: 0.25,
-                          py: 0.85,
-                          px: 2,
-                          minHeight: 40,
+                          borderRadius: 1.25,
+                          mb: 0.4,
+                          py: 1,
+                          px: 2.25,
+                          minHeight: 46,
                           position: "relative",
                           bgcolor: active ? RED : "transparent",
                           color: active ? "#ffffff" : "#363c44",
@@ -266,7 +273,7 @@ export default function Sidebar() {
                           },
                           "& .MuiListItemIcon-root": {
                             color: active ? "#ffffff" : "#5b6470",
-                            minWidth: 32,
+                            minWidth: 36,
                             transition: "color 0.18s ease",
                           },
                         }}
@@ -285,7 +292,7 @@ export default function Sidebar() {
                           slotProps={{
                             primary: {
                               sx: {
-                                fontSize: 14,
+                                fontSize: 14.5,
                                 fontWeight: active ? 600 : 500,
                                 color: active ? "#ffffff" : "#3c4043",
                                 letterSpacing: "-0.005em",
@@ -298,8 +305,8 @@ export default function Sidebar() {
                             label={item.badge}
                             size="small"
                             sx={{
-                              height: 20,
-                              fontSize: 10,
+                              height: 22,
+                              fontSize: 10.5,
                               fontWeight: 700,
                               bgcolor: active ? "#ffffff" : RED,
                               color: active ? RED : "#fff",
@@ -318,18 +325,18 @@ export default function Sidebar() {
       </Box>
 
       {/* Bottom Status + Sign out */}
-      <Box sx={{ px: 2, py: 2, borderTop: "1px solid #e6e8ec", position: "relative", zIndex: 1, bgcolor: "#ffffff" }}>
-        <Box sx={{ mb: 1.5, px: 1.5, py: 1.1, borderRadius: 1, bgcolor: "#f5f6f8", border: "1px solid #e6e8ec" }}>
+      <Box sx={{ px: 2.5, py: 2.25, borderTop: "1px solid #e6e8ec", position: "relative", zIndex: 1, bgcolor: "#ffffff" }}>
+        <Box sx={{ mb: 1.5, px: 1.75, py: 1.35, borderRadius: 1.25, bgcolor: "#f5f6f8", border: "1px solid #e6e8ec" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
             <Box
               sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#1e7e45", boxShadow: "0 0 0 3px rgba(30,126,69,0.15)" }}
               className="animate-pulse-dot"
             />
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: "#1a1d21" }}>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: "#1a1d21" }}>
               System Active
             </Typography>
           </Box>
-          <Typography sx={{ fontSize: 11, color: "#5b6470" }}>
+          <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
             Content engine online
           </Typography>
         </Box>
@@ -338,10 +345,10 @@ export default function Sidebar() {
           href="/api/auth/signout"
           disableRipple
           sx={{
-            borderRadius: 1,
-            py: 0.85,
-            px: 2,
-            minHeight: 40,
+            borderRadius: 1.25,
+            py: 1,
+            px: 2.25,
+            minHeight: 46,
             color: "#363c44",
             borderLeft: "3px solid transparent",
             "&:hover": {
@@ -350,7 +357,7 @@ export default function Sidebar() {
               borderLeftColor: RED,
               "& .MuiListItemIcon-root": { color: RED },
             },
-            "& .MuiListItemIcon-root": { minWidth: 32, color: "#5b6470" },
+            "& .MuiListItemIcon-root": { minWidth: 36, color: "#5b6470" },
           }}
         >
           <ListItemIcon>
@@ -360,7 +367,7 @@ export default function Sidebar() {
             primary="Sign out"
             slotProps={{
               primary: {
-                sx: { fontSize: 14, fontWeight: 500, letterSpacing: "-0.005em" },
+                sx: { fontSize: 14.5, fontWeight: 500, letterSpacing: "-0.005em" },
               },
             }}
           />

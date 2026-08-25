@@ -76,6 +76,13 @@ const MONO_STACK = "Consolas, 'Courier New', monospace";
 const SCRIM_TOP = "rgba(10,20,28,0)";
 const SCRIM_BOTTOM = "rgba(10,20,28,0.88)";
 
+/**
+ * Values behind the manual "Sh" toggle. A wide blur reads as fuzz on text rather
+ * than as a shadow, so this is a tight drop shadow; contrast on the seeded block
+ * comes from the gradient scrim, which is why nothing is seeded with a shadow.
+ */
+const DROP_SHADOW = { color: "rgba(0,0,0,0.55)", blur: 8, offsetY: 2 };
+
 type FontKey = "inter" | "outfit" | "georgia" | "mono";
 
 type NodeSpec = {
@@ -291,6 +298,21 @@ export default function EditorCanvas({
   const trRef = useRef<Konva.Transformer>(null);
   const layerRef = useRef<Konva.Layer>(null);
 
+  /**
+   * HiDPI backing store. Konva sizes its canvases from devicePixelRatio, so on a
+   * 1x screen an 80px headline shown at a 0.73 fit ratio is rasterised at ~59
+   * physical pixels and looks soft. Never at module scope — this touches window.
+   * react-konva has already built the layer with the old ratio, so lift the live
+   * canvases too; the global only covers canvases created from here on.
+   */
+  useEffect(() => {
+    const ratio = Math.max(2, window.devicePixelRatio || 1);
+    Konva.pixelRatio = ratio;
+    const live = [layerRef.current?.getCanvas(), stageRef.current?.bufferCanvas];
+    for (const c of live) if (c && c.getPixelRatio() !== ratio) c.setPixelRatio(ratio);
+    layerRef.current?.batchDraw();
+  }, []);
+
   /* ── history (undo / redo) ── */
   const pastRef = useRef<NodeSpec[][]>([]);
   const futureRef = useRef<NodeSpec[][]>([]);
@@ -369,6 +391,16 @@ export default function EditorCanvas({
   /** null = fit to viewport; a number = absolute canvas zoom (1 = native pixels). */
   const [zoomScale, setZoomScale] = useState<number | null>(null);
   const scale = zoomScale ?? fitScale;
+  /**
+   * On-screen size of the artboard, in whole CSS pixels. A fractional stage size
+   * (1200 × a fit ratio = 881.16px) makes the browser resample the whole bitmap,
+   * which is the main reason canvas text looked fuzzy. Rounding here covers fit,
+   * the zoom presets and Ctrl+wheel alike; scaleX/scaleY stay the true ratio so
+   * every coordinate — snapping, transformer, inline editor, export — is still
+   * expressed in canvas space.
+   */
+  const stageW = Math.round(canvas.w * scale);
+  const stageH = Math.round(canvas.h * scale);
   const fitScaleRef = useRef(fitScale);
   useEffect(() => {
     fitScaleRef.current = fitScale;
@@ -416,8 +448,10 @@ export default function EditorCanvas({
       const fs = (divisor: number) => Math.max(11, Math.round((W / divisor) * k));
       if (t.role === "kicker")
         return { ...base, fontKey: "inter", fontStyle: "600", fontSize: fs(55), fill: "#ffd7db", width: blockW, lineHeight: 1.25, letterSpacing: 3, upper: true };
+      // No shadow on the headline: the scrim already guarantees contrast, and a
+      // blurred shadow under white type is what made the seeded text read as fuzzy.
       if (t.role === "headline")
-        return { ...base, fontKey: "outfit", fontStyle: "bold", fontSize: fs(15), fill: "#ffffff", width: blockW, lineHeight: 1.06, shadow: true };
+        return { ...base, fontKey: "outfit", fontStyle: "bold", fontSize: fs(15), fill: "#ffffff", width: blockW, lineHeight: 1.06 };
       if (t.role === "body")
         return { ...base, fontKey: "inter", fontStyle: "normal", fontSize: fs(38), fill: "#e8edf2", width: Math.round(W * 0.7), lineHeight: 1.35 };
       return {
@@ -610,14 +644,15 @@ export default function EditorCanvas({
       {
         id,
         kind: "text",
-        x: canvas.w * 0.08,
-        y: canvas.h * (kind === "headline" ? 0.12 : 0.4),
+        // Konva does not snap glyphs, so whole-pixel geometry keeps inserted text sharp.
+        x: Math.round(canvas.w * 0.08),
+        y: Math.round(canvas.h * (kind === "headline" ? 0.12 : 0.4)),
         text: kind === "headline" ? "Your headline here" : "Supporting copy — edit it in the field above",
         fontKey: kind === "headline" ? "outfit" : "inter",
         fontSize: kind === "headline" ? Math.round(canvas.w / 18) : Math.round(canvas.w / 38),
         fontStyle: kind === "headline" ? "bold" : "normal",
         fill: kind === "headline" ? "#1a1d21" : "#3c4043",
-        width: canvas.w * 0.84,
+        width: Math.round(canvas.w * 0.84),
         align: "left",
       },
     ]);
@@ -1015,8 +1050,23 @@ export default function EditorCanvas({
     if (!stage) return null;
     setSelectedId(null);
     trRef.current?.nodes([]);
-    // render at native resolution regardless of the effective on-screen scale (fit × zoom)
-    return stage.toDataURL({ pixelRatio: 1 / scale, mimeType: "image/png" });
+    /**
+     * Export at native resolution regardless of the on-screen scale (fit × zoom).
+     * toDataURL redraws the scene into its own canvas, so it ignores the HiDPI
+     * backing store and the explicit pixelRatio below wins over Konva.pixelRatio.
+     * The stage is flipped to scale 1 for the draw instead of compensating with
+     * pixelRatio 1/scale: the bitmap size is width × pixelRatio truncated to an
+     * integer, so a fractional ratio can land the PNG a pixel short of canvas.w.
+     * Restored before the browser can paint, so nothing flashes.
+     */
+    const prev = { x: stage.scaleX(), y: stage.scaleY() };
+    stage.scale({ x: 1, y: 1 });
+    try {
+      return stage.toDataURL({ x: 0, y: 0, width: canvas.w, height: canvas.h, pixelRatio: 1, mimeType: "image/png" });
+    } finally {
+      stage.scale(prev);
+      stage.batchDraw();
+    }
   };
 
   const download = () => {
@@ -1806,8 +1856,8 @@ export default function EditorCanvas({
           )}
           <Stage
             ref={stageRef}
-            width={canvas.w * scale}
-            height={canvas.h * scale}
+            width={stageW}
+            height={stageH}
             scaleX={scale}
             scaleY={scale}
             onMouseDown={(e) => {
@@ -1859,9 +1909,9 @@ export default function EditorCanvas({
                       lineHeight={n.lineHeight ?? 1.25}
                       letterSpacing={n.letterSpacing ?? 0}
                       opacity={n.opacity ?? 1}
-                      shadowColor="rgba(0,0,0,0.45)"
-                      shadowBlur={n.shadow ? 14 : 0}
-                      shadowOffsetY={n.shadow ? 4 : 0}
+                      shadowColor={DROP_SHADOW.color}
+                      shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                      shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                       shadowEnabled={Boolean(n.shadow)}
                       draggable={!n.locked}
                       onClick={() => setSelectedId(n.id)}
@@ -1905,9 +1955,9 @@ export default function EditorCanvas({
                     brightness={(n.brightness ?? 0) / 100}
                     contrast={n.contrastVal ?? 0}
                     opacity={n.opacity ?? 1}
-                    shadowColor="rgba(0,0,0,0.45)"
-                    shadowBlur={n.shadow ? 14 : 0}
-                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowColor={DROP_SHADOW.color}
+                    shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                    shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}
@@ -1945,9 +1995,9 @@ export default function EditorCanvas({
                     stroke={n.strokeWidth ? n.stroke ?? "#1a1d21" : undefined}
                     strokeWidth={n.strokeWidth ?? 0}
                     opacity={n.opacity ?? 1}
-                    shadowColor="rgba(0,0,0,0.45)"
-                    shadowBlur={n.shadow ? 14 : 0}
-                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowColor={DROP_SHADOW.color}
+                    shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                    shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}
@@ -1984,9 +2034,9 @@ export default function EditorCanvas({
                     pointerLength={Math.max(6, (n.strokeWidth ?? 4) * 2.6)}
                     pointerWidth={Math.max(6, (n.strokeWidth ?? 4) * 2.6)}
                     opacity={n.opacity ?? 1}
-                    shadowColor="rgba(0,0,0,0.45)"
-                    shadowBlur={n.shadow ? 14 : 0}
-                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowColor={DROP_SHADOW.color}
+                    shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                    shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}
@@ -2035,9 +2085,9 @@ export default function EditorCanvas({
                     strokeWidth={n.strokeWidth ?? 0}
                     cornerRadius={Math.min(n.cornerRadius ?? 0, Math.min(n.width ?? 0, n.height ?? 0) / 2)}
                     opacity={n.opacity ?? 1}
-                    shadowColor="rgba(0,0,0,0.45)"
-                    shadowBlur={n.shadow ? 14 : 0}
-                    shadowOffsetY={n.shadow ? 4 : 0}
+                    shadowColor={DROP_SHADOW.color}
+                    shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                    shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
                     onClick={() => setSelectedId(n.id)}

@@ -113,8 +113,8 @@ const geoChannels = new Set(["blog", "seo"]);
 /** Sidebar accordion sections. */
 type SectionKey = "setup" | "personas" | "tools" | "intel";
 
-const SIDEBAR_W = 300;
-const SIDEBAR_COLLAPSED_W = 44;
+const SIDEBAR_W = 344;
+const SIDEBAR_COLLAPSED_W = 56;
 
 const MD_FENCE = /```[\s\S]*?```/g;
 const LABEL = /^(subject|preheader|headline|body|cta|h1|meta title|meta description|intro paragraph|title)\s*:\s*/i;
@@ -234,7 +234,17 @@ const conceptContent = (c: Concept) => [c.headline, c.body].filter(Boolean).join
 
 const VALID_CHANNELS = new Set(CHANNELS.map((c) => c.key));
 
-export default function CreateStudio({ initialChannel }: { initialChannel?: string }) {
+export default function CreateStudio({
+  initialChannel,
+  initialTopic,
+  initialBrief,
+}: {
+  initialChannel?: string;
+  /** Prefilled from a SEO quick win or a decayed page worth refreshing. */
+  initialTopic?: string;
+  /** Prefilled from a GEO audit: the checks that failed and how to fix them. */
+  initialBrief?: string;
+}) {
   const [brain, setBrain] = useState<Brain | null>(null);
 
   /* setup state */
@@ -256,7 +266,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   /* brief + mode */
-  const [topic, setTopic] = useState("");
+  const [topic, setTopic] = useState(initialTopic ?? "");
   const [enhancing, setEnhancing] = useState(false);
   const [mode, setMode] = useState<"draft" | "concepts">("draft");
 
@@ -275,7 +285,7 @@ export default function CreateStudio({ initialChannel }: { initialChannel?: stri
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
-  const [briefText, setBriefText] = useState("");
+  const [briefText, setBriefText] = useState(initialBrief ?? "");
   const [briefExpanded, setBriefExpanded] = useState(false);
   const [seedSignal, setSeedSignal] = useState(0);
   const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });

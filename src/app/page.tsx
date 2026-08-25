@@ -16,7 +16,11 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
+import IconButton from "@mui/material/IconButton";
 import ArticleIcon from "@mui/icons-material/Article";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import PublishIcon from "@mui/icons-material/Publish";
@@ -36,11 +40,16 @@ type LibItem = {
   title: string | null;
   body: string;
   status: string;
+  scheduledFor: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
 type Trend = { term: string; signal: string };
+
+/** A library item placed on a calendar day — on its plan date, or failing that
+ *  on the day it was created. The two are never presented as the same thing. */
+type CalEntry = { item: LibItem; kind: "scheduled" | "created"; at: number };
 
 const CH_COLORS: Record<string, string> = {
   linkedin: "#0077b5",
@@ -60,6 +69,13 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
 
 const QG_CHANNELS = ["linkedin", "blog", "newsletter", "ad", "seo", "product"];
 
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const HAIRLINE = "#e3e6ea";
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function timeAgo(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 1) return "just now";
@@ -77,9 +93,15 @@ export default function MissionControl() {
   const [contentGap, setContentGap] = useState<string>("");
   const [greeting, setGreeting] = useState("Welcome back");
   const [today, setToday] = useState("");
+  // Month cursor stays null until mount — "now" differs between server render
+  // and client, so the grid is client-only by construction.
+  const [cursor, setCursor] = useState<{ y: number; m: number } | null>(null);
+  const [todayKey, setTodayKey] = useState("");
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
+  // The calendar needs the widest window the API allows (MAX_LIMIT = 200).
   const loadItems = useCallback(() => {
-    fetch("/api/content?limit=100")
+    fetch("/api/content?limit=200")
       .then((r) => r.json())
       .then((d) => setItems(Array.isArray(d.items) ? d.items : []))
       .catch(() => {});
@@ -94,11 +116,14 @@ export default function MissionControl() {
         setContentGap(brain?.categoryIntelligence?.contentGap ?? "");
       })
       .catch(() => {});
-    const h = new Date().getHours();
+    const now = new Date();
+    const h = now.getHours();
     setGreeting(h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening");
     setToday(
-      new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+      now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
     );
+    setCursor({ y: now.getFullYear(), m: now.getMonth() });
+    setTodayKey(dayKey(now));
   }, [loadItems]);
 
   const drafts = useMemo(() => items.filter((i) => i.status === "draft"), [items]);
@@ -120,6 +145,86 @@ export default function MissionControl() {
     [counts]
   );
   const pipelineTotal = pipeline.reduce((s, p) => s + p.count, 0);
+
+  /* ── Content calendar — real library records only ── */
+
+  const entriesByDay = useMemo(() => {
+    const map = new Map<string, CalEntry[]>();
+    for (const it of items) {
+      if (it.status === "archived") continue;
+      const at = new Date(it.scheduledFor ?? it.createdAt);
+      if (Number.isNaN(at.getTime())) continue;
+      const entry: CalEntry = {
+        item: it,
+        kind: it.scheduledFor ? "scheduled" : "created",
+        at: at.getTime(),
+      };
+      const key = dayKey(at);
+      const bucket = map.get(key);
+      if (bucket) bucket.push(entry);
+      else map.set(key, [entry]);
+    }
+    for (const bucket of map.values()) {
+      bucket.sort((a, b) => (a.kind === b.kind ? a.at - b.at : a.kind === "scheduled" ? -1 : 1));
+    }
+    return map;
+  }, [items]);
+
+  const weeks = useMemo(() => {
+    if (!cursor) return [] as Date[][];
+    const mondayOffset = (new Date(cursor.y, cursor.m, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
+    const cells = Math.ceil((mondayOffset + daysInMonth) / 7) * 7;
+    const out: Date[][] = [];
+    for (let i = 0; i < cells; i += 7) {
+      out.push(
+        Array.from({ length: 7 }, (_, j) => new Date(cursor.y, cursor.m, 1 - mondayOffset + i + j))
+      );
+    }
+    return out;
+  }, [cursor]);
+
+  const monthStats = useMemo(() => {
+    let scheduled = 0;
+    let created = 0;
+    if (cursor) {
+      for (const bucket of entriesByDay.values()) {
+        for (const e of bucket) {
+          const d = new Date(e.at);
+          if (d.getFullYear() !== cursor.y || d.getMonth() !== cursor.m) continue;
+          if (e.kind === "scheduled") scheduled += 1;
+          else created += 1;
+        }
+      }
+    }
+    return { scheduled, created, total: scheduled + created };
+  }, [entriesByDay, cursor]);
+
+  const monthLabel = cursor
+    ? new Date(cursor.y, cursor.m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : "";
+
+  // Normalised through Date so December→January rolls the year over and the
+  // month comparisons above stay in 0-11.
+  const shiftMonth = (delta: number) =>
+    setCursor((c) => {
+      if (!c) return c;
+      const d = new Date(c.y, c.m + delta, 1);
+      return { y: d.getFullYear(), m: d.getMonth() };
+    });
+  const goToday = () => {
+    const n = new Date();
+    setCursor({ y: n.getFullYear(), m: n.getMonth() });
+  };
+
+  const selectedEntries = selectedDay ? entriesByDay.get(selectedDay) ?? [] : [];
+  const selectedLabel = selectedDay
+    ? new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })
+    : "";
 
   /* Quick Generate — generation on main */
   const [qgChannel, setQgChannel] = useState("linkedin");
@@ -197,7 +302,7 @@ export default function MissionControl() {
         <CardContent sx={{ p: { xs: 2.5, md: 3.5 }, position: "relative" }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1 }}>
             <Box>
-              <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: { xs: 24, md: 30 }, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15 }}>
+              <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: { xs: 24, md: 30 }, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, color: "#fff" }}>
                 {greeting}.
               </Typography>
               <Typography sx={{ fontSize: 14, color: "rgba(255,255,255,0.75)", mt: 0.5 }} suppressHydrationWarning>
@@ -307,6 +412,204 @@ export default function MissionControl() {
           </Grid>
         ))}
       </Grid>
+
+      {/* ── Content calendar (live library records) ── */}
+      <Card sx={{ mb: 2.5 }}>
+        <CardContent sx={{ p: 2.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5, flexWrap: "wrap" }}>
+            <Box sx={{ width: 4, height: 18, borderRadius: 4, bgcolor: "#274e64" }} />
+            <Typography sx={{ fontSize: 16, fontWeight: 700, color: "#1a1d21" }}>
+              Content Calendar
+            </Typography>
+            <Chip
+              icon={<CalendarMonthIcon sx={{ fontSize: 14, color: "#274e64 !important" }} />}
+              label={`${monthStats.total} this month`}
+              size="small"
+              sx={{ fontWeight: 700, fontSize: 10.5, bgcolor: "#e8f0f4", color: "#274e64" }}
+            />
+            <Box sx={{ flex: 1, minWidth: 12 }} />
+            <Button
+              onClick={goToday}
+              size="small"
+              sx={{ fontSize: 12, fontWeight: 700, color: "#274e64", minWidth: 0, px: 1 }}
+            >
+              Today
+            </Button>
+            <IconButton size="small" onClick={() => shiftMonth(-1)} aria-label="Previous month">
+              <ChevronLeftIcon sx={{ fontSize: 20, color: "#5b6470" }} />
+            </IconButton>
+            <Typography
+              suppressHydrationWarning
+              sx={{
+                fontFamily: "var(--font-outfit)",
+                fontSize: 15,
+                fontWeight: 700,
+                color: "#1a1d21",
+                minWidth: 148,
+                textAlign: "center",
+              }}
+            >
+              {monthLabel || " "}
+            </Typography>
+            <IconButton size="small" onClick={() => shiftMonth(1)} aria-label="Next month">
+              <ChevronRightIcon sx={{ fontSize: 20, color: "#5b6470" }} />
+            </IconButton>
+          </Box>
+
+          {/* legend + honest per-month counts */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, ml: 1.75, mb: 1.75, flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+              <Box sx={{ width: 18, height: 10, borderRadius: 0.75, bgcolor: "#274e64" }} />
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                Scheduled — a planned date is set ({monthStats.scheduled})
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+              <Box sx={{ width: 18, height: 10, borderRadius: 0.75, border: "1px solid #274e64" }} />
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                Not scheduled — shown on its creation date ({monthStats.created})
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* weekday header */}
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "1px", mb: 0.75 }}>
+            {WEEKDAYS.map((w) => (
+              <Typography
+                key={w}
+                sx={{
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  color: "#5b6470",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  textAlign: "center",
+                }}
+              >
+                {w}
+              </Typography>
+            ))}
+          </Box>
+
+          {/* month grid — 1px gaps on a hairline ground draw the rules */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+              gap: "1px",
+              bgcolor: HAIRLINE,
+              border: `1px solid ${HAIRLINE}`,
+              borderRadius: 1.5,
+              overflow: "hidden",
+            }}
+          >
+            {weeks.flat().map((d) => {
+              const key = dayKey(d);
+              const inMonth = cursor ? d.getMonth() === cursor.m && d.getFullYear() === cursor.y : false;
+              const dayEntries = entriesByDay.get(key) ?? [];
+              const isToday = key === todayKey;
+              return (
+                <Box
+                  key={key}
+                  onClick={() => dayEntries.length && setSelectedDay(key)}
+                  sx={{
+                    minHeight: 106,
+                    p: 0.75,
+                    bgcolor: inMonth ? "#ffffff" : "#fafbfc",
+                    cursor: dayEntries.length ? "pointer" : "default",
+                    transition: "background-color 0.15s ease",
+                    "&:hover": { bgcolor: dayEntries.length ? "#f5f6f8" : undefined },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+                    <Box
+                      sx={{
+                        width: 21,
+                        height: 21,
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        bgcolor: isToday ? "#ed1b2f" : "transparent",
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: 11.5,
+                          fontWeight: isToday ? 700 : 600,
+                          color: isToday ? "#fff" : inMonth ? "#1a1d21" : "#a7aeb8",
+                        }}
+                      >
+                        {d.getDate()}
+                      </Typography>
+                    </Box>
+                    {dayEntries.length > 0 && (
+                      <Typography sx={{ fontSize: 10, fontWeight: 700, color: "#a7aeb8" }}>
+                        {dayEntries.length}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
+                    {dayEntries.slice(0, 3).map((e) => {
+                      const color = CH_COLORS[e.item.channel] ?? "#5b6470";
+                      const scheduled = e.kind === "scheduled";
+                      return (
+                        <Tooltip
+                          key={`${e.kind}-${e.item.id}`}
+                          title={`${e.item.channel} · ${scheduled ? "scheduled" : "created"} · ${e.item.status}`}
+                        >
+                          <Box
+                            component={Link}
+                            href={`/editor?item=${e.item.id}`}
+                            onClick={(ev: React.MouseEvent) => ev.stopPropagation()}
+                            sx={{
+                              display: "block",
+                              textDecoration: "none",
+                              px: 0.75,
+                              py: 0.3,
+                              borderRadius: 0.75,
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              lineHeight: 1.35,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              bgcolor: scheduled ? color : "transparent",
+                              color: scheduled ? "#ffffff" : color,
+                              border: `1px solid ${color}`,
+                              opacity: inMonth ? 1 : 0.55,
+                            }}
+                          >
+                            {e.item.title || e.item.body.slice(0, 40)}
+                          </Box>
+                        </Tooltip>
+                      );
+                    })}
+                    {dayEntries.length > 3 && (
+                      <Typography
+                        sx={{ fontSize: 10.5, fontWeight: 700, color: "#274e64", px: 0.75, cursor: "pointer" }}
+                      >
+                        +{dayEntries.length - 3} more
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+
+          {cursor && monthStats.total === 0 && (
+            <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 2 }}>
+              Nothing scheduled or created in {monthLabel}.
+            </Typography>
+          )}
+          {!cursor && (
+            <Typography sx={{ fontSize: 13, color: "#5b6470", textAlign: "center", py: 2 }}>
+              Loading the month…
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Integrations strip ── */}
       <Card sx={{ mb: 2.5, bgcolor: "#fbfbfc" }}>
@@ -487,6 +790,66 @@ export default function MissionControl() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* ── One day's content ── */}
+      <Dialog open={Boolean(selectedDay)} onClose={() => setSelectedDay(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, fontSize: 17 }}>{selectedLabel}</DialogTitle>
+        <DialogContent dividers>
+          {selectedEntries.length === 0 ? (
+            <Typography sx={{ fontSize: 13, color: "#5b6470", py: 2 }}>
+              Nothing on this day.
+            </Typography>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {selectedEntries.map((e) => {
+                const color = CH_COLORS[e.item.channel] ?? "#5b6470";
+                const sc = STATUS_COLORS[e.item.status] ?? STATUS_COLORS.archived;
+                return (
+                  <Box
+                    key={`${e.kind}-${e.item.id}`}
+                    component={Link}
+                    href={`/editor?item=${e.item.id}`}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.25,
+                      p: 1.25,
+                      borderRadius: 1.5,
+                      border: `1px solid ${HAIRLINE}`,
+                      textDecoration: "none",
+                      "&:hover": { bgcolor: "#fafbfc" },
+                    }}
+                  >
+                    <Box sx={{ width: 3, height: 34, borderRadius: 2, bgcolor: color, flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, color: "#1a1d21" }}>
+                        {e.item.title || e.item.body.slice(0, 90)}
+                      </Typography>
+                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                        <Box component="span" sx={{ color, fontWeight: 700, textTransform: "uppercase" }}>
+                          {e.item.channel}
+                        </Box>
+                        {e.kind === "scheduled" ? " · scheduled for this day" : " · created this day, not scheduled"}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={e.item.status}
+                      size="small"
+                      sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: sc.bg, color: sc.fg }}
+                    />
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 1.5 }}>
+          <Button component={Link} href="/library" sx={{ fontWeight: 600, color: "#274e64" }}>
+            Open the Library
+          </Button>
+          <Button onClick={() => setSelectedDay(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ── Quick Generate result ── */}
       <Dialog open={Boolean(qgResult)} onClose={() => setQgResult(null)} maxWidth="md" fullWidth>

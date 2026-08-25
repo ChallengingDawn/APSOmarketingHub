@@ -32,7 +32,13 @@ export async function PATCH(
 ) {
   const id = parseId((await params).id);
   if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  let body: { status?: unknown; title?: unknown; body?: unknown; imageUrl?: unknown };
+  let body: {
+    status?: unknown;
+    title?: unknown;
+    body?: unknown;
+    imageUrl?: unknown;
+    scheduledFor?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -69,6 +75,18 @@ export async function PATCH(
       return NextResponse.json({ error: "imageUrl must be a string or null" }, { status: 400 });
     }
     patch.imageUrl = body.imageUrl as string | null;
+  }
+  if (body.scheduledFor !== undefined) {
+    if (body.scheduledFor === null) {
+      patch.scheduledFor = null;
+    } else if (typeof body.scheduledFor === "string" && !Number.isNaN(Date.parse(body.scheduledFor))) {
+      patch.scheduledFor = new Date(body.scheduledFor).toISOString();
+    } else {
+      return NextResponse.json(
+        { error: "scheduledFor must be an ISO date string or null" },
+        { status: 400 }
+      );
+    }
   }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
