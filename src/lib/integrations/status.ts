@@ -29,6 +29,9 @@ export type EnvProbe = {
   present: boolean;
   length: number;
   shape: string;
+  /** True when the app runs fine without it; `fallback` is what applies then. */
+  optional: boolean;
+  fallback: string | null;
 };
 
 export type EnvDiagnostics = {
@@ -61,13 +64,21 @@ function shapeOf(name: string, value: string): string {
 }
 
 export function envDiagnostics(): EnvDiagnostics {
+  const defaults: Partial<Record<(typeof EXPECTED_ENV)[number], string>> = {
+    GA4_PROPERTY_ID: GA4_DEFAULT_PROPERTY_ID,
+    GSC_SITE_URL: GSC_DEFAULT_SITE_URL,
+  };
   const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
     const value = process.env[name];
+    const present = typeof value === "string" && value.length > 0;
+    const fallback = defaults[name] ?? null;
     return {
       name,
-      present: typeof value === "string" && value.length > 0,
+      present,
       length: typeof value === "string" ? value.length : 0,
-      shape: typeof value === "string" && value.length > 0 ? shapeOf(name, value) : "absent",
+      shape: present ? shapeOf(name, value as string) : fallback ? "not set — default applies" : "absent",
+      optional: fallback !== null,
+      fallback,
     };
   });
 

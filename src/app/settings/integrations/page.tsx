@@ -567,11 +567,22 @@ export default function IntegrationsSettingsPage() {
                 sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", borderBottom: `1px solid ${HAIRLINE}`, pb: 1 }}
               >
                 <Typography sx={{ fontFamily: MONO, fontSize: "0.8rem", color: INK, minWidth: 230 }}>{probe.name}</Typography>
-                <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: probe.present ? "#1e7e45" : "#c5221f", minWidth: 70 }}>
-                  {probe.present ? "present" : "absent"}
+                <Typography
+                  sx={{
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                    color: probe.present ? "#1e7e45" : probe.optional ? MUTED : "#c5221f",
+                    minWidth: 70,
+                  }}
+                >
+                  {probe.present ? "present" : probe.optional ? "optional" : "absent"}
                 </Typography>
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-                  {probe.present ? `${probe.length} characters · ${probe.shape}` : "not in this container's environment"}
+                  {probe.present
+                    ? `${probe.length} characters · ${probe.shape}`
+                    : probe.optional
+                      ? `not set — the default ${probe.fallback} applies, nothing to do`
+                      : "not in this container's environment"}
                 </Typography>
               </Box>
             ))}

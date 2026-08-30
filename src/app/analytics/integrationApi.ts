@@ -96,7 +96,7 @@ export type IntegrationReadiness = {
   invalid?: string;
 };
 
-export type EnvProbe = { name: string; present: boolean; length: number; shape: string };
+export type EnvProbe = { name: string; present: boolean; length: number; shape: string; optional: boolean; fallback: string | null };
 export type EnvDiagnostics = { probes: EnvProbe[]; nearMisses: string[] };
 
 export type IntegrationStatusPayload = {
@@ -246,6 +246,8 @@ export async function fetchIntegrationStatus(
               present: row.present === true,
               length: typeof row.length === "number" ? row.length : 0,
               shape: optionalString(row.shape) ?? "unknown",
+              optional: row.optional === true,
+              fallback: optionalString(row.fallback),
             },
           ];
         })
