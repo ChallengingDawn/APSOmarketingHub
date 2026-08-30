@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
 import List from "@mui/material/List";
@@ -38,7 +38,14 @@ interface NavSection {
   title: string;
   icon: React.ReactNode;
   color: string;
-  items: { label: string; href: string; icon: React.ReactNode; badge?: string }[];
+  items: {
+    label: string;
+    href: string;
+    icon: React.ReactNode;
+    badge?: string;
+    /** Sub-apps listed indented beneath the entry. */
+    children?: { label: string; href: string }[];
+  }[];
 }
 
 /**
@@ -81,10 +88,32 @@ const navSections: NavSection[] = [
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
-      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
-      { label: "SEO Cockpit", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
-      { label: "GEO Readiness", href: "/geo", icon: <ManageSearchIcon fontSize="small" /> },
       { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
+      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+      {
+        label: "SEO Cockpit",
+        href: "/seo",
+        icon: <TravelExploreIcon fontSize="small" />,
+        children: [
+          { label: "Performance", href: "/seo" },
+          { label: "Quick wins", href: "/seo/quick-wins" },
+          { label: "Cannibalisation", href: "/seo/cannibalisation" },
+          { label: "Decay", href: "/seo/decay" },
+          { label: "Work queue", href: "/seo/work-queue" },
+        ],
+      },
+      {
+        label: "GEO Readiness",
+        href: "/geo",
+        icon: <ManageSearchIcon fontSize="small" />,
+        children: [
+          { label: "Readiness", href: "/geo" },
+          { label: "Content audit", href: "/geo/content" },
+          { label: "Live pages", href: "/geo/live" },
+          { label: "Competitors", href: "/geo/competitors" },
+          { label: "Fix queue", href: "/geo/fix-queue" },
+        ],
+      },
       { label: "Customers", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
     ],
   },
@@ -108,14 +137,16 @@ export default function Sidebar() {
   // Only ONE item active: the longest href that is an exact or parent-prefix
   // match. Stops "/docs" collisions and "/" lighting up everywhere.
   const activeHref = (() => {
-    const all = navSections.flatMap((s) => s.items.map((i) => i.href));
+    const all = navSections.flatMap((s) => s.items.flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]));
     const matches = all.filter(
       (h) => pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
     );
     return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
   })();
 
-  const activeSectionTitle = navSections.find((s) => s.items.some((i) => i.href === activeHref))?.title;
+  const activeSectionTitle = navSections.find((s) =>
+    s.items.some((i) => i.href === activeHref || i.children?.some((c) => c.href === activeHref)),
+  )?.title;
 
   // Collapsible sections — accordion, only one open; the active section
   // starts open and re-opens on navigation.
@@ -262,8 +293,8 @@ export default function Sidebar() {
                   {section.items.map((item) => {
                     const active = item.href === activeHref;
                     return (
+                      <Fragment key={item.href}>
                       <ListItemButton
-                        key={item.href}
                         component={Link}
                         href={item.href}
                         disableRipple
@@ -325,6 +356,52 @@ export default function Sidebar() {
                           />
                         )}
                       </ListItemButton>
+                      {item.children?.map((child) => {
+                        const childActive = child.href === activeHref;
+                        return (
+                          <ListItemButton
+                            key={child.href}
+                            component={Link}
+                            href={child.href}
+                            disableRipple
+                            sx={{
+                              borderRadius: 1.25,
+                              mb: 0.2,
+                              py: 0.5,
+                              pl: 7,
+                              pr: 2.25,
+                              minHeight: 32,
+                              bgcolor: childActive ? "rgba(237,27,47,0.08)" : "transparent",
+                              "&:hover": { bgcolor: childActive ? "rgba(237,27,47,0.12)" : "#f1f3f5" },
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: 5,
+                                height: 5,
+                                borderRadius: "50%",
+                                bgcolor: childActive ? RED : "#c9ced6",
+                                mr: 1.5,
+                                flexShrink: 0,
+                              }}
+                            />
+                            <ListItemText
+                              primary={child.label}
+                              slotProps={{
+                                primary: {
+                                  sx: {
+                                    fontSize: 13,
+                                    fontWeight: childActive ? 600 : 500,
+                                    color: childActive ? RED : "#5b6470",
+                                    letterSpacing: "-0.005em",
+                                  },
+                                },
+                              }}
+                            />
+                          </ListItemButton>
+                        );
+                      })}
+                      </Fragment>
                     );
                   })}
                 </List>

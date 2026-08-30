@@ -204,6 +204,11 @@ export async function fetchContactsCreated(params: {
 
   const desc = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
 
+  // Custom lifecycle stages come back as numeric ids; show their labels.
+  const stageLabels = await propertyLabels("contacts", "lifecyclestage", params.signal).catch(
+    () => new Map<string, string>(),
+  );
+
   return {
     total: grandTotal,
     aggregated,
@@ -211,7 +216,7 @@ export async function fetchContactsCreated(params: {
     byFirstUrl: desc(byUrl)
       .slice(0, 25)
       .map(([url, count]) => ({ url, count })),
-    byLifecycle: desc(byStage).map(([stage, count]) => ({ stage, count })),
+    byLifecycle: desc(byStage).map(([stage, count]) => ({ stage: stageLabels.get(stage) ?? stage, count })),
     from: params.from,
     to: params.to,
   };
@@ -234,3 +239,210 @@ export const HUBSPOT_SOURCE_TO_GA4_CHANNEL: Record<string, string | null> = {
   OFFLINE: null,
   UNKNOWN: null,
 };
+
+/* ── label resolution ──────────────────────────────────────────────────── */
+
+type PropertyOptions = { options?: { value?: string; label?: string }[] };
+
+const labelCache = new Map<string, { at: number; map: Map<string, string> }>();
+const LABEL_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * value → label for an enumeration property, cached briefly. The portal uses
+ * custom lifecycle stages whose values are numeric ids, so without this the
+ * UI shows "878465262" where it means "Chat potential lead". On failure the
+ * raw values stay — wrong-looking beats invented.
+ */
+export async function propertyLabels(
+  object: "contacts" | "companies",
+  property: string,
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const key = `${object}.${property}`;
+  const hit = labelCache.get(key);
+  if (hit && Date.now() - hit.at < LABEL_TTL_MS) return hit.map;
+  const res = await hubspotFetchJson<PropertyOptions>({ path: `/crm/v3/properties/${object}/${property}`, signal });
+  const map = new Map<string, string>();
+  for (const o of res.options ?? []) {
+    if (typeof o.value === "string" && typeof o.label === "string") map.set(o.value, o.label);
+  }
+  labelCache.set(key, { at: Date.now(), map });
+  return map;
+}
+
+/* ── segment and priority counts for the window ────────────────────────── */
+
+export type SegmentCount = { value: string; label: string; count: number | null };
+
+export type SegmentCounts = {
+  apsoSegments: SegmentCount[];
+  priorities: SegmentCount[];
+  /** Companies in a customer segment active in the window (APSOcore, APSOgrowth, APSOmicro, Growth Engine Customer). */
+  customersActive: number | null;
+};
+
+const CUSTOMER_SEGMENT_VALUES = new Set(["APSOcore", "APSOgrowth", "APSOmicro", "Growth Engine Customer"]);
+
+async function countWithFilter(
+  window: { startMs: number; endMs: number },
+  property: string,
+  value: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/companies/search",
+    method: "POST",
+    body: {
+      filterGroups: [
+        {
+          filters: [
+            { propertyName: "hs_analytics_last_timestamp", operator: "GTE", value: String(window.startMs) },
+            { propertyName: "hs_analytics_last_timestamp", operator: "LT", value: String(window.endMs) },
+            { propertyName: property, operator: "EQ", value },
+          ],
+        },
+      ],
+      limit: 1,
+      properties: [],
+    },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
+/**
+ * How the companies active in the window split by APSO segment and by sales
+ * priority — one count per option, straight off HubSpot's own totals. The
+ * calls run sequentially because the search endpoint throttles hard.
+ */
+export async function fetchSegmentCounts(params: {
+  from: string;
+  to: string;
+  signal?: AbortSignal;
+}): Promise<SegmentCounts> {
+  const window = bounds(params.from, params.to);
+  const [segLabels, prioLabels] = await Promise.all([
+    propertyLabels("companies", "apso_customer", params.signal).catch(() => new Map<string, string>()),
+    propertyLabels("companies", "sales_priority", params.signal).catch(() => new Map<string, string>()),
+  ]);
+
+  const apsoSegments: SegmentCount[] = [];
+  for (const [value, label] of segLabels.size ? segLabels : new Map([["APSOcore", "APSOcore"]])) {
+    apsoSegments.push({ value, label, count: await countWithFilter(window, "apso_customer", value, params.signal) });
+  }
+  const priorities: SegmentCount[] = [];
+  for (const [value, label] of prioLabels) {
+    priorities.push({ value, label, count: await countWithFilter(window, "sales_priority", value, params.signal) });
+  }
+  apsoSegments.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+  priorities.sort((a, b) => a.value.localeCompare(b.value));
+
+  let customersActive: number | null = null;
+  for (const s of apsoSegments) {
+    if (CUSTOMER_SEGMENT_VALUES.has(s.value) && s.count !== null) {
+      customersActive = (customersActive ?? 0) + s.count;
+    }
+  }
+  return { apsoSegments, priorities, customersActive };
+}
+
+/* ── one company, up close ─────────────────────────────────────────────── */
+
+export type CompanyContact = {
+  id: string;
+  name: string;
+  email: string | null;
+  jobTitle: string | null;
+  lastSeen: string | null;
+  pageViews: number | null;
+};
+
+export type CompanyVisit = { at: string; url: string; title: string | null; contact: string };
+
+export type CompanyDetail = {
+  companyId: string;
+  contacts: CompanyContact[];
+  /** Null when the token lacks the web-analytics scope; `visitsError` says so. */
+  visits: CompanyVisit[] | null;
+  visitsError: string | null;
+};
+
+type AssocResponse = { results?: { toObjectId?: number | string }[] };
+type BatchRead = { results?: { id?: string; properties?: Record<string, unknown> }[] };
+type EventsResponse = { results?: { occurredAt?: string; properties?: { hs_url?: string; hs_title?: string } }[] };
+
+const DETAIL_CONTACTS = 10;
+const VISITS_PER_CONTACT = 8;
+const VISITS_CONTACTS = 3;
+const VISITS_TOTAL = 20;
+
+export async function fetchCompanyDetail(params: { id: string; signal?: AbortSignal }): Promise<CompanyDetail> {
+  const assoc = await hubspotFetchJson<AssocResponse>({
+    path: `/crm/v4/objects/companies/${encodeURIComponent(params.id)}/associations/contacts?limit=${DETAIL_CONTACTS}`,
+    signal: params.signal,
+  });
+  const ids = (assoc.results ?? [])
+    .map((r) => r.toObjectId)
+    .filter((v): v is number | string => v !== undefined)
+    .map(String);
+
+  let contacts: CompanyContact[] = [];
+  if (ids.length) {
+    const batch = await hubspotFetchJson<BatchRead>({
+      path: "/crm/v3/objects/contacts/batch/read",
+      method: "POST",
+      body: {
+        inputs: ids.map((id) => ({ id })),
+        properties: ["firstname", "lastname", "email", "jobtitle", "hs_analytics_last_timestamp", "hs_analytics_num_page_views"],
+      },
+      signal: params.signal,
+    });
+    contacts = (batch.results ?? []).map((r) => {
+      const p = r.properties ?? {};
+      const first = typeof p.firstname === "string" ? p.firstname : "";
+      const last = typeof p.lastname === "string" ? p.lastname : "";
+      const email = typeof p.email === "string" && p.email ? p.email : null;
+      return {
+        id: r.id ?? "",
+        name: `${first} ${last}`.trim() || email || `Contact ${r.id}`,
+        email,
+        jobTitle: typeof p.jobtitle === "string" && p.jobtitle ? p.jobtitle : null,
+        lastSeen: typeof p.hs_analytics_last_timestamp === "string" && p.hs_analytics_last_timestamp ? p.hs_analytics_last_timestamp : null,
+        pageViews:
+          typeof p.hs_analytics_num_page_views === "string" && p.hs_analytics_num_page_views
+            ? Number(p.hs_analytics_num_page_views)
+            : null,
+      };
+    });
+    contacts.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
+  }
+
+  let visits: CompanyVisit[] | null = [];
+  let visitsError: string | null = null;
+  try {
+    const merged: CompanyVisit[] = [];
+    for (const c of contacts.slice(0, VISITS_CONTACTS)) {
+      const ev = await hubspotFetchJson<EventsResponse>({
+        path: `/events/v3/events?objectType=contact&objectId=${encodeURIComponent(c.id)}&eventType=e_visited_page&limit=${VISITS_PER_CONTACT}&sort=-occurredAt`,
+        signal: params.signal,
+      });
+      for (const e of ev.results ?? []) {
+        if (!e.occurredAt || !e.properties?.hs_url) continue;
+        let path = e.properties.hs_url;
+        try {
+          path = new URL(e.properties.hs_url).pathname || "/";
+        } catch {
+          /* keep raw */
+        }
+        merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: c.name });
+      }
+    }
+    merged.sort((a, b) => b.at.localeCompare(a.at));
+    visits = merged.slice(0, VISITS_TOTAL);
+  } catch (err) {
+    visits = null;
+    visitsError = err instanceof Error ? err.message : "Page-visit events could not be read.";
+  }
+
+  return { companyId: params.id, contacts, visits, visitsError };
+}

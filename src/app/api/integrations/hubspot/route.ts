@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchCompaniesActiveOnSite, fetchContactsCreated } from "@/lib/integrations/hubspotJourney";
+import { fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -28,11 +28,20 @@ export async function GET(req: NextRequest) {
     if (req.nextUrl.searchParams.get("report") === "journey") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
-      const [companies, contacts] = await Promise.all([
+      const [companies, contacts, segments] = await Promise.all([
         fetchCompaniesActiveOnSite({ from: range.startDate, to: range.endDate, signal: controller.signal }),
         fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal }),
+        fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal }),
       ]);
-      return NextResponse.json({ configured: true, ok: true, data: { companies, contacts } });
+      return NextResponse.json({ configured: true, ok: true, data: { companies, contacts, segments } });
+    }
+    if (req.nextUrl.searchParams.get("report") === "companyDetail") {
+      const id = req.nextUrl.searchParams.get("id") ?? "";
+      if (!/^\d{1,20}$/.test(id)) {
+        return NextResponse.json({ configured: true, ok: false, error: "companyDetail needs a numeric id.", status: 400 });
+      }
+      const data = await fetchCompanyDetail({ id, signal: controller.signal });
+      return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "weekly") {
       const rawWeeks = Number.parseInt(req.nextUrl.searchParams.get("weeks") ?? "", 10);
