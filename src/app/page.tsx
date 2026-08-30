@@ -78,6 +78,16 @@ const DAY_MIN_HEIGHT = 112;
 /** How long a dashboard source gets before it is treated as unavailable. */
 const SOURCE_TIMEOUT_MS = 12_000;
 
+/** The live sources the strip below reports on, in display order. */
+const SOURCE_LABELS = [
+  ["ga4", "GA4"],
+  ["gsc", "Search Console"],
+  ["hubspot", "HubSpot"],
+] as const;
+
+/** "configured" is what the status route can vouch for without a network call. */
+type SourceStatus = { configured: string[]; missing: string[] } | "unavailable" | null;
+
 /**
  * A calendar entry, an approval-queue row and a day-dialog row all open the
  * SAME thing: the piece's detail in the Library. The visual editor is a
@@ -115,6 +125,7 @@ export default function MissionControl() {
   const [brainSignals, setBrainSignals] = useState<AdvisorBrainSignals | null>(null);
   const [contentSettled, setContentSettled] = useState(false);
   const [brainSettled, setBrainSettled] = useState(false);
+  const [sources, setSources] = useState<SourceStatus>(null);
   // Month cursor stays null until mount — "now" differs between server render
   // and client, so the grid is client-only by construction.
   const [cursor, setCursor] = useState<{ y: number; m: number } | null>(null);
@@ -147,6 +158,19 @@ export default function MissionControl() {
       })
       .catch(() => setBrainSignals(null))
       .finally(() => setBrainSettled(true));
+    fetch("/api/integrations/status", { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { integrations?: Record<string, { configured?: boolean }> }) => {
+        const integ = d?.integrations ?? {};
+        const configured: string[] = [];
+        const missing: string[] = [];
+        for (const [key, label] of SOURCE_LABELS) {
+          if (integ[key]?.configured) configured.push(label);
+          else missing.push(label);
+        }
+        setSources({ configured, missing });
+      })
+      .catch(() => setSources("unavailable"));
     const now = new Date();
     const h = now.getHours();
     setGreeting(h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening");
@@ -521,16 +545,52 @@ export default function MissionControl() {
         </CardContent>
       </Card>
 
-      {/* ── Integrations strip ── */}
+      {/* ── Integrations strip — driven by the live status route, never a static claim ── */}
       <Card sx={{ mb: 2.5, bgcolor: "#fbfbfc" }}>
         <CardContent sx={{ py: 1.5, px: 2.5, "&:last-child": { pb: 1.5 }, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
           <CableIcon sx={{ fontSize: 18, color: "#5b6470" }} />
           <Typography sx={{ fontSize: 13, color: "#3c4043", flex: 1, minWidth: 240 }}>
-            <strong>Traffic & ranking metrics are one connection away</strong> — GA4, Search Console and HubSpot integrations are prepared and waiting for credentials.
+            {sources === null ? (
+              "Reading connection status…"
+            ) : sources === "unavailable" ? (
+              <>
+                <strong>Connection status could not be read</strong> — open Integrations to check the sources.
+              </>
+            ) : sources.missing.length === 0 ? (
+              <>
+                <strong>All three live sources are configured</strong> — traffic, search and CRM figures in Analytics are real.
+              </>
+            ) : (
+              <>
+                <strong>{sources.configured.length} of 3 live sources configured</strong> — {sources.missing.join(" and ")} still{" "}
+                {sources.missing.length === 1 ? "needs" : "need"} credentials.
+              </>
+            )}
           </Typography>
-          {["GA4", "Search Console", "HubSpot"].map((n) => (
-            <Chip key={n} label={n} size="small" sx={{ fontWeight: 600, bgcolor: "#f0f1f3", color: "#5b6470" }} />
-          ))}
+          {SOURCE_LABELS.map(([key, label]) => {
+            const on = sources !== null && sources !== "unavailable" && sources.configured.includes(label);
+            return (
+              <Chip
+                key={key}
+                size="small"
+                label={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                    <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: on ? "#1e7e45" : "#c9ced6" }} />
+                    {label}
+                  </Box>
+                }
+                sx={{ fontWeight: 600, bgcolor: on ? "#e5f3ea" : "#f0f1f3", color: on ? "#155d33" : "#5b6470" }}
+              />
+            );
+          })}
+          <Button
+            component={Link}
+            href={sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "/analytics" : "/settings/integrations"}
+            size="small"
+            sx={{ fontWeight: 600, color: "#274e64", whiteSpace: "nowrap" }}
+          >
+            {sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "Open Analytics" : "Open Integrations"}
+          </Button>
         </CardContent>
       </Card>
 

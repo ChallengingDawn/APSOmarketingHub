@@ -35,6 +35,7 @@ export type Ga4Overview = {
   days: number;
   range: { startDate: string; endDate: string };
   totals: Ga4Totals | null;
+  previousTotals: Ga4Totals | null;
   daily: Ga4DailyPoint[];
   landingPages: Ga4Breakdown[];
   channels: Ga4Breakdown[];
@@ -282,3 +283,8 @@ export function formatIsoDay(iso: string): string {
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
+
+/* ── named GA4 reports and the HubSpot weekly trend (type-only mirrors) ── */
+
+export type { Ga4TableReport, Ga4TableRow, Ga4ReportName } from "@/lib/integrations/ga4Reports";
+export type { HubspotWeek, HubspotWeekly } from "@/lib/integrations/hubspot";

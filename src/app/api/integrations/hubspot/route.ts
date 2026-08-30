@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { fetchHubspotAccount, fetchHubspotSummary } from "@/lib/integrations/hubspot";
+import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -21,8 +21,16 @@ export async function GET(req: NextRequest) {
   const days = Number.isFinite(rawDays) ? rawDays : 30;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS * 2);
   try {
+    if (req.nextUrl.searchParams.get("report") === "weekly") {
+      const rawWeeks = Number.parseInt(req.nextUrl.searchParams.get("weeks") ?? "", 10);
+      const weekly = await fetchHubspotWeekly({
+        weeks: Number.isFinite(rawWeeks) ? rawWeeks : undefined,
+        signal: controller.signal,
+      });
+      return NextResponse.json({ configured: true, ok: true, data: weekly });
+    }
     // Account details need their own scope. Losing the portal id is a cosmetic
     // loss, so it must not fail an integration whose CRM reads work — only the
     // summary below decides whether HubSpot is genuinely reachable.

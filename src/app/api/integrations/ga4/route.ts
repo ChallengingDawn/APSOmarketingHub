@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchGa4Overview } from "@/lib/integrations/ga4";
+import { fetchGa4Report, isGa4ReportName } from "@/lib/integrations/ga4Reports";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -21,10 +22,18 @@ export async function GET(req: NextRequest) {
   const rawDays = Number.parseInt(req.nextUrl.searchParams.get("days") ?? "", 10);
   const days = Number.isFinite(rawDays) ? rawDays : 28;
 
+  // ?report=<name> runs one named report; without it the overview is returned.
+  const rawReport = req.nextUrl.searchParams.get("report");
+  if (rawReport !== null && !isGa4ReportName(rawReport)) {
+    return NextResponse.json({ configured: true, ok: false, error: `Unknown report "${rawReport}".`, status: 400 });
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const data = await fetchGa4Overview({ days, signal: controller.signal });
+    const data = isGa4ReportName(rawReport)
+      ? await fetchGa4Report({ name: rawReport, days, signal: controller.signal })
+      : await fetchGa4Overview({ days, signal: controller.signal });
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {
     const { error, status: upstreamStatus } = describeIntegrationError(err);

@@ -158,3 +158,53 @@ export async function fetchHubspotSummary(params: {
     since: new Date(sinceMs).toISOString(),
   };
 }
+
+export type HubspotWeek = { start: string; end: string; newContacts: number | null; newCompanies: number | null };
+
+export type HubspotWeekly = { weeks: HubspotWeek[]; weeksRequested: number };
+
+const DEFAULT_WEEKS = 8;
+const MAX_WEEKS = 26;
+
+/**
+ * New contacts and companies per ISO week, most recent last. Two search calls
+ * per week, run sequentially because the CRM search endpoint throttles hard;
+ * eight weeks is sixteen calls and a few seconds, which is why the trend is
+ * its own request rather than part of the summary.
+ */
+export async function fetchHubspotWeekly(params: {
+  weeks?: number;
+  signal?: AbortSignal;
+}): Promise<HubspotWeekly> {
+  const requested = Number.isFinite(params.weeks) ? Math.floor(params.weeks as number) : DEFAULT_WEEKS;
+  const weeks = Math.min(Math.max(requested, 1), MAX_WEEKS);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  // Align the newest bucket to end at the start of today's UTC day.
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+  const out: HubspotWeek[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const end = todayStart - i * 7 * dayMs;
+    const start = end - 7 * dayMs;
+    const between = (property: string) => ({
+      filterGroups: [
+        {
+          filters: [
+            { propertyName: property, operator: "GTE", value: String(start) },
+            { propertyName: property, operator: "LT", value: String(end) },
+          ],
+        },
+      ],
+    });
+    const newContacts = await searchTotal("contacts", between("createdate"), params.signal);
+    const newCompanies = await searchTotal("companies", between("createdate"), params.signal);
+    out.push({
+      start: new Date(start).toISOString().slice(0, 10),
+      end: new Date(end - dayMs).toISOString().slice(0, 10),
+      newContacts,
+      newCompanies,
+    });
+  }
+  return { weeks: out, weeksRequested: weeks };
+}

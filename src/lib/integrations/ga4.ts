@@ -36,6 +36,8 @@ export type Ga4Overview = {
   days: number;
   range: { startDate: string; endDate: string };
   totals: Ga4Totals | null;
+  /** The equivalent window immediately before, for deltas. Null if it did not return. */
+  previousTotals: Ga4Totals | null;
   daily: Ga4DailyPoint[];
   landingPages: Ga4Breakdown[];
   channels: Ga4Breakdown[];
@@ -105,7 +107,9 @@ export async function fetchGa4Overview(params: {
     { name: "engagementRate" },
   ];
 
-  const [totalsRes, dailyRes, landingRes, channelRes] = await Promise.all([
+  const previousRanges = [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }];
+
+  const [totalsRes, previousRes, dailyRes, landingRes, channelRes] = await Promise.all([
     runReport(
       propertyId,
       {
@@ -114,6 +118,14 @@ export async function fetchGa4Overview(params: {
       },
       params.signal,
     ),
+    runReport(
+      propertyId,
+      {
+        metrics: [...coreMetricNames, { name: "newUsers" }],
+        dateRanges: previousRanges,
+      },
+      params.signal,
+    ).catch(() => null),
     runReport(
       propertyId,
       {
@@ -149,6 +161,7 @@ export async function fetchGa4Overview(params: {
   ]);
 
   const totalsRow = totalsRes.rows?.[0] ?? totalsRes.totals?.[0] ?? null;
+  const previousRow = previousRes ? (previousRes.rows?.[0] ?? previousRes.totals?.[0] ?? null) : null;
 
   const daily: Ga4DailyPoint[] = (dailyRes.rows ?? []).flatMap((row) => {
     const key = dimension(row, 0);
@@ -169,6 +182,9 @@ export async function fetchGa4Overview(params: {
     range: { startDate: dateRanges[0].startDate, endDate: dateRanges[0].endDate },
     totals: totalsRow
       ? { ...coreMetrics(totalsRow), newUsers: metric(totalsRow, 3) }
+      : null,
+    previousTotals: previousRow
+      ? { ...coreMetrics(previousRow), newUsers: metric(previousRow, 3) }
       : null,
     daily,
     landingPages: breakdown(landingRes),
