@@ -20,6 +20,13 @@ FROM node:20-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+# Stamped by CI so a running container can say which commit it is. Without
+# this, "I redeployed but nothing changed" cannot be told apart from "the
+# service is still on the old task-definition revision".
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+ENV APP_COMMIT=$GIT_SHA
+ENV APP_BUILT_AT=$BUILT_AT
 # Next.js standalone server defaults to localhost — bind to all interfaces
 # so the Application Load Balancer can reach the container.
 ENV HOSTNAME=0.0.0.0

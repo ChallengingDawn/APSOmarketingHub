@@ -36,7 +36,13 @@ jobs:
           REPOSITORY: apsomarketinghub
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:prod" .
+          # Stamp the image with its commit so /api/health can say which build
+          # is actually running after a deployment.
+          BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          docker build \
+            --build-arg GIT_SHA="$IMAGE_TAG" \
+            --build-arg BUILT_AT="$BUILT_AT" \
+            -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:prod" .
           docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
           docker push "$REGISTRY/$REPOSITORY:prod"
 

@@ -424,6 +424,10 @@ function GuideStep({ index, title, children }: { index: number; title: string; c
 
 export default function IntegrationsSettingsPage() {
   const [status, setStatus] = useState<IntegrationResult<IntegrationStatusPayload> | null>(null);
+  // Which build the container is running — from /api/health, which is the one
+  // route the load balancer can always reach. "unknown" means the image was
+  // built before CI started stamping it.
+  const [build, setBuild] = useState<{ shortCommit: string; builtAt: string } | null>(null);
   const [outcomes, setOutcomes] = useState<Partial<Record<IntegrationKey, TestOutcome>>>({});
 
   const loadStatus = useCallback(() => {
@@ -436,6 +440,14 @@ export default function IntegrationsSettingsPage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/health", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => {
+        if (h && typeof h.shortCommit === "string") {
+          setBuild({ shortCommit: h.shortCommit, builtAt: typeof h.builtAt === "string" ? h.builtAt : "unknown" });
+        }
+      })
+      .catch(() => setBuild(null));
     loadStatus();
   }, [loadStatus]);
 
@@ -533,7 +545,16 @@ export default function IntegrationsSettingsPage() {
 
       {envDiag && (
         <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: 2, bgcolor: "#fff", p: { xs: 2.5, md: 3 }, mb: 4 }}>
-          <Typography sx={{ ...LABEL_SX, mb: 0.75 }}>What the running container actually sees</Typography>
+          <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 2, flexWrap: "wrap", mb: 0.75 }}>
+            <Typography sx={{ ...LABEL_SX }}>What the running container actually sees</Typography>
+            {build && (
+              <Typography sx={{ fontFamily: MONO, fontSize: "0.76rem", color: build.shortCommit === "unknown" ? "#c5221f" : MUTED }}>
+                {build.shortCommit === "unknown"
+                  ? "build: unstamped image (built before CI recorded the commit)"
+                  : `build ${build.shortCommit} · ${build.builtAt}`}
+              </Typography>
+            )}
+          </Box>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 2 }}>
             Names, lengths and shapes only — no value is ever read into this page. If a variable you added shows as absent
             here it did not reach the container: the service is still on the old task-definition revision, the deployment
