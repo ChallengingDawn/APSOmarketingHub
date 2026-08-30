@@ -26,6 +26,8 @@ export type ActiveCompany = {
 export type ActiveCompanies = {
   total: number | null;
   rows: ActiveCompany[];
+  /** Cursor for the next page, when HubSpot has more rows. */
+  nextAfter: string | null;
   from: string;
   to: string;
 };
@@ -79,23 +81,29 @@ export async function fetchCompaniesActiveOnSite(params: {
   from: string;
   to: string;
   limit?: number;
+  /** Search-API paging cursor from a previous page's `nextAfter`. */
+  after?: string;
+  /** Narrow to one APSO segment / sales priority — the clickable bars. */
+  segment?: string;
+  priority?: string;
   signal?: AbortSignal;
 }): Promise<ActiveCompanies> {
   const { startMs, endMs } = bounds(params.from, params.to);
-  const limit = Math.min(Math.max(params.limit ?? 50, 1), SEARCH_PAGE);
+  const limit = Math.min(Math.max(params.limit ?? 20, 1), SEARCH_PAGE);
+
+  const filters: { propertyName: string; operator: string; value: string }[] = [
+    { propertyName: "hs_analytics_last_timestamp", operator: "GTE", value: String(startMs) },
+    { propertyName: "hs_analytics_last_timestamp", operator: "LT", value: String(endMs) },
+  ];
+  if (params.segment) filters.push({ propertyName: "apso_customer", operator: "EQ", value: params.segment });
+  if (params.priority) filters.push({ propertyName: "sales_priority", operator: "EQ", value: params.priority });
 
   const res = await hubspotFetchJson<SearchResponse<CompanyProps>>({
     path: "/crm/v3/objects/companies/search",
     method: "POST",
     body: {
-      filterGroups: [
-        {
-          filters: [
-            { propertyName: "hs_analytics_last_timestamp", operator: "GTE", value: String(startMs) },
-            { propertyName: "hs_analytics_last_timestamp", operator: "LT", value: String(endMs) },
-          ],
-        },
-      ],
+      filterGroups: [{ filters }],
+      ...(params.after ? { after: params.after } : {}),
       sorts: [{ propertyName: "hs_analytics_last_timestamp", direction: "DESCENDING" }],
       properties: [
         "name",
@@ -131,7 +139,13 @@ export async function fetchCompaniesActiveOnSite(params: {
     };
   });
 
-  return { total: total(res.total), rows, from: params.from, to: params.to };
+  return {
+    total: total(res.total),
+    rows,
+    nextAfter: res.paging?.next?.after ?? null,
+    from: params.from,
+    to: params.to,
+  };
 }
 
 type ContactProps = Record<string, unknown>;
@@ -424,6 +438,7 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
     for (const c of contacts.slice(0, VISITS_CONTACTS)) {
       const ev = await hubspotFetchJson<EventsResponse>({
         path: `/events/v3/events?objectType=contact&objectId=${encodeURIComponent(c.id)}&eventType=e_visited_page&limit=${VISITS_PER_CONTACT}&sort=-occurredAt`,
+        useEventsToken: true,
         signal: params.signal,
       });
       for (const e of ev.results ?? []) {
@@ -541,6 +556,7 @@ async function fetchCompanyDetailLimited(
     for (const cid of ids) {
       const ev = await hubspotFetchJson<EventsResponse>({
         path: `/events/v3/events?objectType=contact&objectId=${encodeURIComponent(cid)}&eventType=e_visited_page&limit=${JOURNEY_VISITS_EACH}&sort=-occurredAt`,
+        useEventsToken: true,
         signal,
       });
       for (const e of ev.results ?? []) {
@@ -563,4 +579,60 @@ async function fetchCompanyDetailLimited(
       visitsError: err instanceof Error ? err.message : "Page-visit events could not be read.",
     };
   }
+}
+
+/* ── the active audience, by lifecycle ─────────────────────────────────── */
+
+export type Audience = {
+  /** Contacts with a session on the site inside the window. */
+  activeContacts: number | null;
+  byLifecycle: SegmentCount[];
+  from: string;
+  to: string;
+};
+
+async function countContacts(
+  window: { startMs: number; endMs: number },
+  extra: { propertyName: string; operator: string; value: string } | null,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const filters = [
+    { propertyName: "hs_analytics_last_timestamp", operator: "GTE", value: String(window.startMs) },
+    { propertyName: "hs_analytics_last_timestamp", operator: "LT", value: String(window.endMs) },
+    ...(extra ? [extra] : []),
+  ];
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: { filterGroups: [{ filters }], limit: 1, properties: [] },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
+/**
+ * The people (contacts) who were on the site in the window, split by the
+ * portal's own lifecycle stages — one HubSpot count per stage, sequential.
+ */
+export async function fetchAudience(params: {
+  from: string;
+  to: string;
+  signal?: AbortSignal;
+}): Promise<Audience> {
+  const window = bounds(params.from, params.to);
+  const stageLabels = await propertyLabels("contacts", "lifecyclestage", params.signal).catch(
+    () => new Map<string, string>(),
+  );
+  const activeContacts = await countContacts(window, null, params.signal);
+  const byLifecycle: SegmentCount[] = [];
+  for (const [value, label] of stageLabels) {
+    const count = await countContacts(
+      window,
+      { propertyName: "lifecyclestage", operator: "EQ", value },
+      params.signal,
+    );
+    if (count !== null && count > 0) byLifecycle.push({ value, label, count });
+  }
+  byLifecycle.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+  return { activeContacts, byLifecycle, from: params.from, to: params.to };
 }

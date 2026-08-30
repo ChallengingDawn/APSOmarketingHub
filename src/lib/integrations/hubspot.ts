@@ -2,7 +2,7 @@
 // CRM search endpoint's `total` — one request per count instead of paging every
 // record. The token is read per call and never logged.
 
-import { IntegrationError, hubspotToken } from "./status";
+import { IntegrationError, hubspotEventsToken, hubspotToken } from "./status";
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -73,8 +73,10 @@ export async function hubspotFetchJson<T>(req: {
   method?: "GET" | "POST";
   body?: unknown;
   signal?: AbortSignal;
+  /** Events API calls use the dedicated events token when one is set. */
+  useEventsToken?: boolean;
 }): Promise<T> {
-  const token = hubspotToken();
+  const token = req.useEventsToken ? hubspotEventsToken() : hubspotToken();
   if (!token) throw new IntegrationError("HUBSPOT_TOKEN is not set.");
 
   let res: Response | null = null;
@@ -202,14 +204,24 @@ const MAX_WEEKS = 26;
  */
 export async function fetchHubspotWeekly(params: {
   weeks?: number;
+  /** Inclusive ISO window; when given, buckets end at `to` and the count of
+   *  weeks follows the window length, so the trend tracks the picker. */
+  from?: string;
+  to?: string;
   signal?: AbortSignal;
 }): Promise<HubspotWeekly> {
-  const requested = Number.isFinite(params.weeks) ? Math.floor(params.weeks as number) : DEFAULT_WEEKS;
-  const weeks = Math.min(Math.max(requested, 1), MAX_WEEKS);
   const dayMs = 24 * 60 * 60 * 1000;
   const now = new Date();
-  // Align the newest bucket to end at the start of today's UTC day.
-  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  let anchor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  let derived = Number.isFinite(params.weeks) ? Math.floor(params.weeks as number) : DEFAULT_WEEKS;
+  if (params.from && params.to && /^\d{4}-\d{2}-\d{2}$/.test(params.from) && /^\d{4}-\d{2}-\d{2}$/.test(params.to)) {
+    const startMs = Date.UTC(Number(params.from.slice(0, 4)), Number(params.from.slice(5, 7)) - 1, Number(params.from.slice(8, 10)));
+    const endMs = Date.UTC(Number(params.to.slice(0, 4)), Number(params.to.slice(5, 7)) - 1, Number(params.to.slice(8, 10))) + dayMs;
+    anchor = endMs;
+    derived = Math.ceil((endMs - startMs) / (7 * dayMs));
+  }
+  const weeks = Math.min(Math.max(derived, 1), MAX_WEEKS);
+  const todayStart = anchor;
 
   const out: HubspotWeek[] = [];
   for (let i = weeks - 1; i >= 0; i--) {

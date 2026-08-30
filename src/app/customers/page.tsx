@@ -1,10 +1,8 @@
 "use client";
 
-// CUSTOMERS — the CRM side of the traffic. HubSpot's own web tracking knows
-// which companies were on apsoparts.com and when; GA4 knows the sessions by
-// channel and landing page. Every company and contact links straight to its
-// HubSpot record, and a row opens into the people behind it and the pages
-// they actually looked at.
+// CUSTOMERS OVERVIEW — who was on the site, segmented. The company list pages
+// through HubSpot twenty at a time, and the segment and priority bars are
+// filters: click one and the list below shows exactly those companies.
 
 import { useMemo, useState, Fragment } from "react";
 import Box from "@mui/material/Box";
@@ -18,9 +16,12 @@ import TableRow from "@mui/material/TableRow";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
 import Link from "@mui/material/Link";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
 import { Gate, HAIRLINE, INK, MUTED, Section, SourceNote, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { metricOf, useHeld } from "@/app/analytics/AnalyticsData";
@@ -32,12 +33,14 @@ import { compact, full, percent } from "@/app/charts/format";
 import type { ActiveCompanies, CompanyDetail, ContactsCreated, SegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { HUBSPOT_SOURCE_TO_GA4_CHANNEL } from "@/lib/integrations/hubspotJourney";
 
-type Journey = { companies: ActiveCompanies; contacts: ContactsCreated; segments: SegmentCounts };
+type Journey = { contacts: ContactsCreated; segments: SegmentCounts };
 
 /** Portal 26492587 on the EU cluster; 0-2 = companies, 0-1 = contacts. */
 const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
 const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
+
+const PAGE_SIZE = 20;
 
 /** "2-Prio 2 - Pot btw 2500 & 24999€" → "Prio 2". */
 function shortPriority(v: string | null): string {
@@ -109,8 +112,7 @@ function CompanyDetailPanel({ id }: { id: string }) {
         </Typography>
         {d.visits === null ? (
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            HubSpot refused the page-visit events: {d.visitsError}. The app token needs the web-analytics scope — it was
-            added to the private app, so a token refreshed from the app picks it up.
+            HubSpot refused the page-visit events: {d.visitsError}
           </Typography>
         ) : d.visits.length === 0 ? (
           <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No page-visit events on the associated contacts.</Typography>
@@ -138,7 +140,25 @@ export default function CustomersPage() {
   const [showBridge, setShowBridge] = useState(false);
   const [openCompany, setOpenCompany] = useState<string | null>(null);
 
+  // Filters and paging for the company list. Changing either resets the trail
+  // of paging cursors, because the pages of one query mean nothing in another.
+  const [segFilter, setSegFilter] = useState<{ value: string; label: string } | null>(null);
+  const [prioFilter, setPrioFilter] = useState<{ value: string; label: string } | null>(null);
+  const [afterTrail, setAfterTrail] = useState<string[]>([]);
+  const after = afterTrail[afterTrail.length - 1];
+
+  const resetPaging = () => {
+    setAfterTrail([]);
+    setOpenCompany(null);
+  };
+
   const journey = useHeld<Journey>(`/api/integrations/hubspot?report=journey&${q}`, [q, tick]);
+  const companiesUrl =
+    `/api/integrations/hubspot?report=companies&limit=${PAGE_SIZE}&${q}` +
+    (segFilter ? `&segment=${encodeURIComponent(segFilter.value)}` : "") +
+    (prioFilter ? `&priority=${encodeURIComponent(prioFilter.value)}` : "") +
+    (after ? `&after=${encodeURIComponent(after)}` : "");
+  const companies = useHeld<ActiveCompanies>(companiesUrl, [companiesUrl, tick]);
   const channels = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=acquisitionChannels&${q}`, [q, tick]);
   const landing = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=landingPages&${q}`, [q, tick]);
 
@@ -161,14 +181,16 @@ export default function CustomersPage() {
     return map;
   }, [landing.result]);
 
+  const filterLabel = [segFilter?.label, prioFilter && shortPriority(prioFilter.value)].filter(Boolean).join(" · ");
+
   return (
     <Box>
       <Gate held={journey} source="HubSpot" loadingLabel="Reading who was on the site…" onRetry={retry}>
         {(data, stale) => {
-          const c = data.companies;
           const k = data.contacts;
           const seg = data.segments;
           const prio1 = seg.priorities.find((p) => p.value.startsWith("1-"));
+          const knownTotal = companies.result?.state === "ok" && !segFilter && !prioFilter ? companies.result.data.total : null;
 
           const bridge = k.bySource.map((s) => {
             const channel = HUBSPOT_SOURCE_TO_GA4_CHANNEL[s.source] ?? null;
@@ -187,13 +209,13 @@ export default function CustomersPage() {
             <Box sx={{ opacity: stale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
               <Grid container spacing={2} sx={{ mb: 2.5 }}>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                  <StatTile label="Companies seen on the site" value={compact(c.total)} note={`Known companies with a session in ${label.toLowerCase()}`} />
+                  <StatTile label="Companies seen on the site" value={compact(knownTotal)} note={`Known companies with a session in ${label.toLowerCase()}`} />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                   <StatTile
                     label="APSO customers among them"
                     value={compact(seg.customersActive)}
-                    note={c.total && seg.customersActive !== null ? `${percent(seg.customersActive / c.total, 0)} of companies seen · core, growth, micro` : "APSOcore, APSOgrowth, APSOmicro"}
+                    note={knownTotal && seg.customersActive !== null ? `${percent(seg.customersActive / knownTotal, 0)} of companies seen · core, growth, micro` : "APSOcore, APSOgrowth, APSOmicro"}
                   />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -209,12 +231,22 @@ export default function CustomersPage() {
                   <Section sx={{ height: "100%" }}>
                     <ChartFrame
                       title="Companies on the site, by APSO segment"
-                      caption="HubSpot totals for the window, one count per segment"
+                      caption="Click a segment to list exactly those companies below"
                       stale={stale}
                       empty={seg.apsoSegments.length === 0 ? "The apso_customer property returned no options." : null}
                       table={{ columns: ["Segment", "Companies"], numeric: [1], rows: seg.apsoSegments.map((s) => [s.label, full(s.count)]) }}
                     >
-                      <BarList rows={seg.apsoSegments.map((s) => ({ label: s.label, value: s.count }))} labelWidth={190} />
+                      <BarList
+                        rows={seg.apsoSegments.map((s) => ({ label: s.label, value: s.count }))}
+                        labelWidth={190}
+                        selectedLabel={segFilter?.label ?? null}
+                        onSelect={(labelClicked) => {
+                          const option = seg.apsoSegments.find((s) => s.label === labelClicked);
+                          if (!option) return;
+                          setSegFilter((cur) => (cur?.value === option.value ? null : { value: option.value, label: option.label }));
+                          resetPaging();
+                        }}
+                      />
                     </ChartFrame>
                   </Section>
                 </Grid>
@@ -222,94 +254,160 @@ export default function CustomersPage() {
                   <Section sx={{ height: "100%" }}>
                     <ChartFrame
                       title="Companies on the site, by sales priority"
-                      caption="HubSpot totals for the window, one count per priority"
+                      caption="Click a priority to list exactly those companies below"
                       stale={stale}
                       empty={seg.priorities.length === 0 ? "The sales_priority property returned no options." : null}
                       table={{ columns: ["Priority", "Companies"], numeric: [1], rows: seg.priorities.map((s) => [s.label, full(s.count)]) }}
                     >
-                      <BarList rows={seg.priorities.map((s) => ({ label: s.label, value: s.count }))} labelWidth={230} maxLabel={34} />
+                      <BarList
+                        rows={seg.priorities.map((s) => ({ label: s.label, value: s.count }))}
+                        labelWidth={230}
+                        maxLabel={34}
+                        selectedLabel={prioFilter?.label ?? null}
+                        onSelect={(labelClicked) => {
+                          const option = seg.priorities.find((s) => s.label === labelClicked);
+                          if (!option) return;
+                          setPrioFilter((cur) => (cur?.value === option.value ? null : { value: option.value, label: option.label }));
+                          resetPaging();
+                        }}
+                      />
                     </ChartFrame>
                   </Section>
                 </Grid>
               </Grid>
 
               <Section sx={{ mb: 2.5 }}>
-                <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>Companies on apsoparts.com, most recent first</Typography>
+                <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>
+                    Companies on apsoparts.com, most recent first
+                  </Typography>
+                  {filterLabel && (
+                    <Chip
+                      label={`Showing: ${filterLabel}`}
+                      size="small"
+                      onDelete={() => {
+                        setSegFilter(null);
+                        setPrioFilter(null);
+                        resetPaging();
+                      }}
+                      sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
+                    />
+                  )}
+                </Box>
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>
-                  {c.total !== null ? `HubSpot counts ${full(c.total)} companies with a session in the window; the ${c.rows.length} most recent are listed. ` : `The ${c.rows.length} most recent. `}
-                  A row opens into the people behind it and the pages they looked at; names link to HubSpot.
+                  {PAGE_SIZE} per page · a row opens into the people behind it and the pages they looked at · names link to HubSpot.
                 </Typography>
-                <Box sx={{ overflowX: "auto" }}>
-                  <Table size="small" sx={{ minWidth: 860 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: 36 }} />
-                        <TableCell>Company</TableCell>
-                        <TableCell>Last on site</TableCell>
-                        <TableCell align="right">Page views</TableCell>
-                        <TableCell align="right">Visits</TableCell>
-                        <TableCell>Original source</TableCell>
-                        <TableCell>Priority</TableCell>
-                        <TableCell>Segment</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {c.rows.map((r) => {
-                        const openRow = openCompany === r.id;
-                        // Old CRM rows sometimes carry a literal "true"/"false"
-                        // here from before the property became an enumeration.
-                        const segment = r.apsoCustomer && r.apsoCustomer !== "false" && r.apsoCustomer !== "true" ? r.apsoCustomer : null;
-                        const tone = segment ? SEGMENT_TONES[segment] ?? { bg: "#eef0f3", fg: "#3c4043" } : null;
-                        return (
-                          <Fragment key={r.id}>
-                            <TableRow hover sx={{ "& td": { borderBottom: openRow ? "none" : undefined } }}>
-                              <TableCell sx={{ pr: 0 }}>
-                                <IconButton size="small" onClick={() => setOpenCompany(openRow ? null : r.id)} aria-label={openRow ? "Collapse" : "Expand"}>
-                                  <ExpandMoreIcon sx={{ fontSize: 18, transform: openRow ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                                </IconButton>
-                              </TableCell>
-                              <TableCell>
-                                <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noreferrer" sx={{ textDecoration: "none", "&:hover .company-name": { textDecoration: "underline" } }}>
-                                  <Typography className="company-name" sx={{ fontSize: "0.86rem", fontWeight: 600, color: "#274e64", display: "inline-flex", alignItems: "center", gap: 0.4 }}>
-                                    {r.name ?? r.domain ?? r.id}
-                                    <OpenInNewIcon sx={{ fontSize: 12, color: MUTED }} />
-                                  </Typography>
-                                </Link>
-                                {r.domain && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{r.domain}</Typography>}
-                              </TableCell>
-                              <TableCell sx={{ whiteSpace: "nowrap" }}>{lastSeen(r.lastSeen)}</TableCell>
-                              <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{full(r.pageViews)}</TableCell>
-                              <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{full(r.visits)}</TableCell>
-                              <TableCell>{r.source ? prettySource(r.source) : "—"}</TableCell>
-                              <TableCell sx={{ whiteSpace: "nowrap" }}>{shortPriority(r.salesPriority)}</TableCell>
-                              <TableCell>
-                                {tone && segment ? (
-                                  <Chip label={segment} size="small" sx={{ bgcolor: tone.bg, color: tone.fg, height: 20, fontSize: "0.68rem" }} />
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
+
+                <Gate held={companies} source="HubSpot" loadingLabel="Reading the companies…" onRetry={retry}>
+                  {(list, listStale) => (
+                    <Box sx={{ opacity: listStale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
+                      <Box sx={{ overflowX: "auto" }}>
+                        <Table size="small" sx={{ minWidth: 860 }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ width: 36 }} />
+                              <TableCell>Company</TableCell>
+                              <TableCell>Last on site</TableCell>
+                              <TableCell align="right">Page views</TableCell>
+                              <TableCell align="right">Visits</TableCell>
+                              <TableCell>Original source</TableCell>
+                              <TableCell>Priority</TableCell>
+                              <TableCell>Segment</TableCell>
                             </TableRow>
-                            {openRow && (
+                          </TableHead>
+                          <TableBody>
+                            {list.rows.map((r) => {
+                              const openRow = openCompany === r.id;
+                              const segment = r.apsoCustomer && r.apsoCustomer !== "false" && r.apsoCustomer !== "true" ? r.apsoCustomer : null;
+                              const tone = segment ? SEGMENT_TONES[segment] ?? { bg: "#eef0f3", fg: "#3c4043" } : null;
+                              return (
+                                <Fragment key={r.id}>
+                                  <TableRow hover sx={{ "& td": { borderBottom: openRow ? "none" : undefined } }}>
+                                    <TableCell sx={{ pr: 0 }}>
+                                      <IconButton size="small" onClick={() => setOpenCompany(openRow ? null : r.id)} aria-label={openRow ? "Collapse" : "Expand"}>
+                                        <ExpandMoreIcon sx={{ fontSize: 18, transform: openRow ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+                                      </IconButton>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noreferrer" sx={{ textDecoration: "none", "&:hover .company-name": { textDecoration: "underline" } }}>
+                                        <Typography className="company-name" sx={{ fontSize: "0.86rem", fontWeight: 600, color: "#274e64", display: "inline-flex", alignItems: "center", gap: 0.4 }}>
+                                          {r.name ?? r.domain ?? r.id}
+                                          <OpenInNewIcon sx={{ fontSize: 12, color: MUTED }} />
+                                        </Typography>
+                                      </Link>
+                                      {r.domain && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{r.domain}</Typography>}
+                                    </TableCell>
+                                    <TableCell sx={{ whiteSpace: "nowrap" }}>{lastSeen(r.lastSeen)}</TableCell>
+                                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{full(r.pageViews)}</TableCell>
+                                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{full(r.visits)}</TableCell>
+                                    <TableCell>{r.source ? prettySource(r.source) : "—"}</TableCell>
+                                    <TableCell sx={{ whiteSpace: "nowrap" }}>{shortPriority(r.salesPriority)}</TableCell>
+                                    <TableCell>
+                                      {tone && segment ? (
+                                        <Chip label={segment} size="small" sx={{ bgcolor: tone.bg, color: tone.fg, height: 20, fontSize: "0.68rem" }} />
+                                      ) : (
+                                        "—"
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                  {openRow && (
+                                    <TableRow>
+                                      <TableCell colSpan={8} sx={{ p: 0, bgcolor: "#fafbfc" }}>
+                                        <Collapse in appear>
+                                          <CompanyDetailPanel id={r.id} />
+                                        </Collapse>
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
+                            {list.rows.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={8} sx={{ p: 0, bgcolor: "#fafbfc" }}>
-                                  <Collapse in appear>
-                                    <CompanyDetailPanel id={r.id} />
-                                  </Collapse>
+                                <TableCell colSpan={8} sx={{ color: MUTED }}>
+                                  {filterLabel ? `No ${filterLabel} company had a session in this window.` : "No known company had a session on the site in this window."}
                                 </TableCell>
                               </TableRow>
                             )}
-                          </Fragment>
-                        );
-                      })}
-                      {c.rows.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={8} sx={{ color: MUTED }}>No known company had a session on the site in this window.</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </Box>
+                          </TableBody>
+                        </Table>
+                      </Box>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+                          Page {afterTrail.length + 1}
+                          {list.total !== null ? ` · ${full(list.total)} compan${list.total === 1 ? "y" : "ies"} match` : ""}
+                        </Typography>
+                        <Box sx={{ flex: 1 }} />
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<ChevronLeftIcon sx={{ fontSize: 16 }} />}
+                          disabled={afterTrail.length === 0}
+                          onClick={() => {
+                            setAfterTrail((cur) => cur.slice(0, -1));
+                            setOpenCompany(null);
+                          }}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          endIcon={<ChevronRightIcon sx={{ fontSize: 16 }} />}
+                          disabled={!list.nextAfter}
+                          onClick={() => {
+                            if (list.nextAfter) {
+                              setAfterTrail((cur) => [...cur, list.nextAfter as string]);
+                              setOpenCompany(null);
+                            }
+                          }}
+                        >
+                          Next
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+                </Gate>
               </Section>
 
               <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
@@ -405,9 +503,10 @@ export default function CustomersPage() {
       </Gate>
 
       <SourceNote>
-        Sources: HubSpot CRM search on hs_analytics_last_timestamp (companies) and createdate (contacts) with HubSpot&apos;s own attribution fields, segment and
-        priority counts one per property option, page visits from HubSpot&apos;s web-analytics events on the associated contacts; GA4 Data API by
-        sessionDefaultChannelGroup and landingPagePlusQueryString. Window {win.from} → {win.to} ({days} days). Nothing here is estimated, modelled or sampled.
+        Sources: HubSpot CRM search on hs_analytics_last_timestamp (companies, paged {PAGE_SIZE} at a time) and createdate (contacts) with HubSpot&apos;s own
+        attribution fields, segment and priority counts one per property option, page visits from HubSpot&apos;s web-analytics events on the associated
+        contacts; GA4 Data API by sessionDefaultChannelGroup and landingPagePlusQueryString. Window {win.from} → {win.to} ({days} days). Nothing here is
+        estimated, modelled or sampled.
       </SourceNote>
     </Box>
   );

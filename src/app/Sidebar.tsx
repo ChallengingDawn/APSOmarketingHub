@@ -83,7 +83,7 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "AI Engine",
+    title: "AI Content",
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [

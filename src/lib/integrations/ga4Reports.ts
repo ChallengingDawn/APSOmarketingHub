@@ -25,12 +25,14 @@ export type Ga4ReportName =
   | "newVsReturning"
   | "engagementDaily"
   | "keyEventsByName"
-  | "channelsDaily";
+  | "channelsDaily"
+  | "conversionTotals";
 
 type ReportSpec = {
   dimensions: string[];
   metrics: string[];
-  orderBy: { metric?: string; dimension?: string; desc?: boolean };
+  /** Absent on dimensionless reports — GA4 rejects an orderBy there. */
+  orderBy?: { metric?: string; dimension?: string; desc?: boolean };
   limit: number;
 };
 
@@ -95,6 +97,11 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     orderBy: { dimension: "date" },
     limit: 4000,
   },
+  conversionTotals: {
+    dimensions: [],
+    metrics: ["sessions", "totalUsers", "newUsers", "keyEvents", "sessionKeyEventRate"],
+    limit: 1,
+  },
 };
 
 export function isGa4ReportName(value: unknown): value is Ga4ReportName {
@@ -152,14 +159,18 @@ export async function fetchGa4Report(params: {
     label: "GA4",
     method: "POST",
     body: {
-      dimensions: spec.dimensions.map((name) => ({ name })),
+      ...(spec.dimensions.length ? { dimensions: spec.dimensions.map((name) => ({ name })) } : {}),
       metrics: spec.metrics.map((name) => ({ name })),
       dateRanges: [range],
-      orderBys: [
-        spec.orderBy.metric
-          ? { metric: { metricName: spec.orderBy.metric }, desc: spec.orderBy.desc ?? false }
-          : { dimension: { dimensionName: spec.orderBy.dimension }, desc: spec.orderBy.desc ?? false },
-      ],
+      ...(spec.orderBy
+        ? {
+            orderBys: [
+              spec.orderBy.metric
+                ? { metric: { metricName: spec.orderBy.metric }, desc: spec.orderBy.desc ?? false }
+                : { dimension: { dimensionName: spec.orderBy.dimension }, desc: spec.orderBy.desc ?? false },
+            ],
+          }
+        : {}),
       limit: String(spec.limit),
     },
     signal: params.signal,

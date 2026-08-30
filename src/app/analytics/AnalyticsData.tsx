@@ -105,9 +105,12 @@ export function useGa4Report(name: Ga4ReportName): Held<Ga4TableReport> {
   );
 }
 
-export function useHubspotWeekly(weeks = 8): Held<HubspotWeekly> {
-  const { reloadKey } = useAnalytics();
-  return useHeld<HubspotWeekly>(`/api/integrations/hubspot?report=weekly&weeks=${weeks}`, [weeks, reloadKey]);
+export function useHubspotWeekly(): Held<HubspotWeekly> {
+  const { windowFrom, windowTo, reloadKey } = useAnalytics();
+  return useHeld<HubspotWeekly>(
+    `/api/integrations/hubspot?report=weekly&from=${windowFrom}&to=${windowTo}`,
+    [windowFrom, windowTo, reloadKey],
+  );
 }
 
 /* ── row helpers ───────────────────────────────────────────────────────── */

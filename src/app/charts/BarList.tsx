@@ -25,12 +25,17 @@ export function BarList({
   labelWidth = 220,
   maxLabel = 38,
   emptyMessage = "Nothing to show for this window.",
+  onSelect,
+  selectedLabel,
 }: {
   rows: BarRow[];
   format?: (v: number | null) => string;
   labelWidth?: number;
   maxLabel?: number;
   emptyMessage?: string;
+  /** Makes rows clickable — used where a bar filters a list below it. */
+  onSelect?: (label: string) => void;
+  selectedLabel?: string | null;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(0, ...rows.map((r) => (typeof r.value === "number" ? r.value : 0)));
@@ -60,6 +65,7 @@ export function BarList({
               role="listitem"
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
+              onClick={onSelect ? () => onSelect(r.label) : undefined}
               sx={{
                 display: "grid",
                 gridTemplateColumns: `${labelWidth}px 1fr auto`,
@@ -68,9 +74,15 @@ export function BarList({
                 py: 0.4,
                 px: 0.5,
                 borderRadius: 1.5,
-                bgcolor: active ? "rgba(42,120,214,0.05)" : "transparent",
+                bgcolor:
+                  selectedLabel === r.label
+                    ? "rgba(42,120,214,0.12)"
+                    : active
+                      ? "rgba(42,120,214,0.05)"
+                      : "transparent",
+                outline: selectedLabel === r.label ? "1px solid rgba(42,120,214,0.4)" : "none",
                 transition: "background-color 120ms ease",
-                cursor: r.href ? "pointer" : "default",
+                cursor: r.href || onSelect ? "pointer" : "default",
               }}
               component={r.href ? "a" : "div"}
               {...(r.href ? { href: r.href, target: "_blank", rel: "noreferrer" } : {})}

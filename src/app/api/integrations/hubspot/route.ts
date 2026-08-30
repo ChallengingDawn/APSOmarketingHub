@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -29,11 +29,36 @@ export async function GET(req: NextRequest) {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
       // Sequential on purpose: these fan out into many search calls, and the
-      // search endpoint's per-second limit punishes bursts with 429s.
-      const companies = await fetchCompaniesActiveOnSite({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      // search endpoint's per-second limit punishes bursts with 429s. The
+      // companies list is its own report now, so it can page and filter.
       const contacts = await fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal });
       const segments = await fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal });
-      return NextResponse.json({ configured: true, ok: true, data: { companies, contacts, segments } });
+      return NextResponse.json({ configured: true, ok: true, data: { contacts, segments } });
+    }
+    if (req.nextUrl.searchParams.get("report") === "companies") {
+      const { from, to } = rangeParams(req.nextUrl.searchParams);
+      const range = resolveRange({ days, from, to }, 365);
+      const sp = req.nextUrl.searchParams;
+      const rawLimit = Number.parseInt(sp.get("limit") ?? "", 10);
+      const after = sp.get("after") ?? undefined;
+      const segment = sp.get("segment") ?? undefined;
+      const priority = sp.get("priority") ?? undefined;
+      const data = await fetchCompaniesActiveOnSite({
+        from: range.startDate,
+        to: range.endDate,
+        limit: Number.isFinite(rawLimit) ? rawLimit : 20,
+        after: after && /^[\w=-]{1,200}$/.test(after) ? after : undefined,
+        segment: segment && segment.length <= 64 ? segment : undefined,
+        priority: priority && priority.length <= 64 ? priority : undefined,
+        signal: controller.signal,
+      });
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "audience") {
+      const { from, to } = rangeParams(req.nextUrl.searchParams);
+      const range = resolveRange({ days, from, to }, 365);
+      const data = await fetchAudience({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "customerJourneys") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
@@ -51,8 +76,11 @@ export async function GET(req: NextRequest) {
     }
     if (req.nextUrl.searchParams.get("report") === "weekly") {
       const rawWeeks = Number.parseInt(req.nextUrl.searchParams.get("weeks") ?? "", 10);
+      const { from, to } = rangeParams(req.nextUrl.searchParams);
       const weekly = await fetchHubspotWeekly({
         weeks: Number.isFinite(rawWeeks) ? rawWeeks : undefined,
+        from,
+        to,
         signal: controller.signal,
       });
       return NextResponse.json({ configured: true, ok: true, data: weekly });

@@ -45,6 +45,7 @@ const EXPECTED_ENV = [
   "GA4_PROPERTY_ID",
   "GSC_SITE_URL",
   "HUBSPOT_TOKEN",
+  "HUBSPOT_EVENTS_TOKEN",
 ] as const;
 
 function shapeOf(name: string, value: string): string {
@@ -67,6 +68,7 @@ export function envDiagnostics(): EnvDiagnostics {
   const defaults: Partial<Record<(typeof EXPECTED_ENV)[number], string>> = {
     GA4_PROPERTY_ID: GA4_DEFAULT_PROPERTY_ID,
     GSC_SITE_URL: GSC_DEFAULT_SITE_URL,
+    HUBSPOT_EVENTS_TOKEN: "falls back to HUBSPOT_TOKEN (page visits then need its scope)",
   };
   const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
     const value = process.env[name];
@@ -176,6 +178,17 @@ export function gscSiteUrl(): string {
 
 export function hubspotToken(): string | null {
   return env("HUBSPOT_TOKEN");
+}
+
+/**
+ * The web-analytics events API needs a scope the project-managed app cannot
+ * declare (the project schema rejects event-detail-read and
+ * web-analytics-api-access by name). A second, UI-created private app carries
+ * that permission; its token lives here and is used ONLY for /events calls.
+ * Absent, the main token is tried — and the UI reports the refusal honestly.
+ */
+export function hubspotEventsToken(): string | null {
+  return env("HUBSPOT_EVENTS_TOKEN") ?? env("HUBSPOT_TOKEN");
 }
 
 function googleReadiness(): { missing: string[]; detail?: string; invalid?: string } {

@@ -16,7 +16,7 @@ import { compact, dayLabel, full } from "@/app/charts/format";
 
 export default function CommercialPage() {
   const { hubspot, windowDays, reload } = useAnalytics();
-  const weekly = useHubspotWeekly(8);
+  const weekly = useHubspotWeekly();
   const keyEvents = useGa4Report("keyEventsByName");
 
   return (
