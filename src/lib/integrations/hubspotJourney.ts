@@ -369,14 +369,39 @@ export type CompanyContact = {
   jobTitle: string | null;
   lastSeen: string | null;
   pageViews: number | null;
+  /** Last page HubSpot recorded on the contact — readable with plain contact scope. */
+  lastUrl: string | null;
+  visits: number | null;
 };
+
+/**
+ * A contact's recorded web footprint from contact analytics properties. This
+ * is the honest substitute when the per-visit event stream (an Enterprise-tier
+ * API) is not available on the portal.
+ */
+export type ContactFootprint = {
+  contact: string;
+  contactId: string;
+  lastUrl: string | null;
+  lastSeen: string | null;
+  pageViews: number | null;
+  visits: number | null;
+};
+
+const EVENTS_TIER_MESSAGE =
+  "HubSpot's per-visit event stream needs an Enterprise subscription this portal doesn't include — showing each person's recorded footprint instead.";
+
+function friendlyVisitsError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : "Page-visit events could not be read.";
+  return /event-detail-read|web-analytics-api-access/i.test(msg) ? EVENTS_TIER_MESSAGE : msg;
+}
 
 export type CompanyVisit = { at: string; url: string; title: string | null; contact: string };
 
 export type CompanyDetail = {
   companyId: string;
   contacts: CompanyContact[];
-  /** Null when the token lacks the web-analytics scope; `visitsError` says so. */
+  /** Null when the portal tier lacks the events API; `visitsError` says so and `contacts` carry footprints. */
   visits: CompanyVisit[] | null;
   visitsError: string | null;
 };
@@ -407,7 +432,16 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
       method: "POST",
       body: {
         inputs: ids.map((id) => ({ id })),
-        properties: ["firstname", "lastname", "email", "jobtitle", "hs_analytics_last_timestamp", "hs_analytics_num_page_views"],
+        properties: [
+          "firstname",
+          "lastname",
+          "email",
+          "jobtitle",
+          "hs_analytics_last_timestamp",
+          "hs_analytics_num_page_views",
+          "hs_analytics_num_visits",
+          "hs_analytics_last_url",
+        ],
       },
       signal: params.signal,
     });
@@ -426,6 +460,8 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
           typeof p.hs_analytics_num_page_views === "string" && p.hs_analytics_num_page_views
             ? Number(p.hs_analytics_num_page_views)
             : null,
+        visits: num(p.hs_analytics_num_visits),
+        lastUrl: str(p.hs_analytics_last_url) ? pathOf(str(p.hs_analytics_last_url) as string) : null,
       };
     });
     contacts.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
@@ -456,7 +492,7 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
     visits = merged.slice(0, VISITS_TOTAL);
   } catch (err) {
     visits = null;
-    visitsError = err instanceof Error ? err.message : "Page-visit events could not be read.";
+    visitsError = friendlyVisitsError(err);
   }
 
   return { companyId: params.id, contacts, visits, visitsError };
@@ -474,6 +510,8 @@ export type CustomerJourney = {
   contactsChecked: number;
   visits: CompanyVisit[] | null;
   visitsError: string | null;
+  /** Recorded footprints of the checked contacts — always present, the fallback when `visits` is null. */
+  footprints: ContactFootprint[];
 };
 
 export type CustomerJourneys = {
@@ -516,6 +554,7 @@ export async function fetchCustomerJourneys(params: {
       contactsChecked: detail.contactsChecked,
       visits: detail.visits,
       visitsError: detail.visitsError,
+      footprints: detail.footprints,
     });
   }
 
@@ -525,7 +564,7 @@ export async function fetchCustomerJourneys(params: {
 async function fetchCompanyDetailLimited(
   id: string,
   signal?: AbortSignal,
-): Promise<{ contactsChecked: number; visits: CompanyVisit[] | null; visitsError: string | null }> {
+): Promise<{ contactsChecked: number; visits: CompanyVisit[] | null; visitsError: string | null; footprints: ContactFootprint[] }> {
   const assoc = await hubspotFetchJson<AssocResponse>({
     path: `/crm/v4/objects/companies/${encodeURIComponent(id)}/associations/contacts?limit=${JOURNEY_CONTACTS}`,
     signal,
@@ -534,22 +573,45 @@ async function fetchCompanyDetailLimited(
     .map((r) => r.toObjectId)
     .filter((v): v is number | string => v !== undefined)
     .map(String);
-  if (ids.length === 0) return { contactsChecked: 0, visits: [], visitsError: null };
+  if (ids.length === 0) return { contactsChecked: 0, visits: [], visitsError: null, footprints: [] };
 
   const batch = await hubspotFetchJson<BatchRead>({
     path: "/crm/v3/objects/contacts/batch/read",
     method: "POST",
-    body: { inputs: ids.map((cid) => ({ id: cid })), properties: ["firstname", "lastname", "email"] },
+    body: {
+      inputs: ids.map((cid) => ({ id: cid })),
+      properties: [
+        "firstname",
+        "lastname",
+        "email",
+        "hs_analytics_last_url",
+        "hs_analytics_last_timestamp",
+        "hs_analytics_num_page_views",
+        "hs_analytics_num_visits",
+      ],
+    },
     signal,
   });
   const names = new Map<string, string>();
+  const footprints: ContactFootprint[] = [];
   for (const r of batch.results ?? []) {
     const p = r.properties ?? {};
     const first = typeof p.firstname === "string" ? p.firstname : "";
     const last = typeof p.lastname === "string" ? p.lastname : "";
     const email = typeof p.email === "string" ? p.email : "";
-    names.set(r.id ?? "", `${first} ${last}`.trim() || email || `Contact ${r.id}`);
+    const name = `${first} ${last}`.trim() || email || `Contact ${r.id}`;
+    names.set(r.id ?? "", name);
+    const lastUrl = str(p.hs_analytics_last_url);
+    footprints.push({
+      contact: name,
+      contactId: r.id ?? "",
+      lastUrl: lastUrl ? pathOf(lastUrl) : null,
+      lastSeen: str(p.hs_analytics_last_timestamp),
+      pageViews: num(p.hs_analytics_num_page_views),
+      visits: num(p.hs_analytics_num_visits),
+    });
   }
+  footprints.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
 
   try {
     const merged: CompanyVisit[] = [];
@@ -571,13 +633,9 @@ async function fetchCompanyDetailLimited(
       }
     }
     merged.sort((a, b) => b.at.localeCompare(a.at));
-    return { contactsChecked: ids.length, visits: merged, visitsError: null };
+    return { contactsChecked: ids.length, visits: merged, visitsError: null, footprints };
   } catch (err) {
-    return {
-      contactsChecked: ids.length,
-      visits: null,
-      visitsError: err instanceof Error ? err.message : "Page-visit events could not be read.",
-    };
+    return { contactsChecked: ids.length, visits: null, visitsError: friendlyVisitsError(err), footprints };
   }
 }
 

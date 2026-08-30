@@ -74,9 +74,29 @@ export default function JourneysPage() {
                         {c.lastSeen && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>on site {ago(c.lastSeen)}</Typography>}
                       </Box>
                       {c.visits === null ? (
-                        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-                          HubSpot refused the page-visit events: {c.visitsError}
-                        </Typography>
+                        <Box sx={{ mt: 0.5 }}>
+                          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 1 }}>{c.visitsError}</Typography>
+                          {c.footprints.filter((f) => f.lastUrl).length === 0 ? (
+                            <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+                              No recorded footprint on the {c.contactsChecked || "associated"} contact{c.contactsChecked === 1 ? "" : "s"} checked.
+                            </Typography>
+                          ) : (
+                            <Box sx={{ display: "grid", gap: 0.4 }}>
+                              {c.footprints.filter((f) => f.lastUrl).map((f) => (
+                                <Box key={f.contactId} sx={{ display: "flex", gap: 1.25, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, pb: 0.4 }}>
+                                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, minWidth: 74, fontVariantNumeric: "tabular-nums" }}>{f.lastSeen ? ago(f.lastSeen) : "—"}</Typography>
+                                  <Box sx={{ minWidth: 0 }}>
+                                    <Typography sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflowWrap: "anywhere" }}>{f.lastUrl}</Typography>
+                                    <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
+                                      last page seen{f.pageViews !== null ? ` · ${full(f.pageViews)} page views all-time` : ""}{f.visits !== null ? ` · ${full(f.visits)} visits` : ""}
+                                    </Typography>
+                                  </Box>
+                                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, ml: "auto", whiteSpace: "nowrap" }}>{f.contact}</Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          )}
+                        </Box>
                       ) : c.visits.length === 0 ? (
                         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
                           No page-visit events on the {c.contactsChecked || "associated"} contact{c.contactsChecked === 1 ? "" : "s"} checked.

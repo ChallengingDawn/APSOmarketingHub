@@ -111,9 +111,25 @@ function CompanyDetailPanel({ id }: { id: string }) {
           Pages these people looked at
         </Typography>
         {d.visits === null ? (
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            HubSpot refused the page-visit events: {d.visitsError}
-          </Typography>
+          <Box>
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1 }}>{d.visitsError}</Typography>
+            {d.contacts.filter((c) => c.lastUrl).length === 0 ? (
+              <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No recorded footprint on the associated contacts.</Typography>
+            ) : (
+              <Box sx={{ display: "grid", gap: 0.4 }}>
+                {d.contacts.filter((c) => c.lastUrl).map((c) => (
+                  <Box key={c.id} sx={{ display: "flex", gap: 1.25, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, pb: 0.4 }}>
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED, minWidth: 76, fontVariantNumeric: "tabular-nums" }}>{c.lastSeen ? ago(c.lastSeen) : "—"}</Typography>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflowWrap: "anywhere" }}>{c.lastUrl}</Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>last page seen{c.pageViews !== null ? ` · ${full(c.pageViews)} page views all-time` : ""}</Typography>
+                    </Box>
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED, ml: "auto", whiteSpace: "nowrap" }}>{c.name}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
         ) : d.visits.length === 0 ? (
           <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No page-visit events on the associated contacts.</Typography>
         ) : (
