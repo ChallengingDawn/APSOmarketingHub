@@ -1,24 +1,20 @@
 "use client";
 
-// The chrome the five Analytics sub-apps share: the rail, the window switch,
-// the section card, and the three honest data states. Nothing in this file
-// computes a figure — it only frames what the reports returned.
+// The chrome the Analytics sub-apps share — and, because they are the same
+// shapes, the Live and Customers pages borrow them too: the rail, the section
+// card, and the three honest data states. Nothing in this file computes a
+// figure; it only frames what a report returned.
 
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CircularProgress from "@mui/material/CircularProgress";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import { WINDOWS, type Held, type WindowDays } from "./AnalyticsData";
+import type { Held } from "./AnalyticsData";
 import type { IntegrationResult } from "./integrationApi";
 
 export const NAVY = "#274e64";
@@ -97,44 +93,6 @@ export function SubNav() {
   );
 }
 
-/* ── window switch ─────────────────────────────────────────────────────── */
-
-export function WindowSwitch({
-  windowDays,
-  onChange,
-  loading,
-  onReload,
-}: {
-  windowDays: WindowDays;
-  onChange: (d: WindowDays) => void;
-  loading: boolean;
-  onReload: () => void;
-}) {
-  return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      {loading && <CircularProgress size={14} sx={{ color: MUTED }} />}
-      <ToggleButtonGroup
-        size="small"
-        exclusive
-        value={windowDays}
-        onChange={(_, v: WindowDays | null) => v && onChange(v)}
-        aria-label="Reporting window"
-      >
-        {WINDOWS.map((w) => (
-          <ToggleButton key={w} value={w} sx={{ px: 1.5 }}>
-            {w} days
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
-      <Tooltip title="Reload every report">
-        <IconButton size="small" onClick={onReload} aria-label="Reload">
-          <RefreshIcon sx={{ fontSize: 18, color: MUTED }} />
-        </IconButton>
-      </Tooltip>
-    </Box>
-  );
-}
-
 /* ── page furniture ────────────────────────────────────────────────────── */
 
 export function SubAppHead({ title, purpose }: { title: string; purpose: string }) {
@@ -148,13 +106,7 @@ export function SubAppHead({ title, purpose }: { title: string; purpose: string 
   );
 }
 
-export function Section({
-  children,
-  sx,
-}: {
-  children: ReactNode;
-  sx?: Record<string, unknown>;
-}) {
+export function Section({ children, sx }: { children: ReactNode; sx?: Record<string, unknown> }) {
   return (
     <Box
       sx={{
@@ -172,9 +124,7 @@ export function Section({
 }
 
 export function SourceNote({ children }: { children: ReactNode }) {
-  return (
-    <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 3 }}>{children}</Typography>
-  );
+  return <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 3 }}>{children}</Typography>;
 }
 
 /* ── the three honest states ───────────────────────────────────────────── */
@@ -235,7 +185,9 @@ export function UpstreamPanel({
           {source} did not answer{status ? ` (HTTP ${status})` : ""}
         </Typography>
       </Box>
-      <Typography sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "0.78rem", color: INK, whiteSpace: "pre-wrap" }}>
+      <Typography
+        sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "0.78rem", color: INK, whiteSpace: "pre-wrap" }}
+      >
         {error}
       </Typography>
       <Button onClick={onRetry} size="small" variant="outlined" sx={{ mt: 1.5 }}>

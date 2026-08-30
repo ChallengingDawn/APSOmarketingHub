@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
+import { fetchCompaniesActiveOnSite, fetchContactsCreated } from "@/lib/integrations/hubspotJourney";
+import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -23,6 +25,15 @@ export async function GET(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS * 2);
   try {
+    if (req.nextUrl.searchParams.get("report") === "journey") {
+      const { from, to } = rangeParams(req.nextUrl.searchParams);
+      const range = resolveRange({ days, from, to }, 365);
+      const [companies, contacts] = await Promise.all([
+        fetchCompaniesActiveOnSite({ from: range.startDate, to: range.endDate, signal: controller.signal }),
+        fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal }),
+      ]);
+      return NextResponse.json({ configured: true, ok: true, data: { companies, contacts } });
+    }
     if (req.nextUrl.searchParams.get("report") === "weekly") {
       const rawWeeks = Number.parseInt(req.nextUrl.searchParams.get("weeks") ?? "", 10);
       const weekly = await fetchHubspotWeekly({

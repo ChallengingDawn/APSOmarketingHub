@@ -3,6 +3,7 @@
 // null rather than becoming a zero the UI would present as fact.
 
 import { googleFetchJson } from "./google";
+import { resolveRange } from "./dateRange";
 import { ga4PropertyId } from "./status";
 
 export const GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
@@ -94,20 +95,22 @@ async function runReport(
 
 export async function fetchGa4Overview(params: {
   days?: number;
+  from?: string;
+  to?: string;
   signal?: AbortSignal;
 }): Promise<Ga4Overview> {
-  const requested = Number.isFinite(params.days) ? Math.floor(params.days as number) : 28;
-  const days = Math.min(Math.max(requested, 1), MAX_DAYS);
+  const resolved = resolveRange({ days: params.days, from: params.from, to: params.to }, MAX_DAYS);
+  const days = resolved.days;
 
   const propertyId = ga4PropertyId();
-  const dateRanges = [{ startDate: `${days}daysAgo`, endDate: "today" }];
+  const dateRanges = [{ startDate: resolved.startDate, endDate: resolved.endDate }];
   const coreMetricNames = [
     { name: "sessions" },
     { name: "totalUsers" },
     { name: "engagementRate" },
   ];
 
-  const previousRanges = [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }];
+  const previousRanges = [resolved.previous];
 
   const [totalsRes, previousRes, dailyRes, landingRes, channelRes] = await Promise.all([
     runReport(

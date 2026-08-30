@@ -18,13 +18,11 @@ import Box from "@mui/material/Box";
 import Collapse from "@mui/material/Collapse";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CircularProgress from "@mui/material/CircularProgress";
 import CloudDone from "@mui/icons-material/CloudDone";
 import ExpandMore from "@mui/icons-material/ExpandMore";
 
-import { useSeoData, type WindowDays } from "./SeoData";
+import { useSeoData } from "./SeoData";
 import {
   DISPLAY,
   HAIRLINE,
@@ -140,15 +138,14 @@ export function SubNav({ counts }: { counts: NavCounts }) {
 /* ── window switch + connected property ────────────────────────────────── */
 
 export function WindowSwitch({
-  windowDays,
-  onChange,
   loading,
   siteUrl,
+  picker,
 }: {
-  windowDays: WindowDays;
-  onChange: (days: WindowDays) => void;
   loading: boolean;
   siteUrl: string | null;
+  /** The hub-wide reporting window picker — the same one Analytics shows. */
+  picker: ReactNode;
 }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -184,30 +181,7 @@ export function WindowSwitch({
           </Box>
         </Tooltip>
       )}
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={windowDays}
-        onChange={(_, v: WindowDays | null) => {
-          if (v !== null) onChange(v);
-        }}
-        sx={{
-          bgcolor: "#fff",
-          "& .MuiToggleButton-root": {
-            textTransform: "none",
-            fontSize: "0.78rem",
-            fontWeight: 600,
-            color: MUTED,
-            borderColor: HAIRLINE,
-            px: 1.75,
-            py: 0.6,
-          },
-          "& .Mui-selected": { bgcolor: `${NAVY} !important`, color: "#fff !important" },
-        }}
-      >
-        <ToggleButton value={28}>28 days</ToggleButton>
-        <ToggleButton value={90}>90 days</ToggleButton>
-      </ToggleButtonGroup>
+      {picker}
     </Box>
   );
 }

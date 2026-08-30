@@ -10,6 +10,7 @@
 import { googleFetchJson } from "./google";
 import { ga4PropertyId } from "./status";
 import { GA4_SCOPE } from "./ga4";
+import { resolveRange } from "./dateRange";
 
 const DATA_API = "https://analyticsdata.googleapis.com/v1beta";
 const MAX_DAYS = 365;
@@ -135,13 +136,15 @@ function normaliseKey(dimension: string, value: string): string {
 export async function fetchGa4Report(params: {
   name: Ga4ReportName;
   days?: number;
+  from?: string;
+  to?: string;
   signal?: AbortSignal;
 }): Promise<Ga4TableReport> {
   const spec = GA4_REPORTS[params.name];
-  const requested = Number.isFinite(params.days) ? Math.floor(params.days as number) : 28;
-  const days = Math.min(Math.max(requested, 1), MAX_DAYS);
+  const resolved = resolveRange({ days: params.days, from: params.from, to: params.to }, MAX_DAYS);
+  const days = resolved.days;
   const propertyId = ga4PropertyId();
-  const range = { startDate: `${days}daysAgo`, endDate: "today" };
+  const range = { startDate: resolved.startDate, endDate: resolved.endDate };
 
   const res = await googleFetchJson<RunReportResponse>({
     url: `${DATA_API}/properties/${encodeURIComponent(propertyId)}:runReport`,

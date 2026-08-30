@@ -30,7 +30,8 @@ import {
 } from "./analysis";
 import { buildWorkQueue, type SourceInput, type WorkQueueResult } from "./queue";
 
-export type WindowDays = 28 | 90;
+/** Inclusive length of the shared reporting window, in days. */
+export type WindowDays = number;
 
 /** The pairs call resolves to exactly one of these — never a partial guess. */
 export type CannibalisationState =

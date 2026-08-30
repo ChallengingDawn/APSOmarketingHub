@@ -250,10 +250,10 @@ async function requestGsc(url: string, signal?: AbortSignal): Promise<RawResult>
 }
 
 export async function fetchGsc(
-  params: { dimension: GscDimension; days: number },
+  params: { dimension: GscDimension; from: string; to: string },
   signal?: AbortSignal,
 ): Promise<GscApiResponse> {
-  const raw = await requestGsc(`/api/integrations/gsc?dimension=${params.dimension}&days=${params.days}`, signal);
+  const raw = await requestGsc(`/api/integrations/gsc?dimension=${params.dimension}&from=${params.from}&to=${params.to}`, signal);
   if (raw.kind === "failure") {
     return { configured: true, ok: false, error: raw.error, status: raw.status };
   }
@@ -261,8 +261,8 @@ export async function fetchGsc(
 }
 
 /** Query+page pairs for one window — at most GSC_PAIR_ROW_LIMIT rows. */
-export async function fetchGscPairs(params: { days: number }, signal?: AbortSignal): Promise<GscPairApiResponse> {
-  const raw = await requestGsc(`/api/integrations/gsc?pairs=1&days=${params.days}`, signal);
+export async function fetchGscPairs(params: { from: string; to: string }, signal?: AbortSignal): Promise<GscPairApiResponse> {
+  const raw = await requestGsc(`/api/integrations/gsc?pairs=1&from=${params.from}&to=${params.to}`, signal);
   if (raw.kind === "failure") {
     return { configured: true, ok: false, error: raw.error, status: raw.status };
   }

@@ -15,6 +15,8 @@ import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
+import SensorsIcon from "@mui/icons-material/Sensors";
+import HandshakeIcon from "@mui/icons-material/Handshake";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
@@ -73,20 +75,17 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "Search & AI Visibility",
-    icon: <TravelExploreIcon />,
-    color: "#34c759",
-    items: [
-      { label: "SEO Cockpit", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
-      { label: "GEO Readiness", href: "/geo", icon: <ManageSearchIcon fontSize="small" />, badge: "New" },
-    ],
-  },
-  {
+    // Everything that reads a live source lives here — one category, so the
+    // reader never wonders whether search data counts as intelligence.
     title: "Intelligence",
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
       { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+      { label: "SEO Cockpit", href: "/seo", icon: <TravelExploreIcon fontSize="small" /> },
+      { label: "GEO Readiness", href: "/geo", icon: <ManageSearchIcon fontSize="small" /> },
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
+      { label: "Customers", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
     ],
   },
   {

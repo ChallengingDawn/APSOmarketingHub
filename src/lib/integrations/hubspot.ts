@@ -49,7 +49,7 @@ function extractHubspotError(payload: string): string | null {
   return trimmed ? trimmed.slice(0, 400) : null;
 }
 
-async function hubspotFetchJson<T>(req: {
+export async function hubspotFetchJson<T>(req: {
   path: string;
   method?: "GET" | "POST";
   body?: unknown;
@@ -108,7 +108,7 @@ export async function fetchHubspotAccount(signal?: AbortSignal): Promise<Hubspot
   };
 }
 
-async function searchTotal(
+export async function searchTotal(
   object: "contacts" | "companies",
   body: Record<string, unknown>,
   signal?: AbortSignal,

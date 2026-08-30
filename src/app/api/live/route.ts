@@ -1,41 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { fetchGa4Overview } from "@/lib/integrations/ga4";
-import { fetchGa4Report, isGa4ReportName } from "@/lib/integrations/ga4Reports";
-import { rangeParams } from "@/lib/integrations/dateRange";
+import { fetchGa4Realtime } from "@/lib/integrations/ga4Realtime";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
+import { hubActivity } from "@/lib/hubActivity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TIMEOUT_MS = 15_000;
 
+// ?source=shop → GA4 realtime for the property (last 30 minutes)
+// ?source=hub  → this app's own audit trail (last 60 minutes)
+// Same three-state envelope as every integration route.
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Missing credentials is a normal state the UI renders as "Connect", not an error.
+  const source = req.nextUrl.searchParams.get("source") ?? "shop";
+
+  if (source === "hub") {
+    try {
+      const data = await hubActivity(60);
+      return NextResponse.json({ configured: true, ok: true, data });
+    } catch (err) {
+      const { error, status } = describeIntegrationError(err);
+      return NextResponse.json({ configured: true, ok: false, error, status });
+    }
+  }
+
   const status = integrationStatus().ga4;
   if (!status.configured) {
     return NextResponse.json({ configured: false, missing: status.missing, detail: status.detail });
   }
 
-  const rawDays = Number.parseInt(req.nextUrl.searchParams.get("days") ?? "", 10);
-  const days = Number.isFinite(rawDays) ? rawDays : 28;
-  const { from, to } = rangeParams(req.nextUrl.searchParams);
-
-  // ?report=<name> runs one named report; without it the overview is returned.
-  const rawReport = req.nextUrl.searchParams.get("report");
-  if (rawReport !== null && !isGa4ReportName(rawReport)) {
-    return NextResponse.json({ configured: true, ok: false, error: `Unknown report "${rawReport}".`, status: 400 });
-  }
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const data = isGa4ReportName(rawReport)
-      ? await fetchGa4Report({ name: rawReport, days, from, to, signal: controller.signal })
-      : await fetchGa4Overview({ days, from, to, signal: controller.signal });
+    const data = await fetchGa4Realtime(controller.signal);
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {
     const { error, status: upstreamStatus } = describeIntegrationError(err);

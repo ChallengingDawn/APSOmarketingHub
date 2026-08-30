@@ -2,6 +2,7 @@
 import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
+import { ReportingWindowProvider } from "./window/ReportingWindow";
 
 /**
  * Routes whose page owns its own outer spacing get the shell's default padding;
@@ -59,7 +60,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           height: isFullBleed ? "100vh" : "auto",
         }}
       >
-        {children}
+        <ReportingWindowProvider>{children}</ReportingWindowProvider>
       </Box>
     </Box>
   );

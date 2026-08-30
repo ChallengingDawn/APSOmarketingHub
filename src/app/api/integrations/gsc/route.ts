@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchGscQueries, fetchGscQueryPagePairs, fetchGscSites, isGscDimension } from "@/lib/integrations/gsc";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
+import { rangeParams } from "@/lib/integrations/dateRange";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const rawDays = Number.parseInt(sp.get("days") ?? "", 10);
   const days = Number.isFinite(rawDays) ? rawDays : 28;
+  const { from, to } = rangeParams(sp);
   const rawDimension = sp.get("dimension");
   const dimension = isGscDimension(rawDimension) ? rawDimension : "query";
   const wantSites = sp.get("sites") === "1";
@@ -32,10 +34,10 @@ export async function GET(req: NextRequest) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     if (wantPairs) {
-      const pairs = await fetchGscQueryPagePairs({ days, signal: controller.signal });
+      const pairs = await fetchGscQueryPagePairs({ days, from, to, signal: controller.signal });
       return NextResponse.json({ configured: true, ok: true, data: pairs });
     }
-    const report = await fetchGscQueries({ days, dimension, signal: controller.signal });
+    const report = await fetchGscQueries({ days, from, to, dimension, signal: controller.signal });
     // The verified-property list is what tells a user their site string is wrong.
     const sites = wantSites ? await fetchGscSites(controller.signal) : undefined;
     return NextResponse.json({ configured: true, ok: true, data: { ...report, sites } });

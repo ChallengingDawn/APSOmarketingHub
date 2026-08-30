@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import PageHeader from "@/app/PageHeader";
+import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 
 import { fetchGsc, fetchGscPairs } from "./gscClient";
 import {
@@ -36,7 +37,12 @@ import { SubNav, WindowSwitch, type NavCounts } from "./Shell";
 import { GUTTER } from "./ui";
 
 export default function SeoLayout({ children }: { children: ReactNode }) {
-  const [windowDays, setWindowDays] = useState<WindowDays>(28);
+  // The window is the hub-wide one; the previous equivalent window feeds the
+  // decay comparison, which needs twice the span ending on the same day.
+  const { window: win, days: windowDays, previous } = useReportingWindow();
+  const setWindowDays = (_days: WindowDays) => {
+    /* the picker in the header owns the window now */
+  };
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<SeoState>({ status: "loading" });
 
@@ -48,10 +54,10 @@ export default function SeoLayout({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const [queriesRes, pagesRes, extendedRes, pairsRes] = await Promise.all([
-          fetchGsc({ dimension: "query", days: windowDays }, controller.signal),
-          fetchGsc({ dimension: "page", days: windowDays }, controller.signal),
-          fetchGsc({ dimension: "page", days: windowDays * 2 }, controller.signal),
-          fetchGscPairs({ days: windowDays }, controller.signal),
+          fetchGsc({ dimension: "query", from: win.from, to: win.to }, controller.signal),
+          fetchGsc({ dimension: "page", from: win.from, to: win.to }, controller.signal),
+          fetchGsc({ dimension: "page", from: previous.from, to: win.to }, controller.signal),
+          fetchGscPairs({ from: win.from, to: win.to }, controller.signal),
         ]);
         if (!live) return;
         setState(reduceResponses(queriesRes, pagesRes, extendedRes, pairsRes));
@@ -70,7 +76,7 @@ export default function SeoLayout({ children }: { children: ReactNode }) {
       live = false;
       controller.abort();
     };
-  }, [windowDays, reloadKey]);
+  }, [win.from, win.to, previous.from, reloadKey]);
 
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -109,12 +115,9 @@ export default function SeoLayout({ children }: { children: ReactNode }) {
         title="SEO Cockpit"
         subtitle="Live Google Search Console — five focused sub-apps over one connection"
         rightSlot={
-          <WindowSwitch
-            windowDays={windowDays}
-            onChange={setWindowDays}
-            loading={loading}
-            siteUrl={data ? data.siteUrl : null}
-          />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <WindowSwitch loading={loading} siteUrl={data ? data.siteUrl : null} picker={<WindowPicker />} />
+          </Box>
         }
       />
 

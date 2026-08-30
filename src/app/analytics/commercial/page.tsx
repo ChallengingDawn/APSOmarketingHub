@@ -6,7 +6,7 @@
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
-import { metricOf, useAnalytics, useGa4Report, useHubspotWeekly, HUBSPOT_RECENT_DAYS } from "../AnalyticsData";
+import { metricOf, useAnalytics, useGa4Report, useHubspotWeekly } from "../AnalyticsData";
 import { Gate, Section, SourceNote, SubAppHead } from "../Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
@@ -38,7 +38,7 @@ export default function CommercialPage() {
                 <StatTile label="Companies in the CRM" value={compact(s.companies)} note="All-time, readable by this app" />
               </Grid>
               <Grid size={{ xs: 12, sm: 4 }}>
-                <StatTile label="New contacts" value={compact(s.newContacts)} note={`Created in the last ${s.days ?? HUBSPOT_RECENT_DAYS} days`} />
+                <StatTile label="New contacts" value={compact(s.newContacts)} note={`Created in the last ${s.days ?? windowDays} days`} />
               </Grid>
             </Grid>
           );

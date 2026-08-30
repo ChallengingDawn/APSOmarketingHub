@@ -4,6 +4,7 @@
 
 import { googleFetchJson } from "./google";
 import { gscSiteUrl } from "./status";
+import { resolveRange } from "./dateRange";
 
 export const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
@@ -51,11 +52,6 @@ type SitesResponse = {
   siteEntry?: { siteUrl?: string; permissionLevel?: string }[];
 };
 
-function isoDay(offsetDays: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - offsetDays);
-  return d.toISOString().slice(0, 10);
-}
 
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -67,19 +63,21 @@ export function isGscDimension(value: unknown): value is GscDimension {
 
 export async function fetchGscQueries(params: {
   days?: number;
+  from?: string;
+  to?: string;
   dimension?: GscDimension;
   rowLimit?: number;
   signal?: AbortSignal;
 }): Promise<GscReport> {
-  const requested = Number.isFinite(params.days) ? Math.floor(params.days as number) : 28;
-  const days = Math.min(Math.max(requested, 1), MAX_DAYS);
+  const resolved = resolveRange({ days: params.days, from: params.from, to: params.to }, MAX_DAYS);
+  const days = resolved.days;
   const dimension: GscDimension = params.dimension ?? "query";
   const rowLimit = Math.min(Math.max(params.rowLimit ?? DEFAULT_ROW_LIMIT, 1), MAX_ROW_LIMIT);
 
   const siteUrl = gscSiteUrl();
   // Search Console data lags ~2 days; asking through today simply yields fewer
   // rows for the tail rather than an error.
-  const range = { startDate: isoDay(days), endDate: isoDay(0) };
+  const range = { startDate: resolved.startDate, endDate: resolved.endDate };
 
   const res = await googleFetchJson<QueryResponse>({
     url: `${SEARCH_CONSOLE_API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
@@ -130,17 +128,19 @@ export type GscPairReport = {
  */
 export async function fetchGscQueryPagePairs(params: {
   days?: number;
+  from?: string;
+  to?: string;
   rowLimit?: number;
   signal?: AbortSignal;
 }): Promise<GscPairReport> {
-  const requested = Number.isFinite(params.days) ? Math.floor(params.days as number) : 28;
-  const days = Math.min(Math.max(requested, 1), MAX_DAYS);
+  const resolved = resolveRange({ days: params.days, from: params.from, to: params.to }, MAX_DAYS);
+  const days = resolved.days;
   // Cannibalisation lives in the long tail, so this needs far more rows than a
   // top-N table does.
   const rowLimit = Math.min(Math.max(params.rowLimit ?? PAIR_ROW_LIMIT, 1), MAX_ROW_LIMIT);
 
   const siteUrl = gscSiteUrl();
-  const range = { startDate: isoDay(days), endDate: isoDay(0) };
+  const range = { startDate: resolved.startDate, endDate: resolved.endDate };
 
   const res = await googleFetchJson<QueryResponse>({
     url: `${SEARCH_CONSOLE_API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,

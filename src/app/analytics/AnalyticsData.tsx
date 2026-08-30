@@ -1,10 +1,10 @@
 "use client";
 
-// One connection, five sub-apps. The provider owns the window and the GA4
-// overview; each sub-app asks for the named reports it needs through
-// useGa4Report, keyed on the same window so every figure on screen agrees.
-// While a window switch reloads, the previous result is held and flagged
-// stale rather than dropped — charts dim instead of collapsing.
+// One connection, five sub-apps. The provider reads the hub-wide reporting
+// window and owns the GA4 overview; each sub-app asks for the named reports
+// it needs through useGa4Report, keyed on the same window so every figure on
+// screen agrees. While a window change reloads, the previous result is held
+// and flagged stale rather than dropped — charts dim instead of collapsing.
 
 import {
   createContext,
@@ -15,6 +15,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
 import {
   fetchIntegration,
   type Ga4Overview,
@@ -26,16 +27,14 @@ import {
   type IntegrationResult,
 } from "./integrationApi";
 
-export const WINDOWS = [28, 90] as const;
-export type WindowDays = (typeof WINDOWS)[number];
-
-export const HUBSPOT_RECENT_DAYS = 30;
-
 export type Held<T> = { result: IntegrationResult<T> | null; stale: boolean };
 
 type Ctx = {
-  windowDays: WindowDays;
-  setWindowDays: (d: WindowDays) => void;
+  /** Inclusive length of the shared window, in days. */
+  windowDays: number;
+  windowLabel: string;
+  windowFrom: string;
+  windowTo: string;
   reloadKey: number;
   reload: () => void;
   overview: Held<Ga4Overview>;
@@ -45,7 +44,7 @@ type Ctx = {
 const AnalyticsContext = createContext<Ctx | null>(null);
 
 /** Fetch with hold-and-dim semantics: the last good result survives a refetch. */
-function useHeld<T>(url: string | null, deps: unknown[]): Held<T> {
+export function useHeld<T>(url: string | null, deps: unknown[]): Held<T> {
   const [held, setHeld] = useState<Held<T>>({ result: null, stale: false });
 
   useEffect(() => {
@@ -65,16 +64,27 @@ function useHeld<T>(url: string | null, deps: unknown[]): Held<T> {
 }
 
 export function AnalyticsProvider({ children }: { children: ReactNode }) {
-  const [windowDays, setWindowDays] = useState<WindowDays>(28);
+  const { window: win, days, label } = useReportingWindow();
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => setReloadKey((n) => n + 1), []);
+  const q = windowQuery(win);
 
-  const overview = useHeld<Ga4Overview>(`/api/integrations/ga4?days=${windowDays}`, [windowDays, reloadKey]);
-  const hubspot = useHeld<HubspotPayload>(`/api/integrations/hubspot?days=${HUBSPOT_RECENT_DAYS}`, [reloadKey]);
+  const overview = useHeld<Ga4Overview>(`/api/integrations/ga4?${q}`, [q, reloadKey]);
+  // The CRM summary counts "new contacts" over the same span as the window.
+  const hubspot = useHeld<HubspotPayload>(`/api/integrations/hubspot?days=${days}`, [days, reloadKey]);
 
   const value = useMemo<Ctx>(
-    () => ({ windowDays, setWindowDays, reloadKey, reload, overview, hubspot }),
-    [windowDays, reloadKey, reload, overview, hubspot],
+    () => ({
+      windowDays: days,
+      windowLabel: label,
+      windowFrom: win.from,
+      windowTo: win.to,
+      reloadKey,
+      reload,
+      overview,
+      hubspot,
+    }),
+    [days, label, win.from, win.to, reloadKey, reload, overview, hubspot],
   );
 
   return <AnalyticsContext.Provider value={value}>{children}</AnalyticsContext.Provider>;
@@ -88,8 +98,11 @@ export function useAnalytics(): Ctx {
 
 /** A named GA4 report for the current window. */
 export function useGa4Report(name: Ga4ReportName): Held<Ga4TableReport> {
-  const { windowDays, reloadKey } = useAnalytics();
-  return useHeld<Ga4TableReport>(`/api/integrations/ga4?report=${name}&days=${windowDays}`, [name, windowDays, reloadKey]);
+  const { windowFrom, windowTo, reloadKey } = useAnalytics();
+  return useHeld<Ga4TableReport>(
+    `/api/integrations/ga4?report=${name}&from=${windowFrom}&to=${windowTo}`,
+    [name, windowFrom, windowTo, reloadKey],
+  );
 }
 
 export function useHubspotWeekly(weeks = 8): Held<HubspotWeekly> {
