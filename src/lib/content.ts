@@ -56,6 +56,39 @@ type ContentRow = {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
+/**
+ * A list row never carries the image bytes. Visuals are base64 data URLs that
+ * run to hundreds of kilobytes each, and a 200-row list was shipping all of
+ * them on every page load. Lists get a boolean and hand back a URL to the
+ * per-piece image endpoint instead; the full data URL is only returned by
+ * getContent() for a single piece.
+ */
+type ListRow = Omit<ContentRow, "image_url"> & { has_image: boolean };
+
+const LIST_COLUMNS = `id, channel, title, body, filters, status, created_by, scheduled_for, created_at, updated_at,
+       (image_url IS NOT NULL AND image_url <> '') AS has_image`;
+
+/** Stable per-version URL, so the browser may cache the bytes as immutable. */
+function imageRef(id: number, updatedAt: Date): string {
+  return `/api/content/${id}/image?v=${new Date(updatedAt).getTime()}`;
+}
+
+function toListItem(row: ListRow): ContentItem {
+  return {
+    id: row.id,
+    channel: row.channel,
+    title: row.title,
+    body: row.body,
+    imageUrl: row.has_image ? imageRef(row.id, row.updated_at) : null,
+    filters: row.filters,
+    status: isContentStatus(row.status) ? row.status : "draft",
+    createdBy: row.created_by,
+    scheduledFor: row.scheduled_for ? new Date(row.scheduled_for).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 function toItem(row: ContentRow): ContentItem {
   return {
     id: row.id,
@@ -105,14 +138,14 @@ export async function listContent(filter: ContentFilter = {}): Promise<ContentIt
   }
   const limit = Math.min(Math.max(Math.trunc(filter.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
   params.push(limit);
-  const r = await query<ContentRow>(
-    `SELECT * FROM apsomh_content
+  const r = await query<ListRow>(
+    `SELECT ${LIST_COLUMNS} FROM apsomh_content
      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY created_at DESC, id DESC
      LIMIT $${params.length}`,
     params
   );
-  return r.rows.map(toItem);
+  return r.rows.map(toListItem);
 }
 
 export async function getContent(id: number): Promise<ContentItem | null> {

@@ -61,6 +61,7 @@ export default function ContentThumb({
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={imageUrl}
+        decoding="async"
         alt={alt}
         loading="lazy"
         style={

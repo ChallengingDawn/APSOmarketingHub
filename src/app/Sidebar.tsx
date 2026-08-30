@@ -34,8 +34,6 @@ const RED = "#ed1b2f";
 
 interface NavSection {
   title: string;
-  /** One factual line about what the section holds — visible while collapsed. */
-  caption: string;
   icon: React.ReactNode;
   color: string;
   items: { label: string; href: string; icon: React.ReactNode; badge?: string }[];
@@ -54,7 +52,6 @@ interface NavSection {
 const navSections: NavSection[] = [
   {
     title: "Overview",
-    caption: "Where things stand — and the brain behind them",
     icon: <DashboardIcon />,
     color: "#274e64",
     items: [
@@ -66,7 +63,6 @@ const navSections: NavSection[] = [
   },
   {
     title: "AI Engine",
-    caption: "Generate, store and reuse content",
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [
@@ -78,7 +74,6 @@ const navSections: NavSection[] = [
   },
   {
     title: "Search & AI Visibility",
-    caption: "Rankings today, AI-answer readiness next",
     icon: <TravelExploreIcon />,
     color: "#34c759",
     items: [
@@ -88,7 +83,6 @@ const navSections: NavSection[] = [
   },
   {
     title: "Intelligence",
-    caption: "Live data — GA4, Search Console, HubSpot",
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
@@ -97,7 +91,6 @@ const navSections: NavSection[] = [
   },
   {
     title: "Governance",
-    caption: "Access, rules and the audit trail",
     icon: <SecurityIcon />,
     color: "#8e8e93",
     items: [
@@ -251,19 +244,6 @@ export default function Sidebar() {
                     }}
                   >
                     {section.title}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: 11.5,
-                      lineHeight: 1.35,
-                      color: "#6b7280",
-                      mt: 0.25,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {section.caption}
                   </Typography>
                 </Box>
                 <KeyboardArrowRightIcon
