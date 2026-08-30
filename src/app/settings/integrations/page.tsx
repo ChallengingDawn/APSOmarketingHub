@@ -13,6 +13,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import Collapse from "@mui/material/Collapse";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PageHeader from "@/app/PageHeader";
 import {
   fetchIntegration,
@@ -428,6 +430,9 @@ export default function IntegrationsSettingsPage() {
   // route the load balancer can always reach. "unknown" means the image was
   // built before CI started stamping it.
   const [build, setBuild] = useState<{ shortCommit: string; builtAt: string } | null>(null);
+  // The guide only matters when someone is adding a secret; the rest of the
+  // time it is a wall of text under the cards, so it stays folded.
+  const [guideOpen, setGuideOpen] = useState(false);
   const [outcomes, setOutcomes] = useState<Partial<Record<IntegrationKey, TestOutcome>>>({});
 
   const loadStatus = useCallback(() => {
@@ -607,6 +612,27 @@ export default function IntegrationsSettingsPage() {
 
       {/* ── Setup guide ── */}
       <Box
+        onClick={() => setGuideOpen((v) => !v)}
+        role="button"
+        aria-expanded={guideOpen}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          cursor: "pointer",
+          userSelect: "none",
+          px: 0.5,
+          py: 1,
+          color: MUTED,
+        }}
+      >
+        <ExpandMoreIcon sx={{ fontSize: 20, transform: guideOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+        <Typography sx={{ fontSize: "0.82rem", fontWeight: 600 }}>
+          Adding or rotating a secret? Open the setup guide
+        </Typography>
+      </Box>
+      <Collapse in={guideOpen} unmountOnExit>
+      <Box
         sx={{
           border: `1px solid ${HAIRLINE}`,
           borderRadius: 2,
@@ -633,11 +659,11 @@ export default function IntegrationsSettingsPage() {
             <Typography sx={{ ...LABEL_SX, mb: 2 }}>AWS — every variable</Typography>
 
             <GuideStep index={1} title="Create the Secrets Manager secret">
-              Name it <Secret name="apso-dev/<NAME>" /> — for example{" "}
-              <Secret name="apso-dev/GOOGLE_SERVICE_ACCOUNT" />,{" "}
-              <Secret name="apso-dev/GA4_PROPERTY_ID" />, <Secret name="apso-dev/GSC_SITE_URL" />,{" "}
-              <Secret name="apso-dev/HUBSPOT_TOKEN" />. Store the raw value (for Google, the whole
-              service-account JSON).
+              Name it <Secret name="apso-dev/<NAME>" />. Two are needed:{" "}
+              <Secret name="apso-dev/GOOGLE_SERVICE_ACCOUNT" /> and <Secret name="apso-dev/HUBSPOT_TOKEN" />.
+              Store the raw value as <strong>plaintext</strong>, not key/value (for Google, the whole
+              service-account JSON). <Secret name="GA4_PROPERTY_ID" /> and <Secret name="GSC_SITE_URL" /> are
+              optional and default correctly — create them only if the property or site ever changes.
             </GuideStep>
 
             <GuideStep index={2} title="Add it to the ECS task definition">
@@ -738,6 +764,7 @@ export default function IntegrationsSettingsPage() {
           </Grid>
         </Grid>
       </Box>
+      </Collapse>
     </Box>
   );
 }
