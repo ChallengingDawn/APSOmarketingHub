@@ -446,3 +446,121 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
 
   return { companyId: params.id, contacts, visits, visitsError };
 }
+
+/* ── the journeys of actual customers ──────────────────────────────────── */
+
+export type CustomerJourney = {
+  id: string;
+  name: string | null;
+  domain: string | null;
+  segment: string | null;
+  priority: string | null;
+  lastSeen: string | null;
+  contactsChecked: number;
+  visits: CompanyVisit[] | null;
+  visitsError: string | null;
+};
+
+export type CustomerJourneys = {
+  from: string;
+  to: string;
+  /** How many customer-segment companies were active; journeys cover the first `companies.length`. */
+  customersActive: number;
+  companies: CustomerJourney[];
+};
+
+const JOURNEY_COMPANIES = 4;
+const JOURNEY_CONTACTS = 2;
+const JOURNEY_VISITS_EACH = 6;
+
+/**
+ * The most recently active companies in a customer segment, each with the
+ * pages their people actually opened. Everything runs sequentially — this is
+ * many small calls against a rate-limited API, and slower-but-answers beats
+ * fast-but-429.
+ */
+export async function fetchCustomerJourneys(params: {
+  from: string;
+  to: string;
+  signal?: AbortSignal;
+}): Promise<CustomerJourneys> {
+  const active = await fetchCompaniesActiveOnSite({ from: params.from, to: params.to, limit: 40, signal: params.signal });
+  const customers = active.rows.filter((r) => r.apsoCustomer && CUSTOMER_SEGMENT_VALUES.has(r.apsoCustomer));
+  const picked = customers.slice(0, JOURNEY_COMPANIES);
+
+  const companies: CustomerJourney[] = [];
+  for (const c of picked) {
+    const detail = await fetchCompanyDetailLimited(c.id, params.signal);
+    companies.push({
+      id: c.id,
+      name: c.name,
+      domain: c.domain,
+      segment: c.apsoCustomer,
+      priority: c.salesPriority,
+      lastSeen: c.lastSeen,
+      contactsChecked: detail.contactsChecked,
+      visits: detail.visits,
+      visitsError: detail.visitsError,
+    });
+  }
+
+  return { from: params.from, to: params.to, customersActive: customers.length, companies };
+}
+
+async function fetchCompanyDetailLimited(
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ contactsChecked: number; visits: CompanyVisit[] | null; visitsError: string | null }> {
+  const assoc = await hubspotFetchJson<AssocResponse>({
+    path: `/crm/v4/objects/companies/${encodeURIComponent(id)}/associations/contacts?limit=${JOURNEY_CONTACTS}`,
+    signal,
+  });
+  const ids = (assoc.results ?? [])
+    .map((r) => r.toObjectId)
+    .filter((v): v is number | string => v !== undefined)
+    .map(String);
+  if (ids.length === 0) return { contactsChecked: 0, visits: [], visitsError: null };
+
+  const batch = await hubspotFetchJson<BatchRead>({
+    path: "/crm/v3/objects/contacts/batch/read",
+    method: "POST",
+    body: { inputs: ids.map((cid) => ({ id: cid })), properties: ["firstname", "lastname", "email"] },
+    signal,
+  });
+  const names = new Map<string, string>();
+  for (const r of batch.results ?? []) {
+    const p = r.properties ?? {};
+    const first = typeof p.firstname === "string" ? p.firstname : "";
+    const last = typeof p.lastname === "string" ? p.lastname : "";
+    const email = typeof p.email === "string" ? p.email : "";
+    names.set(r.id ?? "", `${first} ${last}`.trim() || email || `Contact ${r.id}`);
+  }
+
+  try {
+    const merged: CompanyVisit[] = [];
+    for (const cid of ids) {
+      const ev = await hubspotFetchJson<EventsResponse>({
+        path: `/events/v3/events?objectType=contact&objectId=${encodeURIComponent(cid)}&eventType=e_visited_page&limit=${JOURNEY_VISITS_EACH}&sort=-occurredAt`,
+        signal,
+      });
+      for (const e of ev.results ?? []) {
+        if (!e.occurredAt || !e.properties?.hs_url) continue;
+        let path = e.properties.hs_url;
+        try {
+          path = new URL(e.properties.hs_url).pathname || "/";
+        } catch {
+          /* keep raw */
+        }
+        merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: names.get(cid) ?? "" });
+      }
+    }
+    merged.sort((a, b) => b.at.localeCompare(a.at));
+    return { contactsChecked: ids.length, visits: merged, visitsError: null };
+  } catch (err) {
+    return {
+      contactsChecked: ids.length,
+      visits: null,
+      visitsError: err instanceof Error ? err.message : "Page-visit events could not be read.",
+    };
+  }
+}

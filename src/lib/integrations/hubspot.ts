@@ -5,6 +5,25 @@
 import { IntegrationError, hubspotToken } from "./status";
 
 const API_BASE = "https://api.hubapi.com";
+
+// The CRM search endpoint enforces a hard per-second limit, and the customer
+// view legitimately needs a dozen counts. All search calls therefore flow
+// through one queue with a minimum spacing, and every call retries a 429
+// after the wait HubSpot asks for — the limit is a pace, not a quota.
+const SEARCH_MIN_INTERVAL_MS = 320;
+const RETRY_ATTEMPTS = 3;
+let searchChain: Promise<void> = Promise.resolve();
+let lastSearchAt = 0;
+
+function throttleSearch(): Promise<void> {
+  const turn = searchChain.then(async () => {
+    const wait = lastSearchAt + SEARCH_MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastSearchAt = Date.now();
+  });
+  searchChain = turn.catch(() => {});
+  return turn;
+}
 const DEFAULT_RECENT_DAYS = 30;
 const MAX_RECENT_DAYS = 365;
 
@@ -58,18 +77,27 @@ export async function hubspotFetchJson<T>(req: {
   const token = hubspotToken();
   if (!token) throw new IntegrationError("HUBSPOT_TOKEN is not set.");
 
-  const res = await fetch(`${API_BASE}${req.path}`, {
-    method: req.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(req.body === undefined ? {} : { "Content-Type": "application/json" }),
-    },
-    body: req.body === undefined ? undefined : JSON.stringify(req.body),
-    signal: req.signal,
-    cache: "no-store",
-  });
-
-  const text = await res.text();
+  let res: Response | null = null;
+  let text = "";
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    if (req.path.includes("/search")) await throttleSearch();
+    res = await fetch(`${API_BASE}${req.path}`, {
+      method: req.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(req.body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      signal: req.signal,
+      cache: "no-store",
+    });
+    text = await res.text();
+    if (res.status !== 429 || attempt === RETRY_ATTEMPTS) break;
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1100 * attempt;
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  if (!res) throw new IntegrationError("HubSpot: no response.");
   if (!res.ok) {
     throw new IntegrationError(
       `HubSpot: ${extractHubspotError(text) ?? res.statusText}`,

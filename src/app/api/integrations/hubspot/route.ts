@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -23,17 +23,23 @@ export async function GET(req: NextRequest) {
   const days = Number.isFinite(rawDays) ? rawDays : 30;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS * 2);
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS * 4);
   try {
     if (req.nextUrl.searchParams.get("report") === "journey") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
-      const [companies, contacts, segments] = await Promise.all([
-        fetchCompaniesActiveOnSite({ from: range.startDate, to: range.endDate, signal: controller.signal }),
-        fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal }),
-        fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal }),
-      ]);
+      // Sequential on purpose: these fan out into many search calls, and the
+      // search endpoint's per-second limit punishes bursts with 429s.
+      const companies = await fetchCompaniesActiveOnSite({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      const contacts = await fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      const segments = await fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal });
       return NextResponse.json({ configured: true, ok: true, data: { companies, contacts, segments } });
+    }
+    if (req.nextUrl.searchParams.get("report") === "customerJourneys") {
+      const { from, to } = rangeParams(req.nextUrl.searchParams);
+      const range = resolveRange({ days, from, to }, 365);
+      const data = await fetchCustomerJourneys({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "companyDetail") {
       const id = req.nextUrl.searchParams.get("id") ?? "";

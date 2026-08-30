@@ -21,9 +21,8 @@ import IconButton from "@mui/material/IconButton";
 import Link from "@mui/material/Link";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import PageHeader from "@/app/PageHeader";
-import { WindowPicker, useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
-import { Gate, GUTTER, HAIRLINE, INK, MUTED, Section, SourceNote, SubAppHead, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
+import { Gate, HAIRLINE, INK, MUTED, Section, SourceNote, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { metricOf, useHeld } from "@/app/analytics/AnalyticsData";
 import type { Ga4TableReport } from "@/app/analytics/integrationApi";
 import { StatTile } from "@/app/charts/StatTile";
@@ -163,13 +162,7 @@ export default function CustomersPage() {
   }, [landing.result]);
 
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
-      <PageHeader
-        title="Customers"
-        subtitle="What the companies and contacts behind the traffic are doing — HubSpot's web tracking beside GA4, over the same window"
-        rightSlot={<WindowPicker />}
-      />
-
+    <Box>
       <Gate held={journey} source="HubSpot" loadingLabel="Reading who was on the site…" onRetry={retry}>
         {(data, stale) => {
           const c = data.companies;

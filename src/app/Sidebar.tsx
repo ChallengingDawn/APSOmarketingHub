@@ -17,6 +17,18 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import HandshakeIcon from "@mui/icons-material/Handshake";
+import GroupsIcon from "@mui/icons-material/Groups";
+import RouteIcon from "@mui/icons-material/Route";
+import QueryStatsIcon from "@mui/icons-material/QueryStats";
+import BoltIcon from "@mui/icons-material/Bolt";
+import CallSplitIcon from "@mui/icons-material/CallSplit";
+import TrendingDownIcon from "@mui/icons-material/TrendingDown";
+import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
+import ArticleIcon from "@mui/icons-material/Article";
+import PublicIcon from "@mui/icons-material/Public";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import BuildCircleIcon from "@mui/icons-material/BuildCircle";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
@@ -82,39 +94,46 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // Everything that reads a live source lives here — one category, so the
-    // reader never wonders whether search data counts as intelligence.
     title: "Intelligence",
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
       { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
       { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
-      {
-        label: "SEO Cockpit",
-        href: "/seo",
-        icon: <TravelExploreIcon fontSize="small" />,
-        children: [
-          { label: "Performance", href: "/seo" },
-          { label: "Quick wins", href: "/seo/quick-wins" },
-          { label: "Cannibalisation", href: "/seo/cannibalisation" },
-          { label: "Decay", href: "/seo/decay" },
-          { label: "Work queue", href: "/seo/work-queue" },
-        ],
-      },
-      {
-        label: "GEO Readiness",
-        href: "/geo",
-        icon: <ManageSearchIcon fontSize="small" />,
-        children: [
-          { label: "Readiness", href: "/geo" },
-          { label: "Content audit", href: "/geo/content" },
-          { label: "Live pages", href: "/geo/live" },
-          { label: "Competitors", href: "/geo/competitors" },
-          { label: "Fix queue", href: "/geo/fix-queue" },
-        ],
-      },
-      { label: "Customers", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "SEO",
+    icon: <TravelExploreIcon />,
+    color: "#34c759",
+    items: [
+      { label: "Performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
+      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
+      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
+      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
+      { label: "Work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "GEO",
+    icon: <ManageSearchIcon />,
+    color: "#1baf7a",
+    items: [
+      { label: "Readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
+      { label: "Content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
+      { label: "Live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
+      { label: "Competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
+      { label: "Fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "Customers",
+    icon: <HandshakeIcon />,
+    color: "#b4690e",
+    items: [
+      { label: "Overview", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
+      { label: "Visitors", href: "/customers/visitors", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Journeys", href: "/customers/journeys", icon: <RouteIcon fontSize="small" /> },
     ],
   },
   {
