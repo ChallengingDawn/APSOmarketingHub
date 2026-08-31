@@ -112,7 +112,6 @@ function CompanyDetailPanel({ id }: { id: string }) {
         </Typography>
         {d.visits === null ? (
           <Box>
-            <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1 }}>{d.visitsError}</Typography>
             {d.contacts.filter((c) => c.lastUrl).length === 0 ? (
               <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No recorded footprint on the associated contacts.</Typography>
             ) : (
@@ -238,7 +237,7 @@ export default function CustomersPage() {
                   <StatTile label="Priority 1 companies on the site" value={compact(prio1?.count ?? null)} note={prio1 ? prio1.label : "sales_priority from HubSpot"} />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                  <StatTile label="Contacts created" value={compact(k.total)} note={`In the window · ${k.aggregated} analysed below`} />
+                  <StatTile label="Contacts created" value={compact(k.total)} note="Created in the window · exact portal count" />
                 </Grid>
               </Grid>
 
@@ -431,7 +430,7 @@ export default function CustomersPage() {
                   <Section sx={{ height: "100%" }}>
                     <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>Sessions in, contacts out — by channel</Typography>
                     <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>
-                      GA4 sessions per channel beside the contacts HubSpot attributes to the matching original source. The rate is contacts per 1,000 sessions.
+                      GA4 sessions per channel beside the contacts HubSpot attributes to the matching original source — exact portal counts for the window. The rate is contacts per 1,000 sessions.
                     </Typography>
                     <Box sx={{ overflowX: "auto" }}>
                       <Table size="small">
@@ -483,7 +482,7 @@ export default function CustomersPage() {
                   <Section sx={{ height: "100%" }}>
                     <ChartFrame
                       title="Contacts by lifecycle stage"
-                      caption={`Of the ${k.aggregated} contacts analysed · labels from the portal's own stages`}
+                      caption="Exact portal counts per stage · labels from the portal's own stages"
                       stale={stale}
                       empty={k.byLifecycle.length === 0 ? "No contacts in the window." : null}
                       table={{ columns: ["Stage", "Contacts"], numeric: [1], rows: k.byLifecycle.map((s) => [s.stage, full(s.count)]) }}

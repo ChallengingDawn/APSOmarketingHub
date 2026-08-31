@@ -32,9 +32,8 @@ export type AnalyticsRouteId = "overview" | "acquisition" | "content" | "audienc
 export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string; purpose: string }[] = [
   { id: "overview", href: "/analytics", label: "Overview", purpose: "How the site is doing" },
   { id: "acquisition", href: "/analytics/acquisition", label: "Acquisition", purpose: "Where visitors come from" },
-  { id: "content", href: "/analytics/content", label: "Content", purpose: "What they read and land on" },
   { id: "audience", href: "/analytics/audience", label: "Audience", purpose: "Who they are" },
-  { id: "commercial", href: "/analytics/commercial", label: "Commercial", purpose: "What turns into business" },
+  { id: "commercial", href: "/analytics/new-customers", label: "New customers", purpose: "Who just arrived, and what they become" },
 ];
 
 function isActive(pathname: string, href: string): boolean {

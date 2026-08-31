@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -64,6 +64,37 @@ export async function GET(req: NextRequest) {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
       const data = await fetchCustomerJourneys({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "recentPeople") {
+      const sp = req.nextUrl.searchParams;
+      const rawLimit = Number.parseInt(sp.get("limit") ?? "", 10);
+      const rawMinutes = Number.parseInt(sp.get("minutes") ?? "", 10);
+      const minutes = Number.isFinite(rawMinutes) ? Math.min(Math.max(rawMinutes, 5), 24 * 60) : undefined;
+      const { from, to } = rangeParams(sp);
+      const range = minutes ? null : resolveRange({ days, from, to }, 365);
+      const data = await fetchRecentPeople({
+        from: range?.startDate,
+        to: range?.endDate,
+        sinceMinutes: minutes,
+        limit: Number.isFinite(rawLimit) ? rawLimit : 12,
+        signal: controller.signal,
+      });
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "pageAudience") {
+      const raw = req.nextUrl.searchParams.get("path") ?? "";
+      let path = "";
+      try {
+        path = decodeURIComponent(raw);
+      } catch {
+        path = raw;
+      }
+      if (!path.startsWith("/") || path.length > 300 || !/^[\w\-./%~:+()]{1,300}$/.test(path)) {
+        return NextResponse.json({ configured: true, ok: false, error: "pageAudience needs a plain site path.", status: 400 });
+      }
+      const rawLimit = Number.parseInt(req.nextUrl.searchParams.get("limit") ?? "", 10);
+      const data = await fetchPageAudience({ path, limit: Number.isFinite(rawLimit) ? rawLimit : 12, signal: controller.signal });
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "companyDetail") {

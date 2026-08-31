@@ -9,9 +9,9 @@
  *
  *   /analytics               Overview      how the site is doing
  *   /analytics/acquisition   Acquisition   where visitors come from
- *   /analytics/content       Content       what they read and land on
+
  *   /analytics/audience      Audience      who they are
- *   /analytics/commercial    Commercial    what turns into business
+ *   /analytics/new-customers New customers who just arrived, and what they become
  */
 
 import type { ReactNode } from "react";

@@ -9,6 +9,9 @@
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import Link from "@mui/material/Link";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useState } from "react";
 import { useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
 import { Gate, INK, MUTED, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
@@ -19,9 +22,21 @@ import { BarList } from "@/app/charts/BarList";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { ShareBar } from "@/app/charts/ShareBar";
 import { compact, full, percent } from "@/app/charts/format";
-import type { Audience, ContactsCreated, SegmentCounts } from "@/lib/integrations/hubspotJourney";
+import type { ActiveCompanies, Audience, ContactsCreated, RecentPeople, SegmentCounts } from "@/lib/integrations/hubspotJourney";
 
 type Journey = { contacts: ContactsCreated; segments: SegmentCounts };
+
+const HS_PORTAL = "26492587";
+const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
+const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
+
+function agoShort(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
 
 export default function VisitorsPage() {
   const { window: win, days, label } = useReportingWindow();
@@ -34,6 +49,8 @@ export default function VisitorsPage() {
   const channels = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=acquisitionChannels&${q}`, [q, tick]);
   const journey = useHeld<Journey>(`/api/integrations/hubspot?report=journey&${q}`, [q, tick]);
   const audience = useHeld<Audience>(`/api/integrations/hubspot?report=audience&${q}`, [q, tick]);
+  const people = useHeld<RecentPeople>(`/api/integrations/hubspot?report=recentPeople&limit=10&${q}`, [q, tick]);
+  const knownCompanies = useHeld<ActiveCompanies>(`/api/integrations/hubspot?report=companies&limit=8&${q}`, [q, tick]);
 
   return (
     <Box>
@@ -175,6 +192,77 @@ export default function VisitorsPage() {
                   </Section>
                 </Grid>
               </Grid>
+
+              <Section sx={{ mt: 2.5 }}>
+                <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK, mb: 0.25 }}>
+                  Who we can name — and who stays anonymous
+                </Typography>
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 2 }}>
+                  GA4 counted {compact(visitors)} people in the window.{" "}
+                  {audience.result?.state === "ok" ? `HubSpot can put a name on ${full(audience.result.data.activeContacts)} contacts` : "HubSpot's named count is still loading"}
+                  {knownCompanies.result?.state === "ok" && knownCompanies.result.data.total !== null ? ` across ${full(knownCompanies.result.data.total)} companies` : ""}
+                  {" — everyone else browsed anonymously. The two systems measure differently, so the gap is an indication, not a subtraction."}
+                </Typography>
+                <Grid container spacing={2.5}>
+                  <Grid size={{ xs: 12, lg: 6 }}>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK, mb: 1 }}>
+                      People we know, most recent first
+                    </Typography>
+                    <Gate held={people} source="HubSpot" loadingLabel="Reading the named visitors…" onRetry={retry}>
+                      {(pp, pStale) => (
+                        <Box sx={{ opacity: pStale ? 0.7 : 1, display: "grid", gap: 0.5 }}>
+                          {pp.rows.length === 0 && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No identified contact had a session in the window.</Typography>}
+                          {pp.rows.map((p2) => (
+                            <Box key={p2.id} sx={{ display: "flex", gap: 1, alignItems: "baseline", borderBottom: "1px solid #e6e8ec", pb: 0.45, minWidth: 0 }}>
+                              <Link href={hsContactUrl(p2.id)} target="_blank" rel="noreferrer" sx={{ fontSize: "0.83rem", fontWeight: 600, color: "#274e64", textDecorationColor: "rgba(39,78,100,0.3)", whiteSpace: "nowrap" }}>
+                                {p2.name}
+                                <OpenInNewIcon sx={{ fontSize: 11, ml: 0.3, verticalAlign: "middle" }} />
+                              </Link>
+                              {p2.lifecycle && <Chip label={p2.lifecycle} size="small" sx={{ height: 18, fontSize: "0.64rem", bgcolor: "#eef0f3", color: "#3c4043", flexShrink: 0 }} />}
+                              {p2.lastUrl && (
+                                <Typography sx={{ fontSize: "0.74rem", color: MUTED, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
+                                  {p2.lastUrl}
+                                </Typography>
+                              )}
+                              <Typography sx={{ fontSize: "0.72rem", color: MUTED, ml: "auto", whiteSpace: "nowrap", flexShrink: 0 }}>
+                                {p2.lastSeen ? agoShort(p2.lastSeen) : ""}
+                              </Typography>
+                            </Box>
+                          ))}
+                          {pp.total !== null && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5 }}>{full(pp.total)} identified contacts in the window — the 10 most recent are listed.</Typography>}
+                        </Box>
+                      )}
+                    </Gate>
+                  </Grid>
+                  <Grid size={{ xs: 12, lg: 6 }}>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK, mb: 1 }}>
+                      Companies we know, most recent first
+                    </Typography>
+                    <Gate held={knownCompanies} source="HubSpot" loadingLabel="Reading the named companies…" onRetry={retry}>
+                      {(cc, cStale) => (
+                        <Box sx={{ opacity: cStale ? 0.7 : 1, display: "grid", gap: 0.5 }}>
+                          {cc.rows.length === 0 && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No identified company had a session in the window.</Typography>}
+                          {cc.rows.map((co) => (
+                            <Box key={co.id} sx={{ display: "flex", gap: 1, alignItems: "baseline", borderBottom: "1px solid #e6e8ec", pb: 0.45, minWidth: 0 }}>
+                              <Link href={hsCompanyUrl(co.id)} target="_blank" rel="noreferrer" sx={{ fontSize: "0.83rem", fontWeight: 600, color: "#274e64", textDecorationColor: "rgba(39,78,100,0.3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+                                {co.name ?? co.domain ?? co.id}
+                                <OpenInNewIcon sx={{ fontSize: 11, ml: 0.3, verticalAlign: "middle" }} />
+                              </Link>
+                              {co.apsoCustomer && co.apsoCustomer !== "true" && co.apsoCustomer !== "false" && (
+                                <Chip label={co.apsoCustomer} size="small" sx={{ height: 18, fontSize: "0.64rem", bgcolor: "#e3edf7", color: "#1b4a80", flexShrink: 0 }} />
+                              )}
+                              <Typography sx={{ fontSize: "0.72rem", color: MUTED, ml: "auto", whiteSpace: "nowrap", flexShrink: 0 }}>
+                                {co.lastSeen ? agoShort(co.lastSeen) : ""}
+                              </Typography>
+                            </Box>
+                          ))}
+                          {cc.total !== null && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5 }}>{full(cc.total)} identified companies in the window — the 8 most recent are listed. The full, filterable list lives on the Overview.</Typography>}
+                        </Box>
+                      )}
+                    </Gate>
+                  </Grid>
+                </Grid>
+              </Section>
 
               <SourceNote>
                 Sources: GA4 totals, key events and channel key-event rates; HubSpot contact and company counts on

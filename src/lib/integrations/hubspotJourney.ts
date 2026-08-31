@@ -160,6 +160,22 @@ function pathOf(url: string): string {
 }
 
 /**
+ * A display-worthy path: no host, no query, no ;jsessionid, and token-looking
+ * segments (login referer blobs, session ids) shortened so real pages stay
+ * readable. Only cosmetic — grouping still uses the raw path.
+ */
+export function cleanPath(url: string): string {
+  let path = pathOf(url);
+  path = path.replace(/;jsessionid=[^/?#]*/i, "");
+  const segs = path.split("/").map((s) => {
+    if (s.length > 28 && /^[A-Za-z0-9+=~_-]+$/.test(s) && !s.includes(".")) return s.slice(0, 8) + "…";
+    return s;
+  });
+  path = segs.join("/");
+  return path || "/";
+}
+
+/**
  * Contacts created inside the window, aggregated by HubSpot's original
  * source, by the first page they were seen on, and by lifecycle stage.
  * Aggregation walks up to MAX_CONTACT_PAGES pages of results; `aggregated`
@@ -171,13 +187,49 @@ export async function fetchContactsCreated(params: {
   signal?: AbortSignal;
 }): Promise<ContactsCreated> {
   const { startMs, endMs } = bounds(params.from, params.to);
-  const bySource = new Map<string, number>();
+  const window = { startMs, endMs };
+
+  const countCreated = async (extra: { propertyName: string; operator: string; value: string } | null) => {
+    const filters = [
+      { propertyName: "createdate", operator: "GTE", value: String(startMs) },
+      { propertyName: "createdate", operator: "LT", value: String(endMs) },
+      ...(extra ? [extra] : []),
+    ];
+    const res = await hubspotFetchJson<{ total?: unknown }>({
+      path: "/crm/v3/objects/contacts/search",
+      method: "POST",
+      body: { filterGroups: [{ filters }], limit: 1, properties: [] },
+      signal: params.signal,
+    });
+    return total(res.total);
+  };
+
+  // Exact portal totals: one count per enumeration option, sequential to stay
+  // under the search endpoint's per-second limit. No sampling anywhere here.
+  const grandTotal = await countCreated(null);
+  const [sourceLabels, stageLabels] = [
+    await propertyLabels("contacts", "hs_analytics_source", params.signal).catch(() => new Map<string, string>()),
+    await propertyLabels("contacts", "lifecyclestage", params.signal).catch(() => new Map<string, string>()),
+  ];
+
+  const bySource: { source: string; count: number }[] = [];
+  for (const value of sourceLabels.size ? sourceLabels.keys() : ["ORGANIC_SEARCH", "DIRECT_TRAFFIC", "PAID_SEARCH", "REFERRALS", "OFFLINE"]) {
+    const count = await countCreated({ propertyName: "hs_analytics_source", operator: "EQ", value });
+    if (count !== null && count > 0) bySource.push({ source: value, count });
+  }
+  const byLifecycle: { stage: string; count: number }[] = [];
+  for (const [value, label] of stageLabels) {
+    const count = await countCreated({ propertyName: "lifecyclestage", operator: "EQ", value });
+    if (count !== null && count > 0) byLifecycle.push({ stage: label, count });
+  }
+  bySource.sort((a, b) => b.count - a.count);
+  byLifecycle.sort((a, b) => b.count - a.count);
+
+  // First-seen URLs have no enumeration, so this one stays a most-recent
+  // sample — `aggregated` says exactly how many contacts it covers.
   const byUrl = new Map<string, number>();
-  const byStage = new Map<string, number>();
-  let grandTotal: number | null = null;
   let aggregated = 0;
   let after: string | undefined;
-
   for (let page = 0; page < MAX_CONTACT_PAGES; page++) {
     const res = await hubspotFetchJson<SearchResponse<ContactProps>>({
       path: "/crm/v3/objects/contacts/search",
@@ -186,51 +238,39 @@ export async function fetchContactsCreated(params: {
         filterGroups: [
           {
             filters: [
-              { propertyName: "createdate", operator: "GTE", value: String(startMs) },
-              { propertyName: "createdate", operator: "LT", value: String(endMs) },
+              { propertyName: "createdate", operator: "GTE", value: String(window.startMs) },
+              { propertyName: "createdate", operator: "LT", value: String(window.endMs) },
             ],
           },
         ],
         sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
-        properties: ["hs_analytics_source", "hs_analytics_first_url", "lifecyclestage"],
+        properties: ["hs_analytics_first_url"],
         limit: SEARCH_PAGE,
         ...(after ? { after } : {}),
       },
       signal: params.signal,
     });
-    if (grandTotal === null) grandTotal = total(res.total);
     for (const r of res.results ?? []) {
-      const p = r.properties ?? {};
       aggregated += 1;
-      const source = str(p.hs_analytics_source) ?? "UNKNOWN";
-      bySource.set(source, (bySource.get(source) ?? 0) + 1);
-      const first = str(p.hs_analytics_first_url);
+      const first = str((r.properties ?? {}).hs_analytics_first_url);
       if (first) {
         const path = pathOf(first);
         byUrl.set(path, (byUrl.get(path) ?? 0) + 1);
       }
-      const stage = str(p.lifecyclestage) ?? "unknown";
-      byStage.set(stage, (byStage.get(stage) ?? 0) + 1);
     }
     after = res.paging?.next?.after;
     if (!after) break;
   }
 
-  const desc = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
-
-  // Custom lifecycle stages come back as numeric ids; show their labels.
-  const stageLabels = await propertyLabels("contacts", "lifecyclestage", params.signal).catch(
-    () => new Map<string, string>(),
-  );
-
   return {
     total: grandTotal,
     aggregated,
-    bySource: desc(bySource).map(([source, count]) => ({ source, count })),
-    byFirstUrl: desc(byUrl)
+    bySource,
+    byFirstUrl: [...byUrl.entries()]
+      .sort((a, b) => b[1] - a[1])
       .slice(0, 25)
       .map(([url, count]) => ({ url, count })),
-    byLifecycle: desc(byStage).map(([stage, count]) => ({ stage: stageLabels.get(stage) ?? stage, count })),
+    byLifecycle,
     from: params.from,
     to: params.to,
   };
@@ -391,9 +431,21 @@ export type ContactFootprint = {
 const EVENTS_TIER_MESSAGE =
   "HubSpot's per-visit event stream needs an Enterprise subscription this portal doesn't include — showing each person's recorded footprint instead.";
 
+/** After a tier refusal, skip further events calls for a while — they would all fail identically. */
+let eventsBlockedUntil = 0;
+const EVENTS_BLOCK_MS = 10 * 60 * 1000;
+
+function eventsBlocked(): boolean {
+  return Date.now() < eventsBlockedUntil;
+}
+
 function friendlyVisitsError(err: unknown): string {
   const msg = err instanceof Error ? err.message : "Page-visit events could not be read.";
-  return /event-detail-read|web-analytics-api-access/i.test(msg) ? EVENTS_TIER_MESSAGE : msg;
+  if (/event-detail-read|web-analytics-api-access/i.test(msg)) {
+    eventsBlockedUntil = Date.now() + EVENTS_BLOCK_MS;
+    return EVENTS_TIER_MESSAGE;
+  }
+  return msg;
 }
 
 export type CompanyVisit = { at: string; url: string; title: string | null; contact: string };
@@ -461,7 +513,7 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
             ? Number(p.hs_analytics_num_page_views)
             : null,
         visits: num(p.hs_analytics_num_visits),
-        lastUrl: str(p.hs_analytics_last_url) ? pathOf(str(p.hs_analytics_last_url) as string) : null,
+        lastUrl: str(p.hs_analytics_last_url) ? cleanPath(str(p.hs_analytics_last_url) as string) : null,
       };
     });
     contacts.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
@@ -469,6 +521,11 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
 
   let visits: CompanyVisit[] | null = [];
   let visitsError: string | null = null;
+  if (eventsBlocked()) {
+    visits = null;
+    visitsError = EVENTS_TIER_MESSAGE;
+    return { companyId: params.id, contacts, visits, visitsError };
+  }
   try {
     const merged: CompanyVisit[] = [];
     for (const c of contacts.slice(0, VISITS_CONTACTS)) {
@@ -479,12 +536,7 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
       });
       for (const e of ev.results ?? []) {
         if (!e.occurredAt || !e.properties?.hs_url) continue;
-        let path = e.properties.hs_url;
-        try {
-          path = new URL(e.properties.hs_url).pathname || "/";
-        } catch {
-          /* keep raw */
-        }
+        const path = cleanPath(e.properties.hs_url);
         merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: c.name });
       }
     }
@@ -522,8 +574,8 @@ export type CustomerJourneys = {
   companies: CustomerJourney[];
 };
 
-const JOURNEY_COMPANIES = 4;
-const JOURNEY_CONTACTS = 2;
+const JOURNEY_COMPANIES = 12;
+const JOURNEY_CONTACTS = 3;
 const JOURNEY_VISITS_EACH = 6;
 
 /**
@@ -537,7 +589,7 @@ export async function fetchCustomerJourneys(params: {
   to: string;
   signal?: AbortSignal;
 }): Promise<CustomerJourneys> {
-  const active = await fetchCompaniesActiveOnSite({ from: params.from, to: params.to, limit: 40, signal: params.signal });
+  const active = await fetchCompaniesActiveOnSite({ from: params.from, to: params.to, limit: 60, signal: params.signal });
   const customers = active.rows.filter((r) => r.apsoCustomer && CUSTOMER_SEGMENT_VALUES.has(r.apsoCustomer));
   const picked = customers.slice(0, JOURNEY_COMPANIES);
 
@@ -605,13 +657,15 @@ async function fetchCompanyDetailLimited(
     footprints.push({
       contact: name,
       contactId: r.id ?? "",
-      lastUrl: lastUrl ? pathOf(lastUrl) : null,
+      lastUrl: lastUrl ? cleanPath(lastUrl) : null,
       lastSeen: str(p.hs_analytics_last_timestamp),
       pageViews: num(p.hs_analytics_num_page_views),
       visits: num(p.hs_analytics_num_visits),
     });
   }
   footprints.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
+
+  if (eventsBlocked()) return { contactsChecked: ids.length, visits: null, visitsError: EVENTS_TIER_MESSAGE, footprints };
 
   try {
     const merged: CompanyVisit[] = [];
@@ -623,12 +677,7 @@ async function fetchCompanyDetailLimited(
       });
       for (const e of ev.results ?? []) {
         if (!e.occurredAt || !e.properties?.hs_url) continue;
-        let path = e.properties.hs_url;
-        try {
-          path = new URL(e.properties.hs_url).pathname || "/";
-        } catch {
-          /* keep raw */
-        }
+        const path = cleanPath(e.properties.hs_url);
         merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: names.get(cid) ?? "" });
       }
     }
@@ -693,4 +742,147 @@ export async function fetchAudience(params: {
   }
   byLifecycle.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
   return { activeContacts, byLifecycle, from: params.from, to: params.to };
+}
+
+/* ── people on the site: recent, and by page ───────────────────────────── */
+
+export type PersonRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  lifecycle: string | null;
+  lastUrl: string | null;
+  lastSeen: string | null;
+  pageViews: number | null;
+};
+
+export type RecentPeople = {
+  total: number | null;
+  rows: PersonRow[];
+  from: string | null;
+  to: string | null;
+  sinceMinutes: number | null;
+};
+
+const PERSON_PROPS = [
+  "firstname",
+  "lastname",
+  "email",
+  "lifecyclestage",
+  "hs_analytics_last_url",
+  "hs_analytics_last_timestamp",
+  "hs_analytics_num_page_views",
+];
+
+function personOf(r: { id?: string; properties?: Record<string, unknown> }, stageLabels: Map<string, string>): PersonRow {
+  const p = r.properties ?? {};
+  const first = typeof p.firstname === "string" ? p.firstname : "";
+  const last = typeof p.lastname === "string" ? p.lastname : "";
+  const email = str(p.email);
+  const stage = str(p.lifecyclestage);
+  const lastUrl = str(p.hs_analytics_last_url);
+  return {
+    id: r.id ?? "",
+    name: `${first} ${last}`.trim() || email || `Contact ${r.id}`,
+    email,
+    lifecycle: stage ? stageLabels.get(stage) ?? stage : null,
+    lastUrl: lastUrl ? cleanPath(lastUrl) : null,
+    lastSeen: str(p.hs_analytics_last_timestamp),
+    pageViews: num(p.hs_analytics_num_page_views),
+  };
+}
+
+/**
+ * Contacts most recently seen on the site — inside the reporting window, or
+ * (for the live view) inside the last `sinceMinutes` minutes.
+ */
+export async function fetchRecentPeople(params: {
+  from?: string;
+  to?: string;
+  sinceMinutes?: number;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<RecentPeople> {
+  const limit = Math.min(Math.max(params.limit ?? 12, 1), 25);
+  const filters: { propertyName: string; operator: string; value: string }[] = [];
+  if (params.sinceMinutes) {
+    filters.push({
+      propertyName: "hs_analytics_last_timestamp",
+      operator: "GTE",
+      value: String(Date.now() - params.sinceMinutes * 60_000),
+    });
+  } else if (params.from && params.to) {
+    const { startMs, endMs } = bounds(params.from, params.to);
+    filters.push(
+      { propertyName: "hs_analytics_last_timestamp", operator: "GTE", value: String(startMs) },
+      { propertyName: "hs_analytics_last_timestamp", operator: "LT", value: String(endMs) },
+    );
+  } else {
+    throw new Error("fetchRecentPeople needs a window or sinceMinutes.");
+  }
+  const stageLabels = await propertyLabels("contacts", "lifecyclestage", params.signal).catch(
+    () => new Map<string, string>(),
+  );
+  const res = await hubspotFetchJson<SearchResponse<Record<string, unknown>>>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: {
+      filterGroups: [{ filters }],
+      sorts: [{ propertyName: "hs_analytics_last_timestamp", direction: "DESCENDING" }],
+      properties: PERSON_PROPS,
+      limit,
+    },
+    signal: params.signal,
+  });
+  return {
+    total: total(res.total),
+    rows: (res.results ?? []).map((r) => personOf(r, stageLabels)),
+    from: params.from ?? null,
+    to: params.to ?? null,
+    sinceMinutes: params.sinceMinutes ?? null,
+  };
+}
+
+export type PageAudience = {
+  path: string;
+  /** The token the search matched on — the page's last meaningful segment. */
+  token: string;
+  total: number | null;
+  rows: PersonRow[];
+};
+
+/**
+ * Contacts whose LAST recorded page matches this page. HubSpot only remembers
+ * one URL per contact (last-touch), so this understates a page's audience —
+ * the caption in the UI says so. Matching is on the path's last meaningful
+ * segment so /de-CH/ and /fr-CH/ variants of the same product all count.
+ */
+export async function fetchPageAudience(params: { path: string; limit?: number; signal?: AbortSignal }): Promise<PageAudience> {
+  const limit = Math.min(Math.max(params.limit ?? 12, 1), 25);
+  const segs = params.path.split("/").filter(Boolean);
+  let token = (segs[segs.length - 1] ?? "").replace(/\.html?$/i, "");
+  if (token.length < 4) token = segs.join("/");
+  if (!token) return { path: params.path, token: "", total: null, rows: [] };
+  const stageLabels = await propertyLabels("contacts", "lifecyclestage", params.signal).catch(
+    () => new Map<string, string>(),
+  );
+  const res = await hubspotFetchJson<SearchResponse<Record<string, unknown>>>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: {
+      filterGroups: [
+        { filters: [{ propertyName: "hs_analytics_last_url", operator: "CONTAINS_TOKEN", value: `*${token}*` }] },
+      ],
+      sorts: [{ propertyName: "hs_analytics_last_timestamp", direction: "DESCENDING" }],
+      properties: PERSON_PROPS,
+      limit,
+    },
+    signal: params.signal,
+  });
+  return {
+    path: params.path,
+    token,
+    total: total(res.total),
+    rows: (res.results ?? []).map((r) => personOf(r, stageLabels)),
+  };
 }

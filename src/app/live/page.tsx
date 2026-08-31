@@ -10,6 +10,9 @@ import Grid from "@mui/material/Grid";
 import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
+import Link from "@mui/material/Link";
+import Chip from "@mui/material/Chip";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PageHeader from "@/app/PageHeader";
 import { Gate, GUTTER, HAIRLINE, INK, MUTED, Section, SourceNote } from "@/app/analytics/Shell";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -21,6 +24,10 @@ import { ACCENT, CHROME, DEEMPHASIS } from "@/app/charts/palette";
 import { WorldMap } from "./WorldMap";
 import type { Ga4Realtime } from "@/lib/integrations/ga4Realtime";
 import type { HubActivity } from "@/lib/hubActivity";
+import type { RecentPeople } from "@/lib/integrations/hubspotJourney";
+
+const HS_PORTAL = "26492587";
+const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
 
 const REFRESH_MS = 30_000;
 
@@ -73,6 +80,7 @@ export default function LivePage() {
 
   const shop = useHeld<LiveShop>("/api/live?source=shop", [tick]);
   const hub = useHeld<HubActivity>("/api/live?source=hub", [tick]);
+  const identified = useHeld<RecentPeople>("/api/integrations/hubspot?report=recentPeople&minutes=60&limit=10", [tick]);
 
   const fetchedAt = useMemo(() => (shop.result?.state === "ok" ? shop.result.data.fetchedAt : null), [shop.result]);
 
@@ -170,6 +178,43 @@ export default function LivePage() {
       </Gate>
 
       <Section sx={{ mt: 2.5 }}>
+        <Gate held={identified} source="HubSpot" loadingLabel="Asking HubSpot who it can name…" onRetry={refresh}>
+          {(data, stale) => (
+            <Box sx={{ opacity: stale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>Identified on the site — last 60 minutes</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>
+                The GA4 dots above are anonymous. These are the contacts HubSpot could name in the last hour, each with the last
+                page it recorded for them — two rulers, shown side by side, never joined.
+              </Typography>
+              {data.rows.length === 0 ? (
+                <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>HubSpot identified nobody on the site in the last hour.</Typography>
+              ) : (
+                <Box sx={{ display: "grid", gap: 0.5 }}>
+                  {data.rows.map((p) => (
+                    <Box key={p.id} sx={{ display: "flex", gap: 1.25, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, pb: 0.5, minWidth: 0 }}>
+                      <Link href={hsContactUrl(p.id)} target="_blank" rel="noreferrer" sx={{ fontSize: "0.85rem", fontWeight: 600, color: "#274e64", textDecorationColor: "rgba(39,78,100,0.3)", whiteSpace: "nowrap" }}>
+                        {p.name}
+                        <OpenInNewIcon sx={{ fontSize: 11, ml: 0.3, verticalAlign: "middle" }} />
+                      </Link>
+                      {p.lifecycle && <Chip label={p.lifecycle} size="small" sx={{ height: 18, fontSize: "0.64rem", bgcolor: "#eef0f3", color: "#3c4043", flexShrink: 0 }} />}
+                      {p.lastUrl && (
+                        <Typography sx={{ fontSize: "0.78rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
+                          {p.lastUrl}
+                        </Typography>
+                      )}
+                      <Typography sx={{ fontSize: "0.74rem", color: MUTED, ml: "auto", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        {p.lastSeen ? ago(p.lastSeen) : ""}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </Gate>
+      </Section>
+
+      <Section sx={{ mt: 2.5 }}>
         <Gate held={hub} source="The hub's audit trail" loadingLabel="Reading hub activity…" onRetry={refresh}>
           {(data, stale) => (
             <Box sx={{ opacity: stale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
@@ -207,7 +252,7 @@ export default function LivePage() {
 
       <SourceNote>
         Shop: GA4 realtime report for property {shop.result?.state === "ok" ? shop.result.data.propertyId : "…"}, last 30 minutes, refreshed every 30 s while this page is open. Hub: the
-        apsomh_audit table. Nothing here is estimated, modelled or sampled.
+        apsomh_audit table. Identified: HubSpot contacts whose last recorded session is under an hour old. Nothing here is estimated, modelled or sampled.
       </SourceNote>
     </Box>
   );

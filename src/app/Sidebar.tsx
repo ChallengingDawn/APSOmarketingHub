@@ -39,6 +39,10 @@ import PsychologyIcon from "@mui/icons-material/Psychology";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import LanguageIcon from "@mui/icons-material/Language";
+import LayersIcon from "@mui/icons-material/Layers";
+import AdsClickIcon from "@mui/icons-material/AdsClick";
+import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
@@ -94,12 +98,23 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: "Website",
+    icon: <LanguageIcon />,
+    color: "#5e5ce6",
+    items: [
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
+      { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
+    ],
+  },
+  {
     title: "Intelligence",
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
-      { label: "Analytics", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+      { label: "Overview", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
+      { label: "Acquisition", href: "/analytics/acquisition", icon: <AdsClickIcon fontSize="small" /> },
+      { label: "Audience", href: "/analytics/audience", icon: <GroupsIcon fontSize="small" /> },
+      { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
     ],
   },
   {

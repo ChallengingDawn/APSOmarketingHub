@@ -53,7 +53,7 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     dimensions: ["pagePath"],
     metrics: ["screenPageViews", "sessions", "engagementRate", "averageSessionDuration"],
     orderBy: { metric: "screenPageViews", desc: true },
-    limit: 25,
+    limit: 50,
   },
   landingPages: {
     dimensions: ["landingPagePlusQueryString"],
