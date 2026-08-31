@@ -21,6 +21,7 @@ import type { CustomerJourneys } from "@/lib/integrations/hubspotJourney";
 
 const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
+const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
 
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -37,9 +38,20 @@ const SEGMENT_TONES: Record<string, { bg: string; fg: string }> = {
   "Growth Engine Customer": { bg: "#e5f3ea", fg: "#155d33" },
 };
 
-type Track = { at: string | null; url: string; person: string; meta: string | null };
+type Track = { at: string | null; url: string; urlFull: string | null; person: string; personHref: string | null; meta: string | null };
+
+const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 function TrackRow({ t }: { t: Track }) {
+  const pathSx = {
+    fontSize: "0.8rem",
+    color: INK,
+    fontFamily: MONO,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    display: "block",
+  } as const;
   return (
     <Box
       sx={{
@@ -55,24 +67,35 @@ function TrackRow({ t }: { t: Track }) {
       <Typography sx={{ fontSize: "0.72rem", color: MUTED, minWidth: 66, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
         {t.at ? ago(t.at) : "—"}
       </Typography>
-      <Tooltip title={t.url} placement="top-start">
+      <Tooltip title={t.urlFull ?? t.url} placement="top-start">
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography
-            sx={{
-              fontSize: "0.8rem",
-              color: INK,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {t.url}
-          </Typography>
+          {t.urlFull ? (
+            <Link
+              href={`https://www.apsoparts.com${t.urlFull}`}
+              target="_blank"
+              rel="noreferrer"
+              sx={{ ...pathSx, textDecoration: "none", "&:hover": { textDecoration: "underline", textDecorationColor: "rgba(39,78,100,0.45)" } }}
+            >
+              {t.url}
+            </Link>
+          ) : (
+            <Typography sx={pathSx}>{t.url}</Typography>
+          )}
           {t.meta && <Typography sx={{ fontSize: "0.68rem", color: MUTED }}>{t.meta}</Typography>}
         </Box>
       </Tooltip>
-      <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", flexShrink: 0 }}>{t.person}</Typography>
+      {t.personHref ? (
+        <Link
+          href={t.personHref}
+          target="_blank"
+          rel="noreferrer"
+          sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", flexShrink: 0, textDecorationColor: "rgba(91,100,112,0.4)" }}
+        >
+          {t.person}
+        </Link>
+      ) : (
+        <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", flexShrink: 0 }}>{t.person}</Typography>
+      )}
     </Box>
   );
 }
@@ -97,7 +120,7 @@ export default function JourneysPage() {
           <Box sx={{ opacity: stale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
             <Typography sx={{ fontSize: "0.84rem", color: MUTED, mb: 2 }}>
               {full(data.customersActive)} customer-segment companies were active in the window — the {data.companies.length} most
-              recent are followed here, through up to three people each. Every row is a real record; nothing is extrapolated.
+              recent are followed here, through up to five people each. Every row is a real record; nothing is extrapolated.
             </Typography>
 
             <Grid container spacing={2}>
@@ -107,13 +130,15 @@ export default function JourneysPage() {
                 // recorded footprint otherwise — one unified track list.
                 const tracks: Track[] =
                   c.visits && c.visits.length > 0
-                    ? c.visits.map((v) => ({ at: v.at, url: v.url, person: v.contact, meta: v.title }))
+                    ? c.visits.map((v) => ({ at: v.at, url: v.url, urlFull: v.urlFull, person: v.contact, personHref: null, meta: v.title }))
                     : c.footprints
                         .filter((f) => f.lastUrl)
                         .map((f) => ({
                           at: f.lastSeen,
                           url: f.lastUrl as string,
+                          urlFull: f.lastUrlFull,
                           person: f.contact,
+                          personHref: f.contactId ? hsContactUrl(f.contactId) : null,
                           meta: [
                             "last page seen",
                             f.pageViews !== null ? `${full(f.pageViews)} views all-time` : null,

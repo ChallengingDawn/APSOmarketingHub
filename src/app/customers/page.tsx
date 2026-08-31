@@ -120,7 +120,11 @@ function CompanyDetailPanel({ id }: { id: string }) {
                   <Box key={c.id} sx={{ display: "flex", gap: 1.25, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, pb: 0.4 }}>
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, minWidth: 76, fontVariantNumeric: "tabular-nums" }}>{c.lastSeen ? ago(c.lastSeen) : "—"}</Typography>
                     <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflowWrap: "anywhere" }}>{c.lastUrl}</Typography>
+                      {c.lastUrlFull ? (
+                        <Link href={`https://www.apsoparts.com${c.lastUrlFull}`} target="_blank" rel="noreferrer" sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflowWrap: "anywhere", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{c.lastUrl}</Link>
+                      ) : (
+                        <Typography sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflowWrap: "anywhere" }}>{c.lastUrl}</Typography>
+                      )}
                       <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>last page seen{c.pageViews !== null ? ` · ${full(c.pageViews)} page views all-time` : ""}</Typography>
                     </Box>
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, ml: "auto", whiteSpace: "nowrap" }}>{c.name}</Typography>
@@ -136,7 +140,7 @@ function CompanyDetailPanel({ id }: { id: string }) {
             {d.visits.map((v, i) => (
               <Box key={i} sx={{ display: "flex", gap: 1.25, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, pb: 0.4 }}>
                 <Typography sx={{ fontSize: "0.74rem", color: MUTED, minWidth: 76, fontVariantNumeric: "tabular-nums" }}>{ago(v.at)}</Typography>
-                <Typography sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{v.url}</Typography>
+                <Link href={`https://www.apsoparts.com${v.urlFull}`} target="_blank" rel="noreferrer" sx={{ fontSize: "0.82rem", color: INK, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{v.url}</Link>
                 <Typography sx={{ fontSize: "0.76rem", color: MUTED, ml: "auto", whiteSpace: "nowrap" }}>{v.contact}</Typography>
               </Box>
             ))}

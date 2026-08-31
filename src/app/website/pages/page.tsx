@@ -21,7 +21,8 @@ import type { Ga4TableReport } from "@/app/analytics/integrationApi";
 import { StatTile } from "@/app/charts/StatTile";
 import { BarList } from "@/app/charts/BarList";
 import { ChartFrame } from "@/app/charts/ChartFrame";
-import { compact, full, percent } from "@/app/charts/format";
+import { TrendChart } from "@/app/charts/TrendChart";
+import { compact, dayLabel, full, percent } from "@/app/charts/format";
 import type { PageAudience } from "@/lib/integrations/hubspotJourney";
 
 const HS_PORTAL = "26492587";
@@ -53,6 +54,11 @@ export default function WebsitePagesPage() {
     selPath ? `/api/integrations/hubspot?report=pageAudience&path=${encodeURIComponent(selPath)}&limit=12` : null,
     [selPath],
   );
+  const trend = useHeld<Ga4TableReport>(
+    selPath ? `/api/integrations/ga4?report=pageTrend&path=${encodeURIComponent(selPath)}&${q}` : null,
+    [selPath, q, tick],
+  );
+  const landing = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=landingPages&${q}`, [q, tick]);
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
@@ -169,20 +175,59 @@ export default function WebsitePagesPage() {
                           </Link>
                         </Box>
                         {selRow ? (
-                          <Grid container spacing={1} sx={{ mb: 1.5 }}>
-                            <Grid size={{ xs: 6 }}>
-                              <StatTile label="Views" value={compact(views(selRow))} note={`${compact(sess(selRow))} sessions`} />
-                            </Grid>
-                            <Grid size={{ xs: 6 }}>
-                              <StatTile label="Engagement" value={percent(eng(selRow))} note={`${fmtDuration(dur(selRow))} avg session`} />
-                            </Grid>
-                          </Grid>
+                          (() => {
+                            const lres = landing.result;
+                            const landRow = lres?.state === "ok" ? lres.data.rows.find((r) => r.keys[0] === selPath) ?? null : null;
+                            const landSess = landRow && lres?.state === "ok" ? metricOf(lres.data, "sessions")(landRow) : null;
+                            const v = views(selRow);
+                            const s = sess(selRow);
+                            const vps = v !== null && s ? v / s : null;
+                            return (
+                              <Grid container spacing={1} sx={{ mb: 1.5 }}>
+                                <Grid size={{ xs: 6 }}>
+                                  <StatTile label="Views" value={compact(v)} note={`${compact(s)} sessions`} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                  <StatTile label="Engagement" value={percent(eng(selRow))} note={`${fmtDuration(dur(selRow))} avg session`} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                  <StatTile
+                                    label="Entered here"
+                                    value={compact(landSess)}
+                                    note={landSess === null ? "Not among the top landing pages this window" : "Sessions that started on this page"}
+                                  />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                  <StatTile label="Views / session" value={vps === null ? "—" : vps.toFixed(1)} note="How deep sessions go on it" />
+                                </Grid>
+                              </Grid>
+                            );
+                          })()
                         ) : (
                           <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>
                             This page has no GA4 row in the current window.
                           </Typography>
                         )}
 
+                        <Box sx={{ mb: 1.5 }}>
+                          <Gate held={trend} source="Google Analytics 4" loadingLabel="Charting this page's days…" onRetry={retry}>
+                            {(tr, tStale) => {
+                              const v = metricOf(tr, "screenPageViews");
+                              const pts = tr.rows.map((r) => ({ x: r.keys[0], value: v(r) }));
+                              return (
+                                <ChartFrame
+                                  title="Views per day"
+                                  caption={`This page only · ${pts.length} days`}
+                                  stale={tStale}
+                                  empty={pts.length < 2 ? "GA4 returned fewer than two days for this page." : null}
+                                  table={{ columns: ["Day", "Views"], numeric: [1], rows: tr.rows.map((r) => [dayLabel(r.keys[0]), full(v(r))]) }}
+                                >
+                                  <TrendChart data={pts} seriesLabel="Views" height={140} xFormat={dayLabel} />
+                                </ChartFrame>
+                              );
+                            }}
+                          </Gate>
+                        </Box>
                         <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK, mb: 0.25 }}>
                           Customers HubSpot can name on this page
                         </Typography>

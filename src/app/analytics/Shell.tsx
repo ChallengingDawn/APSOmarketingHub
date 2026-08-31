@@ -27,7 +27,7 @@ export const DISPLAY = "var(--font-outfit), var(--font-inter), sans-serif";
 
 /* ── the five siblings ─────────────────────────────────────────────────── */
 
-export type AnalyticsRouteId = "overview" | "acquisition" | "content" | "audience" | "commercial";
+export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial";
 
 export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string; purpose: string }[] = [
   { id: "overview", href: "/analytics", label: "Overview", purpose: "How the site is doing" },
@@ -49,7 +49,7 @@ export function SubNav() {
       aria-label="Analytics sub-apps"
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(5, 1fr)" },
+        gridTemplateColumns: { xs: "repeat(2, 1fr)", md: `repeat(${ANALYTICS_NAV.length}, 1fr)` },
         gap: 0.75,
         p: 0.75,
         mb: { xs: 3, md: 4 },
@@ -69,6 +69,8 @@ export function SubNav() {
             sx={{
               display: "flex",
               flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
               gap: 0.2,
               px: 1.75,
               py: 1.1,
@@ -197,9 +199,23 @@ export function UpstreamPanel({
 }
 
 export function LoadingPanel({ label }: { label: string }) {
+  // Held back 200ms and faded in: a fast answer never flashes a spinner, and
+  // a slow one appears calmly instead of whirling into place.
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 6, justifyContent: "center" }}>
-      <CircularProgress size={18} sx={{ color: NAVY }} />
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1.5,
+        py: 6,
+        minHeight: 150,
+        justifyContent: "center",
+        opacity: 0,
+        animation: "gateFadeIn 260ms ease 200ms forwards",
+        "@keyframes gateFadeIn": { to: { opacity: 1 } },
+      }}
+    >
+      <CircularProgress size={18} thickness={4.5} disableShrink sx={{ color: NAVY }} />
       <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>{label}</Typography>
     </Box>
   );

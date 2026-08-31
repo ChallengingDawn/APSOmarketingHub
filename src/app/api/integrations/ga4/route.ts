@@ -33,8 +33,22 @@ export async function GET(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    let pagePath: string | undefined;
+    if (rawReport === "pageTrend") {
+      const rawPath = req.nextUrl.searchParams.get("path") ?? "";
+      let decoded = "";
+      try {
+        decoded = decodeURIComponent(rawPath);
+      } catch {
+        decoded = rawPath;
+      }
+      if (!decoded.startsWith("/") || decoded.length > 300) {
+        return NextResponse.json({ configured: true, ok: false, error: "pageTrend needs a plain site path.", status: 400 });
+      }
+      pagePath = decoded;
+    }
     const data = isGa4ReportName(rawReport)
-      ? await fetchGa4Report({ name: rawReport, days, from, to, signal: controller.signal })
+      ? await fetchGa4Report({ name: rawReport, days, from, to, pagePath, signal: controller.signal })
       : await fetchGa4Overview({ days, from, to, signal: controller.signal });
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {

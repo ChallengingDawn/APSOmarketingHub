@@ -11,8 +11,9 @@ import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Link from "@mui/material/Link";
+import Button from "@mui/material/Button";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useReportingWindow, windowQuery } from "@/app/window/ReportingWindow";
 import { Gate, INK, MUTED, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
 import { metricOf, useHeld } from "@/app/analytics/AnalyticsData";
@@ -49,8 +50,17 @@ export default function VisitorsPage() {
   const channels = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=acquisitionChannels&${q}`, [q, tick]);
   const journey = useHeld<Journey>(`/api/integrations/hubspot?report=journey&${q}`, [q, tick]);
   const audience = useHeld<Audience>(`/api/integrations/hubspot?report=audience&${q}`, [q, tick]);
-  const people = useHeld<RecentPeople>(`/api/integrations/hubspot?report=recentPeople&limit=10&${q}`, [q, tick]);
-  const knownCompanies = useHeld<ActiveCompanies>(`/api/integrations/hubspot?report=companies&limit=8&${q}`, [q, tick]);
+  // Cursor trails so both named lists can page through the whole window.
+  const [pplTrail, setPplTrail] = useState<string[]>([]);
+  const [coTrail, setCoTrail] = useState<string[]>([]);
+  useEffect(() => {
+    setPplTrail([]);
+    setCoTrail([]);
+  }, [q]);
+  const pplAfter = pplTrail.length ? `&after=${encodeURIComponent(pplTrail[pplTrail.length - 1])}` : "";
+  const coAfter = coTrail.length ? `&after=${encodeURIComponent(coTrail[coTrail.length - 1])}` : "";
+  const people = useHeld<RecentPeople>(`/api/integrations/hubspot?report=recentPeople&limit=10&${q}${pplAfter}`, [q, tick, pplAfter]);
+  const knownCompanies = useHeld<ActiveCompanies>(`/api/integrations/hubspot?report=companies&limit=8&${q}${coAfter}`, [q, tick, coAfter]);
 
   return (
     <Box>
@@ -229,7 +239,15 @@ export default function VisitorsPage() {
                               </Typography>
                             </Box>
                           ))}
-                          {pp.total !== null && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5 }}>{full(pp.total)} identified contacts in the window — the 10 most recent are listed.</Typography>}
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
+                            <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
+                              Page {pplTrail.length + 1}{pp.total !== null ? ` · ${full(pp.total)} identified contacts` : ""}
+                            </Typography>
+                            <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
+                              <Button size="small" disabled={pplTrail.length === 0} onClick={() => setPplTrail((tr) => tr.slice(0, -1))}>Previous</Button>
+                              <Button size="small" disabled={!pp.nextAfter} onClick={() => pp.nextAfter && setPplTrail((tr) => [...tr, pp.nextAfter as string])}>Next</Button>
+                            </Box>
+                          </Box>
                         </Box>
                       )}
                     </Gate>
@@ -256,7 +274,15 @@ export default function VisitorsPage() {
                               </Typography>
                             </Box>
                           ))}
-                          {cc.total !== null && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5 }}>{full(cc.total)} identified companies in the window — the 8 most recent are listed. The full, filterable list lives on the Overview.</Typography>}
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
+                            <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
+                              Page {coTrail.length + 1}{cc.total !== null ? ` · ${full(cc.total)} identified companies` : ""} · filters on the Overview
+                            </Typography>
+                            <Box sx={{ ml: "auto", display: "flex", gap: 0.5 }}>
+                              <Button size="small" disabled={coTrail.length === 0} onClick={() => setCoTrail((tr) => tr.slice(0, -1))}>Previous</Button>
+                              <Button size="small" disabled={!cc.nextAfter} onClick={() => cc.nextAfter && setCoTrail((tr) => [...tr, cc.nextAfter as string])}>Next</Button>
+                            </Box>
+                          </Box>
                         </Box>
                       )}
                     </Gate>

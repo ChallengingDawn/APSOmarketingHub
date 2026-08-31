@@ -4,7 +4,8 @@
 // from the bundled Natural Earth 110m atlas — no tiles, no network — and
 // projected with Natural Earth 1. Countries GA4 names differently from the
 // atlas are bridged by ALIASES; anything still unmatched is listed under the
-// map rather than dropped.
+// map rather than dropped. Clicking a dot glides the map onto that country;
+// the page decides what to show about it.
 
 import { useMemo } from "react";
 import Box from "@mui/material/Box";
@@ -42,11 +43,23 @@ const ALIASES: Record<string, string> = {
 
 const W = 960;
 const H = 470;
+const ZOOM = 2.6;
 
 export type MapPoint = { country: string; value: number };
 
-export function WorldMap({ points, unit = "active users" }: { points: MapPoint[]; unit?: string }) {
-  const { land, path, locate } = useMemo(() => {
+export function WorldMap({
+  points,
+  unit = "active users",
+  selected = null,
+  onSelect,
+}: {
+  points: MapPoint[];
+  unit?: string;
+  /** Country to glide onto; null shows the whole world. */
+  selected?: string | null;
+  onSelect?: (country: string) => void;
+}) {
+  const { land, locate } = useMemo(() => {
     const topo = world as unknown as Atlas;
     const countries = feature(topo, topo.objects.countries) as FeatureCollection<Geometry, CountryProps>;
     const projection = geoNaturalEarth1().fitExtent(
@@ -65,7 +78,7 @@ export function WorldMap({ points, unit = "active users" }: { points: MapPoint[]
       const c = projection(geoCentroid(f));
       return c ? [c[0], c[1]] : null;
     };
-    return { land: p(countries) ?? "", path: p, locate };
+    return { land: p(countries) ?? "", locate };
   }, []);
 
   const max = Math.max(1, ...points.map((pt) => pt.value));
@@ -81,7 +94,12 @@ export function WorldMap({ points, unit = "active users" }: { points: MapPoint[]
     placed.push({ ...pt, x: xy[0], y: xy[1], r: 4 + Math.sqrt(pt.value / max) * 16 });
   }
   placed.sort((a, b) => b.r - a.r);
-  void path;
+
+  // Glide onto the selected country: move its point to the centre, then scale.
+  const focusXY = selected ? locate(selected) : null;
+  const transform = focusXY
+    ? `translate(${W / 2}px, ${H / 2}px) scale(${ZOOM}) translate(${-focusXY[0]}px, ${-focusXY[1]}px)`
+    : "translate(0px, 0px) scale(1)";
 
   return (
     <Box>
@@ -90,21 +108,41 @@ export function WorldMap({ points, unit = "active users" }: { points: MapPoint[]
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label={`World map with ${placed.length} countries showing ${unit}`}
-        sx={{ width: "100%", height: "auto", display: "block" }}
+        sx={{ width: "100%", height: "auto", display: "block", overflow: "hidden" }}
       >
-        <path d={land} fill="#eceff3" stroke="#ffffff" strokeWidth={0.6} />
-        {placed.map((pt) => (
-          <g key={pt.country}>
-            <circle cx={pt.x} cy={pt.y} r={pt.r + 2} fill="#ffffff" opacity={0.9} />
-            <circle cx={pt.x} cy={pt.y} r={pt.r} fill={ACCENT} opacity={0.85}>
-              <title>{`${pt.country} · ${pt.value} ${unit}`}</title>
-            </circle>
-          </g>
-        ))}
+        <g style={{ transform, transformOrigin: "0 0", transition: "transform 700ms cubic-bezier(0.22, 0.8, 0.24, 1)" }}>
+          <path d={land} fill="#eceff3" stroke="#ffffff" strokeWidth={0.6} />
+          {placed.map((pt) => {
+            const isSel = pt.country === selected;
+            // Counter-scale the dots when zoomed so they stay dots, not blobs.
+            const r = focusXY ? pt.r / (ZOOM * 0.72) : pt.r;
+            return (
+              <g
+                key={pt.country}
+                onClick={onSelect ? () => onSelect(pt.country) : undefined}
+                style={{ cursor: onSelect ? "pointer" : "default" }}
+              >
+                <circle cx={pt.x} cy={pt.y} r={r + 2 / (focusXY ? ZOOM : 1)} fill="#ffffff" opacity={0.9} />
+                <circle
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={r}
+                  fill={isSel ? "#eb6834" : ACCENT}
+                  opacity={isSel ? 0.95 : 0.85}
+                  stroke={isSel ? "#ffffff" : "none"}
+                  strokeWidth={isSel ? 1.5 : 0}
+                  style={{ transition: "fill 300ms ease" }}
+                >
+                  <title>{`${pt.country} · ${pt.value} ${unit}`}</title>
+                </circle>
+              </g>
+            );
+          })}
+        </g>
       </Box>
       <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, mt: 1 }}>
         <Typography sx={{ fontSize: "0.74rem", color: CHROME.muted }}>
-          Dot size follows {unit}; hover a dot for the country.
+          Dot size follows {unit}; hover a dot for the country, click it to glide in.
         </Typography>
         {unmatched.length > 0 && (
           <Typography sx={{ fontSize: "0.74rem", color: CHROME.muted }}>

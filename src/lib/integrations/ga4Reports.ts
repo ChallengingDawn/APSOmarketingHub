@@ -26,6 +26,7 @@ export type Ga4ReportName =
   | "engagementDaily"
   | "keyEventsByName"
   | "channelsDaily"
+  | "pageTrend"
   | "conversionTotals";
 
 type ReportSpec = {
@@ -97,6 +98,12 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     orderBy: { dimension: "date" },
     limit: 4000,
   },
+  pageTrend: {
+    dimensions: ["date"],
+    metrics: ["screenPageViews", "sessions", "engagementRate"],
+    orderBy: { dimension: "date" },
+    limit: 400,
+  },
   conversionTotals: {
     dimensions: [],
     metrics: ["sessions", "totalUsers", "newUsers", "keyEvents", "sessionKeyEventRate"],
@@ -145,6 +152,8 @@ export async function fetchGa4Report(params: {
   days?: number;
   from?: string;
   to?: string;
+  /** Restrict the report to one page — used by pageTrend. */
+  pagePath?: string;
   signal?: AbortSignal;
 }): Promise<Ga4TableReport> {
   const spec = GA4_REPORTS[params.name];
@@ -162,6 +171,9 @@ export async function fetchGa4Report(params: {
       ...(spec.dimensions.length ? { dimensions: spec.dimensions.map((name) => ({ name })) } : {}),
       metrics: spec.metrics.map((name) => ({ name })),
       dateRanges: [range],
+      ...(params.pagePath
+        ? { dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "EXACT", value: params.pagePath } } } }
+        : {}),
       ...(spec.orderBy
         ? {
             orderBys: [

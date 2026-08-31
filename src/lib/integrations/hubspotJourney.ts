@@ -5,6 +5,29 @@
 
 import { hubspotFetchJson } from "./hubspot";
 
+/**
+ * Report cache with in-flight dedupe. The exact-count reports fan out into
+ * dozens of throttled search calls; three cockpits asking for the same window
+ * at once must share ONE computation, or the portal's per-second limit trips.
+ * Rejections are evicted so an error never sticks for five minutes.
+ */
+const reportCache = new Map<string, { at: number; p: Promise<unknown> }>();
+const REPORT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function cachedReport<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = reportCache.get(key);
+  if (hit && Date.now() - hit.at < REPORT_CACHE_TTL_MS) return hit.p as Promise<T>;
+  const p = fn().catch((err) => {
+    reportCache.delete(key);
+    throw err;
+  });
+  reportCache.set(key, { at: Date.now(), p });
+  if (reportCache.size > 300) {
+    for (const [k, v] of reportCache) if (Date.now() - v.at > REPORT_CACHE_TTL_MS) reportCache.delete(k);
+  }
+  return p;
+}
+
 const SEARCH_PAGE = 100;
 /** Search paging is capped by HubSpot; three pages is enough for a window's aggregate. */
 const MAX_CONTACT_PAGES = 3;
@@ -164,9 +187,13 @@ function pathOf(url: string): string {
  * segments (login referer blobs, session ids) shortened so real pages stay
  * readable. Only cosmetic — grouping still uses the raw path.
  */
+/** The real path with session junk stripped — safe to link to. */
+export function fullPath(url: string): string {
+  return pathOf(url).replace(/;jsessionid=[^/?#]*/i, "");
+}
+
 export function cleanPath(url: string): string {
-  let path = pathOf(url);
-  path = path.replace(/;jsessionid=[^/?#]*/i, "");
+  let path = fullPath(url);
   const segs = path.split("/").map((s) => {
     if (s.length > 28 && /^[A-Za-z0-9+=~_-]+$/.test(s) && !s.includes(".")) return s.slice(0, 8) + "…";
     return s;
@@ -411,6 +438,7 @@ export type CompanyContact = {
   pageViews: number | null;
   /** Last page HubSpot recorded on the contact — readable with plain contact scope. */
   lastUrl: string | null;
+  lastUrlFull: string | null;
   visits: number | null;
 };
 
@@ -423,6 +451,7 @@ export type ContactFootprint = {
   contact: string;
   contactId: string;
   lastUrl: string | null;
+  lastUrlFull: string | null;
   lastSeen: string | null;
   pageViews: number | null;
   visits: number | null;
@@ -448,7 +477,7 @@ function friendlyVisitsError(err: unknown): string {
   return msg;
 }
 
-export type CompanyVisit = { at: string; url: string; title: string | null; contact: string };
+export type CompanyVisit = { at: string; url: string; urlFull: string; title: string | null; contact: string };
 
 export type CompanyDetail = {
   companyId: string;
@@ -514,6 +543,7 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
             : null,
         visits: num(p.hs_analytics_num_visits),
         lastUrl: str(p.hs_analytics_last_url) ? cleanPath(str(p.hs_analytics_last_url) as string) : null,
+        lastUrlFull: str(p.hs_analytics_last_url) ? fullPath(str(p.hs_analytics_last_url) as string) : null,
       };
     });
     contacts.sort((a, b) => (b.lastSeen ?? "").localeCompare(a.lastSeen ?? ""));
@@ -536,8 +566,13 @@ export async function fetchCompanyDetail(params: { id: string; signal?: AbortSig
       });
       for (const e of ev.results ?? []) {
         if (!e.occurredAt || !e.properties?.hs_url) continue;
-        const path = cleanPath(e.properties.hs_url);
-        merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: c.name });
+        merged.push({
+          at: e.occurredAt,
+          url: cleanPath(e.properties.hs_url),
+          urlFull: fullPath(e.properties.hs_url),
+          title: e.properties.hs_title ?? null,
+          contact: c.name,
+        });
       }
     }
     merged.sort((a, b) => b.at.localeCompare(a.at));
@@ -575,7 +610,7 @@ export type CustomerJourneys = {
 };
 
 const JOURNEY_COMPANIES = 12;
-const JOURNEY_CONTACTS = 3;
+const JOURNEY_CONTACTS = 5;
 const JOURNEY_VISITS_EACH = 6;
 
 /**
@@ -658,6 +693,7 @@ async function fetchCompanyDetailLimited(
       contact: name,
       contactId: r.id ?? "",
       lastUrl: lastUrl ? cleanPath(lastUrl) : null,
+      lastUrlFull: lastUrl ? fullPath(lastUrl) : null,
       lastSeen: str(p.hs_analytics_last_timestamp),
       pageViews: num(p.hs_analytics_num_page_views),
       visits: num(p.hs_analytics_num_visits),
@@ -677,8 +713,13 @@ async function fetchCompanyDetailLimited(
       });
       for (const e of ev.results ?? []) {
         if (!e.occurredAt || !e.properties?.hs_url) continue;
-        const path = cleanPath(e.properties.hs_url);
-        merged.push({ at: e.occurredAt, url: path, title: e.properties.hs_title ?? null, contact: names.get(cid) ?? "" });
+        merged.push({
+          at: e.occurredAt,
+          url: cleanPath(e.properties.hs_url),
+          urlFull: fullPath(e.properties.hs_url),
+          title: e.properties.hs_title ?? null,
+          contact: names.get(cid) ?? "",
+        });
       }
     }
     merged.sort((a, b) => b.at.localeCompare(a.at));
@@ -759,6 +800,7 @@ export type PersonRow = {
 export type RecentPeople = {
   total: number | null;
   rows: PersonRow[];
+  nextAfter: string | null;
   from: string | null;
   to: string | null;
   sinceMinutes: number | null;
@@ -801,6 +843,7 @@ export async function fetchRecentPeople(params: {
   to?: string;
   sinceMinutes?: number;
   limit?: number;
+  after?: string;
   signal?: AbortSignal;
 }): Promise<RecentPeople> {
   const limit = Math.min(Math.max(params.limit ?? 12, 1), 25);
@@ -831,12 +874,14 @@ export async function fetchRecentPeople(params: {
       sorts: [{ propertyName: "hs_analytics_last_timestamp", direction: "DESCENDING" }],
       properties: PERSON_PROPS,
       limit,
+      ...(params.after ? { after: params.after } : {}),
     },
     signal: params.signal,
   });
   return {
     total: total(res.total),
     rows: (res.results ?? []).map((r) => personOf(r, stageLabels)),
+    nextAfter: res.paging?.next?.after ?? null,
     from: params.from ?? null,
     to: params.to ?? null,
     sinceMinutes: params.sinceMinutes ?? null,

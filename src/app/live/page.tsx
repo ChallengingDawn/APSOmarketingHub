@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Switch from "@mui/material/Switch";
+import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
 import Link from "@mui/material/Link";
@@ -23,7 +24,6 @@ import { compact, full } from "@/app/charts/format";
 import { ACCENT, CHROME, DEEMPHASIS } from "@/app/charts/palette";
 import { WorldMap } from "./WorldMap";
 import type { Ga4Realtime } from "@/lib/integrations/ga4Realtime";
-import type { HubActivity } from "@/lib/hubActivity";
 import type { RecentPeople } from "@/lib/integrations/hubspotJourney";
 
 const HS_PORTAL = "26492587";
@@ -69,6 +69,7 @@ function ago(iso: string): string {
 
 export default function LivePage() {
   const [auto, setAuto] = useState(true);
+  const [focusCountry, setFocusCountry] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
@@ -79,7 +80,6 @@ export default function LivePage() {
   }, [auto, refresh]);
 
   const shop = useHeld<LiveShop>("/api/live?source=shop", [tick]);
-  const hub = useHeld<HubActivity>("/api/live?source=hub", [tick]);
   const identified = useHeld<RecentPeople>("/api/integrations/hubspot?report=recentPeople&minutes=60&limit=10", [tick]);
 
   const fetchedAt = useMemo(() => (shop.result?.state === "ok" ? shop.result.data.fetchedAt : null), [shop.result]);
@@ -129,13 +129,44 @@ export default function LivePage() {
               <Section sx={{ mb: 2.5 }}>
                 <ChartFrame
                   title="Where visitors are right now"
-                  caption="Active users by country, last 30 minutes"
+                  caption="Active users by country, last 30 minutes — click a dot or a city to zoom in"
                   stale={stale}
                   empty={countries.length === 0 ? "GA4 reports nobody on the site in the last 30 minutes." : null}
                   table={{ columns: ["Country", "Active users"], numeric: [1], rows: data.byCountry.map((c) => [c.key, full(c.activeUsers)]) }}
                 >
-                  <WorldMap points={countries} />
+                  <WorldMap
+                    points={countries}
+                    selected={focusCountry}
+                    onSelect={(c) => setFocusCountry((cur) => (cur === c ? null : c))}
+                  />
                 </ChartFrame>
+                {focusCountry &&
+                  (() => {
+                    const row = data.byCountry.find((c) => c.key === focusCountry);
+                    const cities = data.byCity.filter((c) => c.country === focusCountry);
+                    const share = row && row.activeUsers !== null && data.activeUsers ? row.activeUsers / data.activeUsers : null;
+                    return (
+                      <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+                        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", mb: 1 }}>
+                          <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{focusCountry}</Typography>
+                          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                            {row ? `${full(row.activeUsers)} active now` : "No longer active in the last 30 minutes"}
+                            {share !== null ? ` · ${Math.round(share * 100)}% of everyone on the site` : ""}
+                          </Typography>
+                          <Button size="small" onClick={() => setFocusCountry(null)} sx={{ ml: "auto" }}>
+                            Show the world
+                          </Button>
+                        </Box>
+                        {cities.length > 0 ? (
+                          <BarList rows={cities.slice(0, 8).map((c) => ({ label: c.city, value: c.activeUsers }))} labelWidth={180} />
+                        ) : (
+                          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                            GA4 returned no city rows for this country in the last 30 minutes.
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })()}
               </Section>
 
               <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
@@ -155,7 +186,22 @@ export default function LivePage() {
                       empty={data.byCity.length === 0 ? "No city rows in the last 30 minutes." : null}
                       table={{ columns: ["City", "Country", "Active users"], numeric: [2], rows: data.byCity.map((c) => [c.city, c.country, full(c.activeUsers)]) }}
                     >
-                      <BarList rows={data.byCity.slice(0, 10).map((c) => ({ label: `${c.city}${c.country ? `, ${c.country}` : ""}`, value: c.activeUsers }))} labelWidth={200} />
+                      <BarList
+                        rows={data.byCity.slice(0, 10).map((c) => ({ label: `${c.city}${c.country ? `, ${c.country}` : ""}`, value: c.activeUsers }))}
+                        labelWidth={200}
+                        onSelect={(label) => {
+                          const row = data.byCity.find((c) => `${c.city}${c.country ? `, ${c.country}` : ""}` === label);
+                          if (row?.country) setFocusCountry((cur) => (cur === row.country ? null : row.country));
+                        }}
+                        selectedLabel={
+                          focusCountry
+                            ? (() => {
+                                const row = data.byCity.find((c) => c.country === focusCountry);
+                                return row ? `${row.city}${row.country ? `, ${row.country}` : ""}` : null;
+                              })()
+                            : null
+                        }
+                      />
                     </ChartFrame>
                   </Section>
                 </Grid>
@@ -214,45 +260,8 @@ export default function LivePage() {
         </Gate>
       </Section>
 
-      <Section sx={{ mt: 2.5 }}>
-        <Gate held={hub} source="The hub's audit trail" loadingLabel="Reading hub activity…" onRetry={refresh}>
-          {(data, stale) => (
-            <Box sx={{ opacity: stale ? 0.7 : 1, transition: "opacity 160ms ease" }}>
-              <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
-                <Box>
-                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>This hub, last {data.minutes} minutes</Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-                    {data.actors.length === 0
-                      ? "No one has acted in the hub in this period."
-                      : `${data.actors.length} ${data.actors.length === 1 ? "person" : "people"} active · ${data.recent.length} actions · ${data.contentTouched} pieces touched`}
-                  </Typography>
-                </Box>
-              </Box>
-              <Grid container spacing={2.5}>
-                <Grid size={{ xs: 12, md: 5 }}>
-                  <BarList rows={data.actors.map((a) => ({ label: a.actor, value: a.actions, secondary: ago(a.lastAt) }))} labelWidth={180} emptyMessage="Nobody active." />
-                </Grid>
-                <Grid size={{ xs: 12, md: 7 }}>
-                  <Box sx={{ display: "grid", gap: 0.5 }}>
-                    {data.recent.slice(0, 12).map((r, i) => (
-                      <Box key={i} sx={{ display: "flex", gap: 1.5, alignItems: "baseline", borderBottom: `1px solid ${HAIRLINE}`, py: 0.6 }}>
-                        <Typography sx={{ fontSize: "0.78rem", color: MUTED, minWidth: 74, fontVariantNumeric: "tabular-nums" }}>{ago(r.at)}</Typography>
-                        <Typography sx={{ fontSize: "0.84rem", color: INK, fontWeight: 600, minWidth: 120 }}>{r.actor}</Typography>
-                        <Typography sx={{ fontSize: "0.84rem", color: CHROME.muted }}>{r.action}{r.target ? ` · ${r.target}` : ""}</Typography>
-                      </Box>
-                    ))}
-                    {data.recent.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No actions recorded.</Typography>}
-                  </Box>
-                </Grid>
-              </Grid>
-            </Box>
-          )}
-        </Gate>
-      </Section>
-
       <SourceNote>
-        Shop: GA4 realtime report for property {shop.result?.state === "ok" ? shop.result.data.propertyId : "…"}, last 30 minutes, refreshed every 30 s while this page is open. Hub: the
-        apsomh_audit table. Identified: HubSpot contacts whose last recorded session is under an hour old. Nothing here is estimated, modelled or sampled.
+        Shop: GA4 realtime report for property {shop.result?.state === "ok" ? shop.result.data.propertyId : "…"}, last 30 minutes, refreshed every 30 s while this page is open. Identified: HubSpot contacts whose last recorded session is under an hour old. Nothing here is estimated, modelled or sampled.
       </SourceNote>
     </Box>
   );

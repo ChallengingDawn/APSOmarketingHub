@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -31,9 +31,12 @@ export async function GET(req: NextRequest) {
       // Sequential on purpose: these fan out into many search calls, and the
       // search endpoint's per-second limit punishes bursts with 429s. The
       // companies list is its own report now, so it can page and filter.
-      const contacts = await fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal });
-      const segments = await fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal });
-      return NextResponse.json({ configured: true, ok: true, data: { contacts, segments } });
+      const data = await cachedReport(`journey:${range.startDate}:${range.endDate}`, async () => {
+        const contacts = await fetchContactsCreated({ from: range.startDate, to: range.endDate, signal: controller.signal });
+        const segments = await fetchSegmentCounts({ from: range.startDate, to: range.endDate, signal: controller.signal });
+        return { contacts, segments };
+      });
+      return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "companies") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
@@ -57,13 +60,17 @@ export async function GET(req: NextRequest) {
     if (req.nextUrl.searchParams.get("report") === "audience") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
-      const data = await fetchAudience({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      const data = await cachedReport(`audience:${range.startDate}:${range.endDate}`, () =>
+        fetchAudience({ from: range.startDate, to: range.endDate, signal: controller.signal }),
+      );
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "customerJourneys") {
       const { from, to } = rangeParams(req.nextUrl.searchParams);
       const range = resolveRange({ days, from, to }, 365);
-      const data = await fetchCustomerJourneys({ from: range.startDate, to: range.endDate, signal: controller.signal });
+      const data = await cachedReport(`journeys:${range.startDate}:${range.endDate}`, () =>
+        fetchCustomerJourneys({ from: range.startDate, to: range.endDate, signal: controller.signal }),
+      );
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "recentPeople") {
@@ -73,11 +80,13 @@ export async function GET(req: NextRequest) {
       const minutes = Number.isFinite(rawMinutes) ? Math.min(Math.max(rawMinutes, 5), 24 * 60) : undefined;
       const { from, to } = rangeParams(sp);
       const range = minutes ? null : resolveRange({ days, from, to }, 365);
+      const after = sp.get("after") ?? undefined;
       const data = await fetchRecentPeople({
         from: range?.startDate,
         to: range?.endDate,
         sinceMinutes: minutes,
         limit: Number.isFinite(rawLimit) ? rawLimit : 12,
+        after: after && /^[\w=-]{1,200}$/.test(after) ? after : undefined,
         signal: controller.signal,
       });
       return NextResponse.json({ configured: true, ok: true, data });
@@ -108,12 +117,14 @@ export async function GET(req: NextRequest) {
     if (req.nextUrl.searchParams.get("report") === "weekly") {
       const rawWeeks = Number.parseInt(req.nextUrl.searchParams.get("weeks") ?? "", 10);
       const { from, to } = rangeParams(req.nextUrl.searchParams);
-      const weekly = await fetchHubspotWeekly({
-        weeks: Number.isFinite(rawWeeks) ? rawWeeks : undefined,
-        from,
-        to,
-        signal: controller.signal,
-      });
+      const weekly = await cachedReport(`weekly:${from ?? ""}:${to ?? ""}:${rawWeeks}`, () =>
+        fetchHubspotWeekly({
+          weeks: Number.isFinite(rawWeeks) ? rawWeeks : undefined,
+          from,
+          to,
+          signal: controller.signal,
+        }),
+      );
       return NextResponse.json({ configured: true, ok: true, data: weekly });
     }
     // Account details need their own scope. Losing the portal id is a cosmetic

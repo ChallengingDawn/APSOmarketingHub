@@ -10,7 +10,7 @@ const API_BASE = "https://api.hubapi.com";
 // view legitimately needs a dozen counts. All search calls therefore flow
 // through one queue with a minimum spacing, and every call retries a 429
 // after the wait HubSpot asks for — the limit is a pace, not a quota.
-const SEARCH_MIN_INTERVAL_MS = 320;
+const SEARCH_MIN_INTERVAL_MS = 340;
 const RETRY_ATTEMPTS = 3;
 let searchChain: Promise<void> = Promise.resolve();
 let lastSearchAt = 0;
