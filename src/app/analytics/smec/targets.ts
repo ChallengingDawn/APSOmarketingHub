@@ -91,6 +91,6 @@ export const SMEC_TARGETS: SmecTarget[] = [
     baseline: "13",
     goal: "min 13 — push spend, accept lower",
     measure: "none",
-    unavailable: "Revenue side is live above; spend lives in Google Ads, so ROAS is smec's number.",
+    unavailable: "Both revenue and spend live in Google Ads — ROAS is smec's reported number.",
   },
 ];
