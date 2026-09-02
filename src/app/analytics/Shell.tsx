@@ -103,7 +103,7 @@ export function SubAppHead({ title, purpose }: { title: string; purpose: string 
       <Typography sx={{ fontFamily: DISPLAY, fontSize: "1.35rem", fontWeight: 600, letterSpacing: "-0.02em", color: INK }}>
         {title}
       </Typography>
-      <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.35, maxWidth: 760 }}>{purpose}</Typography>
+      {purpose && <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.35, maxWidth: 760 }}>{purpose}</Typography>}
     </Box>
   );
 }

@@ -160,6 +160,8 @@ export async function fetchGa4Report(params: {
   to?: string;
   /** Restrict the report to one page — used by pageTrend. */
   pagePath?: string;
+  /** Restrict the report to one default channel group (e.g. "Paid Search"). */
+  channelGroup?: string;
   signal?: AbortSignal;
 }): Promise<Ga4TableReport> {
   const spec = GA4_REPORTS[params.name];
@@ -179,7 +181,13 @@ export async function fetchGa4Report(params: {
       dateRanges: [range],
       ...(params.pagePath
         ? { dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "EXACT", value: params.pagePath } } } }
-        : {}),
+        : params.channelGroup
+          ? {
+              dimensionFilter: {
+                filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { matchType: "EXACT", value: params.channelGroup } },
+              },
+            }
+          : {}),
       ...(spec.orderBy
         ? {
             orderBys: [

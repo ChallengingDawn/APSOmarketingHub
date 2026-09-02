@@ -4,7 +4,7 @@
 // target today; `unavailable` says why the others cannot be, and where
 // that number actually lives.
 
-export type SmecMeasure = "signups" | "revenue" | "none";
+export type SmecMeasure = "signups" | "none";
 
 export type SmecTarget = {
   area: "Acquisition" | "Retention & Reactivation" | "Revenue";
@@ -35,7 +35,7 @@ export const SMEC_TARGETS: SmecTarget[] = [
     goal: "1,496",
     goalValue: 1496,
     measure: "signups",
-    note: "GA4 sign_up key events, all channels — SEA share shown beside.",
+    note: "GA4 sign_up key events, Paid Search channel (the target is SEA-attributed).",
   },
   {
     area: "Acquisition",
@@ -82,9 +82,8 @@ export const SMEC_TARGETS: SmecTarget[] = [
     kpi: "Webshop revenue",
     baseline: "3.9 Mio",
     goal: "4.5 Mio",
-    goalValue: 4_500_000,
-    measure: "revenue",
-    note: "GA4 purchase revenue, all channels, in the property's reporting currency.",
+    measure: "none",
+    unavailable: "Google Ads-attributed revenue is smec's reported number — GA4's site total is a different measure, so no figure is shown here.",
   },
   {
     area: "Revenue",

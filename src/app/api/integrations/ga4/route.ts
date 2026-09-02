@@ -47,8 +47,10 @@ export async function GET(req: NextRequest) {
       }
       pagePath = decoded;
     }
+    const rawChannel = req.nextUrl.searchParams.get("channel");
+    const channelGroup = rawChannel && /^[A-Za-z ]{2,30}$/.test(rawChannel) ? rawChannel : undefined;
     const data = isGa4ReportName(rawReport)
-      ? await fetchGa4Report({ name: rawReport, days, from, to, pagePath, signal: controller.signal })
+      ? await fetchGa4Report({ name: rawReport, days, from, to, pagePath, channelGroup, signal: controller.signal })
       : await fetchGa4Overview({ days, from, to, signal: controller.signal });
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {

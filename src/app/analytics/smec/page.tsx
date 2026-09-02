@@ -57,19 +57,21 @@ export default function SmecTargetsPage() {
   const { from, to, elapsed } = ytdRange();
   const q = `from=${from}&to=${to}`;
 
-  const signups = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=keyEventsByName&${q}`, [q, tick]);
-  const revenue = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=revenueTotals&${q}`, [q, tick]);
+  // The targets are SEA-attributed (the sheet's baselines are Paid Search
+  // figures), so the actuals are filtered to the Paid Search channel; the
+  // site-wide totals appear only as context notes.
+  const SEA = "&channel=Paid%20Search";
+  const signups = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=keyEventsByName&${q}${SEA}`, [q, tick]);
   const channels = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=acquisitionChannels&${q}`, [q, tick]);
   const gclid = useHeld<GclidStatus>(`/api/integrations/hubspot?report=gclidStatus`, [tick]);
 
   const signupGoal = SMEC_TARGETS.find((t) => t.measure === "signups")?.goalValue ?? null;
-  const revenueGoal = SMEC_TARGETS.find((t) => t.measure === "revenue")?.goalValue ?? null;
 
   return (
     <Box>
       <SubAppHead
         title="SMEC targets"
-        purpose="The agency KPIs from KPIs_SMEC_2026 against their 2026 goals — live where this hub can honestly measure them, and plainly sourced where it cannot."
+        purpose=""
       />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5, flexWrap: "wrap" }}>
         <Chip
@@ -83,7 +85,7 @@ export default function SmecTargetsPage() {
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
           <Gate held={signups} source="Google Analytics 4" loadingLabel="Counting sign-ups…" onRetry={retry}>
             {(report, stale) => {
               const get = metricOf(report, "keyEvents");
@@ -93,12 +95,12 @@ export default function SmecTargetsPage() {
               return (
                 <Box sx={{ opacity: stale ? 0.7 : 1 }}>
                   <StatTile
-                    label="Sign-ups YTD"
+                    label="Sign-ups YTD (SEA)"
                     value={value === null ? "—" : full(value)}
                     note={
                       value === null
-                        ? "No sign_up key event returned for the year so far"
-                        : `Goal ${full(signupGoal)} · ${pace?.text ?? ""}`
+                        ? "No Paid-Search sign_up key event returned for the year so far"
+                        : `Goal ${full(signupGoal)} · ${pace?.text ?? ""} · Paid Search channel only`
                     }
                   />
                 </Box>
@@ -106,30 +108,7 @@ export default function SmecTargetsPage() {
             }}
           </Gate>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <Gate held={revenue} source="Google Analytics 4" loadingLabel="Summing revenue…" onRetry={retry}>
-            {(report, stale) => {
-              const row = report.rows[0] ?? null;
-              const value = row ? metricOf(report, "totalRevenue")(row) : null;
-              const tx = row ? metricOf(report, "transactions")(row) : null;
-              const pace = revenueGoal ? paceLabel(value, revenueGoal, elapsed) : null;
-              return (
-                <Box sx={{ opacity: stale ? 0.7 : 1 }}>
-                  <StatTile
-                    label="Webshop revenue YTD"
-                    value={compact(value)}
-                    note={
-                      value === null
-                        ? "GA4 returned no revenue for the year so far"
-                        : `Goal ${compact(revenueGoal)} · ${pace?.text ?? ""} · ${compact(tx)} transactions`
-                    }
-                  />
-                </Box>
-              );
-            }}
-          </Gate>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
           <Gate held={channels} source="Google Analytics 4" loadingLabel="Reading SEA share…" onRetry={retry}>
             {(report, stale) => {
               const sess = metricOf(report, "sessions");
@@ -161,7 +140,7 @@ export default function SmecTargetsPage() {
             }}
           </Gate>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
           <Gate held={gclid} source="HubSpot" loadingLabel="Checking gclid capture…" onRetry={retry}>
             {(data, stale) => (
               <Box sx={{ opacity: stale ? 0.7 : 1 }}>
@@ -200,13 +179,7 @@ export default function SmecTargetsPage() {
                     const rep = signups.result.data;
                     const row = rep.rows.find((r) => r.keys[0] === "sign_up") ?? null;
                     const v = row ? metricOf(rep, "keyEvents")(row) : null;
-                    live = { value: v === null ? "—" : `${full(v)} YTD`, pace: t.goalValue ? paceLabel(v, t.goalValue, elapsed) : undefined };
-                  }
-                  if (t.measure === "revenue" && revenue.result?.state === "ok") {
-                    const rep = revenue.result.data;
-                    const row = rep.rows[0] ?? null;
-                    const v = row ? metricOf(rep, "totalRevenue")(row) : null;
-                    live = { value: v === null ? "—" : `${compact(v)} YTD`, pace: t.goalValue ? paceLabel(v, t.goalValue, elapsed) : undefined };
+                    live = { value: v === null ? "—" : `${full(v)} YTD (SEA)`, pace: t.goalValue ? paceLabel(v, t.goalValue, elapsed) : undefined };
                   }
                   return (
                     <TableRow key={t.kpi}>
@@ -240,8 +213,7 @@ export default function SmecTargetsPage() {
       ))}
 
       <SourceNote>
-        Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 key events, revenue and
-        channel splits for {from} → {to}; HubSpot counts of contacts carrying the gclid / consent properties. Pace compares
+        Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 sign_up key events filtered to the Paid Search channel (the target is SEA-attributed) and channel splits, for {from} → {to}; HubSpot counts of contacts carrying the gclid / consent properties. Pace compares
         year-to-date actuals with the straight-line share of the annual goal ({percent(elapsed)} of the year). Where a
         number lives in Google Ads or Compass, the row says so instead of estimating.
       </SourceNote>
