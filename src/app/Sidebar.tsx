@@ -43,6 +43,7 @@ import LanguageIcon from "@mui/icons-material/Language";
 import LayersIcon from "@mui/icons-material/Layers";
 import AdsClickIcon from "@mui/icons-material/AdsClick";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
+import TrackChangesIcon from "@mui/icons-material/TrackChanges";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
@@ -115,6 +116,7 @@ const navSections: NavSection[] = [
       { label: "Acquisition", href: "/analytics/acquisition", icon: <AdsClickIcon fontSize="small" /> },
       { label: "Audience", href: "/analytics/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
+      { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
     ],
   },
   {

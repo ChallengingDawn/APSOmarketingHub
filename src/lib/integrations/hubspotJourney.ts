@@ -931,3 +931,32 @@ export async function fetchPageAudience(params: { path: string; limit?: number; 
     rows: (res.results ?? []).map((r) => personOf(r, stageLabels)),
   };
 }
+
+/* ── Google Ads tracking readiness ─────────────────────────────────────── */
+
+export type GclidStatus = {
+  /** Contacts carrying a captured Google Ads click id. */
+  gclidContacts: number | null;
+  /** Contacts carrying Consent Mode v2 flags from the banner. */
+  consentContacts: number | null;
+};
+
+async function countHasProperty(property: string, signal?: AbortSignal): Promise<number | null> {
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: { filterGroups: [{ filters: [{ propertyName: property, operator: "HAS_PROPERTY" }] }], limit: 1, properties: [] },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
+/**
+ * Whether the GTM gclid/consent tag is actually feeding HubSpot yet. The
+ * properties exist in the portal; these counts stay 0 until the tag ships.
+ */
+export async function fetchGclidStatus(signal?: AbortSignal): Promise<GclidStatus> {
+  const gclidContacts = await countHasProperty("gclid", signal);
+  const consentContacts = await countHasProperty("consent_ad_storage", signal);
+  return { gclidContacts, consentContacts };
+}

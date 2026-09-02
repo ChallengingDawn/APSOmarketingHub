@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
-import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchGclidStatus, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -71,6 +71,10 @@ export async function GET(req: NextRequest) {
       const data = await cachedReport(`journeys:${range.startDate}:${range.endDate}`, () =>
         fetchCustomerJourneys({ from: range.startDate, to: range.endDate, signal: controller.signal }),
       );
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "gclidStatus") {
+      const data = await cachedReport("gclidStatus", () => fetchGclidStatus(controller.signal));
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "recentPeople") {

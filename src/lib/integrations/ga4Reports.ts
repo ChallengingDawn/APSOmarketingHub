@@ -27,6 +27,7 @@ export type Ga4ReportName =
   | "keyEventsByName"
   | "channelsDaily"
   | "pageTrend"
+  | "revenueTotals"
   | "conversionTotals";
 
 type ReportSpec = {
@@ -103,6 +104,11 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["screenPageViews", "sessions", "engagementRate"],
     orderBy: { dimension: "date" },
     limit: 400,
+  },
+  revenueTotals: {
+    dimensions: [],
+    metrics: ["totalRevenue", "transactions"],
+    limit: 1,
   },
   conversionTotals: {
     dimensions: [],

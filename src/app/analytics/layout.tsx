@@ -32,7 +32,7 @@ function Chrome({ children }: { children: ReactNode }) {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="Analytics"
-        subtitle="Live Google Analytics 4 and HubSpot for apsoparts.com — four focused sub-apps over one window, no sample data"
+        subtitle="Live Google Analytics 4 and HubSpot for apsoparts.com — five focused sub-apps over one window, no sample data"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {loading && <CircularProgress size={14} sx={{ color: MUTED }} />}

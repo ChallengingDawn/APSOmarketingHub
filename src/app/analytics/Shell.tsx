@@ -27,13 +27,14 @@ export const DISPLAY = "var(--font-outfit), var(--font-inter), sans-serif";
 
 /* ── the five siblings ─────────────────────────────────────────────────── */
 
-export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial";
+export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial" | "smec";
 
 export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string; purpose: string }[] = [
   { id: "overview", href: "/analytics", label: "Overview", purpose: "How the site is doing" },
   { id: "acquisition", href: "/analytics/acquisition", label: "Acquisition", purpose: "Where visitors come from" },
   { id: "audience", href: "/analytics/audience", label: "Audience", purpose: "Who they are" },
   { id: "commercial", href: "/analytics/new-customers", label: "New customers", purpose: "Who just arrived, and what they become" },
+  { id: "smec", href: "/analytics/smec", label: "SMEC targets", purpose: "Agency KPIs vs 2026 goals" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
