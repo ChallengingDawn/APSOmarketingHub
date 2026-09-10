@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
@@ -171,6 +172,12 @@ function SignInForm() {
                 {errorMsg}
               </Alert>
             )}
+            <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mt: 2.5, textAlign: "center" }}>
+              <Link href="/login/reset" style={{ color: "#274e64", fontWeight: 600 }}>
+                Forgot your password?
+              </Link>{" "}
+              Reset it with your authenticator.
+            </Typography>
           </form>
         </CardContent>
       </Card>
