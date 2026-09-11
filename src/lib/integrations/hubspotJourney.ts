@@ -975,3 +975,39 @@ export async function fetchGclidStatus(signal?: AbortSignal): Promise<GclidStatu
   const consentDenied = await countEq("consent_ad_storage", "denied", signal);
   return { gclidContacts, consentContacts, consentGranted, consentDenied };
 }
+
+/* ── new buying customers (Compass ruler) ──────────────────────────────── */
+
+export type NewBuyers = {
+  year: number;
+  /** Companies whose first Compass order fell in `year`. */
+  firstOrderTotal: number | null;
+  /** …of which HubSpot's own original source is Paid Search (web-tracked companies only — an undercount). */
+  firstOrderPaidSearch: number | null;
+};
+
+async function countCompanies(filters: { propertyName: string; operator: string; value: string }[], signal?: AbortSignal): Promise<number | null> {
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/companies/search",
+    method: "POST",
+    body: { filterGroups: [{ filters }], limit: 1, properties: [] },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
+/**
+ * The customer ruler behind the SMEC "new buying customers" KPI: Compass
+ * first-order year on the company, which the agency sheet multiplies by
+ * GA4's Paid Search share. The direct per-company Paid Search count is
+ * returned beside it, clearly labelled as the undercount it is.
+ */
+export async function fetchNewBuyers(year: number, signal?: AbortSignal): Promise<NewBuyers> {
+  const yearFilter = { propertyName: "compass_first_order_year", operator: "EQ", value: String(year) };
+  const firstOrderTotal = await countCompanies([yearFilter], signal);
+  const firstOrderPaidSearch = await countCompanies(
+    [yearFilter, { propertyName: "hs_analytics_source", operator: "EQ", value: "PAID_SEARCH" }],
+    signal,
+  );
+  return { year, firstOrderTotal, firstOrderPaidSearch };
+}

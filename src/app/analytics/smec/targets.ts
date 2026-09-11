@@ -26,8 +26,9 @@ export const SMEC_TARGETS: SmecTarget[] = [
     kpi: "New buying customers (SEA)",
     baseline: "397",
     goal: "460",
-    measure: "none",
-    unavailable: "Needs Compass first-order dates joined to the Paid Search source. GA4's 'first-time purchasers' counts cookies, not customers (2,199 YTD) — not comparable to the 397 baseline, so it is not shown.",
+    goalValue: 460,
+    measure: "newbuyers",
+    note: "The sheet's own method: companies whose first Compass order fell this year × GA4's Paid Search share of transactions (2025: 1,653 × 24 % = 397).",
   },
   {
     area: "Acquisition",

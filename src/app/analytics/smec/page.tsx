@@ -28,6 +28,8 @@ import { PaceBar } from "@/app/charts/PaceBar";
 import { compact, full, percent } from "@/app/charts/format";
 import { SMEC_TARGETS, SMEC_YEAR, type SmecMeasure } from "./targets";
 
+type NewBuyers = { year: number; firstOrderTotal: number | null; firstOrderPaidSearch: number | null };
+
 type GclidStatus = {
   gclidContacts: number | null;
   consentContacts: number | null;
@@ -77,6 +79,8 @@ export default function SmecTargetsPage() {
   const purchasers = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${q}${SEA}`, [q, tick]);
   const monthly = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=signupsMonthly&${q}${SEA}&event=sign_up`, [q, tick]);
   const gclid = useHeld<GclidStatus>(`/api/integrations/hubspot?report=gclidStatus`, [tick]);
+  const purchasersAll = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${q}`, [q, tick]);
+  const buyers = useHeld<NewBuyers>(`/api/integrations/hubspot?report=newBuyers&year=${SMEC_YEAR}`, [tick]);
 
   // Live actuals, derived once and shared by tiles, bars and table rows.
   const ke = keyEvents.result;
@@ -86,7 +90,16 @@ export default function SmecTargetsPage() {
   const purchases = keRow("purchase") ? keGet!(keRow("purchase")!) : null;
   const pr = purchasers.result;
   const prRow = pr && pr.state === "ok" ? pr.data.rows[0] ?? null : null;
-  const newBuyers = pr && pr.state === "ok" && prRow ? metricOf(pr.data, "firstTimePurchasers")(prRow) : null;
+  // The sheet's method for new buying customers: Compass first orders this
+  // year × GA4's Paid Search share of transactions.
+  const pa = purchasersAll.result;
+  const paRow = pa && pa.state === "ok" ? pa.data.rows[0] ?? null : null;
+  const txSea = pr && pr.state === "ok" && prRow ? metricOf(pr.data, "transactions")(prRow) : null;
+  const txAll = pa && pa.state === "ok" && paRow ? metricOf(pa.data, "transactions")(paRow) : null;
+  const seaShare = txSea !== null && txAll ? txSea / txAll : null;
+  const by = buyers.result;
+  const firstOrders = by && by.state === "ok" ? by.data.firstOrderTotal : null;
+  const newBuyers = firstOrders !== null && seaShare !== null ? Math.round(firstOrders * seaShare) : null;
   const revenue = pr && pr.state === "ok" && prRow ? metricOf(pr.data, "totalRevenue")(prRow) : null;
   const cvr = signups && purchases !== null ? purchases / signups : null;
 
@@ -111,7 +124,7 @@ export default function SmecTargetsPage() {
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <Gate held={keyEvents} source="Google Analytics 4" loadingLabel="Counting sign-ups…" onRetry={retry}>
             {(_r, stale) => {
               const goal = goalOf("signups");
@@ -124,7 +137,28 @@ export default function SmecTargetsPage() {
             }}
           </Gate>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <Gate held={buyers} source="HubSpot" loadingLabel="Counting first orders…" onRetry={retry}>
+            {(b, stale) => {
+              const goal = goalOf("newbuyers");
+              const pace = goal ? paceLabel(newBuyers, goal, elapsed) : null;
+              return (
+                <Box sx={{ opacity: stale ? 0.7 : 1 }}>
+                  <StatTile
+                    label="New buying customers YTD (SEA)"
+                    value={newBuyers === null ? "—" : full(newBuyers)}
+                    note={
+                      newBuyers === null
+                        ? `${full(b.firstOrderTotal)} first orders this year · waiting for GA4's Paid Search share`
+                        : `Goal ${full(goal)} · ${pace?.text} · ${full(b.firstOrderTotal)} first orders × ${percent(seaShare)} SEA share`
+                    }
+                  />
+                </Box>
+              );
+            }}
+          </Gate>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <Gate held={purchasers} source="Google Analytics 4" loadingLabel="Summing SEA revenue…" onRetry={retry}>
             {(_r, stale) => {
               const goal = goalOf("revenue");
@@ -138,7 +172,7 @@ export default function SmecTargetsPage() {
             }}
           </Gate>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <Gate held={gclid} source="HubSpot" loadingLabel="Checking gclid capture…" onRetry={retry}>
             {(data, stale) => (
               <Box sx={{ opacity: stale ? 0.7 : 1 }}>
@@ -259,9 +293,10 @@ export default function SmecTargetsPage() {
       ))}
 
       <SourceNote>
-        Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 key events, first-time
-        purchasers and purchase revenue filtered to the Paid Search channel for {from} → {to}; HubSpot counts of contacts
-        carrying the gclid / consent properties. Pace compares year-to-date actuals with the straight-line share of the
+        Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 key events and purchase
+        revenue filtered to the Paid Search channel for {from} → {to}; new buying customers = HubSpot companies with a Compass
+        first order in {SMEC_YEAR} × GA4&apos;s Paid Search share of transactions (the sheet&apos;s method); HubSpot counts of
+        contacts carrying the gclid / consent properties. Pace compares year-to-date actuals with the straight-line share of the
         annual goal ({percent(elapsed)} of the year); the bar’s marker sits at that share. Where a number lives in Google
         Ads or Compass, the row says so instead of estimating.
       </SourceNote>
