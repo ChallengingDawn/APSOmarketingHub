@@ -150,7 +150,7 @@ export default function SmecTargetsPage() {
                   note={
                     (data.gclidContacts ?? 0) > 0
                       ? `Google Ads click ids captured · ${full(data.consentContacts)} with consent flags`
-                      : "0 — the HubSpot properties are ready; the GTM tag is not live yet"
+                      : "0 — nothing persisted yet: values land only on visitors HubSpot can tie to an e-mail"
                   }
                 />
               </Box>
