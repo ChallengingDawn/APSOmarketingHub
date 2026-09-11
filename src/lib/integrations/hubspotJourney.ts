@@ -939,6 +939,9 @@ export type GclidStatus = {
   gclidContacts: number | null;
   /** Contacts carrying Consent Mode v2 flags from the banner. */
   consentContacts: number | null;
+  /** …of which ad storage consent was granted / denied. */
+  consentGranted: number | null;
+  consentDenied: number | null;
 };
 
 async function countHasProperty(property: string, signal?: AbortSignal): Promise<number | null> {
@@ -955,8 +958,20 @@ async function countHasProperty(property: string, signal?: AbortSignal): Promise
  * Whether the GTM gclid/consent tag is actually feeding HubSpot yet. The
  * properties exist in the portal; these counts stay 0 until the tag ships.
  */
+async function countEq(property: string, value: string, signal?: AbortSignal): Promise<number | null> {
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: { filterGroups: [{ filters: [{ propertyName: property, operator: "EQ", value }] }], limit: 1, properties: [] },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
 export async function fetchGclidStatus(signal?: AbortSignal): Promise<GclidStatus> {
   const gclidContacts = await countHasProperty("gclid", signal);
   const consentContacts = await countHasProperty("consent_ad_storage", signal);
-  return { gclidContacts, consentContacts };
+  const consentGranted = await countEq("consent_ad_storage", "granted", signal);
+  const consentDenied = await countEq("consent_ad_storage", "denied", signal);
+  return { gclidContacts, consentContacts, consentGranted, consentDenied };
 }

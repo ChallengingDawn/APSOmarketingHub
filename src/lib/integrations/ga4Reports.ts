@@ -28,6 +28,8 @@ export type Ga4ReportName =
   | "channelsDaily"
   | "pageTrend"
   | "revenueTotals"
+  | "signupsMonthly"
+  | "purchaserTotals"
   | "conversionTotals";
 
 type ReportSpec = {
@@ -105,6 +107,17 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     orderBy: { dimension: "date" },
     limit: 400,
   },
+  signupsMonthly: {
+    dimensions: ["yearMonth"],
+    metrics: ["keyEvents"],
+    orderBy: { dimension: "yearMonth" },
+    limit: 24,
+  },
+  purchaserTotals: {
+    dimensions: [],
+    metrics: ["firstTimePurchasers", "totalPurchasers", "transactions", "totalRevenue"],
+    limit: 1,
+  },
   revenueTotals: {
     dimensions: [],
     metrics: ["totalRevenue", "transactions"],
@@ -162,6 +175,8 @@ export async function fetchGa4Report(params: {
   pagePath?: string;
   /** Restrict the report to one default channel group (e.g. "Paid Search"). */
   channelGroup?: string;
+  /** Restrict the report to one event name (e.g. "sign_up"). */
+  eventName?: string;
   signal?: AbortSignal;
 }): Promise<Ga4TableReport> {
   const spec = GA4_REPORTS[params.name];
@@ -179,15 +194,16 @@ export async function fetchGa4Report(params: {
       ...(spec.dimensions.length ? { dimensions: spec.dimensions.map((name) => ({ name })) } : {}),
       metrics: spec.metrics.map((name) => ({ name })),
       dateRanges: [range],
-      ...(params.pagePath
-        ? { dimensionFilter: { filter: { fieldName: "pagePath", stringFilter: { matchType: "EXACT", value: params.pagePath } } } }
-        : params.channelGroup
-          ? {
-              dimensionFilter: {
-                filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { matchType: "EXACT", value: params.channelGroup } },
-              },
-            }
-          : {}),
+      ...(() => {
+        const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value } } });
+        const filters = [
+          ...(params.pagePath ? [exact("pagePath", params.pagePath)] : []),
+          ...(params.channelGroup ? [exact("sessionDefaultChannelGroup", params.channelGroup)] : []),
+          ...(params.eventName ? [exact("eventName", params.eventName)] : []),
+        ];
+        if (filters.length === 0) return {};
+        return { dimensionFilter: filters.length === 1 ? filters[0] : { andGroup: { expressions: filters } } };
+      })(),
       ...(spec.orderBy
         ? {
             orderBys: [

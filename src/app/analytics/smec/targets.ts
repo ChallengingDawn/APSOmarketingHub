@@ -1,10 +1,11 @@
 // The 2026 agency KPI targets, transcribed from KPIs_SMEC_2026.xlsx
-// (sheet "SMEC Targets", agreed with smec). Baselines are 2025 closes.
-// `measure` says which live figure this hub can honestly put beside the
-// target today; `unavailable` says why the others cannot be, and where
-// that number actually lives.
+// (sheet "SMEC Targets", agreed with smec). Baselines are 2025 closes and
+// SEA-attributed — the sheet's own reference for them is "acc. Google
+// Analytics, SEA drove …", so the live figures are GA4 filtered to the
+// Paid Search channel. `measure` names the live figure this hub can put
+// beside the target; `unavailable` says where the number lives otherwise.
 
-export type SmecMeasure = "signups" | "none";
+export type SmecMeasure = "signups" | "newbuyers" | "cvr" | "revenue" | "none";
 
 export type SmecTarget = {
   area: "Acquisition" | "Retention & Reactivation" | "Revenue";
@@ -26,16 +27,16 @@ export const SMEC_TARGETS: SmecTarget[] = [
     baseline: "397",
     goal: "460",
     measure: "none",
-    unavailable: "First-purchase attribution joins Compass orders with Google Ads clicks — not derivable from GA4/HubSpot alone yet.",
+    unavailable: "Needs Compass first-order dates joined to the Paid Search source. GA4's 'first-time purchasers' counts cookies, not customers (2,199 YTD) — not comparable to the 397 baseline, so it is not shown.",
   },
   {
     area: "Acquisition",
-    kpi: "Sign-ups",
+    kpi: "Sign-ups (SEA)",
     baseline: "1,301",
     goal: "1,496",
     goalValue: 1496,
     measure: "signups",
-    note: "GA4 sign_up key events, Paid Search channel (the target is SEA-attributed).",
+    note: "GA4 sign_up key events, Paid Search channel.",
   },
   {
     area: "Acquisition",
@@ -43,7 +44,7 @@ export const SMEC_TARGETS: SmecTarget[] = [
     baseline: "36% (2025 close)",
     goal: "40%+",
     measure: "none",
-    unavailable: "Needs a registration→purchase cohort join; measured with smec at the deep-dive cadence, not live here yet.",
+    unavailable: "A registration→purchase cohort measure. Purchases ÷ sign-ups is not it (existing customers buy without registering — the ratio is ~9×), so nothing is shown until the cohort join exists.",
   },
   {
     area: "Acquisition",
@@ -79,11 +80,12 @@ export const SMEC_TARGETS: SmecTarget[] = [
   },
   {
     area: "Revenue",
-    kpi: "Webshop revenue",
+    kpi: "SEA revenue",
     baseline: "3.9 Mio",
     goal: "4.5 Mio",
-    measure: "none",
-    unavailable: "Google Ads-attributed revenue is smec's reported number — GA4's site total is a different measure, so no figure is shown here.",
+    goalValue: 4_500_000,
+    measure: "revenue",
+    note: "GA4 purchase revenue attributed to the Paid Search channel, in the property's reporting currency.",
   },
   {
     area: "Revenue",
@@ -91,6 +93,6 @@ export const SMEC_TARGETS: SmecTarget[] = [
     baseline: "13",
     goal: "min 13 — push spend, accept lower",
     measure: "none",
-    unavailable: "Both revenue and spend live in Google Ads — ROAS is smec's reported number.",
+    unavailable: "Revenue side is live above; spend lives in Google Ads, so ROAS is smec's number.",
   },
 ];
