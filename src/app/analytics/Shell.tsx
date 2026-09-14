@@ -25,9 +25,9 @@ export const SURFACE = "#f5f6f8";
 export const GUTTER = { xs: 2, sm: 2.5, md: 3, lg: 4 } as const;
 export const DISPLAY = "var(--font-outfit), var(--font-inter), sans-serif";
 
-/* ── the five siblings ─────────────────────────────────────────────────── */
+/* ── the six siblings ──────────────────────────────────────────────────── */
 
-export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial" | "smec";
+export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial" | "smec" | "tracking";
 
 export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string; purpose: string }[] = [
   { id: "overview", href: "/analytics", label: "Overview", purpose: "How the site is doing" },
@@ -35,6 +35,7 @@ export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string;
   { id: "audience", href: "/analytics/audience", label: "Audience", purpose: "Who they are" },
   { id: "commercial", href: "/analytics/new-customers", label: "New customers", purpose: "Who just arrived, and what they become" },
   { id: "smec", href: "/analytics/smec", label: "SMEC targets", purpose: "Agency KPIs vs 2026 goals" },
+  { id: "tracking", href: "/analytics/tracking", label: "Tracking health", purpose: "Is GA4 attributing sessions correctly" },
 ];
 
 function isActive(pathname: string, href: string): boolean {

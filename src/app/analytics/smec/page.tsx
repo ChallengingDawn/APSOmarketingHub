@@ -27,6 +27,8 @@ import { ShareBar } from "@/app/charts/ShareBar";
 import { PaceBar } from "@/app/charts/PaceBar";
 import { compact, full, percent } from "@/app/charts/format";
 import { SMEC_TARGETS, SMEC_YEAR, type SmecMeasure } from "./targets";
+import { useTrackingHealth } from "../tracking/useTrackingHealth";
+import { AttributionNotice } from "../tracking/AttributionNotice";
 
 type NewBuyers = { year: number; firstOrderTotal: number | null; firstOrderPaidSearch: number | null };
 
@@ -43,7 +45,9 @@ function ytdRange(): { from: string; to: string; elapsed: number; monthsGone: nu
   const to = now.toISOString().slice(0, 10);
   const start = Date.UTC(SMEC_YEAR, 0, 1);
   const end = Date.UTC(SMEC_YEAR + 1, 0, 1);
-  const elapsed = Math.min(1, Math.max(0, (Date.now() - start) / (end - start)));
+  // Whole UTC days, so the server render and the client hydration derive identical styles (the pace marker).
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const elapsed = Math.min(1, Math.max(0, (today - start) / (end - start)));
   return { from, to, elapsed, monthsGone: elapsed * 12 };
 }
 
@@ -81,6 +85,8 @@ export default function SmecTargetsPage() {
   const gclid = useHeld<GclidStatus>(`/api/integrations/hubspot?report=gclidStatus`, [tick]);
   const purchasersAll = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${q}`, [q, tick]);
   const buyers = useHeld<NewBuyers>(`/api/integrations/hubspot?report=newBuyers&year=${SMEC_YEAR}`, [tick]);
+  // Paid Search counters are only as good as GA4 channel attribution: show the same verdict as Tracking health.
+  const tracking = useTrackingHealth(tick);
 
   // Live actuals, derived once and shared by tiles, bars and table rows.
   const ke = keyEvents.result;
@@ -122,6 +128,8 @@ export default function SmecTargetsPage() {
           Targets are annual, so this page ignores the hub-wide window on purpose. Live figures are Paid Search only.
         </Typography>
       </Box>
+
+      <AttributionNotice health={tracking.derived?.health ?? null} />
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>

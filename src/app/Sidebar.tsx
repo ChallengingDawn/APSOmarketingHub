@@ -44,6 +44,7 @@ import LayersIcon from "@mui/icons-material/Layers";
 import AdsClickIcon from "@mui/icons-material/AdsClick";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import TrackChangesIcon from "@mui/icons-material/TrackChanges";
+import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
@@ -117,6 +118,7 @@ const navSections: NavSection[] = [
       { label: "Audience", href: "/analytics/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
+      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
     ],
   },
   {

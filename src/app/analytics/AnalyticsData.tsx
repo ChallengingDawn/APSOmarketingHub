@@ -1,6 +1,6 @@
 "use client";
 
-// One connection, five sub-apps. The provider reads the hub-wide reporting
+// One connection, six sub-apps. The provider reads the hub-wide reporting
 // window and owns the GA4 overview; each sub-app asks for the named reports
 // it needs through useGa4Report, keyed on the same window so every figure on
 // screen agrees. While a window change reloads, the previous result is held

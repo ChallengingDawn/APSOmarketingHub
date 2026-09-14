@@ -30,13 +30,18 @@ export type Ga4ReportName =
   | "revenueTotals"
   | "signupsMonthly"
   | "purchaserTotals"
-  | "conversionTotals";
+  | "conversionTotals"
+  | "newChannelsDaily"
+  | "adsClicksDaily"
+  | "trafficWeekly";
 
 type ReportSpec = {
   dimensions: string[];
   metrics: string[];
   /** Absent on dimensionless reports — GA4 rejects an orderBy there. */
   orderBy?: { metric?: string; dimension?: string; desc?: boolean };
+  /** A filter the report always carries, ANDed with any request filter. */
+  filter?: { field: string; value: string };
   limit: number;
 };
 
@@ -128,6 +133,27 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["sessions", "totalUsers", "newUsers", "keyEvents", "sessionKeyEventRate"],
     limit: 1,
   },
+  newChannelsDaily: {
+    dimensions: ["date", "sessionDefaultChannelGroup"],
+    metrics: ["sessions"],
+    filter: { field: "newVsReturning", value: "new" },
+    orderBy: { dimension: "date" },
+    limit: 4000,
+  },
+  adsClicksDaily: {
+    // GA4 answers Google Ads metrics only alongside a campaign dimension; the client sums per day.
+    dimensions: ["date", "sessionGoogleAdsCampaignName"],
+    metrics: ["advertiserAdClicks"],
+    orderBy: { dimension: "date" },
+    limit: 10000,
+  },
+  trafficWeekly: {
+    // Users are not additive across days, so page views per user is read per ISO week.
+    dimensions: ["isoYearIsoWeek"],
+    metrics: ["totalUsers", "screenPageViews", "sessions"],
+    orderBy: { dimension: "isoYearIsoWeek" },
+    limit: 60,
+  },
 };
 
 export function isGa4ReportName(value: unknown): value is Ga4ReportName {
@@ -197,6 +223,7 @@ export async function fetchGa4Report(params: {
       ...(() => {
         const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value } } });
         const filters = [
+          ...(spec.filter ? [exact(spec.filter.field, spec.filter.value)] : []),
           ...(params.pagePath ? [exact("pagePath", params.pagePath)] : []),
           ...(params.channelGroup ? [exact("sessionDefaultChannelGroup", params.channelGroup)] : []),
           ...(params.eventName ? [exact("eventName", params.eventName)] : []),
