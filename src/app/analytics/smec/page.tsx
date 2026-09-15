@@ -27,8 +27,6 @@ import { ShareBar } from "@/app/charts/ShareBar";
 import { PaceBar } from "@/app/charts/PaceBar";
 import { compact, dayLabel, full, percent } from "@/app/charts/format";
 import { SMEC_TARGETS, SMEC_YEAR, type SmecMeasure } from "./targets";
-import { useTrackingHealth } from "../tracking/useTrackingHealth";
-import { AttributionNotice } from "../tracking/AttributionNotice";
 
 type NewBuyers = { year: number; firstOrderTotal: number | null; firstOrderPaidSearch: number | null };
 
@@ -87,8 +85,6 @@ export default function SmecTargetsPage() {
   const gclid = useHeld<GclidStatus>(`/api/integrations/hubspot?report=gclidStatus`, [tick]);
   const purchasersAll = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${q}`, [q, tick]);
   const buyers = useHeld<NewBuyers>(`/api/integrations/hubspot?report=newBuyers&year=${SMEC_YEAR}`, [tick]);
-  // Paid Search counters are only as good as GA4 channel attribution: show the same verdict as Tracking health.
-  const tracking = useTrackingHealth(tick);
 
   // Live actuals, derived once and shared by tiles, bars and table rows.
   const ke = keyEvents.result;
@@ -127,8 +123,6 @@ export default function SmecTargetsPage() {
         />
         <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Paid Search (SEA) figures against the full-year goals</Typography>
       </Box>
-
-      <AttributionNotice health={tracking.derived?.health ?? null} />
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>

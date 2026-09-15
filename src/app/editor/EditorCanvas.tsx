@@ -10,6 +10,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Menu from "@mui/material/Menu";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
 import Chip from "@mui/material/Chip";
@@ -26,6 +27,8 @@ import SaveIcon from "@mui/icons-material/Save";
 import FlipToFrontIcon from "@mui/icons-material/FlipToFront";
 import FlipToBackIcon from "@mui/icons-material/FlipToBack";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import BrandingWatermarkIcon from "@mui/icons-material/BrandingWatermark";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
 import PanoramaFishEyeIcon from "@mui/icons-material/PanoramaFishEye";
 import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
@@ -65,6 +68,42 @@ const CANVAS_PRESETS: Record<string, { w: number; h: number; label: string }> = 
   story: { w: 1080, h: 1920, label: "Story 1080×1920" },
   wide: { w: 1920, h: 1080, label: "Wide 1920×1080" },
 };
+
+/**
+ * The APSOparts logo, optimised from the brand SVG exports (RGB versions; the
+ * CMYK files are for print). w/h are the viewBox, which fixes the aspect ratio.
+ */
+const BRAND_LOGOS = {
+  color: { src: "/brand/apsoparts-logo.svg", label: "APSOparts logo · colour", w: 678.5, h: 229.7 },
+  white: { src: "/brand/apsoparts-logo-white.svg", label: "APSOparts logo · white", w: 678.5, h: 229.7 },
+  companyColor: { src: "/brand/apsoparts-logo-company.svg", label: "With “an Angst+Pfister company” · colour", w: 1119.5, h: 229.7 },
+  companyWhite: { src: "/brand/apsoparts-logo-company-white.svg", label: "With “an Angst+Pfister company” · white", w: 1119.5, h: 229.7 },
+} as const;
+type BrandLogoKey = keyof typeof BRAND_LOGOS;
+const LOGO_SWAP: Record<BrandLogoKey, BrandLogoKey> = { color: "white", white: "color", companyColor: "companyWhite", companyWhite: "companyColor" };
+const brandLogoKey = (src?: string): BrandLogoKey | null =>
+  (Object.keys(BRAND_LOGOS) as BrandLogoKey[]).find((k) => BRAND_LOGOS[k].src === src) ?? null;
+/** Relative luminance of the red in the logo (#e5331f). */
+const LOGO_RED_LUMINANCE = 0.192;
+
+const SRGB_TO_LINEAR = Array.from({ length: 256 }, (_, i) => {
+  const c = i / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+});
+
+function hexLuminance(c: string): number | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return null;
+  const v = Number.parseInt(m[1], 16);
+  return 0.2126 * SRGB_TO_LINEAR[(v >> 16) & 255] + 0.7152 * SRGB_TO_LINEAR[(v >> 8) & 255] + 0.0722 * SRGB_TO_LINEAR[v & 255];
+}
+
+/** White logo when white contrasts more with the background than the red logo does (WCAG contrast ratio). */
+function prefersWhiteLogo(background: number): boolean {
+  const white = 1.05 / (background + 0.05);
+  const red = (Math.max(LOGO_RED_LUMINANCE, background) + 0.05) / (Math.min(LOGO_RED_LUMINANCE, background) + 0.05);
+  return white >= red;
+}
 
 const HISTORY_MAX = 50;
 const SAFE_MARGIN = 0.04;
@@ -551,6 +590,7 @@ export default function EditorCanvas({
 
   /* uploaded/imported image elements cache */
   const [imgEls, setImgEls] = useState<Record<string, HTMLImageElement>>({});
+  const [logoMenu, setLogoMenu] = useState<HTMLElement | null>(null);
   const loadNodeImage = useCallback((id: string, src: string) => {
     const el = new window.Image();
     el.crossOrigin = "anonymous";
@@ -603,6 +643,68 @@ export default function EditorCanvas({
       el.src = src;
     };
     reader.readAsDataURL(file);
+  };
+
+  /** Relative luminance (0 dark, 1 light) behind a canvas rectangle: the photo when there is one, else the gradient or colour. */
+  const backgroundLuminance = (rect: { x: number; y: number; w: number; h: number }): number | null => {
+    if (bgImage && bgFit) {
+      try {
+        const probe = document.createElement("canvas");
+        probe.width = Math.max(1, Math.round(rect.w));
+        probe.height = Math.max(1, Math.round(rect.h));
+        const ctx = probe.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(bgImage, bgFit.x - rect.x, bgFit.y - rect.y, bgFit.width, bgFit.height);
+        const px = ctx.getImageData(0, 0, probe.width, probe.height).data;
+        let sum = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          sum += 0.2126 * SRGB_TO_LINEAR[px[i]] + 0.7152 * SRGB_TO_LINEAR[px[i + 1]] + 0.0722 * SRGB_TO_LINEAR[px[i + 2]];
+        }
+        return sum / (px.length / 4);
+      } catch {
+        // A photo served without CORS headers cannot be read back.
+        return null;
+      }
+    }
+    if (bgGrad) {
+      const a = hexLuminance(bgGrad.from);
+      const b = hexLuminance(bgGrad.to);
+      return a !== null && b !== null ? (a + b) / 2 : null;
+    }
+    return hexLuminance(bgColor);
+  };
+
+  /** One click: the logo top left inside the safe margin, white or colour to suit what is behind it. */
+  const addBrandLogo = (choice: BrandLogoKey | "auto" | "companyAuto" = "auto") => {
+    const company = choice === "companyAuto" || choice === "companyColor" || choice === "companyWhite";
+    const shape = company ? BRAND_LOGOS.companyColor : BRAND_LOGOS.color;
+    const width = Math.round(canvas.w * (company ? 0.34 : 0.22));
+    const height = Math.round((width * shape.h) / shape.w);
+    const x = Math.round(canvas.w * SAFE_MARGIN);
+    const y = Math.round(canvas.h * SAFE_MARGIN);
+    let key: BrandLogoKey;
+    if (choice === "auto" || choice === "companyAuto") {
+      const lum = backgroundLuminance({ x, y, w: width, h: height });
+      // Unreadable photo: photos are usually busy and mid-dark, so white is the safer default.
+      const white = lum === null ? Boolean(bgImage) : prefersWhiteLogo(lum);
+      key = company ? (white ? "companyWhite" : "companyColor") : white ? "white" : "color";
+    } else {
+      key = choice;
+    }
+    const logo = BRAND_LOGOS[key];
+    const id = nid();
+    loadNodeImage(id, logo.src);
+    commit((cur) => [...cur, { id, kind: "image", x, y, width, height, fill: "#fff", src: logo.src, opacity: 1 }]);
+    setSelectedId(id);
+    setLogoMenu(null);
+  };
+
+  const swapLogoColour = (n: NodeSpec) => {
+    const key = brandLogoKey(n.src);
+    if (!key) return;
+    const next = BRAND_LOGOS[LOGO_SWAP[key]].src;
+    patch(n.id, { src: next });
+    loadNodeImage(n.id, next);
   };
 
   /** Swap the bitmap of an existing image node, keeping its frame size. */
@@ -1159,7 +1261,7 @@ export default function EditorCanvas({
     kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
 
   const layerLabel = (n: NodeSpec) =>
-    n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? "Image" : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : "Shape";
+    n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : "Shape";
 
   const swatch = (c: string, active: boolean, onPick: () => void, size = 20) => (
     <Box
@@ -1213,6 +1315,27 @@ export default function EditorCanvas({
             <HorizontalRuleIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+      </Box>
+      <Box sx={{ display: "flex", gap: 0.5, mb: 1, alignItems: "center" }}>
+        <Tooltip describeChild title="Place the APSOparts logo top left: white on a dark background, colour on a light one">
+          <Button onClick={() => addBrandLogo("auto")} size="small" variant="contained" startIcon={<BrandingWatermarkIcon />} sx={{ fontWeight: 700 }}>
+            APSOparts logo
+          </Button>
+        </Tooltip>
+        <Tooltip title="Other logo versions">
+          <IconButton size="small" onClick={(e) => setLogoMenu(e.currentTarget)} aria-label="Other logo versions" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
+            <ArrowDropDownIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Menu anchorEl={logoMenu} open={Boolean(logoMenu)} onClose={() => setLogoMenu(null)}>
+          <MenuItem onClick={() => addBrandLogo("companyAuto")}>With “an Angst+Pfister company” · auto colour</MenuItem>
+          <Divider />
+          {(Object.keys(BRAND_LOGOS) as BrandLogoKey[]).map((k) => (
+            <MenuItem key={k} onClick={() => addBrandLogo(k)}>
+              {BRAND_LOGOS[k].label}
+            </MenuItem>
+          ))}
+        </Menu>
       </Box>
       <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700, mb: 2 }}>
         Import photo / logo
@@ -1783,6 +1906,11 @@ export default function EditorCanvas({
               <Button size="small" variant={selected.grayscale ? "contained" : "outlined"} onClick={() => patch(selected.id, { grayscale: !selected.grayscale })} sx={{ fontWeight: 700 }}>
                 Grayscale
               </Button>
+              {brandLogoKey(selected.src) && (
+                <Button size="small" variant="outlined" onClick={() => swapLogoColour(selected)} sx={{ fontWeight: 700 }}>
+                  {brandLogoKey(selected.src)?.toLowerCase().includes("white") ? "Colour logo" : "White logo"}
+                </Button>
+              )}
               <Button component="label" size="small" variant="outlined" startIcon={<AddPhotoAlternateIcon />} sx={{ fontWeight: 700 }}>
                 Replace image
                 <input
