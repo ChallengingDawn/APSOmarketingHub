@@ -755,8 +755,8 @@ export default function IntegrationsSettingsPage() {
               <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.6 }}>
                 This page displays only variable names and whether a live call succeeded. No token,
                 key or private-app value is rendered — not even masked. Once GA4 is connected,{" "}
-                <Box component={Link} href="/analytics" sx={{ color: NAVY, fontWeight: 600 }}>
-                  the Analytics page
+                <Box component={Link} href="/website/overview" sx={{ color: NAVY, fontWeight: 600 }}>
+                  the Site overview
                 </Box>{" "}
                 starts showing the property&apos;s real numbers.
               </Typography>

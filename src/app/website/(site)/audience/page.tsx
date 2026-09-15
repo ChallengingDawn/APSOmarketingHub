@@ -5,8 +5,8 @@
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
-import { metricOf, useAnalytics, useGa4Report } from "../AnalyticsData";
-import { Gate, Section, SourceNote, SubAppHead } from "../Shell";
+import { metricOf, useAnalytics, useGa4Report } from "@/app/analytics/AnalyticsData";
+import { Gate, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
 import { ShareBar } from "@/app/charts/ShareBar";
@@ -20,7 +20,7 @@ export default function AudiencePage() {
 
   return (
     <Box>
-      <SubAppHead title="Audience" purpose={`Who visited in the last ${windowDays} days — on what, for the first time or again, and from where.`} />
+      <SubAppHead purpose={`Who visited in the last ${windowDays} days — on what, for the first time or again, and from where.`} />
 
       <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
         <Grid size={{ xs: 12, lg: 6 }}>

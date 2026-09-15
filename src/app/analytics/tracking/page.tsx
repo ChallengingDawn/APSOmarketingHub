@@ -19,7 +19,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HighlightOffIcon from "@mui/icons-material/HighlightOff";
-import { Gate, HAIRLINE, INK, MUTED, NotConnectedPanel, Section, SourceNote, SubAppHead } from "../Shell";
+import { Gate, HAIRLINE, INK, MUTED, NotConnectedPanel, Section, SourceNote } from "../Shell";
 import { useHeld } from "../AnalyticsData";
 import type { Ga4TableReport } from "../integrationApi";
 import { StatTile } from "@/app/charts/StatTile";
@@ -169,7 +169,6 @@ export default function TrackingHealthPage() {
 
   return (
     <Box>
-      <SubAppHead title="Tracking health" purpose="" />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5, flexWrap: "wrap" }}>
         <Chip
           label={`Baseline ${baselineLabel} · last ${RECENT_WEEKS} full weeks through ${dayLabel(span.to)}`}

@@ -35,7 +35,6 @@ export default function NewCustomersPage() {
   return (
     <Box>
       <SubAppHead
-        title="New customers"
         purpose="Who arrived in the window — exact portal counts of new contacts and companies, the channels that brought them, and what they already are."
       />
 

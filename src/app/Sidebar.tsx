@@ -45,6 +45,7 @@ import AdsClickIcon from "@mui/icons-material/AdsClick";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import TrackChangesIcon from "@mui/icons-material/TrackChanges";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
+import CookieIcon from "@mui/icons-material/Cookie";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
@@ -106,6 +107,9 @@ const navSections: NavSection[] = [
     items: [
       { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
       { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
+      { label: "Site overview", href: "/website/overview", icon: <BarChartIcon fontSize="small" /> },
+      { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
+      { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
     ],
   },
   {
@@ -113,12 +117,10 @@ const navSections: NavSection[] = [
     icon: <InsightsIcon />,
     color: "#0a84ff",
     items: [
-      { label: "Overview", href: "/analytics", icon: <BarChartIcon fontSize="small" /> },
-      { label: "Acquisition", href: "/analytics/acquisition", icon: <AdsClickIcon fontSize="small" /> },
-      { label: "Audience", href: "/analytics/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
+      { label: "Cookie-free signals", href: "/analytics/signals", icon: <CookieIcon fontSize="small" /> },
     ],
   },
   {

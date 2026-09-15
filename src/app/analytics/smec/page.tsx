@@ -17,7 +17,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import { useState } from "react";
-import { Gate, HAIRLINE, INK, MUTED, Section, SourceNote, SubAppHead } from "../Shell";
+import { Gate, HAIRLINE, INK, MUTED, Section, SourceNote } from "../Shell";
 import { metricOf, useHeld } from "../AnalyticsData";
 import type { Ga4TableReport } from "../integrationApi";
 import { StatTile } from "@/app/charts/StatTile";
@@ -117,7 +117,6 @@ export default function SmecTargetsPage() {
 
   return (
     <Box>
-      <SubAppHead title="SMEC targets" purpose="" />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5, flexWrap: "wrap" }}>
         <Chip
           label={`${SMEC_YEAR} year-to-date · Jan 1 → ${to} · ${percent(elapsed)} of the year gone`}

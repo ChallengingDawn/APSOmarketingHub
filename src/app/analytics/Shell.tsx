@@ -1,13 +1,12 @@
 "use client";
 
 // The chrome the Analytics sub-apps share — and, because they are the same
-// shapes, the Live and Customers pages borrow them too: the rail, the section
-// card, and the three honest data states. Nothing in this file computes a
+// shapes, the Live and Customers pages borrow them too: the section
+// card and the three honest data states. Nothing in this file computes a
 // figure; it only frames what a report returned.
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -25,86 +24,22 @@ export const SURFACE = "#f5f6f8";
 export const GUTTER = { xs: 2, sm: 2.5, md: 3, lg: 4 } as const;
 export const DISPLAY = "var(--font-outfit), var(--font-inter), sans-serif";
 
-/* ── the six siblings ──────────────────────────────────────────────────── */
-
-export type AnalyticsRouteId = "overview" | "acquisition" | "audience" | "commercial" | "smec" | "tracking";
-
-export const ANALYTICS_NAV: { id: AnalyticsRouteId; href: string; label: string; purpose: string }[] = [
-  { id: "overview", href: "/analytics", label: "Overview", purpose: "How the site is doing" },
-  { id: "acquisition", href: "/analytics/acquisition", label: "Acquisition", purpose: "Where visitors come from" },
-  { id: "audience", href: "/analytics/audience", label: "Audience", purpose: "Who they are" },
-  { id: "commercial", href: "/analytics/new-customers", label: "New customers", purpose: "Who just arrived, and what they become" },
-  { id: "smec", href: "/analytics/smec", label: "SMEC targets", purpose: "Agency KPIs vs 2026 goals" },
-  { id: "tracking", href: "/analytics/tracking", label: "Tracking health", purpose: "Is GA4 attributing sessions correctly" },
-];
-
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/analytics") return pathname === "/analytics" || pathname === "/analytics/";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-export function SubNav() {
-  const pathname = usePathname() ?? "/analytics";
-  return (
-    <Box
-      component="nav"
-      aria-label="Analytics sub-apps"
-      sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "repeat(2, 1fr)", md: `repeat(${ANALYTICS_NAV.length}, 1fr)` },
-        gap: 0.75,
-        p: 0.75,
-        mb: { xs: 3, md: 4 },
-        borderRadius: 2.5,
-        bgcolor: SURFACE,
-        border: `1px solid ${HAIRLINE}`,
-      }}
-    >
-      {ANALYTICS_NAV.map((entry) => {
-        const active = isActive(pathname, entry.href);
-        return (
-          <Box
-            key={entry.id}
-            component={Link}
-            href={entry.href}
-            aria-current={active ? "page" : undefined}
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              textAlign: "center",
-              gap: 0.2,
-              px: 1.75,
-              py: 1.1,
-              borderRadius: 2,
-              textDecoration: "none",
-              bgcolor: active ? "#fff" : "transparent",
-              boxShadow: active ? "0 1px 2px rgba(26,29,33,0.06), 0 2px 8px rgba(26,29,33,0.06)" : "none",
-              border: `1px solid ${active ? HAIRLINE : "transparent"}`,
-              transition: "background-color 120ms, box-shadow 120ms",
-              "&:hover": { bgcolor: active ? "#fff" : "rgba(255,255,255,0.7)" },
-            }}
-          >
-            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, color: active ? INK : MUTED, lineHeight: 1.3 }}>
-              {entry.label}
-            </Typography>
-            <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.3 }}>{entry.purpose}</Typography>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
-
 /* ── page furniture ────────────────────────────────────────────────────── */
 
-export function SubAppHead({ title, purpose }: { title: string; purpose: string }) {
+/**
+ * The sub-app's own heading. Where the layout header already names the sub-app
+ * (the Website and Intelligence areas), pass only the purpose line.
+ */
+export function SubAppHead({ title, purpose }: { title?: string; purpose: string }) {
+  if (!title && !purpose) return null;
   return (
     <Box sx={{ mb: 3 }}>
-      <Typography sx={{ fontFamily: DISPLAY, fontSize: "1.35rem", fontWeight: 600, letterSpacing: "-0.02em", color: INK }}>
-        {title}
-      </Typography>
-      {purpose && <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.35, maxWidth: 760 }}>{purpose}</Typography>}
+      {title && (
+        <Typography sx={{ fontFamily: DISPLAY, fontSize: "1.35rem", fontWeight: 600, letterSpacing: "-0.02em", color: INK }}>
+          {title}
+        </Typography>
+      )}
+      {purpose && <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: title ? 0.35 : 0, maxWidth: 760 }}>{purpose}</Typography>}
     </Box>
   );
 }

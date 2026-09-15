@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
 import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchGclidStatus, fetchNewBuyers, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
+import { fetchCookieFreeSignals, fetchWebOrders } from "@/lib/integrations/signals";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -122,6 +123,17 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ configured: true, ok: false, error: "companyDetail needs a numeric id.", status: 400 });
       }
       const data = await fetchCompanyDetail({ id, signal: controller.signal });
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "signals") {
+      const rawYear = Number.parseInt(req.nextUrl.searchParams.get("year") ?? "", 10);
+      const year = Number.isFinite(rawYear) && rawYear >= 2016 && rawYear <= 2100 ? rawYear : new Date().getUTCFullYear();
+      const data = await cachedReport(`signals:${year}`, () => fetchCookieFreeSignals({ year, signal: controller.signal }));
+      return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "webOrders") {
+      const week = new Date().toISOString().slice(0, 10);
+      const data = await cachedReport(`webOrders:${week}`, () => fetchWebOrders({ signal: controller.signal }));
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "weekly") {

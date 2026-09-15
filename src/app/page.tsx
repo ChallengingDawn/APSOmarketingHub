@@ -585,11 +585,11 @@ export default function MissionControl() {
           })}
           <Button
             component={Link}
-            href={sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "/analytics" : "/settings/integrations"}
+            href={sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "/website/overview" : "/settings/integrations"}
             size="small"
             sx={{ fontWeight: 600, color: "#274e64", whiteSpace: "nowrap" }}
           >
-            {sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "Open Analytics" : "Open Integrations"}
+            {sources !== null && sources !== "unavailable" && sources.missing.length === 0 ? "Open Site overview" : "Open Integrations"}
           </Button>
         </CardContent>
       </Card>

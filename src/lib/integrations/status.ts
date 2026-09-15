@@ -46,6 +46,9 @@ const EXPECTED_ENV = [
   "GSC_SITE_URL",
   "HUBSPOT_TOKEN",
   "HUBSPOT_EVENTS_TOKEN",
+  "COOKIEBOT_API_KEY",
+  "COOKIEBOT_DOMAIN_GROUP",
+  "COOKIEBOT_DOMAIN",
 ] as const;
 
 function shapeOf(name: string, value: string): string {
@@ -69,6 +72,8 @@ export function envDiagnostics(): EnvDiagnostics {
     GA4_PROPERTY_ID: GA4_DEFAULT_PROPERTY_ID,
     GSC_SITE_URL: GSC_DEFAULT_SITE_URL,
     HUBSPOT_EVENTS_TOKEN: "falls back to HUBSPOT_TOKEN (page visits then need its scope)",
+    COOKIEBOT_DOMAIN_GROUP: "0c548172-58a9-4606-9df6-9cfde47bb141",
+    COOKIEBOT_DOMAIN: "www.apsoparts.com",
   };
   const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
     const value = process.env[name];

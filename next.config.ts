@@ -36,6 +36,14 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/**": ["./src/data/**/*.json"],
   },
+  // The GA4 site sub-apps moved from the Intelligence tabs to the Website area.
+  async redirects() {
+    return [
+      { source: "/analytics", destination: "/website/overview", permanent: false },
+      { source: "/analytics/acquisition", destination: "/website/acquisition", permanent: false },
+      { source: "/analytics/audience", destination: "/website/audience", permanent: false },
+    ];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

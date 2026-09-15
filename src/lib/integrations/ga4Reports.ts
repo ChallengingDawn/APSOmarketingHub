@@ -33,7 +33,8 @@ export type Ga4ReportName =
   | "conversionTotals"
   | "newChannelsDaily"
   | "adsClicksDaily"
-  | "trafficWeekly";
+  | "trafficWeekly"
+  | "transactionsDaily";
 
 type ReportSpec = {
   dimensions: string[];
@@ -142,8 +143,9 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
   },
   adsClicksDaily: {
     // GA4 answers Google Ads metrics only alongside a campaign dimension; the client sums per day.
+    // Never swap date for yearMonth: GA4 inflates advertiser metrics on that dimension (checked 15.09.2026).
     dimensions: ["date", "sessionGoogleAdsCampaignName"],
-    metrics: ["advertiserAdClicks"],
+    metrics: ["advertiserAdClicks", "advertiserAdCost"],
     orderBy: { dimension: "date" },
     limit: 10000,
   },
@@ -153,6 +155,13 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["totalUsers", "screenPageViews", "sessions"],
     orderBy: { dimension: "isoYearIsoWeek" },
     limit: 60,
+  },
+  transactionsDaily: {
+    // GA4 purchases per day, compared per week with the web order records the Magento connector writes.
+    dimensions: ["date"],
+    metrics: ["transactions"],
+    orderBy: { dimension: "date" },
+    limit: 400,
   },
 };
 

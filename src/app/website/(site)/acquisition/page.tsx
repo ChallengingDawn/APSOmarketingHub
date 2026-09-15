@@ -5,8 +5,8 @@
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
-import { metricOf, sumOf, useAnalytics, useGa4Report } from "../AnalyticsData";
-import { Gate, Section, SourceNote, SubAppHead } from "../Shell";
+import { metricOf, sumOf, useAnalytics, useGa4Report } from "@/app/analytics/AnalyticsData";
+import { Gate, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
@@ -21,7 +21,6 @@ export default function AcquisitionPage() {
   return (
     <Box>
       <SubAppHead
-        title="Acquisition"
         purpose={`Which channels and sources brought sessions in the last ${windowDays} days, and how engaged each one was.`}
       />
 

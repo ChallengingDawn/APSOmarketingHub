@@ -6,8 +6,8 @@
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
-import { useAnalytics } from "./AnalyticsData";
-import { Gate, Section, SourceNote, SubAppHead } from "./Shell";
+import { useAnalytics } from "@/app/analytics/AnalyticsData";
+import { Gate, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { TrendChart } from "@/app/charts/TrendChart";
@@ -22,7 +22,6 @@ export default function AnalyticsOverviewPage() {
   return (
     <Box>
       <SubAppHead
-        title="Overview"
         purpose={`What apsoparts.com earned in the last ${windowDays} days, and how that compares with the ${windowDays} days before.`}
       />
 
