@@ -311,14 +311,14 @@ export function describeHealth(h: Health): HealthCopy {
       };
     case "verifying": {
       const n = h.sinceFix.length;
-      const when = `The first verdict comes after 10 weekdays (${dayLabel(h.firstVerdictOn)}), the final one after two full weeks (${dayLabel(h.finalVerdictOn)}).`;
+      const when = `First verdict ${dayLabel(h.firstVerdictOn)}, final ${dayLabel(h.finalVerdictOn)}.`;
       return {
         label: `Fix live since ${dayLabel(FIX_DATE)}`,
         tone: "warn",
         sentence:
           n === 0
-            ? `The consent fix went live in the evening of ${dayLabel(FIX_DATE)} (last change ${FIX_TIME}). There is no full weekday of data since then yet. ${when}`
-            : `The consent fix went live in the evening of ${dayLabel(FIX_DATE)} (last change ${FIX_TIME}). Since then Direct was at or under 32% on ${h.sinceFixInBand} of ${n} weekday${n === 1 ? "" : "s"}. ${when}`,
+            ? `Live since the evening of ${dayLabel(FIX_DATE)} (last change ${FIX_TIME}). No full weekday of new data yet. ${when}`
+            : `Since the fix, Direct was at or under 32% on ${h.sinceFixInBand} of ${n} weekday${n === 1 ? "" : "s"}. ${when}`,
       };
     }
     case "alert":

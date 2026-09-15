@@ -16,7 +16,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { HAIRLINE, INK, MUTED } from "../Shell";
 import { dayLabel } from "@/app/charts/format";
-import { FIX_DATE, INCIDENT_DATE, describeHealth, shiftIso, type Health, type HealthTone } from "./health";
+import { FIX_DATE, INCIDENT_DATE, describeHealth, type Health, type HealthTone } from "./health";
 
 export const TONE: Record<HealthTone, { bg: string; fg: string }> = {
   good: { bg: "#e5f3ea", fg: "#155d33" },
@@ -75,11 +75,11 @@ export function AttributionNotice({ health }: { health: Health | null }) {
     health.state === "alert"
       ? "Check the GA4 counters below before using them"
       : health.state === "verifying"
-        ? `Paid Search counters under-count from ${incident} to ${fix}`
+        ? `Paid Search is under-counted for ${incident} – ${fix}`
         : `The Paid Search counters below under-count from ${incident}`;
   const footnote =
     health.state === "verifying"
-      ? `GA4 does not re-attribute sessions it has already recorded, so that gap stays in the year-to-date totals. Days from ${dayLabel(shiftIso(FIX_DATE, 1))} count normally once the check confirms the fix.`
+      ? `First check ${dayLabel(health.firstVerdictOn)}, final ${dayLabel(health.finalVerdictOn)}. The gap stays in the year-to-date totals.`
       : `Figures before ${incident} are unaffected. GA4 does not re-attribute sessions it has already recorded, so the gap stays in the year-to-date totals even after the fix.`;
 
   return (
@@ -97,7 +97,7 @@ export function AttributionNotice({ health }: { health: Health | null }) {
         <HealthChip tone={copy.tone} label={copy.label} />
         <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>{headline}</Typography>
       </Box>
-      <Typography sx={{ fontSize: "0.82rem", color: INK }}>{copy.sentence}</Typography>
+      {health.state !== "verifying" && <Typography sx={{ fontSize: "0.82rem", color: INK }}>{copy.sentence}</Typography>}
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>
         {footnote} {trackingLink("Open Tracking health")}
       </Typography>
