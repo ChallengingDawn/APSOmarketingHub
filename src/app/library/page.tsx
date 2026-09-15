@@ -562,7 +562,7 @@ function LibraryWorkspace() {
     <Box sx={{ p: 1 }}>
       <PageHeader
         title="Content Library"
-        subtitle="Every generated piece lands here — review the visual, approve it, publish it."
+        subtitle="Review, approve and publish generated content"
         rightSlot={
           <Button
             onClick={() => load()}
@@ -1024,7 +1024,7 @@ export default function LibraryPage() {
         <Box sx={{ p: 1 }}>
           <PageHeader
             title="Content Library"
-            subtitle="Every generated piece lands here — review the visual, approve it, publish it."
+            subtitle="Review, approve and publish generated content"
           />
           <Box
             sx={{

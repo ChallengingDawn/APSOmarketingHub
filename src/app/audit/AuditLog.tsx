@@ -197,7 +197,7 @@ export default function AuditLog({ events, error, limit }: Props) {
     <Box sx={{ py: 4, px: { xs: 2, md: 4 } }}>
       <PageHeader
         title="Audit"
-        subtitle="Every event recorded in the apsomh_audit table — actor, action, target and timestamp, exactly as stored. Nothing on this page is generated or illustrative."
+        subtitle="Who did what in this hub, and when"
         rightSlot={
           !error && events.length > 0 ? (
             <Button

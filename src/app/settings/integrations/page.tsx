@@ -480,7 +480,7 @@ export default function IntegrationsSettingsPage() {
     <Box sx={{ p: 1 }}>
       <PageHeader
         title="Integrations"
-        subtitle="Connect GA4, Search Console and HubSpot — the sources every live figure in this hub is read from"
+        subtitle="Connect the data sources behind every figure in this hub"
         rightSlot={
           <Button
             onClick={loadStatus}

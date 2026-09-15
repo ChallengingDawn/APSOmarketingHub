@@ -130,7 +130,7 @@ export default function GeoChrome({ children }: { children: ReactNode }) {
     <Box sx={{ width: "100%", px: { xs: 2, md: 3, xl: 5 }, py: { xs: 2, md: 3 } }}>
       <PageHeader
         title="GEO Cockpit"
-        subtitle="What makes a page quotable by AI answer engines — scored on the copy you have, not on assumptions."
+        subtitle="How quotable our pages are for AI answer engines, and what to fix"
         badge="GEO"
         rightSlot={headerStatus}
       />

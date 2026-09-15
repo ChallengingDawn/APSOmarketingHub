@@ -20,7 +20,7 @@ export default function CustomersLayout({ children }: { children: ReactNode }) {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="Customers"
-        subtitle="What the companies and contacts behind the traffic are doing — HubSpot's web tracking beside GA4, over the same window"
+        subtitle="Which companies and contacts are behind the traffic, and what they do on the site"
         rightSlot={<WindowPicker />}
       />
       <CustomersSubNav />

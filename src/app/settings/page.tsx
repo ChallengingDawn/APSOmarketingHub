@@ -170,7 +170,7 @@ export default function SettingsPage() {
     <>
       <PageHeader
         title="Settings & Governance"
-        subtitle="Publishing and privacy preferences — connections and user accounts live on their own pages"
+        subtitle="Publishing and privacy preferences"
       />
 
       {/* ── 1. Where the real controls live ── */}

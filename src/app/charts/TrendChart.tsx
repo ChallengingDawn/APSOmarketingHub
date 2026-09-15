@@ -10,6 +10,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -20,6 +21,11 @@ import Typography from "@mui/material/Typography";
 import { ACCENT, AREA_WASH_OPACITY, CHROME, DEEMPHASIS, FONT } from "./palette";
 import { ChartTip } from "./ChartTip";
 import { compact, dayLabel } from "./format";
+
+/** A dated event drawn as a thin vertical rule, e.g. when a fault started. Skipped when x is not on the axis. */
+export type TrendMarker = { x: string; label: string };
+/** A limit drawn as a dashed horizontal rule, e.g. the most a share may be. */
+export type TrendThreshold = { value: number; label: string };
 
 export type TrendPoint = {
   /** Category key on the x axis (an ISO day for daily series). */
@@ -44,6 +50,9 @@ export function TrendChart({
   height = 260,
   format = compact,
   xFormat = dayLabel,
+  markers = [],
+  threshold,
+  tickFormat,
 }: {
   data: TrendPoint[];
   seriesLabel: string;
@@ -51,6 +60,10 @@ export function TrendChart({
   height?: number;
   format?: (v: number | null) => string;
   xFormat?: (x: string) => string;
+  markers?: TrendMarker[];
+  threshold?: TrendThreshold;
+  /** Axis labels only, when they need fewer digits than the hover readout. */
+  tickFormat?: (v: number | null) => string;
 }) {
   const hasCompare = Boolean(compareLabel) && data.some((d) => typeof d.compare === "number");
 
@@ -58,6 +71,7 @@ export function TrendChart({
     const values = data.flatMap((d) => [d.value, hasCompare ? d.compare : null]).filter(
       (v): v is number => typeof v === "number",
     );
+    if (threshold) values.push(threshold.value);
     const max = values.length ? Math.max(...values) : 0;
     const top = niceCeiling(max);
     const stride = Math.max(1, Math.round(data.length / 5));
@@ -66,7 +80,9 @@ export function TrendChart({
     for (const d of data) if (typeof d.value === "number" && (!pk || d.value > (pk.value as number))) pk = d;
     const last = [...data].reverse().find((d) => typeof d.value === "number") ?? null;
     return { yMax: top, ticks: xs, peak: pk, latest: last };
-  }, [data, hasCompare]);
+  }, [data, hasCompare, threshold]);
+  const onAxis = new Set(data.map((d) => d.x));
+  const shownMarkers = markers.filter((m) => onAxis.has(m.x));
 
   return (
     <Box>
@@ -92,7 +108,7 @@ export function TrendChart({
             <YAxis
               domain={[0, yMax]}
               ticks={[0, yMax / 4, yMax / 2, (yMax * 3) / 4, yMax]}
-              tickFormatter={(v) => format(Number(v))}
+              tickFormatter={(v) => (tickFormat ?? format)(Number(v))}
               tick={{ fontSize: 12, fill: CHROME.label }}
               axisLine={false}
               tickLine={false}
@@ -110,6 +126,18 @@ export function TrendChart({
                 />
               )}
             />
+            {threshold && (
+              <ReferenceLine y={threshold.value} stroke={CHROME.muted} strokeWidth={1} strokeDasharray="4 4" ifOverflow="extendDomain" />
+            )}
+            {shownMarkers.map((m) => (
+              <ReferenceLine
+                key={m.x}
+                x={m.x}
+                stroke={CHROME.axis}
+                strokeWidth={1}
+                label={{ value: m.label, position: "insideTopLeft", fill: CHROME.muted, fontSize: 11 }}
+              />
+            ))}
             {hasCompare && (
               <Area
                 type="monotone"
@@ -143,6 +171,7 @@ export function TrendChart({
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, flexWrap: "wrap" }}>
         <Legend swatch={ACCENT} label={seriesLabel} />
         {hasCompare && compareLabel && <Legend swatch={DEEMPHASIS} label={compareLabel} />}
+        {threshold && <Legend swatch={CHROME.muted} label={threshold.label} dashed />}
         <Box sx={{ flex: 1 }} />
         {peak && latest && (
           <Typography sx={{ fontSize: "0.74rem", color: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>
@@ -154,10 +183,18 @@ export function TrendChart({
   );
 }
 
-function Legend({ swatch, label }: { swatch: string; label: string }) {
+function Legend({ swatch, label, dashed = false }: { swatch: string; label: string; dashed?: boolean }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-      <Box sx={{ width: 16, height: 2.5, borderRadius: 1, bgcolor: swatch }} />
+      <Box
+        sx={{
+          width: 16,
+          height: dashed ? 0 : 2.5,
+          borderRadius: 1,
+          bgcolor: dashed ? "transparent" : swatch,
+          borderTop: dashed ? `1.5px dashed ${swatch}` : "none",
+        }}
+      />
       <Typography sx={{ fontSize: "0.76rem", color: CHROME.muted }}>{label}</Typography>
     </Box>
   );

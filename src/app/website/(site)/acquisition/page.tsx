@@ -6,7 +6,7 @@
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import { metricOf, sumOf, useAnalytics, useGa4Report } from "@/app/analytics/AnalyticsData";
-import { Gate, Section, SourceNote, SubAppHead } from "@/app/analytics/Shell";
+import { Gate, Section, SourceNote } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
@@ -20,10 +20,6 @@ export default function AcquisitionPage() {
 
   return (
     <Box>
-      <SubAppHead
-        purpose={`Which channels and sources brought sessions in the last ${windowDays} days, and how engaged each one was.`}
-      />
-
       <Gate held={channels} source="Google Analytics 4" loadingLabel="Reading channel groups…" onRetry={reload}>
         {(report, stale) => {
           const sessions = metricOf(report, "sessions");

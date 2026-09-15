@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * INTELLIGENCE SHELL — New customers, SMEC targets, Tracking health and
- * Cookie-free signals: independent sub-apps reached from the sidebar, no tab
- * rail. The GA4 site sub-apps (overview, acquisition, audience) live in the
- * Website area now; their old /analytics URLs redirect (next.config.ts).
+ * INTELLIGENCE SHELL — independent sub-apps reached from the sidebar, no tab
+ * rail: New customers, Buying companies, Contact requests, SMEC targets,
+ * Tracking health, Cookie consent and Web order sync. The GA4 site sub-apps
+ * (overview, acquisition, audience) live in the Website area; old /analytics
+ * URLs redirect (next.config.ts).
  *
- * Only New customers follows the hub-wide reporting window, so only it gets the
- * shared GA4 + HubSpot provider and the window picker. The other sub-apps state
- * their own fixed windows and fetch only what they show.
+ * The header's right slot follows what the sub-app reads. New customers uses
+ * the shared GA4 + HubSpot provider, so it gets the provider, the window picker
+ * and a reload. Sub-apps that fetch their own reports for the hub-wide window
+ * get the picker alone. Buying companies and SMEC targets work on calendar
+ * years and get nothing.
  */
 
 import type { ReactNode } from "react";
@@ -23,30 +26,46 @@ import { WindowPicker } from "@/app/window/ReportingWindow";
 import { AnalyticsProvider, useAnalytics } from "./AnalyticsData";
 import { GUTTER, MUTED } from "./Shell";
 
-type Header = { title: string; subtitle: string; windowed: boolean };
+type Controls = "analytics" | "window" | "none";
+type Header = { title: string; subtitle: string; controls: Controls };
 
 const HEADERS: Record<string, Header> = {
   "/analytics/new-customers": {
     title: "New customers",
-    subtitle: "Who just arrived, and what they become — GA4 and HubSpot, no sample data",
-    windowed: true,
+    subtitle: "New contacts and companies in the window, and the channels that brought them",
+    controls: "analytics",
   },
-  "/analytics/smec": { title: "SMEC targets", subtitle: "Agency KPIs against the 2026 goals — GA4, HubSpot and ERP", windowed: false },
+  "/analytics/buyers": {
+    title: "Buying companies",
+    subtitle: "How many companies order each year, how many are new and how many come back",
+    controls: "none",
+  },
+  "/analytics/contact-requests": {
+    title: "Contact requests",
+    subtitle: "How many customers write in through the contact and returns form, and in which language",
+    controls: "window",
+  },
+  "/analytics/smec": { title: "SMEC targets", subtitle: "Where the agency's 2026 goals stand today", controls: "none" },
   "/analytics/tracking": {
     title: "Tracking health",
-    subtitle: "Is GA4 putting sessions in the right channel — checked against the consent-fix acceptance test",
-    windowed: false,
+    subtitle: "Whether Google Analytics credits visits to the right channel, and whether the consent fix has passed",
+    controls: "window",
   },
-  "/analytics/signals": {
-    title: "Cookie-free signals",
-    subtitle: "What we know about customers from business records and consent logs — ERP, CRM and Cookiebot",
-    windowed: false,
+  "/analytics/consent": {
+    title: "Cookie consent",
+    subtitle: "How many visitors allow statistics and marketing cookies, which sets how much Google Analytics and Ads can see",
+    controls: "window",
+  },
+  "/analytics/web-orders": {
+    title: "Web order sync",
+    subtitle: "Whether every web shop order reaches HubSpot, checked week by week against GA4 purchases",
+    controls: "window",
   },
 };
 
-const FALLBACK: Header = { title: "Intelligence", subtitle: "Customers, targets and tracking quality — no sample data", windowed: false };
+const FALLBACK: Header = { title: "Intelligence", subtitle: "Customers, targets and data quality", controls: "none" };
 
-function WindowControls() {
+function AnalyticsControls() {
   const { overview, reload } = useAnalytics();
   const loading = overview.result === null || overview.stale;
   return (
@@ -63,9 +82,10 @@ function WindowControls() {
 }
 
 function Chrome({ header, children }: { header: Header; children: ReactNode }) {
+  const rightSlot = header.controls === "analytics" ? <AnalyticsControls /> : header.controls === "window" ? <WindowPicker /> : undefined;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
-      <PageHeader title={header.title} subtitle={header.subtitle} rightSlot={header.windowed ? <WindowControls /> : undefined} />
+      <PageHeader title={header.title} subtitle={header.subtitle} rightSlot={rightSlot} />
       {children}
     </Box>
   );
@@ -74,7 +94,7 @@ function Chrome({ header, children }: { header: Header; children: ReactNode }) {
 export default function AnalyticsLayout({ children }: { children: ReactNode }) {
   const pathname = (usePathname() ?? "").replace(/\/$/, "");
   const header = HEADERS[pathname] ?? FALLBACK;
-  if (!header.windowed) return <Chrome header={header}>{children}</Chrome>;
+  if (header.controls !== "analytics") return <Chrome header={header}>{children}</Chrome>;
   return (
     <AnalyticsProvider>
       <Chrome header={header}>{children}</Chrome>

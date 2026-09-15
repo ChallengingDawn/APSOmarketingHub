@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/lib/integrations/hubspot";
 import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchGclidStatus, fetchNewBuyers, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
-import { fetchCookieFreeSignals, fetchWebOrders } from "@/lib/integrations/signals";
+import { fetchBuyerYears } from "@/lib/integrations/buyers";
+import { fetchContactRequests } from "@/lib/integrations/contactRequests";
+import { fetchWebOrders } from "@/lib/integrations/webOrders";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -10,6 +12,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TIMEOUT_MS = 15_000;
+
+/**
+ * from/to as the reporting window sends them: both ISO days, in order, at most a
+ * year and a day apart. An end after today is cut to today.
+ */
+function windowParams(sp: URLSearchParams): { from: string; to: string } | null {
+  const { from, to } = rangeParams(sp);
+  if (!from || !to) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const end = to > today ? today : to;
+  if (from > end || (Date.parse(end) - Date.parse(from)) / 86_400_000 > 366) return null;
+  return { from, to: end };
+}
 
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
@@ -125,15 +140,21 @@ export async function GET(req: NextRequest) {
       const data = await fetchCompanyDetail({ id, signal: controller.signal });
       return NextResponse.json({ configured: true, ok: true, data });
     }
-    if (req.nextUrl.searchParams.get("report") === "signals") {
+    if (req.nextUrl.searchParams.get("report") === "buyers") {
       const rawYear = Number.parseInt(req.nextUrl.searchParams.get("year") ?? "", 10);
       const year = Number.isFinite(rawYear) && rawYear >= 2016 && rawYear <= 2100 ? rawYear : new Date().getUTCFullYear();
-      const data = await cachedReport(`signals:${year}`, () => fetchCookieFreeSignals({ year, signal: controller.signal }));
+      const data = await cachedReport(`buyers:${year}`, () => fetchBuyerYears({ currentYear: year, signal: controller.signal }));
       return NextResponse.json({ configured: true, ok: true, data });
     }
-    if (req.nextUrl.searchParams.get("report") === "webOrders") {
-      const week = new Date().toISOString().slice(0, 10);
-      const data = await cachedReport(`webOrders:${week}`, () => fetchWebOrders({ signal: controller.signal }));
+    if (req.nextUrl.searchParams.get("report") === "contactRequests" || req.nextUrl.searchParams.get("report") === "webOrders") {
+      const win = windowParams(req.nextUrl.searchParams);
+      if (!win) {
+        return NextResponse.json({ configured: true, ok: false, error: "This report needs from and to as YYYY-MM-DD, at most a year apart.", status: 400 });
+      }
+      const data =
+        req.nextUrl.searchParams.get("report") === "contactRequests"
+          ? await cachedReport(`contactRequests:${win.from}:${win.to}`, () => fetchContactRequests({ ...win, signal: controller.signal }))
+          : await cachedReport(`webOrders:${win.from}:${win.to}`, () => fetchWebOrders({ ...win, signal: controller.signal }));
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "weekly") {

@@ -27,14 +27,14 @@ import { AnalyticsProvider, useAnalytics } from "@/app/analytics/AnalyticsData";
 import { GUTTER, MUTED } from "@/app/analytics/Shell";
 
 const HEADERS: Record<string, { title: string; subtitle: string }> = {
-  "/website/overview": { title: "Site overview", subtitle: "How apsoparts.com is doing — live Google Analytics 4, no sample data" },
-  "/website/acquisition": { title: "Acquisition", subtitle: "Where visitors come from — live Google Analytics 4, no sample data" },
-  "/website/audience": { title: "Audience", subtitle: "Who the visitors are — live Google Analytics 4, no sample data" },
+  "/website/overview": { title: "Site overview", subtitle: "Visits, engagement and revenue on apsoparts.com, against the period before" },
+  "/website/acquisition": { title: "Acquisition", subtitle: "Which channels and sources bring visitors, and how engaged they are" },
+  "/website/audience": { title: "Audience", subtitle: "Who visits: devices, countries, and new or returning" },
 };
 
 function Chrome({ children }: { children: ReactNode }) {
   const pathname = (usePathname() ?? "").replace(/\/$/, "");
-  const header = HEADERS[pathname] ?? { title: "Website", subtitle: "Live Google Analytics 4 for apsoparts.com, no sample data" };
+  const header = HEADERS[pathname] ?? { title: "Website", subtitle: "How apsoparts.com is doing" };
   const { overview, reload } = useAnalytics();
   const loading = overview.result === null || overview.stale;
   return (

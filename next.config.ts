@@ -42,6 +42,7 @@ const nextConfig: NextConfig = {
       { source: "/analytics", destination: "/website/overview", permanent: false },
       { source: "/analytics/acquisition", destination: "/website/acquisition", permanent: false },
       { source: "/analytics/audience", destination: "/website/audience", permanent: false },
+      { source: "/analytics/signals", destination: "/analytics/buyers", permanent: false },
     ];
   },
   async headers() {

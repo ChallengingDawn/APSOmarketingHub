@@ -9,6 +9,30 @@ export const dynamic = "force-dynamic";
 
 const TIMEOUT_MS = 15_000;
 const DAY_MS = 86_400_000;
+const MAX_DAYS = 365;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * The reporting window's from/to when both are valid, otherwise the last `days`
+ * (30 by default). Cookiebot has no figures for today yet, so the end stops at
+ * yesterday, and one call covers a year at most.
+ */
+function consentRange(sp: URLSearchParams): { from: string; to: string } {
+  const yesterday = isoDay(Date.now() - DAY_MS);
+  const qFrom = sp.get("from");
+  const qTo = sp.get("to");
+  if (qFrom && qTo && ISO_DAY.test(qFrom) && ISO_DAY.test(qTo) && qFrom <= qTo) {
+    const to = qTo < yesterday ? qTo : yesterday;
+    const earliest = isoDay(Date.parse(`${to}T00:00:00Z`) - (MAX_DAYS - 1) * DAY_MS);
+    const from = qFrom > to ? to : qFrom < earliest ? earliest : qFrom;
+    return { from, to };
+  }
+  const rawDays = Number.parseInt(sp.get("days") ?? "", 10);
+  const days = Number.isFinite(rawDays) ? Math.min(Math.max(rawDays, 1), MAX_DAYS) : 30;
+  return { from: isoDay(Date.now() - days * DAY_MS), to: yesterday };
+}
 
 // Same three-state contract as every /api/integrations route: not configured,
 // upstream failed (verbatim message), or data.
@@ -24,11 +48,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const rawDays = Number.parseInt(req.nextUrl.searchParams.get("days") ?? "", 10);
-  const days = Number.isFinite(rawDays) ? Math.min(Math.max(rawDays, 1), 365) : 30;
-  const to = new Date(Date.now() - DAY_MS).toISOString().slice(0, 10);
-  const from = new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
-
+  const { from, to } = consentRange(req.nextUrl.searchParams);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {

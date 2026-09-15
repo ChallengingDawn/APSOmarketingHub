@@ -528,7 +528,7 @@ export function advisorFacts(input: AdvisorInput): string[] {
 
   lines.push(
     "",
-    "AVAILABLE SURFACES: /create (Create Studio — the only place content is generated), /library (content library, ?item=<id> opens one piece), /calendar, /editor?item=<id> (visual design, only useful when a piece already has an image), /personality (brand brain), /website/overview (site traffic), /website/acquisition, /website/audience, /analytics/new-customers, /analytics/smec, /analytics/tracking, /analytics/signals, /geo."
+    "AVAILABLE SURFACES: /create (Create Studio — the only place content is generated), /library (content library, ?item=<id> opens one piece), /calendar, /editor?item=<id> (visual design, only useful when a piece already has an image), /personality (brand brain), /website/overview (site traffic), /website/acquisition, /website/audience, /analytics/new-customers, /analytics/smec, /analytics/tracking, /analytics/buyers (companies ordering per year), /analytics/contact-requests, /analytics/consent (Cookiebot), /analytics/web-orders (web order sync check), /geo."
   );
 
   return lines;

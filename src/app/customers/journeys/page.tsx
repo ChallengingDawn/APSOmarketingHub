@@ -111,8 +111,7 @@ export default function JourneysPage() {
   return (
     <Box>
       <SubAppHead
-        title="Journeys"
-        purpose={`The most recently active customer companies in ${label.toLowerCase()}, and the pages their people were on.`}
+        title="Journeys" purpose=""
       />
 
       <Gate held={journeys} source="HubSpot" loadingLabel="Following the customers' tracks — this one takes a few seconds…" onRetry={retry}>

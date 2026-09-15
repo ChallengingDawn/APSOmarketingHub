@@ -88,7 +88,7 @@ export default function LivePage() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="Live"
-        subtitle="Who is on apsoparts.com right now — GA4 realtime, last 30 minutes — and who is working in this hub"
+        subtitle="Who is on apsoparts.com right now, and what they are looking at"
         badge="Live"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

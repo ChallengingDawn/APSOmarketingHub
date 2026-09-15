@@ -64,7 +64,7 @@ export default function WebsitePagesPage() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="Pages"
-        subtitle="What people view on apsoparts.com — and, per page, the customers HubSpot can name"
+        subtitle="Which pages people view, and which named customers view them"
         rightSlot={<WindowPicker />}
       />
 

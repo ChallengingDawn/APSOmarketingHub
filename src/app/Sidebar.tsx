@@ -46,6 +46,9 @@ import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import TrackChangesIcon from "@mui/icons-material/TrackChanges";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import CookieIcon from "@mui/icons-material/Cookie";
+import StorefrontIcon from "@mui/icons-material/Storefront";
+import ContactMailIcon from "@mui/icons-material/ContactMail";
+import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import Link from "next/link";
@@ -118,9 +121,12 @@ const navSections: NavSection[] = [
     color: "#0a84ff",
     items: [
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
+      { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
+      { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
       { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Cookie-free signals", href: "/analytics/signals", icon: <CookieIcon fontSize="small" /> },
+      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
   {

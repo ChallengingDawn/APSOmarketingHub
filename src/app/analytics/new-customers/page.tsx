@@ -9,7 +9,7 @@
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import { useHeld, metricOf, useAnalytics, useGa4Report, useHubspotWeekly } from "../AnalyticsData";
-import { Gate, Section, SourceNote, SubAppHead } from "../Shell";
+import { Gate, Section, SourceNote } from "../Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { TrendChart } from "@/app/charts/TrendChart";
@@ -34,10 +34,6 @@ export default function NewCustomersPage() {
 
   return (
     <Box>
-      <SubAppHead
-        purpose="Who arrived in the window — exact portal counts of new contacts and companies, the channels that brought them, and what they already are."
-      />
-
       <Gate held={journey} source="HubSpot" loadingLabel="Counting the window's new contacts — exact counts take a moment…" onRetry={reload}>
         {(j, stale) => {
           const ker = keyEvents.result;

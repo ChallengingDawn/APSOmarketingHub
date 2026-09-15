@@ -113,7 +113,7 @@ export default function SeoLayout({ children }: { children: ReactNode }) {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="SEO Cockpit"
-        subtitle="Live Google Search Console — five focused sub-apps over one connection"
+        subtitle="How apsoparts.com does in Google Search, and what to fix first"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <WindowSwitch loading={loading} siteUrl={data ? data.siteUrl : null} picker={<WindowPicker />} />

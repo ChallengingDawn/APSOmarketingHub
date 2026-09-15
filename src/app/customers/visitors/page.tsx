@@ -65,8 +65,7 @@ export default function VisitorsPage() {
   return (
     <Box>
       <SubAppHead
-        title="Visitors"
-        purpose={`What the audience did in ${label.toLowerCase()} — visited, identified themselves, created an account, bought — and who the identified ones are.`}
+        title="Visitors" purpose=""
       />
 
       <Gate held={conv} source="Google Analytics 4" loadingLabel="Reading behaviour…" onRetry={retry}>
