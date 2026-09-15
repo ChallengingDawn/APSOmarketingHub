@@ -1,10 +1,10 @@
 "use client";
 
 // The tracking-health verdict where GA4 channel figures are used as counters
-// (SMEC targets). While attribution is off it says the Paid Search figures
-// under-count and why; once healthy it shrinks to a one-line note of the gap
-// the year-to-date totals keep. It shows nothing while the check is loading or
-// cannot run — the page's own tiles already carry those states.
+// (SMEC targets). From the fault until the fix is confirmed it says the Paid
+// Search figures under-count and for which days; once healthy it shrinks to a
+// one-line note of the gap the year-to-date totals keep. It shows nothing while
+// the check is loading or cannot run — the page's own tiles carry those states.
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -16,7 +16,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { HAIRLINE, INK, MUTED } from "../Shell";
 import { dayLabel } from "@/app/charts/format";
-import { INCIDENT_DATE, describeHealth, type Health, type HealthTone } from "./health";
+import { FIX_DATE, INCIDENT_DATE, describeHealth, shiftIso, type Health, type HealthTone } from "./health";
 
 export const TONE: Record<HealthTone, { bg: string; fg: string }> = {
   good: { bg: "#e5f3ea", fg: "#155d33" },
@@ -50,24 +50,38 @@ export function HealthChip({ tone, label }: { tone: HealthTone; label: string })
   );
 }
 
+const trackingLink = (label: string) => (
+  <Link href="/analytics/tracking" style={{ color: "#1b4a80", fontWeight: 600 }}>
+    {label}
+  </Link>
+);
+
 export function AttributionNotice({ health }: { health: Health | null }) {
   if (!health || health.state === "insufficient") return null;
   const incident = dayLabel(INCIDENT_DATE);
+  const fix = dayLabel(FIX_DATE);
 
   if (health.state === "healthy") {
     return (
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 2.5 }}>
-        GA4 recorded part of Paid Search as Direct from {incident}
-        {health.backInBandSince ? ` to ${dayLabel(health.backInBandSince)}` : " until the consent fix"}. Recorded sessions are
-        not re-attributed, so the year-to-date Paid Search figures keep that gap.{" "}
-        <Link href="/analytics/tracking" style={{ color: "#1b4a80", fontWeight: 600 }}>
-          Tracking health
-        </Link>
+        GA4 recorded part of Paid Search as Direct from {incident} to {fix}. Recorded sessions are not re-attributed, so the
+        year-to-date Paid Search figures keep that gap. {trackingLink("Tracking health")}
       </Typography>
     );
   }
 
   const copy = describeHealth(health);
+  const headline =
+    health.state === "alert"
+      ? "Check the GA4 counters below before using them"
+      : health.state === "verifying"
+        ? `Paid Search counters under-count from ${incident} to ${fix}`
+        : `The Paid Search counters below under-count from ${incident}`;
+  const footnote =
+    health.state === "verifying"
+      ? `GA4 does not re-attribute sessions it has already recorded, so that gap stays in the year-to-date totals. Days from ${dayLabel(shiftIso(FIX_DATE, 1))} count normally once the check confirms the fix.`
+      : `Figures before ${incident} are unaffected. GA4 does not re-attribute sessions it has already recorded, so the gap stays in the year-to-date totals even after the fix.`;
+
   return (
     <Box
       sx={{
@@ -81,19 +95,11 @@ export function AttributionNotice({ health }: { health: Health | null }) {
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.75 }}>
         <HealthChip tone={copy.tone} label={copy.label} />
-        <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>
-          {health.state === "alert"
-            ? "Check the GA4 counters below before using them"
-            : `The Paid Search counters below under-count from ${incident}`}
-        </Typography>
+        <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>{headline}</Typography>
       </Box>
       <Typography sx={{ fontSize: "0.82rem", color: INK }}>{copy.sentence}</Typography>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>
-        Figures before {incident} are unaffected. GA4 does not re-attribute sessions it has already recorded, so the gap stays in
-        the year-to-date totals even after the fix.{" "}
-        <Link href="/analytics/tracking" style={{ color: "#1b4a80", fontWeight: 600 }}>
-          Open Tracking health
-        </Link>
+        {footnote} {trackingLink("Open Tracking health")}
       </Typography>
     </Box>
   );

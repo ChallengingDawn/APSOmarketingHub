@@ -23,6 +23,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HighlightOffIcon from "@mui/icons-material/HighlightOff";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import { Gate, HAIRLINE, INK, MUTED, NotConnectedPanel, Section, SourceNote } from "../Shell";
 import { useHeld, type Held } from "../AnalyticsData";
 import type { Ga4TableReport } from "../integrationApi";
@@ -36,6 +37,7 @@ import {
   ACCEPT,
   BASELINE,
   BASELINE_WEEKS,
+  FIX_DATE,
   INCIDENT_DATE,
   clicksByDate,
   dailyMix,
@@ -61,6 +63,8 @@ type GclidStatus = {
   consentContacts: number | null;
   consentGranted: number | null;
   consentDenied: number | null;
+  liveCaptures: number | null;
+  backfill: number | null;
 };
 
 type Row = {
@@ -83,6 +87,7 @@ const weekdayOf = (iso: string) => WEEKDAYS[(new Date(`${iso}T00:00:00Z`).getUTC
 const weekLabel = (monday: string) => `w/c ${dayLabel(monday)}`;
 const baselineLabel = `${dayLabel(BASELINE.from)} – ${dayLabel(BASELINE.to)}`;
 const fault = dayLabel(INCIDENT_DATE);
+const fixDay = dayLabel(FIX_DATE);
 
 const LEAD: Record<HealthState, string> = {
   healthy: "Visits are credited to the right channels again.",
@@ -90,6 +95,7 @@ const LEAD: Record<HealthState, string> = {
   degraded: `Visits from Google Ads and search are still recorded as Direct, as they have been since ${fault}.`,
   alert: "Page views per user jumped. Google Analytics may be counting page views twice.",
   insufficient: "There is not enough data for the test yet.",
+  verifying: "The consent fix is live. The test now waits for data from after the fix.",
 };
 
 function okData<T>(held: Held<T>): T | null {
@@ -115,9 +121,24 @@ function Key({ items }: { items: { mark: ReactNode; label: string }[] }) {
 }
 
 /** Status is never colour alone: the pill carries an icon and the words. */
-function TestCard({ pass, title, result, rule, children }: { pass: boolean; title: string; result: string; rule: string; children: ReactNode }) {
-  const tone = pass ? TONE.good : TONE.bad;
-  const Icon = pass ? CheckCircleIcon : HighlightOffIcon;
+/** While the check still reads days from before the fix, the pill says so instead of passing or failing it. */
+function TestCard({
+  pass,
+  waiting = false,
+  title,
+  result,
+  rule,
+  children,
+}: {
+  pass: boolean;
+  waiting?: boolean;
+  title: string;
+  result: string;
+  rule: string;
+  children: ReactNode;
+}) {
+  const tone = waiting ? TONE.flat : pass ? TONE.good : TONE.bad;
+  const Icon = waiting ? HourglassEmptyIcon : pass ? CheckCircleIcon : HighlightOffIcon;
   return (
     <Box
       sx={{
@@ -142,7 +163,7 @@ function TestCard({ pass, title, result, rule, children }: { pass: boolean; titl
         </Box>
         <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 1, py: 0.35, borderRadius: 5, bgcolor: tone.bg, flexShrink: 0 }}>
           <Icon sx={{ fontSize: 15, color: tone.fg }} />
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: tone.fg }}>{pass ? "Met" : "Not met"}</Typography>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: tone.fg }}>{waiting ? "Waiting for data" : pass ? "Met" : "Not met"}</Typography>
         </Box>
       </Box>
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>{children}</Box>
@@ -154,9 +175,15 @@ function TestCard({ pass, title, result, rule, children }: { pass: boolean; titl
 function WeekdayColumns({ days }: { days: HealthDay[] }) {
   const BARS = 92;
   const LABEL = 16;
+  const GAP = 6;
+  const n = days.length;
   const top = Math.max(0.5, Math.ceil(Math.max(0, ...days.map((d) => d.direct ?? 0)) * 10) / 10);
   const px = (v: number) => `${(Math.max(0, v) / top) * BARS}px`;
-  const columns = { display: "grid", gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`, columnGap: "6px" };
+  const columns = { display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, columnGap: `${GAP}px` };
+  // Days up to and including the fix day are dimmed; a solid rule marks where the post-fix days begin.
+  const before = (iso: string) => iso <= FIX_DATE;
+  const firstAfter = days.findIndex((d) => !before(d.date));
+  const ruleLeft = firstAfter > 0 ? `calc(${firstAfter} * ((100% - ${GAP * (n - 1)}px) / ${n} + ${GAP}px) - ${GAP / 2}px)` : null;
   return (
     <Box>
       <Box sx={{ position: "relative", height: `${BARS + LABEL}px`, borderBottom: `1px solid ${CHROME.axis}` }}>
@@ -164,14 +191,17 @@ function WeekdayColumns({ days }: { days: HealthDay[] }) {
           aria-hidden
           sx={{ position: "absolute", left: 0, right: 0, bottom: px(ACCEPT.dayMax), borderTop: `1.5px dashed ${INK}`, zIndex: 1, pointerEvents: "none" }}
         />
+        {ruleLeft && (
+          <Box aria-hidden sx={{ position: "absolute", top: 0, bottom: 0, left: ruleLeft, borderLeft: `1.5px solid ${INK}`, zIndex: 2, pointerEvents: "none" }} />
+        )}
         <Box sx={{ position: "absolute", inset: 0, alignItems: "end", ...columns }}>
           {days.map((d) => (
             <Tooltip
               key={d.date}
               arrow
-              title={`${weekdayOf(d.date)} ${dayLabel(d.date)}: Direct ${percent(d.direct)}, ${d.inBand ? "within" : "above"} the 32% limit`}
+              title={`${weekdayOf(d.date)} ${dayLabel(d.date)}: Direct ${percent(d.direct)}, ${d.inBand ? "within" : "above"} the 32% limit${before(d.date) ? " (before the fix)" : ""}`}
             >
-              <Box sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", minWidth: 0, opacity: before(d.date) ? 0.45 : 1 }}>
                 <Typography
                   sx={{ fontSize: "0.68rem", fontWeight: 600, color: INK, textAlign: "center", lineHeight: `${LABEL}px`, fontVariantNumeric: "tabular-nums" }}
                 >
@@ -196,6 +226,9 @@ function WeekdayColumns({ days }: { days: HealthDay[] }) {
           { mark: dashMark, label: "32% limit" },
           { mark: swatch(DELTA.good), label: "Within" },
           { mark: swatch(DELTA.bad), label: "Above" },
+          ...(days.some((d) => before(d.date))
+            ? [{ mark: <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: DELTA.bad, opacity: 0.45 }} />, label: `Faded: before the fix (${fixDay})` }]
+            : []),
         ]}
       />
     </Box>
@@ -400,9 +433,13 @@ export default function TrackingHealthPage() {
   const ga4Missing = allResult && allResult.state === "not-configured" ? allResult.missing : null;
 
   const xFormat = byWeek ? weekLabel : dayLabel;
-  const markers = [{ x: byWeek ? mondayOf(INCIDENT_DATE) : INCIDENT_DATE, label: `Fault ${fault}` }];
+  const markers = [
+    { x: byWeek ? mondayOf(INCIDENT_DATE) : INCIDENT_DATE, label: `Fault ${fault}` },
+    { x: byWeek ? mondayOf(FIX_DATE) : FIX_DATE, label: `Fix ${fixDay}` },
+  ];
   const rowLabel = (key: string) => (byWeek ? weekLabel(key) : `${weekdayOf(key)} ${dayLabel(key)}`);
   const holdsFault = (key: string) => (byWeek ? key <= INCIDENT_DATE && shiftIso(key, 6) >= INCIDENT_DATE : key === INCIDENT_DATE);
+  const holdsFix = (key: string) => (byWeek ? key <= FIX_DATE && shiftIso(key, 6) >= FIX_DATE : key === FIX_DATE);
 
   const cell = { borderColor: HAIRLINE, fontSize: "0.8rem", whiteSpace: "nowrap" as const };
   const num = { ...cell, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" };
@@ -442,21 +479,33 @@ export default function TrackingHealthPage() {
                           {LEAD[health.state]}
                         </Typography>
                         <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>
-                          The fix counts as passed when all three checks are met. The test always reads the latest data, so the reporting
-                          window does not change it.
+                          {health.state === "verifying"
+                            ? copy.sentence
+                            : "The fix counts as passed when all three checks are met. The test always reads the latest data, so the reporting window does not change it."}
                         </Typography>
                       </Box>
                       <Box sx={{ textAlign: "right" }}>
                         <Typography sx={{ fontSize: "2rem", fontWeight: 600, lineHeight: 1, letterSpacing: "-0.03em", color: INK }}>
-                          {checksMet} of 3
+                          {health.state === "verifying"
+                            ? health.sinceFix.length
+                              ? `${health.sinceFixInBand} of ${health.sinceFix.length}`
+                              : dayLabel(shiftIso(FIX_DATE, 1))
+                            : `${checksMet} of 3`}
                         </Typography>
-                        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.5 }}>checks met</Typography>
+                        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.5 }}>
+                          {health.state === "verifying"
+                            ? health.sinceFix.length
+                              ? "weekdays in band since the fix"
+                              : "first full day of new data"
+                            : "checks met"}
+                        </Typography>
                       </Box>
                     </Box>
                     <Grid container spacing={2}>
                       <Grid size={{ xs: 12, lg: 6 }}>
                         <TestCard
                           pass={health.daysInBand >= ACCEPT.weekdaysNeeded}
+                          waiting={health.state === "verifying"}
                           title="Direct share on weekdays"
                           result={`${health.daysInBand} of ${health.days.length}`}
                           rule="Needs Direct at or under 32% of sessions on at least 9 of the last 10 weekdays."
@@ -467,6 +516,7 @@ export default function TrackingHealthPage() {
                       <Grid size={{ xs: 12, md: 6, lg: 3 }}>
                         <TestCard
                           pass={health.weeksInBand}
+                          waiting={health.state === "verifying" || span.to < health.finalVerdictOn}
                           title="Direct share per full week"
                           result={`${health.weeks.filter((w) => w.inBand).length} of ${health.weeks.length}`}
                           rule={`Needs 31% or less in both of the last two full weeks. Before the fault it was ${percent(health.baselineDirect)}.`}
@@ -644,6 +694,13 @@ export default function TrackingHealthPage() {
                                       sx={{ ml: 1, height: 18, fontSize: "0.64rem", bgcolor: TONE.bad.bg, color: TONE.bad.fg }}
                                     />
                                   )}
+                                  {holdsFix(r.key) && (
+                                    <Chip
+                                      label={`fix ${fixDay}`}
+                                      size="small"
+                                      sx={{ ml: 1, height: 18, fontSize: "0.64rem", bgcolor: TONE.warn.bg, color: TONE.warn.fg }}
+                                    />
+                                  )}
                                 </TableCell>
                                 <TableCell sx={num}>{full(r.sessions)}</TableCell>
                                 <TableCell sx={{ ...num, color: INK, fontWeight: 600 }}>{percent(r.direct)}</TableCell>
@@ -696,7 +753,11 @@ export default function TrackingHealthPage() {
           {(g, stale) => (
             <Grid container spacing={2} sx={{ opacity: stale ? 0.7 : 1 }}>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <StatTile label="Contacts carrying a gclid" value={full(g.gclidContacts)} note="Includes the historical backfill of 11 Sep" />
+                <StatTile
+                  label="Click ids captured with consent"
+                  value={full(g.liveCaptures)}
+                  note={`Live from the shop tag since 11 Sep · plus ${full(g.backfill)} rebuilt from past visits, without a consent record`}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <StatTile
@@ -716,11 +777,11 @@ export default function TrackingHealthPage() {
         the fault, not as a click-to-session rate), and users and page views per ISO week. The test: Direct at or under 32% on 9 of the
         last 10 weekdays, at or under 31% in each of the last two full weeks, and page views per user within ±8% of {baselineLabel}, on
         data through {span.to}. GA4 can still be processing the most recent day, and it does not re-attribute sessions it has already
-        recorded, so days between {fault} and the fix stay as recorded. The same verdict sits above the Paid Search counters on{" "}
+        recorded, so days between {fault} and the fix (evening of {fixDay}, GTM versions 99 and 100) stay as recorded. The same verdict sits above the Paid Search counters on{" "}
         <Link href="/analytics/smec" style={{ color: "#1b4a80" }}>
           SMEC targets
         </Link>
-        . Click-id counts from HubSpot.
+        . Click ids from HubSpot: captured with consent = contacts with a gclid and the consent flags the shop tag writes; rebuilt = a gclid without consent flags (the 11 Sep backfill from page URLs HubSpot had stored).
       </SourceNote>
     </Box>
   );

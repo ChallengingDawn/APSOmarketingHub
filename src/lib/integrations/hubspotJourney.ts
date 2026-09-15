@@ -942,6 +942,10 @@ export type GclidStatus = {
   /** …of which ad storage consent was granted / denied. */
   consentGranted: number | null;
   consentDenied: number | null;
+  /** Contacts with a gclid AND the consent flags: written live by the shop tag, which sends both together. */
+  liveCaptures: number | null;
+  /** Contacts with a gclid but no consent flags: the 11 Sep backfill rebuilt from stored page URLs (it wrote no consent). */
+  backfill: number | null;
 };
 
 async function countHasProperty(property: string, signal?: AbortSignal): Promise<number | null> {
@@ -968,12 +972,36 @@ async function countEq(property: string, value: string, signal?: AbortSignal): P
   return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
 }
 
+async function countContactFilters(filters: { propertyName: string; operator: string; value?: string }[], signal?: AbortSignal): Promise<number | null> {
+  const res = await hubspotFetchJson<{ total?: unknown }>({
+    path: "/crm/v3/objects/contacts/search",
+    method: "POST",
+    body: { filterGroups: [{ filters }], limit: 1, properties: [] },
+    signal,
+  });
+  return typeof res.total === "number" && Number.isFinite(res.total) ? res.total : null;
+}
+
 export async function fetchGclidStatus(signal?: AbortSignal): Promise<GclidStatus> {
   const gclidContacts = await countHasProperty("gclid", signal);
   const consentContacts = await countHasProperty("consent_ad_storage", signal);
   const consentGranted = await countEq("consent_ad_storage", "granted", signal);
   const consentDenied = await countEq("consent_ad_storage", "denied", signal);
-  return { gclidContacts, consentContacts, consentGranted, consentDenied };
+  const liveCaptures = await countContactFilters(
+    [
+      { propertyName: "gclid", operator: "HAS_PROPERTY" },
+      { propertyName: "consent_ad_storage", operator: "HAS_PROPERTY" },
+    ],
+    signal,
+  );
+  const backfill = await countContactFilters(
+    [
+      { propertyName: "gclid", operator: "HAS_PROPERTY" },
+      { propertyName: "consent_ad_storage", operator: "NOT_HAS_PROPERTY" },
+    ],
+    signal,
+  );
+  return { gclidContacts, consentContacts, consentGranted, consentDenied, liveCaptures, backfill };
 }
 
 /* ── new buying customers (Compass ruler) ──────────────────────────────── */

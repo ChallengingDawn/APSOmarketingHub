@@ -25,7 +25,7 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { TrendChart } from "@/app/charts/TrendChart";
 import { ShareBar } from "@/app/charts/ShareBar";
 import { PaceBar } from "@/app/charts/PaceBar";
-import { compact, full, percent } from "@/app/charts/format";
+import { compact, dayLabel, full, percent } from "@/app/charts/format";
 import { SMEC_TARGETS, SMEC_YEAR, type SmecMeasure } from "./targets";
 import { useTrackingHealth } from "../tracking/useTrackingHealth";
 import { AttributionNotice } from "../tracking/AttributionNotice";
@@ -37,6 +37,8 @@ type GclidStatus = {
   consentContacts: number | null;
   consentGranted: number | null;
   consentDenied: number | null;
+  liveCaptures: number | null;
+  backfill: number | null;
 };
 
 function ytdRange(): { from: string; to: string; elapsed: number; monthsGone: number } {
@@ -119,13 +121,11 @@ export default function SmecTargetsPage() {
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5, flexWrap: "wrap" }}>
         <Chip
-          label={`${SMEC_YEAR} year-to-date · Jan 1 → ${to} · ${percent(elapsed)} of the year gone`}
+          label={`Year to date · 1 Jan – ${dayLabel(to)} · ${percent(elapsed, 0)} of ${SMEC_YEAR}`}
           size="small"
           sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
         />
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-          Targets are annual, so this page ignores the hub-wide window on purpose. Live figures are Paid Search only.
-        </Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Paid Search (SEA) figures against the full-year goals</Typography>
       </Box>
 
       <AttributionNotice health={tracking.derived?.health ?? null} />
@@ -184,13 +184,9 @@ export default function SmecTargetsPage() {
             {(data, stale) => (
               <Box sx={{ opacity: stale ? 0.7 : 1 }}>
                 <StatTile
-                  label="Contacts carrying a gclid"
-                  value={data.gclidContacts === null ? "—" : full(data.gclidContacts)}
-                  note={
-                    (data.gclidContacts ?? 0) > 0
-                      ? `Google Ads click ids captured · ${full(data.consentContacts)} with consent flags`
-                      : "0 — nothing persisted yet: values land only on visitors HubSpot can tie to an e-mail"
-                  }
+                  label="Click ids captured with consent"
+                  value={full(data.liveCaptures)}
+                  note={`Live since 11 Sep · plus ${full(data.backfill)} rebuilt from past visits, without consent`}
                 />
               </Box>
             )}
@@ -303,7 +299,7 @@ export default function SmecTargetsPage() {
         Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 key events and purchase
         revenue filtered to the Paid Search channel for {from} → {to}; new buying customers = HubSpot companies with a Compass
         first order in {SMEC_YEAR} × GA4&apos;s Paid Search share of transactions (the sheet&apos;s method); HubSpot counts of
-        contacts carrying the gclid / consent properties. Pace compares year-to-date actuals with the straight-line share of the
+        contacts carrying a gclid: captured with consent = a gclid plus the consent flags the shop tag writes; rebuilt = a gclid without consent flags (the 11 Sep backfill from page URLs HubSpot had stored). Pace compares year-to-date actuals with the straight-line share of the
         annual goal ({percent(elapsed)} of the year); the bar’s marker sits at that share. Where a number lives in Google
         Ads or Compass, the row says so instead of estimating.
       </SourceNote>

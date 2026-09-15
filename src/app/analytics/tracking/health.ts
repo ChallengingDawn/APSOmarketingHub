@@ -17,6 +17,9 @@ export const INCIDENT_DATE = "2026-08-21";
 /** Eight full weeks (Mon 22 Jun → Sun 16 Aug) before the week attribution broke. */
 export const BASELINE = { from: "2026-06-22", to: "2026-08-16" } as const;
 export const BASELINE_WEEKS = 8;
+/** The GTM consent fix went live in the evening of this day (container versions 99 and 100, the last at 21:36 CEST), so the first full day after it is the next one. */
+export const FIX_DATE = "2026-09-15";
+export const FIX_TIME = "21:36";
 export const ACCEPT = {
   dayMax: 0.32,
   weekdaysNeeded: 9,
@@ -145,7 +148,7 @@ export const pvPerUser = (w: TrafficWeek | null | undefined): number | null =>
 
 /* ── the acceptance test ───────────────────────────────────────────────── */
 
-export type HealthState = "healthy" | "recovering" | "degraded" | "alert" | "insufficient";
+export type HealthState = "healthy" | "recovering" | "degraded" | "alert" | "verifying" | "insufficient";
 
 export type HealthDay = { date: string; direct: number | null; inBand: boolean };
 export type HealthWeek = { monday: string; direct: number | null; inBand: boolean; pvPerUser: number | null; pvChange: number | null };
@@ -166,6 +169,13 @@ export type Health = {
   worstPvChange: number | null;
   /** First weekday of the current in-band run, when that run follows an out-of-band weekday after the incident. */
   backInBandSince: string | null;
+  /** Weekdays after the fix day that GA4 has returned, oldest first (at most the last ten). */
+  sinceFix: HealthDay[];
+  sinceFixInBand: number;
+  /** The tenth weekday after the fix: from the day after it, the weekday test reads only post-fix days. */
+  firstVerdictOn: string;
+  /** The Sunday that closes the second full week after the fix. */
+  finalVerdictOn: string;
 };
 
 export function assessHealth(input: {
@@ -224,18 +234,55 @@ export function assessHealth(input: {
     }
   }
 
+  const sinceFix: HealthDay[] = input.recent
+    .filter((d) => d.date > FIX_DATE && isWeekday(d.date))
+    .slice(-ACCEPT.weekdaysOf)
+    .map((d) => {
+      const direct = shareOf(d.direct, d);
+      return { date: d.date, direct, inBand: direct !== null && direct <= ACCEPT.dayMax };
+    });
+  const sinceFixInBand = sinceFix.filter((d) => d.inBand).length;
+  let firstVerdictOn = FIX_DATE;
+  for (let n = 0; n < ACCEPT.weekdaysOf; ) {
+    firstVerdictOn = shiftIso(firstVerdictOn, 1);
+    if (isWeekday(firstVerdictOn)) n++;
+  }
+  const finalVerdictOn = shiftIso(mondayOf(FIX_DATE), 7 + 7 * ACCEPT.weeksOf - 1);
+  // The window always ends yesterday (recentWindow), so the day after it is today. Until the tenth weekday
+  // after the fix is in the data, the weekday test still reads days from before the fix.
+  const today = shiftIso(input.window.to, 1);
+  const verifying = today >= FIX_DATE && input.window.to < firstVerdictOn;
+
   const enough = baselineDirect !== null && days.length === ACCEPT.weekdaysOf && weeks.length === ACCEPT.weeksOf;
   const state: HealthState = !enough
     ? "insufficient"
     : pvHigh
       ? "alert"
-      : daysInBand >= ACCEPT.weekdaysNeeded && weeksInBand && pvOk
+      : verifying
+        ? "verifying"
+        : daysInBand >= ACCEPT.weekdaysNeeded && weeksInBand && pvOk
         ? "healthy"
         : daysInBand >= 3 || (lastWeekDirect !== null && lastWeekDirect <= ACCEPT.weekMax)
           ? "recovering"
           : "degraded";
 
-  return { state, baselineDirect, baselinePvPerUser, days, daysInBand, weeks, weeksInBand, lastWeekDirect, pvOk, worstPvChange, backInBandSince };
+  return {
+    state,
+    baselineDirect,
+    baselinePvPerUser,
+    days,
+    daysInBand,
+    weeks,
+    weeksInBand,
+    lastWeekDirect,
+    pvOk,
+    worstPvChange,
+    backInBandSince,
+    sinceFix,
+    sinceFixInBand,
+    firstVerdictOn,
+    finalVerdictOn,
+  };
 }
 
 export type HealthTone = "good" | "warn" | "bad" | "flat";
@@ -262,6 +309,18 @@ export function describeHealth(h: Health): HealthCopy {
         tone: "bad",
         sentence: `Direct was ${percent(h.lastWeekDirect)} of sessions in the last full week against ${percent(h.baselineDirect)} before ${incident} — the pattern of the consent defect, where visits from Google Ads and search are recorded as Direct. ${h.daysInBand} of the last 10 weekdays were at or under 32%.`,
       };
+    case "verifying": {
+      const n = h.sinceFix.length;
+      const when = `The first verdict comes after 10 weekdays (${dayLabel(h.firstVerdictOn)}), the final one after two full weeks (${dayLabel(h.finalVerdictOn)}).`;
+      return {
+        label: `Fix live since ${dayLabel(FIX_DATE)}`,
+        tone: "warn",
+        sentence:
+          n === 0
+            ? `The consent fix went live in the evening of ${dayLabel(FIX_DATE)} (last change ${FIX_TIME}). There is no full weekday of data since then yet. ${when}`
+            : `The consent fix went live in the evening of ${dayLabel(FIX_DATE)} (last change ${FIX_TIME}). Since then Direct was at or under 32% on ${h.sinceFixInBand} of ${n} weekday${n === 1 ? "" : "s"}. ${when}`,
+      };
+    }
     case "alert":
       return {
         label: "Check for double counting",
