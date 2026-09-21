@@ -1,3 +1,4 @@
+import { creativeSchema } from "./creative-schema";
 import { query } from './client';
 
 let initPromise: Promise<void> | null = null;
@@ -45,6 +46,7 @@ export function ensureSchema(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    for (const statement of creativeSchema) await query(statement);
     // Added after the table shipped — ADD COLUMN IF NOT EXISTS keeps this
     // bootstrap re-runnable on every boot, including on existing databases.
     await query(

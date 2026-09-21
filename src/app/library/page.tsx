@@ -505,9 +505,9 @@ function LibraryWorkspace() {
       const res = await fetch(`/api/content/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify({ status: next, expectedRevision: items.find((i) => i.id === id)?.revision ?? (linkedItem?.id === id ? linkedItem.revision : undefined) }),
       });
-      if (!res.ok) throw new Error(`Update failed (${res.status})`);
+      if (!res.ok) { const data = await res.json(); throw new Error(data.error ?? `Update failed (${res.status})`); }
       const { item } = (await res.json()) as { item: ContentItem };
       setItems((cur) => cur.map((i) => (i.id === id ? item : i)));
       // A deep-linked piece may live outside the loaded page — keep its copy fresh too.
@@ -531,7 +531,7 @@ function LibraryWorkspace() {
           const res = await fetch(`/api/content/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: next }),
+            body: JSON.stringify({ status: next, expectedRevision: items.find((i) => i.id === id)?.revision ?? (linkedItem?.id === id ? linkedItem.revision : undefined) }),
           });
           if (!res.ok) failed += 1;
         } catch {
@@ -1008,7 +1008,10 @@ function LibraryWorkspace() {
         </Box>
       )}
 
-      <DetailDrawer item={viewing} onClose={closeDrawer} onStatus={setItemStatus} busy={busy} />
+      <DetailDrawer key={viewing?.id ?? "closed"} onSaved={(item) => {
+        setItems((cur) => cur.map((i) => i.id === item.id ? item : i));
+        setLinkedItem((cur) => cur?.id === item.id ? item : cur);
+      }} item={viewing} onClose={closeDrawer} onStatus={setItemStatus} busy={busy} />
     </Box>
   );
 }

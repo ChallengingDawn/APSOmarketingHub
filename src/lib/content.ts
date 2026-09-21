@@ -1,3 +1,5 @@
+import type { DesignDocument } from "./design-document";
+import { contentUpdateStatement, type ContentEdit } from "./content-edit";
 import { query } from "./db/client";
 import { ensureSchema } from "./db/init";
 
@@ -9,6 +11,10 @@ export function isContentStatus(value: unknown): value is ContentStatus {
 }
 
 export type ContentItem = {
+  revision: number;
+  updatedBy: string | null;
+  designDocument?: DesignDocument | null;
+  hasDesign: boolean;
   id: number;
   channel: string;
   title: string | null;
@@ -40,6 +46,9 @@ export type ContentFilter = {
 };
 
 type ContentRow = {
+  revision: number;
+  updated_by: string | null;
+  design_document: DesignDocument | null;
   id: number;
   channel: string;
   title: string | null;
@@ -63,9 +72,9 @@ const MAX_LIMIT = 200;
  * per-piece image endpoint instead; the full data URL is only returned by
  * getContent() for a single piece.
  */
-type ListRow = Omit<ContentRow, "image_url"> & { has_image: boolean };
+type ListRow = Omit<ContentRow, "image_url" | "design_document"> & { has_image: boolean; has_design: boolean };
 
-const LIST_COLUMNS = `id, channel, title, body, filters, status, created_by, scheduled_for, created_at, updated_at,
+const LIST_COLUMNS = `revision, updated_by, (design_document IS NOT NULL AND design_document <> 'null'::jsonb) AS has_design, id, channel, title, body, filters, status, created_by, scheduled_for, created_at, updated_at,
        (image_url IS NOT NULL AND image_url <> '') AS has_image`;
 
 /** Stable per-version URL, so the browser may cache the bytes as immutable. */
@@ -75,6 +84,7 @@ function imageRef(id: number, updatedAt: Date): string {
 
 function toListItem(row: ListRow): ContentItem {
   return {
+    revision: row.revision, updatedBy: row.updated_by, hasDesign: row.has_design,
     id: row.id,
     channel: row.channel,
     title: row.title,
@@ -91,6 +101,7 @@ function toListItem(row: ListRow): ContentItem {
 
 function toItem(row: ContentRow): ContentItem {
   return {
+    revision: row.revision, updatedBy: row.updated_by, designDocument: row.design_document, hasDesign: Boolean(row.design_document),
     id: row.id,
     channel: row.channel,
     title: row.title,
@@ -154,44 +165,18 @@ export async function getContent(id: number): Promise<ContentItem | null> {
   return r.rows.length ? toItem(r.rows[0]) : null;
 }
 
-export async function updateContentStatus(
-  id: number,
-  status: ContentStatus
-): Promise<ContentItem | null> {
+export async function updateContent(id: number, edit: ContentEdit, actor: string): Promise<ContentItem | null> {
   await ensureSchema();
-  const r = await query<ContentRow>(
-    `UPDATE apsomh_content SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
-    [id, status]
-  );
-  return r.rows.length ? toItem(r.rows[0]) : null;
+  const statement = contentUpdateStatement(id, edit, actor);
+  const result = await query<ContentRow>(statement.text, statement.values);
+  return result.rows.length ? toItem(result.rows[0]) : null;
 }
 
-export type ContentPatch = {
-  status?: ContentStatus;
-  title?: string | null;
-  body?: string;
-  imageUrl?: string | null;
-  /** ISO timestamp, or null to unschedule. */
-  scheduledFor?: string | null;
-};
-
-export async function updateContent(id: number, patch: ContentPatch): Promise<ContentItem | null> {
+export async function contentHistory(id: number) {
   await ensureSchema();
-  const sets: string[] = [];
-  const params: unknown[] = [id];
-  const add = (col: string, value: unknown, cast = "") => {
-    params.push(value);
-    sets.push(`${col} = $${params.length}${cast}`);
-  };
-  if (patch.status !== undefined) add("status", patch.status);
-  if (patch.title !== undefined) add("title", patch.title);
-  if (patch.body !== undefined) add("body", patch.body);
-  if (patch.imageUrl !== undefined) add("image_url", patch.imageUrl);
-  if (patch.scheduledFor !== undefined) add("scheduled_for", patch.scheduledFor, "::timestamptz");
-  if (!sets.length) return getContent(id);
-  const r = await query<ContentRow>(
-    `UPDATE apsomh_content SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1 RETURNING *`,
-    params
-  );
-  return r.rows.length ? toItem(r.rows[0]) : null;
+  const result = await query<{ revision: number; title: string | null; status: string; replaced_by: string; replaced_at: string }>(
+    `SELECT revision, snapshot->>'title' AS title, snapshot->>'status' AS status,
+       replaced_by, replaced_at FROM apsomh_content_revisions
+       WHERE content_id = $1 ORDER BY revision DESC LIMIT 50`, [id]);
+  return result.rows;
 }

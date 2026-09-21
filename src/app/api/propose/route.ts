@@ -1,3 +1,4 @@
+import { contentAccess } from "@/lib/auth/content-access";
 import { NextRequest, NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { readBrain, brandSystemPrompt } from "@/lib/brain";
@@ -75,6 +76,8 @@ const channelExpectations: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  const access = await contentAccess(true);
+  if (access.response) return access.response;
   let body: ProposeBody = {};
   try {
     body = (await req.json()) as ProposeBody;

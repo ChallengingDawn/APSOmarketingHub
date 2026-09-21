@@ -9,6 +9,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import Link from "next/link";
+import Alert from "@mui/material/Alert";
+import type { ContentItem } from "@/lib/content";
 
 // Konva touches `window` at import time — client-only.
 const EditorCanvas = dynamic(() => import("./EditorCanvas"), {
@@ -28,16 +30,20 @@ export default function EditorShell({
   templateId?: string;
 }) {
   const itemId = itemIdRaw && /^\d+$/.test(itemIdRaw) ? Number(itemIdRaw) : undefined;
-  const [image, setImage] = useState<string | null>(null);
+  const [item, setItem] = useState<ContentItem | null>(null);
+  const [error, setError] = useState("");
   const [loadingItem, setLoadingItem] = useState(Boolean(itemId));
 
   useEffect(() => {
     if (!itemId) return;
-    fetch(`/api/content/${itemId}`)
-      .then((r) => r.json())
-      .then((d) => setImage(d.item?.imageUrl ?? null))
-      .catch(() => {})
-      .finally(() => setLoadingItem(false));
+    const controller = new AbortController();
+    setLoadingItem(true); setError(""); setItem(null);
+    fetch(`/api/content/${itemId}`, { signal: controller.signal })
+      .then(async (r) => { const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Unable to load design"); return data; })
+      .then((d) => { if (!controller.signal.aborted) setItem(d.item); })
+      .catch((e) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Unable to load design"); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingItem(false); });
+    return () => controller.abort();
   }, [itemId]);
 
   return (
@@ -48,8 +54,8 @@ export default function EditorShell({
             Visual Editor
           </Typography>
           <Typography sx={{ fontSize: 13, color: "#5b6470" }}>
-            Layer brand text and badges over generated images — templates included, everything exports as PNG.
-            {itemId ? ` Editing the image of draft #${itemId}.` : ""}
+            Create editable designs, save them to the shared Library, and hand them to a teammate.
+            {itemId ? ` Piece #${itemId}.` : ""}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
@@ -65,8 +71,12 @@ export default function EditorShell({
         <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
           <CircularProgress size={30} />
         </Box>
+      ) : error ? (
+        <Alert severity="error">{error}</Alert>
       ) : (
-        <EditorCanvas itemId={itemId} initialImage={image} initialTemplateId={templateId} />
+        <EditorCanvas key={itemId ?? "new"} itemId={itemId} initialImage={item?.imageUrl}
+          initialDocument={item?.designDocument} initialRevision={item?.revision}
+          initialTemplateId={templateId} />
       )}
     </Box>
   );

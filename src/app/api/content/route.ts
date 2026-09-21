@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isContentStatus, listContent, saveContent } from "@/lib/content";
-import { getOptionalUser } from "@/lib/auth/guard";
+import { contentAccess } from "@/lib/auth/content-access";
 import { BODY_LIMIT_LARGE, tooLarge } from "@/lib/httpGuard";
 
 export const runtime = "nodejs";
@@ -12,6 +12,8 @@ const TITLE_CAP = 8 * 1024;
 const BODY_CAP = 256 * 1024;
 
 export async function GET(req: NextRequest) {
+  const access = await contentAccess();
+  if (access.response) return access.response;
   const sp = req.nextUrl.searchParams;
   const channel = sp.get("channel") ?? undefined;
   const status = sp.get("status") ?? undefined;
@@ -26,6 +28,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const access = await contentAccess(true);
+  if (access.response) return access.response;
   if (tooLarge(req, BODY_LIMIT_LARGE)) {
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   }
@@ -53,7 +57,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const user = await getOptionalUser();
+  const user = access.user;
 
   const item = await saveContent({
     channel: channel.slice(0, 32),

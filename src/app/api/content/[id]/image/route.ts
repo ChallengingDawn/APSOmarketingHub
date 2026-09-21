@@ -1,3 +1,4 @@
+import { contentAccess } from "@/lib/auth/content-access";
 import { NextRequest, NextResponse } from "next/server";
 import { getContent } from "@/lib/content";
 
@@ -26,6 +27,8 @@ export async function GET(
 
   let stored: string | null;
   try {
+    const access = await contentAccess();
+    if (access.response) return access.response;
     const item = await getContent(id);
     if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
     stored = item.imageUrl;

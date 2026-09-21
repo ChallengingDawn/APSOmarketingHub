@@ -79,6 +79,8 @@ type Brain = {
 type Quality = { violationsFound: string[]; revised: boolean };
 
 type DraftResult = {
+  revision?: number;
+  designDocument?: import("@/lib/design-document").DesignDocument;
   content: string;
   draftId?: number;
   quality?: Quality;
@@ -418,14 +420,14 @@ export default function CreateStudio({
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
         else {
-          setDraft({ content: data.content, draftId: data.draftId, quality: data.quality, imageBrief: data.imageBrief });
+          setDraft({ content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined, quality: data.quality, imageBrief: data.imageBrief });
           setDraftFb("");
           setEditMode(false);
           setShowRaw(false);
           setBriefText(data.imageBrief ?? "");
           setDesigning({ target: "draft" });
           // Adobe-Express-style pipeline: the image paints itself, no extra click
-          if (withImage && data.imageBrief) paintDraft(data.imageBrief);
+          if (withImage && data.imageBrief) paintDraft(data.imageBrief, { content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined });
         }
       } else {
         const res = await fetch("/api/propose", {
@@ -475,7 +477,7 @@ export default function CreateStudio({
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Refinement failed");
       else {
-        setDraft({ content: data.content, draftId: data.draftId, quality: data.quality, imageBrief: draft.imageBrief, imageUrl: draft.imageUrl });
+        setDraft({ content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined, quality: data.quality, imageBrief: draft.imageBrief, imageUrl: draft.imageUrl });
         setRefineText("");
         setDraftFb("");
         setEditMode(false);
@@ -487,7 +489,7 @@ export default function CreateStudio({
     }
   };
 
-  const paintDraft = async (promptStr: string) => {
+  const paintDraft = async (promptStr: string, target: DraftResult | null = draft) => {
     if (imageBusy || !promptStr.trim()) return;
     setImageBusy(true);
     try {
@@ -498,19 +500,23 @@ export default function CreateStudio({
       });
       const data = await res.json();
       if (data.imageUrl) {
-        setDraft((d) => {
-          if (d?.draftId) {
-            fetch(`/api/content/${d.draftId}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageUrl: data.imageUrl }),
-            }).catch(() => {});
-          }
-          return d ? { ...d, imageUrl: data.imageUrl } : d;
-        });
+        // Capture the item before the async image call; never update a different
+        // draft that the user generated while this request was in flight.
+        let savedRevision = target?.revision;
+        if (target?.draftId) {
+          const result = await fetch(`/api/content/${target.draftId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expectedRevision: target.revision, imageUrl: data.imageUrl, designDocument: null }),
+          });
+          const saved = await result.json();
+          if (!result.ok) throw new Error(saved.error ?? "Image generated but could not be saved");
+          savedRevision = saved.item.revision;
+        }
+        setDraft((d) => d && d.draftId === target?.draftId
+          ? { ...d, imageUrl: data.imageUrl, revision: savedRevision, designDocument: undefined } : d);
       } else setError(data.imageError ?? "Image generation failed");
-    } catch {
-      setError("Network error during image generation");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error during image generation");
     } finally {
       setImageBusy(false);
     }
@@ -551,11 +557,12 @@ export default function CreateStudio({
     if (!next) return;
     setSavingEdit(true);
     try {
+      let revision = draft.revision;
       if (draft.draftId) {
         const res = await fetch(`/api/content/${draft.draftId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ body: next }),
+          body: JSON.stringify({ body: next, expectedRevision: draft.revision }),
         });
         if (!res.ok) {
           const d = await res.json().catch(() => ({}));
@@ -563,9 +570,12 @@ export default function CreateStudio({
           setSavingEdit(false);
           return;
         }
+        revision = (await res.json()).item.revision;
       }
-      setDraft((d) => (d ? { ...d, content: next } : d));
+      setDraft((d) => (d && d.draftId === draft.draftId ? { ...d, content: next, revision } : d));
       setEditMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Saving failed; your edits are still here");
     } finally {
       setSavingEdit(false);
     }
@@ -1119,6 +1129,11 @@ export default function CreateStudio({
                           : "scratch"
                     }
                     itemId={designing.target === "draft" ? draft?.draftId : undefined}
+                    initialRevision={designing.target === "draft" ? draft?.revision : undefined}
+                    initialDocument={designing.target === "draft" ? draft?.designDocument : undefined}
+                    onSaved={(revision, designDocument) => {
+                      if (designing.target === "draft") setDraft((d) => d ? { ...d, revision, designDocument } : d);
+                    }}
                     toolsContainer={toolsEl}
                     initialImage={
                       designing.target === "draft"

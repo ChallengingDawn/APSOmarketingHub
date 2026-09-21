@@ -1,3 +1,4 @@
+import { contentAccess } from "@/lib/auth/content-access";
 import { NextRequest, NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -125,6 +126,8 @@ async function maybeGenerateImage(
 }
 
 export async function POST(req: NextRequest) {
+  const access = await contentAccess(true);
+  if (access.response) return access.response;
   let body: GenerateBody;
   try {
     body = (await req.json()) as GenerateBody;

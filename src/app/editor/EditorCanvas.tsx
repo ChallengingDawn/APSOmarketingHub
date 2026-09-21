@@ -1,4 +1,5 @@
 "use client";
+import { designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -124,40 +125,7 @@ const DROP_SHADOW = { color: "rgba(0,0,0,0.55)", blur: 8, offsetY: 2 };
 
 type FontKey = "inter" | "outfit" | "georgia" | "mono";
 
-type NodeSpec = {
-  id: string;
-  kind: "text" | "rect" | "image" | "ellipse" | "arrow" | "scrim";
-  x: number;
-  y: number;
-  text?: string;
-  fontKey?: FontKey;
-  fontSize?: number;
-  fontStyle?: string; // combinations of "bold" / "italic" / "600" / "normal"
-  fill: string;
-  width?: number;
-  height?: number;
-  align?: "left" | "center" | "right";
-  cornerRadius?: number;
-  lineHeight?: number;
-  opacity?: number;
-  src?: string; // image nodes
-  letterSpacing?: number;
-  shadow?: boolean;
-  locked?: boolean;
-  hidden?: boolean;
-  rotation?: number;
-  background?: boolean; // text nodes: rounded pill behind the text
-  backgroundFill?: string; // pill colour (auto-contrast when unset)
-  underline?: boolean;
-  upper?: boolean; // render uppercase, keep n.text raw
-  stroke?: string; // rect / ellipse / arrow outline
-  strokeWidth?: number; // 0 = no outline
-  flipH?: boolean;
-  flipV?: boolean;
-  brightness?: number; // -100..100
-  contrastVal?: number; // -100..100
-  grayscale?: boolean;
-};
+type NodeSpec = DesignNode;
 
 /** Seed text placed on the canvas by the studio after generation. */
 export type SeedText = {
@@ -204,8 +172,9 @@ function useHtmlImage(src: string | null): HTMLImageElement | null {
     el.crossOrigin = "anonymous";
     el.onload = () => setImg(el);
     el.src = src;
+    return () => { el.onload = null; };
   }, [src]);
-  return img;
+  return img?.getAttribute("src") === src ? img : null;
 }
 
 function isLightHex(c: string): boolean {
@@ -286,6 +255,9 @@ export default function EditorCanvas({
   itemId,
   initialImage,
   initialTemplateId,
+  initialDocument,
+  initialRevision = 1,
+  onSaved,
   initialTexts,
   seedSignal,
   painting,
@@ -295,6 +267,9 @@ export default function EditorCanvas({
   itemId?: number;
   initialImage?: string | null;
   initialTemplateId?: string;
+  initialDocument?: DesignDocument | null;
+  initialRevision?: number;
+  onSaved?: (revision: number, document: DesignDocument) => void;
   initialTexts?: SeedText[];
   /** Increment to append the generated text onto the canvas (no auto-seed). */
   seedSignal?: number;
@@ -317,20 +292,37 @@ export default function EditorCanvas({
     [fonts]
   );
 
-  const [canvas, setCanvas] = useState({ w: 1200, h: 627 });
-  const [bgColor, setBgColor] = useState("#ffffff");
-  const [bgGradientId, setBgGradientId] = useState<string | null>(null);
-  const [customGrad, setCustomGrad] = useState({ from: "#16303f", to: "#ed1b2f" });
-  const [bgSrc, setBgSrc] = useState<string | null>(initialImage ?? null);
-  const [bgScrim, setBgScrim] = useState(0);
+  const [canvas, setCanvas] = useState(initialDocument?.canvas ?? { w: 1200, h: 627 });
+  const [bgColor, setBgColor] = useState(initialDocument?.background.color ?? "#ffffff");
+  const [bgGradientId, setBgGradientId] = useState<string | null>(initialDocument?.background.gradientId ?? null);
+  const [customGrad, setCustomGrad] = useState(initialDocument?.background.customGradient ?? { from: "#16303f", to: "#ed1b2f" });
+  const [bgSrc, setBgSrc] = useState<string | null>(initialDocument ? initialDocument.background.src : initialImage ?? null);
+  const [bgScrim, setBgScrim] = useState(initialDocument?.background.scrim ?? 0);
   const bgImage = useHtmlImage(bgSrc);
 
-  const [nodes, setNodesState] = useState<NodeSpec[]>([]);
-  const nodesRef = useRef<NodeSpec[]>([]);
+  const [nodes, setNodesState] = useState<NodeSpec[]>(initialDocument?.nodes ?? []);
+  const nodesRef = useRef<NodeSpec[]>(initialDocument?.nodes ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [guides, setGuides] = useState<Guides>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const revisionRef = useRef(initialRevision);
+  useEffect(() => { revisionRef.current = initialRevision; }, [initialRevision]);
+  const savingRef = useRef(false);
+  const sceneDocument = useMemo<DesignDocument>(() => ({
+    schemaVersion: 1, canvas,
+    background: { color: bgColor, gradientId: bgGradientId, customGradient: customGrad, src: bgSrc, scrim: bgScrim },
+    nodes,
+  }), [canvas, bgColor, bgGradientId, customGrad, bgSrc, bgScrim, nodes]);
+  const serialized = useMemo(() => JSON.stringify(sceneDocument), [sceneDocument]);
+  const [savedDocument, setSavedDocument] = useState(() => JSON.stringify(initialDocument ?? sceneDocument));
+  const dirty = serialized !== savedDocument;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   const [textSizes, setTextSizes] = useState<Record<string, { w: number; h: number }>>({});
 
   const stageRef = useRef<Konva.Stage>(null);
@@ -591,17 +583,17 @@ export default function EditorCanvas({
   /* uploaded/imported image elements cache */
   const [imgEls, setImgEls] = useState<Record<string, HTMLImageElement>>({});
   const [logoMenu, setLogoMenu] = useState<HTMLElement | null>(null);
-  const loadNodeImage = useCallback((id: string, src: string) => {
+  const loadNodeImage = useCallback((_id: string, src: string) => {
     const el = new window.Image();
     el.crossOrigin = "anonymous";
-    el.onload = () => setImgEls((cur) => ({ ...cur, [id]: el }));
+    el.onload = () => setImgEls((cur) => ({ ...cur, [src]: el }));
     el.src = src;
   }, []);
 
   /* ensure every image node has a loaded element (e.g. after remount/undo) */
   useEffect(() => {
     nodes.forEach((n) => {
-      if (n.kind === "image" && n.src && !imgEls[n.id]) loadNodeImage(n.id, n.src);
+      if (n.kind === "image" && n.src && !imgEls[n.src]) loadNodeImage(n.id, n.src);
     });
   }, [nodes, imgEls, loadNodeImage]);
 
@@ -613,7 +605,7 @@ export default function EditorCanvas({
       if (n.kind !== "image" || n.hidden) continue;
       const node = stage.findOne<Konva.Image>(`#${n.id}`);
       if (!node) continue;
-      if (hasImageFilters(n) && imgEls[n.id]) node.cache();
+      if (hasImageFilters(n) && imgEls[n.src ?? ""]) node.cache();
       else node.clearCache();
     }
     layerRef.current?.batchDraw();
@@ -909,11 +901,11 @@ export default function EditorCanvas({
   );
 
   useEffect(() => {
-    if (initialTemplateId) {
+    if (initialTemplateId && !initialDocument) {
       const spec = TEMPLATES.find((t) => t.id === initialTemplateId);
       if (spec) loadTemplate(spec);
     }
-  }, [initialTemplateId, loadTemplate]);
+  }, [initialTemplateId, initialDocument, loadTemplate]);
 
   /* ── snapping: canvas center/edges, 4% safe margin, other nodes' edges/centers ── */
   const onDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -1150,6 +1142,10 @@ export default function EditorCanvas({
   const exportDataUrl = (): string | null => {
     const stage = stageRef.current;
     if (!stage) return null;
+    if ((bgSrc && !bgImage) || nodes.some((n) => n.kind === "image" && !n.hidden && n.src && !imgEls[n.src])) {
+      setNotice("Wait for the design images to finish loading before saving or exporting.");
+      return null;
+    }
     setSelectedId(null);
     trRef.current?.nodes([]);
     /**
@@ -1183,23 +1179,40 @@ export default function EditorCanvas({
     });
   };
 
+  const downloadSource = () => {
+    const url = URL.createObjectURL(new Blob([serialized], { type: "application/json" }));
+    const a = window.document.createElement("a"); a.href = url;
+    a.download = `apso-design-${itemId ?? "new"}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const attachToDraft = () => {
-    if (!itemId) return;
+    if (!itemId || savingRef.current) return;
+    const parsed = designDocumentSchema.safeParse(sceneDocument);
+    if (!parsed.success) { setNotice(parsed.error.issues[0]?.message ?? "Invalid design"); return; }
+    const snapshot = serialized;
+    savingRef.current = true;
     setSaving(true);
     requestAnimationFrame(async () => {
       try {
         const url = exportDataUrl();
-        if (!url) return;
+        if (!url) throw new Error("The preview is not ready. Try saving again.");
         const res = await fetch(`/api/content/${itemId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: url }),
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedRevision: revisionRef.current, imageUrl: url, designDocument: parsed.data }),
         });
-        setNotice(res.ok ? `Design attached to draft #${itemId} in the Library.` : "Attaching failed — download instead.");
-        if (res.ok && url) onExported?.(url);
-      } catch {
-        setNotice("Attaching failed — download instead.");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Saving failed. Download editable source to keep a local copy.");
+        revisionRef.current = data.item.revision;
+        setSavedDocument(snapshot);
+        setNotice(`Design saved as version ${data.item.revision}. Teammates can reopen its editable layers in the Library.`);
+        onSaved?.(data.item.revision, parsed.data);
+        // The preview is not a replacement for the editable background.
+        // onExported is for flattened exports, not shared document saves.
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Saving failed. Your design is still on the canvas.");
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     });
@@ -1844,9 +1857,28 @@ export default function EditorCanvas({
               </TextField>
             </Tooltip>
             <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+            <Button size="small" onClick={downloadSource}>Download editable source</Button>
+            <Button size="small" component="label">Import design
+              <input type="file" hidden accept="application/json,.json" onChange={async (e) => {
+                const file = e.target.files?.[0]; e.target.value = "";
+                if (!file) return;
+                if (file.size > 16 * 1024 * 1024) { setNotice("Design exceeds the 16 MB limit"); return; }
+                if (dirty && !window.confirm("Replace the current unsaved design?")) return;
+                try {
+                  const imported = designDocumentSchema.parse(JSON.parse(await file.text()));
+                  setCanvas(imported.canvas); setBgColor(imported.background.color);
+                  setBgGradientId(imported.background.gradientId); setCustomGrad(imported.background.customGradient);
+                  setBgSrc(imported.background.src); setBgScrim(imported.background.scrim);
+                  commit(imported.nodes); setSelectedId(null); setNotice("Imported editable design. Save it to keep it in the Library.");
+                } catch { setNotice("This file is not a supported APSO design document."); }
+              }} />
+            </Button>
+            <Typography sx={{ fontSize: 12, color: dirty ? "#a76500" : "#5b6470" }} role="status">
+              {dirty ? "Unsaved design changes" : "Design unchanged"}
+            </Typography>
             {itemId && (
               <Button onClick={attachToDraft} disabled={saving} startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />} variant="contained" sx={{ bgcolor: "#274e64", fontWeight: 700 }}>
-                {saving ? "Attaching…" : "Attach to draft"}
+                {saving ? "Saving…" : "Save design"}
               </Button>
             )}
             {!itemId && onExported && (
@@ -2077,7 +2109,7 @@ export default function EditorCanvas({
                     scaleY={n.flipV ? -1 : 1}
                     offsetX={n.flipH ? n.width ?? 0 : 0}
                     offsetY={n.flipV ? n.height ?? 0 : 0}
-                    image={imgEls[n.id]}
+                    image={imgEls[n.src ?? ""]}
                     cornerRadius={n.cornerRadius}
                     filters={filtersOf(n)}
                     brightness={(n.brightness ?? 0) / 100}

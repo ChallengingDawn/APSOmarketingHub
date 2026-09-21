@@ -18,7 +18,7 @@ import UndoIcon from "@mui/icons-material/Undo";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import Link from "next/link";
-import MarkdownPreview from "@/app/create/MarkdownPreview";
+import ContentEditor from "./ContentEditor";
 import ContentThumb from "./ContentThumb";
 import { ChannelChip, ScheduledChip, StatusChip } from "./LibraryChips";
 import {
@@ -55,12 +55,18 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 
 interface DetailDrawerProps {
   item: ContentItem | null;
+  onSaved: (item: ContentItem) => void;
   onClose: () => void;
   onStatus: (id: number, next: ContentStatus) => void;
   busy: boolean;
 }
 
-export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDrawerProps) {
+export default function DetailDrawer({ item, onClose, onStatus, onSaved, busy }: DetailDrawerProps) {
+  const [editing, setEditing] = useState(false);
+  const close = () => {
+    if (editing && !window.confirm("Close and discard unsaved text changes?")) return;
+    onClose();
+  };
   const [copied, setCopied] = useState(false);
   const [fullImage, setFullImage] = useState(false);
 
@@ -90,7 +96,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
     <Drawer
       anchor="right"
       open={Boolean(item)}
-      onClose={onClose}
+      onClose={close}
       PaperProps={{ sx: { width: { xs: "100%", sm: 560 }, borderLeft: "1px solid #e3e6ea" } }}
     >
       {item && (
@@ -125,7 +131,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
                 {item.scheduledFor && <ScheduledChip iso={item.scheduledFor} />}
               </Box>
             </Box>
-            <IconButton size="small" onClick={onClose} aria-label="Close details">
+            <IconButton size="small" onClick={close} aria-label="Close details">
               <CloseIcon fontSize="small" />
             </IconButton>
           </Box>
@@ -187,22 +193,14 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
                 </Typography>
               )}
             </Box>
-            <Box
-              sx={{
-                border: "1px solid #e3e6ea",
-                borderRadius: 2,
-                p: 2,
-                bgcolor: "#fff",
-                mb: 2.5,
-              }}
-            >
-              <MarkdownPreview text={item.body} />
-            </Box>
+            <ContentEditor item={item} onSaved={onSaved} onEditing={setEditing} />
 
             <Typography sx={{ ...LABEL_SX, mb: 0.5 }}>Details</Typography>
             <Box>
               <MetaRow label="Channel" value={item.channel} />
               <MetaRow label="Status" value={item.status} />
+              <MetaRow label="Version" value={String(item.revision)} />
+              <MetaRow label="Design" value={item.hasDesign ? "Editable layers saved" : "Flat image or no design"} />
               <MetaRow label="Created by" value={item.createdBy ?? "—"} />
               <MetaRow label="Created" value={fullDate(item.createdAt)} />
               <MetaRow label="Updated" value={fullDate(item.updatedAt)} />
@@ -273,7 +271,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
                 size="small"
                 variant="contained"
                 disableElevation
-                disabled={busy}
+                disabled={busy || editing}
                 startIcon={<CheckCircleIcon />}
                 onClick={() => onStatus(item.id, "approved")}
                 sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#1e7e45", "&:hover": { bgcolor: "#186636" } }}
@@ -286,7 +284,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
                 size="small"
                 variant="contained"
                 disableElevation
-                disabled={busy}
+                disabled={busy || editing}
                 startIcon={<PublishIcon />}
                 onClick={() => onStatus(item.id, "published")}
                 sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" } }}
@@ -297,7 +295,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
             {item.status === "archived" ? (
               <Button
                 size="small"
-                disabled={busy}
+                disabled={busy || editing}
                 startIcon={<UndoIcon />}
                 onClick={() => onStatus(item.id, "draft")}
                 sx={{ textTransform: "none", fontWeight: 600, color: "#5b6470" }}
@@ -308,7 +306,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
               <Tooltip title="Move out of the active pipeline">
                 <Button
                   size="small"
-                  disabled={busy}
+                  disabled={busy || editing}
                   startIcon={<ArchiveIcon />}
                   onClick={() => onStatus(item.id, "archived")}
                   sx={{ textTransform: "none", fontWeight: 600, color: "#5b6470" }}
@@ -319,7 +317,7 @@ export default function DetailDrawer({ item, onClose, onStatus, busy }: DetailDr
             )}
             <Button
               size="small"
-              onClick={onClose}
+              onClick={close}
               sx={{ ml: "auto", textTransform: "none", fontWeight: 600, color: "#5b6470" }}
             >
               Close

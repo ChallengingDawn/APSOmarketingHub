@@ -1,6 +1,9 @@
 export type ContentStatus = "draft" | "approved" | "published" | "archived";
 
 export type ContentItem = {
+  revision: number;
+  updatedBy?: string | null;
+  hasDesign?: boolean;
   id: number;
   channel: string;
   title: string | null;

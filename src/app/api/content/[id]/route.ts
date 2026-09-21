@@ -1,103 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getContent, updateContent, isContentStatus, type ContentPatch } from "@/lib/content";
+import { getContent, updateContent } from "@/lib/content";
+import { contentPatchSchema } from "@/lib/content-edit";
+import { contentAccess } from "@/lib/auth/content-access";
+import { readBoundedJson } from "@/lib/read-json";
 
 export const runtime = "nodejs";
-
-const BODY_CAP = 200_000;
+const BODY_LIMIT = 16 * 1024 * 1024;
 
 function parseId(raw: string): number | null {
   const id = Number(raw);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const id = parseId((await params).id);
-  if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const access = await contentAccess();
+    if (access.response) return access.response;
+    const id = parseId((await params).id);
+    if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     const item = await getContent(id);
     if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ item });
+    return NextResponse.json({ item }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (err) {
     console.error("[content:id] GET error", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load this item" }, { status: 500 });
   }
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const id = parseId((await params).id);
-  if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  let body: {
-    status?: unknown;
-    title?: unknown;
-    body?: unknown;
-    imageUrl?: unknown;
-    scheduledFor?: unknown;
-  };
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const patch: ContentPatch = {};
-  if (body.status !== undefined) {
-    if (!isContentStatus(body.status)) {
-      return NextResponse.json(
-        { error: "status must be one of draft|approved|published|archived" },
-        { status: 400 }
-      );
+    const access = await contentAccess(true);
+    if (access.response) return access.response;
+    const id = parseId((await params).id);
+    if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    let body: unknown;
+    try { body = await readBoundedJson(req, BODY_LIMIT); }
+    catch (err) {
+      const large = err instanceof Error && err.message === "Payload too large";
+      return NextResponse.json({ error: large ? "Design exceeds the 16 MB save limit" : "Invalid JSON" }, { status: large ? 413 : 400 });
     }
-    patch.status = body.status;
-  }
-  if (body.title !== undefined) {
-    if (body.title !== null && typeof body.title !== "string") {
-      return NextResponse.json({ error: "title must be a string or null" }, { status: 400 });
+    const parsed = contentPatchSchema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid update" }, { status: 400 });
+    const item = await updateContent(id, parsed.data, access.user.username);
+    if (!item) {
+      const current = await getContent(id);
+      if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "Someone saved a newer version. Your changes are still here. Open the latest version before trying again.", currentRevision: current.revision }, { status: 409 });
     }
-    patch.title = body.title === null ? null : body.title.slice(0, 300);
-  }
-  if (body.body !== undefined) {
-    if (typeof body.body !== "string" || !body.body.trim()) {
-      return NextResponse.json({ error: "body must be a non-empty string" }, { status: 400 });
-    }
-    if (body.body.length > BODY_CAP) {
-      return NextResponse.json({ error: "body too large" }, { status: 413 });
-    }
-    patch.body = body.body;
-  }
-  if (body.imageUrl !== undefined) {
-    if (body.imageUrl !== null && typeof body.imageUrl !== "string") {
-      return NextResponse.json({ error: "imageUrl must be a string or null" }, { status: 400 });
-    }
-    patch.imageUrl = body.imageUrl as string | null;
-  }
-  if (body.scheduledFor !== undefined) {
-    if (body.scheduledFor === null) {
-      patch.scheduledFor = null;
-    } else if (typeof body.scheduledFor === "string" && !Number.isNaN(Date.parse(body.scheduledFor))) {
-      patch.scheduledFor = new Date(body.scheduledFor).toISOString();
-    } else {
-      return NextResponse.json(
-        { error: "scheduledFor must be an ISO date string or null" },
-        { status: 400 }
-      );
-    }
-  }
-  if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
-  }
-
-  try {
-    const item = await updateContent(id, patch);
-    if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ item });
   } catch (err) {
     console.error("[content:id] PATCH error", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Unable to save. Your changes have not been discarded." }, { status: 500 });
   }
 }

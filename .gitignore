@@ -5,3 +5,6 @@ node_modules
 .env.aws-dev
 tsconfig.tsbuildinfo
 .claude/
+.test-build/
+test-results/
+playwright-report/
