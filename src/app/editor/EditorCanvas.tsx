@@ -1,5 +1,5 @@
 "use client";
-import { designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
+import { canonicalDesign, designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -315,8 +315,12 @@ export default function EditorCanvas({
     nodes,
   }), [canvas, bgColor, bgGradientId, customGrad, bgSrc, bgScrim, nodes]);
   const serialized = useMemo(() => JSON.stringify(sceneDocument), [sceneDocument]);
-  const [savedDocument, setSavedDocument] = useState(() => JSON.stringify(initialDocument ?? sceneDocument));
-  const dirty = serialized !== savedDocument;
+  // Compare canonically. A document loaded from PostgreSQL arrives in jsonb's
+  // key order, so a plain stringify of it never equals the freshly built scene
+  // and every saved design would open already flagged as changed.
+  const canonical = useMemo(() => canonicalDesign(sceneDocument), [sceneDocument]);
+  const [savedDocument, setSavedDocument] = useState(() => canonicalDesign(initialDocument ?? sceneDocument));
+  const dirty = canonical !== savedDocument;
   useEffect(() => {
     if (!dirty) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
@@ -1190,13 +1194,15 @@ export default function EditorCanvas({
     if (!itemId || savingRef.current) return;
     const parsed = designDocumentSchema.safeParse(sceneDocument);
     if (!parsed.success) { setNotice(parsed.error.issues[0]?.message ?? "Invalid design"); return; }
-    const snapshot = serialized;
+    const snapshot = canonicalDesign(parsed.data);
     savingRef.current = true;
     setSaving(true);
     requestAnimationFrame(async () => {
       try {
         const url = exportDataUrl();
-        if (!url) throw new Error("The preview is not ready. Try saving again.");
+        // exportDataUrl has already said which assets are still loading; do not
+        // overwrite that with a vaguer message.
+        if (!url) return;
         const res = await fetch(`/api/content/${itemId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ expectedRevision: revisionRef.current, imageUrl: url, designDocument: parsed.data }),
@@ -1207,8 +1213,9 @@ export default function EditorCanvas({
         setSavedDocument(snapshot);
         setNotice(`Design saved as version ${data.item.revision}. Teammates can reopen its editable layers in the Library.`);
         onSaved?.(data.item.revision, parsed.data);
-        // The preview is not a replacement for the editable background.
-        // onExported is for flattened exports, not shared document saves.
+        // Keep the studio's thumbnail in step with what was just stored. The
+        // editable background still comes from the document, not from this PNG.
+        onExported?.(url);
       } catch (err) {
         setNotice(err instanceof Error ? err.message : "Saving failed. Your design is still on the canvas.");
       } finally {

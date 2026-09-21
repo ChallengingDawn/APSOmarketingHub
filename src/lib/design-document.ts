@@ -51,5 +51,23 @@ export const designDocumentSchema = z.object({
   ),
 }).strict();
 
+/**
+ * Stable serialization for change detection. A document that has been through
+ * PostgreSQL comes back carrying jsonb's key order (by key length, then
+ * bytewise), which never matches the order the editor builds its objects in.
+ * Sorting keys at every level keeps "has this design actually changed?"
+ * independent of how the document happened to travel.
+ */
+export function canonicalDesign(doc: unknown): string {
+  return JSON.stringify(doc, (_key, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.keys(value as Record<string, unknown>).sort()
+            .map((k) => [k, (value as Record<string, unknown>)[k]]),
+        )
+      : value,
+  );
+}
+
 export type DesignDocument = z.infer<typeof designDocumentSchema>;
 export type DesignNode = z.infer<typeof designNodeSchema>;

@@ -5,6 +5,7 @@ import { creativeSchema } from "../src/lib/db/creative-schema";
 import { canEditContent, contentPatchSchema, contentUpdateStatement } from "../src/lib/content-edit";
 import { designDocumentSchema, type DesignDocument } from "../src/lib/design-document";
 import { readBoundedJson } from "../src/lib/read-json";
+import { canonicalDesign } from "../src/lib/design-document";
 
 const document: DesignDocument = {
   schemaVersion: 1, canvas: { w: 1200, h: 627 },
@@ -79,4 +80,29 @@ test("body limit covers chunked requests and counts UTF-8 bytes", async () => {
   const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('"éééé"')); controller.close(); } });
   const req = new Request("https://local", { method: "POST", body, duplex: "half" } as RequestInit);
   await assert.rejects(readBoundedJson(req, 8), /Payload too large/);
+});
+
+test("a document round-tripped through jsonb is not reported as an unsaved change", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE d (doc JSONB)`);
+    await db.query(`INSERT INTO d (doc) VALUES ($1::jsonb)`, [JSON.stringify(document)]);
+    const stored = (await db.query<{ doc: DesignDocument }>("SELECT doc FROM d")).rows[0].doc;
+
+    // PostgreSQL stores jsonb in its own key order, so the plain serializations
+    // differ even though nothing about the design changed. That is the trap the
+    // dirty check in the canvas used to fall into: every saved design reopened
+    // already marked as edited, arming the leave-site warning on every visit.
+    assert.notEqual(JSON.stringify(stored), JSON.stringify(document));
+    assert.deepEqual(stored, document);
+
+    // canonicalDesign is what the canvas compares, and it must be blind to that.
+    assert.equal(canonicalDesign(stored), canonicalDesign(document));
+
+    // A real edit must still register.
+    const edited = { ...document, canvas: { ...document.canvas, w: 1080 } };
+    assert.notEqual(canonicalDesign(stored), canonicalDesign(edited));
+  } finally {
+    await db.close();
+  }
 });

@@ -280,6 +280,10 @@ export default function CreateStudio({
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  // Remount key for the draft canvas. Bumped only when something outside the
+  // editor changes the stored piece (a regenerated background), never on a save
+  // the canvas itself made — remounting then would throw away its undo history.
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
   const [copied, setCopied] = useState("");
   const [draftFb, setDraftFb] = useState<"" | "like" | "dislike">("");
   const [conceptFb, setConceptFb] = useState<Record<number, string>>({});
@@ -420,14 +424,14 @@ export default function CreateStudio({
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
         else {
-          setDraft({ content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined, quality: data.quality, imageBrief: data.imageBrief });
+          setDraft({ content: data.content, draftId: data.draftId, revision: data.draftRevision, quality: data.quality, imageBrief: data.imageBrief });
           setDraftFb("");
           setEditMode(false);
           setShowRaw(false);
           setBriefText(data.imageBrief ?? "");
           setDesigning({ target: "draft" });
           // Adobe-Express-style pipeline: the image paints itself, no extra click
-          if (withImage && data.imageBrief) paintDraft(data.imageBrief, { content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined });
+          if (withImage && data.imageBrief) paintDraft(data.imageBrief, { content: data.content, draftId: data.draftId, revision: data.draftRevision });
         }
       } else {
         const res = await fetch("/api/propose", {
@@ -477,7 +481,7 @@ export default function CreateStudio({
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Refinement failed");
       else {
-        setDraft({ content: data.content, draftId: data.draftId, revision: data.draftId ? 1 : undefined, quality: data.quality, imageBrief: draft.imageBrief, imageUrl: draft.imageUrl });
+        setDraft({ content: data.content, draftId: data.draftId, revision: data.draftRevision, quality: data.quality, imageBrief: draft.imageBrief, imageUrl: draft.imageUrl });
         setRefineText("");
         setDraftFb("");
         setEditMode(false);
@@ -503,17 +507,26 @@ export default function CreateStudio({
         // Capture the item before the async image call; never update a different
         // draft that the user generated while this request was in flight.
         let savedRevision = target?.revision;
+        // Regenerating the background must not discard saved layers: keep the
+        // editable document and swap only the image behind them.
+        const nextDocument = target?.designDocument
+          ? { ...target.designDocument, background: { ...target.designDocument.background, src: data.imageUrl } }
+          : undefined;
         if (target?.draftId) {
           const result = await fetch(`/api/content/${target.draftId}`, {
             method: "PATCH", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ expectedRevision: target.revision, imageUrl: data.imageUrl, designDocument: null }),
+            body: JSON.stringify({
+              expectedRevision: target.revision, imageUrl: data.imageUrl,
+              ...(nextDocument ? { designDocument: nextDocument } : {}),
+            }),
           });
           const saved = await result.json();
           if (!result.ok) throw new Error(saved.error ?? "Image generated but could not be saved");
           savedRevision = saved.item.revision;
         }
         setDraft((d) => d && d.draftId === target?.draftId
-          ? { ...d, imageUrl: data.imageUrl, revision: savedRevision, designDocument: undefined } : d);
+          ? { ...d, imageUrl: data.imageUrl, revision: savedRevision, designDocument: nextDocument } : d);
+        setCanvasEpoch((n) => n + 1);
       } else setError(data.imageError ?? "Image generation failed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error during image generation");
@@ -1123,7 +1136,7 @@ export default function CreateStudio({
                   <EditorCanvas
                     key={
                       designing.target === "draft"
-                        ? `draft-${draft?.draftId ?? "x"}-${draft?.imageUrl ? "img" : "noimg"}`
+                        ? `draft-${draft?.draftId ?? "x"}-${canvasEpoch}`
                         : designing.target === "concept"
                           ? `concept-${designing.idx}-${concepts[designing.idx]?.imageUrl ? "img" : "noimg"}`
                           : "scratch"

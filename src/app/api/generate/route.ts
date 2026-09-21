@@ -29,7 +29,7 @@ async function saveDraft(params: {
   body: string;
   imageUrl?: string;
   filters: GenerationFilters;
-}): Promise<number | undefined> {
+}): Promise<{ id: number; revision: number } | undefined> {
   try {
     const user = await getOptionalUser();
     const item = await saveContent({
@@ -40,7 +40,7 @@ async function saveDraft(params: {
       filters: params.filters as Record<string, unknown>,
       createdBy: user?.username ?? null,
     });
-    return item.id;
+    return { id: item.id, revision: item.revision };
   } catch (err) {
     console.error("[generate] draft save failed", err);
     return undefined;
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
       });
       const rawContent = result.text ?? "";
       const { content, imagePayload } = await maybeGenerateImage(rawContent, withImage);
-      const draftId = await saveDraft({
+      const saved = await saveDraft({
         channel,
         body: content,
         imageUrl: imagePayload.imageUrl,
@@ -216,7 +216,8 @@ export async function POST(req: NextRequest) {
         content,
         model: "gemini-2.5-flash",
         provider: "gemini",
-        draftId,
+        draftId: saved?.id,
+        draftRevision: saved?.revision,
         ...imagePayload,
       });
     }
@@ -271,7 +272,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { content, imagePayload } = await maybeGenerateImage(finalText, withImage);
-    const draftId = await saveDraft({
+    const saved = await saveDraft({
       channel,
       body: content,
       imageUrl: imagePayload.imageUrl,
@@ -283,7 +284,8 @@ export async function POST(req: NextRequest) {
       model: CLAUDE_MODEL,
       provider: "claude",
       usage,
-      draftId,
+      draftId: saved?.id,
+      draftRevision: saved?.revision,
       quality: {
         violationsFound: violations,
         revised,
