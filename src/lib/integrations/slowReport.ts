@@ -31,10 +31,26 @@ const store: Store = ((globalThis as { __apsoSlowReports?: Store }).__apsoSlowRe
 });
 
 const ROW = (key: string) => `slow_report:${key}`;
-/** A count that claims to be running but has not been touched for this long is assumed dead. */
-const LOCK_STALE_MS = 30 * 60 * 1000;
+/**
+ * A running count writes a heartbeat as it works. If the heartbeat stops for
+ * this long the count is assumed dead and another task may take over. It has to
+ * be short: every deployment kills whatever was counting, and until the lock
+ * expires nobody else starts — which looks exactly like "still counting" to the
+ * person watching the page.
+ */
+const HEARTBEAT_STALE_MS = 3 * 60 * 1000;
+/** Writing the heartbeat on every batch would be hundreds of writes per count. */
+const HEARTBEAT_EVERY_MS = 15 * 1000;
 
-type Persisted = { value?: unknown; error?: string; computedAt?: string; startedAt?: string; running?: boolean };
+type Persisted = {
+  value?: unknown;
+  error?: string;
+  computedAt?: string;
+  startedAt?: string;
+  beatAt?: string;
+  progress?: string;
+  running?: boolean;
+};
 
 async function readRow(key: string): Promise<Persisted | null> {
   try {
@@ -57,11 +73,23 @@ async function writeRow(key: string, value: Persisted): Promise<void> {
   }
 }
 
-/** Say what this report is doing right now; shown while it runs. */
+const lastBeat = new Map<string, number>();
+
+/** Say what this report is doing right now; shown while it runs, on any task. */
 export function reportProgress(key: string, text: string): void {
   store.progress.set(key, text);
-  // Cheap heartbeat so another task can tell a live count from an abandoned one.
-  void writeRow(key, { running: true, startedAt: new Date().toISOString(), value: (store.entries.get(key)?.value) });
+  // The heartbeat proves the count is alive and carries the progress line to the
+  // other tasks, but it is written at most every 15 seconds.
+  const now = Date.now();
+  if (now - (lastBeat.get(key) ?? 0) < HEARTBEAT_EVERY_MS) return;
+  lastBeat.set(key, now);
+  void writeRow(key, {
+    running: true,
+    startedAt: new Date(now).toISOString(),
+    beatAt: new Date(now).toISOString(),
+    progress: text,
+    value: store.entries.get(key)?.value,
+  });
 }
 
 /**
@@ -83,14 +111,17 @@ export async function slowReport<T>(key: string, ttlMs: number, run: () => Promi
     return { value: saved!.value as T, computing: false, computedAt: saved!.computedAt };
   }
 
-  // Is someone else already counting this? Their heartbeat says when they last moved.
-  const startedAt = saved?.startedAt ? Date.parse(saved.startedAt) : 0;
-  const someoneElseRunning = Boolean(saved?.running) && Date.now() - startedAt < LOCK_STALE_MS;
+  // Is someone else already counting this? Only if their heartbeat is recent —
+  // a task killed by a deployment leaves running=true behind, and treating that
+  // as live would block every other task from ever finishing the count.
+  const beatAt = Date.parse(saved?.beatAt ?? saved?.startedAt ?? "") || 0;
+  const someoneElseRunning = Boolean(saved?.running) && Date.now() - beatAt < HEARTBEAT_STALE_MS;
 
   if (!local?.running && !someoneElseRunning) {
     store.entries.set(key, { at: Date.now(), value: saved?.value ?? local?.value, running: true });
     store.progress.set(key, "starting");
-    void writeRow(key, { running: true, startedAt: new Date().toISOString(), value: saved?.value });
+    const startedNow = new Date().toISOString();
+    void writeRow(key, { running: true, startedAt: startedNow, beatAt: startedNow, value: saved?.value });
     store.queue = store.queue
       .catch(() => {})
       .then(() => run())
@@ -113,7 +144,7 @@ export async function slowReport<T>(key: string, ttlMs: number, run: () => Promi
     value: (now?.value ?? saved?.value) as T | undefined,
     error: now?.error ?? saved?.error,
     computing: running,
-    progress: running ? store.progress.get(key) ?? "counting on another instance" : undefined,
+    progress: running ? store.progress.get(key) ?? saved?.progress ?? "counting on another instance" : undefined,
     computedAt: saved?.computedAt,
   };
 }
