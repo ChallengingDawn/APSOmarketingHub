@@ -41,14 +41,7 @@ type CustomerTypes = {
   generatedAt: string;
   computing: boolean;
   error?: string;
-  progress?: { phase: "orders" | "companies" | "history" | "sorting"; orders: number; linked: number };
-};
-
-const PHASE_LABEL: Record<string, string> = {
-  orders: "reading orders",
-  companies: "matching each order to its company",
-  history: "checking older buyers against the ERP years",
-  sorting: "sorting by customer type",
+  progress?: string;
 };
 
 type CustomerYear = {
@@ -355,7 +348,7 @@ export default function SmecTargetsPage() {
                     title="Customer types per month"
                     caption={
                       data.computing
-                        ? `Counting — ${PHASE_LABEL[data.progress?.phase ?? "orders"] ?? "working"}${data.progress?.orders ? `, ${full(data.progress.orders)} orders so far` : ""}. Three months of orders plus a year of history takes a few minutes; this refreshes itself.`
+                        ? `Counting — ${data.progress ?? "starting"}. Three months of orders plus a year of history takes a few minutes; the answer is then kept for twelve hours.`
                         : `Every order sorted by the buying company's own history: ${share(t.active)} active, ${share(t.reactivated)} reactivated, ${share(t.new)} new. This is the value the Google Ads tag now sends with each purchase.`
                     }
                     stale={stale}
@@ -364,7 +357,7 @@ export default function SmecTargetsPage() {
                         ? data.error
                           ? `HubSpot refused the count: ${data.error}`
                           : data.computing
-                            ? `Still counting: ${PHASE_LABEL[data.progress?.phase ?? "orders"] ?? "working"}${data.progress?.orders ? ` · ${full(data.progress.orders)} orders read` : ""}.`
+                            ? `Still counting: ${data.progress ?? "starting"}.`
                             : "No orders in the window."
                         : null
                     }

@@ -292,12 +292,12 @@ async function buildRegistrationCohort(year: number, key: string): Promise<Regis
   };
 }
 
-export function customerYear(year: number): SlowState<CustomerYear> {
+export function customerYear(year: number): Promise<SlowState<CustomerYear>> {
   const key = `customerYear:${year}`;
   return slowReport(key, TTL_MS, () => buildCustomerYear(year, key));
 }
 
-export function registrationCohort(year: number): SlowState<RegistrationCohort> {
+export function registrationCohort(year: number): Promise<SlowState<RegistrationCohort>> {
   const key = `registrationCohort:${year}`;
   return slowReport(key, TTL_MS, () => buildRegistrationCohort(year, key));
 }

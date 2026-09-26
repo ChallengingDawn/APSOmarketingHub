@@ -17,6 +17,7 @@
 // that changes slowly, not a live counter.
 
 import { hubspotFetchJson } from "./hubspot";
+import { reportProgress, slowReport } from "./slowReport";
 
 export type CustomerTypeMonth = {
   month: string;                 // YYYY-MM
@@ -44,9 +45,7 @@ const HISTORY_MONTHS = 13;
 /** A longer window would read most of the order object on every refresh. */
 export const MAX_WINDOW_DAYS = 92;
 
-/** What the count is doing right now, so a slow report can say so instead of just spinning. */
-export type CustomerTypesProgress = { phase: "orders" | "companies" | "history" | "sorting"; orders: number; linked: number };
-let progress: CustomerTypesProgress = { phase: "orders", orders: 0, linked: 0 };
+
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -54,7 +53,7 @@ const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 type OrderRow = { id: string; date: string; web: boolean };
 
 /** Orders by order date, in month slices, walking id windows (search stops paging at 10,000). */
-async function scanOrders(from: string, to: string, signal?: AbortSignal): Promise<OrderRow[]> {
+async function scanOrders(from: string, to: string, key: string, signal?: AbortSignal): Promise<OrderRow[]> {
   const out: OrderRow[] = [];
   for (let cursor = dayMs(from); cursor <= dayMs(to); ) {
     const d = new Date(cursor);
@@ -84,7 +83,7 @@ async function scanOrders(from: string, to: string, signal?: AbortSignal): Promi
           },
           signal,
         });
-        progress = { ...progress, phase: "orders", orders: out.length };
+        reportProgress(key, `reading orders · ${out.length.toLocaleString("en")} so far`);
         for (const row of res.results ?? []) {
           const p = row.properties ?? {};
           const date = (p.order_order_date ?? "").slice(0, 10);
@@ -108,7 +107,7 @@ async function scanOrders(from: string, to: string, signal?: AbortSignal): Promi
 }
 
 /** order id -> company id, in batches of 1,000. */
-async function companiesOf(ids: string[], signal?: AbortSignal): Promise<Map<string, string>> {
+async function companiesOf(ids: string[], key: string, signal?: AbortSignal): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   for (let i = 0; i < ids.length; i += 1000) {
     const res = await hubspotFetchJson<{
@@ -124,7 +123,7 @@ async function companiesOf(ids: string[], signal?: AbortSignal): Promise<Map<str
       const companyId = row.to?.[0]?.toObjectId;
       if (orderId && companyId != null) out.set(orderId, String(companyId));
     }
-    progress = { ...progress, phase: "companies", linked: out.size };
+    reportProgress(key, `matching orders to companies · ${out.size.toLocaleString("en")} of ${ids.length.toLocaleString("en")}`);
   }
   return out;
 }
@@ -153,6 +152,7 @@ async function firstOrderYears(companyIds: string[], signal?: AbortSignal): Prom
 export async function fetchCustomerTypes(params: {
   from: string;
   to: string;
+  key: string;
   signal?: AbortSignal;
 }): Promise<CustomerTypes> {
   const to = params.to;
@@ -162,8 +162,8 @@ export async function fetchCustomerTypes(params: {
   historyStart.setUTCDate(1);
   const historyFrom = isoDay(historyStart.getTime());
 
-  const orders = await scanOrders(historyFrom, to, params.signal);
-  const byOrder = await companiesOf(orders.map((o) => o.id), params.signal);
+  const orders = await scanOrders(historyFrom, to, params.key, params.signal);
+  const byOrder = await companiesOf(orders.map((o) => o.id), params.key, params.signal);
 
   // Every company's order days, sorted, so "the one before this order" is a lookup.
   const byCompany = new Map<string, string[]>();
@@ -187,11 +187,11 @@ export async function fetchCustomerTypes(params: {
     const days = byCompany.get(cid) ?? [];
     if (!days.some((d) => d < o.date)) candidates.add(cid);
   }
-  progress = { ...progress, phase: "history" };
+  reportProgress(params.key, "checking older buyers against the ERP years");
   const olderHistory = candidates.size
     ? await firstOrderYears([...candidates], params.signal)
     : new Map<string, boolean>();
-  progress = { ...progress, phase: "sorting" };
+  reportProgress(params.key, "sorting by customer type");
 
   const months = new Map<string, CustomerTypeMonth>();
   const blank = (month: string): CustomerTypeMonth =>
@@ -243,55 +243,28 @@ export async function fetchCustomerTypes(params: {
 }
 
 /* ── caching ──────────────────────────────────────────────────────────────
- * Four hundred search calls take minutes, far longer than a request may wait,
- * and the answer barely moves within a day. So a request starts the work,
- * says "computing", and a later one gets the finished result. One window is
- * computed at a time — the HubSpot search limit punishes parallel bursts.
+ * Minutes of HubSpot reads, so the answer is kept in Postgres by slowReport:
+ * it survives a deployment and is visible to every task behind the load
+ * balancer. Only the monthly counts are stored — no customer, no order.
  */
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
-type Entry = { at: number; value?: CustomerTypes; error?: string; running: boolean };
-type Store = { entries: Map<string, Entry>; queue: Promise<unknown> };
-// On the global on purpose: in development Next re-evaluates this module on every
-// edit, and a module-level Map would lose a count that is minutes from finishing —
-// every poll would start it again and it would never land.
-const store: Store = ((globalThis as { __apsoCustomerTypes?: Store }).__apsoCustomerTypes ??= {
-  entries: new Map(),
-  queue: Promise.resolve(),
-});
-
-export type CustomerTypesPayload = CustomerTypes & {
-  computing: boolean;
-  error?: string;
-  progress?: CustomerTypesProgress;
-};
+export type CustomerTypesPayload = CustomerTypes & { computing: boolean; error?: string; progress?: string };
 
 const EMPTY = (from: string, to: string): CustomerTypes => ({
   months: [], totals: { orders: 0, new: 0, active: 0, reactivated: 0, unknown: 0 },
   from, to, historyFrom: from, webOrders: 0, generatedAt: new Date().toISOString(),
 });
 
-/** The current state of this window, starting the computation if it is missing or old. */
-export function customerTypes(from: string, to: string): CustomerTypesPayload {
-  const key = `${from}:${to}`;
-  const hit = store.entries.get(key);
-  const fresh = hit?.value && Date.now() - hit.at < CACHE_TTL_MS;
-
-  if (!fresh && !hit?.running) {
-    store.entries.set(key, { at: Date.now(), value: hit?.value, running: true });
-    store.queue = store.queue
-      .catch(() => {})
-      .then(() => fetchCustomerTypes({ from, to }))
-      .then((value) => { store.entries.set(key, { at: Date.now(), value, running: false }); })
-      .catch((err: unknown) => {
-        store.entries.set(key, { at: Date.now(), value: hit?.value, error: String((err as Error)?.message ?? err), running: false });
-      });
-  }
-
-  const now = store.entries.get(key);
-  const running = Boolean(now?.running);
-  const shown = running ? { progress } : {};
-  if (now?.value) return { ...now.value, computing: running, error: now.error, ...shown };
-  return { ...EMPTY(from, to), computing: running, error: now?.error, ...shown };
+/** The current state of this window, starting the count if nothing fresh exists. */
+export async function customerTypes(from: string, to: string): Promise<CustomerTypesPayload> {
+  const key = `customerTypes:${from}:${to}`;
+  const state = await slowReport(key, CACHE_TTL_MS, () => fetchCustomerTypes({ from, to, key }));
+  return {
+    ...(state.value ?? EMPTY(from, to)),
+    computing: state.computing,
+    error: state.error,
+    progress: state.progress,
+  };
 }
