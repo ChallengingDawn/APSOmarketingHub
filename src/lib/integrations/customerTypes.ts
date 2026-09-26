@@ -128,9 +128,13 @@ async function companiesOf(ids: string[], key: string, signal?: AbortSignal): Pr
   return out;
 }
 
-/** The ERP-fed year fields decide new from reactivated for buyers older than the scan. */
-async function firstOrderYears(companyIds: string[], signal?: AbortSignal): Promise<Map<string, boolean>> {
-  const hasHistory = new Map<string, boolean>();
+/**
+ * The ERP-fed first-order YEAR decides new from reactivated for buyers with
+ * nothing inside the scan. Treating it as a plain "has history" flag counts a
+ * company whose very first order falls in this window as a returning customer.
+ */
+async function firstOrderYears(companyIds: string[], signal?: AbortSignal): Promise<Map<string, number | null>> {
+  const hasHistory = new Map<string, number | null>();
   for (let i = 0; i < companyIds.length; i += 100) {
     const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
       path: "/crm/v3/objects/companies/batch/read",
@@ -143,7 +147,10 @@ async function firstOrderYears(companyIds: string[], signal?: AbortSignal): Prom
     });
     for (const row of res.results ?? []) {
       const p = row.properties ?? {};
-      if (row.id) hasHistory.set(row.id, Boolean(p.compass_first_order_year || p.compass_last_order_year));
+      if (!row.id) continue;
+      const first = Number.parseInt(p.compass_first_order_year ?? "", 10);
+      const last = Number.parseInt(p.compass_last_order_year ?? "", 10);
+      hasHistory.set(row.id, Number.isFinite(first) ? first : Number.isFinite(last) ? last : null);
     }
   }
   return hasHistory;
@@ -190,7 +197,7 @@ export async function fetchCustomerTypes(params: {
   reportProgress(params.key, "checking older buyers against the ERP years");
   const olderHistory = candidates.size
     ? await firstOrderYears([...candidates], params.signal)
-    : new Map<string, boolean>();
+    : new Map<string, number | null>();
   reportProgress(params.key, "sorting by customer type");
 
   const months = new Map<string, CustomerTypeMonth>();
@@ -219,10 +226,12 @@ export async function fetchCustomerTypes(params: {
       const age = (dayMs(o.date) - dayMs(previous)) / DAY_MS;
       if (age <= ACTIVE_DAYS) row.active++;
       else row.reactivated++;
-    } else if (olderHistory.get(cid)) {
-      row.reactivated++;                  // bought before our scan window, long ago
     } else {
-      row.new++;
+      // Nothing before this order in the scan: the ERP's first-order year decides.
+      const erpYear = olderHistory.get(cid) ?? null;
+      const orderYear = Number(o.date.slice(0, 4));
+      if (erpYear !== null && erpYear < orderYear) row.reactivated++;   // bought before, long ago
+      else row.new++;                                                   // first order ever
     }
     months.set(month, row);
   }

@@ -116,9 +116,15 @@ async function companiesOf(ids: string[], key: string): Promise<Map<string, stri
   return out;
 }
 
-/** Did the ERP ever see this company buy, before our order history begins? */
-async function everBought(companyIds: string[], key: string): Promise<Map<string, boolean>> {
-  const out = new Map<string, boolean>();
+/**
+ * What the ERP says about a company's first order, for the ones whose first
+ * order of the year has nothing before it in the scan. The YEAR matters: a
+ * company whose first order ever fell in the year we are counting is new, not
+ * reactivated — reading this as a plain "has history" flag counted every new
+ * customer of 2025 as a returning one.
+ */
+async function firstOrderYear(companyIds: string[], key: string): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
   for (let i = 0; i < companyIds.length; i += 100) {
     const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
       path: "/crm/v3/objects/companies/batch/read",
@@ -130,7 +136,11 @@ async function everBought(companyIds: string[], key: string): Promise<Map<string
     });
     for (const row of res.results ?? []) {
       const p = row.properties ?? {};
-      if (row.id) out.set(row.id, Boolean(p.compass_first_order_year || p.compass_last_order_year));
+      if (!row.id) continue;
+      const first = Number.parseInt(p.compass_first_order_year ?? "", 10);
+      const last = Number.parseInt(p.compass_last_order_year ?? "", 10);
+      const year = Number.isFinite(first) ? first : Number.isFinite(last) ? last : null;
+      out.set(row.id, year);
     }
     reportProgress(key, `checking older buyers against the ERP years · ${out.size} of ${companyIds.length}`);
   }
@@ -194,14 +204,20 @@ async function countYear(
       unknown.push(cid);
     }
   }
-  const older = unknown.length ? await everBought(unknown, key) : new Map<string, boolean>();
+  const erpFirstYear = unknown.length ? await firstOrderYear(unknown, key) : new Map<string, number | null>();
 
   let reactivated = 0;
   let fresh = 0;
   let continuing = 0;
   for (const [cid, gap] of gapOf) {
-    if (gap === null) (older.get(cid) ? reactivated++ : fresh++);
-    else if (gap > ACTIVE_DAYS) reactivated++;
+    if (gap === null) {
+      // Nothing before this order inside the scan. The ERP's first-order year
+      // decides: this year (or none recorded) means genuinely new; anything
+      // earlier means they bought before and stayed away.
+      const erpYear = erpFirstYear.get(cid) ?? null;
+      if (erpYear === null || erpYear >= year) fresh++;
+      else reactivated++;
+    } else if (gap > ACTIVE_DAYS) reactivated++;
     else continuing++;
   }
 
