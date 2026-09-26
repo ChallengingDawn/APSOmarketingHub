@@ -16,7 +16,7 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Gate, HAIRLINE, INK, MUTED, Section, SourceNote } from "../Shell";
 import { metricOf, useHeld } from "../AnalyticsData";
 import type { Ga4TableReport } from "../integrationApi";
@@ -24,11 +24,24 @@ import { StatTile } from "@/app/charts/StatTile";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { TrendChart } from "@/app/charts/TrendChart";
 import { ShareBar } from "@/app/charts/ShareBar";
+import { StackedColumns } from "@/app/charts/StackedColumns";
 import { PaceBar } from "@/app/charts/PaceBar";
 import { compact, dayLabel, full, percent } from "@/app/charts/format";
 import { SMEC_TARGETS, SMEC_YEAR, type SmecMeasure } from "./targets";
 
 type NewBuyers = { year: number; firstOrderTotal: number | null; firstOrderPaidSearch: number | null };
+
+type CustomerTypeMonth = { month: string; orders: number; new: number; active: number; reactivated: number; unknown: number };
+type CustomerTypes = {
+  months: CustomerTypeMonth[];
+  totals: Omit<CustomerTypeMonth, "month">;
+  from: string;
+  to: string;
+  webOrders: number;
+  generatedAt: string;
+  computing: boolean;
+  error?: string;
+};
 
 type GclidStatus = {
   gclidContacts: number | null;
@@ -85,6 +98,24 @@ export default function SmecTargetsPage() {
   const gclid = useHeld<GclidStatus>(`/api/integrations/hubspot?report=gclidStatus`, [tick]);
   const purchasersAll = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${q}`, [q, tick]);
   const buyers = useHeld<NewBuyers>(`/api/integrations/hubspot?report=newBuyers&year=${SMEC_YEAR}`, [tick]);
+
+  // Customer types, the signal the Ads tag now sends. Half a year, because reading
+  // further back costs minutes of HubSpot calls for a shape that barely moves.
+  const [typesTick, setTypesTick] = useState(0);
+  const typesTo = to;
+  const typesFrom = new Date(Date.parse(`${to}T00:00:00Z`) - 179 * 86_400_000).toISOString().slice(0, 10);
+  const types = useHeld<CustomerTypes>(
+    `/api/integrations/hubspot?report=customerTypes&from=${typesFrom}&to=${typesTo}`,
+    [typesFrom, typesTo, tick, typesTick],
+  );
+  const typesResult = types.result;
+  const typesComputing = typesResult?.state === "ok" && typesResult.data.computing;
+  // The first caller starts a multi-minute count and is told so; look again shortly.
+  useEffect(() => {
+    if (!typesComputing) return;
+    const t = setTimeout(() => setTypesTick((n) => n + 1), 30_000);
+    return () => clearTimeout(t);
+  }, [typesComputing, typesTick]);
 
   // Live actuals, derived once and shared by tiles, bars and table rows.
   const ke = keyEvents.result;
@@ -234,6 +265,81 @@ export default function SmecTargetsPage() {
                 );
               }}
             </Gate>
+          </Section>
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
+        <Grid size={{ xs: 12, lg: 7 }}>
+          <Section sx={{ height: "100%" }}>
+            <Gate held={types} source="HubSpot" loadingLabel="Sorting orders by customer type…" onRetry={retry}>
+              {(data, stale) => {
+                const rows = data.months.map((m) => ({ x: m.month, active: m.active, reactivated: m.reactivated, new: m.new }));
+                const t = data.totals;
+                const share = (n: number) => (t.orders ? percent(n / t.orders) : "—");
+                return (
+                  <ChartFrame
+                    title="Customer types per month"
+                    caption={
+                      data.computing
+                        ? "Counting — this reads six months of orders plus a year of history, so it takes a few minutes. It refreshes itself."
+                        : `Every order sorted by the buying company's own history: ${share(t.active)} active, ${share(t.reactivated)} reactivated, ${share(t.new)} new. This is the value the Google Ads tag now sends with each purchase.`
+                    }
+                    stale={stale}
+                    empty={
+                      rows.length === 0
+                        ? data.error
+                          ? `HubSpot refused the count: ${data.error}`
+                          : data.computing
+                            ? "Still counting — come back in a few minutes."
+                            : "No orders in the window."
+                        : null
+                    }
+                    table={{
+                      columns: ["Month", "Orders", "Active", "Reactivated", "New", "No company"],
+                      numeric: [1, 2, 3, 4, 5],
+                      rows: data.months.map((m) => [monthLabel(m.month), full(m.orders), full(m.active), full(m.reactivated), full(m.new), full(m.unknown)]),
+                    }}
+                  >
+                    <StackedColumns
+                      data={rows}
+                      parts={[
+                        { key: "active", label: "Active (bought within 12 months)" },
+                        { key: "reactivated", label: "Reactivated (13+ months)" },
+                        { key: "new", label: "New company" },
+                      ]}
+                      height={220}
+                      format={full}
+                      xFormat={monthLabel}
+                    />
+                  </ChartFrame>
+                );
+              }}
+            </Gate>
+          </Section>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 5 }}>
+          <Section sx={{ height: "100%" }}>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK, mb: 0.75 }}>What Google Ads is told</Typography>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.5 }}>
+              The purchase tag carries the buyer&apos;s customer type. Anything we cannot answer is left out, and Google falls back to its own guess.
+            </Typography>
+            <Table size="small" sx={{ "& td, & th": { borderColor: HAIRLINE, fontSize: "0.82rem", verticalAlign: "top" } }}>
+              <TableBody>
+                {[
+                  ["New customer yes/no", "Live on all five market tags, from the company's order history"],
+                  ["New / active / reactivated as separate conversions", "Waiting for smec's six conversion labels (CH and DE)"],
+                  ["Covered store views", "de-CH, de-DE, IT, NL, PL — fr-CH, it-CH, fr-FR, de-AT and international fire no Ads tag at all"],
+                  ["Covered orders", "Web orders with marketing consent; phone and ERP orders never reach Google"],
+                ].map(([k, v]) => (
+                  <TableRow key={k}>
+                    <TableCell sx={{ color: INK, fontWeight: 600, width: "42%" }}>{k}</TableCell>
+                    <TableCell sx={{ color: MUTED }}>{v}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <SourceNote>HubSpot orders + GTM container GTM-TG6ZQ6G</SourceNote>
           </Section>
         </Grid>
       </Grid>
