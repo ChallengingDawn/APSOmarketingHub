@@ -46,11 +46,18 @@ jobs:
           docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
           docker push "$REGISTRY/$REPOSITORY:prod"
 
-# ── Add after True Soft provisions the ECS cluster + service ──────────────
-#      - name: Deploy to ECS Fargate
-#        run: |
-#          aws ecs update-service \
-#            --cluster  <cluster-name> \
-#            --service  <service-name> \
-#            --force-new-deployment
-#   (and grant the role ecs:UpdateService / ecs:DescribeServices / iam:PassRole)
+      # Without this the image sits in ECR and the running tasks never change —
+      # every push since 15.09 built something nobody was serving, and the only
+      # way to see a change was to force a deployment by hand in the console.
+      # The task definition points at :prod, so a forced deployment pulls the
+      # image this run just pushed.
+      # Needs ecs:UpdateService + ecs:DescribeServices on apso-github-actions-role;
+      # if the role lacks them this step fails loudly, and the image is still pushed.
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster apso-dev \
+            --service apso-dev-apsomarketinghub \
+            --force-new-deployment \
+            --no-cli-pager \
+            --query 'service.{name:serviceName,taskDefinition:taskDefinition,desired:desiredCount}'
