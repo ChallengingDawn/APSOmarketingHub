@@ -140,6 +140,10 @@ export default function SmecTargetsPage() {
   const priorSpend = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=adsSpend&${priorQ}`, [tick]);
   const priorYear = useHeld<CustomerYear>(`/api/integrations/hubspot?report=customerYear&year=${SMEC_YEAR - 1}`, [tick, typesTick]);
   const priorCohort = useHeld<RegistrationCohort>(`/api/integrations/hubspot?report=registrationCohort&year=${SMEC_YEAR - 1}`, [tick, typesTick]);
+
+  // Month by month, for the two charts that show the shape rather than the total.
+  const seaMonthly = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=seaMonthly&${q}${SEA}`, [q, tick]);
+  const costDaily = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=adsClicksDaily&${q}`, [q, tick]);
   const year = useHeld<CustomerYear>(`/api/integrations/hubspot?report=customerYear&year=${SMEC_YEAR}`, [tick, typesTick]);
   const cohort = useHeld<RegistrationCohort>(`/api/integrations/hubspot?report=registrationCohort&year=${SMEC_YEAR}`, [tick, typesTick]);
 
@@ -238,11 +242,39 @@ export default function SmecTargetsPage() {
                     : m === "costPerNewCustomer" ? (priorCost && priorYearData?.newCompanies ? priorCost / priorYearData.newCompanies : null)
                       : null;
 
+  // Revenue per month, and the spend of that month summed from the daily report
+  // (GA4 inflates advertiser metrics when asked for them by month).
+  const sm = seaMonthly.result;
+  const monthlyRevenue = sm && sm.state === "ok"
+    ? sm.data.rows.map((r) => ({ month: r.keys[0], revenue: metricOf(sm.data, "totalRevenue")(r) ?? 0 }))
+    : [];
+  const cd = costDaily.result;
+  const costByMonth = new Map<string, number>();
+  if (cd && cd.state === "ok") {
+    const get = metricOf(cd.data, "advertiserAdCost");
+    for (const row of cd.data.rows) {
+      const month = row.keys[0].slice(0, 7).replace("-", "");   // ISO day -> YYYYMM
+      costByMonth.set(month, (costByMonth.get(month) ?? 0) + (get(row) ?? 0));
+    }
+  }
+  const revenueGoal = SMEC_TARGETS.find((t) => t.measure === "revenue")?.goalValue ?? null;
+  const roasGoal = SMEC_TARGETS.find((t) => t.measure === "roas")?.goalValue ?? null;
+  const revenuePoints = monthlyRevenue.map((m) => ({ x: m.month, value: m.revenue }));
+  const roasPoints = monthlyRevenue.map((m) => {
+    const cost = costByMonth.get(m.month) ?? 0;
+    return { x: m.month, value: cost > 0 ? m.revenue / cost : null };
+  });
+
   /** The two CRM counts take minutes; a row backed by one says so instead of showing a dash. */
   const counting = (m: SmecMeasure): boolean =>
-    (m === "active" || m === "reactivated") ? Boolean(yearData?.computing)
+    (m === "active" || m === "reactivated" || m === "newbuyers") ? Boolean(yearData?.computing)
       : m === "cvr" ? Boolean(cohortData?.computing)
         : false;
+  /** Show what the count is doing, so a row that waits does not look stuck. */
+  const countingNote = (m: SmecMeasure): string | null => {
+    const p = (m === "cvr" ? cohortData?.progress : yearData?.progress) ?? null;
+    return p ? p.replace(/ · .*/, "…") : null;
+  };
   const money = (n: number) => n.toLocaleString("en-CH", { maximumFractionDigits: n < 100 ? 2 : 0 });
   const formatFor = (m: SmecMeasure) => (n: number) =>
     m === "revenue" ? compact(n)
@@ -454,7 +486,7 @@ export default function SmecTargetsPage() {
                     title="Buying companies, by how they came back"
                     caption="Every company that ordered, split by what came before: a purchase within twelve months, a longer gap, or nothing at all. Both years counted by the same rule, so the change is real and not a change of method."
                     stale={stale}
-                    empty={rows.length ? null : data.computing ? "Counting the year…" : "No companies counted yet."}
+                    empty={rows.length ? null : data.computing ? `Counting — ${data.progress ?? "starting"}. Two years of orders, about six minutes; then it is kept for twelve hours.` : data.error ? `HubSpot refused the count: ${data.error}` : "No companies counted yet."}
                     table={{
                       columns: ["Year", "Continuing", "Reactivated", "New", "Total"],
                       numeric: [1, 2, 3, 4],
@@ -499,6 +531,66 @@ export default function SmecTargetsPage() {
               </TableBody>
             </Table>
             <SourceNote>HubSpot orders + GTM container GTM-TG6ZQ6G</SourceNote>
+          </Section>
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <Section sx={{ height: "100%" }}>
+            <Gate held={seaMonthly} source="Google Analytics 4" loadingLabel="Charting SEA revenue by month…" onRetry={retry}>
+              {(_rep, stale) => (
+                <ChartFrame
+                  title="Paid Search revenue per month"
+                  caption={revenueGoal ? `The line to beat is ${compact(revenueGoal / 12)} a month — the annual goal spread evenly.` : "Paid Search revenue per month."}
+                  stale={stale}
+                  empty={revenuePoints.length < 2 ? "GA4 returned fewer than two months." : null}
+                  table={{ columns: ["Month", "Revenue"], numeric: [1], rows: revenuePoints.map((p) => [monthLabel(p.x), compact(p.value)]) }}
+                >
+                  <TrendChart
+                    data={revenuePoints}
+                    seriesLabel="SEA revenue"
+                    height={200}
+                    format={compact}
+                    xFormat={monthLabel}
+                    threshold={revenueGoal ? { value: revenueGoal / 12, label: "monthly pace for the goal" } : undefined}
+                  />
+                </ChartFrame>
+              )}
+            </Gate>
+          </Section>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <Section sx={{ height: "100%" }}>
+            <Gate held={costDaily} source="Google Analytics 4" loadingLabel="Charting return on ad spend…" onRetry={retry}>
+              {(_rep, stale) => (
+                <ChartFrame
+                  title="Return on ad spend per month"
+                  caption="Paid Search revenue divided by what the linked Google Ads accounts spent that month. The agency's floor is 13."
+                  stale={stale}
+                  empty={roasPoints.filter((p) => p.value !== null).length < 2 ? "Not enough months with both revenue and spend." : null}
+                  table={{
+                    columns: ["Month", "Revenue", "Spend", "ROAS"],
+                    numeric: [1, 2, 3],
+                    rows: roasPoints.map((p) => [
+                      monthLabel(p.x),
+                      compact(monthlyRevenue.find((m) => m.month === p.x)?.revenue ?? null),
+                      compact(costByMonth.get(p.x) ?? null),
+                      p.value === null ? "—" : p.value.toFixed(1),
+                    ]),
+                  }}
+                >
+                  <TrendChart
+                    data={roasPoints}
+                    seriesLabel="ROAS"
+                    height={200}
+                    format={(v) => (v === null ? "—" : v.toFixed(1))}
+                    xFormat={monthLabel}
+                    threshold={roasGoal ? { value: roasGoal, label: "floor agreed with smec" } : undefined}
+                  />
+                </ChartFrame>
+              )}
+            </Gate>
           </Section>
         </Grid>
       </Grid>
@@ -557,7 +649,7 @@ export default function SmecTargetsPage() {
                           <Box sx={{ display: "grid", gap: 0.75 }}>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                               <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>
-                                {actual === null ? (counting(t.measure) ? "counting…" : "—") : fmt(actual)}
+                                {actual === null ? (counting(t.measure) ? (countingNote(t.measure) ?? "counting…") : "—") : fmt(actual)}
                               </Typography>
                               {(pace ?? against) && (
                                 <Chip

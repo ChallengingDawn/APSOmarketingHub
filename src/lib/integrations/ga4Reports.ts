@@ -35,7 +35,8 @@ export type Ga4ReportName =
   | "adsClicksDaily"
   | "trafficWeekly"
   | "transactionsDaily"
-  | "adsSpend";
+  | "adsSpend"
+  | "seaMonthly";
 
 type ReportSpec = {
   dimensions: string[];
@@ -163,6 +164,15 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["transactions"],
     orderBy: { dimension: "date" },
     limit: 400,
+  },
+  seaMonthly: {
+    // Revenue and orders per month for whichever channel the request filters to.
+    // Advertiser cost is NOT here on purpose: GA4 inflates advertiser metrics on
+    // yearMonth, so spend is summed from the daily report instead.
+    dimensions: ["yearMonth"],
+    metrics: ["totalRevenue", "transactions", "sessions"],
+    orderBy: { dimension: "yearMonth" },
+    limit: 24,
   },
   adsSpend: {
     // Cost, clicks and return per linked Google Ads account. The Ads link feeds these,
