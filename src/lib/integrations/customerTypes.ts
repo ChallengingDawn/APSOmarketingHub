@@ -42,7 +42,11 @@ const ACTIVE_DAYS = 365;
 /** Thirteen months of history is what the 12-month boundary needs, plus a month of slack. */
 const HISTORY_MONTHS = 13;
 /** A longer window would read most of the order object on every refresh. */
-export const MAX_WINDOW_DAYS = 184;
+export const MAX_WINDOW_DAYS = 92;
+
+/** What the count is doing right now, so a slow report can say so instead of just spinning. */
+export type CustomerTypesProgress = { phase: "orders" | "companies" | "history" | "sorting"; orders: number; linked: number };
+let progress: CustomerTypesProgress = { phase: "orders", orders: 0, linked: 0 };
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -80,6 +84,7 @@ async function scanOrders(from: string, to: string, signal?: AbortSignal): Promi
           },
           signal,
         });
+        progress = { ...progress, phase: "orders", orders: out.length };
         for (const row of res.results ?? []) {
           const p = row.properties ?? {};
           const date = (p.order_order_date ?? "").slice(0, 10);
@@ -119,6 +124,7 @@ async function companiesOf(ids: string[], signal?: AbortSignal): Promise<Map<str
       const companyId = row.to?.[0]?.toObjectId;
       if (orderId && companyId != null) out.set(orderId, String(companyId));
     }
+    progress = { ...progress, phase: "companies", linked: out.size };
   }
   return out;
 }
@@ -181,9 +187,11 @@ export async function fetchCustomerTypes(params: {
     const days = byCompany.get(cid) ?? [];
     if (!days.some((d) => d < o.date)) candidates.add(cid);
   }
+  progress = { ...progress, phase: "history" };
   const olderHistory = candidates.size
     ? await firstOrderYears([...candidates], params.signal)
     : new Map<string, boolean>();
+  progress = { ...progress, phase: "sorting" };
 
   const months = new Map<string, CustomerTypeMonth>();
   const blank = (month: string): CustomerTypeMonth =>
@@ -242,10 +250,22 @@ export async function fetchCustomerTypes(params: {
  */
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-const entries = new Map<string, { at: number; value?: CustomerTypes; error?: string; running: boolean }>();
-let queue: Promise<unknown> = Promise.resolve();
 
-export type CustomerTypesPayload = CustomerTypes & { computing: boolean; error?: string };
+type Entry = { at: number; value?: CustomerTypes; error?: string; running: boolean };
+type Store = { entries: Map<string, Entry>; queue: Promise<unknown> };
+// On the global on purpose: in development Next re-evaluates this module on every
+// edit, and a module-level Map would lose a count that is minutes from finishing —
+// every poll would start it again and it would never land.
+const store: Store = ((globalThis as { __apsoCustomerTypes?: Store }).__apsoCustomerTypes ??= {
+  entries: new Map(),
+  queue: Promise.resolve(),
+});
+
+export type CustomerTypesPayload = CustomerTypes & {
+  computing: boolean;
+  error?: string;
+  progress?: CustomerTypesProgress;
+};
 
 const EMPTY = (from: string, to: string): CustomerTypes => ({
   months: [], totals: { orders: 0, new: 0, active: 0, reactivated: 0, unknown: 0 },
@@ -255,22 +275,23 @@ const EMPTY = (from: string, to: string): CustomerTypes => ({
 /** The current state of this window, starting the computation if it is missing or old. */
 export function customerTypes(from: string, to: string): CustomerTypesPayload {
   const key = `${from}:${to}`;
-  const hit = entries.get(key);
+  const hit = store.entries.get(key);
   const fresh = hit?.value && Date.now() - hit.at < CACHE_TTL_MS;
 
   if (!fresh && !hit?.running) {
-    const entry = { at: Date.now(), value: hit?.value, error: undefined as string | undefined, running: true };
-    entries.set(key, entry);
-    queue = queue
+    store.entries.set(key, { at: Date.now(), value: hit?.value, running: true });
+    store.queue = store.queue
       .catch(() => {})
       .then(() => fetchCustomerTypes({ from, to }))
-      .then((value) => { entries.set(key, { at: Date.now(), value, running: false }); })
+      .then((value) => { store.entries.set(key, { at: Date.now(), value, running: false }); })
       .catch((err: unknown) => {
-        entries.set(key, { at: Date.now(), value: hit?.value, error: String((err as Error)?.message ?? err), running: false });
+        store.entries.set(key, { at: Date.now(), value: hit?.value, error: String((err as Error)?.message ?? err), running: false });
       });
   }
 
-  const now = entries.get(key);
-  if (now?.value) return { ...now.value, computing: Boolean(now.running), error: now.error };
-  return { ...EMPTY(from, to), computing: Boolean(now?.running), error: now?.error };
+  const now = store.entries.get(key);
+  const running = Boolean(now?.running);
+  const shown = running ? { progress } : {};
+  if (now?.value) return { ...now.value, computing: running, error: now.error, ...shown };
+  return { ...EMPTY(from, to), computing: running, error: now?.error, ...shown };
 }

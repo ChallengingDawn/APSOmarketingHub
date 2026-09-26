@@ -41,6 +41,14 @@ type CustomerTypes = {
   generatedAt: string;
   computing: boolean;
   error?: string;
+  progress?: { phase: "orders" | "companies" | "history" | "sorting"; orders: number; linked: number };
+};
+
+const PHASE_LABEL: Record<string, string> = {
+  orders: "reading orders",
+  companies: "matching each order to its company",
+  history: "checking older buyers against the ERP years",
+  sorting: "sorting by customer type",
 };
 
 type GclidStatus = {
@@ -103,7 +111,7 @@ export default function SmecTargetsPage() {
   // further back costs minutes of HubSpot calls for a shape that barely moves.
   const [typesTick, setTypesTick] = useState(0);
   const typesTo = to;
-  const typesFrom = new Date(Date.parse(`${to}T00:00:00Z`) - 179 * 86_400_000).toISOString().slice(0, 10);
+  const typesFrom = new Date(Date.parse(`${to}T00:00:00Z`) - 91 * 86_400_000).toISOString().slice(0, 10);
   const types = useHeld<CustomerTypes>(
     `/api/integrations/hubspot?report=customerTypes&from=${typesFrom}&to=${typesTo}`,
     [typesFrom, typesTo, tick, typesTick],
@@ -282,7 +290,7 @@ export default function SmecTargetsPage() {
                     title="Customer types per month"
                     caption={
                       data.computing
-                        ? "Counting — this reads six months of orders plus a year of history, so it takes a few minutes. It refreshes itself."
+                        ? `Counting — ${PHASE_LABEL[data.progress?.phase ?? "orders"] ?? "working"}${data.progress?.orders ? `, ${full(data.progress.orders)} orders so far` : ""}. Three months of orders plus a year of history takes a few minutes; this refreshes itself.`
                         : `Every order sorted by the buying company's own history: ${share(t.active)} active, ${share(t.reactivated)} reactivated, ${share(t.new)} new. This is the value the Google Ads tag now sends with each purchase.`
                     }
                     stale={stale}
@@ -291,7 +299,7 @@ export default function SmecTargetsPage() {
                         ? data.error
                           ? `HubSpot refused the count: ${data.error}`
                           : data.computing
-                            ? "Still counting — come back in a few minutes."
+                            ? `Still counting: ${PHASE_LABEL[data.progress?.phase ?? "orders"] ?? "working"}${data.progress?.orders ? ` · ${full(data.progress.orders)} orders read` : ""}.`
                             : "No orders in the window."
                         : null
                     }
@@ -330,7 +338,7 @@ export default function SmecTargetsPage() {
                   ["New customer yes/no", "Live on all five market tags, from the company's order history"],
                   ["New / active / reactivated as separate conversions", "Waiting for smec's six conversion labels (CH and DE)"],
                   ["Covered store views", "de-CH, de-DE, IT, NL, PL — fr-CH, it-CH, fr-FR, de-AT and international fire no Ads tag at all"],
-                  ["Covered orders", "Web orders with marketing consent; phone and ERP orders never reach Google"],
+                  ["History behind the type", "All orders count, web and offline — someone who last ordered by phone is an active customer, not a new one"],
                 ].map(([k, v]) => (
                   <TableRow key={k}>
                     <TableCell sx={{ color: INK, fontWeight: 600, width: "42%" }}>{k}</TableCell>
