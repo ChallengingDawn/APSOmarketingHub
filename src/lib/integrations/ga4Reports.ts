@@ -34,7 +34,8 @@ export type Ga4ReportName =
   | "newChannelsDaily"
   | "adsClicksDaily"
   | "trafficWeekly"
-  | "transactionsDaily";
+  | "transactionsDaily"
+  | "adsSpend";
 
 type ReportSpec = {
   dimensions: string[];
@@ -162,6 +163,15 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["transactions"],
     orderBy: { dimension: "date" },
     limit: 400,
+  },
+  adsSpend: {
+    // Cost, clicks and return per linked Google Ads account. The Ads link feeds these,
+    // so spend does NOT have to come from the agency — but revenue here is GA4's own
+    // attribution, which is not identical to the ROAS shown inside Google Ads.
+    dimensions: ["sessionGoogleAdsAccountName"],
+    metrics: ["advertiserAdCost", "advertiserAdClicks", "totalRevenue", "transactions", "returnOnAdSpend"],
+    orderBy: { metric: "advertiserAdCost", desc: true },
+    limit: 20,
   },
 };
 

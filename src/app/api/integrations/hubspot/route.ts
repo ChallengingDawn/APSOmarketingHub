@@ -4,6 +4,7 @@ import { fetchHubspotAccount, fetchHubspotSummary, fetchHubspotWeekly } from "@/
 import { fetchAudience, fetchCompaniesActiveOnSite, fetchCompanyDetail, fetchContactsCreated, fetchCustomerJourneys, cachedReport, fetchGclidStatus, fetchNewBuyers, fetchPageAudience, fetchRecentPeople, fetchSegmentCounts } from "@/lib/integrations/hubspotJourney";
 import { fetchBuyerYears } from "@/lib/integrations/buyers";
 import { customerTypes } from "@/lib/integrations/customerTypes";
+import { customerYear, registrationCohort } from "@/lib/integrations/customerYear";
 import { fetchContactRequests } from "@/lib/integrations/contactRequests";
 import { fetchWebOrders } from "@/lib/integrations/webOrders";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
@@ -103,6 +104,15 @@ export async function GET(req: NextRequest) {
       // gets the result. Never blocks the request, never runs two windows at once.
       const data = customerTypes(win.from, win.to);
       return NextResponse.json({ configured: true, ok: true, data });
+    }
+    if (req.nextUrl.searchParams.get("report") === "customerYear" || req.nextUrl.searchParams.get("report") === "registrationCohort") {
+      const rawYear = Number.parseInt(req.nextUrl.searchParams.get("year") ?? "", 10);
+      const year = Number.isFinite(rawYear) && rawYear >= 2015 && rawYear <= 2100 ? rawYear : new Date().getUTCFullYear();
+      // Minutes of HubSpot reads: the first call starts it, a later one collects it.
+      const state = req.nextUrl.searchParams.get("report") === "customerYear"
+        ? customerYear(year)
+        : registrationCohort(year);
+      return NextResponse.json({ configured: true, ok: true, data: { ...state.value, computing: state.computing, progress: state.progress, error: state.error } });
     }
     if (req.nextUrl.searchParams.get("report") === "gclidStatus") {
       const data = await cachedReport("gclidStatus", () => fetchGclidStatus(controller.signal));

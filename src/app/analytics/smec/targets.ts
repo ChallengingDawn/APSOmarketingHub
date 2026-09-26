@@ -5,7 +5,17 @@
 // Paid Search channel. `measure` names the live figure this hub can put
 // beside the target; `unavailable` says where the number lives otherwise.
 
-export type SmecMeasure = "signups" | "newbuyers" | "cvr" | "revenue" | "none";
+export type SmecMeasure =
+  | "signups"
+  | "newbuyers"
+  | "cvr"
+  | "revenue"
+  | "active"
+  | "reactivated"
+  | "cpa"
+  | "costPerNewCustomer"
+  | "roas"
+  | "none";
 
 export type SmecTarget = {
   area: "Acquisition" | "Retention & Reactivation" | "Revenue";
@@ -44,40 +54,40 @@ export const SMEC_TARGETS: SmecTarget[] = [
     kpi: "CVR registration → purchase",
     baseline: "36% (2025 close)",
     goal: "40%+",
-    measure: "none",
-    unavailable: "A registration→purchase cohort measure. Purchases ÷ sign-ups is not it (existing customers buy without registering — the ratio is ~9×), so nothing is shown until the cohort join exists.",
+    measure: "cvr",
+    note: "The real cohort: shop accounts opened this year that have since placed an order. Purchases ÷ sign-ups is not it — existing customers buy without registering.",
   },
   {
     area: "Acquisition",
     kpi: "CPA",
     baseline: "not tracked",
     goal: "Track · benchmark · establish",
-    measure: "none",
-    unavailable: "Cost lives in Google Ads — reported by smec; this hub has no Ads connection.",
+    measure: "cpa",
+    note: "Google Ads cost divided by Paid Search purchases. The cost comes from the Ads-to-GA4 link, so it no longer has to be asked for.",
   },
   {
     area: "Retention & Reactivation",
     kpi: "Active customers",
     baseline: "9,656 (Compass total)",
     goal: "Baseline + direction",
-    measure: "none",
-    unavailable: "Compass-side KPI; the SEA contribution is not separable yet.",
+    measure: "active",
+    note: "Companies with at least one order this year, counted from our own order history — whole business, as the baseline is. Not separable by channel: a company is a customer of the shop, not of a channel.",
   },
   {
     area: "Retention & Reactivation",
     kpi: "Reactivated customers",
     baseline: "1,176",
     goal: "Baseline + direction",
-    measure: "none",
-    unavailable: "Tracked yearly from Compass reactivation lists.",
+    measure: "reactivated",
+    note: "Companies whose first order this year came after a gap of more than twelve months — the same rule the Google Ads tag sends with each purchase.",
   },
   {
     area: "Retention & Reactivation",
     kpi: "Cost per activation / reactivation",
     baseline: "not tracked",
     goal: "Track · benchmark · establish",
-    measure: "none",
-    unavailable: "Needs Google Ads cost — smec side.",
+    measure: "costPerNewCustomer",
+    note: "Ad spend divided by the new buying customers it is credited with. Reactivations cannot be split from spend yet — that needs the three bucket conversions in the Ads account.",
   },
   {
     area: "Revenue",
@@ -93,7 +103,8 @@ export const SMEC_TARGETS: SmecTarget[] = [
     kpi: "ROAS",
     baseline: "13",
     goal: "min 13 — push spend, accept lower",
-    measure: "none",
-    unavailable: "Revenue side is live above; spend lives in Google Ads, so ROAS is smec's number.",
+    goalValue: 13,
+    measure: "roas",
+    note: "GA4 revenue from Google Ads sessions ÷ the cost those accounts report. Google Ads shows its own ROAS on its own attribution, so the two will not match to the decimal.",
   },
 ];

@@ -51,6 +51,26 @@ const PHASE_LABEL: Record<string, string> = {
   sorting: "sorting by customer type",
 };
 
+type CustomerYear = {
+  activeCompanies?: number;
+  reactivatedCompanies?: number;
+  newCompanies?: number;
+  continuingCompanies?: number;
+  ordersInYear?: number;
+  computing?: boolean;
+  progress?: string;
+  error?: string;
+};
+
+type RegistrationCohort = {
+  registrations?: number;
+  converted?: number;
+  rate?: number | null;
+  computing?: boolean;
+  progress?: string;
+  error?: string;
+};
+
 type GclidStatus = {
   gclidContacts: number | null;
   consentContacts: number | null;
@@ -116,8 +136,17 @@ export default function SmecTargetsPage() {
     `/api/integrations/hubspot?report=customerTypes&from=${typesFrom}&to=${typesTo}`,
     [typesFrom, typesTo, tick, typesTick],
   );
+  const spend = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=adsSpend&${q}`, [q, tick]);
+  const year = useHeld<CustomerYear>(`/api/integrations/hubspot?report=customerYear&year=${SMEC_YEAR}`, [tick, typesTick]);
+  const cohort = useHeld<RegistrationCohort>(`/api/integrations/hubspot?report=registrationCohort&year=${SMEC_YEAR}`, [tick, typesTick]);
+
   const typesResult = types.result;
-  const typesComputing = typesResult?.state === "ok" && typesResult.data.computing;
+  const yearData = year.result?.state === "ok" ? year.result.data : null;
+  const cohortData = cohort.result?.state === "ok" ? cohort.result.data : null;
+  const typesComputing =
+    (typesResult?.state === "ok" && typesResult.data.computing) ||
+    Boolean(yearData?.computing) ||
+    Boolean(cohortData?.computing);
   // The first caller starts a multi-minute count and is told so; look again shortly.
   useEffect(() => {
     if (!typesComputing) return;
@@ -144,11 +173,43 @@ export default function SmecTargetsPage() {
   const firstOrders = by && by.state === "ok" ? by.data.firstOrderTotal : null;
   const newBuyers = firstOrders !== null && seaShare !== null ? Math.round(firstOrders * seaShare) : null;
   const revenue = pr && pr.state === "ok" && prRow ? metricOf(pr.data, "totalRevenue")(prRow) : null;
-  const cvr = signups && purchases !== null ? purchases / signups : null;
+
+  // Google Ads spend, straight from the Ads-to-GA4 link: what used to be "smec's number".
+  const sp = spend.result;
+  const spendRows = sp && sp.state === "ok" ? sp.data.rows : [];
+  const spendGet = sp && sp.state === "ok" ? metricOf(sp.data, "advertiserAdCost") : null;
+  const revGet = sp && sp.state === "ok" ? metricOf(sp.data, "totalRevenue") : null;
+  const adCost = spendGet ? spendRows.reduce((sum, r) => sum + (spendGet(r) ?? 0), 0) : null;
+  const adRevenue = revGet ? spendRows.reduce((sum, r) => sum + (revGet(r) ?? 0), 0) : null;
+  const purchasesSea = txSea;
+  const roas = adCost && adRevenue !== null && adCost > 0 ? adRevenue / adCost : null;
+  const cpa = adCost && purchasesSea ? adCost / purchasesSea : null;
+  const costPerNewCustomer = adCost && newBuyers ? adCost / newBuyers : null;
+  const cvrCohort = cohortData?.rate ?? null;
 
   const actualFor = (m: SmecMeasure): number | null =>
-    m === "signups" ? signups : m === "newbuyers" ? newBuyers : m === "revenue" ? revenue : m === "cvr" ? cvr : null;
-  const formatFor = (m: SmecMeasure) => (n: number) => (m === "revenue" ? compact(n) : m === "cvr" ? percent(n) : full(n));
+    m === "signups" ? signups
+      : m === "newbuyers" ? newBuyers
+        : m === "revenue" ? revenue
+          : m === "cvr" ? cvrCohort
+            : m === "active" ? yearData?.activeCompanies ?? null
+              : m === "reactivated" ? yearData?.reactivatedCompanies ?? null
+                : m === "roas" ? roas
+                  : m === "cpa" ? cpa
+                    : m === "costPerNewCustomer" ? costPerNewCustomer
+                      : null;
+  /** The two CRM counts take minutes; a row backed by one says so instead of showing a dash. */
+  const counting = (m: SmecMeasure): boolean =>
+    (m === "active" || m === "reactivated") ? Boolean(yearData?.computing)
+      : m === "cvr" ? Boolean(cohortData?.computing)
+        : false;
+  const money = (n: number) => n.toLocaleString("en-CH", { maximumFractionDigits: n < 100 ? 2 : 0 });
+  const formatFor = (m: SmecMeasure) => (n: number) =>
+    m === "revenue" ? compact(n)
+      : m === "cvr" ? percent(n)
+        : m === "roas" ? n.toFixed(1)
+          : m === "cpa" || m === "costPerNewCustomer" ? money(n)
+            : full(n);
 
   const goalOf = (m: SmecMeasure) => SMEC_TARGETS.find((t) => t.measure === m)?.goalValue ?? null;
 
@@ -362,7 +423,7 @@ export default function SmecTargetsPage() {
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>KPI</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>Baseline 2025</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>Goal 2026</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: MUTED, minWidth: 320 }}>Live here (YTD, Paid Search)</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: MUTED, minWidth: 320 }}>Live here (year to date)</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -381,7 +442,7 @@ export default function SmecTargetsPage() {
                           <Box sx={{ display: "grid", gap: 0.75 }}>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                               <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>
-                                {actual === null ? "—" : fmt(actual)}
+                                {actual === null ? (counting(t.measure) ? "counting…" : "—") : fmt(actual)}
                               </Typography>
                               {pace && (
                                 <Chip label={pace.text} size="small" sx={{ height: 19, fontSize: "0.66rem", bgcolor: TONE_STYLE[pace.tone].bg, color: TONE_STYLE[pace.tone].fg }} />

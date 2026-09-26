@@ -1,0 +1,303 @@
+// THE YEAR'S CUSTOMERS — the two retention KPIs smec set, counted from our own
+// orders instead of waiting for a Compass list, plus the registration cohort
+// behind the conversion-rate target.
+//
+//   active companies       ordered at least once this year
+//   reactivated companies  their first order this year came after a gap of more
+//                          than 12 months, or after no order at all in our
+//                          history while the ERP shows they once bought
+//   new companies          no order anywhere before this year
+//
+// A company is counted once, whatever it ordered. This is deliberately NOT
+// filtered to Paid Search: a company is a customer of the shop, not of a
+// channel, and the sheet's baselines (9,656 active, 1,176 reactivated) are
+// whole-business Compass figures.
+
+import { hubspotFetchJson } from "./hubspot";
+import { reportProgress, slowReport, type SlowState } from "./slowReport";
+
+const DAY_MS = 86_400_000;
+const ACTIVE_DAYS = 365;
+/** Thirteen months before the year starts: enough to judge the first order of January. */
+const LOOKBACK_MONTHS = 13;
+const TTL_MS = 12 * 60 * 60 * 1000;
+
+export type CustomerYear = {
+  year: number;
+  activeCompanies: number;
+  reactivatedCompanies: number;
+  newCompanies: number;
+  continuingCompanies: number;
+  ordersInYear: number;
+  scannedFrom: string;
+  generatedAt: string;
+};
+
+export type RegistrationCohort = {
+  year: number;
+  registrations: number;
+  converted: number;
+  rate: number | null;
+  generatedAt: string;
+};
+
+const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** Orders by order date, month by month, walking id windows (search stops paging at 10,000). */
+async function scanOrders(from: string, to: string, key: string): Promise<{ id: string; date: string }[]> {
+  const out: { id: string; date: string }[] = [];
+  for (let cursor = dayMs(from); cursor <= dayMs(to); ) {
+    const d = new Date(cursor);
+    const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+    let lastId = "0";
+    for (;;) {
+      let after: string | undefined;
+      let got = 0;
+      let pageLast: string | null = null;
+      do {
+        const res = await hubspotFetchJson<{
+          results?: { id?: string; properties?: Record<string, string | null> }[];
+          paging?: { next?: { after?: string } };
+        }>({
+          path: "/crm/v3/objects/orders/search",
+          method: "POST",
+          body: {
+            filterGroups: [{ filters: [
+              { propertyName: "order_order_date", operator: "GTE", value: String(cursor) },
+              { propertyName: "order_order_date", operator: "LT", value: String(next) },
+              { propertyName: "hs_object_id", operator: "GT", value: lastId },
+            ] }],
+            properties: ["order_order_date", "order_order_type", "hs_external_order_status"],
+            sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
+            limit: 200,
+            after,
+          },
+        });
+        for (const row of res.results ?? []) {
+          const p = row.properties ?? {};
+          const date = (p.order_order_date ?? "").slice(0, 10);
+          const status = (p.hs_external_order_status ?? "").toLowerCase();
+          const credit = (p.order_order_type ?? "").toLowerCase().includes("credit");
+          if (date && row.id && !credit && status !== "canceled" && status !== "cancelled") {
+            out.push({ id: row.id, date });
+          }
+          if (row.id) pageLast = row.id;
+          got++;
+        }
+        after = res.paging?.next?.after;
+      } while (after && got < 9000);
+      if (!got || !pageLast) break;
+      lastId = pageLast;
+    }
+    reportProgress(key, `reading orders · ${out.length.toLocaleString("en")} so far`);
+    cursor = next;
+  }
+  return out;
+}
+
+async function companiesOf(ids: string[], key: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const res = await hubspotFetchJson<{
+      results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[];
+    }>({
+      path: "/crm/v4/associations/orders/companies/batch/read",
+      method: "POST",
+      body: { inputs: ids.slice(i, i + 1000).map((id) => ({ id })) },
+    });
+    for (const row of res.results ?? []) {
+      const orderId = row.from?.id;
+      const companyId = row.to?.[0]?.toObjectId;
+      if (orderId && companyId != null) out.set(orderId, String(companyId));
+    }
+    reportProgress(key, `matching orders to companies · ${out.size.toLocaleString("en")} of ${ids.length.toLocaleString("en")}`);
+  }
+  return out;
+}
+
+/** Did the ERP ever see this company buy, before our order history begins? */
+async function everBought(companyIds: string[], key: string): Promise<Map<string, boolean>> {
+  const out = new Map<string, boolean>();
+  for (let i = 0; i < companyIds.length; i += 100) {
+    const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/companies/batch/read",
+      method: "POST",
+      body: {
+        inputs: companyIds.slice(i, i + 100).map((id) => ({ id })),
+        properties: ["compass_first_order_year", "compass_last_order_year"],
+      },
+    });
+    for (const row of res.results ?? []) {
+      const p = row.properties ?? {};
+      if (row.id) out.set(row.id, Boolean(p.compass_first_order_year || p.compass_last_order_year));
+    }
+    reportProgress(key, `checking older buyers against the ERP years · ${out.size} of ${companyIds.length}`);
+  }
+  return out;
+}
+
+async function buildCustomerYear(year: number, key: string): Promise<CustomerYear> {
+  const yearStart = `${year}-01-01`;
+  const lookback = new Date(dayMs(yearStart));
+  lookback.setUTCMonth(lookback.getUTCMonth() - LOOKBACK_MONTHS);
+  const scannedFrom = isoDay(lookback.getTime());
+  const today = isoDay(Date.now());
+  const to = `${year}-12-31` < today ? `${year}-12-31` : today;
+
+  const orders = await scanOrders(scannedFrom, to, key);
+  const byOrder = await companiesOf(orders.map((o) => o.id), key);
+
+  const days = new Map<string, string[]>();
+  for (const o of orders) {
+    const cid = byOrder.get(o.id);
+    if (!cid) continue;
+    const list = days.get(cid);
+    if (list) list.push(o.date);
+    else days.set(cid, [o.date]);
+  }
+  for (const list of days.values()) list.sort();
+
+  const firstThisYear = new Map<string, string>();
+  let ordersInYear = 0;
+  for (const [cid, list] of days) {
+    const first = list.find((d) => d >= yearStart);
+    if (!first) continue;
+    firstThisYear.set(cid, first);
+    ordersInYear += list.filter((d) => d >= yearStart).length;
+  }
+
+  // Companies whose first order of the year has nothing before it inside the
+  // scan: only the ERP years can say whether they are new or long lapsed.
+  const unknown: string[] = [];
+  const gapOf = new Map<string, number | null>();
+  for (const [cid, first] of firstThisYear) {
+    const before = (days.get(cid) ?? []).filter((d) => d < first);
+    const previous = before.length ? before[before.length - 1] : null;
+    if (previous) gapOf.set(cid, (dayMs(first) - dayMs(previous)) / DAY_MS);
+    else {
+      gapOf.set(cid, null);
+      unknown.push(cid);
+    }
+  }
+  const older = unknown.length ? await everBought(unknown, key) : new Map<string, boolean>();
+
+  let reactivated = 0;
+  let fresh = 0;
+  let continuing = 0;
+  for (const [cid, gap] of gapOf) {
+    if (gap === null) (older.get(cid) ? reactivated++ : fresh++);
+    else if (gap > ACTIVE_DAYS) reactivated++;
+    else continuing++;
+  }
+
+  return {
+    year,
+    activeCompanies: firstThisYear.size,
+    reactivatedCompanies: reactivated,
+    newCompanies: fresh,
+    continuingCompanies: continuing,
+    ordersInYear,
+    scannedFrom,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Shop accounts opened this year, and how many of them have since ordered. */
+async function buildRegistrationCohort(year: number, key: string): Promise<RegistrationCohort> {
+  const from = String(dayMs(`${year}-01-01`));
+  const to = String(dayMs(`${year + 1}-01-01`));
+  const contacts: { id: string; created: string }[] = [];
+  let lastId = "0";
+  for (;;) {
+    const before = contacts.length;
+    let after: string | undefined;
+    let got = 0;
+    do {
+      const res = await hubspotFetchJson<{
+        results?: { id?: string; properties?: Record<string, string | null> }[];
+        paging?: { next?: { after?: string } };
+      }>({
+        path: "/crm/v3/objects/contacts/search",
+        method: "POST",
+        body: {
+          filterGroups: [{ filters: [
+            { propertyName: "eyemagine_customer_id", operator: "HAS_PROPERTY" },
+            { propertyName: "createdate", operator: "GTE", value: from },
+            { propertyName: "createdate", operator: "LT", value: to },
+            { propertyName: "hs_object_id", operator: "GT", value: lastId },
+          ] }],
+          properties: ["createdate"],
+          sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
+          limit: 200,
+          after,
+        },
+      });
+      for (const row of res.results ?? []) {
+        if (row.id) contacts.push({ id: row.id, created: (row.properties?.createdate ?? "").slice(0, 10) });
+      }
+      got += (res.results ?? []).length;
+      after = res.paging?.next?.after;
+    } while (after && got < 9000);
+    if (contacts.length === before) break;
+    lastId = contacts[contacts.length - 1].id;
+    reportProgress(key, `reading registrations · ${contacts.length.toLocaleString("en")}`);
+  }
+
+  const ordersOf = new Map<string, string[]>();
+  const orderIds = new Set<string>();
+  for (let i = 0; i < contacts.length; i += 1000) {
+    const res = await hubspotFetchJson<{
+      results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[];
+    }>({
+      path: "/crm/v4/associations/contacts/orders/batch/read",
+      method: "POST",
+      body: { inputs: contacts.slice(i, i + 1000).map((c) => ({ id: c.id })) },
+    });
+    for (const row of res.results ?? []) {
+      const cid = row.from?.id;
+      if (!cid) continue;
+      const list = (row.to ?? []).map((t) => String(t.toObjectId));
+      ordersOf.set(cid, list);
+      list.forEach((o) => orderIds.add(o));
+    }
+    reportProgress(key, `finding their orders · ${ordersOf.size.toLocaleString("en")} of ${contacts.length.toLocaleString("en")}`);
+  }
+
+  const orderDate = new Map<string, string>();
+  const ids = [...orderIds];
+  for (let i = 0; i < ids.length; i += 100) {
+    const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/orders/batch/read",
+      method: "POST",
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["order_order_date"] },
+    });
+    for (const row of res.results ?? []) {
+      if (row.id) orderDate.set(row.id, (row.properties?.order_order_date ?? "").slice(0, 10));
+    }
+  }
+
+  let converted = 0;
+  for (const c of contacts) {
+    const list = ordersOf.get(c.id) ?? [];
+    if (list.some((o) => { const d = orderDate.get(o); return d && d >= c.created; })) converted++;
+  }
+
+  return {
+    year,
+    registrations: contacts.length,
+    converted,
+    rate: contacts.length ? converted / contacts.length : null,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+export function customerYear(year: number): SlowState<CustomerYear> {
+  const key = `customerYear:${year}`;
+  return slowReport(key, TTL_MS, () => buildCustomerYear(year, key));
+}
+
+export function registrationCohort(year: number): SlowState<RegistrationCohort> {
+  const key = `registrationCohort:${year}`;
+  return slowReport(key, TTL_MS, () => buildRegistrationCohort(year, key));
+}
