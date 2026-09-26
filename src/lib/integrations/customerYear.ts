@@ -117,34 +117,37 @@ async function companiesOf(ids: string[], key: string): Promise<Map<string, stri
 }
 
 /**
- * What the ERP says about a company's first order, for the ones whose first
- * order of the year has nothing before it in the scan. The YEAR matters: a
- * company whose first order ever fell in the year we are counting is new, not
- * reactivated — reading this as a plain "has history" flag counted every new
- * customer of 2025 as a returning one.
+ * Did this company order before our scan began, and when?
+ *
+ * The ERP's compass_first_order_year was the obvious shortcut and it is not
+ * trustworthy — A+P's own figure can be wrong, and it is frozen whenever the
+ * Compass sync stops. So we ask the order records themselves: the most recent
+ * order strictly before the scan window. One call per company, and only for the
+ * few whose first order of the year has nothing behind it.
  */
-async function firstOrderYear(companyIds: string[], key: string): Promise<Map<string, number | null>> {
-  const out = new Map<string, number | null>();
-  for (let i = 0; i < companyIds.length; i += 100) {
-    const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
-      path: "/crm/v3/objects/companies/batch/read",
+async function orderBeforeScan(companyIds: string[], scanStart: string, key: string, cache: Map<string, string | null>): Promise<void> {
+  let done = 0;
+  for (const cid of companyIds) {
+    done++;
+    if (cache.has(cid)) continue;
+    const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/orders/search",
       method: "POST",
       body: {
-        inputs: companyIds.slice(i, i + 100).map((id) => ({ id })),
-        properties: ["compass_first_order_year", "compass_last_order_year"],
+        filterGroups: [{ filters: [
+          { propertyName: "associations.company", operator: "EQ", value: cid },
+          { propertyName: "order_order_date", operator: "LT", value: String(dayMs(scanStart)) },
+          { propertyName: "order_order_type", operator: "NEQ", value: "Credit note" },
+        ] }],
+        properties: ["order_order_date"],
+        sorts: [{ propertyName: "order_order_date", direction: "DESCENDING" }],
+        limit: 1,
       },
     });
-    for (const row of res.results ?? []) {
-      const p = row.properties ?? {};
-      if (!row.id) continue;
-      const first = Number.parseInt(p.compass_first_order_year ?? "", 10);
-      const last = Number.parseInt(p.compass_last_order_year ?? "", 10);
-      const year = Number.isFinite(first) ? first : Number.isFinite(last) ? last : null;
-      out.set(row.id, year);
-    }
-    reportProgress(key, `checking older buyers against the ERP years · ${out.size} of ${companyIds.length}`);
+    const date = res.results?.[0]?.properties?.order_order_date?.slice(0, 10) ?? null;
+    cache.set(cid, date);
+    if (done % 25 === 0) reportProgress(key, `checking first orders · ${done} of ${companyIds.length}`);
   }
-  return out;
 }
 
 /** Both years from one pass: the later year's lookback already covers the earlier one. */
@@ -158,7 +161,8 @@ async function buildCustomerYears(years: number[], key: string): Promise<Record<
   const orders = await scanOrders(scannedFrom, to, key);
   const byOrder = await companiesOf(orders.map((o) => o.id), key);
   const out: Record<number, CustomerYear> = {};
-  for (const year of years) out[year] = await countYear(year, orders, byOrder, scannedFrom, key);
+  const priorCache = new Map<string, string | null>();    // company -> its last order before the scan
+  for (const year of years) out[year] = await countYear(year, orders, byOrder, scannedFrom, key, priorCache);
   return out;
 }
 
@@ -168,6 +172,7 @@ async function countYear(
   byOrder: Map<string, string>,
   scannedFrom: string,
   key: string,
+  priorCache: Map<string, string | null>,
 ): Promise<CustomerYear> {
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
@@ -204,19 +209,18 @@ async function countYear(
       unknown.push(cid);
     }
   }
-  const erpFirstYear = unknown.length ? await firstOrderYear(unknown, key) : new Map<string, number | null>();
+  if (unknown.length) await orderBeforeScan(unknown, scannedFrom, key, priorCache);
 
   let reactivated = 0;
   let fresh = 0;
   let continuing = 0;
   for (const [cid, gap] of gapOf) {
     if (gap === null) {
-      // Nothing before this order inside the scan. The ERP's first-order year
-      // decides: this year (or none recorded) means genuinely new; anything
-      // earlier means they bought before and stayed away.
-      const erpYear = erpFirstYear.get(cid) ?? null;
-      if (erpYear === null || erpYear >= year) fresh++;
-      else reactivated++;
+      // Nothing before this order inside the scan: an order older than the scan
+      // makes them a returning customer, no order at all makes this their first.
+      const earlier = priorCache.get(cid) ?? null;
+      if (earlier) reactivated++;
+      else fresh++;
     } else if (gap > ACTIVE_DAYS) reactivated++;
     else continuing++;
   }
