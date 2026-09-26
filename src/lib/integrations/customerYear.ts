@@ -137,16 +137,30 @@ async function everBought(companyIds: string[], key: string): Promise<Map<string
   return out;
 }
 
-async function buildCustomerYear(year: number, key: string): Promise<CustomerYear> {
-  const yearStart = `${year}-01-01`;
-  const lookback = new Date(dayMs(yearStart));
+/** Both years from one pass: the later year's lookback already covers the earlier one. */
+async function buildCustomerYears(years: number[], key: string): Promise<Record<number, CustomerYear>> {
+  const earliest = Math.min(...years);
+  const lookback = new Date(dayMs(`${earliest}-01-01`));
   lookback.setUTCMonth(lookback.getUTCMonth() - LOOKBACK_MONTHS);
   const scannedFrom = isoDay(lookback.getTime());
-  const today = isoDay(Date.now());
-  const to = `${year}-12-31` < today ? `${year}-12-31` : today;
+  const to = isoDay(Date.now());
 
   const orders = await scanOrders(scannedFrom, to, key);
   const byOrder = await companiesOf(orders.map((o) => o.id), key);
+  const out: Record<number, CustomerYear> = {};
+  for (const year of years) out[year] = await countYear(year, orders, byOrder, scannedFrom, key);
+  return out;
+}
+
+async function countYear(
+  year: number,
+  orders: { id: string; date: string }[],
+  byOrder: Map<string, string>,
+  scannedFrom: string,
+  key: string,
+): Promise<CustomerYear> {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
 
   const days = new Map<string, string[]>();
   for (const o of orders) {
@@ -161,10 +175,10 @@ async function buildCustomerYear(year: number, key: string): Promise<CustomerYea
   const firstThisYear = new Map<string, string>();
   let ordersInYear = 0;
   for (const [cid, list] of days) {
-    const first = list.find((d) => d >= yearStart);
-    if (!first) continue;
-    firstThisYear.set(cid, first);
-    ordersInYear += list.filter((d) => d >= yearStart).length;
+    const inYear = list.filter((d) => d >= yearStart && d <= yearEnd);
+    if (!inYear.length) continue;
+    firstThisYear.set(cid, inYear[0]);
+    ordersInYear += inYear.length;
   }
 
   // Companies whose first order of the year has nothing before it inside the
@@ -292,9 +306,19 @@ async function buildRegistrationCohort(year: number, key: string): Promise<Regis
   };
 }
 
-export function customerYear(year: number): Promise<SlowState<CustomerYear>> {
-  const key = `customerYear:${year}`;
-  return slowReport(key, TTL_MS, () => buildCustomerYear(year, key));
+export async function customerYear(year: number): Promise<SlowState<CustomerYear>> {
+  // Counted in pairs: this year and the one before, from a single read of the orders.
+  const years = [year - 1, year];
+  const key = `customerYears:${years.join("-")}`;
+  const state = await slowReport(key, TTL_MS, () => buildCustomerYears(years, key));
+  const pair = state.value as Record<number, CustomerYear> | undefined;
+  return { ...state, value: pair?.[year] };
+}
+
+/** The same pair, for the comparison column. */
+export async function customerYearPair(year: number): Promise<SlowState<Record<number, CustomerYear>>> {
+  const years = [year - 1, year];
+  return slowReport(`customerYears:${years.join("-")}`, TTL_MS, () => buildCustomerYears(years, `customerYears:${years.join("-")}`));
 }
 
 export function registrationCohort(year: number): Promise<SlowState<RegistrationCohort>> {

@@ -379,7 +379,7 @@ export default function SmecTargetsPage() {
       </Grid>
 
       <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
-        <Grid size={{ xs: 12, lg: 7 }}>
+        <Grid size={{ xs: 12, lg: 5 }}>
           <Section sx={{ height: "100%" }}>
             <Gate held={types} source="HubSpot" loadingLabel="Sorting orders by customer type…" onRetry={retry}>
               {(data, stale) => {
@@ -427,8 +427,8 @@ export default function SmecTargetsPage() {
             </Gate>
           </Section>
         </Grid>
-        <Grid size={{ xs: 12, lg: 5 }}>
-          <Section sx={{ mb: 2.5 }}>
+        <Grid size={{ xs: 12, lg: 3 }}>
+          <Section sx={{ height: "100%" }}>
             <Gate held={year} source="HubSpot" loadingLabel="Counting the year's customers…" onRetry={retry}>
               {(data, stale) => {
                 const rows = [
@@ -476,6 +476,8 @@ export default function SmecTargetsPage() {
               }}
             </Gate>
           </Section>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 4 }}>
           <Section sx={{ height: "100%" }}>
             <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK, mb: 0.75 }}>What Google Ads is told</Typography>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.5 }}>
