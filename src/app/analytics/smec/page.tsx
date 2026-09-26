@@ -179,11 +179,15 @@ export default function SmecTargetsPage() {
   const spendRows = sp && sp.state === "ok" ? sp.data.rows : [];
   const spendGet = sp && sp.state === "ok" ? metricOf(sp.data, "advertiserAdCost") : null;
   const revGet = sp && sp.state === "ok" ? metricOf(sp.data, "totalRevenue") : null;
-  const adCost = spendGet ? spendRows.reduce((sum, r) => sum + (spendGet(r) ?? 0), 0) : null;
-  const adRevenue = revGet ? spendRows.reduce((sum, r) => sum + (revGet(r) ?? 0), 0) : null;
-  const purchasesSea = txSea;
+  // GA4 answers this dimension with a "(not set)" row that carries every session
+  // with no Ads account — its revenue is the whole shop's. Only rows with spend count.
+  const paidRows = spendGet ? spendRows.filter((r) => (spendGet(r) ?? 0) > 0) : [];
+  const adCost = spendGet ? paidRows.reduce((sum, r) => sum + (spendGet(r) ?? 0), 0) : null;
+  const adRevenue = revGet ? paidRows.reduce((sum, r) => sum + (revGet(r) ?? 0), 0) : null;
+  const txGet = sp && sp.state === "ok" ? metricOf(sp.data, "transactions") : null;
+  const adTransactions = txGet ? paidRows.reduce((sum, r) => sum + (txGet(r) ?? 0), 0) : null;
   const roas = adCost && adRevenue !== null && adCost > 0 ? adRevenue / adCost : null;
-  const cpa = adCost && purchasesSea ? adCost / purchasesSea : null;
+  const cpa = adCost && adTransactions ? adCost / adTransactions : null;
   const costPerNewCustomer = adCost && newBuyers ? adCost / newBuyers : null;
   const cvrCohort = cohortData?.rate ?? null;
 
@@ -430,7 +434,13 @@ export default function SmecTargetsPage() {
                 {SMEC_TARGETS.filter((t) => t.area === area).map((t) => {
                   const actual = actualFor(t.measure);
                   const live = t.measure !== "none";
-                  const pace = live && t.goalValue ? paceLabel(actual, t.goalValue, elapsed) : null;
+                  const ratio = t.measure === "roas" || t.measure === "cvr";
+                  const pace = live && t.goalValue && !ratio ? paceLabel(actual, t.goalValue, elapsed) : null;
+                  const against = live && t.goalValue && ratio && actual !== null
+                    ? (actual >= t.goalValue
+                        ? { text: `${percent(actual / t.goalValue - 1)} above goal`, tone: "ahead" as const }
+                        : { text: `${percent(1 - actual / t.goalValue)} below goal`, tone: "behind" as const })
+                    : null;
                   const fmt = formatFor(t.measure);
                   return (
                     <TableRow key={t.kpi}>
@@ -444,12 +454,16 @@ export default function SmecTargetsPage() {
                               <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>
                                 {actual === null ? (counting(t.measure) ? "counting…" : "—") : fmt(actual)}
                               </Typography>
-                              {pace && (
-                                <Chip label={pace.text} size="small" sx={{ height: 19, fontSize: "0.66rem", bgcolor: TONE_STYLE[pace.tone].bg, color: TONE_STYLE[pace.tone].fg }} />
+                              {(pace ?? against) && (
+                                <Chip
+                                  label={(pace ?? against)!.text}
+                                  size="small"
+                                  sx={{ height: 19, fontSize: "0.66rem", bgcolor: TONE_STYLE[(pace ?? against)!.tone].bg, color: TONE_STYLE[(pace ?? against)!.tone].fg }}
+                                />
                               )}
                               {t.note && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{t.note}</Typography>}
                             </Box>
-                            {t.goalValue ? <PaceBar actual={actual} goal={t.goalValue} elapsed={elapsed} format={fmt} /> : null}
+                            {t.goalValue && !ratio ? <PaceBar actual={actual} goal={t.goalValue} elapsed={elapsed} format={fmt} /> : null}
                           </Box>
                         ) : (
                           <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{t.unavailable ?? "—"}</Typography>
@@ -464,14 +478,6 @@ export default function SmecTargetsPage() {
         </Section>
       ))}
 
-      <SourceNote>
-        Targets transcribed from KPIs_SMEC_2026.xlsx (sheet “SMEC Targets”). Live figures: GA4 key events and purchase
-        revenue filtered to the Paid Search channel for {from} → {to}; new buying customers = HubSpot companies with a Compass
-        first order in {SMEC_YEAR} × GA4&apos;s Paid Search share of transactions (the sheet&apos;s method); HubSpot counts of
-        contacts carrying a gclid: captured with consent = a gclid plus the consent flags the shop tag writes; rebuilt = a gclid without consent flags (the 11 Sep backfill from page URLs HubSpot had stored). Pace compares year-to-date actuals with the straight-line share of the
-        annual goal ({percent(elapsed)} of the year); the bar’s marker sits at that share. Where a number lives in Google
-        Ads or Compass, the row says so instead of estimating.
-      </SourceNote>
     </Box>
   );
 }

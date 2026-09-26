@@ -54,6 +54,7 @@ export const SMEC_TARGETS: SmecTarget[] = [
     kpi: "CVR registration → purchase",
     baseline: "36% (2025 close)",
     goal: "40%+",
+    goalValue: 0.4,
     measure: "cvr",
     note: "The real cohort: shop accounts opened this year that have since placed an order. Purchases ÷ sign-ups is not it — existing customers buy without registering.",
   },
