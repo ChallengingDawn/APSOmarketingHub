@@ -130,6 +130,16 @@ export default function SmecTargetsPage() {
     [typesFrom, typesTo, tick, typesTick],
   );
   const spend = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=adsSpend&${q}`, [q, tick]);
+
+  // Last year on the same yardstick. The sheet's baselines were built another way
+  // (its 2025 sign-ups say 1,301 where this property says 1,086), so a goal-versus-
+  // actual read is only honest next to our own measurement of the year before.
+  const priorQ = `from=${SMEC_YEAR - 1}-01-01&to=${SMEC_YEAR - 1}-12-31`;
+  const priorKeyEvents = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=keyEventsByName&${priorQ}${SEA}`, [tick]);
+  const priorPurchasers = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=purchaserTotals&${priorQ}${SEA}`, [tick]);
+  const priorSpend = useHeld<Ga4TableReport>(`/api/integrations/ga4?report=adsSpend&${priorQ}`, [tick]);
+  const priorYear = useHeld<CustomerYear>(`/api/integrations/hubspot?report=customerYear&year=${SMEC_YEAR - 1}`, [tick, typesTick]);
+  const priorCohort = useHeld<RegistrationCohort>(`/api/integrations/hubspot?report=registrationCohort&year=${SMEC_YEAR - 1}`, [tick, typesTick]);
   const year = useHeld<CustomerYear>(`/api/integrations/hubspot?report=customerYear&year=${SMEC_YEAR}`, [tick, typesTick]);
   const cohort = useHeld<RegistrationCohort>(`/api/integrations/hubspot?report=registrationCohort&year=${SMEC_YEAR}`, [tick, typesTick]);
 
@@ -195,6 +205,39 @@ export default function SmecTargetsPage() {
                   : m === "cpa" ? cpa
                     : m === "costPerNewCustomer" ? costPerNewCustomer
                       : null;
+  // Same derivations, one year earlier.
+  const priorYearData = priorYear.result?.state === "ok" ? priorYear.result.data : null;
+  const priorCohortData = priorCohort.result?.state === "ok" ? priorCohort.result.data : null;
+  const pke = priorKeyEvents.result;
+  const pkeGet = pke && pke.state === "ok" ? metricOf(pke.data, "keyEvents") : null;
+  const priorSignups = pke && pke.state === "ok" && pkeGet
+    ? (() => { const row = pke.data.rows.find((r) => r.keys[0] === "sign_up"); return row ? pkeGet(row) : null; })()
+    : null;
+  const ppr = priorPurchasers.result;
+  const pprRow = ppr && ppr.state === "ok" ? ppr.data.rows[0] ?? null : null;
+  const priorRevenue = ppr && ppr.state === "ok" && pprRow ? metricOf(ppr.data, "totalRevenue")(pprRow) : null;
+  const psp = priorSpend.result;
+  const pspRows = psp && psp.state === "ok" ? psp.data.rows : [];
+  const pspGet = psp && psp.state === "ok" ? metricOf(psp.data, "advertiserAdCost") : null;
+  const pRevGet = psp && psp.state === "ok" ? metricOf(psp.data, "totalRevenue") : null;
+  const pTxGet = psp && psp.state === "ok" ? metricOf(psp.data, "transactions") : null;
+  const pPaid = pspGet ? pspRows.filter((r) => (pspGet(r) ?? 0) > 0) : [];
+  const priorCost = pspGet ? pPaid.reduce((sum, r) => sum + (pspGet(r) ?? 0), 0) : null;
+  const priorAdRevenue = pRevGet ? pPaid.reduce((sum, r) => sum + (pRevGet(r) ?? 0), 0) : null;
+  const priorTx = pTxGet ? pPaid.reduce((sum, r) => sum + (pTxGet(r) ?? 0), 0) : null;
+
+  const priorFor = (m: SmecMeasure): number | null =>
+    m === "signups" ? priorSignups
+      : m === "revenue" ? priorRevenue
+        : m === "cvr" ? priorCohortData?.rate ?? null
+          : m === "active" ? priorYearData?.activeCompanies ?? null
+            : m === "reactivated" ? priorYearData?.reactivatedCompanies ?? null
+              : m === "newbuyers" ? priorYearData?.newCompanies ?? null
+                : m === "roas" ? (priorCost && priorAdRevenue !== null && priorCost > 0 ? priorAdRevenue / priorCost : null)
+                  : m === "cpa" ? (priorCost && priorTx ? priorCost / priorTx : null)
+                    : m === "costPerNewCustomer" ? (priorCost && priorYearData?.newCompanies ? priorCost / priorYearData.newCompanies : null)
+                      : null;
+
   /** The two CRM counts take minutes; a row backed by one says so instead of showing a dash. */
   const counting = (m: SmecMeasure): boolean =>
     (m === "active" || m === "reactivated") ? Boolean(yearData?.computing)
@@ -385,6 +428,54 @@ export default function SmecTargetsPage() {
           </Section>
         </Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
+          <Section sx={{ mb: 2.5 }}>
+            <Gate held={year} source="HubSpot" loadingLabel="Counting the year's customers…" onRetry={retry}>
+              {(data, stale) => {
+                const rows = [
+                  priorYearData?.activeCompanies != null
+                    ? {
+                        x: String(SMEC_YEAR - 1),
+                        continuing: (priorYearData.continuingCompanies ?? 0),
+                        reactivated: (priorYearData.reactivatedCompanies ?? 0),
+                        new: (priorYearData.newCompanies ?? 0),
+                      }
+                    : null,
+                  data.activeCompanies != null
+                    ? {
+                        x: `${SMEC_YEAR} so far`,
+                        continuing: (data.continuingCompanies ?? 0),
+                        reactivated: (data.reactivatedCompanies ?? 0),
+                        new: (data.newCompanies ?? 0),
+                      }
+                    : null,
+                ].filter(Boolean) as { x: string; continuing: number; reactivated: number; new: number }[];
+                return (
+                  <ChartFrame
+                    title="Buying companies, by how they came back"
+                    caption="Every company that ordered, split by what came before: a purchase within twelve months, a longer gap, or nothing at all. Both years counted by the same rule, so the change is real and not a change of method."
+                    stale={stale}
+                    empty={rows.length ? null : data.computing ? "Counting the year…" : "No companies counted yet."}
+                    table={{
+                      columns: ["Year", "Continuing", "Reactivated", "New", "Total"],
+                      numeric: [1, 2, 3, 4],
+                      rows: rows.map((r) => [r.x, full(r.continuing), full(r.reactivated), full(r.new), full(r.continuing + r.reactivated + r.new)]),
+                    }}
+                  >
+                    <StackedColumns
+                      data={rows}
+                      parts={[
+                        { key: "continuing", label: "Kept buying (within 12 months)" },
+                        { key: "reactivated", label: "Came back after 12+ months" },
+                        { key: "new", label: "First order ever" },
+                      ]}
+                      height={200}
+                      format={full}
+                    />
+                  </ChartFrame>
+                );
+              }}
+            </Gate>
+          </Section>
           <Section sx={{ height: "100%" }}>
             <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK, mb: 0.75 }}>What Google Ads is told</Typography>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.5 }}>
@@ -418,7 +509,8 @@ export default function SmecTargetsPage() {
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>KPI</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Baseline 2025</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Baseline 2025<br /><span style={{ fontWeight: 400 }}>(sheet)</span></TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>2025 here<br /><span style={{ fontWeight: 400 }}>(same measure)</span></TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>Goal 2026</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED, minWidth: 320 }}>Live here (year to date)</TableCell>
                 </TableRow>
@@ -438,7 +530,25 @@ export default function SmecTargetsPage() {
                   return (
                     <TableRow key={t.kpi}>
                       <TableCell sx={{ fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>{t.kpi}</TableCell>
-                      <TableCell sx={{ color: INK, whiteSpace: "nowrap" }}>{t.baseline}</TableCell>
+                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{t.baseline}</TableCell>
+                      <TableCell sx={{ color: INK, whiteSpace: "nowrap", fontWeight: 600 }}>
+                        {(() => {
+                          const prior = priorFor(t.measure);
+                          if (prior === null) return counting(t.measure) ? "counting…" : "—";
+                          const now = actualFor(t.measure);
+                          const delta = now !== null && prior ? now / prior - 1 : null;
+                          return (
+                            <>
+                              {fmt(prior)}
+                              {delta !== null && (
+                                <Typography component="span" sx={{ display: "block", fontSize: "0.7rem", fontWeight: 400, color: delta >= 0 ? "#155d33" : "#9e1b18" }}>
+                                  {delta >= 0 ? "+" : "−"}{percent(Math.abs(delta))} so far
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell sx={{ color: INK }}>{t.goal}</TableCell>
                       <TableCell>
                         {live ? (
