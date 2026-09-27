@@ -349,6 +349,11 @@ export default function JourneyKpisPage() {
                   <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
                     won <strong style={{ color: GOOD }}>{row.potentialWon == null ? "—" : `€${compact(row.potentialWon)}`}</strong>
                   </Typography>
+                  {row.ticketsRaised != null && row.ticketsClosed != null && row.ticketsRaised > 0 && (
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+                      {percent(row.ticketsClosed / row.ticketsRaised)} closed
+                    </Typography>
+                  )}
                 </Box>
                 {row.incomplete && (
                   <Typography sx={{ fontSize: "0.72rem", color: BAD, mt: 0.4 }}>Not summed: {row.incomplete}</Typography>
@@ -376,7 +381,16 @@ export default function JourneyKpisPage() {
           </Box>
         )}
 
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 2 }}>
+        {/* Measured 27.09.2026: every metric here is loaded on 86-90 of the
+            last 90 days, so the small "won" figures are NOT a gappy load. They
+            are what the pipelines record, and that is a different claim. */}
+        <Typography sx={{ fontSize: "0.78rem", color: "#7a5b12", bgcolor: "#fdf4e3", p: 1.25, borderRadius: 1.5, mt: 2 }}>
+          <strong>Read &ldquo;won&rdquo; as a process figure before you read it as a business one.</strong> Across the last quarter
+          only a few per cent of tickets raised were closed at all, and potential is only credited when somebody marks the ticket
+          won. The load itself is not the problem — every metric here has a row on 86 to 90 of the last 90 days — so a low won
+          figure says the outcome was never recorded, not necessarily that the business was lost.
+        </Typography>
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1.5 }}>
           <strong style={{ color: INK }}>Raised minus won is not &ldquo;lost&rdquo;.</strong> They are two flows through the same
           window: a ticket raised in July may be won in October, and one won in July was probably raised in May. The figure that
           answers &ldquo;came in and never converted&rdquo; is the open snapshot above, not a subtraction.
