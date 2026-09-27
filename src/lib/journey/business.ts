@@ -16,6 +16,7 @@ import {
   fetchKpiSeries,
   likeForLike,
   likeForLikeBy,
+  monthlyPair,
   type LikeForLike,
 } from "@/lib/integrations/hubspotKpi";
 
@@ -28,6 +29,13 @@ export type BusinessFigure = {
   value: number | null;
   priorValue: number | null;
   change: number | null;
+  /**
+   * The months THIS figure covers. Not the same for every figure: the cohort
+   * counts drop the current month because it is counted to the day the scan
+   * ran, while the ERP series cut both years on the same day and keep it. A
+   * single label across the band would have been a lie on half the tiles.
+   */
+  months: string;
   /** What the figure means in one line, for the reader who did not build it. */
   note: string;
 };
@@ -39,12 +47,24 @@ export type BusinessSlice = {
   change: number | null;
 };
 
+/** One measure drawn month by month, this year against last. */
+export type BusinessSeries = {
+  key: string;
+  label: string;
+  unit: BusinessUnit;
+  /** What the chart is for, in one line under its title. */
+  caption: string;
+  months: { month: number; label: string; current: number | null; prior: number | null }[];
+};
+
 export type JourneyBusiness = {
   year: number | null;
   priorYear: number | null;
   /** "January–September" — the months both years are counted over. */
   monthsLabel: string;
   headline: BusinessFigure[];
+  /** The same measures over time, because a total hides when it happened. */
+  series: BusinessSeries[];
   byCountry: BusinessSlice[];
   byFamily: BusinessSlice[];
   byPriority: BusinessSlice[];
@@ -88,6 +108,7 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       value: revenue.value,
       priorValue: revenue.priorValue,
       change: revenue.change,
+      months: revenue.monthsLabel,
       note: "Invoiced, all channels — the shop, the phone and the ERP together.",
     },
     {
@@ -97,6 +118,7 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       value: intake.value,
       priorValue: intake.priorValue,
       change: intake.change,
+      months: intake.monthsLabel,
       note: "What customers ordered, net of cancellations. It leads revenue.",
     },
     {
@@ -106,6 +128,7 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       value: bookToBill,
       priorValue: priorBookToBill,
       change: bookToBill != null && priorBookToBill ? bookToBill / priorBookToBill - 1 : null,
+      months: revenue.monthsLabel,
       note: "Order intake over revenue. Under 100% we are invoicing the book faster than we fill it.",
     },
     {
@@ -115,6 +138,7 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       value: firstOrders.value,
       priorValue: firstOrders.priorValue,
       change: firstOrders.change,
+      months: firstOrders.monthsLabel,
       note: "Companies that placed their first ever order — the journey's whole point, from step 1 to step 9.",
     },
     {
@@ -124,6 +148,7 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       value: cameBack.value,
       priorValue: cameBack.priorValue,
       change: cameBack.change,
+      months: cameBack.monthsLabel,
       note: "Companies that ordered again after thirteen months or more without an order.",
     },
   ];
@@ -136,9 +161,9 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
     verdict = "The ERP series has no month both years cover, so nothing can be compared yet.";
   } else if ((revenue.change ?? 0) > 0 && (firstOrders.change ?? 0) < 0) {
     verdict =
-      `Revenue is ${pct(revenue.change)} and order intake ${pct(intake.change)}, but first orders are ` +
-      `${pct(firstOrders.change)}: the growth is coming from customers we already had, not from new ones. ` +
-      `That is a verdict on the early stages of this journey, not on the late ones.`;
+      `Revenue is ${pct(revenue.change)} and order intake ${pct(intake.change)} over ${revenue.monthsLabel}, ` +
+      `but first orders are ${pct(firstOrders.change)} over ${firstOrders.monthsLabel}: the growth is coming from ` +
+      `customers we already had, not from new ones. That is a verdict on the early stages of this journey, not the late ones.`;
   } else if ((revenue.change ?? 0) < 0 && (firstOrders.change ?? 0) > 0) {
     verdict =
       `First orders are ${pct(firstOrders.change)} while revenue is ${pct(revenue.change)}: the journey is ` +
@@ -149,11 +174,37 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
       `${pct(firstOrders.change)} — the journey and the money are moving the same way.`;
   }
 
+  // Every chart is drawn over the months `likeForLike` accepted, so no bar can
+  // appear on one side of the comparison and not the other.
+  const series: BusinessSeries[] = [
+    {
+      key: "revenue", label: "Revenue by month", unit: "eur",
+      caption: "Invoiced, all channels. The bars are the same months on both sides.",
+      months: monthlyPair(revenueRows, revenue),
+    },
+    {
+      key: "order_intake", label: "Order intake by month", unit: "eur",
+      caption: "What was ordered. It moves before revenue does, which is why the two charts differ.",
+      months: monthlyPair(intakeRows, intake),
+    },
+    {
+      key: "new_customers", label: "First orders by month", unit: "companies",
+      caption: "Companies placing their first ever order — the month the journey actually paid off.",
+      months: monthlyPair(newRows, firstOrders),
+    },
+    {
+      key: "reactivated", label: "Customers that came back, by month", unit: "companies",
+      caption: "Ordered again after thirteen months or more of silence.",
+      months: monthlyPair(backRows, cameBack),
+    },
+  ];
+
   return {
     year: revenue.year,
     priorYear: revenue.priorYear,
     monthsLabel: revenue.monthsLabel,
     headline,
+    series,
     byCountry: slice(likeForLikeBy(revenueRows, "country")).slice(0, 10),
     byFamily: slice(likeForLikeBy(familyRows, "family")),
     byPriority: slice(likeForLikeBy(priorityRows, "priority")),

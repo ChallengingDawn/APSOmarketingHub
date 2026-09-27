@@ -67,6 +67,13 @@ export type KpiRow = {
   country: string | null;
   priority: string | null;
   family: string | null;
+  /**
+   * The loader's own verdict on whether this month can be compared with the same
+   * month of the other year. It is NOT decoration: the cohort series mark the
+   * current month `no`, because a month counted to the 24th is sitting next to a
+   * full month of last year. Ignoring it turned a −7.0% into a −14.2%.
+   */
+  comparable: boolean;
 };
 
 const num = (value: unknown): number | null => {
@@ -88,6 +95,7 @@ const PROPERTIES = [
   "kpi_country",
   "kpi_priority",
   "kpi_profit_center",
+  "kpi_comparable",
 ];
 
 /**
@@ -121,6 +129,8 @@ export async function fetchKpiSeries(category: string, signal?: AbortSignal): Pr
         country: str(p.kpi_country),
         priority: str(p.kpi_priority),
         family: str(p.kpi_profit_center),
+        // Absent means nobody made a judgement, which is not the same as "no".
+        comparable: str(p.kpi_comparable) !== "no",
       });
     }
     after = res.paging?.next?.after;
@@ -159,8 +169,15 @@ const spell = (months: number[]): string => {
  * The only way this application is allowed to total a KPI series.
  *
  * The month set is the intersection of the two years, cut at the last month the
- * newer year has a non-zero figure for — which is what stops this year's empty
- * October to December from being compared with last year's real ones.
+ * newer year has a non-zero figure for — which stops this year's empty October
+ * to December from being compared with last year's real ones — and then with
+ * every month either side has marked NOT comparable removed.
+ *
+ * That last filter is not belt and braces. The cohort series (`newcust_monthly`,
+ * `reactivated_monthly`) count the current month to the day the scan ran and put
+ * it beside a FULL month of last year: September 2026 read 28 first orders
+ * against 121, and including it reported −14.2% where the complete months say
+ * −7.0%. The loader flags that month `kpi_comparable = no`. Believe it.
  */
 export function likeForLike(rows: KpiRow[], pick?: (row: KpiRow) => boolean): LikeForLike {
   const scoped = pick ? rows.filter(pick) : rows;
@@ -177,9 +194,14 @@ export function likeForLike(rows: KpiRow[], pick?: (row: KpiRow) => boolean): Li
     .filter((r) => r.year === year && r.value !== 0 && r.month != null)
     .reduce((max, r) => Math.max(max, r.month as number), 0);
   const monthsOf = (y: number) => new Set(rows.filter((r) => r.year === y && r.month != null).map((r) => r.month as number));
+  // A month either side may be declared incomparable, and one row saying so is
+  // enough — the series is written a row per dimension, all carrying the flag.
+  const refused = new Set(
+    rows.filter((r) => !r.comparable && r.month != null && (r.year === year || r.year === priorYear)).map((r) => r.month as number),
+  );
   const later = monthsOf(year);
   const earlier = monthsOf(priorYear);
-  const months = [...later].filter((m) => earlier.has(m) && m <= cut).sort((a, b) => a - b);
+  const months = [...later].filter((m) => earlier.has(m) && m <= cut && !refused.has(m)).sort((a, b) => a - b);
 
   const sum = (y: number) =>
     scoped.filter((r) => r.year === y && r.month != null && months.includes(r.month)).reduce((s, r) => s + r.value, 0);
@@ -195,6 +217,33 @@ export function likeForLike(rows: KpiRow[], pick?: (row: KpiRow) => boolean): Li
     priorValue,
     change: value != null && priorValue ? value / priorValue - 1 : null,
   };
+}
+
+/** Short month names, for a chart axis where "September" will not fit. */
+export const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The two years month by month, over exactly the months `likeForLike` accepted.
+ * A chart drawn off this cannot show last October against a month this year
+ * does not have, which is the whole failure mode this module exists for.
+ */
+export function monthlyPair(
+  rows: KpiRow[],
+  comparison: LikeForLike,
+  pick?: (row: KpiRow) => boolean,
+): { month: number; label: string; current: number | null; prior: number | null }[] {
+  const scoped = pick ? rows.filter(pick) : rows;
+  const sumOf = (year: number | null, month: number): number | null => {
+    if (year == null) return null;
+    const matching = scoped.filter((r) => r.year === year && r.month === month);
+    return matching.length === 0 ? null : matching.reduce((s, r) => s + r.value, 0);
+  };
+  return comparison.months.map((month) => ({
+    month,
+    label: MONTH_SHORT[month - 1] ?? String(month),
+    current: sumOf(comparison.year, month),
+    prior: sumOf(comparison.priorYear, month),
+  }));
 }
 
 /** The same comparison, split by one of the dimensions, biggest first. */

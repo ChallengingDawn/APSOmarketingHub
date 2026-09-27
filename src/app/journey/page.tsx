@@ -33,7 +33,10 @@ import EditIcon from "@mui/icons-material/Edit";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { ITEM_KINDS, ITEM_STATUS, statusOf, type JourneyItem, type JourneyItemKind, type JourneyItemStatus, type JourneyModel } from "@/lib/journey/model";
 import type { JourneyMetrics, StepMetric } from "@/lib/journey/metrics";
-import type { BusinessFigure, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
+import type { BusinessFigure, BusinessSeries, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { BarList } from "@/app/charts/BarList";
 import { matchKpi } from "@/lib/journey/kpiMatch";
 import { useCaseFigures } from "@/lib/journey/useCaseKpis";
 import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
@@ -293,6 +296,8 @@ export default function JourneyBoardPage() {
       </Box>
 
       <BusinessBand business={business} error={businessError} />
+
+      <JourneyCharts business={business} metrics={metrics} metricsError={metricsError} />
 
       <Box
         sx={{
@@ -573,7 +578,7 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>What the journey is worth</Typography>
         <Chip
           size="small"
-          label={`${business.monthsLabel} ${business.year} vs ${business.priorYear}, like for like`}
+          label={`${business.year} vs ${business.priorYear}, like for like`}
           sx={{ bgcolor: "#eef4fb", color: "#1b4a80", fontWeight: 600, fontSize: "0.7rem" }}
         />
         <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
@@ -605,6 +610,10 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
                     from {figureDisplay({ ...figure, value: figure.priorValue })}
                   </Typography>
                 </Box>
+                {/* Each tile states its own window: the cohort counts stop a
+                    month earlier than the money, and a single header label
+                    would have been wrong on two of the five. */}
+                <Typography sx={{ fontSize: "0.68rem", color: MUTED, mt: 0.4 }}>{figure.months}</Typography>
               </Box>
             </Tooltip>
           );
@@ -617,6 +626,108 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
         {business.verdict}
       </Typography>
     </Section>
+  );
+}
+
+/**
+ * THE GRAPHS.
+ *
+ * A total tells you where you ended; it never tells you when it happened, and
+ * "first orders are down 14%" reads very differently once you can see that it
+ * is not one bad month. Five charts: the four measures over time against the
+ * same months last year, and the funnel the steps already added up to — which
+ * this application had been computing and never drawing.
+ */
+function JourneyCharts({
+  business, metrics, metricsError,
+}: {
+  business: JourneyBusiness | null;
+  metrics: JourneyMetrics | null;
+  metricsError: string | null;
+}) {
+  const money = (n: number | null) => (n == null ? "—" : `€${compact(n)}`);
+
+  // Every step of the funnel is "visits in which it happened", so the share of
+  // the step before is a real proportion rather than two different units.
+  const first = metrics?.funnel[0]?.value ?? null;
+  const funnelRows = (metrics?.funnel ?? []).map((step, i, all) => {
+    const before = i === 0 ? null : all[i - 1].value;
+    const share = step.value != null && before ? step.value / before : null;
+    return {
+      label: step.label,
+      value: step.value,
+      secondary:
+        i === 0
+          ? "every visit"
+          : share == null
+            ? ""
+            : `${percent(share)} of the step before${first && step.value != null ? ` · ${percent(step.value / first)} of all visits` : ""}`,
+    };
+  });
+
+  return (
+    <Box sx={{ display: "grid", gap: 2, mb: 2 }}>
+      <Section>
+        <ChartFrame
+          title="From arriving to buying"
+          caption={
+            metrics
+              ? `Visits in which each step happened, ${metrics.from} to ${metrics.to}. One unit the whole way down, so each percentage is a real share of the step above it.`
+              : metricsError
+                ? `The steps could not be read: ${metricsError}`
+                : "Reading the steps from GA4…"
+          }
+          empty={metrics && funnelRows.every((r) => r.value == null) ? "GA4 returned no events for this window." : null}
+          table={{
+            columns: ["Step", "Visits"],
+            rows: funnelRows.map((r) => [r.label, r.value ?? "—"]),
+            numeric: [1],
+          }}
+        >
+          <BarList rows={funnelRows} format={full} labelWidth={200} maxLabel={30} />
+        </ChartFrame>
+      </Section>
+
+      {business && (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, gap: 2 }}>
+          {business.series.map((s) => (
+            <Section key={s.key}>
+              <MonthlyChart series={s} year={business.year} priorYear={business.priorYear} money={money} />
+            </Section>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function MonthlyChart({
+  series, year, priorYear, money,
+}: {
+  series: BusinessSeries;
+  year: number | null;
+  priorYear: number | null;
+  money: (n: number | null) => string;
+}) {
+  const format = series.unit === "eur" ? money : full;
+  return (
+    <ChartFrame
+      title={series.label}
+      caption={series.caption}
+      empty={series.months.length === 0 ? "No month is covered by both years yet." : null}
+      table={{
+        columns: ["Month", String(year ?? "This year"), String(priorYear ?? "Last year")],
+        rows: series.months.map((m) => [m.label, m.current ?? "—", m.prior ?? "—"]),
+        numeric: [1, 2],
+      }}
+    >
+      <GroupedColumns
+        data={series.months.map((m) => ({ x: m.label, current: m.current, prior: m.prior }))}
+        currentLabel={String(year ?? "This year")}
+        priorLabel={String(priorYear ?? "Last year")}
+        format={format}
+      />
+    </ChartFrame>
   );
 }
 
