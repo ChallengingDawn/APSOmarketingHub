@@ -20,10 +20,11 @@ import PageHeader from "@/app/PageHeader";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { compact, full, percent, signedPercent } from "@/app/charts/format";
 import { useReportingWindow, WindowPicker, windowQuery, windowSentence } from "@/app/window/ReportingWindow";
 import type { JourneyMetrics } from "@/lib/journey/metrics";
-import type { JourneyBusiness } from "@/lib/journey/business";
+import type { BusinessSeries, JourneyBusiness } from "@/lib/journey/business";
 import type { JourneyFunnels } from "@/lib/journey/funnels";
 import type { SalesPotential } from "@/lib/journey/salesPotential";
 
@@ -263,6 +264,17 @@ export default function JourneyKpisPage() {
         </Typography>
       </Section>
 
+      {/* 2b ── the same measures over time */}
+      {business && business.series.length > 0 && (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, gap: 2 }}>
+          {business.series.map((s) => (
+            <Section key={s.key}>
+              <MonthlyChart series={s} year={business.year} priorYear={business.priorYear} />
+            </Section>
+          ))}
+        </Box>
+      )}
+
       {/* 3 ── new or returning */}
       <Section>
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>New, or coming back</Typography>
@@ -400,5 +412,46 @@ export default function JourneyKpisPage() {
         </Box>
       </Section>
     </Box>
+  );
+}
+
+/**
+ * One measure, month by month, this year against last.
+ *
+ * A month still running on one side is drawn faded and named in the caption: it
+ * is the month everybody wants to see, and dropping it made the chart look as
+ * though the data stopped in August.
+ */
+function MonthlyChart({
+  series, year, priorYear,
+}: {
+  series: BusinessSeries;
+  year: number | null;
+  priorYear: number | null;
+}) {
+  const format = series.unit === "eur" ? (n: number | null) => (n == null ? "—" : `€${compact(n)}`) : full;
+  const partial = series.months.filter((m) => m.partial).map((m) => m.label);
+  return (
+    <ChartFrame
+      title={series.label}
+      caption={
+        partial.length > 0
+          ? `${series.caption} ${partial.join(", ")} is faded: it is counted only to the day the load ran, so it is shown but left out of the total.`
+          : series.caption
+      }
+      empty={series.months.length === 0 ? "No month is covered by both years yet." : null}
+      table={{
+        columns: ["Month", String(year ?? "This year"), String(priorYear ?? "Last year")],
+        rows: series.months.map((m) => [`${m.label}${m.partial ? " (partial)" : ""}`, m.current ?? "—", m.prior ?? "—"]),
+        numeric: [1, 2],
+      }}
+    >
+      <GroupedColumns
+        data={series.months.map((m) => ({ x: m.label, current: m.current, prior: m.prior, partial: m.partial }))}
+        currentLabel={String(year ?? "This year")}
+        priorLabel={String(priorYear ?? "Last year")}
+        format={format}
+      />
+    </ChartFrame>
   );
 }

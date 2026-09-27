@@ -9,14 +9,20 @@
 // competing for meaning. The legend is always present — identity is never
 // colour alone — and ChartFrame's table twin carries the exact values.
 
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { CHROME, DEEMPHASIS, FONT, SERIES } from "./palette";
 import { ChartTip } from "./ChartTip";
 import { compact } from "./format";
 
-export type GroupedRow = { x: string; current: number | null; prior: number | null };
+export type GroupedRow = {
+  x: string;
+  current: number | null;
+  prior: number | null;
+  /** Still running on one side — drawn faded, and never in a total. */
+  partial?: boolean;
+};
 
 function niceCeiling(max: number): number {
   if (max <= 0) return 1;
@@ -79,8 +85,19 @@ export function GroupedColumns({
             />
             {/* Last year first, so this year's bar sits on the right of each pair
                 and the sequence reads left to right in time. */}
-            <Bar dataKey="prior" name={priorLabel} fill={DEEMPHASIS} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false} />
-            <Bar dataKey="current" name={currentLabel} fill={SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false} />
+            {/* A month still in progress is drawn faded rather than dropped:
+                hiding the most recent bar makes the chart look broken, and it is
+                the month people came to look at. It is still out of the total. */}
+            <Bar dataKey="prior" name={priorLabel} fill={DEEMPHASIS} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false}>
+              {data.map((row) => (
+                <Cell key={`p-${row.x}`} fillOpacity={row.partial ? 0.45 : 1} />
+              ))}
+            </Bar>
+            <Bar dataKey="current" name={currentLabel} fill={SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false}>
+              {data.map((row) => (
+                <Cell key={`c-${row.x}`} fillOpacity={row.partial ? 0.45 : 1} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </Box>

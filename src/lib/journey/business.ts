@@ -55,7 +55,7 @@ export type BusinessSeries = {
   unit: BusinessUnit;
   /** What the chart is for, in one line under its title. */
   caption: string;
-  months: { month: number; label: string; current: number | null; prior: number | null }[];
+  months: { month: number; label: string; current: number | null; prior: number | null; partial?: boolean }[];
 };
 
 export type JourneyBusiness = {

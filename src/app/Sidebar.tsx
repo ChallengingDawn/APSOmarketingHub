@@ -118,13 +118,13 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "Customer journey",
+    title: "Customer Journey",
     icon: <RouteIcon />,
     color: "#7b5cff",
     items: [
       { label: "The journey", href: "/journey", icon: <RouteIcon fontSize="small" /> },
-      { label: "KPIs", href: "/journey/kpis", icon: <AccountTreeIcon fontSize="small" /> },
       { label: "Lifecycle funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
+      { label: "KPIs", href: "/journey/kpis", icon: <AccountTreeIcon fontSize="small" /> },
     ],
   },
   {

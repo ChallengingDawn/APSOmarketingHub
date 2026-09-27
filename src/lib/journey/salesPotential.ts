@@ -124,20 +124,16 @@ export async function fetchSalesPotential(params: {
 }): Promise<SalesPotential> {
   const { from, to, signal } = params;
 
-  // The pipelines are an enumeration on the object, so they come from the
-  // portal rather than a list in this file that would rot.
-  const prop = await hubspotFetchJson<{ options?: { value?: string; label?: string }[] }>({
-    path: `/crm/v3/properties/${KPI_OBJECT}/dimension_pipeline`,
-    signal,
-  });
-  const pipelines = (prop.options ?? [])
-    .map((o) => o.value)
-    .filter((v): v is string => typeof v === "string" && v.length > 0);
-
   reportProgress(`potential:${from}:${to}`, "summing potential raised");
   const raised = await sumByPipeline("potential_created_sum", from, to, signal);
   reportProgress(`potential:${from}:${to}`, "summing potential won");
   const won = await sumByPipeline("potential_won_sum", from, to, signal);
+
+  // The pipelines come from the rows just read, not from the property's option
+  // list: the enumeration carries every pipeline the portal has ever had, and
+  // each one costs two throttled counts whether or not it has a single ticket
+  // in this window. This is the difference between ten calls and fifty.
+  const pipelines = [...new Set([...raised.totals.keys(), ...won.totals.keys()])].filter((p) => p !== "—");
 
   const rows: PipelinePotential[] = [];
   for (const pipeline of pipelines) {

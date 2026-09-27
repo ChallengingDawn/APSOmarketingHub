@@ -151,6 +151,13 @@ export type LikeForLike = {
   priorValue: number | null;
   /** Change as a fraction, null when the prior side is zero. */
   change: number | null;
+  /**
+   * Months this year has a figure for that the comparison refused — the month in
+   * progress, normally. They are kept so a CHART can still draw them, marked as
+   * partial: hiding the latest month makes the screen look broken, and it is the
+   * month people came to look at. They are never added to `value`.
+   */
+  excluded: number[];
 };
 
 const MONTH_NAMES = [
@@ -190,7 +197,7 @@ export function likeForLike(
   const year = years.length ? years[years.length - 1] : null;
   const priorYear = year != null ? year - 1 : null;
   if (year == null || priorYear == null) {
-    return { year, priorYear, months: [], monthsLabel: spell([]), value: null, priorValue: null, change: null };
+    return { year, priorYear, months: [], monthsLabel: spell([]), value: null, priorValue: null, change: null, excluded: [] };
   }
 
   // The cut comes from the whole series, not the slice: a single country can
@@ -209,6 +216,10 @@ export function likeForLike(
   const months = [...later]
     .filter((m) => earlier.has(m) && m <= cut && !refused.has(m) && (!restrict || restrict.has(m)))
     .sort((a, b) => a - b);
+  // Refused, but real: this year has a figure and last year has the month too.
+  const excluded = [...later]
+    .filter((m) => earlier.has(m) && m <= cut && refused.has(m) && (!restrict || restrict.has(m)))
+    .sort((a, b) => a - b);
 
   const sum = (y: number) =>
     scoped.filter((r) => r.year === y && r.month != null && months.includes(r.month)).reduce((s, r) => s + r.value, 0);
@@ -223,6 +234,7 @@ export function likeForLike(
     value,
     priorValue,
     change: value != null && priorValue ? value / priorValue - 1 : null,
+    excluded,
   };
 }
 
@@ -238,18 +250,21 @@ export function monthlyPair(
   rows: KpiRow[],
   comparison: LikeForLike,
   pick?: (row: KpiRow) => boolean,
-): { month: number; label: string; current: number | null; prior: number | null }[] {
+): { month: number; label: string; current: number | null; prior: number | null; partial?: boolean }[] {
   const scoped = pick ? rows.filter(pick) : rows;
   const sumOf = (year: number | null, month: number): number | null => {
     if (year == null) return null;
     const matching = scoped.filter((r) => r.year === year && r.month === month);
     return matching.length === 0 ? null : matching.reduce((s, r) => s + r.value, 0);
   };
-  return comparison.months.map((month) => ({
+  const draw = [...comparison.months, ...comparison.excluded].sort((a, b) => a - b);
+  return draw.map((month) => ({
     month,
     label: MONTH_SHORT[month - 1] ?? String(month),
     current: sumOf(comparison.year, month),
     prior: sumOf(comparison.priorYear, month),
+    // Drawn, but not counted: the month is still running on one side only.
+    partial: comparison.excluded.includes(month) || undefined,
   }));
 }
 

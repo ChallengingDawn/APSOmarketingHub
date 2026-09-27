@@ -33,9 +33,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { ITEM_KINDS, ITEM_STATUS, statusOf, type JourneyItem, type JourneyItemKind, type JourneyItemStatus, type JourneyModel } from "@/lib/journey/model";
 import type { JourneyMetrics, StepMetric } from "@/lib/journey/metrics";
-import type { BusinessFigure, BusinessSeries, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
-import { ChartFrame } from "@/app/charts/ChartFrame";
-import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import type { BusinessFigure, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
 import { matchKpi } from "@/lib/journey/kpiMatch";
 import { useCaseFigures } from "@/lib/journey/useCaseKpis";
 import { useReportingWindow, WindowPicker, windowQuery, windowSentence } from "@/app/window/ReportingWindow";
@@ -299,9 +297,8 @@ export default function JourneyBoardPage() {
         {error && <Typography sx={{ fontSize: "0.78rem", color: BAD }}>{error}</Typography>}
       </Box>
 
-      <BusinessBand business={business} error={businessError} />
+      <BusinessBand business={business} error={businessError} windowText={windowSentence(reportingWindow)} />
 
-      <JourneyCharts business={business} />
 
       <Box
         sx={{
@@ -563,7 +560,7 @@ function figureDisplay(figure: BusinessFigure): string {
  * series cannot answer "the last 28 days", and pretending otherwise is how a
  * dashboard starts lying.
  */
-function BusinessBand({ business, error }: { business: JourneyBusiness | null; error: string | null }) {
+function BusinessBand({ business, error, windowText }: { business: JourneyBusiness | null; error: string | null; windowText: string }) {
   if (!business) {
     return (
       <Section sx={{ mb: 2 }}>
@@ -571,7 +568,7 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
         <Typography sx={{ fontSize: "0.82rem", color: error ? BAD : MUTED, mt: 0.5 }}>
           {error
             ? `Revenue, order intake and new customers could not be read: ${error}`
-            : "Revenue, order intake, book-to-bill, first orders and customers that came back — reading the ERP series out of HubSpot, about ten seconds."}
+            : `Revenue, order intake, book-to-bill, first orders and customers that came back, over ${windowText} — reading the ERP series out of HubSpot, about ten seconds.`}
         </Typography>
       </Section>
     );
@@ -633,63 +630,6 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
         {business.verdict}
       </Typography>
     </Section>
-  );
-}
-
-/**
- * THE GRAPHS.
- *
- * A total tells you where you ended; it never tells you when it happened, and
- * "first orders are down 14%" reads very differently once you can see that it
- * is not one bad month. Five charts: the four measures over time against the
- * same months last year, and the funnel the steps already added up to — which
- * this application had been computing and never drawing.
- */
-function JourneyCharts({ business }: { business: JourneyBusiness | null }) {
-  const money = (n: number | null) => (n == null ? "—" : `€${compact(n)}`);
-
-  return (
-    <Box sx={{ display: "grid", gap: 2, mb: 2 }}>
-      {business && (
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, gap: 2 }}>
-          {business.series.map((s) => (
-            <Section key={s.key}>
-              <MonthlyChart series={s} year={business.year} priorYear={business.priorYear} money={money} />
-            </Section>
-          ))}
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-function MonthlyChart({
-  series, year, priorYear, money,
-}: {
-  series: BusinessSeries;
-  year: number | null;
-  priorYear: number | null;
-  money: (n: number | null) => string;
-}) {
-  const format = series.unit === "eur" ? money : full;
-  return (
-    <ChartFrame
-      title={series.label}
-      caption={series.caption}
-      empty={series.months.length === 0 ? "No month is covered by both years yet." : null}
-      table={{
-        columns: ["Month", String(year ?? "This year"), String(priorYear ?? "Last year")],
-        rows: series.months.map((m) => [m.label, m.current ?? "—", m.prior ?? "—"]),
-        numeric: [1, 2],
-      }}
-    >
-      <GroupedColumns
-        data={series.months.map((m) => ({ x: m.label, current: m.current, prior: m.prior }))}
-        currentLabel={String(year ?? "This year")}
-        priorLabel={String(priorYear ?? "Last year")}
-        format={format}
-      />
-    </ChartFrame>
   );
 }
 
