@@ -15,9 +15,13 @@ import Chip from "@mui/material/Chip";
 import Link from "next/link";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import type { JourneyModel } from "@/lib/journey/model";
+import type { JourneyFunnels } from "@/lib/journey/funnels";
+import { full, percent } from "@/app/charts/format";
 
 export default function JourneyFunnelsPage() {
   const [model, setModel] = useState<JourneyModel | null>(null);
+  const [counts, setCounts] = useState<JourneyFunnels | null>(null);
+  const [countsError, setCountsError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -26,6 +30,10 @@ export default function JourneyFunnelsPage() {
       .then((j) => setModel(j?.model ?? null))
       .catch(() => {})
       .finally(() => setLoaded(true));
+    fetch("/api/journey/funnels")
+      .then((r) => r.json())
+      .then((j) => (j?.ok && j.data ? setCounts(j.data as JourneyFunnels) : setCountsError(j?.error ?? null)))
+      .catch((e) => setCountsError(String(e)));
   }, []);
 
   if (!loaded) return <Typography sx={{ color: MUTED }}>Reading the journey…</Typography>;
@@ -49,34 +57,56 @@ export default function JourneyFunnelsPage() {
     <Box sx={{ display: "grid", gap: 2.5 }}>
       <Section>
         <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
-          These are the paths the business wants measured, exactly as written in the workbook. The company counts for each step
-          come from the lifecycle history in HubSpot and are not wired yet — the shape is here first, so the definitions can be
-          agreed before anyone argues about a number.
+          The paths come from the workbook; the numbers come from the lifecycle stages on the companies in HubSpot.
+          {counts
+            ? ` Each step counts companies that entered that stage between ${counts.from} and ${counts.to}, with how many sit there today. It is a flow, not a cohort: a company that reached SQL this quarter may have become an MQL long before it, so the percentages compare sizes rather than track the same companies.`
+            : countsError
+              ? ` The counts could not be read: ${countsError}`
+              : " Counting…"}
         </Typography>
       </Section>
 
       {model.funnels.map((funnel) => (
         <Section key={funnel.id}>
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 1 }}>
-            {funnel.path.map((stage, i) => (
-              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Box
-                  sx={{
-                    px: 1.5,
-                    py: 0.9,
-                    borderRadius: 2,
-                    border: `1px solid ${HAIRLINE}`,
-                    bgcolor: i === funnel.path.length - 1 ? "#fdf3f2" : "#fff",
-                  }}
-                >
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: i === funnel.path.length - 1 ? "#9e1b18" : INK }}>
-                    {stage}
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>count to come</Typography>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "stretch", flexWrap: "wrap", mb: 1 }}>
+            {funnel.path.map((stage, i) => {
+              const measured = counts?.funnels.find((f) => f.id === funnel.id)?.path[i] ?? null;
+              const previous = counts?.funnels.find((f) => f.id === funnel.id)?.path[i - 1] ?? null;
+              const share = measured?.entered != null && previous?.entered ? measured.entered / previous.entered : null;
+              const last = i === funnel.path.length - 1;
+              return (
+                <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      minWidth: 150,
+                      borderRadius: 2,
+                      border: `1px solid ${HAIRLINE}`,
+                      bgcolor: last ? "#fdf3f2" : "#fff",
+                    }}
+                  >
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: last ? "#9e1b18" : INK }}>{stage}</Typography>
+                    {measured?.unmatched ? (
+                      <Typography sx={{ fontSize: "0.7rem", color: "#7a5b12" }}>no such stage in HubSpot</Typography>
+                    ) : measured?.entered != null ? (
+                      <>
+                        <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, mt: 0.25 }}>{full(measured.entered)}</Typography>
+                        <Typography sx={{ fontSize: "0.68rem", color: MUTED }}>
+                          entered · {full(measured.inStageNow)} there now
+                        </Typography>
+                        {share !== null && (
+                          <Typography sx={{ fontSize: "0.68rem", color: MUTED }}>{percent(share)} of the step before</Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{counts ? "—" : "counting…"}</Typography>
+                    )}
+                  </Box>
+                  {i < funnel.path.length - 1 && <Typography sx={{ color: MUTED }}>→</Typography>}
                 </Box>
-                {i < funnel.path.length - 1 && <Typography sx={{ color: MUTED }}>→</Typography>}
-              </Box>
-            ))}
+              );
+            })}
           </Box>
           {funnel.note && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{funnel.note}</Typography>}
         </Section>

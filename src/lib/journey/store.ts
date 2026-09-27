@@ -7,6 +7,7 @@
 
 import { query } from "@/lib/db/client";
 import type { JourneyModel } from "./model";
+import { JOURNEY_SEED } from "./seed";
 
 const CURRENT = "journey:current";
 const HISTORY = "journey:history";
@@ -20,12 +21,27 @@ export type JourneyHistoryEntry = {
   steps: number;
 };
 
+/**
+ * The journey in force. An imported workbook always wins; when none has been
+ * imported the application falls back to the version shipped with it, so the
+ * screens are never empty and the numbers have something to hang on.
+ */
 export async function loadJourney(): Promise<JourneyModel | null> {
   try {
     const res = await query<{ v: JourneyModel }>("SELECT v FROM apsomh_kv WHERE k = $1", [CURRENT]);
-    return res.rows[0]?.v ?? null;
+    return res.rows[0]?.v ?? JOURNEY_SEED;
   } catch {
-    return null;                                   // no database configured: the app still renders, empty
+    return JOURNEY_SEED;                           // no database reachable: the definition still stands
+  }
+}
+
+/** True when nobody has imported a workbook and the shipped default is in use. */
+export async function isSeeded(): Promise<boolean> {
+  try {
+    const res = await query<{ k: string }>("SELECT k FROM apsomh_kv WHERE k = $1", [CURRENT]);
+    return res.rows.length === 0;
+  } catch {
+    return true;
   }
 }
 
