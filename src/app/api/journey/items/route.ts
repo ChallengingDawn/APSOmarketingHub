@@ -20,7 +20,7 @@ const isStatus = (value: unknown): value is JourneyItemStatus =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(ITEM_STATUS, value);
 
 type Body = {
-  action?: "add" | "edit" | "status" | "delete" | "move";
+  action?: "add" | "edit" | "status" | "delete" | "move" | "stage";
   status?: string;
   id?: string;
   stageId?: string;
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
   if (!model) return NextResponse.json({ ok: false, error: "There is no journey to edit." }, { status: 404 });
 
   const items = [...model.items];
+  const stages = [...model.stages];
   const find = (id: string) => items.findIndex((i) => i.id === id);
   const now = new Date().toISOString();
   const who = user.email ?? user.username;
@@ -105,12 +106,23 @@ export async function POST(req: NextRequest) {
       items[at] = { ...items[at], stageId: toStage, kind: toKind, order };
       break;
     }
+    case "stage": {
+      // The stage heading is the one label everybody reads first, and it came out
+      // of a workbook someone wrote months ago - it has to be correctable here.
+      const at = stages.findIndex((s) => s.id === body.stageId);
+      if (at < 0) return NextResponse.json({ ok: false, error: "Unknown stage." }, { status: 404 });
+      const name = (body.text ?? "").trim();
+      if (!name) return NextResponse.json({ ok: false, error: "The stage needs a name." }, { status: 400 });
+      stages[at] = { ...stages[at], name: name.slice(0, MAX_TEXT) };
+      break;
+    }
     default:
       return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 });
   }
 
   const next = {
     ...model,
+    stages,
     items,
     source: { ...model.source, lastEditedBy: who, lastEditedAt: now },
   };

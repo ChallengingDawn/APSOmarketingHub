@@ -20,6 +20,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import type { JourneyModel } from "@/lib/journey/model";
 import type { FunnelResult, JourneyFunnels } from "@/lib/journey/funnels";
+import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
 import { full } from "@/app/charts/format";
 
 /** Stages where sitting still is bad news. */
@@ -30,18 +31,35 @@ export default function JourneyFunnelsPage() {
   const [counts, setCounts] = useState<JourneyFunnels | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { window: reportingWindow } = useReportingWindow();
+
   useEffect(() => {
     fetch("/api/journey").then((r) => r.json()).then((j) => setModel(j?.model ?? null)).catch(() => {});
-    fetch("/api/journey/funnels")
+  }, []);
+
+  // "Arrived" only means something against a stated window, so it follows the same
+  // hub-wide one every other screen reads.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setCounts(null);
+    setError(null);
+    fetch(`/api/journey/funnels?${windowQuery(reportingWindow)}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => (j?.ok && j.data ? setCounts(j.data as JourneyFunnels) : setError(j?.error ?? "The counts could not be read.")))
-      .catch((e) => setError(String(e)));
-  }, []);
+      .catch((e) => { if ((e as Error)?.name !== "AbortError") setError(String(e)); });
+    return () => ctrl.abort();
+  }, [reportingWindow]);
 
   if (!model) return <Typography sx={{ color: MUTED }}>Reading the journey…</Typography>;
 
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <WindowPicker />
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+          {counts ? `Arrivals counted between ${counts.from} and ${counts.to}` : "Counting…"}
+        </Typography>
+      </Box>
       <Section>
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, mb: 0.5 }}>How to read this</Typography>
         <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
