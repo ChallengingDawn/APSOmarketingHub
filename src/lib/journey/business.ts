@@ -108,6 +108,16 @@ export async function fetchJourneyBusiness(params: {
   const wholeMonths = from && to ? monthsFullyInside(from, to) : [];
   const thisYear = Math.max(0, ...revenueRows.map((r) => r.year ?? 0)) || null;
   const inWindow = new Set(wholeMonths.filter((m) => m.year === thisYear).map((m) => m.month));
+
+  // The month in progress is never a WHOLE month, so "whole months inside the
+  // window" always throws away the most recent data — which is why revenue read
+  // "January–August" on the 27th of September. The ERP series cuts BOTH years on
+  // the same day and flags that month comparable, so when the window runs into
+  // it, keep it. The cohort series flag it `no` and lose it anyway, one line
+  // further down: each series gets the answer its own data supports.
+  const monthOfTo = to ? Number(to.slice(5, 7)) : null;
+  const yearOfTo = to ? Number(to.slice(0, 4)) : null;
+  if (inWindow.size > 0 && monthOfTo && yearOfTo === thisYear) inWindow.add(monthOfTo);
   const windowed = inWindow.size > 0;
   const restrict = windowed ? inWindow : undefined;
   const windowNote = windowed

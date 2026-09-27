@@ -38,7 +38,7 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { matchKpi } from "@/lib/journey/kpiMatch";
 import { useCaseFigures } from "@/lib/journey/useCaseKpis";
-import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
+import { useReportingWindow, WindowPicker, windowQuery, windowSentence } from "@/app/window/ReportingWindow";
 import { compact, full, percent, signedPercent } from "@/app/charts/format";
 
 const LANES = Object.entries(ITEM_KINDS) as [JourneyItemKind, string][];
@@ -291,7 +291,7 @@ export default function JourneyBoardPage() {
           sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
         />
         <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-          {metrics ? `Numbers cover ${metrics.from} to ${metrics.to}` : "Reading the numbers…"}
+          {metrics ? `Numbers cover ${windowSentence(reportingWindow)}` : "Reading the numbers…"}
         </Typography>
         {model.source.lastEditedBy && (
           <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>· last edited by {model.source.lastEditedBy}</Typography>

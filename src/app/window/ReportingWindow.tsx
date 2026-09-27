@@ -106,6 +106,16 @@ export function windowLabel(w: ReportingWindow): string {
   return `${prettyDate(w.from, !sameYear)} – ${prettyDate(w.to, true)}`;
 }
 
+/**
+ * The preset AND the dates it resolves to: "Last 90 days · 2026-06-30 to
+ * 2026-09-27". Screens print this rather than bare dates, because a reader who
+ * sees only the dates has no way to tell whether the screen chose them or the
+ * picker did — and asks, twice.
+ */
+export function windowSentence(w: ReportingWindow): string {
+  return `${windowLabel(w)} · ${w.from} to ${w.to}`;
+}
+
 /** The equivalent window immediately before — what deltas compare against. */
 export function previousWindow(w: ReportingWindow): { from: string; to: string } {
   const len = spanDays(w.from, w.to);

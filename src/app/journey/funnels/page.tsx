@@ -21,7 +21,7 @@ import PageHeader from "@/app/PageHeader";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import type { JourneyModel } from "@/lib/journey/model";
 import type { FunnelResult, JourneyFunnels } from "@/lib/journey/funnels";
-import { PRESETS, useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
+import { useReportingWindow, WindowPicker, windowQuery, windowLabel } from "@/app/window/ReportingWindow";
 import { full } from "@/app/charts/format";
 
 /** Stages where sitting still is bad news. */
@@ -35,7 +35,7 @@ export default function JourneyFunnelsPage() {
   const { window: reportingWindow } = useReportingWindow();
   // The dates are not a choice this screen made: they are whatever the picker
   // beside them says. Naming the preset stops "why these dates?".
-  const presetLabel = PRESETS.find((p) => p.id === reportingWindow.preset)?.label ?? "Custom range";
+  const presetLabel = windowLabel(reportingWindow);
 
   useEffect(() => {
     fetch("/api/journey").then((r) => r.json()).then((j) => setModel(j?.model ?? null)).catch(() => {});
