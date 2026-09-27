@@ -21,6 +21,15 @@ import AddIcon from "@mui/icons-material/Add";
 import InsightsIcon from "@mui/icons-material/Insights";
 import Drawer from "@mui/material/Drawer";
 import CloseIcon from "@mui/icons-material/Close";
+import Button from "@mui/material/Button";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Checkbox from "@mui/material/Checkbox";
+import ListItemText from "@mui/material/ListItemText";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import EditIcon from "@mui/icons-material/Edit";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { ITEM_KINDS, ITEM_STATUS, statusOf, type JourneyItem, type JourneyItemKind, type JourneyItemStatus, type JourneyModel } from "@/lib/journey/model";
 import type { JourneyMetrics } from "@/lib/journey/metrics";
@@ -30,7 +39,17 @@ import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/Repo
 import { compact, full, percent, signedPercent } from "@/app/charts/format";
 
 const LANES = Object.entries(ITEM_KINDS) as [JourneyItemKind, string][];
-const LANE_TONE: Partial<Record<JourneyItemKind, string>> = { risk: "#9e1b18", kpi: "#1b4a80" };
+const LANE_TONE: Partial<Record<JourneyItemKind, string>> = { risk: "#9e1b18", kpi: "#1b4a80", usecase: "#5e5ce6" };
+
+/** Use cases are off by default: they are a different conversation from the board. */
+type UseCaseMode = "none" | "with" | "only";
+const UC_MODES: { id: UseCaseMode; label: string }[] = [
+  { id: "none", label: "No use cases" },
+  { id: "with", label: "With use cases" },
+  { id: "only", label: "Only use cases" },
+];
+/** Everything except the use-case lane, which has its own switch. */
+const MAIN_CATEGORIES = LANES.filter(([kind]) => kind !== "usecase").map(([kind]) => kind);
 
 /** Not started → on track → needs improvement → done, and round again. */
 const STATUS_ORDER: JourneyItemStatus[] = ["open", "ontrack", "attention", "done"];
@@ -63,6 +82,11 @@ export default function JourneyBoardPage() {
   const [adding, setAdding] = useState<string | null>(null);   // `${stageId}|${kind}`
   const [kpiStage, setKpiStage] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [businessError, setBusinessError] = useState<string | null>(null);
+  const [ucMode, setUcMode] = useState<UseCaseMode>("none");
+  const [categories, setCategories] = useState<JourneyItemKind[]>(MAIN_CATEGORIES);
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [titling, setTitling] = useState(false);
   const { window: reportingWindow } = useReportingWindow();
 
   useEffect(() => {
@@ -89,8 +113,13 @@ export default function JourneyBoardPage() {
   useEffect(() => {
     fetch("/api/journey/business")
       .then((r) => r.json())
-      .then((j) => { if (j?.ok && j.data) setBusiness(j.data as JourneyBusiness); })
-      .catch(() => {});
+      .then((j) => {
+        if (j?.ok && j.data) setBusiness(j.data as JourneyBusiness);
+        // A band that says "reading…" for ever is worse than one that says why:
+        // the usual cause is the private app missing custom-object read.
+        else setBusinessError(j?.error ?? j?.detail ?? "The ERP series could not be read from HubSpot.");
+      })
+      .catch((err) => setBusinessError(String((err as Error)?.message ?? err)));
   }, []);
 
   const act = useCallback(async (body: Record<string, unknown>) => {
@@ -116,10 +145,113 @@ export default function JourneyBoardPage() {
 
   const stages = [...model.stages].sort((a, b) => a.position - b.position);
 
+  const title = model.title ?? "APSOparts customer journey";
+  const visibleLanes = LANES.filter(([kind]) =>
+    kind === "usecase" ? ucMode !== "none" : ucMode !== "only" && categories.includes(kind),
+  );
+  const filtered = categories.length < MAIN_CATEGORIES.length;
+
   return (
     <Box>
+      {/* The heading is the journey itself, not the word for what kind of thing
+          it is — the sidebar already said that. Click it to rename it. */}
+      <Box sx={{ mb: { xs: 2, md: 2.5 } }}>
+        {titling ? (
+          <InputBase
+            autoFocus
+            fullWidth
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => setTitling(false)}
+            onKeyDown={async (e) => {
+              if (e.key === "Escape") setTitling(false);
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (draft.trim()) await act({ action: "title", text: draft });
+                setTitling(false);
+              }
+            }}
+            sx={{
+              fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+              fontWeight: 600, fontSize: { xs: "1.7rem", md: "2rem" }, letterSpacing: "-0.03em",
+              color: INK, bgcolor: "#fff", borderRadius: 1.5, px: 1, border: `1px solid ${HAIRLINE}`,
+            }}
+          />
+        ) : (
+          <Tooltip title="Click to rename this journey" describeChild>
+            <Typography
+              component="h1"
+              onClick={() => { setTitling(true); setDraft(title); }}
+              sx={{
+                fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+                fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em",
+                fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1, cursor: "text",
+                display: "inline-block", borderRadius: 1.5, px: 0.5, mx: -0.5,
+                "&:hover": { bgcolor: "rgba(10,132,255,0.07)" },
+              }}
+            >
+              {title}
+            </Typography>
+          </Tooltip>
+        )}
+        {/* The subtitle is the journey too: the six stages in the order a buyer meets them. */}
+        <Typography sx={{ color: MUTED, fontSize: "0.95rem", mt: 0.75, lineHeight: 1.5 }}>
+          {stages.map((s) => s.name.split("–")[0].trim()).join("  →  ")}
+        </Typography>
+      </Box>
+
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 2 }}>
         <WindowPicker />
+
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={ucMode}
+          onChange={(_, value) => { if (value) setUcMode(value as UseCaseMode); }}
+          sx={{
+            bgcolor: "#fff",
+            "& .MuiToggleButton-root": { textTransform: "none", fontSize: "0.78rem", px: 1.4, py: 0.55, color: MUTED, borderColor: HAIRLINE },
+            "& .Mui-selected": { bgcolor: "#eceafe !important", color: "#4a3fd6 !important", fontWeight: 700 },
+          }}
+        >
+          {UC_MODES.map((m) => (
+            <ToggleButton key={m.id} value={m.id}>{m.label}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+
+        <Button
+          size="small"
+          startIcon={<FilterListIcon sx={{ fontSize: 16 }} />}
+          onClick={(e) => setFilterAnchor(e.currentTarget)}
+          disabled={ucMode === "only"}
+          sx={{
+            textTransform: "none", fontSize: "0.78rem", color: filtered ? "#1b4a80" : MUTED,
+            bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 1, px: 1.2,
+            fontWeight: filtered ? 700 : 500,
+          }}
+        >
+          {filtered ? `${categories.length} of ${MAIN_CATEGORIES.length} categories` : "All categories"}
+        </Button>
+        <Menu anchorEl={filterAnchor} open={Boolean(filterAnchor)} onClose={() => setFilterAnchor(null)}>
+          {MAIN_CATEGORIES.map((kind) => (
+            <MenuItem
+              key={kind}
+              dense
+              onClick={() =>
+                setCategories((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]))
+              }
+            >
+              <Checkbox size="small" checked={categories.includes(kind)} sx={{ p: 0.5, mr: 1 }} />
+              <ListItemText primaryTypographyProps={{ fontSize: "0.82rem" }}>{ITEM_KINDS[kind]}</ListItemText>
+            </MenuItem>
+          ))}
+          <MenuItem dense onClick={() => setCategories(MAIN_CATEGORIES)}>
+            <ListItemText primaryTypographyProps={{ fontSize: "0.82rem", fontWeight: 700, color: "#1b4a80" }}>
+              Show all
+            </ListItemText>
+          </MenuItem>
+        </Menu>
+
         <Chip
           size="small"
           label={`${stages.length} stages · ${model.steps.length} steps · ${model.items.length} cards`}
@@ -134,7 +266,7 @@ export default function JourneyBoardPage() {
         {error && <Typography sx={{ fontSize: "0.78rem", color: BAD }}>{error}</Typography>}
       </Box>
 
-      <BusinessBand business={business} />
+      <BusinessBand business={business} error={businessError} />
 
       <Box
         sx={{
@@ -271,7 +403,7 @@ export default function JourneyBoardPage() {
                 </Box>
               </Section>
 
-              {LANES.map(([kind, label]) => {
+              {visibleLanes.map(([kind, label]) => {
                 const cards = model.items
                   .filter((i) => i.stageId === stage.id && i.kind === kind)
                   .sort((a, b) => a.order - b.order);
@@ -317,6 +449,10 @@ export default function JourneyBoardPage() {
                           editing={editing === card.id}
                           draft={draft}
                           busy={busy}
+                          // A use case is a thing you ask questions about, not a
+                          // note you retype: clicking it opens the stage's KPIs,
+                          // and the pencil is there when you do want to edit.
+                          onOpenKpis={card.kind === "usecase" ? () => setKpiStage(stage.id) : undefined}
                           onDraft={setDraft}
                           onStartEdit={() => { setEditing(card.id); setDraft(card.text); }}
                           onCancel={() => setEditing(null)}
@@ -391,11 +527,16 @@ function figureDisplay(figure: BusinessFigure): string {
  * series cannot answer "the last 28 days", and pretending otherwise is how a
  * dashboard starts lying.
  */
-function BusinessBand({ business }: { business: JourneyBusiness | null }) {
+function BusinessBand({ business, error }: { business: JourneyBusiness | null; error: string | null }) {
   if (!business) {
     return (
       <Section sx={{ mb: 2 }}>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Reading the ERP figures…</Typography>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>What the journey is worth</Typography>
+        <Typography sx={{ fontSize: "0.82rem", color: error ? BAD : MUTED, mt: 0.5 }}>
+          {error
+            ? `Revenue, order intake and new customers could not be read: ${error}`
+            : "Revenue, order intake, book-to-bill, first orders and customers that came back — reading the ERP series out of HubSpot, about ten seconds."}
+        </Typography>
       </Section>
     );
   }
@@ -513,89 +654,135 @@ function KpiPanel({
         ? { title: `Revenue by product family · ${business.monthsLabel} vs ${business.priorYear}`, rows: business.byFamily }
         : { title: `Revenue by customer tier · ${business.monthsLabel} vs ${business.priorYear}`, rows: business.byPriority };
 
+  // The KPI cards split in two: the ones a live figure answers, which are the
+  // point of opening this panel, and the ones nothing answers yet, which are the
+  // work. Showing them mixed buried nine real numbers in a list of forty.
+  const answered = kpis
+    .map((kpi) => ({ kpi, figure: metrics ? matchKpi(kpi.text, metrics.kpis) : null }))
+    .filter((x): x is { kpi: JourneyItem; figure: NonNullable<ReturnType<typeof matchKpi>> } => x.figure != null);
+  const unanswered = kpis.filter((kpi) => !metrics || !matchKpi(kpi.text, metrics.kpis));
+  const useCases = stage ? model.items.filter((i) => i.stageId === stage.id && i.kind === "usecase") : [];
+
   return (
-    <Drawer anchor="right" open={Boolean(stage)} onClose={onClose} PaperProps={{ sx: { width: { xs: "100%", sm: 460 } } }}>
+    <Drawer
+      anchor="right"
+      open={Boolean(stage)}
+      onClose={onClose}
+      // Nearly the whole page: this is the screen people come to the board for,
+      // and a 460px column turned every KPI into two lines of wrapped text.
+      PaperProps={{ sx: { width: { xs: "100%", md: "94vw" }, maxWidth: 1500 } }}
+    >
       {stage && (
-        <Box sx={{ p: 3 }}>
-          {/* A drawer that can only be dismissed by clicking the page behind it is a
-              dead end for anyone who does not know that; give it a way back. */}
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+        <Box sx={{ p: { xs: 2.5, md: 3.5 } }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, pb: 2, borderBottom: `3px solid ${accent}` }}>
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 0.6 }}>
-                KPIs for this stage
+                Stage {stage.position + 1} · KPIs
               </Typography>
-              <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, mt: 0.5 }}>{stage.name}</Typography>
+              <Typography sx={{ fontSize: { xs: "1.3rem", md: "1.6rem" }, fontWeight: 700, color: INK, mt: 0.5, lineHeight: 1.15 }}>
+                {stage.name}
+              </Typography>
+              {stage.objective && <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.5 }}>{stage.objective}</Typography>}
             </Box>
             <IconButton onClick={onClose} aria-label="Close the KPI panel" sx={{ mt: -0.5, mr: -0.5 }}>
-              <CloseIcon sx={{ fontSize: 20 }} />
+              <CloseIcon sx={{ fontSize: 22 }} />
             </IconButton>
           </Box>
-          {stage.objective && <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.5 }}>{stage.objective}</Typography>}
 
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
-            What we can measure today
+          {/* THE REAL NUMBERS, first and large. */}
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1.25 }}>
+            Answered today ({answered.length} of {kpis.length})
           </Typography>
-          {steps.map((step) => {
-            const metric = metrics?.steps.find((m) => m.stepIndex === step.index);
-            return (
-              <Box key={step.index} sx={{ display: "flex", gap: 1.5, py: 1, borderBottom: `1px solid ${HAIRLINE}`, alignItems: "baseline" }}>
-                <Typography sx={{ fontSize: "0.72rem", color: MUTED, minWidth: 18 }}>{step.index}</Typography>
-                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.82rem", color: INK }}>{step.label}</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
-                    {metric?.value != null ? `${metric.unit}${metric.note ? ` · ${metric.note}` : ""}` : metric?.gap ?? "nothing measures this yet"}
-                  </Typography>
-                </Box>
-                <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: metric?.value != null ? INK : MUTED, whiteSpace: "nowrap" }}>
-                  {metric?.value != null ? full(metric.value) : "—"}
-                </Typography>
-              </Box>
-            );
-          })}
-
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
-            KPIs the business asked for ({kpis.length})
-          </Typography>
-          {kpis.length === 0 ? (
-            <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>None listed for this stage yet. Add them on the board.</Typography>
+          {answered.length === 0 ? (
+            <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
+              Nothing on this stage has a live source yet. Everything below is the work to change that.
+            </Typography>
           ) : (
-            <Box sx={{ display: "grid", gap: 0.75 }}>
-              {kpis.map((kpi) => {
-                const status = statusOf(kpi);
-                // A KPI card is a sentence somebody wrote; where a live figure answers
-                // it, show the figure. Where none does, say so — that gap is the work.
-                const figure = metrics ? matchKpi(kpi.text, metrics.kpis) : null;
-                return (
-                  <Box key={kpi.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1, borderRadius: 1.5, bgcolor: STATUS_STYLE[status].bg }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: STATUS_STYLE[status].dot, mt: 0.75, flex: "0 0 auto" }} />
-                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.82rem", color: INK }}>{kpi.text}</Typography>
-                      {figure ? (
-                        <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
-                          {figure.label} · {figure.source}
-                          {figure.note ? ` · ${figure.note}` : ""}
-                        </Typography>
-                      ) : (
-                        <Typography sx={{ fontSize: "0.7rem", color: STATUS_STYLE[status].fg, fontWeight: 600 }}>
-                          {ITEM_STATUS[status]} · no source wired yet
-                        </Typography>
-                      )}
-                    </Box>
-                    {figure && (
-                      <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>
-                        {figure.display}
-                      </Typography>
-                    )}
-                  </Box>
-                );
-              })}
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>
+              {answered.map(({ kpi, figure }) => (
+                <Box key={kpi.id} sx={{ p: 1.75, borderRadius: 2, border: `1px solid ${HAIRLINE}`, borderTop: `3px solid ${accent}`, bgcolor: "#fff" }}>
+                  <Typography sx={{ fontSize: "0.78rem", color: INK, fontWeight: 600, lineHeight: 1.3, minHeight: 34 }}>{kpi.text}</Typography>
+                  <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.15, mt: 0.75 }}>{figure.display}</Typography>
+                  <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.5, lineHeight: 1.35 }}>
+                    {figure.label} · {figure.source}
+                  </Typography>
+                  {figure.note && <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.5, lineHeight: 1.35 }}>{figure.note}</Typography>}
+                </Box>
+              ))}
             </Box>
           )}
 
-          {cut && cut.rows.length > 0 && <Breakdown title={cut.title} rows={cut.rows} accent={accent} unit="eur" />}
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: { xs: 2, md: 4 }, mt: 1 }}>
+            <Box>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
+                The buyer&apos;s steps through this stage
+              </Typography>
+              {steps.map((step) => {
+                const metric = metrics?.steps.find((m) => m.stepIndex === step.index);
+                return (
+                  <Box key={step.index} sx={{ display: "flex", gap: 1.5, py: 1.1, borderBottom: `1px solid ${HAIRLINE}`, alignItems: "baseline" }}>
+                    <Typography sx={{ fontSize: "0.72rem", color: MUTED, minWidth: 18 }}>{step.index}</Typography>
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.85rem", color: INK }}>{step.label}</Typography>
+                      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.4 }}>
+                        {metric?.value != null ? `${metric.unit}${metric.note ? ` · ${metric.note}` : ""}` : metric?.gap ?? "nothing measures this yet"}
+                      </Typography>
+                    </Box>
+                    <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: metric?.value != null ? INK : MUTED, whiteSpace: "nowrap" }}>
+                      {metric?.value != null ? full(metric.value) : "—"}
+                    </Typography>
+                  </Box>
+                );
+              })}
+
+              {useCases.length > 0 && (
+                <>
+                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
+                    Use cases on this stage ({useCases.length})
+                  </Typography>
+                  <Box sx={{ display: "grid", gap: 0.75 }}>
+                    {useCases.map((uc) => (
+                      <Box key={uc.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.1, borderRadius: 1.5, bgcolor: "#f4f3fe", border: "1px solid #e2dffb" }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: STATUS_STYLE[statusOf(uc)].dot, mt: 0.6, flex: "0 0 auto" }} />
+                        <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.4 }}>{uc.text}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </>
+              )}
+            </Box>
+
+            <Box>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
+                Asked for, still without a source ({unanswered.length})
+              </Typography>
+              {unanswered.length === 0 ? (
+                <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Every KPI on this stage has a figure.</Typography>
+              ) : (
+                <Box sx={{ display: "grid", gap: 0.6 }}>
+                  {unanswered.map((kpi) => {
+                    const status = statusOf(kpi);
+                    return (
+                      <Box key={kpi.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1, borderRadius: 1.5, bgcolor: STATUS_STYLE[status].bg }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: STATUS_STYLE[status].dot, mt: 0.6, flex: "0 0 auto" }} />
+                        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.4 }}>{kpi.text}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: STATUS_STYLE[status].fg, fontWeight: 600 }}>
+                            {ITEM_STATUS[status]} · no source wired yet
+                          </Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {cut && cut.rows.length > 0 && <Breakdown title={cut.title} rows={cut.rows} accent={accent} unit="eur" />}
+            </Box>
+          </Box>
 
           {metrics && (
-            <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 3 }}>
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 4, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
               The step figures cover {metrics.from} to {metrics.to}, from GA4 and HubSpot. The revenue is the ERP file and runs to
               the end of the last complete month, both years cut at the same point. A KPI with no figure has no source yet — that is
               the gap to close, not a number to invent.
@@ -608,7 +795,7 @@ function KpiPanel({
 }
 
 function Card({
-  card, editing, draft, busy, onDraft, onStartEdit, onCancel, onSave, onCycleStatus, onDelete,
+  card, editing, draft, busy, onDraft, onStartEdit, onCancel, onSave, onCycleStatus, onDelete, onOpenKpis,
 }: {
   card: JourneyItem;
   editing: boolean;
@@ -620,6 +807,8 @@ function Card({
   onSave: () => void;
   onCycleStatus: () => void;
   onDelete: () => void;
+  /** Set on use-case cards: the card opens the stage's KPIs instead of an editor. */
+  onOpenKpis?: () => void;
 }) {
   const status = statusOf(card);
   if (editing) {
@@ -660,18 +849,28 @@ function Card({
         </IconButton>
       </Tooltip>
       <Typography
-        onClick={onStartEdit}
+        onClick={onOpenKpis ?? onStartEdit}
         sx={{
           fontSize: "0.78rem",
           color: status === "done" ? MUTED : INK,
           lineHeight: 1.35,
           flexGrow: 1,
-          cursor: "text",
+          cursor: onOpenKpis ? "pointer" : "text",
         }}
       >
         {card.text}
+        {onOpenKpis && (
+          <Box component="span" sx={{ display: "block", fontSize: "0.68rem", color: "#5e5ce6", fontWeight: 700, mt: 0.35 }}>
+            Open the KPIs for this stage →
+          </Box>
+        )}
       </Typography>
-      <Box className="card-actions" sx={{ opacity: 0, transition: "opacity 120ms" }}>
+      <Box className="card-actions" sx={{ opacity: 0, transition: "opacity 120ms", display: "flex" }}>
+        {onOpenKpis && (
+          <IconButton size="small" aria-label="Edit card" onClick={onStartEdit} sx={{ p: 0.25 }}>
+            <EditIcon sx={{ fontSize: 13, color: MUTED }} />
+          </IconButton>
+        )}
         <IconButton size="small" aria-label="Delete card" onClick={onDelete} sx={{ p: 0.25 }}>
           <CloseIcon sx={{ fontSize: 14, color: MUTED }} />
         </IconButton>

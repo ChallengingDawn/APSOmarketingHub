@@ -20,7 +20,7 @@ const isStatus = (value: unknown): value is JourneyItemStatus =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(ITEM_STATUS, value);
 
 type Body = {
-  action?: "add" | "edit" | "status" | "delete" | "move" | "stage";
+  action?: "add" | "edit" | "status" | "delete" | "move" | "stage" | "title";
   status?: string;
   id?: string;
   stageId?: string;
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
 
   const items = [...model.items];
   const stages = [...model.stages];
+  let title = model.title;
   const find = (id: string) => items.findIndex((i) => i.id === id);
   const now = new Date().toISOString();
   const who = user.email ?? user.username;
@@ -116,12 +117,21 @@ export async function POST(req: NextRequest) {
       stages[at] = { ...stages[at], name: name.slice(0, MAX_TEXT) };
       break;
     }
+    case "title": {
+      // The heading of the page IS the journey, so it is the journey's own name
+      // and not a label baked into the layout.
+      const name = (body.text ?? "").trim();
+      if (!name) return NextResponse.json({ ok: false, error: "The journey needs a name." }, { status: 400 });
+      title = name.slice(0, 120);
+      break;
+    }
     default:
       return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 });
   }
 
   const next = {
     ...model,
+    title,
     stages,
     items,
     source: { ...model.source, lastEditedBy: who, lastEditedAt: now },

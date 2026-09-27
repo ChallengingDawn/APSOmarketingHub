@@ -22,6 +22,8 @@ export type JourneyStage = {
 
 /** The lanes of the board. Each is a list of things, not a paragraph. */
 export const ITEM_KINDS = {
+  /** The HubSpot automations that act on this stage. Hidden unless asked for. */
+  usecase: "Use cases",
   touchpoint: "Touchpoints",
   risk: "Where we lose them",
   question: "Questions",
@@ -91,6 +93,8 @@ export type JourneyIssue = {
 
 export type JourneyModel = {
   version: number;
+  /** What this journey is called. It is the page's heading, and it is editable. */
+  title?: string;
   stages: JourneyStage[];
   steps: JourneyStep[];
   /** The board's cards. Workbook rows become items; people add more here. */

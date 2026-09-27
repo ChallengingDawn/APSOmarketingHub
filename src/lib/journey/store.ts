@@ -28,10 +28,30 @@ export type JourneyHistoryEntry = {
 export async function loadJourney(): Promise<JourneyModel | null> {
   try {
     const res = await query<{ v: JourneyModel }>("SELECT v FROM apsomh_kv WHERE k = $1", [CURRENT]);
-    return res.rows[0]?.v ?? JOURNEY_SEED;
+    const stored = res.rows[0]?.v;
+    return stored ? withNewLanes(stored) : JOURNEY_SEED;
   } catch {
     return JOURNEY_SEED;                           // no database reachable: the definition still stands
   }
+}
+
+/**
+ * A board saved before a lane existed would never show it, because the stored
+ * version wins over the shipped one — so the first edit anybody made would have
+ * frozen the journey's shape for good. When the stored board has NO card at all
+ * of a kind the definition ships, those cards are added; a kind with even one
+ * card is left completely alone, so nothing anybody deleted comes back.
+ */
+function withNewLanes(stored: JourneyModel): JourneyModel {
+  const present = new Set(stored.items.map((i) => i.kind));
+  const stages = new Set(stored.stages.map((s) => s.id));
+  const missing = JOURNEY_SEED.items.filter((i) => !present.has(i.kind) && stages.has(i.stageId));
+  if (missing.length === 0 && stored.title) return stored;
+  return {
+    ...stored,
+    title: stored.title ?? JOURNEY_SEED.title,
+    items: missing.length ? [...stored.items, ...missing] : stored.items,
+  };
 }
 
 /** True when nobody has edited anything and the shipped definition is in use. */

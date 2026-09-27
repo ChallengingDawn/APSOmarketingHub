@@ -1558,6 +1558,51 @@ export const JOURNEY_SEED: JourneyModel = {
       "origin": "workbook",
       "order": 2,
       "done": false
+    },
+    {
+      "id": "uc-1",
+      "stageId": "consideration-supplier-evaluation",
+      "kind": "usecase",
+      "text": "Create UC for chat/customer form leads who are not yet registered (pending legal advice - GDPR)",
+      "origin": "workbook",
+      "order": 0,
+      "status": "open"
+    },
+    {
+      "id": "uc-2",
+      "stageId": "validation-operational-fit-check",
+      "kind": "usecase",
+      "text": "Upcoming UC: Recovery of customers who checked prices and did not put the article in the cart (coming P10)",
+      "origin": "workbook",
+      "order": 0,
+      "status": "open"
+    },
+    {
+      "id": "uc-3",
+      "stageId": "repeat-purchase-habit-system-integration",
+      "kind": "usecase",
+      "text": "UC10 & UC11 to be redone in P10-11",
+      "origin": "workbook",
+      "order": 0,
+      "status": "open"
+    },
+    {
+      "id": "uc-4",
+      "stageId": "repeat-purchase-habit-system-integration",
+      "kind": "usecase",
+      "text": "UC12 to be redone taking into account order intake (P10)",
+      "origin": "workbook",
+      "order": 1,
+      "status": "open"
+    },
+    {
+      "id": "uc-5",
+      "stageId": "repeat-purchase-habit-system-integration",
+      "kind": "usecase",
+      "text": "Upcoming new UC: a purchaser who has not logged in for a while and may have left the company (P10)",
+      "origin": "workbook",
+      "order": 2,
+      "status": "open"
     }
   ],
   "funnels": [
@@ -1609,5 +1654,6 @@ export const JOURNEY_SEED: JourneyModel = {
     "origin": "Customer Journey APSOparts, the business definition of 23.09.2026",
     "definedAt": "2026-09-23T00:00:00.000Z"
   },
-  "issues": []
+  "issues": [],
+  "title": "APSOparts customer journey"
 };

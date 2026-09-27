@@ -13,6 +13,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
+import PageHeader from "@/app/PageHeader";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 
 /** What fills the journey with numbers, and how current each source is. */
@@ -38,6 +39,7 @@ const GAPS: { measure: string; why: string }[] = [
 export default function JourneySourcesPage() {
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
+      <PageHeader title="Where the data comes from" subtitle="Every figure on the journey, and the system it is read from" />
       <Section>
         <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, mb: 0.5 }}>The numbers: read live</Typography>
         <Typography sx={{ fontSize: "0.85rem", color: MUTED, mb: 2 }}>

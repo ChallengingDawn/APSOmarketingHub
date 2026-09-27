@@ -11,16 +11,14 @@
 
 import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
-import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 
+// No header here. The board's heading is the journey's own name, which is
+// stored with the journey and edited on the page, so the page writes it — a
+// layout cannot know what the journey is called.
 export default function JourneyLayout({ children }: { children: ReactNode }) {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
-      <PageHeader
-        title="Customer journey"
-        subtitle="Who arrives, how far they get, and where we lose them"
-      />
       {children}
     </Box>
   );

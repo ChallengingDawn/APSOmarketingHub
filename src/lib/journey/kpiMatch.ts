@@ -30,10 +30,15 @@ const KPI_RULES: { key: string; needs: string[][] }[] = [
   { key: "bounce_rate", needs: [["bounce"]] },
   { key: "engaged_share", needs: [["ctr", "channel"]] },
   { key: "product_depth", needs: [["product", "page", "depth"], ["product", "pages", "viewed"]] },
-  { key: "checkout_conversion", needs: [["checkout", "conversion"]] },
+  // "Checkout completion rate (carts → successful orders)" and "checkout
+  // conversion rate" are the same measure under two names, and so are
+  // "purchase conversion" and "conversion rate (session → order)".
+  { key: "checkout_conversion", needs: [["checkout", "conversion"], ["checkout", "completion"]] },
   { key: "cart_abandonment", needs: [["cart", "abandon"]] },
-  { key: "purchase_conversion", needs: [["purchase", "conversion"]] },
-  { key: "first_orders", needs: [["first", "purchase", "rate"], ["registrants", "first order"]] },
+  { key: "purchase_conversion", needs: [["purchase", "conversion"], ["conversion", "session", "order"]] },
+  // The phrase, not the three words apart: "NPS Rate after first purchase"
+  // contains first + purchase + rate and is not this measure at all.
+  { key: "first_orders", needs: [["first purchase rate"], ["registrants", "first order"]] },
   // "Retention rate" and "repeat order rate" stay deliberately unbound. The ERP
   // gives us reactivations — companies we had LOST and won back — which is the
   // opposite of retention. Showing one under the other's label would be worse

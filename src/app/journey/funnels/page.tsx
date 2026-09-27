@@ -17,6 +17,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
+import PageHeader from "@/app/PageHeader";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import type { JourneyModel } from "@/lib/journey/model";
 import type { FunnelResult, JourneyFunnels } from "@/lib/journey/funnels";
@@ -54,6 +55,7 @@ export default function JourneyFunnelsPage() {
 
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
+      <PageHeader title="Lifecycle funnels" subtitle="Where companies sit today, and where they moved in the window" />
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         <WindowPicker />
         <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
