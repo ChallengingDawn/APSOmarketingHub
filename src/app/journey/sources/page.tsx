@@ -29,7 +29,13 @@ const LIVE_SOURCES: { area: string; source: string; what: string; freshness: str
 
 /** Measures the business asked for that nothing can answer yet. Better named than faked. */
 const GAPS: { measure: string; why: string }[] = [
-  { measure: "Per-person page history (which pages this contact read)", why: "Needs Marketing Hub Enterprise; the portal does not have it, so the events API refuses." },
+  {
+    // Corrected: this was listed as impossible, and it is only impossible THROUGH
+    // HUBSPOT. Our own tag already resolves the logged-in customer on the shop —
+    // that is how the Google Ads buyer-bucket signal knows who is ordering.
+    measure: "Per-person page history (which pages this contact read)",
+    why: "HubSpot's events API refuses it — that needs Marketing Hub Enterprise. Our own tag can do it: the shop's customer session exposes the logged-in customer, which is how the Ads buyer-bucket lookup identifies a buyer, and Performis already counts views and logins per customer number. What is missing is the decision to store a page-level history against a person, and the consent basis for keeping it.",
+  },
   { measure: "Brand recognition, AI/LLM visibility", why: "Comes from Miriam's study and Aleksandra's competitor work, not from a system we can query." },
   { measure: "Stock availability at the moment a customer looked", why: "The shop reads stock from the ERP when the page renders and keeps no history of what was shown." },
   { measure: "Drop-off inside registration (started but not finished)", why: "The shop does not emit an event for an abandoned registration form." },

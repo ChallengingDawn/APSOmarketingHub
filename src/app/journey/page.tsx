@@ -32,9 +32,10 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import EditIcon from "@mui/icons-material/Edit";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { ITEM_KINDS, ITEM_STATUS, statusOf, type JourneyItem, type JourneyItemKind, type JourneyItemStatus, type JourneyModel } from "@/lib/journey/model";
-import type { JourneyMetrics } from "@/lib/journey/metrics";
+import type { JourneyMetrics, StepMetric } from "@/lib/journey/metrics";
 import type { BusinessFigure, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
 import { matchKpi } from "@/lib/journey/kpiMatch";
+import { useCaseFigures } from "@/lib/journey/useCaseKpis";
 import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
 import { compact, full, percent, signedPercent } from "@/app/charts/format";
 
@@ -71,6 +72,19 @@ const STATUS_STYLE: Record<JourneyItemStatus, { dot: string; bg: string; fg: str
 const GOOD = "#1d7f45";
 const BAD = "#9e1b18";
 
+/**
+ * What to say under a step. "Nothing measures this yet" was being printed while
+ * the request was still in flight, so a stage with four live figures read as a
+ * stage nobody measures — the opposite of the truth, on the screen people use
+ * to decide what to build next.
+ */
+function stepState(metric: StepMetric | undefined, metrics: JourneyMetrics | null, error: string | null): string {
+  if (metric?.value != null) return metric.unit;
+  if (metric?.gap) return metric.gap;
+  if (metrics) return "nothing measures this yet";
+  return error ? `the numbers could not be read — ${error}` : "reading the numbers…";
+}
+
 export default function JourneyBoardPage() {
   const [model, setModel] = useState<JourneyModel | null>(null);
   const [metrics, setMetrics] = useState<JourneyMetrics | null>(null);
@@ -80,8 +94,11 @@ export default function JourneyBoardPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState<string | null>(null);   // `${stageId}|${kind}`
-  const [kpiStage, setKpiStage] = useState<string | null>(null);
+  // What the KPI panel is open on: a stage, and optionally the use case that
+  // was clicked to get there.
+  const [focus, setFocus] = useState<{ stageId: string; useCaseId?: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [businessError, setBusinessError] = useState<string | null>(null);
   const [ucMode, setUcMode] = useState<UseCaseMode>("none");
   const [categories, setCategories] = useState<JourneyItemKind[]>(MAIN_CATEGORIES);
@@ -101,10 +118,14 @@ export default function JourneyBoardPage() {
   useEffect(() => {
     const ctrl = new AbortController();
     setMetrics(null);
+    setMetricsError(null);
     fetch(`/api/journey/metrics?${windowQuery(reportingWindow)}`, { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((j) => { if (j?.ok && j.data) setMetrics(j.data as JourneyMetrics); })
-      .catch(() => {});
+      .then((j) => {
+        if (j?.ok && j.data) setMetrics(j.data as JourneyMetrics);
+        else setMetricsError(j?.error ?? j?.detail ?? "GA4 or HubSpot did not answer.");
+      })
+      .catch((err) => { if ((err as Error)?.name !== "AbortError") setMetricsError(String((err as Error)?.message ?? err)); });
     return () => ctrl.abort();
   }, [reportingWindow]);
 
@@ -219,18 +240,23 @@ export default function JourneyBoardPage() {
           ))}
         </ToggleButtonGroup>
 
+        {/* The control carries its own label, the way the date picker does:
+            a button that just says "All categories" makes you work out what it
+            is before you can use it. */}
         <Button
           size="small"
-          startIcon={<FilterListIcon sx={{ fontSize: 16 }} />}
+          startIcon={<FilterListIcon sx={{ fontSize: 16, color: MUTED }} />}
           onClick={(e) => setFilterAnchor(e.currentTarget)}
           disabled={ucMode === "only"}
           sx={{
-            textTransform: "none", fontSize: "0.78rem", color: filtered ? "#1b4a80" : MUTED,
-            bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 1, px: 1.2,
-            fontWeight: filtered ? 700 : 500,
+            textTransform: "none", fontSize: "0.78rem", color: INK,
+            bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: 1, px: 1.2, py: 0.55,
           }}
         >
-          {filtered ? `${categories.length} of ${MAIN_CATEGORIES.length} categories` : "All categories"}
+          <Box component="span" sx={{ color: MUTED, fontWeight: 500, mr: 0.6 }}>Category</Box>
+          <Box component="span" sx={{ fontWeight: 700, color: filtered ? "#1b4a80" : INK }}>
+            {filtered ? `${categories.length} of ${MAIN_CATEGORIES.length}` : "All"}
+          </Box>
         </Button>
         <Menu anchorEl={filterAnchor} open={Boolean(filterAnchor)} onClose={() => setFilterAnchor(null)}>
           {MAIN_CATEGORIES.map((kind) => (
@@ -333,7 +359,7 @@ export default function JourneyBoardPage() {
                     <Tooltip title="The KPIs for this stage, with what we can measure" describeChild>
                       <Box
                         component="button"
-                        onClick={() => setKpiStage(stage.id)}
+                        onClick={() => setFocus({ stageId: stage.id })}
                         aria-label={`KPIs for ${stage.name}`}
                         sx={{
                           flex: "0 0 auto",
@@ -378,7 +404,7 @@ export default function JourneyBoardPage() {
                           {/* What the number counts, on the screen rather than in a tooltip:
                               a bare 20,119 next to "Visit APSOparts homepage" reads as people. */}
                           <Typography sx={{ fontSize: "0.68rem", color: MUTED, lineHeight: 1.3 }}>
-                            {metric?.value != null ? metric.unit : metric?.gap ?? "nothing measures this yet"}
+                            {stepState(metric, metrics, metricsError)}
                           </Typography>
                         </Box>
                         {metric?.value != null ? (
@@ -452,7 +478,7 @@ export default function JourneyBoardPage() {
                           // A use case is a thing you ask questions about, not a
                           // note you retype: clicking it opens the stage's KPIs,
                           // and the pencil is there when you do want to edit.
-                          onOpenKpis={card.kind === "usecase" ? () => setKpiStage(stage.id) : undefined}
+                          onOpenKpis={card.kind === "usecase" ? () => setFocus({ stageId: stage.id, useCaseId: card.id }) : undefined}
                           onDraft={setDraft}
                           onStartEdit={() => { setEditing(card.id); setDraft(card.text); }}
                           onCancel={() => setEditing(null)}
@@ -502,9 +528,10 @@ export default function JourneyBoardPage() {
         model={model}
         metrics={metrics}
         business={business}
-        stageId={kpiStage}
+        focus={focus}
+        metricsError={metricsError}
         accentOf={(id) => ACCENTS[model.stages.findIndex((s) => s.id === id) % ACCENTS.length]}
-        onClose={() => setKpiStage(null)}
+        onClose={() => setFocus(null)}
       />
     </Box>
   );
@@ -628,16 +655,20 @@ function Breakdown({ title, rows, accent, unit }: { title: string; rows: Busines
 
 /** What this stage is supposed to be judged on, and what of it we can actually see. */
 function KpiPanel({
-  model, metrics, business, stageId, accentOf, onClose,
+  model, metrics, business, focus, metricsError, accentOf, onClose,
 }: {
   model: JourneyModel;
   metrics: JourneyMetrics | null;
   business: JourneyBusiness | null;
-  stageId: string | null;
+  focus: { stageId: string; useCaseId?: string } | null;
+  metricsError: string | null;
   accentOf: (id: string) => string;
   onClose: () => void;
 }) {
+  const stageId = focus?.stageId ?? null;
   const stage = model.stages.find((s) => s.id === stageId) ?? null;
+  const openedOn = focus?.useCaseId ? model.items.find((i) => i.id === focus.useCaseId) ?? null : null;
+  const ucFigures = openedOn ? useCaseFigures(openedOn.text, metrics, business) : [];
   const accent = stage ? accentOf(stage.id) : "#0a84ff";
   const kpis = stage ? model.items.filter((i) => i.stageId === stage.id && i.kind === "kpi") : [];
   const steps = stage ? model.steps.filter((s) => s.stageId === stage.id) : [];
@@ -689,13 +720,50 @@ function KpiPanel({
             </IconButton>
           </Box>
 
+          {/* Opened from a use case: answer the use case first. Its own question
+              is "how big is the population I act on", which is not the same
+              question as "how is this stage doing". */}
+          {openedOn && (
+            <Box sx={{ mt: 2.5, p: { xs: 2, md: 2.5 }, borderRadius: 2, bgcolor: "#f4f3fe", border: "1px solid #e2dffb" }}>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#4a3fd6", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                Use case
+              </Typography>
+              <Typography sx={{ fontSize: "1.05rem", fontWeight: 600, color: INK, mt: 0.5, lineHeight: 1.35 }}>{openedOn.text}</Typography>
+              {ucFigures.length > 0 ? (
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" }, gap: 1.5, mt: 2 }}>
+                  {ucFigures.map((figure) => (
+                    <Box key={figure.label} sx={{ p: 1.75, borderRadius: 2, bgcolor: "#fff", border: "1px solid #e2dffb" }}>
+                      <Typography sx={{ fontSize: "0.78rem", color: INK, fontWeight: 600, lineHeight: 1.3 }}>{figure.label}</Typography>
+                      <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.15, mt: 0.5 }}>{figure.display}</Typography>
+                      <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.5, lineHeight: 1.4 }}>{figure.source} · {figure.note}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 1 }}>
+                  {metrics
+                    ? "Nothing this application reads describes the population behind this use case. Its own numbers — who was enrolled, who was sent to, who came back — live in the HubSpot workflow, and the private app has no automation scope."
+                    : "Reading the numbers…"}
+                </Typography>
+              )}
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
+                Enrolments, sends and replies for the automation itself need <strong>automation</strong> scope on the private app;
+                without it this panel counts the audience, not the campaign.
+              </Typography>
+            </Box>
+          )}
+
           {/* THE REAL NUMBERS, first and large. */}
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1.25 }}>
-            Answered today ({answered.length} of {kpis.length})
+            {metrics ? `Answered today (${answered.length} of ${kpis.length})` : `Answered today (of ${kpis.length})`}
           </Typography>
           {answered.length === 0 ? (
-            <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
-              Nothing on this stage has a live source yet. Everything below is the work to change that.
+            <Typography sx={{ fontSize: "0.85rem", color: metricsError ? BAD : MUTED }}>
+              {metrics
+                ? "Nothing on this stage has a live source yet. Everything below is the work to change that."
+                : metricsError
+                  ? `The figures could not be read: ${metricsError}`
+                  : "Reading the figures from GA4 and HubSpot…"}
             </Typography>
           ) : (
             <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>
@@ -725,7 +793,9 @@ function KpiPanel({
                     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                       <Typography sx={{ fontSize: "0.85rem", color: INK }}>{step.label}</Typography>
                       <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.4 }}>
-                        {metric?.value != null ? `${metric.unit}${metric.note ? ` · ${metric.note}` : ""}` : metric?.gap ?? "nothing measures this yet"}
+                        {metric?.value != null
+                          ? `${metric.unit}${metric.note ? ` · ${metric.note}` : ""}`
+                          : stepState(metric, metrics, metricsError)}
                       </Typography>
                     </Box>
                     <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: metric?.value != null ? INK : MUTED, whiteSpace: "nowrap" }}>
@@ -754,7 +824,7 @@ function KpiPanel({
 
             <Box>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mt: 3, mb: 1 }}>
-                Asked for, still without a source ({unanswered.length})
+                {metrics ? `Asked for, still without a source (${unanswered.length})` : `KPIs asked for (${unanswered.length})`}
               </Typography>
               {unanswered.length === 0 ? (
                 <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Every KPI on this stage has a figure.</Typography>
@@ -768,7 +838,7 @@ function KpiPanel({
                         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                           <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.4 }}>{kpi.text}</Typography>
                           <Typography sx={{ fontSize: "0.7rem", color: STATUS_STYLE[status].fg, fontWeight: 600 }}>
-                            {ITEM_STATUS[status]} · no source wired yet
+                            {ITEM_STATUS[status]} · {metrics ? "no source wired yet" : "checking for a source…"}
                           </Typography>
                         </Box>
                       </Box>

@@ -21,7 +21,7 @@ import PageHeader from "@/app/PageHeader";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import type { JourneyModel } from "@/lib/journey/model";
 import type { FunnelResult, JourneyFunnels } from "@/lib/journey/funnels";
-import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
+import { PRESETS, useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
 import { full } from "@/app/charts/format";
 
 /** Stages where sitting still is bad news. */
@@ -33,6 +33,9 @@ export default function JourneyFunnelsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const { window: reportingWindow } = useReportingWindow();
+  // The dates are not a choice this screen made: they are whatever the picker
+  // beside them says. Naming the preset stops "why these dates?".
+  const presetLabel = PRESETS.find((p) => p.id === reportingWindow.preset)?.label ?? "Custom range";
 
   useEffect(() => {
     fetch("/api/journey").then((r) => r.json()).then((j) => setModel(j?.model ?? null)).catch(() => {});
@@ -59,7 +62,9 @@ export default function JourneyFunnelsPage() {
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         <WindowPicker />
         <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-          {counts ? `Arrivals counted between ${counts.from} and ${counts.to}` : "Counting…"}
+          {counts
+            ? `“${presetLabel}” is ${counts.from} to ${counts.to} — arrivals are counted over exactly those dates. Change the picker to change them.`
+            : "Counting…"}
         </Typography>
       </Box>
       <Section>
@@ -67,7 +72,8 @@ export default function JourneyFunnelsPage() {
         <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
           Each stage shows two numbers. <strong style={{ color: INK }}>Sitting there</strong> is how many companies are in that
           lifecycle stage today — the size of the pile. <strong style={{ color: INK }}>Arrived</strong> is how many moved into it
-          {counts ? ` between ${counts.from} and ${counts.to}` : " in the window"} — the direction of travel.
+          {counts ? ` between ${counts.from} and ${counts.to}, which is what the picker above resolves “${presetLabel}” to` : " in the window"}
+          {" "}— the direction of travel.
           {" "}They are not a conversion rate: a company reaching SQL this quarter may have become an MQL two years ago, so
           dividing one by the other would produce a number that means nothing.
         </Typography>
