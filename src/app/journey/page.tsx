@@ -36,7 +36,6 @@ import type { JourneyMetrics, StepMetric } from "@/lib/journey/metrics";
 import type { BusinessFigure, BusinessSeries, BusinessSlice, JourneyBusiness } from "@/lib/journey/business";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
-import { BarList } from "@/app/charts/BarList";
 import { matchKpi } from "@/lib/journey/kpiMatch";
 import { useCaseFigures } from "@/lib/journey/useCaseKpis";
 import { useReportingWindow, WindowPicker, windowQuery } from "@/app/window/ReportingWindow";
@@ -132,10 +131,14 @@ export default function JourneyBoardPage() {
     return () => ctrl.abort();
   }, [reportingWindow]);
 
-  // The ERP figures are monthly and compare this year to date with last year to
-  // the same month, so they do NOT follow the window picker. Read once.
+  // The ERP figures follow the window too, as the whole months inside it —
+  // monthly data cannot answer a shorter range, and the payload says when it
+  // had to fall back to the year to date.
   useEffect(() => {
-    fetch("/api/journey/business")
+    const ctrl = new AbortController();
+    setBusiness(null);
+    setBusinessError(null);
+    fetch(`/api/journey/business?${windowQuery(reportingWindow)}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
         if (j?.ok && j.data) setBusiness(j.data as JourneyBusiness);
@@ -143,8 +146,9 @@ export default function JourneyBoardPage() {
         // the usual cause is the private app missing custom-object read.
         else setBusinessError(j?.error ?? j?.detail ?? "The ERP series could not be read from HubSpot.");
       })
-      .catch((err) => setBusinessError(String((err as Error)?.message ?? err)));
-  }, []);
+      .catch((err) => { if ((err as Error)?.name !== "AbortError") setBusinessError(String((err as Error)?.message ?? err)); });
+    return () => ctrl.abort();
+  }, [reportingWindow]);
 
   const act = useCallback(async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -297,7 +301,7 @@ export default function JourneyBoardPage() {
 
       <BusinessBand business={business} error={businessError} />
 
-      <JourneyCharts business={business} metrics={metrics} metricsError={metricsError} />
+      <JourneyCharts business={business} />
 
       <Box
         sx={{
@@ -581,10 +585,13 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
           label={`${business.year} vs ${business.priorYear}, like for like`}
           sx={{ bgcolor: "#eef4fb", color: "#1b4a80", fontWeight: 600, fontSize: "0.7rem" }}
         />
-        <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
-          {business.source} · does not follow the window picker above
-        </Typography>
+        <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{business.source}</Typography>
       </Box>
+      {business.windowNote && (
+        <Typography sx={{ fontSize: "0.76rem", color: "#7a5b12", bgcolor: "#fdf4e3", p: 1, borderRadius: 1.5, mb: 1.5 }}>
+          {business.windowNote}
+        </Typography>
+      )}
 
       <Box
         sx={{
@@ -638,56 +645,11 @@ function BusinessBand({ business, error }: { business: JourneyBusiness | null; e
  * same months last year, and the funnel the steps already added up to — which
  * this application had been computing and never drawing.
  */
-function JourneyCharts({
-  business, metrics, metricsError,
-}: {
-  business: JourneyBusiness | null;
-  metrics: JourneyMetrics | null;
-  metricsError: string | null;
-}) {
+function JourneyCharts({ business }: { business: JourneyBusiness | null }) {
   const money = (n: number | null) => (n == null ? "—" : `€${compact(n)}`);
-
-  // Every step of the funnel is "visits in which it happened", so the share of
-  // the step before is a real proportion rather than two different units.
-  const first = metrics?.funnel[0]?.value ?? null;
-  const funnelRows = (metrics?.funnel ?? []).map((step, i, all) => {
-    const before = i === 0 ? null : all[i - 1].value;
-    const share = step.value != null && before ? step.value / before : null;
-    return {
-      label: step.label,
-      value: step.value,
-      secondary:
-        i === 0
-          ? "every visit"
-          : share == null
-            ? ""
-            : `${percent(share)} of the step before${first && step.value != null ? ` · ${percent(step.value / first)} of all visits` : ""}`,
-    };
-  });
 
   return (
     <Box sx={{ display: "grid", gap: 2, mb: 2 }}>
-      <Section>
-        <ChartFrame
-          title="From arriving to buying"
-          caption={
-            metrics
-              ? `Visits in which each step happened, ${metrics.from} to ${metrics.to}. One unit the whole way down, so each percentage is a real share of the step above it.`
-              : metricsError
-                ? `The steps could not be read: ${metricsError}`
-                : "Reading the steps from GA4…"
-          }
-          empty={metrics && funnelRows.every((r) => r.value == null) ? "GA4 returned no events for this window." : null}
-          table={{
-            columns: ["Step", "Visits"],
-            rows: funnelRows.map((r) => [r.label, r.value ?? "—"]),
-            numeric: [1],
-          }}
-        >
-          <BarList rows={funnelRows} format={full} labelWidth={200} maxLabel={30} />
-        </ChartFrame>
-      </Section>
-
       {business && (
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, gap: 2 }}>
           {business.series.map((s) => (

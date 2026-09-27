@@ -17,6 +17,7 @@ import {
   likeForLike,
   likeForLikeBy,
   monthlyPair,
+  monthsFullyInside,
   type LikeForLike,
 } from "@/lib/integrations/hubspotKpi";
 
@@ -68,6 +69,10 @@ export type JourneyBusiness = {
   byCountry: BusinessSlice[];
   byFamily: BusinessSlice[];
   byPriority: BusinessSlice[];
+  /** True when the figures were narrowed to the screen's reporting window. */
+  windowed: boolean;
+  /** Why the window was ignored, when it was. */
+  windowNote: string | null;
   /** The one sentence a reader should leave with. */
   verdict: string;
   source: string;
@@ -80,7 +85,13 @@ const slice = (rows: (LikeForLike & { key: string })[]): BusinessSlice[] =>
 const ratio = (a: number | null, b: number | null): number | null =>
   a != null && b != null && b !== 0 ? a / b : null;
 
-export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<JourneyBusiness> {
+export async function fetchJourneyBusiness(params: {
+  /** The screen's reporting window. Only WHOLE months inside it can be used. */
+  from?: string;
+  to?: string;
+  signal?: AbortSignal;
+} = {}): Promise<JourneyBusiness> {
+  const { from, to, signal } = params;
   // Five series, read one after another: they all go through the CRM search
   // throttle, so firing them together only earns 429s.
   const revenueRows = await fetchKpiSeries(KPI_SERIES.revenueByCountry, signal);
@@ -90,10 +101,25 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
   const newRows = await fetchKpiSeries(KPI_SERIES.newCustomers, signal);
   const backRows = await fetchKpiSeries(KPI_SERIES.reactivated, signal);
 
-  const revenue = likeForLike(revenueRows);
-  const intake = likeForLike(intakeRows);
-  const firstOrders = likeForLike(newRows);
-  const cameBack = likeForLike(backRows);
+  // A monthly series cannot answer "the last 28 days", so the window is applied
+  // as the whole calendar months it contains. A window with none of those —
+  // anything shorter than a month, typically — falls back to the full year to
+  // date and says so, rather than emptying the band.
+  const wholeMonths = from && to ? monthsFullyInside(from, to) : [];
+  const thisYear = Math.max(0, ...revenueRows.map((r) => r.year ?? 0)) || null;
+  const inWindow = new Set(wholeMonths.filter((m) => m.year === thisYear).map((m) => m.month));
+  const windowed = inWindow.size > 0;
+  const restrict = windowed ? inWindow : undefined;
+  const windowNote = windowed
+    ? null
+    : from && to
+      ? `${from} to ${to} contains no whole calendar month, and the ERP series is monthly — this is the year to date instead.`
+      : null;
+
+  const revenue = likeForLike(revenueRows, undefined, restrict);
+  const intake = likeForLike(intakeRows, undefined, restrict);
+  const firstOrders = likeForLike(newRows, undefined, restrict);
+  const cameBack = likeForLike(backRows, undefined, restrict);
 
   // Book-to-bill: what was ordered against what was invoiced. Above 100% the
   // order book is filling; below it, we are invoicing a book nobody refilled.
@@ -205,9 +231,11 @@ export async function fetchJourneyBusiness(signal?: AbortSignal): Promise<Journe
     monthsLabel: revenue.monthsLabel,
     headline,
     series,
-    byCountry: slice(likeForLikeBy(revenueRows, "country")).slice(0, 10),
-    byFamily: slice(likeForLikeBy(familyRows, "family")),
-    byPriority: slice(likeForLikeBy(priorityRows, "priority")),
+    byCountry: slice(likeForLikeBy(revenueRows, "country", restrict)).slice(0, 10),
+    byFamily: slice(likeForLikeBy(familyRows, "family", restrict)),
+    byPriority: slice(likeForLikeBy(priorityRows, "priority", restrict)),
+    windowed,
+    windowNote,
     verdict,
     source: "ERP revenue file, loaded into the HubSpot KPI object",
     generatedAt: new Date().toISOString(),

@@ -179,7 +179,12 @@ const spell = (months: number[]): string => {
  * against 121, and including it reported −14.2% where the complete months say
  * −7.0%. The loader flags that month `kpi_comparable = no`. Believe it.
  */
-export function likeForLike(rows: KpiRow[], pick?: (row: KpiRow) => boolean): LikeForLike {
+export function likeForLike(
+  rows: KpiRow[],
+  pick?: (row: KpiRow) => boolean,
+  /** Month numbers the caller will accept — a reporting window, narrowed. */
+  restrict?: Set<number>,
+): LikeForLike {
   const scoped = pick ? rows.filter(pick) : rows;
   const years = [...new Set(rows.map((r) => r.year).filter((y): y is number => y != null))].sort((a, b) => a - b);
   const year = years.length ? years[years.length - 1] : null;
@@ -201,7 +206,9 @@ export function likeForLike(rows: KpiRow[], pick?: (row: KpiRow) => boolean): Li
   );
   const later = monthsOf(year);
   const earlier = monthsOf(priorYear);
-  const months = [...later].filter((m) => earlier.has(m) && m <= cut && !refused.has(m)).sort((a, b) => a - b);
+  const months = [...later]
+    .filter((m) => earlier.has(m) && m <= cut && !refused.has(m) && (!restrict || restrict.has(m)))
+    .sort((a, b) => a - b);
 
   const sum = (y: number) =>
     scoped.filter((r) => r.year === y && r.month != null && months.includes(r.month)).reduce((s, r) => s + r.value, 0);
@@ -250,10 +257,11 @@ export function monthlyPair(
 export function likeForLikeBy(
   rows: KpiRow[],
   dimension: "country" | "priority" | "family",
+  restrict?: Set<number>,
 ): (LikeForLike & { key: string })[] {
   const keys = [...new Set(rows.map((r) => r[dimension]).filter((k): k is string => !!k))];
   return keys
-    .map((key) => ({ key, ...likeForLike(rows, (r) => r[dimension] === key) }))
+    .map((key) => ({ key, ...likeForLike(rows, (r) => r[dimension] === key, restrict) }))
     .filter((r) => r.value != null || r.priorValue != null)
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 }

@@ -123,8 +123,8 @@ const navSections: NavSection[] = [
     color: "#7b5cff",
     items: [
       { label: "The journey", href: "/journey", icon: <RouteIcon fontSize="small" /> },
-      { label: "Funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
-      { label: "Where the data comes from", href: "/journey/sources", icon: <AccountTreeIcon fontSize="small" /> },
+      { label: "KPIs", href: "/journey/kpis", icon: <AccountTreeIcon fontSize="small" /> },
+      { label: "Lifecycle funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
     ],
   },
   {
