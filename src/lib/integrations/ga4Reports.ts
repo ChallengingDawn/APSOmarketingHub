@@ -36,7 +36,10 @@ export type Ga4ReportName =
   | "trafficWeekly"
   | "transactionsDaily"
   | "adsSpend"
-  | "seaMonthly";
+  | "seaMonthly"
+  | "eventTotals"
+  | "sessionTotals"
+  | "landingSessions";
 
 type ReportSpec = {
   dimensions: string[];
@@ -164,6 +167,29 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["transactions"],
     orderBy: { dimension: "date" },
     limit: 400,
+  },
+  eventTotals: {
+    // Every event the property recorded in the window — the journey reads the
+    // handful it cares about (view_item, add_to_cart, begin_checkout, purchase).
+    // Sessions as well as events: a funnel must count the same thing at every
+    // step, and events are counted many times per visit (166% of the previous
+    // step is not a conversion rate, it is two different units).
+    dimensions: ["eventName"],
+    metrics: ["eventCount", "sessions"],
+    orderBy: { metric: "eventCount", desc: true },
+    limit: 60,
+  },
+  sessionTotals: {
+    dimensions: [],
+    metrics: ["sessions", "totalUsers"],
+    limit: 1,
+  },
+  landingSessions: {
+    // Wide enough to hold every locale root; the journey sums the homepages.
+    dimensions: ["landingPagePlusQueryString"],
+    metrics: ["sessions"],
+    orderBy: { metric: "sessions", desc: true },
+    limit: 300,
   },
   seaMonthly: {
     // Revenue and orders per month for whichever channel the request filters to.
