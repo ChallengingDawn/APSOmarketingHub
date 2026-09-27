@@ -19,15 +19,22 @@ import InputBase from "@mui/material/InputBase";
 import Tooltip from "@mui/material/Tooltip";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
-import { ITEM_KINDS, type JourneyItem, type JourneyItemKind, type JourneyModel } from "@/lib/journey/model";
+import { ITEM_KINDS, ITEM_STATUS, statusOf, type JourneyItem, type JourneyItemKind, type JourneyItemStatus, type JourneyModel } from "@/lib/journey/model";
 import type { JourneyMetrics } from "@/lib/journey/metrics";
 import { full, percent } from "@/app/charts/format";
 
 const LANES = Object.entries(ITEM_KINDS) as [JourneyItemKind, string][];
 const LANE_TONE: Partial<Record<JourneyItemKind, string>> = { risk: "#9e1b18", kpi: "#1b4a80" };
+
+/** Not started → on track → needs improvement → done, and round again. */
+const STATUS_ORDER: JourneyItemStatus[] = ["open", "ontrack", "attention", "done"];
+const STATUS_STYLE: Record<JourneyItemStatus, { dot: string; bg: string; fg: string }> = {
+  open: { dot: "#c7ccd4", bg: "#f3f4f6", fg: "#5b6472" },
+  ontrack: { dot: "#34c759", bg: "#e8f6ec", fg: "#155d33" },
+  attention: { dot: "#ff9f0a", bg: "#fdf4e3", fg: "#7a5b12" },
+  done: { dot: "#0a84ff", bg: "#e8f1fd", fg: "#1b4a80" },
+};
 
 export default function JourneyBoardPage() {
   const [model, setModel] = useState<JourneyModel | null>(null);
@@ -164,7 +171,11 @@ export default function JourneyBoardPage() {
                           onStartEdit={() => { setEditing(card.id); setDraft(card.text); }}
                           onCancel={() => setEditing(null)}
                           onSave={async () => { await act({ action: "edit", id: card.id, text: draft }); setEditing(null); }}
-                          onToggle={() => act({ action: "toggle", id: card.id })}
+                          onCycleStatus={() => {
+                            const now = statusOf(card);
+                            const next = STATUS_ORDER[(STATUS_ORDER.indexOf(now) + 1) % STATUS_ORDER.length];
+                            return act({ action: "status", id: card.id, status: next });
+                          }}
                           onDelete={() => act({ action: "delete", id: card.id })}
                         />
                       ))}
@@ -205,7 +216,7 @@ export default function JourneyBoardPage() {
 }
 
 function Card({
-  card, editing, draft, busy, onDraft, onStartEdit, onCancel, onSave, onToggle, onDelete,
+  card, editing, draft, busy, onDraft, onStartEdit, onCancel, onSave, onCycleStatus, onDelete,
 }: {
   card: JourneyItem;
   editing: boolean;
@@ -215,9 +226,10 @@ function Card({
   onStartEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
-  onToggle: () => void;
+  onCycleStatus: () => void;
   onDelete: () => void;
 }) {
+  const status = statusOf(card);
   if (editing) {
     return (
       <Box sx={{ display: "flex", gap: 0.5, p: 0.75, borderRadius: 1.5, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
@@ -245,20 +257,21 @@ function Card({
         p: 0.75,
         borderRadius: 1.5,
         border: `1px solid ${HAIRLINE}`,
-        bgcolor: card.done ? "#f6f8f6" : "#fff",
+        bgcolor: status === "done" ? "#fbfcfe" : "#fff",
         opacity: busy ? 0.7 : 1,
         "&:hover .card-actions": { opacity: 1 },
       }}
     >
-      <IconButton size="small" aria-label={card.done ? "Mark as not done" : "Mark as done"} onClick={onToggle} sx={{ p: 0.25 }}>
-        {card.done ? <CheckCircleIcon sx={{ fontSize: 15, color: "#155d33" }} /> : <CheckCircleOutlineIcon sx={{ fontSize: 15, color: MUTED }} />}
-      </IconButton>
+      <Tooltip title={`${ITEM_STATUS[status]} — click to change`} describeChild>
+        <IconButton size="small" aria-label={`Status: ${ITEM_STATUS[status]}`} onClick={onCycleStatus} sx={{ p: 0.4 }}>
+          <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: STATUS_STYLE[status].dot, boxShadow: status === "open" ? "inset 0 0 0 1.5px #b9bfc9" : "none" }} />
+        </IconButton>
+      </Tooltip>
       <Typography
         onClick={onStartEdit}
         sx={{
           fontSize: "0.78rem",
-          color: card.done ? MUTED : INK,
-          textDecoration: card.done ? "line-through" : "none",
+          color: status === "done" ? MUTED : INK,
           lineHeight: 1.35,
           flexGrow: 1,
           cursor: "text",

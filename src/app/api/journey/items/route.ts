@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { ITEM_KINDS, type JourneyItem, type JourneyItemKind } from "@/lib/journey/model";
+import { ITEM_KINDS, ITEM_STATUS, type JourneyItem, type JourneyItemKind, type JourneyItemStatus } from "@/lib/journey/model";
 import { loadJourney, saveJourney } from "@/lib/journey/store";
 
 export const runtime = "nodejs";
@@ -16,9 +16,12 @@ export const dynamic = "force-dynamic";
 const MAX_TEXT = 400;
 const isKind = (value: unknown): value is JourneyItemKind =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(ITEM_KINDS, value);
+const isStatus = (value: unknown): value is JourneyItemStatus =>
+  typeof value === "string" && Object.prototype.hasOwnProperty.call(ITEM_STATUS, value);
 
 type Body = {
-  action?: "add" | "edit" | "toggle" | "delete" | "move";
+  action?: "add" | "edit" | "status" | "delete" | "move";
+  status?: string;
   id?: string;
   stageId?: string;
   kind?: string;
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest) {
         addedBy: who,
         addedAt: now,
         order,
-        done: false,
+        status: "open",
       };
       items.push(item);
       break;
@@ -77,10 +80,11 @@ export async function POST(req: NextRequest) {
       items[at] = { ...items[at], text: text.slice(0, MAX_TEXT), addedBy: who, addedAt: now };
       break;
     }
-    case "toggle": {
+    case "status": {
       const at = find(body.id ?? "");
       if (at < 0) return NextResponse.json({ ok: false, error: "That card is gone." }, { status: 404 });
-      items[at] = { ...items[at], done: !items[at].done };
+      if (!isStatus(body.status)) return NextResponse.json({ ok: false, error: "Unknown status." }, { status: 400 });
+      items[at] = { ...items[at], status: body.status, done: body.status === "done" };
       break;
     }
     case "delete": {

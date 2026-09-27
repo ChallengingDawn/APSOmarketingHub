@@ -22,13 +22,23 @@ export type JourneyStage = {
 
 /** The lanes of the board. Each is a list of things, not a paragraph. */
 export const ITEM_KINDS = {
-  touchpoint: "Critical touchpoints",
+  touchpoint: "Touchpoints",
   risk: "Where we lose them",
-  question: "Questions to answer",
-  kpi: "KPIs to put in place",
-  idea: "Optimisation ideas",
-  channel: "Channels & UX focus",
+  question: "Questions",
+  kpi: "KPIs",
+  idea: "Ideas",
+  channel: "Channels",
 } as const;
+
+/** How a card is doing. The board is a working surface, so every card has a state. */
+export const ITEM_STATUS = {
+  open: "Not started",
+  ontrack: "On track",
+  attention: "Needs improvement",
+  done: "Done",
+} as const;
+
+export type JourneyItemStatus = keyof typeof ITEM_STATUS;
 
 export type JourneyItemKind = keyof typeof ITEM_KINDS;
 
@@ -42,9 +52,14 @@ export type JourneyItem = {
   addedBy?: string;
   addedAt?: string;
   order: number;
-  /** Set when someone ticks it off; the item stays, the board shows it done. */
+  /** Not started, on track, needs improvement, done. */
+  status?: JourneyItemStatus;
+  /** Kept so older stored boards still read; "done" is a status now. */
   done?: boolean;
 };
+
+export const statusOf = (item: JourneyItem): JourneyItemStatus =>
+  item.status ?? (item.done ? "done" : "open");
 
 export type JourneyStep = {
   index: number;                 // 1..n in the order the buyer takes them
