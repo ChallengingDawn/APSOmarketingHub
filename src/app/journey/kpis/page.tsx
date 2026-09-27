@@ -39,12 +39,15 @@ const BAD = "#9e1b18";
  */
 const POSSIBLE: { measure: string; how: string }[] = [
   {
-    measure: "Which pages a given customer read",
-    how: "Our own Google tag already does this in the other apps, and the shop session identifies the logged-in customer — that is how the Ads buyer-bucket lookup knows who is ordering. Performis also counts views and logins per customer number. What is missing is the decision to keep the history against a person, and the consent basis for it.",
+    // The unit is the ARTICLE, not the URL. A page path tells you somebody was
+    // on /de-CH/o-ring-nbr-70; the article number tells you which part, which
+    // joins to stock, MOQ, price, the order history and the ERP.
+    measure: "Which articles a customer looked at",
+    how: "Our own Google tag already does this in the other apps, and the shop session identifies the logged-in customer — that is how the Ads buyer-bucket lookup knows who is ordering. GA4's view_item already carries the article as its item id, but GA4 holds no customer, so the pair has to be recorded on our side: company plus article plus timestamp. Performis also counts views per customer number today, in the E-Shop Data Tracker, but as a desktop export rather than a feed.",
   },
   {
     measure: "Stock and MOQ at the moment a customer looked",
-    how: "When a customer opens an article we can ask HubSpot for that article's stock and minimum order quantity on Products & Pricing and record what was true at that moment. The shop renders stock from the ERP and keeps no history; this would be our own record, not the shop's.",
+    how: "Products & Pricing carries stock_quantity on 131,403 of 226,828 articles and moq_minimum_quantity on 6,237 — so for a large minority we can already say what is in stock and what the minimum order is. What it CANNOT say is when that was true: stock_as_of_date is filled on 239 records. So a stock figure read back from HubSpot is undated, and “what the customer saw” has to be captured by the tag at the moment the shop renders it — the shop reads the ERP live and keeps no history.",
   },
   {
     measure: "Time on product pages, datasheet downloads",
