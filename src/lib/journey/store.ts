@@ -1,9 +1,8 @@
-// Where the imported journey lives.
+// Where the journey lives.
 //
-// One current version plus the previous ones, in the key-value table the hub
-// already has. The history matters: the journey is a business document that
-// several people edit, and "who changed the drop-off risks, and when" is a
-// question that will be asked.
+// One current definition plus the last few versions, in the key-value table the
+// hub already has. The history matters: this is a business document several
+// people edit, and "who changed the drop-off risks, and when" gets asked.
 
 import { query } from "@/lib/db/client";
 import type { JourneyModel } from "./model";
@@ -14,11 +13,11 @@ const HISTORY = "journey:history";
 const HISTORY_KEEP = 10;
 
 export type JourneyHistoryEntry = {
-  importedAt: string;
-  importedBy: string;
-  fileName: string;
+  at: string;
+  by: string;
   stages: number;
   steps: number;
+  items: number;
 };
 
 /**
@@ -35,7 +34,7 @@ export async function loadJourney(): Promise<JourneyModel | null> {
   }
 }
 
-/** True when nobody has imported a workbook and the shipped default is in use. */
+/** True when nobody has edited anything and the shipped definition is in use. */
 export async function isSeeded(): Promise<boolean> {
   try {
     const res = await query<{ k: string }>("SELECT k FROM apsomh_kv WHERE k = $1", [CURRENT]);
@@ -53,11 +52,11 @@ export async function saveJourney(model: JourneyModel): Promise<void> {
   );
   const history = await loadHistory();
   const entry: JourneyHistoryEntry = {
-    importedAt: model.source.importedAt,
-    importedBy: model.source.importedBy,
-    fileName: model.source.fileName,
+    at: model.source.lastEditedAt ?? new Date().toISOString(),
+    by: model.source.lastEditedBy ?? "unknown",
     stages: model.stages.length,
     steps: model.steps.length,
+    items: model.items.length,
   };
   const next = [entry, ...history].slice(0, HISTORY_KEEP);
   await query(

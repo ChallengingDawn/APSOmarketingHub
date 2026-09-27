@@ -3,21 +3,16 @@
 /**
  * CUSTOMER JOURNEY — an application of its own.
  *
- *   /journey           The journey     five stages, fifteen steps, live numbers
- *   /journey/funnels   Funnels         lifecycle paths and where they stop
- *   /journey/sources   Sources         workbook rows, live sources, gaps
- *   /journey/import    Import          upload the workbook, preview, apply
- *
- * The definition comes from the business (Alexandre's workbook); the numbers
- * come from GA4, HubSpot and the shop. The two are kept visibly apart, so a
- * figure is never mistaken for an intention, or the other way round.
+ * The board is the application; the funnels and the data sources are their own
+ * entries in the sidebar rather than tabs inside this one. There is no strip of
+ * tabs here on purpose: a tab bar inside an app that also lives in the sidebar
+ * gives two ways to the same screen and makes neither of them obvious.
  */
 
 import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
-import { JourneySubNav } from "./JourneyShell";
 
 export default function JourneyLayout({ children }: { children: ReactNode }) {
   return (
@@ -26,7 +21,6 @@ export default function JourneyLayout({ children }: { children: ReactNode }) {
         title="Customer journey"
         subtitle="Who arrives, how far they get, and where we lose them"
       />
-      <JourneySubNav />
       {children}
     </Box>
   );

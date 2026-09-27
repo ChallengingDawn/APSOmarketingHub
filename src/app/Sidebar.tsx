@@ -16,7 +16,6 @@ import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InsightsIcon from "@mui/icons-material/Insights";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import UploadFileIcon from "@mui/icons-material/UploadFile";
 import HubIcon from "@mui/icons-material/Hub";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import HandshakeIcon from "@mui/icons-material/Handshake";
@@ -126,7 +125,6 @@ const navSections: NavSection[] = [
       { label: "The journey", href: "/journey", icon: <RouteIcon fontSize="small" /> },
       { label: "Funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
       { label: "Where the data comes from", href: "/journey/sources", icon: <AccountTreeIcon fontSize="small" /> },
-      { label: "Import the workbook", href: "/journey/import", icon: <UploadFileIcon fontSize="small" /> },
     ],
   },
   {
