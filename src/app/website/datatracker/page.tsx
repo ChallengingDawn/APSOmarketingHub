@@ -25,6 +25,7 @@ import IconButton from "@mui/material/IconButton";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
+import TablePagination from "@mui/material/TablePagination";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
@@ -81,6 +82,8 @@ export default function EshopActivityPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [lastQuery, setLastQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(25);
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +122,7 @@ export default function EshopActivityPage() {
     q.set("mode", live ? "range" : "year");
     setData(null);
     setExtraRows([]);
+    setPage(0);
     setCursor(null);
     setError(null);
     setLastQuery(q.toString());
@@ -164,6 +168,24 @@ export default function EshopActivityPage() {
     return [r.name, r.customerNumber, r.representative].some((v) => (v ?? "").toLowerCase().includes(needle));
   });
 
+  const pageRows = visible.slice(page * perPage, page * perPage + perPage);
+
+  const loadMore = useCallback(async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const q = new URLSearchParams(lastQuery);
+      q.set("after", cursor);
+      const j = await fetch(`/api/datatracker?${q}`).then((r) => r.json());
+      if (j?.ok && j.data) {
+        setExtraRows((prev) => [...prev, ...(j.data as EshopActivity).rows]);
+        setCursor((j.data as EshopActivity).after ?? null);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, lastQuery]);
+
   const sum = useCallback((pick: (r: (typeof visible)[number]) => number | null) =>
     visible.reduce((acc, r) => acc + (pick(r) ?? 0), 0), [visible]);
 
@@ -184,7 +206,7 @@ export default function EshopActivityPage() {
       <Typography component="h1" sx={{
         fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
         fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em",
-        fontSize: { xs: "1.5rem", md: "1.75rem" }, lineHeight: 1.1,
+        fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1,
       }}>Datatracker</Typography>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1 } }}>
@@ -273,7 +295,7 @@ export default function EshopActivityPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {visible.map((r) => [
+              {pageRows.map((r) => [
                 <TableRow key={r.id} hover sx={{ cursor: "pointer" }}
                   onClick={() => setOpenRow(openRow === r.id ? null : r.id)}>
                   <TableCell sx={{ px: 0.5 }}>
