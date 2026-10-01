@@ -28,13 +28,16 @@ export async function GET(req: NextRequest) {
   const priority = sp.get("priority") ?? undefined;
   const sort = (["views", "logins", "revenue"] as const).find((s) => s === sp.get("sort")) ?? "views";
   const limit = Number(sp.get("limit")) || 100;
+  const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const to = isDay(sp.get("to")) ? (sp.get("to") as string) : undefined;
+  const from = isDay(sp.get("from")) ? (sp.get("from") as string) : undefined;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const key = `datatracker:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${priority ?? ""}:${sort}:${limit}`;
+    const key = `datatracker:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${priority ?? ""}:${sort}:${limit}:${from ?? ""}:${to ?? ""}`;
     const data = await cachedReport(key, () =>
-      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, priority, sort, limit }, controller.signal),
+      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, priority, sort, limit, from, to }, controller.signal),
     );
     // The option lists change about once a year; one shared cache entry.
     const options = await cachedReport("datatracker:options", () => fetchEshopFilterOptions(controller.signal));

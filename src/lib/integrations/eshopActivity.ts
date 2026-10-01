@@ -24,6 +24,25 @@ export type EshopYear = (typeof ESHOP_YEARS)[number];
 const loginsProp = (year: EshopYear) => (year === 2026 ? "n_of_logins_datatracker" : `n_of_logins_datatracker_${year}`);
 const viewsProp = (year: EshopYear) => (year === 2026 ? "n_of_views_datatracker" : `n_of_views_datatracker_${year}`);
 
+/** One day of the live counters, as the smart bar writes them. */
+type ActivityJson = { days?: Record<string, { v?: number; l?: number }>; recent?: { t?: string; a?: string }[] };
+
+/** Sum the live counters between two ISO days, inclusive. Null when untouched. */
+function sumRange(raw: unknown, from: string, to: string): { views: number | null; logins: number | null; days: number } {
+  if (typeof raw !== "string" || !raw) return { views: null, logins: null, days: 0 };
+  let parsed: ActivityJson;
+  try { parsed = JSON.parse(raw) as ActivityJson; } catch { return { views: null, logins: null, days: 0 }; }
+  const days = parsed.days ?? {};
+  let views = 0, logins = 0, touched = 0;
+  for (const [day, counts] of Object.entries(days)) {
+    if (day < from || day > to) continue;
+    views += counts?.v ?? 0;
+    logins += counts?.l ?? 0;
+    touched++;
+  }
+  return touched ? { views, logins, days: touched } : { views: null, logins: null, days: 0 };
+}
+
 export type EshopRow = {
   id: string;
   mandant: string | null;
@@ -33,6 +52,12 @@ export type EshopRow = {
   views: number | null;
   /** Views per login — how deep a visit goes, not how often they come. */
   viewsPerLogin: number | null;
+  /** The same two figures over the requested range, from the live JSON. Null
+   *  until the smart bar has written something for that company. */
+  rangeViews: number | null;
+  rangeLogins: number | null;
+  /** The newest articles this customer opened, newest last. */
+  recent: { t: string; a: string }[];
   revenueYtd: number | null;
   country: string | null;
   representative: string | null;
@@ -48,6 +73,11 @@ export type EshopRow = {
 
 export type EshopActivity = {
   year: EshopYear;
+  /** The window the live counters cover. */
+  from: string;
+  to: string;
+  /** True when at least one row carries live data — the page says so when not. */
+  anyLive: boolean;
   rows: EshopRow[];
   /** How many companies match the filters, not how many rows came back. */
   total: number | null;
@@ -67,6 +97,9 @@ export type EshopFilters = {
   /** Rank by views, logins or revenue. */
   sort?: "views" | "logins" | "revenue";
   limit?: number;
+  /** Inclusive ISO days for the live counters. Defaults to the last 30 days. */
+  from?: string;
+  to?: string;
 };
 
 const num = (v: unknown): number | null => {
@@ -133,6 +166,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
         // ownername and owneremail are empty on these records, so the rep comes
         // from the ERP's own sales agent, with the HubSpot owner as a fallback.
         "sa__sales_agent", "hubspot_owner_id",
+        "eshop_activity",
       ],
       sorts: [{ propertyName: sortProperty, direction: "DESCENDING" }],
       limit,
@@ -140,6 +174,8 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
     signal,
   });
 
+  const to = filters.to ?? new Date().toISOString().slice(0, 10);
+  const from = filters.from ?? new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
   const ownerIndex = await owners(signal);
   const rows: EshopRow[] = (res.results ?? []).map((r) => {
     const p = r.properties ?? {};
@@ -158,6 +194,14 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       representative: str(p.sa__sales_agent) ?? ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
       apsoCustomer: str(p.apso_customer),
       salesPriority: str(p.sales_priority),
+      rangeViews: sumRange(p.eshop_activity, from, to).views,
+      rangeLogins: sumRange(p.eshop_activity, from, to).logins,
+      recent: (() => {
+        try {
+          const j = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson;
+          return (j.recent ?? []).filter((r) => r?.t && r?.a).map((r) => ({ t: String(r.t), a: String(r.a) })).slice(-8);
+        } catch { return []; }
+      })(),
       history: [...ESHOP_YEARS]
         .sort((a, b) => a - b)
         .map((y) => ({ year: y, logins: num(p[loginsProp(y)]), views: num(p[viewsProp(y)]) })),
@@ -166,6 +210,9 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
 
   return {
     year,
+    from,
+    to,
+    anyLive: rows.some((r) => r.rangeViews != null || r.rangeLogins != null),
     rows,
     total: typeof res.total === "number" ? res.total : null,
     countries: [...new Set(rows.map((r) => r.country).filter((c): c is string => !!c))].sort(),
