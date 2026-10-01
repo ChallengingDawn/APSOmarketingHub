@@ -37,6 +37,7 @@ export type Ga4ReportName =
   | "transactionsDaily"
   | "adsSpend"
   | "seaMonthly"
+  | "itemActivity"
   | "eventTotals"
   | "sessionTotals"
   | "landingSessions";
@@ -52,6 +53,16 @@ type ReportSpec = {
 };
 
 export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
+  // Articles, item-scoped. The shop sends the article number as the item id on
+  // view_item and purchase, so this is "how often was this part looked at" —
+  // for the sessions that accepted analytics cookies, which is the whole
+  // difference between this and the Datatracker's own counts.
+  itemActivity: {
+    dimensions: ["itemId", "itemName"],
+    metrics: ["itemsViewed", "itemsPurchased", "itemRevenue"],
+    orderBy: { metric: "itemsViewed", desc: true },
+    limit: 250,
+  },
   acquisitionChannels: {
     dimensions: ["sessionDefaultChannelGroup"],
     metrics: ["sessions", "newUsers", "engagedSessions", "engagementRate", "keyEvents"],

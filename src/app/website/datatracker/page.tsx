@@ -20,11 +20,15 @@ import TableRow from "@mui/material/TableRow";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
 import PageHeader from "@/app/PageHeader";
-import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
+import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
+
+type ArticleRow = { articleNumber: string; name: string; views: number | null; purchased: number | null; revenue: number | null };
 
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; representatives: string[]; priorities: string[] };
 
@@ -68,6 +72,9 @@ export default function EshopActivityPage() {
   const [priority, setPriority] = useState("");
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"customers" | "articles">("customers");
+  const [articles, setArticles] = useState<{ from: string; to: string; rows: ArticleRow[] } | null>(null);
+  const [articlesError, setArticlesError] = useState<string | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -89,6 +96,20 @@ export default function EshopActivityPage() {
     return () => ctrl.abort();
   }, [year, country, mandant, apsoCustomer, representative, priority, sort]);
 
+  useEffect(() => {
+    if (tab !== "articles" || articles) return;
+    const ctrl = new AbortController();
+    setArticlesError(null);
+    fetch("/api/datatracker/articles", { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok && j.data) setArticles(j.data);
+        else setArticlesError(j?.error ?? j?.detail ?? "GA4 did not answer.");
+      })
+      .catch((e) => { if ((e as Error)?.name !== "AbortError") setArticlesError(String(e)); });
+    return () => ctrl.abort();
+  }, [tab, articles]);
+
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
   const visible = (data?.rows ?? []).filter((r) => {
@@ -103,12 +124,21 @@ export default function EshopActivityPage() {
   const cell = { borderColor: HAIRLINE, fontSize: "0.8rem" };
 
   return (
-    <Box sx={{ display: "grid", gap: 2.5 }}>
+    // The page sits outside the (site) route group, so it carries its own
+    // gutter — nothing above it supplies one and the table ran flush to the rail.
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
       <PageHeader
         title="Datatracker"
         subtitle="Who logs in, how much they look at, and what they are worth — per customer, from the shop's own tracking"
       />
 
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1 } }}>
+        <Tab value="customers" label="Customers" />
+        <Tab value="articles" label="Articles" />
+      </Tabs>
+
+      {tab === "customers" && (
+      <>
       <Section>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
           <Select size="small" value={year} onChange={(e) => setYear(Number(e.target.value) as EshopYear)} sx={{ minWidth: 104 }}>
@@ -151,11 +181,10 @@ export default function EshopActivityPage() {
         </Box>
       </Section>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" }, gap: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" }, gap: 2 }}>
         <StatTile label={`Logins ${year}`} value={full(sum((r) => r.logins))} note="Shown rows only" />
         <StatTile label={`Views ${year}`} value={full(sum((r) => r.views))} note="Shown rows only" />
         <StatTile label="Views per login" value={decimal(sum((r) => r.views) / Math.max(1, sum((r) => r.logins)), 1)} note="How deep a visit goes" />
-        <StatTile label="Revenue YTD" value={`€${compact(sum((r) => r.revenueYtd))}`} note="ERP, this year to date" />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -200,6 +229,64 @@ export default function EshopActivityPage() {
           </Table>
         </Box>
       </Section>
+
+      </>
+      )}
+
+      {tab === "articles" && (
+        <Section sx={{ p: 0, overflow: "hidden" }}>
+          <Box sx={{ p: 2 }}>
+            <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>
+              Articles {articles ? `· ${articles.from} to ${articles.to}` : ""}
+            </Typography>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>
+              How often each part was looked at and bought, from GA4&apos;s item data — the shop sends the article number as the
+              item id. <strong>These are consented sessions only.</strong> The Datatracker&apos;s own article counts are collected
+              on an essential-cookie basis and are larger; they are not in HubSpot, so they cannot be shown here yet.
+            </Typography>
+            {articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18", mt: 1 }}>{articlesError}</Typography>}
+          </Box>
+          <Box sx={{ overflowX: "auto" }}>
+            <Table size="small" sx={{ "& td, & th": cell }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Article no.</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Description</TableCell>
+                  {["Views", "Bought", "Revenue", "Views per purchase"].map((h) => (
+                    <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(articles?.rows ?? [])
+                  .filter((a) => !search.trim() || `${a.articleNumber} ${a.name}`.toLowerCase().includes(search.toLowerCase()))
+                  .map((a) => (
+                    <TableRow key={a.articleNumber} hover>
+                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.articleNumber || "—"}</TableCell>
+                      <TableCell sx={{ color: INK }}>{a.name || "—"}</TableCell>
+                      <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.views)}</TableCell>
+                      <TableCell align="right" sx={{ color: INK }}>{full(a.purchased)}</TableCell>
+                      <TableCell align="right" sx={{ color: MUTED }}>{a.revenue == null ? "—" : `€${compact(a.revenue)}`}</TableCell>
+                      <TableCell align="right" sx={{ color: MUTED }}>
+                        {a.purchased ? decimal((a.views ?? 0) / a.purchased, 1) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                {articles && articles.rows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                      GA4 returned no item rows for this period — the shop may not be sending an item id on view_item.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!articles && !articlesError && (
+                  <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+        </Section>
+      )}
 
       <Section>
         <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mb: 0.75 }}>Where these numbers come from</Typography>
