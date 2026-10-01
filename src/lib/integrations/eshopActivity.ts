@@ -78,6 +78,8 @@ export type EshopActivity = {
   to: string;
   /** True when at least one row carries live data — the page says so when not. */
   anyLive: boolean;
+  /** Cursor for the next page, absent on the last one. */
+  after: string | null;
   rows: EshopRow[];
   /** How many companies match the filters, not how many rows came back. */
   total: number | null;
@@ -94,6 +96,8 @@ export type EshopFilters = {
   representative?: string;
   apsoCustomer?: string;
   priority?: string;
+  /** HubSpot search cursor, for "load more". */
+  after?: string;
   /** Rank by views, logins or revenue. */
   sort?: "views" | "logins" | "revenue";
   limit?: number;
@@ -111,6 +115,7 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.length > 
 type SearchResponse = {
   total?: number;
   results?: { id?: string; properties?: Record<string, unknown> }[];
+  paging?: { next?: { after?: string } };
 };
 
 /** id → name for the HubSpot owners, read once and kept for the process. */
@@ -149,7 +154,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
   ];
   if (filters.country) conditions.push({ propertyName: "country_custom", operator: "EQ", value: filters.country });
   if (filters.mandant) conditions.push({ propertyName: "mandant", operator: "EQ", value: filters.mandant });
-  if (filters.representative) conditions.push({ propertyName: "sa__sales_agent", operator: "EQ", value: filters.representative });
+  if (filters.representative) conditions.push({ propertyName: "hubspot_owner_id", operator: "EQ", value: filters.representative });
   if (filters.apsoCustomer) conditions.push({ propertyName: "apso_customer", operator: "EQ", value: filters.apsoCustomer });
   if (filters.priority) conditions.push({ propertyName: "sales_priority", operator: "EQ", value: filters.priority });
 
@@ -163,13 +168,15 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
         // every year, so a row can show whether this customer is growing or dying
         ...ESHOP_YEARS.flatMap((y) => [loginsProp(y), viewsProp(y)]),
         "erp_rev_ytd_cy", "country_custom", "apso_customer", "sales_priority",
-        // ownername and owneremail are empty on these records, so the rep comes
-        // from the ERP's own sales agent, with the HubSpot owner as a fallback.
-        "sa__sales_agent", "hubspot_owner_id",
+        // The representative IS the company owner (SARCLA, 01.10). ownername and
+        // owneremail are empty on these records, so the id is resolved against
+        // the owners API rather than read off the company.
+        "hubspot_owner_id",
         "eshop_activity",
       ],
       sorts: [{ propertyName: sortProperty, direction: "DESCENDING" }],
       limit,
+      ...(filters.after ? { after: filters.after } : {}),
     },
     signal,
   });
@@ -191,7 +198,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       viewsPerLogin: v != null && l ? v / l : null,
       revenueYtd: num(p.erp_rev_ytd_cy),
       country: str(p.country_custom),
-      representative: str(p.sa__sales_agent) ?? ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
+      representative: ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
       apsoCustomer: str(p.apso_customer),
       salesPriority: str(p.sales_priority),
       rangeViews: sumRange(p.eshop_activity, from, to).views,
@@ -213,6 +220,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
     from,
     to,
     anyLive: rows.some((r) => r.rangeViews != null || r.rangeLogins != null),
+    after: res.paging?.next?.after ?? null,
     rows,
     total: typeof res.total === "number" ? res.total : null,
     countries: [...new Set(rows.map((r) => r.country).filter((c): c is string => !!c))].sort(),
@@ -226,8 +234,8 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
   countries: string[];
   mandants: string[];
   apsoCustomers: string[];
-  representatives: string[];
   priorities: string[];
+  representatives: { id: string; name: string }[];
 }> {
   const read = async (property: string) => {
     const res = await hubspotFetchJson<{ options?: { label?: string; value?: string }[] }>({
@@ -236,12 +244,16 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
     });
     return (res.options ?? []).map((o) => o.value).filter((v): v is string => !!v);
   };
-  const [countries, mandants, apsoCustomers, representatives] = [
+  const [countries, mandants, apsoCustomers] = [
     await read("country_custom"),
     await read("mandant"),
     await read("apso_customer"),
-    await read("sa__sales_agent"),
   ];
   const priorities = await read("sales_priority");
-  return { countries, mandants, apsoCustomers, representatives, priorities };
+  const index = await owners(signal);
+  const representatives = [...index.entries()]
+    .filter(([, name]) => name)
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { countries, mandants, apsoCustomers, priorities, representatives };
 }

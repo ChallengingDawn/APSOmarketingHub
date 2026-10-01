@@ -19,10 +19,14 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
+import Divider from "@mui/material/Divider";
+import Collapse from "@mui/material/Collapse";
+import IconButton from "@mui/material/IconButton";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
-import PageHeader from "@/app/PageHeader";
 import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
@@ -30,7 +34,7 @@ import { ESHOP_YEARS, type EshopActivity, type EshopYear } from "@/lib/integrati
 
 import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
-type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; representatives: string[]; priorities: string[] };
+type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; priorities: string[]; representatives: { id: string; name: string }[] };
 
 /** Six years of views in one cell. Bars, not a line: the values are counts. */
 function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
@@ -72,16 +76,20 @@ const SORTS = [
 
 export default function EshopActivityPage() {
   const [data, setData] = useState<EshopActivity | null>(null);
+  const [extraRows, setExtraRows] = useState<EshopActivity["rows"]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [lastQuery, setLastQuery] = useState("");
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [year, setYear] = useState<EshopYear>(2026);
   const [country, setCountry] = useState("");
   const [mandant, setMandant] = useState("");
   const [apsoCustomer, setApsoCustomer] = useState("");
   const [representative, setRepresentative] = useState("");
   const [priority, setPriority] = useState("");
-  const [range, setRange] = useState<(typeof RANGES)[number]["id"] | "custom">("30d");
+  const [period, setPeriod] = useState<string>("30d");   // a RANGES id, "custom", or "y2026"
   const [customFrom, setCustomFrom] = useState(isoDay(new Date(Date.now() - 6 * 86_400_000)));
   const [customTo, setCustomTo] = useState(isoDay(new Date()));
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
@@ -93,28 +101,31 @@ export default function EshopActivityPage() {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    const q = new URLSearchParams({ year: String(year), sort, limit: "200" });
+    const q = new URLSearchParams({ year: String(asYear ?? 2026), sort, limit: "200" });
     if (country) q.set("country", country);
     if (mandant) q.set("mandant", mandant);
     if (apsoCustomer) q.set("apsoCustomer", apsoCustomer);
     if (representative) q.set("representative", representative);
     if (priority) q.set("priority", priority);
-    const preset = RANGES.find((r) => r.id === range);
-    const to = range === "custom" ? customTo : isoDay(new Date());
-    const from = range === "custom" ? customFrom : isoDay(new Date(Date.now() - (preset?.days ?? 29) * 86_400_000));
+    const preset = RANGES.find((r) => r.id === period);
+    const to = period === "custom" ? customTo : isoDay(new Date());
+    const from = period === "custom" ? customFrom : isoDay(new Date(Date.now() - (preset?.days ?? 29) * 86_400_000));
     q.set("from", from);
     q.set("to", to);
     setData(null);
+    setExtraRows([]);
+    setCursor(null);
     setError(null);
+    setLastQuery(q.toString());
     fetch(`/api/datatracker?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok && j.data) { setData(j.data as EshopActivity); setOptions(j.options ?? null); }
+        if (j?.ok && j.data) { setData(j.data as EshopActivity); setCursor((j.data as EshopActivity).after ?? null); setOptions(j.options ?? null); }
         else setError(j?.error ?? j?.detail ?? "HubSpot did not answer.");
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setError(String(e)); });
     return () => ctrl.abort();
-  }, [year, country, mandant, apsoCustomer, representative, priority, sort, range, customFrom, customTo]);
+  }, [period, country, mandant, apsoCustomer, representative, priority, sort, customFrom, customTo]);
 
   useEffect(() => {
     if (tab !== "articles") return;
@@ -135,7 +146,8 @@ export default function EshopActivityPage() {
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
-  const visible = (data?.rows ?? []).filter((r) => {
+  const allRows = [...(data?.rows ?? []), ...extraRows];
+  const visible = allRows.filter((r) => {
     if (!search.trim()) return true;
     const needle = search.toLowerCase();
     return [r.name, r.customerNumber, r.representative].some((v) => (v ?? "").toLowerCase().includes(needle));
@@ -147,18 +159,25 @@ export default function EshopActivityPage() {
   // One source at a time. Until the shop has posted its first event there are
   // no daily counters to range over, so the table shows the yearly total and
   // the header says so — rather than four lookalike columns, two of them empty.
-  const live = Boolean(data?.anyLive);
-  const periodLabel = live
-    ? (range === "custom" ? `${customFrom} → ${customTo}` : RANGES.find((r) => r.id === range)?.label ?? "")
-    : String(year);
+  const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
+  const live = asYear === null;
+  const year: EshopYear = asYear ?? 2026;
+  const periodLabel = !live
+    ? String(year)
+    : period === "custom" ? `${customFrom} → ${customTo}`
+    : RANGES.find((r) => r.id === period)?.label ?? "";
 
   const cell = { borderColor: HAIRLINE, fontSize: "0.8rem" };
 
   return (
     // The page sits outside the (site) route group, so it carries its own
     // gutter — nothing above it supplies one and the table ran flush to the rail.
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.5, md: 2 }, pb: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
-      <PageHeader title="Datatracker" subtitle="" />
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1, md: 1.25 }, pb: { xs: 2.5, md: 3.5 }, display: "grid", gap: 1.75 }}>
+      <Typography component="h1" sx={{
+        fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+        fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em",
+        fontSize: { xs: "1.5rem", md: "1.75rem" }, lineHeight: 1.1,
+      }}>Datatracker</Typography>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1 } }}>
         <Tab value="customers" label="Customers" />
@@ -169,21 +188,20 @@ export default function EshopActivityPage() {
       <>
       <Section>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-          {live && (
-          <Select size="small" value={range} onChange={(e) => setRange(e.target.value as typeof range)} sx={{ minWidth: 160 }}>
+          {/* One control. Pick a range and the live counters answer it; pick a
+              year and the Datatracker's own yearly total does. Never both. */}
+          <Select size="small" value={period} onChange={(e) => setPeriod(e.target.value)} sx={{ minWidth: 170 }}>
             {RANGES.map((r) => <MenuItem key={r.id} value={r.id}>{r.label}</MenuItem>)}
             <MenuItem value="custom">Custom range…</MenuItem>
+            <Divider />
+            {ESHOP_YEARS.map((y) => <MenuItem key={y} value={`y${y}`}>Full year {y}</MenuItem>)}
           </Select>
-          )}
-          {live && range === "custom" && (
+          {period === "custom" && (
             <>
               <TextField size="small" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} sx={{ minWidth: 150 }} />
               <TextField size="small" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} sx={{ minWidth: 150 }} />
             </>
           )}
-          <Select size="small" value={year} onChange={(e) => setYear(Number(e.target.value) as EshopYear)} sx={{ minWidth: 104 }}>
-            {ESHOP_YEARS.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-          </Select>
           <Select size="small" displayEmpty value={mandant} onChange={(e) => setMandant(e.target.value)} sx={{ minWidth: 190 }}>
             <MenuItem value="">All mandants</MenuItem>
             {(options?.mandants ?? []).map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
@@ -198,7 +216,7 @@ export default function EshopActivityPage() {
           </Select>
           <Select size="small" displayEmpty value={representative} onChange={(e) => setRepresentative(e.target.value)} sx={{ minWidth: 180 }}>
             <MenuItem value="">Any representative</MenuItem>
-            {(options?.representatives ?? []).map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+            {(options?.representatives ?? []).map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
           </Select>
           <Select size="small" displayEmpty value={priority} onChange={(e) => setPriority(e.target.value)} sx={{ minWidth: 170 }}>
             <MenuItem value="">Any priority</MenuItem>
@@ -232,7 +250,8 @@ export default function EshopActivityPage() {
           <Table size="small" sx={{ "& td, & th": cell }}>
             <TableHead>
               <TableRow>
-                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority", "Last articles seen"].map((h) => (
+                <TableCell sx={{ width: 36 }} />
+                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority"].map((h) => (
                   <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
                 {[`Logins · ${periodLabel}`, `Views · ${periodLabel}`, "Views / login", "Revenue YTD"].map((h) => (
@@ -242,8 +261,16 @@ export default function EshopActivityPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {visible.map((r) => (
-                <TableRow key={r.id} hover>
+              {visible.map((r) => [
+                <TableRow key={r.id} hover sx={{ cursor: r.recent.length ? "pointer" : "default" }}
+                  onClick={() => r.recent.length && setOpenRow(openRow === r.id ? null : r.id)}>
+                  <TableCell sx={{ px: 0.5 }}>
+                    {r.recent.length > 0 && (
+                      <IconButton size="small" aria-label="Show what this customer looked at" sx={{ p: 0.25 }}>
+                        <ExpandMoreIcon sx={{ fontSize: 18, color: MUTED, transform: openRow === r.id ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                      </IconButton>
+                    )}
+                  </TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.mandant ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.customerNumber ?? "—"}</TableCell>
                   <TableCell sx={{ color: INK, fontWeight: 600 }}>{r.name ?? "—"}</TableCell>
@@ -251,38 +278,36 @@ export default function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED }}>{r.representative ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.apsoCustomer ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.salesPriority ?? "—"}</TableCell>
-                  {/* What they actually looked at, on the first screen rather than
-                      behind a click — the article number is the question anybody
-                      opening this table is really asking. */}
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>
-                    {r.recent.length === 0 ? (
-                      <Box component="span" sx={{ color: MUTED }}>—</Box>
-                    ) : (
-                      <Tooltip
-                        describeChild
-                        title={[...r.recent].reverse().map((v) => `${v.t.replace("T", " ")} · ${v.a}`).join(String.fromCharCode(10))}
-                      >
-                        <Box sx={{ display: "flex", gap: 0.5 }}>
-                          {[...r.recent].reverse().slice(0, 3).map((v, i) => (
-                            <Chip key={`${v.a}-${i}`} size="small" label={v.a}
-                              sx={{ bgcolor: "#eef4fb", color: "#1b4a80", fontWeight: 600, fontSize: "0.68rem", height: 20 }} />
-                          ))}
-                          {r.recent.length > 3 && (
-                            <Box component="span" sx={{ color: MUTED, fontSize: "0.72rem", alignSelf: "center" }}>
-                              +{r.recent.length - 3}
-                            </Box>
-                          )}
-                        </Box>
-                      </Tooltip>
-                    )}
-                  </TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
                   <TableCell align="right" sx={{ color: MUTED }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{r.revenueYtd == null ? "—" : `€${compact(r.revenueYtd)}`}</TableCell>
                   <TableCell><YearBars history={r.history} year={year} /></TableCell>
-                </TableRow>
-              ))}
+                </TableRow>,
+                <TableRow key={`${r.id}-detail`}>
+                  <TableCell colSpan={13} sx={{ p: 0, borderBottom: openRow === r.id ? undefined : "none" }}>
+                    <Collapse in={openRow === r.id} unmountOnExit>
+                      <Box sx={{ p: 2, bgcolor: "#fbfcfe" }}>
+                        <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
+                          What {r.name ?? "this customer"} looked at
+                        </Typography>
+                        <Box sx={{ display: "grid", gap: 0.5 }}>
+                          {[...r.recent].reverse().map((v, i) => (
+                            <Box key={`${v.a}-${i}`} sx={{ display: "flex", gap: 2, fontSize: "0.8rem" }}>
+                              <Box component="span" sx={{ color: MUTED, minWidth: 130 }}>{v.t.replace("T", " ")}</Box>
+                              <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.a}</Box>
+                            </Box>
+                          ))}
+                        </Box>
+                        <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
+                          The most recent article opens the shop has posted for this customer. Older views are counted but not
+                          listed — the full history is what the Performis tracker holds.
+                        </Typography>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>,
+              ]).flat()}
               {visible.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={13} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
