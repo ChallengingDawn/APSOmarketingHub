@@ -144,16 +144,21 @@ export default function EshopActivityPage() {
   const sum = useCallback((pick: (r: (typeof visible)[number]) => number | null) =>
     visible.reduce((acc, r) => acc + (pick(r) ?? 0), 0), [visible]);
 
+  // One source at a time. Until the shop has posted its first event there are
+  // no daily counters to range over, so the table shows the yearly total and
+  // the header says so — rather than four lookalike columns, two of them empty.
+  const live = Boolean(data?.anyLive);
+  const periodLabel = live
+    ? (range === "custom" ? `${customFrom} → ${customTo}` : RANGES.find((r) => r.id === range)?.label ?? "")
+    : String(year);
+
   const cell = { borderColor: HAIRLINE, fontSize: "0.8rem" };
 
   return (
     // The page sits outside the (site) route group, so it carries its own
     // gutter — nothing above it supplies one and the table ran flush to the rail.
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
-      <PageHeader
-        title="Datatracker"
-        subtitle="Who logs in, how much they look at, and what they are worth — per customer, from the shop's own tracking"
-      />
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.5, md: 2 }, pb: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
+      <PageHeader title="Datatracker" subtitle="" />
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1 } }}>
         <Tab value="customers" label="Customers" />
@@ -164,11 +169,13 @@ export default function EshopActivityPage() {
       <>
       <Section>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+          {live && (
           <Select size="small" value={range} onChange={(e) => setRange(e.target.value as typeof range)} sx={{ minWidth: 160 }}>
             {RANGES.map((r) => <MenuItem key={r.id} value={r.id}>{r.label}</MenuItem>)}
             <MenuItem value="custom">Custom range…</MenuItem>
           </Select>
-          {range === "custom" && (
+          )}
+          {live && range === "custom" && (
             <>
               <TextField size="small" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} sx={{ minWidth: 150 }} />
               <TextField size="small" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} sx={{ minWidth: 150 }} />
@@ -215,9 +222,9 @@ export default function EshopActivityPage() {
       </Section>
 
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" }, gap: 2 }}>
-        <StatTile label={`Logins ${year}`} value={full(sum((r) => r.logins))} note="Shown rows only" />
-        <StatTile label={`Views ${year}`} value={full(sum((r) => r.views))} note="Shown rows only" />
-        <StatTile label="Views per login" value={decimal(sum((r) => r.views) / Math.max(1, sum((r) => r.logins)), 1)} note="How deep a visit goes" />
+        <StatTile label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
+        <StatTile label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
+        <StatTile label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -225,10 +232,10 @@ export default function EshopActivityPage() {
           <Table size="small" sx={{ "& td, & th": cell }}>
             <TableHead>
               <TableRow>
-                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority"].map((h) => (
+                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority", "Last articles seen"].map((h) => (
                   <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
-                {["Logins (range)", "Views (range)", "Logins", "Views", "Views / login", "Revenue YTD"].map((h) => (
+                {[`Logins · ${periodLabel}`, `Views · ${periodLabel}`, "Views / login", "Revenue YTD"].map((h) => (
                   <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
                 <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>2021 → 2026</TableCell>
@@ -244,10 +251,33 @@ export default function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED }}>{r.representative ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.apsoCustomer ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.salesPriority ?? "—"}</TableCell>
-                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{r.rangeLogins == null ? "—" : full(r.rangeLogins)}</TableCell>
-                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{r.rangeViews == null ? "—" : full(r.rangeViews)}</TableCell>
-                  <TableCell align="right" sx={{ color: INK }}>{full(r.logins)}</TableCell>
-                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(r.views)}</TableCell>
+                  {/* What they actually looked at, on the first screen rather than
+                      behind a click — the article number is the question anybody
+                      opening this table is really asking. */}
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    {r.recent.length === 0 ? (
+                      <Box component="span" sx={{ color: MUTED }}>—</Box>
+                    ) : (
+                      <Tooltip
+                        describeChild
+                        title={[...r.recent].reverse().map((v) => `${v.t.replace("T", " ")} · ${v.a}`).join(String.fromCharCode(10))}
+                      >
+                        <Box sx={{ display: "flex", gap: 0.5 }}>
+                          {[...r.recent].reverse().slice(0, 3).map((v, i) => (
+                            <Chip key={`${v.a}-${i}`} size="small" label={v.a}
+                              sx={{ bgcolor: "#eef4fb", color: "#1b4a80", fontWeight: 600, fontSize: "0.68rem", height: 20 }} />
+                          ))}
+                          {r.recent.length > 3 && (
+                            <Box component="span" sx={{ color: MUTED, fontSize: "0.72rem", alignSelf: "center" }}>
+                              +{r.recent.length - 3}
+                            </Box>
+                          )}
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
+                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
                   <TableCell align="right" sx={{ color: MUTED }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{r.revenueYtd == null ? "—" : `€${compact(r.revenueYtd)}`}</TableCell>
                   <TableCell><YearBars history={r.history} year={year} /></TableCell>
@@ -255,7 +285,7 @@ export default function EshopActivityPage() {
               ))}
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={14} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                  <TableCell colSpan={13} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     {data ? "No customer matches these filters." : "Reading the shop's activity…"}
                   </TableCell>
                 </TableRow>
@@ -348,7 +378,9 @@ export default function EshopActivityPage() {
           as it happens and the gateway writes it onto the company within seconds, so any range from today to twelve months is
           real. The plain Logins and Views columns are the Datatracker&apos;s yearly totals from Performis, loaded nightly, and the
           last column shows all six years — that is the history, from before the live feed existed.
-          {data && !data.anyLive ? " No live counters have arrived yet, so the range columns are empty: that is expected until the smart bar has been published and a logged-in customer has opened an article." : ""}
+          {data && !data.anyLive
+            ? " No live counter has arrived yet, so the table is showing the yearly total and the day/week/month picker is hidden. It appears by itself once the first logged-in customer opens an article."
+            : ""}
         </Typography>
       </Section>
     </Box>
