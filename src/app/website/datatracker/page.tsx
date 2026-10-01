@@ -262,14 +262,12 @@ export default function EshopActivityPage() {
             </TableHead>
             <TableBody>
               {visible.map((r) => [
-                <TableRow key={r.id} hover sx={{ cursor: r.recent.length ? "pointer" : "default" }}
-                  onClick={() => r.recent.length && setOpenRow(openRow === r.id ? null : r.id)}>
+                <TableRow key={r.id} hover sx={{ cursor: "pointer" }}
+                  onClick={() => setOpenRow(openRow === r.id ? null : r.id)}>
                   <TableCell sx={{ px: 0.5 }}>
-                    {r.recent.length > 0 && (
-                      <IconButton size="small" aria-label="Show what this customer looked at" sx={{ p: 0.25 }}>
-                        <ExpandMoreIcon sx={{ fontSize: 18, color: MUTED, transform: openRow === r.id ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
-                      </IconButton>
-                    )}
+                    <IconButton size="small" aria-label="Show what this customer looked at" sx={{ p: 0.25 }}>
+                      <ExpandMoreIcon sx={{ fontSize: 18, color: MUTED, transform: openRow === r.id ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                    </IconButton>
                   </TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.mandant ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.customerNumber ?? "—"}</TableCell>
@@ -291,18 +289,26 @@ export default function EshopActivityPage() {
                         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
                           What {r.name ?? "this customer"} looked at
                         </Typography>
-                        <Box sx={{ display: "grid", gap: 0.5 }}>
-                          {[...r.recent].reverse().map((v, i) => (
-                            <Box key={`${v.a}-${i}`} sx={{ display: "flex", gap: 2, fontSize: "0.8rem" }}>
-                              <Box component="span" sx={{ color: MUTED, minWidth: 130 }}>{v.t.replace("T", " ")}</Box>
-                              <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.a}</Box>
+                        {r.recent.length === 0 ? (
+                          <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+                            No article views recorded for this customer yet. The shop posts them as they happen, so this fills in
+                            from the next time somebody here opens an article while logged in.
+                          </Typography>
+                        ) : (
+                          <>
+                            <Box sx={{ display: "grid", gap: 0.5 }}>
+                              {[...r.recent].reverse().map((v, i) => (
+                                <Box key={`${v.a}-${i}`} sx={{ display: "flex", gap: 2, fontSize: "0.8rem" }}>
+                                  <Box component="span" sx={{ color: MUTED, minWidth: 130 }}>{v.t.replace("T", " ")}</Box>
+                                  <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.a}</Box>
+                                </Box>
+                              ))}
                             </Box>
-                          ))}
-                        </Box>
-                        <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
-                          The most recent article opens the shop has posted for this customer. Older views are counted but not
-                          listed — the full history is what the Performis tracker holds.
-                        </Typography>
+                            <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
+                              The most recent article opens the shop has posted. Older views are counted but not listed.
+                            </Typography>
+                          </>
+                        )}
                       </Box>
                     </Collapse>
                   </TableCell>
@@ -389,25 +395,6 @@ export default function EshopActivityPage() {
         </Section>
       )}
 
-      <Section>
-        <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mb: 0.75 }}>Where these numbers come from</Typography>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.6 }}>
-          Logins and views are the shop&apos;s own counts, loaded onto the company record every night — the same figures the
-          desktop E-Shop Data Tracker shows, without the export step. They are collected on an essential-cookie basis, so unlike
-          anything from GA4 they cover <strong>every</strong> customer, whatever they chose on the banner. Revenue YTD is the ERP
-          figure already on the company, not shop-only turnover.
-          {" "}The tracker&apos;s own <strong>Orders</strong> and <strong>Total value</strong> columns count shop orders in the
-          selected period; counting those here would mean one query per company, so they are not shown rather than approximated.
-          {" "}Rows are the top 200 for the chosen ranking — the chip says how many companies matched in total.
-          {" "}<strong>Two different clocks.</strong> The <em>(range)</em> columns are live: the smart bar posts a view or a login
-          as it happens and the gateway writes it onto the company within seconds, so any range from today to twelve months is
-          real. The plain Logins and Views columns are the Datatracker&apos;s yearly totals from Performis, loaded nightly, and the
-          last column shows all six years — that is the history, from before the live feed existed.
-          {data && !data.anyLive
-            ? " No live counter has arrived yet, so the table is showing the yearly total and the day/week/month picker is hidden. It appears by itself once the first logged-in customer opens an article."
-            : ""}
-        </Typography>
-      </Section>
     </Box>
   );
 }
