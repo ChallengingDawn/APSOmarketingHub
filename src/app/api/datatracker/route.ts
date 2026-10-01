@@ -25,18 +25,19 @@ export async function GET(req: NextRequest) {
   const mandant = sp.get("mandant") ?? undefined;
   const representative = sp.get("representative") ?? undefined;
   const apsoCustomer = sp.get("apsoCustomer") ?? undefined;
+  const priority = sp.get("priority") ?? undefined;
   const sort = (["views", "logins", "revenue"] as const).find((s) => s === sp.get("sort")) ?? "views";
   const limit = Number(sp.get("limit")) || 100;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const key = `eshop:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${sort}:${limit}`;
+    const key = `datatracker:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${priority ?? ""}:${sort}:${limit}`;
     const data = await cachedReport(key, () =>
-      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, sort, limit }, controller.signal),
+      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, priority, sort, limit }, controller.signal),
     );
     // The option lists change about once a year; one shared cache entry.
-    const options = await cachedReport("eshop:options", () => fetchEshopFilterOptions(controller.signal));
+    const options = await cachedReport("datatracker:options", () => fetchEshopFilterOptions(controller.signal));
     return NextResponse.json({ configured: true, ok: true, data, options });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) }, { status: 200 });

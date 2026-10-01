@@ -1,6 +1,6 @@
 "use client";
 
-// E-SHOP ACTIVITY — the Data Tracker's customer table, live.
+// DATATRACKER — the desktop E-Shop Data Tracker's customer table, live.
 //
 // The desktop tracker has to be exported by hand; these figures reach HubSpot
 // every night, so this is the same question answered without the export. Logins
@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
+import Tooltip from "@mui/material/Tooltip";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -20,12 +21,33 @@ import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import TextField from "@mui/material/TextField";
 import PageHeader from "@/app/PageHeader";
-import { HAIRLINE, INK, MUTED, Section } from "../Shell";
+import { HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
 
-type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; representatives: string[] };
+type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; representatives: string[]; priorities: string[] };
+
+/** Six years of views in one cell. Bars, not a line: the values are counts. */
+function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
+  const top = Math.max(1, ...history.map((h) => h.views ?? 0));
+  return (
+    <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.4, height: 22 }}>
+      {history.map((h) => (
+        <Tooltip key={h.year} title={`${h.year}: ${full(h.views)} views`} describeChild>
+          <Box
+            sx={{
+              width: 7,
+              height: `${Math.max(2, ((h.views ?? 0) / top) * 22)}px`,
+              borderRadius: 0.4,
+              bgcolor: h.year === year ? "#2d6fa8" : "#c7ccd4",
+            }}
+          />
+        </Tooltip>
+      ))}
+    </Box>
+  );
+}
 
 const SORTS = [
   { id: "views", label: "Most views" },
@@ -43,6 +65,7 @@ export default function EshopActivityPage() {
   const [mandant, setMandant] = useState("");
   const [apsoCustomer, setApsoCustomer] = useState("");
   const [representative, setRepresentative] = useState("");
+  const [priority, setPriority] = useState("");
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
 
@@ -53,9 +76,10 @@ export default function EshopActivityPage() {
     if (mandant) q.set("mandant", mandant);
     if (apsoCustomer) q.set("apsoCustomer", apsoCustomer);
     if (representative) q.set("representative", representative);
+    if (priority) q.set("priority", priority);
     setData(null);
     setError(null);
-    fetch(`/api/analytics/eshop?${q}`, { signal: ctrl.signal })
+    fetch(`/api/datatracker?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
         if (j?.ok && j.data) { setData(j.data as EshopActivity); setOptions(j.options ?? null); }
@@ -63,7 +87,7 @@ export default function EshopActivityPage() {
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setError(String(e)); });
     return () => ctrl.abort();
-  }, [year, country, mandant, apsoCustomer, representative, sort]);
+  }, [year, country, mandant, apsoCustomer, representative, priority, sort]);
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
@@ -81,7 +105,7 @@ export default function EshopActivityPage() {
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
       <PageHeader
-        title="E-shop activity"
+        title="Datatracker"
         subtitle="Who logs in, how much they look at, and what they are worth — per customer, from the shop's own tracking"
       />
 
@@ -105,6 +129,10 @@ export default function EshopActivityPage() {
           <Select size="small" displayEmpty value={representative} onChange={(e) => setRepresentative(e.target.value)} sx={{ minWidth: 180 }}>
             <MenuItem value="">Any representative</MenuItem>
             {(options?.representatives ?? []).map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+          </Select>
+          <Select size="small" displayEmpty value={priority} onChange={(e) => setPriority(e.target.value)} sx={{ minWidth: 170 }}>
+            <MenuItem value="">Any priority</MenuItem>
+            {(options?.priorities ?? []).map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
           </Select>
           <Select size="small" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} sx={{ minWidth: 150 }}>
             {SORTS.map((s) => <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>)}
@@ -135,12 +163,13 @@ export default function EshopActivityPage() {
           <Table size="small" sx={{ "& td, & th": cell }}>
             <TableHead>
               <TableRow>
-                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion"].map((h) => (
+                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority"].map((h) => (
                   <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
                 {["Logins", "Views", "Views / login", "Revenue YTD"].map((h) => (
                   <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
+                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>2021 → 2026</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -152,15 +181,17 @@ export default function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED }}>{r.country ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.representative ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.apsoCustomer ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.salesPriority ?? "—"}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(r.logins)}</TableCell>
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(r.views)}</TableCell>
                   <TableCell align="right" sx={{ color: MUTED }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{r.revenueYtd == null ? "—" : `€${compact(r.revenueYtd)}`}</TableCell>
+                  <TableCell><YearBars history={r.history} year={year} /></TableCell>
                 </TableRow>
               ))}
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                  <TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     {data ? "No customer matches these filters." : "Reading the shop's activity…"}
                   </TableCell>
                 </TableRow>
@@ -180,6 +211,9 @@ export default function EshopActivityPage() {
           {" "}The tracker&apos;s own <strong>Orders</strong> and <strong>Total value</strong> columns count shop orders in the
           selected period; counting those here would mean one query per company, so they are not shown rather than approximated.
           {" "}Rows are the top 200 for the chosen ranking — the chip says how many companies matched in total.
+          {" "}<strong>On the time frame:</strong> HubSpot carries yearly totals and nothing finer, so the year picker is the whole
+          range available and the last column shows all six years at once. A week-by-week or month-by-month view would need the
+          Datatracker&apos;s daily rows loaded out of Performis — they exist there, nothing carries them here.
         </Typography>
       </Section>
     </Box>

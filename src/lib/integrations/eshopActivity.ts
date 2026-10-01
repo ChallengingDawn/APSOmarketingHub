@@ -38,6 +38,12 @@ export type EshopRow = {
   representative: string | null;
   apsoCustomer: string | null;
   salesPriority: string | null;
+  /**
+   * Every year the Datatracker holds, oldest first. HubSpot carries yearly
+   * totals and nothing finer, so this is the whole history available — a week
+   * or a month would need daily rows loaded from Performis, which nothing does.
+   */
+  history: { year: EshopYear; logins: number | null; views: number | null }[];
 };
 
 export type EshopActivity = {
@@ -57,6 +63,7 @@ export type EshopFilters = {
   mandant?: string;
   representative?: string;
   apsoCustomer?: string;
+  priority?: string;
   /** Rank by views, logins or revenue. */
   sort?: "views" | "logins" | "revenue";
   limit?: number;
@@ -111,6 +118,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
   if (filters.mandant) conditions.push({ propertyName: "mandant", operator: "EQ", value: filters.mandant });
   if (filters.representative) conditions.push({ propertyName: "sa__sales_agent", operator: "EQ", value: filters.representative });
   if (filters.apsoCustomer) conditions.push({ propertyName: "apso_customer", operator: "EQ", value: filters.apsoCustomer });
+  if (filters.priority) conditions.push({ propertyName: "sales_priority", operator: "EQ", value: filters.priority });
 
   const res = await hubspotFetchJson<SearchResponse>({
     path: "/crm/v3/objects/companies/search",
@@ -119,6 +127,8 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       filterGroups: [{ filters: conditions }],
       properties: [
         "name", "company_unique_number", "mandant", logins, views,
+        // every year, so a row can show whether this customer is growing or dying
+        ...ESHOP_YEARS.flatMap((y) => [loginsProp(y), viewsProp(y)]),
         "erp_rev_ytd_cy", "country_custom", "apso_customer", "sales_priority",
         // ownername and owneremail are empty on these records, so the rep comes
         // from the ERP's own sales agent, with the HubSpot owner as a fallback.
@@ -148,6 +158,9 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       representative: str(p.sa__sales_agent) ?? ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
       apsoCustomer: str(p.apso_customer),
       salesPriority: str(p.sales_priority),
+      history: [...ESHOP_YEARS]
+        .sort((a, b) => a - b)
+        .map((y) => ({ year: y, logins: num(p[loginsProp(y)]), views: num(p[viewsProp(y)]) })),
     };
   });
 
@@ -167,6 +180,7 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
   mandants: string[];
   apsoCustomers: string[];
   representatives: string[];
+  priorities: string[];
 }> {
   const read = async (property: string) => {
     const res = await hubspotFetchJson<{ options?: { label?: string; value?: string }[] }>({
@@ -181,5 +195,6 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
     await read("apso_customer"),
     await read("sa__sales_agent"),
   ];
-  return { countries, mandants, apsoCustomers, representatives };
+  const priorities = await read("sales_priority");
+  return { countries, mandants, apsoCustomers, representatives, priorities };
 }

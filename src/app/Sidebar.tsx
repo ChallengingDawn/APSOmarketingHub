@@ -115,6 +115,7 @@ const navSections: NavSection[] = [
       { label: "Site overview", href: "/website/overview", icon: <BarChartIcon fontSize="small" /> },
       { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
       { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Datatracker", href: "/website/datatracker", icon: <StorefrontIcon fontSize="small" /> },
     ],
   },
   {
@@ -134,7 +135,6 @@ const navSections: NavSection[] = [
     items: [
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
-      { label: "E-shop activity", href: "/analytics/eshop", icon: <StorefrontIcon fontSize="small" /> },
       { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
       { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
