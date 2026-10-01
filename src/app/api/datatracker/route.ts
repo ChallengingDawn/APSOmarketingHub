@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
   const apsoCustomer = sp.get("apsoCustomer") ?? undefined;
   const priority = sp.get("priority") ?? undefined;
   const after = sp.get("after") ?? undefined;
+  const mode = sp.get("mode") === "range" ? "range" : "year";
   const sort = (["views", "logins", "revenue"] as const).find((s) => s === sp.get("sort")) ?? "views";
   const limit = Number(sp.get("limit")) || 100;
   const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -36,9 +37,9 @@ export async function GET(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const key = `datatracker:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${priority ?? ""}:${sort}:${limit}:${from ?? ""}:${to ?? ""}:${after ?? ""}`;
+    const key = `datatracker:${year}:${country ?? ""}:${mandant ?? ""}:${representative ?? ""}:${apsoCustomer ?? ""}:${priority ?? ""}:${sort}:${limit}:${from ?? ""}:${to ?? ""}:${after ?? ""}:${mode}`;
     const data = await cachedReport(key, () =>
-      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, priority, after, sort, limit, from, to }, controller.signal),
+      fetchEshopActivity({ year, country, mandant, representative, apsoCustomer, priority, after, mode, sort, limit, from, to }, controller.signal),
     );
     // The option lists change about once a year; one shared cache entry.
     const options = await cachedReport("datatracker:options", () => fetchEshopFilterOptions(controller.signal));

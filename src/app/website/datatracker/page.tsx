@@ -99,6 +99,10 @@ export default function EshopActivityPage() {
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
 
+  const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
+  const live = asYear === null;
+  const year: EshopYear = asYear ?? 2026;
+
   useEffect(() => {
     const ctrl = new AbortController();
     const q = new URLSearchParams({ year: String(asYear ?? 2026), sort, limit: "200" });
@@ -112,6 +116,7 @@ export default function EshopActivityPage() {
     const from = period === "custom" ? customFrom : isoDay(new Date(Date.now() - (preset?.days ?? 29) * 86_400_000));
     q.set("from", from);
     q.set("to", to);
+    q.set("mode", live ? "range" : "year");
     setData(null);
     setExtraRows([]);
     setCursor(null);
@@ -147,7 +152,13 @@ export default function EshopActivityPage() {
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
   const allRows = [...(data?.rows ?? []), ...extraRows];
-  const visible = allRows.filter((r) => {
+  // Picking "Today" must change WHO is listed, not just the numbers beside them.
+  // HubSpot cannot filter inside the JSON, so the narrowing happens here.
+  const inPeriod = live
+    ? allRows.filter((r) => (r.rangeViews ?? 0) > 0 || (r.rangeLogins ?? 0) > 0)
+        .sort((a, b) => (b.rangeViews ?? 0) - (a.rangeViews ?? 0))
+    : allRows;
+  const visible = inPeriod.filter((r) => {
     if (!search.trim()) return true;
     const needle = search.toLowerCase();
     return [r.name, r.customerNumber, r.representative].some((v) => (v ?? "").toLowerCase().includes(needle));
@@ -159,9 +170,6 @@ export default function EshopActivityPage() {
   // One source at a time. Until the shop has posted its first event there are
   // no daily counters to range over, so the table shows the yearly total and
   // the header says so — rather than four lookalike columns, two of them empty.
-  const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
-  const live = asYear === null;
-  const year: EshopYear = asYear ?? 2026;
   const periodLabel = !live
     ? String(year)
     : period === "custom" ? `${customFrom} → ${customTo}`
@@ -232,9 +240,13 @@ export default function EshopActivityPage() {
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 230 }}
           />
-          {data?.total != null && (
-            <Chip size="small" label={`${full(data.total)} companies active in ${year}`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
-          )}
+          <Chip
+            size="small"
+            label={live
+              ? `${full(inPeriod.length)} active · ${periodLabel}`
+              : `${full(data?.total ?? null)} companies active in ${year}`}
+            sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
+          />
           {error && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>{error}</Typography>}
         </Box>
       </Section>

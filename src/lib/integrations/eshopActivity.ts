@@ -104,6 +104,14 @@ export type EshopFilters = {
   /** Inclusive ISO days for the live counters. Defaults to the last 30 days. */
   from?: string;
   to?: string;
+  /**
+   * "year" ranks on the Datatracker's yearly total; "range" lists only the
+   * companies that have live counters at all. HubSpot cannot filter inside a
+   * JSON property, so a range cannot be a server-side condition — narrowing to
+   * companies that carry `eshop_activity` is as close as the API gets, and the
+   * caller drops the ones with nothing inside the dates.
+   */
+  mode?: "year" | "range";
 };
 
 const num = (v: unknown): number | null => {
@@ -149,9 +157,10 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
 
   // Only companies the shop actually saw that year. Without this the ranking is
   // padded with thousands of companies that have no activity at all.
-  const conditions: { propertyName: string; operator: string; value?: string }[] = [
-    { propertyName: views, operator: "GT", value: "0" },
-  ];
+  const conditions: { propertyName: string; operator: string; value?: string }[] =
+    filters.mode === "range"
+      ? [{ propertyName: "eshop_activity", operator: "HAS_PROPERTY" }]
+      : [{ propertyName: views, operator: "GT", value: "0" }];
   if (filters.country) conditions.push({ propertyName: "country_custom", operator: "EQ", value: filters.country });
   if (filters.mandant) conditions.push({ propertyName: "mandant", operator: "EQ", value: filters.mandant });
   if (filters.representative) conditions.push({ propertyName: "hubspot_owner_id", operator: "EQ", value: filters.representative });
