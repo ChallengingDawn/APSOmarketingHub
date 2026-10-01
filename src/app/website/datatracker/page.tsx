@@ -28,7 +28,7 @@ import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
 
-type ArticleRow = { articleNumber: string; name: string; views: number | null; purchased: number | null; revenue: number | null };
+import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; representatives: string[]; priorities: string[] };
 
@@ -73,7 +73,8 @@ export default function EshopActivityPage() {
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"customers" | "articles">("customers");
-  const [articles, setArticles] = useState<{ from: string; to: string; rows: ArticleRow[] } | null>(null);
+  const [articles, setArticles] = useState<ArticleActivity | null>(null);
+  const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,10 +98,13 @@ export default function EshopActivityPage() {
   }, [year, country, mandant, apsoCustomer, representative, priority, sort]);
 
   useEffect(() => {
-    if (tab !== "articles" || articles) return;
+    if (tab !== "articles") return;
     const ctrl = new AbortController();
+    setArticles(null);
     setArticlesError(null);
-    fetch("/api/datatracker/articles", { signal: ctrl.signal })
+    const q = new URLSearchParams({ sort: articleSort, limit: "200" });
+    if (search.trim()) q.set("search", search.trim());
+    fetch(`/api/datatracker/articles?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
         if (j?.ok && j.data) setArticles(j.data);
@@ -108,7 +112,7 @@ export default function EshopActivityPage() {
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setArticlesError(String(e)); });
     return () => ctrl.abort();
-  }, [tab, articles]);
+  }, [tab, articleSort, search]);
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
@@ -235,55 +239,66 @@ export default function EshopActivityPage() {
 
       {tab === "articles" && (
         <Section sx={{ p: 0, overflow: "hidden" }}>
-          <Box sx={{ p: 2 }}>
-            <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>
-              Articles {articles ? `· ${articles.from} to ${articles.to}` : ""}
-            </Typography>
-            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>
-              How often each part was looked at and bought, from GA4&apos;s item data — the shop sends the article number as the
-              item id. <strong>These are consented sessions only.</strong> The Datatracker&apos;s own article counts are collected
-              on an essential-cookie basis and are larger; they are not in HubSpot, so they cannot be shown here yet.
-            </Typography>
-            {articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18", mt: 1 }}>{articlesError}</Typography>}
+          <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+            <Select size="small" value={articleSort} onChange={(e) => setArticleSort(e.target.value as typeof articleSort)} sx={{ minWidth: 180 }}>
+              <MenuItem value="orders">Most ordered</MenuItem>
+              <MenuItem value="companies">Most customers</MenuItem>
+              <MenuItem value="stock">Most stock</MenuItem>
+            </Select>
+            <TextField size="small" placeholder="Article number or description" value={search}
+              onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 260 }} />
+            {articles?.total != null && (
+              <Chip size="small" label={`${full(articles.total)} articles match`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
+            )}
+            {articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{articlesError}</Typography>}
           </Box>
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Article no.</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: MUTED }}>Description</TableCell>
-                  {["Views", "Bought", "Revenue", "Views per purchase"].map((h) => (
+                  {["Article no.", "Description", "Main group", "Type"].map((h) => (
+                    <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                  ))}
+                  {["Orders", "Customers", "Stock", "Views (GA4)"].map((h) => (
                     <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(articles?.rows ?? [])
-                  .filter((a) => !search.trim() || `${a.articleNumber} ${a.name}`.toLowerCase().includes(search.toLowerCase()))
-                  .map((a) => (
-                    <TableRow key={a.articleNumber} hover>
-                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.articleNumber || "—"}</TableCell>
-                      <TableCell sx={{ color: INK }}>{a.name || "—"}</TableCell>
-                      <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.views)}</TableCell>
-                      <TableCell align="right" sx={{ color: INK }}>{full(a.purchased)}</TableCell>
-                      <TableCell align="right" sx={{ color: MUTED }}>{a.revenue == null ? "—" : `€${compact(a.revenue)}`}</TableCell>
-                      <TableCell align="right" sx={{ color: MUTED }}>
-                        {a.purchased ? decimal((a.views ?? 0) / a.purchased, 1) : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                {articles && articles.rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
-                      GA4 returned no item rows for this period — the shop may not be sending an item id on view_item.
+                {(articles?.rows ?? []).map((a) => (
+                  <TableRow key={a.id} hover>
+                    <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.articleNumber ?? "—"}</TableCell>
+                    <TableCell sx={{ color: INK }}>{a.description ?? "—"}</TableCell>
+                    <TableCell sx={{ color: MUTED }}>{a.mainGroup ?? "—"}</TableCell>
+                    <TableCell sx={{ color: MUTED }}>{a.articleType ?? "—"}</TableCell>
+                    <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
+                    <TableCell align="right" sx={{ color: INK }}>{full(a.companies)}</TableCell>
+                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                      {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}
                     </TableCell>
+                    <TableCell align="right" sx={{ color: MUTED }}>{a.views == null ? "—" : full(a.views)}</TableCell>
                   </TableRow>
+                ))}
+                {articles && articles.rows.length === 0 && (
+                  <TableRow><TableCell colSpan={8} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
                 )}
                 {!articles && !articlesError && (
-                  <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
+          </Box>
+          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
+              <strong>Orders, customers and stock are ERP counts</strong> from Products &amp; Pricing, written every night — they
+              cover every order whatever anyone chose on the cookie banner, which is why they are the columns to rank by.
+              {" "}<strong>Views are GA4&apos;s</strong>
+              {articles?.viewsFrom ? `, ${articles.viewsFrom} to ${articles.viewsTo}` : ""}, so they count consented sessions only
+              and are smaller than the truth. The shop&apos;s own view count — the one in the desktop tracker — is collected on an
+              essential-cookie basis and is not loaded into Products &amp; Pricing by anything yet. A dash means GA4 had no row for
+              that article in the period.
+              {articles?.viewsError ? ` GA4 did not answer: ${articles.viewsError}` : ""}
+            </Typography>
           </Box>
         </Section>
       )}
