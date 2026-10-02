@@ -81,6 +81,12 @@ export type EshopRow = {
   representative: string | null;
   apsoCustomer: string | null;
   salesPriority: string | null;
+  /** The remaining desktop-tracker columns, shown in the opened row. */
+  shortAddress: string | null;
+  phone: string | null;
+  usageClass: string | null;
+  deliveryCondition: string | null;
+  paymentCondition: string | null;
   /**
    * Every year the Datatracker holds, oldest first. HubSpot carries yearly
    * totals and nothing finer, so this is the whole history available — a week
@@ -195,6 +201,10 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
         // every year, so a row can show whether this customer is growing or dying
         ...ESHOP_YEARS.flatMap((y) => [loginsProp(y), viewsProp(y)]),
         "erp_rev_ytd_cy", "country_custom", "apso_customer", "sales_priority",
+        // The columns the desktop E-Shop Data Tracker carries that this screen
+        // did not: short address, phone, usage class, delivery and payment.
+        "compass_customer_short_address", "phone", "compass_customer_class",
+        "compass_delivery_condition", "compass_payment_condition",
         // The representative IS the company owner (SARCLA, 01.10). ownername and
         // owneremail are empty on these records, so the id is resolved against
         // the owners API rather than read off the company.
@@ -228,6 +238,11 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       representative: ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
       apsoCustomer: str(p.apso_customer),
       salesPriority: str(p.sales_priority),
+      shortAddress: str(p.compass_customer_short_address),
+      phone: str(p.phone),
+      usageClass: str(p.compass_customer_class),
+      deliveryCondition: str(p.compass_delivery_condition),
+      paymentCondition: str(p.compass_payment_condition),
       rangeViews: sumRange(p.eshop_activity, from, to).views,
       rangeLogins: sumRange(p.eshop_activity, from, to).logins,
       recent: (() => {

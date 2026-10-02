@@ -84,8 +84,10 @@ const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_
 const isoDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// What the SERVER sorts by, which decides which rows arrive first when there
+// are more than a page of them. Order value is not a HubSpot-sortable field, so
+// it is not offered here - the column headers sort what has been loaded.
 const SORTS = [
-  { id: "ordervalue", label: "Highest order value" },
   { id: "views", label: "Most views" },
   { id: "logins", label: "Most logins" },
   { id: "revenue", label: "Most revenue" },
@@ -246,8 +248,16 @@ export default function EshopActivityPage() {
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
   const periodPreset = RANGES.find((r) => r.id === period);
-  const periodTo = period === "custom" ? customTo : isoDay(new Date());
+  const pickedYear = period.startsWith("y") ? Number(period.slice(1)) : null;
+  const todayIso = isoDay(new Date());
+  // A full year has to move the ORDERS window too. It used to fall through to
+  // the 30-day default, so one row described a year on the left and a month on
+  // the right.
+  const periodTo = period === "custom" ? customTo
+    : pickedYear ? (pickedYear === new Date().getFullYear() ? todayIso : `${pickedYear}-12-31`)
+    : todayIso;
   const periodFrom = period === "custom" ? customFrom
+    : pickedYear ? `${pickedYear}-01-01`
     : isoDay(new Date(Date.now() - (periodPreset?.days ?? 29) * 86_400_000));
 
   const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
@@ -338,6 +348,11 @@ export default function EshopActivityPage() {
           rangeViews: null, rangeLogins: null, recent: [], revenueYtd: null,
           country: c.country, representative: c.representative,
           apsoCustomer: c.apsoCustomer, salesPriority: c.salesPriority,
+          // Known only for companies the activity read returned; an order-only
+          // row has not been read for them, so they are null rather than blank
+          // strings pretending to be data.
+          shortAddress: null, phone: null, usageClass: null,
+          deliveryCondition: null, paymentCondition: null,
           history: [],
         };
       });
@@ -651,7 +666,23 @@ export default function EshopActivityPage() {
                                 largest order of 2 October against one login and zero
                                 views, and gating here is what showed "nothing recorded"
                                 on a customer who had just spent 4,907. */}
-                            <RecentLines lines={r.recent} ordered={orderedBy[r.id]} />
+                            {/* The desktop tracker's remaining columns. They belong here
+                            rather than in the table: they are read when you look at one
+                            customer, not scanned down a list. */}
+                        {(r.shortAddress || r.phone || r.usageClass || r.deliveryCondition || r.paymentCondition) ? (
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: "4px 22px", mb: 1.5, fontSize: "0.76rem" }}>
+                            {([["Address", r.shortAddress], ["Phone", r.phone], ["Usage class", r.usageClass],
+                               ["Delivery", r.deliveryCondition], ["Payment", r.paymentCondition]] as [string, string | null][])
+                              .filter(([, v]) => !!v)
+                              .map(([k, v]) => (
+                                <Box key={k} component="span">
+                                  <Box component="span" sx={{ color: MUTED }}>{k}: </Box>
+                                  <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v}</Box>
+                                </Box>
+                              ))}
+                          </Box>
+                        ) : null}
+                        <RecentLines lines={r.recent} ordered={orderedBy[r.id]} />
                         </>
                       </Box>
                     </Collapse>
