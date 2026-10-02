@@ -186,6 +186,14 @@ export default function EshopActivityPage() {
     }
   }, [cursor, loadingMore, lastQuery]);
 
+  // "we need to paginate to show all possible": the server hands back 200 rows
+  // at a time, so landing on the last loaded page pulls the next slice instead
+  // of ending the customer list at whatever the first request happened to fit.
+  useEffect(() => {
+    if (!cursor || loadingMore) return;
+    if ((page + 1) * perPage >= visible.length) void loadMore();
+  }, [page, perPage, visible.length, cursor, loadingMore, loadMore]);
+
   const sum = useCallback((pick: (r: (typeof visible)[number]) => number | null) =>
     visible.reduce((acc, r) => acc + (pick(r) ?? 0), 0), [visible]);
 
@@ -358,6 +366,19 @@ export default function EshopActivityPage() {
             </TableBody>
           </Table>
         </Box>
+        <TablePagination
+          component="div"
+          count={visible.length}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={perPage}
+          rowsPerPageOptions={[25, 50, 100]}
+          onRowsPerPageChange={(e) => { setPerPage(Number(e.target.value)); setPage(0); }}
+          labelRowsPerPage="Customers per page"
+          labelDisplayedRows={({ from, to, count }) =>
+            `${from}-${to} of ${full(count)}${cursor ? "+" : ""}${loadingMore ? " - loading more" : ""}`}
+          sx={{ borderTop: `1px solid ${HAIRLINE}` }}
+        />
       </Section>
 
       </>
