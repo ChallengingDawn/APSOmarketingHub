@@ -152,15 +152,25 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
     );
   }
 
-  const head = { fontSize: "0.67rem", fontWeight: 700, color: MUTED, textTransform: "uppercase" as const,
-    letterSpacing: 0.4, pb: 0.5, borderBottom: `1px solid ${HAIRLINE}` };
-  const cols = "118px 110px minmax(180px, 1fr) 76px 68px 80px 92px";
+  const z = { "&:nth-of-type(odd)": { bgcolor: "#f4f7fb" } };   // zebra, so a long list stays readable
+  const c = { borderColor: HAIRLINE, fontSize: "0.78rem", py: 0.75 };
+  const h = { ...c, fontWeight: 700, color: MUTED, fontSize: "0.67rem",
+    textTransform: "uppercase" as const, letterSpacing: 0.4, whiteSpace: "nowrap" as const };
+
   return (
-    <>
-      <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: "5px 14px", fontSize: "0.8rem", alignItems: "baseline" }}>
-        {["Looked at", "Article", "Description", "Quantity", "In cart", "Ordered", "Value"].map((h) => (
-          <Box key={h} sx={head}>{h}</Box>
-        ))}
+    <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+      <TableHead>
+        <TableRow>
+          <TableCell sx={{ ...h, width: 120 }}>Looked at</TableCell>
+          <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
+          <TableCell sx={h}>Description</TableCell>
+          <TableCell align="right" sx={{ ...h, width: 76 }}>Qty</TableCell>
+          <TableCell align="center" sx={{ ...h, width: 70 }}>In cart</TableCell>
+          <TableCell align="center" sx={{ ...h, width: 78 }}>Ordered</TableCell>
+          <TableCell align="right" sx={{ ...h, width: 88 }}>Value</TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
         {rows.map((r) => {
           const o = r.article ? byArticle.get(r.article) : undefined;
           const boughtNow = !!o || r.reported;
@@ -168,32 +178,33 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
           const boughtEver = !boughtNow && !!r.article && everBought.has(r.article);
           const qty = o?.qty ?? r.qtyTyped;
           return (
-            <Fragment key={r.key}>
-              <Box sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.lookedAt ? r.lookedAt.replace("T", " ") : "—"}</Box>
-              <Box sx={{ color: r.article ? INK : MUTED, fontWeight: 600, whiteSpace: "nowrap" }}>
+            <TableRow key={r.key} sx={z}>
+              <TableCell sx={{ ...c, color: MUTED, whiteSpace: "nowrap" }}>
+                {r.lookedAt ? r.lookedAt.replace("T", " ") : "—"}
+              </TableCell>
+              <TableCell sx={{ ...c, color: r.article ? INK : MUTED, fontWeight: 600, whiteSpace: "nowrap" }}>
                 {r.article ?? r.product}
-              </Box>
-              <Box sx={{ color: MUTED, overflow: "hidden", textOverflow: "ellipsis" }}>
+              </TableCell>
+              <TableCell sx={{ ...c, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {o?.description ?? (r.article ? "—" : "product page, no size chosen")}
-              </Box>
-              <Box sx={{ color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
+              </TableCell>
+              <TableCell align="right" sx={{ ...c, color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
                 {qty == null ? "—" : decimal(qty, 0)}
-              </Box>
-              {/* An e-shop order went through the cart by construction - you cannot
-                  buy from the webshop without one. Showing a dash beside
-                  "Ordered: Yes" said something that cannot be true. */}
-              <Box sx={{ color: inCart ? INK : MUTED, fontWeight: inCart ? 600 : 400 }}>{inCart ? "Yes" : "—"}</Box>
-              <Box sx={{ color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
+              </TableCell>
+              <TableCell align="center" sx={{ ...c, color: inCart ? INK : MUTED, fontWeight: inCart ? 600 : 400 }}>
+                {inCart ? "Yes" : "—"}
+              </TableCell>
+              <TableCell align="center" sx={{ ...c, color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
                 {boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
-              </Box>
-              <Box sx={{ color: o?.revenue ? INK : MUTED, fontWeight: o?.revenue ? 600 : 400, whiteSpace: "nowrap" }}>
+              </TableCell>
+              <TableCell align="right" sx={{ ...c, color: o?.revenue ? INK : MUTED, fontWeight: o?.revenue ? 600 : 400, whiteSpace: "nowrap" }}>
                 {o?.revenue ? `€${compact(o.revenue)}` : "—"}
-              </Box>
-            </Fragment>
+              </TableCell>
+            </TableRow>
           );
         })}
-      </Box>
-    </>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -426,7 +437,25 @@ export default function EshopActivityPage() {
     : period === "custom" ? `${customFrom} → ${customTo}`
     : RANGES.find((r) => r.id === period)?.label ?? "";
 
-  const cell = { borderColor: HAIRLINE, fontSize: "0.8rem" };
+  const cell = { borderColor: HAIRLINE, fontSize: "0.78rem" };
+  /**
+   * Fifteen columns do not fit a laptop, and a horizontal scrollbar hides the
+   * numbers people came for. The least-asked-for columns step out as the window
+   * narrows instead; nothing is lost, the row still opens for the detail.
+   */
+  const COL = {
+    country: { display: { xs: "none", xl: "table-cell" } },
+    representative: { display: { xs: "none", lg: "table-cell" } },
+    viewsPerLogin: { display: { xs: "none", xl: "table-cell" } },
+    trend: { display: { xs: "none", lg: "table-cell" } },
+  } as const;
+  const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
+  /** "2-Prio 2 - Pot btw 2500 & 24999EUR" is a sentence; the cell needs a label. */
+  const shortPrio = (v: string | null) => {
+    if (!v) return "—";
+    const m = /Prio\s*(\d)/i.exec(v);
+    return m ? `Prio ${m[1]}` : v.split(" - ")[0];
+  };
 
   return (
     // The page sits outside the (site) route group, so it carries its own
@@ -538,29 +567,31 @@ export default function EshopActivityPage() {
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
         <Box sx={{ overflowX: "auto" }}>
-          <Table size="small" sx={{ "& td, & th": cell }}>
+          <Table size="small" sx={{ "& td, & th": cell, tableLayout: "fixed", width: "100%", minWidth: 0 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                {([["mandant", "Mandant"], ["customerNumber", "Customer no."], ["name", "Customer"],
-                   ["country", "Country"], ["representative", "Representative"],
-                   ["apsoCustomer", "Selection criterion"], ["salesPriority", "Priority"]] as [SortKey, string][]).map(([k, h]) => (
-                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED }} sortDirection={sortKey === k ? sortDir : false}>
+                {([["mandant", "Mandant", 60], ["customerNumber", "Customer no.", 92], ["name", "Customer", 0],
+                   ["country", "Country", 84], ["representative", "Representative", 118],
+                   ["apsoCustomer", "Selection criterion", 104], ["salesPriority", "Priority", 74]] as [SortKey, string, number][]).map(([k, h, w]) => (
+                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}), ...clip,
+                    ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                {([["logins", `Logins · ${periodLabel}`], ["views", `Views · ${periodLabel}`],
-                   ["orders", `Orders · ${periodLabel}`], ["orderValue", `Total value · ${periodLabel}`],
-                   ["viewsPerLogin", "Views / login"], ["revenueYtd", "Revenue YTD"]] as [SortKey, string][]).map(([k, h]) => (
-                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED }} sortDirection={sortKey === k ? sortDir : false}>
+                {([["logins", "Logins", 70], ["views", "Views", 70], ["orders", "Orders", 70],
+                   ["orderValue", "Total value", 92], ["viewsPerLogin", "Views / login", 76],
+                   ["revenueYtd", "Revenue YTD", 92]] as [SortKey, string, number][]).map(([k, h, w]) => (
+                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED, width: w, ...clip,
+                    ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>2021 → 2026</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: 92, ...COL.trend }}>2021 → 2026</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -572,9 +603,9 @@ export default function EshopActivityPage() {
                       <ExpandMoreIcon sx={{ fontSize: 18, color: MUTED, transform: openRow === r.id ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
                     </IconButton>
                   </TableCell>
-                  <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.mandant ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.customerNumber ?? "—"}</TableCell>
-                  <TableCell sx={{ color: INK, fontWeight: 600 }}>
+                  <TableCell sx={{ color: MUTED, ...clip }}>{r.mandant ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, ...clip }}>{r.customerNumber ?? "—"}</TableCell>
+                  <TableCell sx={{ color: INK, fontWeight: 600, ...clip }}>
                     {/* stopPropagation: the row click opens the detail panel, and
                         a link inside it must not do both. */}
                     <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noopener"
@@ -583,10 +614,12 @@ export default function EshopActivityPage() {
                       {r.name ?? "—"}
                     </Link>
                   </TableCell>
-                  <TableCell sx={{ color: MUTED }}>{r.country ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED }}>{r.representative ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED }}>{r.apsoCustomer ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.salesPriority ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, ...clip, ...COL.country }}>{r.country ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, ...clip, ...COL.representative }}>{r.representative ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, ...clip }}>{r.apsoCustomer ?? "—"}</TableCell>
+                  <TableCell sx={{ color: MUTED, ...clip }}>
+                    <Tooltip title={r.salesPriority ?? ""} describeChild><span>{shortPrio(r.salesPriority)}</span></Tooltip>
+                  </TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>
@@ -595,14 +628,15 @@ export default function EshopActivityPage() {
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>
                     {orders == null ? "…" : (ordersBy[r.id]?.value ?? 0) === 0 ? "—" : `€${compact(ordersBy[r.id].value)}`}
                   </TableCell>
-                  <TableCell align="right" sx={{ color: MUTED }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
+                  <TableCell align="right" sx={{ color: MUTED, ...COL.viewsPerLogin }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{r.revenueYtd == null ? "—" : `€${compact(r.revenueYtd)}`}</TableCell>
-                  <TableCell><YearBars history={r.history} year={year} /></TableCell>
+                  <TableCell sx={COL.trend}><YearBars history={r.history} year={year} /></TableCell>
                 </TableRow>,
                 <TableRow key={`${r.id}-detail`}>
                   <TableCell colSpan={15} sx={{ p: 0, borderBottom: openRow === r.id ? undefined : "none" }}>
                     <Collapse in={openRow === r.id} unmountOnExit>
-                      <Box sx={{ p: 2, bgcolor: "#fbfcfe" }}>
+                      <Box sx={{ p: 2, bgcolor: "#eef3fa", borderLeft: "3px solid #1b4a80",
+                        boxShadow: "inset 0 1px 0 rgba(27,74,128,0.14), inset 0 -1px 0 rgba(27,74,128,0.14)" }}>
                         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
                           What {r.name ?? "this customer"} looked at and ordered
                           {"  "}
