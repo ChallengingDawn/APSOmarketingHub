@@ -26,6 +26,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import TablePagination from "@mui/material/TablePagination";
+import TableSortLabel from "@mui/material/TableSortLabel";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
@@ -75,7 +76,8 @@ const RANGES = [
   { id: "365d", label: "Last 12 months", days: 364 },
 ] as const;
 
-const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const isoDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const SORTS = [
   { id: "ordervalue", label: "Highest order value" },
@@ -83,6 +85,10 @@ const SORTS = [
   { id: "logins", label: "Most logins" },
   { id: "revenue", label: "Most revenue" },
 ] as const;
+
+type SortKey =
+  | "mandant" | "customerNumber" | "name" | "country" | "representative" | "apsoCustomer" | "salesPriority"
+  | "logins" | "views" | "orders" | "orderValue" | "viewsPerLogin" | "revenueYtd";
 
 type OrderLine = { article: string; description: string | null; qty: number | null; revenue: number | null; orders: number };
 type OrderedPayload = { lines: OrderLine[]; articles: string[] };
@@ -191,6 +197,10 @@ export default function EshopActivityPage() {
   const [orderedBy, setOrderedBy] = useState<Record<string, Exclude<OrderedState, undefined>>>({});
   const [orders, setOrders] = useState<OrdersPayload | null>(null);
   const [minValue, setMinValue] = useState("");
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  // The money is the point of the screen, so it opens on it.
+  const [sortKey, setSortKey] = useState<SortKey>("orderValue");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const askedOrders = useRef<Set<string>>(new Set());
   const [lastQuery, setLastQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -257,10 +267,15 @@ export default function EshopActivityPage() {
     if (tab !== "customers") return;
     const ctrl = new AbortController();
     setOrders(null);
+    setOrdersError(null);
     fetch(`/api/datatracker/orders?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((j) => { if (j?.ok) setOrders(j as OrdersPayload); })
-      .catch(() => {});
+      .then((j) => {
+        if (j?.ok) setOrders(j as OrdersPayload);
+        else setOrdersError([j?.step ? `${j.step}:` : "", j?.error ?? j?.detail ?? "HubSpot did not answer for orders.",
+          j?.status ? `(HTTP ${j.status})` : ""].filter(Boolean).join(" "));
+      })
+      .catch((e) => { if ((e as Error)?.name !== "AbortError") setOrdersError(String(e)); });
     return () => ctrl.abort();
   }, [tab, periodFrom, periodTo]);
 
@@ -312,10 +327,25 @@ export default function EshopActivityPage() {
   // HubSpot cannot filter inside the JSON, so the narrowing happens here.
   const inPeriod = live
     ? allRows.filter((r) => (r.rangeViews ?? 0) > 0 || (r.rangeLogins ?? 0) > 0 || (ordersBy[r.id]?.orders ?? 0) > 0)
-        .sort((a, b) => sort === "ordervalue"
-          ? (ordersBy[b.id]?.value ?? 0) - (ordersBy[a.id]?.value ?? 0)
-          : (b.rangeViews ?? 0) - (a.rangeViews ?? 0))
+
     : allRows;
+  const sortValue = (r: (typeof allRows)[number], key: SortKey): string | number => {
+    switch (key) {
+      case "orders": return ordersBy[r.id]?.orders ?? 0;
+      case "orderValue": return ordersBy[r.id]?.value ?? 0;
+      case "logins": return (live ? r.rangeLogins : r.logins) ?? 0;
+      case "views": return (live ? r.rangeViews : r.views) ?? 0;
+      case "viewsPerLogin": return r.viewsPerLogin ?? 0;
+      case "revenueYtd": return r.revenueYtd ?? 0;
+      default: return (r[key as keyof typeof r] as string | null) ?? "";
+    }
+  };
+  const onSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir(typeof sortValue(allRows[0] ?? ({} as never), key) === "number" ? "desc" : "asc"); }
+    setPage(0);
+  };
+
   const minV = Number(minValue.replace(",", ".")) || 0;
   const visible = inPeriod.filter((r) => {
     // Only bites when a figure was typed, so it never hides the customers who
@@ -324,6 +354,13 @@ export default function EshopActivityPage() {
     if (!search.trim()) return true;
     const needle = search.toLowerCase();
     return [r.name, r.customerNumber, r.representative].some((v) => (v ?? "").toLowerCase().includes(needle));
+  }).sort((a, b) => {
+    const va = sortValue(a, sortKey);
+    const vb = sortValue(b, sortKey);
+    const cmp = typeof va === "number" && typeof vb === "number"
+      ? va - vb
+      : String(va).localeCompare(String(vb), undefined, { numeric: true });
+    return sortDir === "desc" ? -cmp : cmp;
   });
 
   const pageRows = visible.slice(page * perPage, page * perPage + perPage);
@@ -473,20 +510,21 @@ export default function EshopActivityPage() {
               {full(orders!.detailTruncated)} further customers ordered in this window and are not listed.
             </Typography>
           )}
+          {ordersError && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>Orders: {ordersError}</Typography>}
           {error && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>{error}</Typography>}
         </Box>
       </Section>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" }, gap: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)", lg: "repeat(5, 1fr)" }, gap: 2 }}>
         <StatTile label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
         <StatTile label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
         <StatTile label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
         <StatTile label={`Orders · ${periodLabel}`}
-          value={orders == null ? "…" : full(Object.values(ordersBy).reduce((n, o) => n + o.orders, 0))}
-          note="Every mandant in this window" />
+          value={ordersError ? "—" : orders == null ? "…" : full(Object.values(ordersBy).reduce((n, o) => n + o.orders, 0))}
+          note={ordersError ? "Orders could not be read" : "Every mandant in this window"} />
         <StatTile label={`Order value · ${periodLabel}`}
-          value={orders == null ? "…" : `€${compact(Object.values(ordersBy).reduce((n, o) => n + o.value, 0))}`}
-          note="Net, as the desktop tracker counts it" />
+          value={ordersError ? "—" : orders == null ? "…" : `€${compact(Object.values(ordersBy).reduce((n, o) => n + o.value, 0))}`}
+          note={ordersError ? "Orders could not be read" : "Net, as the desktop tracker counts it"} />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -495,12 +533,23 @@ export default function EshopActivityPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority"].map((h) => (
-                  <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                {([["mandant", "Mandant"], ["customerNumber", "Customer no."], ["name", "Customer"],
+                   ["country", "Country"], ["representative", "Representative"],
+                   ["apsoCustomer", "Selection criterion"], ["salesPriority", "Priority"]] as [SortKey, string][]).map(([k, h]) => (
+                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED }} sortDirection={sortKey === k ? sortDir : false}>
+                    <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
+                      {h}
+                    </TableSortLabel>
+                  </TableCell>
                 ))}
-                {[`Logins · ${periodLabel}`, `Views · ${periodLabel}`, `Orders · ${periodLabel}`,
-                  `Total value · ${periodLabel}`, "Views / login", "Revenue YTD"].map((h) => (
-                  <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                {([["logins", `Logins · ${periodLabel}`], ["views", `Views · ${periodLabel}`],
+                   ["orders", `Orders · ${periodLabel}`], ["orderValue", `Total value · ${periodLabel}`],
+                   ["viewsPerLogin", "Views / login"], ["revenueYtd", "Revenue YTD"]] as [SortKey, string][]).map(([k, h]) => (
+                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED }} sortDirection={sortKey === k ? sortDir : false}>
+                    <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
+                      {h}
+                    </TableSortLabel>
+                  </TableCell>
                 ))}
                 <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>2021 → 2026</TableCell>
               </TableRow>

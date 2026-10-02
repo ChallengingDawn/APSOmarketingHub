@@ -54,6 +54,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, companyId, from, to, lines, articles: everOrdered });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: describeIntegrationError(err) }, { status: 502 });
+    return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 200 });
   }
 }

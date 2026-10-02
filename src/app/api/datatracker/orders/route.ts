@@ -34,12 +34,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "from and to must be YYYY-MM-DD, from on or before to." }, { status: 400 });
   }
 
+  // Which call failed matters more than that one did: the scopes behind each of
+  // these are different, so an unlabelled message sends you looking in the
+  // wrong place.
+  let step = "orders search";
   try {
     const agg = await fetchOrdersByCompany(from, to);
+    step = "owner names";
     const ids = Object.keys(agg.byCompany);
     const detailIds = ids.slice(0, MAX_DETAIL);
 
     const ownerNames = await owners().catch(() => new Map<string, string>());
+    step = "company details";
     const companies: Record<string, Record<string, string | null>> = {};
     for (let i = 0; i < detailIds.length; i += 100) {
       const res = await hubspotFetchJson<{ results?: { id: string; properties?: Record<string, string | null> }[] }>({
@@ -75,6 +81,8 @@ export async function GET(req: NextRequest) {
       detailTruncated: ids.length > detailIds.length ? ids.length - detailIds.length : 0,
     });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: describeIntegrationError(err) }, { status: 502 });
+    // 200 with ok:false, like the other datatracker routes: the client reads the
+    // reason out of the body rather than guessing from a status code.
+    return NextResponse.json({ ok: false, step, ...describeIntegrationError(err) }, { status: 200 });
   }
 }
