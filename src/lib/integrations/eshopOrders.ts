@@ -91,3 +91,119 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
 
   return { byCompany, scanned: orders.length, capped, unattributed };
 }
+
+/** Each order carries up to 80 lines, denormalised onto the order record. */
+const LINE_FIELDS = ["article", "text", "qty", "revenue"] as const;
+const lineProp = (n: number, f: string) => `order_line_${String(n + 1).padStart(2, "0")}_${f}`;
+
+export type OrderedLine = {
+  article: string;
+  description: string | null;
+  qty: number | null;
+  revenue: number | null;
+  orders: number;
+};
+
+/**
+ * What one customer actually ORDERED in the window, article by article.
+ *
+ * This is the half of the desktop tracker's "Views - Orders" tab that no
+ * browser event can supply: Metrohm AG placed the largest order of 2 October
+ * and the activity feed recorded one login and zero views, because the article
+ * is chosen on the page and the order is placed from the cart. The order lines
+ * know exactly which articles, how many and for how much.
+ */
+export async function fetchCompanyOrderLines(
+  companyId: string, from: string, to: string, signal?: AbortSignal,
+): Promise<OrderedLine[]> {
+  const props = ["order_order_date"];
+  for (let i = 0; i < 80; i++) for (const f of LINE_FIELDS) props.push(lineProp(i, f));
+
+  const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+    path: "/crm/v3/objects/orders/search",
+    method: "POST",
+    signal,
+    body: {
+      filterGroups: [{ filters: [
+        { propertyName: "associations.company", operator: "EQ", value: companyId },
+        { propertyName: "order_order_date", operator: "GTE", value: String(dayMs(from)) },
+        { propertyName: "order_order_date", operator: "LTE", value: String(dayMs(to) + 86_399_999) },
+      ] }],
+      properties: props,
+      sorts: [{ propertyName: "order_order_date", direction: "DESCENDING" }],
+      limit: 100,
+    },
+  });
+
+  const byArticle = new Map<string, OrderedLine>();
+  for (const o of res.results ?? []) {
+    const p = o.properties ?? {};
+    for (let i = 0; i < 80; i++) {
+      const article = p[lineProp(i, "article")];
+      if (!article) continue;
+      const cur = byArticle.get(article) ?? { article, description: null, qty: 0, revenue: 0, orders: 0 };
+      cur.orders += 1;
+      cur.qty = (cur.qty ?? 0) + (Number(p[lineProp(i, "qty")]) || 0);
+      cur.revenue = (cur.revenue ?? 0) + (Number(p[lineProp(i, "revenue")]) || 0);
+      // `text` is often empty on ERP lines; the description is filled in from
+      // Products & Pricing afterwards rather than left blank.
+      cur.description = cur.description ?? (p[lineProp(i, "text")] || null);
+      byArticle.set(article, cur);
+    }
+  }
+  return [...byArticle.values()].sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0));
+}
+
+/** Fills in the descriptions the order lines did not carry. */
+export async function describeArticles(articles: string[], signal?: AbortSignal): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < articles.length; i += 100) {
+    const slice = articles.slice(i, i + 100);
+    const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/2-200042439/search",
+      method: "POST",
+      signal,
+      body: {
+        filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: slice }] }],
+        properties: ["article_number", "article_description"],
+        limit: 100,
+      },
+    });
+    for (const r of res.results ?? []) {
+      const a = r.properties?.article_number;
+      const d = r.properties?.article_description;
+      if (a && d) out[a] = d;
+    }
+  }
+  return out;
+}
+
+/**
+ * Which articles this customer buys at all — the 100 most recent orders.
+ *
+ * Used to tick "Ordered" against something they merely looked at. Deliberately
+ * bounded: a customer with ten years of history does not need a full scan to
+ * answer whether today's look is something they buy, and this runs once, when
+ * a row is opened.
+ */
+export async function fetchOrderedArticles(companyId: string, signal?: AbortSignal): Promise<string[]> {
+  const props: string[] = [];
+  for (let i = 0; i < 80; i++) props.push(lineProp(i, "article"));
+  const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+    path: "/crm/v3/objects/orders/search",
+    method: "POST",
+    signal,
+    body: {
+      filterGroups: [{ filters: [{ propertyName: "associations.company", operator: "EQ", value: companyId }] }],
+      properties: props,
+      sorts: [{ propertyName: "hs_createdate", direction: "DESCENDING" }],
+      limit: 100,
+    },
+  });
+  const out = new Set<string>();
+  for (const o of res.results ?? []) for (const k of props) {
+    const v = o.properties?.[k];
+    if (v) out.add(String(v));
+  }
+  return [...out];
+}

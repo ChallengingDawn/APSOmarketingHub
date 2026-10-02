@@ -84,54 +84,96 @@ const SORTS = [
   { id: "revenue", label: "Most revenue" },
 ] as const;
 
-type OrderedState = string[] | "loading" | "error" | undefined;
+type OrderLine = { article: string; description: string | null; qty: number | null; revenue: number | null; orders: number };
+type OrderedPayload = { lines: OrderLine[]; articles: string[] };
+type OrderedState = OrderedPayload | "loading" | "error" | undefined;
 
 /**
- * What one customer looked at: one line per article per day, carrying the
- * quantity they typed, whether it went in the cart and whether they buy it.
- * Looking, adding and buying the same article on one day stay on ONE line -
- * the gateway folds them - so this reads as a story rather than three rows.
+ * What one customer did with an article: looked at it, put it in the cart,
+ * bought it. Two sources, merged on the article number.
+ *
+ * The browser feed alone is not enough and cannot be made enough. The article
+ * is the TEN-digit variant, chosen on the page - every product page shares one
+ * URL across its 32 thicknesses - and the order is placed from the cart. So
+ * Metrohm AG can place the largest order of the day against one login and zero
+ * views. The order lines know the article, the quantity and the value, and
+ * they also cover an order placed by phone.
  */
 function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: OrderedState }) {
-  const bought = Array.isArray(ordered) ? new Set(ordered) : null;
+  const payload = ordered && ordered !== "loading" && ordered !== "error" ? ordered : null;
+  const byArticle = new Map((payload?.lines ?? []).map((l) => [l.article, l]));
+  const everBought = new Set(payload?.articles ?? []);
+
+  type Row = { key: string; article: string | null; product: string | null; lookedAt: string | null; qtyTyped: number | null; cart: boolean; reported: boolean };
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  for (const v of [...lines].reverse()) {
+    const key = v.article ?? `p:${v.product}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ key, article: v.article, product: v.product, lookedAt: v.t, qtyTyped: v.qty, cart: v.cart, reported: v.ordered });
+  }
+  // Ordered in this window but never seen being looked at - the Metrohm case.
+  for (const l of payload?.lines ?? []) {
+    if (seen.has(l.article)) continue;
+    seen.add(l.article);
+    rows.push({ key: l.article, article: l.article, product: null, lookedAt: null, qtyTyped: null, cart: false, reported: false });
+  }
+  rows.sort((a, b) => {
+    const va = byArticle.get(a.article ?? "")?.revenue ?? 0;
+    const vb = byArticle.get(b.article ?? "")?.revenue ?? 0;
+    if (va !== vb) return vb - va;
+    return (b.lookedAt ?? "").localeCompare(a.lookedAt ?? "");
+  });
+
+  if (rows.length === 0) {
+    return (
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+        {ordered === "loading"
+          ? "Reading this customer's orders…"
+          : "Nothing looked at and nothing ordered in this period."}
+      </Typography>
+    );
+  }
+
   const head = { fontSize: "0.67rem", fontWeight: 700, color: MUTED, textTransform: "uppercase" as const,
     letterSpacing: 0.4, pb: 0.5, borderBottom: `1px solid ${HAIRLINE}` };
+  const cols = "118px 110px minmax(180px, 1fr) 76px 68px 80px 92px";
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "140px minmax(220px, 1fr) 90px 100px 90px",
-      gap: "5px 16px", fontSize: "0.8rem", alignItems: "baseline" }}>
-      {["When", "Article", "Quantity", "In cart", "Ordered"].map((h) => (
-        <Box key={h} sx={head}>{h}</Box>
-      ))}
-      {[...lines].reverse().map((v, i) => {
-        // The shop reported the purchase, or the article shows up in what this
-        // customer actually orders. Either is a yes; neither is a dash, never a
-        // guess from the product page - a product number cannot match an
-        // article and would tick the wrong row.
-        const isBought = v.ordered || (bought != null && v.article != null && bought.has(v.article));
-        return (
-          <Fragment key={`${v.article ?? v.product}-${v.t}-${i}`}>
-            <Box sx={{ color: MUTED, whiteSpace: "nowrap" }}>{v.t.replace("T", " ")}</Box>
-            <Box>
-              {v.article ? (
-                <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.article}</Box>
-              ) : (
-                <>
-                  <Box component="span" sx={{ color: MUTED, fontWeight: 600 }}>{v.product}</Box>
-                  <Box component="span" sx={{ color: MUTED, fontSize: "0.72rem" }}>{" "}- product page, no size chosen</Box>
-                </>
-              )}
-            </Box>
-            <Box sx={{ color: v.qty == null ? MUTED : INK, fontWeight: v.qty == null ? 400 : 600 }}>
-              {v.qty == null ? "-" : decimal(v.qty, 0)}
-            </Box>
-            <Box sx={{ color: v.cart ? INK : MUTED, fontWeight: v.cart ? 600 : 400 }}>{v.cart ? "Yes" : "-"}</Box>
-            <Box sx={{ color: isBought ? INK : MUTED, fontWeight: isBought ? 700 : 400 }}>
-              {isBought ? "Yes" : ordered === "loading" && v.article ? "…" : "-"}
-            </Box>
-          </Fragment>
-        );
-      })}
-    </Box>
+    <>
+      <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: "5px 14px", fontSize: "0.8rem", alignItems: "baseline" }}>
+        {["Looked at", "Article", "Description", "Quantity", "In cart", "Ordered", "Value"].map((h) => (
+          <Box key={h} sx={head}>{h}</Box>
+        ))}
+        {rows.map((r) => {
+          const o = r.article ? byArticle.get(r.article) : undefined;
+          const boughtNow = !!o || r.reported;
+          const boughtEver = !boughtNow && !!r.article && everBought.has(r.article);
+          const qty = o?.qty ?? r.qtyTyped;
+          return (
+            <Fragment key={r.key}>
+              <Box sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.lookedAt ? r.lookedAt.replace("T", " ") : "—"}</Box>
+              <Box sx={{ color: r.article ? INK : MUTED, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {r.article ?? r.product}
+              </Box>
+              <Box sx={{ color: MUTED, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {o?.description ?? (r.article ? "—" : "product page, no size chosen")}
+              </Box>
+              <Box sx={{ color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
+                {qty == null ? "—" : decimal(qty, 0)}
+              </Box>
+              <Box sx={{ color: r.cart ? INK : MUTED, fontWeight: r.cart ? 600 : 400 }}>{r.cart ? "Yes" : "—"}</Box>
+              <Box sx={{ color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
+                {boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
+              </Box>
+              <Box sx={{ color: o?.revenue ? INK : MUTED, fontWeight: o?.revenue ? 600 : 400, whiteSpace: "nowrap" }}>
+                {o?.revenue ? `€${compact(o.revenue)}` : "—"}
+              </Box>
+            </Fragment>
+          );
+        })}
+      </Box>
+    </>
   );
 }
 
@@ -301,16 +343,18 @@ export default function EshopActivityPage() {
   // only on open: this is one search each, not one per row on screen.
   useEffect(() => {
     const id = openRow;
-    if (!id || askedOrders.current.has(id)) return;
-    askedOrders.current.add(id);
+    const ask = `${id}|${periodFrom}|${periodTo}`;
+    if (!id || askedOrders.current.has(ask)) return;
+    askedOrders.current.add(ask);
     let alive = true;
     setOrderedBy((o) => ({ ...o, [id]: "loading" }));
-    fetch(`/api/datatracker/ordered?companyId=${encodeURIComponent(id)}`)
+    fetch(`/api/datatracker/ordered?companyId=${encodeURIComponent(id)}&from=${periodFrom}&to=${periodTo}`)
       .then((r) => r.json())
-      .then((j) => { if (alive) setOrderedBy((o) => ({ ...o, [id]: j?.ok ? (j.articles as string[]) : "error" })); })
+      .then((j) => setOrderedBy((o) => ({ ...o,
+        [id]: j?.ok ? { lines: (j.lines ?? []) as OrderLine[], articles: (j.articles ?? []) as string[] } : "error" })))
       .catch(() => { if (alive) setOrderedBy((o) => ({ ...o, [id]: "error" })); });
     return () => { alive = false; };
-  }, [openRow]);
+  }, [openRow, periodFrom, periodTo]);
 
   // "we need to paginate to show all possible": the server hands back 200 rows
   // at a time, so landing on the last loaded page pulls the next slice instead
@@ -489,26 +533,24 @@ export default function EshopActivityPage() {
                     <Collapse in={openRow === r.id} unmountOnExit>
                       <Box sx={{ p: 2, bgcolor: "#fbfcfe" }}>
                         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
-                          What {r.name ?? "this customer"} looked at
+                          What {r.name ?? "this customer"} looked at and ordered
                         </Typography>
-                        {r.recent.length === 0 ? (
-                          <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-                            No article views recorded for this customer yet. The shop posts them as they happen, so this fills in
-                            from the next time somebody here opens an article while logged in.
-                          </Typography>
-                        ) : (
-                          <>
+                        <>
+                          {/* Never gate this on the VIEW feed. Metrohm AG placed the
+                                largest order of 2 October against one login and zero
+                                views, and gating here is what showed "nothing recorded"
+                                on a customer who had just spent 4,907. */}
                             <RecentLines lines={r.recent} ordered={orderedBy[r.id]} />
                             <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
-                              One line per article per day: looking, then adding it to the cart, then buying it stays on the
-                              same line. &ldquo;Ordered&rdquo; is a yes when the shop reported the purchase, or when the article
-                              appears in this customer&rsquo;s 100 most recent orders - so it also catches an order placed by
-                              phone. It does not prove the order came from this look. Quantity and cart are recorded from
-                              2 October; earlier views were stored against the product page rather than the article and are
-                              shown as such rather than guessed at.
+                              Two sources, merged on the article. <b>Looked at</b> comes from the shop as it happens and only
+                              sees a customer who opened a product page while logged in. <b>Ordered</b>, <b>Quantity</b> and
+                              <b> Value</b> come from the order lines, so an article bought from the cart or ordered by phone
+                              still appears - with no &ldquo;looked at&rdquo; time, which is honest rather than invented.
+                              &ldquo;Before&rdquo; means the article is on this customer&rsquo;s recent orders but not this
+                              period&rsquo;s. A product page with no size chosen is shown as such: every page shares one URL
+                              across all its thicknesses, so the 10-digit article only exists once a size is picked.
                             </Typography>
-                          </>
-                        )}
+                        </>
                       </Box>
                     </Collapse>
                   </TableCell>
