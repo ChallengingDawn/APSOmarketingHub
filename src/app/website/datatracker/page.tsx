@@ -95,7 +95,7 @@ type SortKey =
   | "mandant" | "customerNumber" | "name" | "country" | "representative" | "apsoCustomer" | "salesPriority"
   | "logins" | "views" | "orders" | "orderValue" | "viewsPerLogin" | "revenueYtd";
 
-type OrderLine = { article: string; description: string | null; qty: number | null; revenue: number | null; orders: number };
+type OrderLine = { article: string; description: string | null; qty: number | null; revenue: number | null; orders: number; eshop?: boolean };
 type OrderedPayload = { lines: OrderLine[]; articles: string[] };
 type OrderedState = OrderedPayload | "loading" | "error" | undefined;
 
@@ -164,6 +164,7 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
         {rows.map((r) => {
           const o = r.article ? byArticle.get(r.article) : undefined;
           const boughtNow = !!o || r.reported;
+          const inCart = r.cart || !!o?.eshop;
           const boughtEver = !boughtNow && !!r.article && everBought.has(r.article);
           const qty = o?.qty ?? r.qtyTyped;
           return (
@@ -178,7 +179,10 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
               <Box sx={{ color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
                 {qty == null ? "—" : decimal(qty, 0)}
               </Box>
-              <Box sx={{ color: r.cart ? INK : MUTED, fontWeight: r.cart ? 600 : 400 }}>{r.cart ? "Yes" : "—"}</Box>
+              {/* An e-shop order went through the cart by construction - you cannot
+                  buy from the webshop without one. Showing a dash beside
+                  "Ordered: Yes" said something that cannot be true. */}
+              <Box sx={{ color: inCart ? INK : MUTED, fontWeight: inCart ? 600 : 400 }}>{inCart ? "Yes" : "—"}</Box>
               <Box sx={{ color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
                 {boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
               </Box>
@@ -614,15 +618,6 @@ export default function EshopActivityPage() {
                                 views, and gating here is what showed "nothing recorded"
                                 on a customer who had just spent 4,907. */}
                             <RecentLines lines={r.recent} ordered={orderedBy[r.id]} />
-                            <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
-                              Two sources, merged on the article. <b>Looked at</b> comes from the shop as it happens and only
-                              sees a customer who opened a product page while logged in. <b>Ordered</b>, <b>Quantity</b> and
-                              <b> Value</b> come from the order lines, so an article bought from the cart or ordered by phone
-                              still appears - with no &ldquo;looked at&rdquo; time, which is honest rather than invented.
-                              &ldquo;Before&rdquo; means the article is on this customer&rsquo;s recent orders but not this
-                              period&rsquo;s. A product page with no size chosen is shown as such: every page shares one URL
-                              across all its thicknesses, so the 10-digit article only exists once a size is picked.
-                            </Typography>
                         </>
                       </Box>
                     </Collapse>

@@ -102,6 +102,9 @@ export type OrderedLine = {
   qty: number | null;
   revenue: number | null;
   orders: number;
+  /** Ordered through the webshop. Such an order went through the cart and a
+   *  login by construction - it cannot be placed any other way. */
+  eshop: boolean;
 };
 
 /**
@@ -116,7 +119,7 @@ export type OrderedLine = {
 export async function fetchCompanyOrderLines(
   companyId: string, from: string, to: string, signal?: AbortSignal,
 ): Promise<OrderedLine[]> {
-  const props = ["order_order_date"];
+  const props = ["order_order_date", "order_channel"];
   for (let i = 0; i < 80; i++) for (const f of LINE_FIELDS) props.push(lineProp(i, f));
 
   const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
@@ -141,13 +144,15 @@ export async function fetchCompanyOrderLines(
     for (let i = 0; i < 80; i++) {
       const article = p[lineProp(i, "article")];
       if (!article) continue;
-      const cur = byArticle.get(article) ?? { article, description: null, qty: 0, revenue: 0, orders: 0 };
+      const cur = byArticle.get(article)
+        ?? { article, description: null, qty: 0, revenue: 0, orders: 0, eshop: false };
       cur.orders += 1;
       cur.qty = (cur.qty ?? 0) + (Number(p[lineProp(i, "qty")]) || 0);
       cur.revenue = (cur.revenue ?? 0) + (Number(p[lineProp(i, "revenue")]) || 0);
       // `text` is often empty on ERP lines; the description is filled in from
       // Products & Pricing afterwards rather than left blank.
       cur.description = cur.description ?? (p[lineProp(i, "text")] || null);
+      if (String(p.order_channel ?? "").toLowerCase() === "eshop") cur.eshop = true;
       byArticle.set(article, cur);
     }
   }
