@@ -107,7 +107,12 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
   type Row = { key: string; article: string | null; product: string | null; lookedAt: string | null; qtyTyped: number | null; cart: boolean; reported: boolean };
   const rows: Row[] = [];
   const seen = new Set<string>();
+  // Once the quantity lookup has named the article, the bare product-page line
+  // for the same product says strictly less about the same visit. Drop it
+  // rather than show the customer twice.
+  const namedProducts = new Set(lines.filter((v) => v.article && v.product).map((v) => v.product as string));
   for (const v of [...lines].reverse()) {
+    if (!v.article && v.product && namedProducts.has(v.product)) continue;
     const key = v.article ?? `p:${v.product}`;
     if (seen.has(key)) continue;
     seen.add(key);
