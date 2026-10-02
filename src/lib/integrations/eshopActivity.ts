@@ -46,7 +46,7 @@ type ActivityJson = {
 };
 
 /** Sum the live counters between two ISO days, inclusive. Null when untouched. */
-function sumRange(raw: unknown, from: string, to: string): { views: number | null; logins: number | null; days: number } {
+export function sumRange(raw: unknown, from: string, to: string): { views: number | null; logins: number | null; days: number } {
   if (typeof raw !== "string" || !raw) return { views: null, logins: null, days: 0 };
   let parsed: ActivityJson;
   try { parsed = JSON.parse(raw) as ActivityJson; } catch { return { views: null, logins: null, days: 0 }; }

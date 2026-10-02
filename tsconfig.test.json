@@ -8,7 +8,14 @@
     "skipLibCheck": true,
     "outDir": ".test-build",
     "rootDir": ".",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["tests/**/*.test.ts"]
+  "include": [
+    "tests/**/*.test.ts"
+  ],
+  "exclude": [
+    "tests/browser/**"
+  ]
 }

@@ -34,6 +34,7 @@ import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
+import { isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
@@ -69,20 +70,19 @@ function YearBars({ history, year }: { history: { year: number; views: number | 
 }
 
 /** Ranges the live counters can answer. The year picker still drives history. */
+// Labels only. How far back each reaches lives in RANGE_DAYS in the rules
+// module, so the window cannot drift from the one that is tested.
 const RANGES = [
-  { id: "today", label: "Today", days: 0 },
-  { id: "7d", label: "Last 7 days", days: 6 },
-  { id: "30d", label: "Last 30 days", days: 29 },
-  { id: "90d", label: "This quarter", days: 89 },
-  { id: "365d", label: "Last 12 months", days: 364 },
+  { id: "today", label: "Today" },
+  { id: "7d", label: "Last 7 days" },
+  { id: "30d", label: "Last 30 days" },
+  { id: "90d", label: "This quarter" },
+  { id: "365d", label: "Last 12 months" },
 ] as const;
 
 /** Portal 26492587 on the EU cluster; 0-2 = companies. Same as /customers. */
 const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
-
-const isoDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // What the SERVER sorts by, which decides which rows arrive first when there
 // are more than a page of them. Order value is not a HubSpot-sortable field, so
@@ -247,18 +247,10 @@ export default function EshopActivityPage() {
 
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
-  const periodPreset = RANGES.find((r) => r.id === period);
-  const pickedYear = period.startsWith("y") ? Number(period.slice(1)) : null;
-  const todayIso = isoDay(new Date());
-  // A full year has to move the ORDERS window too. It used to fall through to
-  // the 30-day default, so one row described a year on the left and a month on
-  // the right.
-  const periodTo = period === "custom" ? customTo
-    : pickedYear ? (pickedYear === new Date().getFullYear() ? todayIso : `${pickedYear}-12-31`)
-    : todayIso;
-  const periodFrom = period === "custom" ? customFrom
-    : pickedYear ? `${pickedYear}-01-01`
-    : isoDay(new Date(Date.now() - (periodPreset?.days ?? 29) * 86_400_000));
+  // One definition of the window, shared by the activity read and the orders
+  // read, and TESTED in tests/datatracker-rules.test.ts - a year reaching the
+  // orders window only 30 days back is exactly the bug that hid in here.
+  const { from: periodFrom, to: periodTo } = periodWindow(period, customFrom, customTo);
 
   const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
   const live = asYear === null;
@@ -465,12 +457,7 @@ export default function EshopActivityPage() {
     trend: { display: { xs: "none", lg: "table-cell" } },
   } as const;
   const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
-  /** "2-Prio 2 - Pot btw 2500 & 24999EUR" is a sentence; the cell needs a label. */
-  const shortPrio = (v: string | null) => {
-    if (!v) return "—";
-    const m = /Prio\s*(\d)/i.exec(v);
-    return m ? `Prio ${m[1]}` : v.split(" - ")[0];
-  };
+
 
   return (
     // The page sits outside the (site) route group, so it carries its own
@@ -633,7 +620,7 @@ export default function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED, ...clip, ...COL.representative }}>{r.representative ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, ...clip }}>{r.apsoCustomer ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, ...clip }}>
-                    <Tooltip title={r.salesPriority ?? ""} describeChild><span>{shortPrio(r.salesPriority)}</span></Tooltip>
+                    <Tooltip title={r.salesPriority ?? ""} describeChild><span>{shortPriority(r.salesPriority)}</span></Tooltip>
                   </TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
