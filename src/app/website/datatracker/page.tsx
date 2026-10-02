@@ -28,6 +28,7 @@ import Button from "@mui/material/Button";
 import TablePagination from "@mui/material/TablePagination";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import Tabs from "@mui/material/Tabs";
+import Link from "@mui/material/Link";
 import Tab from "@mui/material/Tab";
 import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
@@ -75,6 +76,10 @@ const RANGES = [
   { id: "90d", label: "This quarter", days: 89 },
   { id: "365d", label: "Last 12 months", days: 364 },
 ] as const;
+
+/** Portal 26492587 on the EU cluster; 0-2 = companies. Same as /customers. */
+const HS_PORTAL = "26492587";
+const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
 
 const isoDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -524,7 +529,7 @@ export default function EshopActivityPage() {
           note={ordersError ? "Orders could not be read" : "Every mandant in this window"} />
         <StatTile label={`Order value · ${periodLabel}`}
           value={ordersError ? "—" : orders == null ? "…" : `€${compact(Object.values(ordersBy).reduce((n, o) => n + o.value, 0))}`}
-          note={ordersError ? "Orders could not be read" : "Net, as the desktop tracker counts it"} />
+          note={ordersError ? "Orders could not be read" : ""} />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -565,7 +570,15 @@ export default function EshopActivityPage() {
                   </TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.mandant ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.customerNumber ?? "—"}</TableCell>
-                  <TableCell sx={{ color: INK, fontWeight: 600 }}>{r.name ?? "—"}</TableCell>
+                  <TableCell sx={{ color: INK, fontWeight: 600 }}>
+                    {/* stopPropagation: the row click opens the detail panel, and
+                        a link inside it must not do both. */}
+                    <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noopener"
+                      onClick={(e) => e.stopPropagation()} underline="hover"
+                      sx={{ color: INK, fontWeight: 600 }}>
+                      {r.name ?? "—"}
+                    </Link>
+                  </TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.country ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.representative ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED }}>{r.apsoCustomer ?? "—"}</TableCell>
@@ -588,6 +601,12 @@ export default function EshopActivityPage() {
                       <Box sx={{ p: 2, bgcolor: "#fbfcfe" }}>
                         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
                           What {r.name ?? "this customer"} looked at and ordered
+                          {"  "}
+                          <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noopener"
+                            onClick={(e) => e.stopPropagation()} underline="hover"
+                            sx={{ ml: 1, fontSize: "0.72rem", fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>
+                            Open in HubSpot ↗
+                          </Link>
                         </Typography>
                         <>
                           {/* Never gate this on the VIEW feed. Metrohm AG placed the
