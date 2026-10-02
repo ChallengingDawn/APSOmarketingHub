@@ -146,7 +146,7 @@ type SearchResponse = {
 
 /** id → name for the HubSpot owners, read once and kept for the process. */
 let ownerNames: Map<string, string> | null = null;
-async function owners(signal?: AbortSignal): Promise<Map<string, string>> {
+export async function owners(signal?: AbortSignal): Promise<Map<string, string>> {
   if (ownerNames) return ownerNames;
   try {
     const res = await hubspotFetchJson<{ results?: { id?: string; firstName?: string; lastName?: string; email?: string }[] }>({

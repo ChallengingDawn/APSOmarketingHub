@@ -35,6 +35,14 @@ import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } fr
 
 import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
+type OrdersPayload = {
+  from: string; to: string;
+  byCompany: Record<string, { orders: number; value: number }>;
+  companies: Record<string, { name: string | null; customerNumber: string | null; mandant: string | null;
+    country: string | null; apsoCustomer: string | null; salesPriority: string | null; representative: string | null }>;
+  scanned: number; capped: boolean; unattributed: number; detailTruncated: number;
+};
+
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; priorities: string[]; representatives: { id: string; name: string }[] };
 
 /** Six years of views in one cell. Bars, not a line: the values are counts. */
@@ -70,6 +78,7 @@ const RANGES = [
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 const SORTS = [
+  { id: "ordervalue", label: "Highest order value" },
   { id: "views", label: "Most views" },
   { id: "logins", label: "Most logins" },
   { id: "revenue", label: "Most revenue" },
@@ -133,6 +142,8 @@ export default function EshopActivityPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [orderedBy, setOrderedBy] = useState<Record<string, Exclude<OrderedState, undefined>>>({});
+  const [orders, setOrders] = useState<OrdersPayload | null>(null);
+  const [minValue, setMinValue] = useState("");
   const askedOrders = useRef<Set<string>>(new Set());
   const [lastQuery, setLastQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -145,7 +156,7 @@ export default function EshopActivityPage() {
   const [apsoCustomer, setApsoCustomer] = useState("");
   const [representative, setRepresentative] = useState("");
   const [priority, setPriority] = useState("");
-  const [period, setPeriod] = useState<string>("30d");   // a RANGES id, "custom", or "y2026"
+  const [period, setPeriod] = useState<string>("today");  // a RANGES id, "custom", or "y2026"
   const [customFrom, setCustomFrom] = useState(isoDay(new Date(Date.now() - 6 * 86_400_000)));
   const [customTo, setCustomTo] = useState(isoDay(new Date()));
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
@@ -154,6 +165,13 @@ export default function EshopActivityPage() {
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
+
+  // One definition of the window, shared by the activity read and the orders
+  // read, so the two halves of a row can never describe different days.
+  const periodPreset = RANGES.find((r) => r.id === period);
+  const periodTo = period === "custom" ? customTo : isoDay(new Date());
+  const periodFrom = period === "custom" ? customFrom
+    : isoDay(new Date(Date.now() - (periodPreset?.days ?? 29) * 86_400_000));
 
   const asYear = period.startsWith("y") ? (Number(period.slice(1)) as EshopYear) : null;
   const live = asYear === null;
@@ -167,11 +185,8 @@ export default function EshopActivityPage() {
     if (apsoCustomer) q.set("apsoCustomer", apsoCustomer);
     if (representative) q.set("representative", representative);
     if (priority) q.set("priority", priority);
-    const preset = RANGES.find((r) => r.id === period);
-    const to = period === "custom" ? customTo : isoDay(new Date());
-    const from = period === "custom" ? customFrom : isoDay(new Date(Date.now() - (preset?.days ?? 29) * 86_400_000));
-    q.set("from", from);
-    q.set("to", to);
+    q.set("from", periodFrom);
+    q.set("to", periodTo);
     q.set("mode", live ? "range" : "year");
     setData(null);
     setExtraRows([]);
@@ -187,7 +202,20 @@ export default function EshopActivityPage() {
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setError(String(e)); });
     return () => ctrl.abort();
-  }, [period, country, mandant, apsoCustomer, representative, priority, sort, customFrom, customTo]);
+  }, [period, country, mandant, apsoCustomer, representative, priority, sort, customFrom, customTo, periodFrom, periodTo]);
+
+  // Orders are the other half of the desktop tracker's table, and they are the
+  // reason a customer who ordered without browsing still belongs on this list.
+  useEffect(() => {
+    if (tab !== "customers") return;
+    const ctrl = new AbortController();
+    setOrders(null);
+    fetch(`/api/datatracker/orders?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((j) => { if (j?.ok) setOrders(j as OrdersPayload); })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [tab, periodFrom, periodTo]);
 
   useEffect(() => {
     if (tab !== "articles") return;
@@ -208,14 +236,44 @@ export default function EshopActivityPage() {
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
-  const allRows = [...(data?.rows ?? []), ...extraRows];
+  const loadedRows = [...(data?.rows ?? []), ...extraRows];
+
+  // A customer who ordered in this window but was never seen browsing is still
+  // a customer who was active in it - the desktop tracker lists them, and
+  // leaving them out is what made the live screen look like it was missing
+  // data. They come in with no views rather than with invented ones.
+  const ordersBy = orders?.byCompany ?? {};
+  const allRows = (() => {
+    if (!orders) return loadedRows;
+    const known = new Set(loadedRows.map((r) => r.id));
+    const extra = Object.keys(ordersBy)
+      .filter((id) => !known.has(id) && orders.companies[id])
+      .map((id) => {
+        const c = orders.companies[id];
+        return {
+          id, mandant: c.mandant, customerNumber: c.customerNumber, name: c.name,
+          logins: null, views: null, viewsPerLogin: null,
+          rangeViews: null, rangeLogins: null, recent: [], revenueYtd: null,
+          country: c.country, representative: c.representative,
+          apsoCustomer: c.apsoCustomer, salesPriority: c.salesPriority,
+          history: [],
+        };
+      });
+    return [...loadedRows, ...extra];
+  })();
   // Picking "Today" must change WHO is listed, not just the numbers beside them.
   // HubSpot cannot filter inside the JSON, so the narrowing happens here.
   const inPeriod = live
-    ? allRows.filter((r) => (r.rangeViews ?? 0) > 0 || (r.rangeLogins ?? 0) > 0)
-        .sort((a, b) => (b.rangeViews ?? 0) - (a.rangeViews ?? 0))
+    ? allRows.filter((r) => (r.rangeViews ?? 0) > 0 || (r.rangeLogins ?? 0) > 0 || (ordersBy[r.id]?.orders ?? 0) > 0)
+        .sort((a, b) => sort === "ordervalue"
+          ? (ordersBy[b.id]?.value ?? 0) - (ordersBy[a.id]?.value ?? 0)
+          : (b.rangeViews ?? 0) - (a.rangeViews ?? 0))
     : allRows;
+  const minV = Number(minValue.replace(",", ".")) || 0;
   const visible = inPeriod.filter((r) => {
+    // Only bites when a figure was typed, so it never hides the customers who
+    // browsed without ordering.
+    if (minV > 0 && (ordersBy[r.id]?.value ?? 0) < minV) return false;
     if (!search.trim()) return true;
     const needle = search.toLowerCase();
     return [r.name, r.customerNumber, r.representative].some((v) => (v ?? "").toLowerCase().includes(needle));
@@ -338,6 +396,15 @@ export default function EshopActivityPage() {
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 230 }}
           />
+          <TextField
+            size="small"
+            type="number"
+            placeholder="Min. order value €"
+            value={minValue}
+            onChange={(e) => setMinValue(e.target.value)}
+            sx={{ minWidth: 170 }}
+            inputProps={{ min: 0, step: 100, "aria-label": "Minimum order value in the period" }}
+          />
           <Chip
             size="small"
             label={live
@@ -345,6 +412,18 @@ export default function EshopActivityPage() {
               : `${full(data?.total ?? null)} companies active in ${year}`}
             sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
           />
+          {/* A bounded scan must say so. A silent cap reads as "this is the
+              whole total" and that is how a wrong number gets published. */}
+          {orders?.capped && (
+            <Typography sx={{ fontSize: "0.74rem", color: "#9e1b18" }}>
+              Orders cut at the {full(orders.scanned)} most recent in this window - pick a shorter period for an exact total.
+            </Typography>
+          )}
+          {(orders?.detailTruncated ?? 0) > 0 && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+              {full(orders!.detailTruncated)} further customers ordered in this window and are not listed.
+            </Typography>
+          )}
           {error && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>{error}</Typography>}
         </Box>
       </Section>
@@ -353,6 +432,12 @@ export default function EshopActivityPage() {
         <StatTile label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
         <StatTile label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
         <StatTile label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
+        <StatTile label={`Orders · ${periodLabel}`}
+          value={orders == null ? "…" : full(Object.values(ordersBy).reduce((n, o) => n + o.orders, 0))}
+          note="Every mandant in this window" />
+        <StatTile label={`Order value · ${periodLabel}`}
+          value={orders == null ? "…" : `€${compact(Object.values(ordersBy).reduce((n, o) => n + o.value, 0))}`}
+          note="Net, as the desktop tracker counts it" />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -364,7 +449,8 @@ export default function EshopActivityPage() {
                 {["Mandant", "Customer no.", "Customer", "Country", "Representative", "Selection criterion", "Priority"].map((h) => (
                   <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
-                {[`Logins · ${periodLabel}`, `Views · ${periodLabel}`, "Views / login", "Revenue YTD"].map((h) => (
+                {[`Logins · ${periodLabel}`, `Views · ${periodLabel}`, `Orders · ${periodLabel}`,
+                  `Total value · ${periodLabel}`, "Views / login", "Revenue YTD"].map((h) => (
                   <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                 ))}
                 <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>2021 → 2026</TableCell>
@@ -388,12 +474,18 @@ export default function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.salesPriority ?? "—"}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
                   <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
+                  <TableCell align="right" sx={{ color: INK }}>
+                    {orders == null ? "…" : full(ordersBy[r.id]?.orders ?? 0)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>
+                    {orders == null ? "…" : (ordersBy[r.id]?.value ?? 0) === 0 ? "—" : `€${compact(ordersBy[r.id].value)}`}
+                  </TableCell>
                   <TableCell align="right" sx={{ color: MUTED }}>{r.viewsPerLogin == null ? "—" : decimal(r.viewsPerLogin, 1)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{r.revenueYtd == null ? "—" : `€${compact(r.revenueYtd)}`}</TableCell>
                   <TableCell><YearBars history={r.history} year={year} /></TableCell>
                 </TableRow>,
                 <TableRow key={`${r.id}-detail`}>
-                  <TableCell colSpan={13} sx={{ p: 0, borderBottom: openRow === r.id ? undefined : "none" }}>
+                  <TableCell colSpan={15} sx={{ p: 0, borderBottom: openRow === r.id ? undefined : "none" }}>
                     <Collapse in={openRow === r.id} unmountOnExit>
                       <Box sx={{ p: 2, bgcolor: "#fbfcfe" }}>
                         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.4, mb: 1 }}>
@@ -424,7 +516,7 @@ export default function EshopActivityPage() {
               ]).flat()}
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={13} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                  <TableCell colSpan={15} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     {data ? "No customer matches these filters." : "Reading the shop's activity…"}
                   </TableCell>
                 </TableRow>
