@@ -7,7 +7,7 @@
 // and views are counted by the shop on an essential-cookie basis, which is why
 // they cover every customer and GA4's numbers do not.
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
@@ -31,7 +31,7 @@ import Tab from "@mui/material/Tab";
 import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
-import { ESHOP_YEARS, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
+import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
 
 import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
@@ -75,12 +75,65 @@ const SORTS = [
   { id: "revenue", label: "Most revenue" },
 ] as const;
 
+type OrderedState = string[] | "loading" | "error" | undefined;
+
+/**
+ * What one customer looked at: one line per article per day, carrying the
+ * quantity they typed, whether it went in the cart and whether they buy it.
+ * Looking, adding and buying the same article on one day stay on ONE line -
+ * the gateway folds them - so this reads as a story rather than three rows.
+ */
+function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: OrderedState }) {
+  const bought = Array.isArray(ordered) ? new Set(ordered) : null;
+  const head = { fontSize: "0.67rem", fontWeight: 700, color: MUTED, textTransform: "uppercase" as const,
+    letterSpacing: 0.4, pb: 0.5, borderBottom: `1px solid ${HAIRLINE}` };
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: "140px minmax(220px, 1fr) 90px 100px 90px",
+      gap: "5px 16px", fontSize: "0.8rem", alignItems: "baseline" }}>
+      {["When", "Article", "Quantity", "In cart", "Ordered"].map((h) => (
+        <Box key={h} sx={head}>{h}</Box>
+      ))}
+      {[...lines].reverse().map((v, i) => {
+        // The shop reported the purchase, or the article shows up in what this
+        // customer actually orders. Either is a yes; neither is a dash, never a
+        // guess from the product page - a product number cannot match an
+        // article and would tick the wrong row.
+        const isBought = v.ordered || (bought != null && v.article != null && bought.has(v.article));
+        return (
+          <Fragment key={`${v.article ?? v.product}-${v.t}-${i}`}>
+            <Box sx={{ color: MUTED, whiteSpace: "nowrap" }}>{v.t.replace("T", " ")}</Box>
+            <Box>
+              {v.article ? (
+                <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.article}</Box>
+              ) : (
+                <>
+                  <Box component="span" sx={{ color: MUTED, fontWeight: 600 }}>{v.product}</Box>
+                  <Box component="span" sx={{ color: MUTED, fontSize: "0.72rem" }}>{" "}- product page, no size chosen</Box>
+                </>
+              )}
+            </Box>
+            <Box sx={{ color: v.qty == null ? MUTED : INK, fontWeight: v.qty == null ? 400 : 600 }}>
+              {v.qty == null ? "-" : decimal(v.qty, 0)}
+            </Box>
+            <Box sx={{ color: v.cart ? INK : MUTED, fontWeight: v.cart ? 600 : 400 }}>{v.cart ? "Yes" : "-"}</Box>
+            <Box sx={{ color: isBought ? INK : MUTED, fontWeight: isBought ? 700 : 400 }}>
+              {isBought ? "Yes" : ordered === "loading" && v.article ? "…" : "-"}
+            </Box>
+          </Fragment>
+        );
+      })}
+    </Box>
+  );
+}
+
 export default function EshopActivityPage() {
   const [data, setData] = useState<EshopActivity | null>(null);
   const [extraRows, setExtraRows] = useState<EshopActivity["rows"]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
+  const [orderedBy, setOrderedBy] = useState<Record<string, Exclude<OrderedState, undefined>>>({});
+  const askedOrders = useRef<Set<string>>(new Set());
   const [lastQuery, setLastQuery] = useState("");
   const [page, setPage] = useState(0);
   const [perPage, setPerPage] = useState(25);
@@ -185,6 +238,21 @@ export default function EshopActivityPage() {
       setLoadingMore(false);
     }
   }, [cursor, loadingMore, lastQuery]);
+
+  // Opening a row asks what that customer actually buys. Once per company, and
+  // only on open: this is one search each, not one per row on screen.
+  useEffect(() => {
+    const id = openRow;
+    if (!id || askedOrders.current.has(id)) return;
+    askedOrders.current.add(id);
+    let alive = true;
+    setOrderedBy((o) => ({ ...o, [id]: "loading" }));
+    fetch(`/api/datatracker/ordered?companyId=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive) setOrderedBy((o) => ({ ...o, [id]: j?.ok ? (j.articles as string[]) : "error" })); })
+      .catch(() => { if (alive) setOrderedBy((o) => ({ ...o, [id]: "error" })); });
+    return () => { alive = false; };
+  }, [openRow]);
 
   // "we need to paginate to show all possible": the server hands back 200 rows
   // at a time, so landing on the last loaded page pulls the next slice instead
@@ -338,16 +406,14 @@ export default function EshopActivityPage() {
                           </Typography>
                         ) : (
                           <>
-                            <Box sx={{ display: "grid", gap: 0.5 }}>
-                              {[...r.recent].reverse().map((v, i) => (
-                                <Box key={`${v.a}-${i}`} sx={{ display: "flex", gap: 2, fontSize: "0.8rem" }}>
-                                  <Box component="span" sx={{ color: MUTED, minWidth: 130 }}>{v.t.replace("T", " ")}</Box>
-                                  <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{v.a}</Box>
-                                </Box>
-                              ))}
-                            </Box>
+                            <RecentLines lines={r.recent} ordered={orderedBy[r.id]} />
                             <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1.5 }}>
-                              The most recent article opens the shop has posted. Older views are counted but not listed.
+                              One line per article per day: looking, then adding it to the cart, then buying it stays on the
+                              same line. &ldquo;Ordered&rdquo; is a yes when the shop reported the purchase, or when the article
+                              appears in this customer&rsquo;s 100 most recent orders - so it also catches an order placed by
+                              phone. It does not prove the order came from this look. Quantity and cart are recorded from
+                              2 October; earlier views were stored against the product page rather than the article and are
+                              shown as such rather than guessed at.
                             </Typography>
                           </>
                         )}

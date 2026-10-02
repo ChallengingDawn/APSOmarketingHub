@@ -25,7 +25,25 @@ const loginsProp = (year: EshopYear) => (year === 2026 ? "n_of_logins_datatracke
 const viewsProp = (year: EshopYear) => (year === 2026 ? "n_of_views_datatracker" : `n_of_views_datatracker_${year}`);
 
 /** One day of the live counters, as the smart bar writes them. */
-type ActivityJson = { days?: Record<string, { v?: number; l?: number }>; recent?: { t?: string; a?: string }[] };
+export type ActivityLine = {
+  t: string;
+  article: string | null;
+  product: string | null;
+  qty: number | null;
+  cart: boolean;
+  ordered: boolean;
+};
+
+type ActivityJson = {
+  days?: Record<string, { v?: number; l?: number; c?: number; o?: number }>;
+  /**
+   * One line per article per day. `a` is the 10-digit ARTICLE, `p` the 8-digit
+   * product page when no variant was chosen - they are different numbers and
+   * only `a` joins to stock, price and orders. `q` is the quantity the customer
+   * typed, `c` that it went in the cart, `o` that it was bought.
+   */
+  recent?: { t?: string; a?: string; p?: string; q?: number; c?: number; o?: number }[];
+};
 
 /** Sum the live counters between two ISO days, inclusive. Null when untouched. */
 function sumRange(raw: unknown, from: string, to: string): { views: number | null; logins: number | null; days: number } {
@@ -57,7 +75,7 @@ export type EshopRow = {
   rangeViews: number | null;
   rangeLogins: number | null;
   /** The newest articles this customer opened, newest last. */
-  recent: { t: string; a: string }[];
+  recent: ActivityLine[];
   revenueYtd: number | null;
   country: string | null;
   representative: string | null;
@@ -215,7 +233,17 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
       recent: (() => {
         try {
           const j = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson;
-          return (j.recent ?? []).filter((r) => r?.t && r?.a).map((r) => ({ t: String(r.t), a: String(r.a) })).slice(-8);
+          return (j.recent ?? [])
+            .filter((r) => r?.t && (r.a || r.p))
+            .map((r) => ({
+              t: String(r.t),
+              article: r.a ? String(r.a) : null,
+              product: r.p ? String(r.p) : null,
+              qty: typeof r.q === "number" && r.q > 0 ? r.q : null,
+              cart: r.c === 1,
+              ordered: r.o === 1,
+            }))
+            .slice(-12);
         } catch { return []; }
       })(),
       history: [...ESHOP_YEARS]
@@ -265,4 +293,45 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { countries, mandants, apsoCustomers, priorities, representatives };
+}
+
+/** The 80 article slots the order connector denormalises onto each order. */
+const ORDER_LINE_PROPS = Array.from({ length: 80 }, (_, i) => `order_line_${String(i + 1).padStart(2, "0")}_article`);
+
+/**
+ * Which articles this customer has actually ordered.
+ *
+ * The shop's purchase event says an order happened in that browsing session.
+ * This answers the wider question - does this customer buy this article at all
+ * - from the orders the connector already associates with the company, so it
+ * holds for an order placed by phone or e-mail too.
+ *
+ * Deliberately the most recent 100 orders: a customer with ten years of history
+ * does not need a full scan to answer whether today's look is something they
+ * buy, and this runs once, when a row is opened.
+ *
+ * Order lines carry the TEN-digit article, the same number the shop now sends -
+ * see the note on ActivityLine. Matching on anything shorter would be matching
+ * a product page against an article and would silently tick the wrong rows.
+ */
+export async function fetchOrderedArticles(companyId: string, signal?: AbortSignal): Promise<string[]> {
+  const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+    path: "/crm/v3/objects/orders/search",
+    method: "POST",
+    signal,
+    body: {
+      filterGroups: [{ filters: [{ propertyName: "associations.company", operator: "EQ", value: companyId }] }],
+      properties: ORDER_LINE_PROPS,
+      sorts: [{ propertyName: "hs_createdate", direction: "DESCENDING" }],
+      limit: 100,
+    },
+  });
+  const out = new Set<string>();
+  for (const o of res.results ?? []) {
+    for (const k of ORDER_LINE_PROPS) {
+      const v = o.properties?.[k];
+      if (v) out.add(String(v));
+    }
+  }
+  return [...out];
 }
