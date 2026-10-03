@@ -5,14 +5,14 @@
 // 130,966 articles and was written this morning. Those are ERP counts, so they
 // cover every order whatever anyone chose on the cookie banner.
 //
-// Views are the one column HubSpot does not carry. The shop counts them on an
-// essential-cookie basis and the desktop tracker shows them; nothing loads them
-// into Products & Pricing. Until something does, the views here come from GA4's
-// item data — consented sessions only, so smaller than the truth — and the
-// screen labels them as such rather than passing them off as the real count.
+// Views used to come from GA4, which sees only consented sessions and carries no
+// customer identity — so the column was both short of the truth and could not say
+// WHO looked. The shop now reports the article itself, off the ERP price lookup
+// that fires for every signed-in customer whatever they chose on the cookie
+// banner. Those are the counts here, and they can name the customers behind them.
 
 import { hubspotFetchJson } from "./hubspot";
-import { fetchGa4Report } from "./ga4Reports";
+import { fetchArticleLooks } from "./eshopActivity";
 
 export type ArticleRow = {
   id: string;
@@ -27,14 +27,22 @@ export type ArticleRow = {
   orders: number | null;
   /** ERP: how many distinct companies ordered it. */
   companies: number | null;
-  /** GA4, consented sessions only. Null when GA4 has no row for it. */
+  /** Times the shop reported this article being priced. Null when never seen. */
   views: number | null;
+  /** How many distinct customers that was. */
+  lookedBy: number | null;
+  /** How many of those looks went on to the cart. */
+  carts: number | null;
+  /** The largest quantity anyone priced it at. */
+  topQty: number | null;
+  /** When it was last looked at, "YYYY-MM-DDTHH:MM". */
+  lastLooked: string | null;
 };
 
 export type ArticleActivity = {
   rows: ArticleRow[];
   total: number | null;
-  /** The window the GA4 view column covers; the ERP columns are all-time counts. */
+  /** Null now that views come from the shop itself rather than a GA4 window. */
   viewsFrom: string | null;
   viewsTo: string | null;
   viewsError: string | null;
@@ -85,19 +93,12 @@ export async function fetchArticleActivity(
     signal: params.signal,
   });
 
-  // GA4's item rows, joined on the article number. A failure here costs the one
-  // column, not the table — the ERP counts are the point of this screen.
-  let views = new Map<string, number>();
+  // What the shop reported, joined on the article number. A failure here costs
+  // the view columns, not the table - the ERP counts are the rest of the screen.
+  let looks: Record<string, { views: number; customers: number; carts: number; lastSeen: string | null; topQty: number | null }> = {};
   let viewsError: string | null = null;
-  let viewsFrom: string | null = null;
-  let viewsTo: string | null = null;
   try {
-    const to = params.to ?? new Date().toISOString().slice(0, 10);
-    const from = params.from ?? new Date(Date.parse(`${to}T00:00:00Z`) - 89 * 86_400_000).toISOString().slice(0, 10);
-    const report = await fetchGa4Report({ name: "itemActivity", from, to, signal: params.signal });
-    views = new Map(report.rows.map((r) => [String(r.keys[0] ?? ""), r.values[0] ?? 0]));
-    viewsFrom = from;
-    viewsTo = to;
+    looks = await fetchArticleLooks(params.signal);
   } catch (err) {
     viewsError = String((err as Error)?.message ?? err);
   }
@@ -116,15 +117,19 @@ export async function fetchArticleActivity(
       stockUnit: str(p.stock_unit),
       orders: num(p.order_article_count),
       companies: num(p.company_article_count),
-      views: articleNumber ? views.get(articleNumber) ?? null : null,
+      views: articleNumber ? looks[articleNumber]?.views ?? null : null,
+      lookedBy: articleNumber ? looks[articleNumber]?.customers ?? null : null,
+      carts: articleNumber ? looks[articleNumber]?.carts ?? null : null,
+      topQty: articleNumber ? looks[articleNumber]?.topQty ?? null : null,
+      lastLooked: articleNumber ? looks[articleNumber]?.lastSeen ?? null : null,
     };
   });
 
   return {
     rows,
     total: typeof res.total === "number" ? res.total : null,
-    viewsFrom,
-    viewsTo,
+    viewsFrom: null,
+    viewsTo: null,
     viewsError,
     generatedAt: new Date().toISOString(),
   };

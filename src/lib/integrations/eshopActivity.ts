@@ -309,3 +309,70 @@ export async function fetchEshopFilterOptions(signal?: AbortSignal): Promise<{
     .sort((a, b) => a.name.localeCompare(b.name));
   return { countries, mandants, apsoCustomers, priorities, representatives };
 }
+
+/** What the shop told us about one article, aggregated across every customer. */
+export type ArticleLooks = {
+  views: number;
+  customers: number;
+  carts: number;
+  lastSeen: string | null;
+  topQty: number | null;
+};
+
+/**
+ * Per-article activity, built from the live feed rather than from GA4.
+ *
+ * GA4 only ever sees consented sessions and has no customer identity, so its
+ * item views were both smaller than the truth and unattributable. The shop now
+ * reports the article itself - off the ERP price lookup, which fires for every
+ * signed-in customer whatever they chose on the cookie banner - so these counts
+ * are the ones the Article tab should show.
+ *
+ * One scan of the companies carrying activity, so it is cached by the route.
+ */
+export async function fetchArticleLooks(signal?: AbortSignal): Promise<Record<string, ArticleLooks>> {
+  const byArticle: Record<string, ArticleLooks & { seen: Set<string> }> = {};
+  let after: string | undefined;
+  let scanned = 0;
+
+  do {
+    const res = await hubspotFetchJson<SearchResponse>({
+      path: "/crm/v3/objects/companies/search",
+      method: "POST",
+      signal,
+      body: {
+        filterGroups: [{ filters: [{ propertyName: "eshop_activity", operator: "HAS_PROPERTY" }] }],
+        properties: ["eshop_activity"],
+        limit: 100,
+        after,
+      },
+    });
+    for (const r of res.results ?? []) {
+      scanned++;
+      const raw = (r.properties ?? {}).eshop_activity;
+      let parsed: ActivityJson;
+      try { parsed = JSON.parse(String(raw ?? "")) as ActivityJson; } catch { continue; }
+      for (const line of parsed.recent ?? []) {
+        // Only the ten-digit article. A product page is not an article.
+        const a = line?.a;
+        if (!a || !/^\d{10}$/.test(String(a))) continue;
+        const cur = byArticle[a] ?? { views: 0, customers: 0, carts: 0, lastSeen: null, topQty: null, seen: new Set<string>() };
+        cur.views += 1;
+        cur.seen.add(String(r.id ?? ""));
+        if (line.c === 1) cur.carts += 1;
+        if (typeof line.q === "number" && (cur.topQty == null || line.q > cur.topQty)) cur.topQty = line.q;
+        const t = line.t ? String(line.t) : null;
+        if (t && (cur.lastSeen == null || t > cur.lastSeen)) cur.lastSeen = t;
+        byArticle[a] = cur;
+      }
+    }
+    after = res.paging?.next?.after;
+    if (scanned >= 3000) break;          // a guard, not a quota
+  } while (after);
+
+  const out: Record<string, ArticleLooks> = {};
+  for (const [a, v] of Object.entries(byArticle)) {
+    out[a] = { views: v.views, customers: v.seen.size, carts: v.carts, lastSeen: v.lastSeen, topQty: v.topQty };
+  }
+  return out;
+}

@@ -469,7 +469,7 @@ export default function EshopActivityPage() {
         fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1,
       }}>Datatracker</Typography>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1 } }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1, px: 0, mr: 3, minWidth: 0 } }}>
         <Tab value="customers" label="Customers" />
         <Tab value="articles" label="Articles" />
       </Tabs>
@@ -573,10 +573,11 @@ export default function EshopActivityPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                {([["mandant", "Mandant", 60], ["customerNumber", "Customer no.", 92], ["name", "Customer", 0],
+                {([["mandant", "Mandant", 60], ["customerNumber", "Customer no.", 98], ["name", "Customer", 0],
                    ["country", "Country", 84], ["representative", "Representative", 118],
-                   ["apsoCustomer", "Selection criterion", 104], ["salesPriority", "Priority", 74]] as [SortKey, string, number][]).map(([k, h, w]) => (
-                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}), ...clip,
+                   ["apsoCustomer", "Selection criterion", 112], ["salesPriority", "Priority", 80]] as [SortKey, string, number][]).map(([k, h, w]) => (
+                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),
+                    whiteSpace: "normal", lineHeight: 1.2, verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
@@ -584,9 +585,10 @@ export default function EshopActivityPage() {
                   </TableCell>
                 ))}
                 {([["logins", "Logins", 70], ["views", "Views", 70], ["orders", "Orders", 70],
-                   ["orderValue", "Total value", 92], ["viewsPerLogin", "Views / login", 76],
-                   ["revenueYtd", "Revenue YTD", 92]] as [SortKey, string, number][]).map(([k, h, w]) => (
-                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED, width: w, ...clip,
+                   ["orderValue", "Total value", 98], ["viewsPerLogin", "Views / login", 76],
+                   ["revenueYtd", "Revenue YTD", 98]] as [SortKey, string, number][]).map(([k, h, w]) => (
+                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED, width: w,
+                    whiteSpace: "normal", lineHeight: 1.2, verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
@@ -726,7 +728,7 @@ export default function EshopActivityPage() {
                   {["Article no.", "Description", "Main group", "Type"].map((h) => (
                     <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                   ))}
-                  {["Orders", "Customers", "Stock", "Views (GA4)"].map((h) => (
+                  {["Looked at", "Customers", "In cart", "Max qty", "Last look", "Orders", "Ordered by", "Stock"].map((h) => (
                     <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
                   ))}
                 </TableRow>
@@ -738,33 +740,45 @@ export default function EshopActivityPage() {
                     <TableCell sx={{ color: INK }}>{a.description ?? "—"}</TableCell>
                     <TableCell sx={{ color: MUTED }}>{a.mainGroup ?? "—"}</TableCell>
                     <TableCell sx={{ color: MUTED }}>{a.articleType ?? "—"}</TableCell>
+                    {/* What the shop reported, first: it is the live half of this screen. */}
+                    <TableCell align="right" sx={{ color: a.views ? INK : MUTED, fontWeight: a.views ? 700 : 400 }}>
+                      {a.views == null ? "—" : full(a.views)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: a.lookedBy ? INK : MUTED }}>
+                      {a.lookedBy == null ? "—" : full(a.lookedBy)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: a.carts ? INK : MUTED, fontWeight: a.carts ? 600 : 400 }}>
+                      {a.carts ? full(a.carts) : "—"}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: MUTED }}>{a.topQty == null ? "—" : decimal(a.topQty, 0)}</TableCell>
+                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                      {a.lastLooked ? a.lastLooked.replace("T", " ") : "—"}
+                    </TableCell>
+                    {/* then the ERP counts, which are all-time */}
                     <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(a.companies)}</TableCell>
                     <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                       {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}
                     </TableCell>
-                    <TableCell align="right" sx={{ color: MUTED }}>{a.views == null ? "—" : full(a.views)}</TableCell>
                   </TableRow>
                 ))}
                 {articles && articles.rows.length === 0 && (
-                  <TableRow><TableCell colSpan={8} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
                 )}
                 {!articles && !articlesError && (
-                  <TableRow><TableCell colSpan={8} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
           </Box>
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              <strong>Orders, customers and stock are ERP counts</strong> from Products &amp; Pricing, written every night — they
-              cover every order whatever anyone chose on the cookie banner, which is why they are the columns to rank by.
-              {" "}<strong>Views are GA4&apos;s</strong>
-              {articles?.viewsFrom ? `, ${articles.viewsFrom} to ${articles.viewsTo}` : ""}, so they count consented sessions only
-              and are smaller than the truth. The shop&apos;s own view count — the one in the desktop tracker — is collected on an
-              essential-cookie basis and is not loaded into Products &amp; Pricing by anything yet. A dash means GA4 had no row for
-              that article in the period.
-              {articles?.viewsError ? ` GA4 did not answer: ${articles.viewsError}` : ""}
+              <strong>Looked at, Customers, In cart, Max qty and Last look come from the shop as it happens</strong> — off the
+              price lookup the page makes when a customer picks a size and a quantity, so they cover every signed-in customer
+              whatever they chose on the cookie banner. They start on 2 October, when that capture went live.
+              {" "}<strong>Orders, Ordered by and Stock are ERP counts</strong> from Products &amp; Pricing, written every night and
+              covering all time. A dash under the shop columns means nobody has priced that article since the capture started.
+              {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
             </Typography>
           </Box>
         </Section>
