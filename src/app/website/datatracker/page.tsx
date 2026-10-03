@@ -44,6 +44,7 @@ type OrdersPayload = {
   companies: Record<string, { name: string | null; customerNumber: string | null; mandant: string | null;
     country: string | null; apsoCustomer: string | null; salesPriority: string | null; representative: string | null }>;
   scanned: number; capped: boolean; unattributed: number; detailTruncated: number;
+  detailsComplete?: boolean;
 };
 
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; priorities: string[]; representatives: { id: string; name: string }[] };
@@ -290,16 +291,37 @@ export default function EshopActivityPage() {
     const ctrl = new AbortController();
     setOrders(null);
     setOrdersError(null);
-    fetch(`/api/datatracker/orders?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
+    const url = `/api/datatracker/orders?from=${periodFrom}&to=${periodTo}`;
+    fetch(url, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok) setOrders(j as OrdersPayload);
-        else setOrdersError([j?.step ? `${j.step}:` : "", j?.error ?? j?.detail ?? "HubSpot did not answer for orders.",
-          j?.status ? `(HTTP ${j.status})` : ""].filter(Boolean).join(" "));
+        if (!j?.ok) {
+          setOrdersError([j?.step ? `${j.step}:` : "", j?.error ?? j?.detail ?? "HubSpot did not answer for orders.",
+            j?.status ? `(HTTP ${j.status})` : ""].filter(Boolean).join(" "));
+          return;
+        }
+        setOrders(j as OrdersPayload);
+        // The totals are already complete; only the NAMES of the smaller
+        // customers are still missing, so fetch them without blocking the table.
+        if (j.detailsComplete === false) {
+          fetch(`${url}&detail=all`, { signal: ctrl.signal })
+            .then((r) => r.json())
+            .then((full) => { if (full?.ok) setOrders(full as OrdersPayload); })
+            .catch(() => {});
+        }
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setOrdersError(String(e)); });
     return () => ctrl.abort();
   }, [tab, periodFrom, periodTo]);
+
+  // The article scan reads every company carrying activity, so it cannot run
+  // once per keystroke. The customers table filters the rows it already has;
+  // this one waits for a pause in the typing.
+  const [searchSlow, setSearchSlow] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearchSlow(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     if (tab !== "articles") return;
@@ -307,16 +329,16 @@ export default function EshopActivityPage() {
     setArticles(null);
     setArticlesError(null);
     const q = new URLSearchParams({ sort: articleSort, limit: "200" });
-    if (search.trim()) q.set("search", search.trim());
+    if (searchSlow.trim()) q.set("search", searchSlow.trim());
     fetch(`/api/datatracker/articles?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
         if (j?.ok && j.data) setArticles(j.data);
-        else setArticlesError(j?.error ?? j?.detail ?? "GA4 did not answer.");
+        else setArticlesError(j?.error ?? j?.detail ?? "HubSpot did not answer for articles.");
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setArticlesError(String(e)); });
     return () => ctrl.abort();
-  }, [tab, articleSort, search]);
+  }, [tab, articleSort, searchSlow]);
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
@@ -552,9 +574,12 @@ export default function EshopActivityPage() {
             For anything before that only yearly totals exist, so a date range inside an earlier year cannot be split
             out — pick a full year to see those. Orders and value are exact in any window.
           </Typography>
+{/* Not an error and not a cap: the totals above are already complete and
+              these rows are on their way, so this reads as progress rather than loss. */}
           {(orders?.detailTruncated ?? 0) > 0 && (
-            <Typography sx={{ fontSize: "0.74rem", color: "#9e1b18" }}>
-              {full(orders!.detailTruncated)} further customers ordered in this window and are not listed.
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+              Showing the {full(300)} largest first - still naming {full(orders!.detailTruncated)} more customers who
+              ordered in this window. The totals above already include them.
             </Typography>
           )}
           {ordersError && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>Orders: {ordersError}</Typography>}

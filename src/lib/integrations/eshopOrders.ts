@@ -34,33 +34,56 @@ const dayMs = (iso: string) =>
   Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
 
 type OrderResult = { id: string; properties?: Record<string, string | null> };
+type AssocResult = { results?: { from?: { id?: string }; to?: { toObjectId?: string | number }[] }[] };
 
 export async function fetchOrdersByCompany(from: string, to: string, signal?: AbortSignal): Promise<OrdersInPeriod> {
   const orders: OrderResult[] = [];
   let after: string | undefined;
   let capped = false;
 
-  do {
-    const res = await hubspotFetchJson<{ results?: OrderResult[]; paging?: { next?: { after?: string } } }>({
-      path: "/crm/v3/objects/orders/search",
+  const readAssoc = (slice: OrderResult[]) =>
+    hubspotFetchJson<AssocResult>({
+      path: "/crm/v4/associations/orders/companies/batch/read",
       method: "POST",
       signal,
-      body: {
-        filterGroups: [{ filters: [
-          { propertyName: "order_order_date", operator: "GTE", value: String(dayMs(from)) },
-          // LTE against the END of the closing day, so "today to today" includes today.
-          { propertyName: "order_order_date", operator: "LTE", value: String(dayMs(to) + 86_399_999) },
-        ] }],
-        properties: ["order_total_net_revenue"],
-        sorts: [{ propertyName: "order_order_date", direction: "DESCENDING" }],
-        limit: PAGE,
-        after,
-      },
+      body: { inputs: slice.map((o) => ({ id: String(o.id) })) },
     });
-    orders.push(...(res.results ?? []));
-    after = res.paging?.next?.after;
-    if (orders.length >= MAX_ORDERS) { capped = true; break; }
-  } while (after);
+  const assoc: Promise<AssocResult>[] = [];
+
+  try {
+    do {
+      const res = await hubspotFetchJson<{ results?: OrderResult[]; paging?: { next?: { after?: string } } }>({
+        path: "/crm/v3/objects/orders/search",
+        method: "POST",
+        signal,
+        body: {
+          filterGroups: [{ filters: [
+            { propertyName: "order_order_date", operator: "GTE", value: String(dayMs(from)) },
+            // LTE against the END of the closing day, so "today to today" includes today.
+            { propertyName: "order_order_date", operator: "LTE", value: String(dayMs(to) + 86_399_999) },
+          ] }],
+          properties: ["order_total_net_revenue"],
+          sorts: [{ propertyName: "order_order_date", direction: "DESCENDING" }],
+          limit: PAGE,
+          after,
+        },
+      });
+      const page = res.results ?? [];
+      orders.push(...page);
+      // Fire this page's attribution NOW rather than after the last page. The
+      // two endpoints are different rate-limit buckets, so a page's assignment
+      // travels while the next page is still being fetched - and a quarter stops
+      // costing sixty search calls PLUS sixty association calls end to end.
+      if (page.length) assoc.push(readAssoc(page));
+      after = res.paging?.next?.after;
+      if (orders.length >= MAX_ORDERS) { capped = true; break; }
+    } while (after);
+  } catch (err) {
+    // Drain what is already in flight, or a second failure lands as an
+    // unhandled rejection and masks this one.
+    await Promise.allSettled(assoc);
+    throw err;
+  }
 
   const value = new Map(orders.map((o) => [String(o.id), Number(o.properties?.order_total_net_revenue ?? 0) || 0]));
   const byCompany: Record<string, CompanyOrders> = {};
@@ -68,15 +91,9 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
 
   // One batch read per 100 orders resolves which customer each belongs to. The
   // association is what the order connector maintains; the customer number on
-  // the order is often empty, so it cannot be the join.
-  for (let i = 0; i < orders.length; i += PAGE) {
-    const slice = orders.slice(i, i + PAGE);
-    const res = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: string | number }[] }[] }>({
-      path: "/crm/v4/associations/orders/companies/batch/read",
-      method: "POST",
-      signal,
-      body: { inputs: slice.map((o) => ({ id: String(o.id) })) },
-    });
+  // the order is often empty, so it cannot be the join. These calls were issued
+  // page by page above, so by here most have already come back.
+  for (const res of await Promise.all(assoc)) {
     for (const r of res.results ?? []) {
       const companyId = r.to?.[0]?.toObjectId;
       const orderId = r.from?.id;

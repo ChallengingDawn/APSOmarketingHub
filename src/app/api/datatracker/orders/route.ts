@@ -18,10 +18,14 @@ export const dynamic = "force-dynamic";
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /**
- * Every customer that ordered gets listed. Reading their names costs one batch
- * per hundred, which is cheap next to the order scan itself, so the old cap of
- * 600 was buying nothing and hiding thousands of rows.
+ * Every customer that ordered gets listed - but not in one wait.
+ *
+ * Naming them costs a batch read per hundred, so on a quarter that is a hundred
+ * round trips before the table can draw. The first call names the biggest
+ * spenders, which is what the table opens on, and the client asks for the rest
+ * straight after. Nothing is dropped; it arrives in two steps.
  */
+const FIRST_PASS = 300;
 const MAX_DETAIL = 10_000;
 
 export async function GET(req: NextRequest) {
@@ -45,8 +49,12 @@ export async function GET(req: NextRequest) {
   try {
     const agg = await fetchOrdersByCompany(from, to);
     step = "owner names";
-    const ids = Object.keys(agg.byCompany);
-    const detailIds = ids.slice(0, MAX_DETAIL);
+    // Biggest first: the table opens sorted on value, so these are the rows a
+    // reader is looking at while the rest are still coming.
+    const ids = Object.entries(agg.byCompany)
+      .sort((a, b) => b[1].value - a[1].value)
+      .map(([id]) => id);
+    const detailIds = ids.slice(0, sp.get("detail") === "all" ? MAX_DETAIL : FIRST_PASS);
 
     const ownerNames = await owners().catch(() => new Map<string, string>());
     step = "company details";
@@ -83,6 +91,8 @@ export async function GET(req: NextRequest) {
       capped: agg.capped,
       unattributed: agg.unattributed,
       detailTruncated: ids.length > detailIds.length ? ids.length - detailIds.length : 0,
+      // false means a second call with detail=all will name the remainder
+      detailsComplete: detailIds.length >= ids.length,
     });
   } catch (err) {
     // 200 with ok:false, like the other datatracker routes: the client reads the
