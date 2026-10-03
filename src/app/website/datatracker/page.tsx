@@ -545,8 +545,15 @@ export default function EshopActivityPage() {
               Orders cut at the {full(orders.scanned)} most recent in this window - pick a shorter period for an exact total.
             </Typography>
           )}
+          {/* What the period actually means, which matters more than a row count:
+              the live feed only has day-by-day figures from the day it started. */}
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+            Logins and views are counted day by day from 2 October 2026, when the shop started reporting them.
+            For anything before that only yearly totals exist, so a date range inside an earlier year cannot be split
+            out — pick a full year to see those. Orders and value are exact in any window.
+          </Typography>
           {(orders?.detailTruncated ?? 0) > 0 && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+            <Typography sx={{ fontSize: "0.74rem", color: "#9e1b18" }}>
               {full(orders!.detailTruncated)} further customers ordered in this window and are not listed.
             </Typography>
           )}

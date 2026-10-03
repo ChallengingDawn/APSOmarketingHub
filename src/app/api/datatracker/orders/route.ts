@@ -17,8 +17,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-/** Detail is only needed to DISPLAY a row, so it is bounded and reported. */
-const MAX_DETAIL = 600;
+/**
+ * Every customer that ordered gets listed. Reading their names costs one batch
+ * per hundred, which is cheap next to the order scan itself, so the old cap of
+ * 600 was buying nothing and hiding thousands of rows.
+ */
+const MAX_DETAIL = 10_000;
 
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
