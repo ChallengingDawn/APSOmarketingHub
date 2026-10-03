@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isoDay, periodWindow, nextWorkingDay, shortPriority,
-  isArticle, isProduct, isSpecialArticle, priceCheckQualifies,
+  isArticle, isProduct, isSpecialArticle, priceCheckQualifies, companyPasses,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 
@@ -46,7 +46,8 @@ test("nextWorkingDay skips the weekend", () => {
 test("shortPriority turns a sentence into a label", () => {
   assert.equal(shortPriority("2-Prio 2 - Pot btw 2500 & 24999€"), "Prio 2");
   assert.equal(shortPriority("1-Prio 1 - Pot >25000€"), "Prio 1");
-  assert.equal(shortPriority("4- No priority for sales, Pot. <500€"), "4- No priority for sales, Pot. <500€");
+  // Tier 4 of the same ranked set, labelled like the other three.
+  assert.equal(shortPriority("4- No priority for sales, Pot. <500€"), "Prio 4");
   assert.equal(shortPriority(null), "—");
 });
 
@@ -120,3 +121,36 @@ test("sumRange survives junk instead of throwing the screen away", () => {
   assert.deepEqual(sumRange(JSON.stringify({ days: { "2026-10-02": {} } }), "2026-10-02", "2026-10-02"),
     { views: 0, logins: 0, days: 1 });
 });
+
+// A customer who ordered without browsing arrives from the orders read, which
+// HubSpot never filtered. These are the cases that put an M110 row at the top
+// of a table filtered to M100.
+test("companyPasses: no filter set lets everything through", () => {
+  assert.equal(companyPasses({ mandant: "M110" }, {}), true);
+  assert.equal(companyPasses({}, {}), true);
+});
+
+test("companyPasses: mandant excludes the other mandant", () => {
+  assert.equal(companyPasses({ mandant: "M100" }, { mandant: "M100" }), true);
+  assert.equal(companyPasses({ mandant: "M110" }, { mandant: "M100" }), false);
+});
+
+test("companyPasses: a missing value is excluded, as an EQ condition excludes it", () => {
+  assert.equal(companyPasses({ mandant: null }, { mandant: "M100" }), false);
+  assert.equal(companyPasses({}, { country: "Switzerland" }), false);
+});
+
+test("companyPasses: representative compares the owner id, never the name", () => {
+  assert.equal(companyPasses({ ownerId: "77777" }, { representative: "77777" }), true);
+  // The resolved name must not satisfy it - that is the shape of the bug.
+  assert.equal(companyPasses({ ownerId: "Raffaello Lon" }, { representative: "77777" }), false);
+});
+
+test("companyPasses: every filter must hold, not just one", () => {
+  const c = { mandant: "M100", country: "Switzerland", apsoCustomer: "APSOgrowth", salesPriority: "Prio 2", ownerId: "77777" };
+  assert.equal(companyPasses(c, { mandant: "M100", country: "Switzerland" }), true);
+  assert.equal(companyPasses(c, { mandant: "M100", country: "Italy" }), false);
+  assert.equal(companyPasses(c, { mandant: "M100", priority: "Prio 1" }), false);
+  assert.equal(companyPasses(c, { mandant: "M100", apsoCustomer: "APSOgrowth", priority: "Prio 2", representative: "77777" }), true);
+});
+

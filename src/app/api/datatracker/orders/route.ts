@@ -28,6 +28,37 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const FIRST_PASS = 300;
 const MAX_DETAIL = 10_000;
 
+/**
+ * The follow-up call must not pay for the order scan a second time.
+ *
+ * The first response hands back a `scanId`; the client echoes it when asking for
+ * the remaining names, and the aggregate is taken from here instead of being
+ * searched again. Deliberately NOT keyed on from/to: a plain refresh carries no
+ * scanId and so always re-scans, which is what someone pressing refresh on a
+ * live window is asking for. A handful of entries, dropped after two minutes.
+ */
+const SCAN_TTL_MS = 120_000;
+const SCAN_KEEP = 6;
+let scanSeq = 0;
+const scans = new Map<string, { at: number; agg: Awaited<ReturnType<typeof fetchOrdersByCompany>> }>();
+
+function rememberScan(agg: Awaited<ReturnType<typeof fetchOrdersByCompany>>): string {
+  const now = Date.now();
+  for (const [k, v] of scans) if (now - v.at > SCAN_TTL_MS) scans.delete(k);
+  while (scans.size >= SCAN_KEEP) scans.delete(scans.keys().next().value as string);
+  const id = `s${++scanSeq}`;
+  scans.set(id, { at: now, agg });
+  return id;
+}
+
+function recallScan(id: string | null) {
+  if (!id) return null;
+  const hit = scans.get(id);
+  if (!hit) return null;
+  if (Date.now() - hit.at > SCAN_TTL_MS) { scans.delete(id); return null; }
+  return hit.agg;
+}
+
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -47,7 +78,8 @@ export async function GET(req: NextRequest) {
   // wrong place.
   let step = "orders search";
   try {
-    const agg = await fetchOrdersByCompany(from, to);
+    const agg = recallScan(sp.get("scan")) ?? await fetchOrdersByCompany(from, to);
+    const scanId = rememberScan(agg);
     step = "owner names";
     // Biggest first: the table opens sorted on value, so these are the rows a
     // reader is looking at while the rest are still coming.
@@ -79,17 +111,22 @@ export async function GET(req: NextRequest) {
           apsoCustomer: p.apso_customer ?? null,
           salesPriority: p.sales_priority ?? null,
           representative: ownerNames.get(String(p.hubspot_owner_id ?? "")) ?? null,
+          // The RAW owner id as well as the name: the representative filter is
+          // an owner id server-side, and a customer who only ordered is filtered
+          // here on the client, so both sides must compare the same thing.
+          ownerId: p.hubspot_owner_id ?? null,
         };
       }
     }
 
     return NextResponse.json({
-      ok: true, from, to,
+      ok: true, from, to, scanId,
       byCompany: agg.byCompany,
       companies,
       scanned: agg.scanned,
       capped: agg.capped,
       unattributed: agg.unattributed,
+      offChannel: agg.offChannel,
       detailTruncated: ids.length > detailIds.length ? ids.length - detailIds.length : 0,
       // false means a second call with detail=all will name the remainder
       detailsComplete: detailIds.length >= ids.length,

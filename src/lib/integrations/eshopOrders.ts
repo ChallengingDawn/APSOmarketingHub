@@ -27,6 +27,8 @@ export type OrdersInPeriod = {
   scanned: number;
   capped: boolean;
   unattributed: number;
+  /** Scanned but not counted: orders that did not come through the shop. */
+  offChannel: number;
 };
 
 /** "YYYY-MM-DD" to UTC midnight, never through local time. */
@@ -62,7 +64,11 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
             // LTE against the END of the closing day, so "today to today" includes today.
             { propertyName: "order_order_date", operator: "LTE", value: String(dayMs(to) + 86_399_999) },
           ] }],
-          properties: ["order_total_net_revenue"],
+          // The channel decides whether an order belongs on an E-SHOP tracker at
+          // all. Read and compared here rather than filtered in the search: the
+          // stored casing is not ours to assume, and at this volume the whole
+          // window fits inside one scan anyway.
+          properties: ["order_total_net_revenue", "order_channel"],
           sorts: [{ propertyName: "order_order_date", direction: "DESCENDING" }],
           limit: PAGE,
           after,
@@ -85,7 +91,12 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
     throw err;
   }
 
-  const value = new Map(orders.map((o) => [String(o.id), Number(o.properties?.order_total_net_revenue ?? 0) || 0]));
+  // An order placed anywhere else cannot have a login or a view behind it, so
+  // counting it here produced rows that were impossible by construction: a
+  // customer with orders, no logins and no views.
+  const shop = orders.filter((o) => String(o.properties?.order_channel ?? "").toLowerCase() === "eshop");
+  const offChannel = orders.length - shop.length;
+  const value = new Map(shop.map((o) => [String(o.id), Number(o.properties?.order_total_net_revenue ?? 0) || 0]));
   const byCompany: Record<string, CompanyOrders> = {};
   let unattributed = 0;
 
@@ -97,7 +108,10 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
     for (const r of res.results ?? []) {
       const companyId = r.to?.[0]?.toObjectId;
       const orderId = r.from?.id;
-      if (companyId == null || orderId == null) { unattributed++; continue; }
+      // The attribution read covers every order on the page; only the shop ones
+      // are in `value`, so anything else drops out here.
+      if (orderId == null || !value.has(String(orderId))) continue;
+      if (companyId == null) { unattributed++; continue; }
       const key = String(companyId);
       const cur = byCompany[key] ?? { orders: 0, value: 0 };
       cur.orders += 1;
@@ -106,7 +120,7 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
     }
   }
 
-  return { byCompany, scanned: orders.length, capped, unattributed };
+  return { byCompany, scanned: orders.length, capped, unattributed, offChannel };
 }
 
 /** Each order carries up to 80 lines, denormalised onto the order record. */

@@ -63,7 +63,14 @@ export function nextWorkingDay(iso: string): string {
 export function shortPriority(v: string | null | undefined): string {
   if (!v) return "—";
   const m = /Prio\s*(\d)/i.exec(v);
-  return m ? `Prio ${m[1]}` : v.split(" - ")[0];
+  if (m) return `Prio ${m[1]}`;
+  // Tier 4 is "4- No priority for sales, Pot. <500EUR" - a rank whose label
+  // never repeats the word Prio, so the old code returned the whole sentence and
+  // that one cell truncated while its neighbours read cleanly. It is the fourth
+  // step of the same ranked set, so it is labelled like the other three; the
+  // cell carries the full text on hover.
+  const ranked = /^(\d+)\s*-/.exec(v);
+  return ranked ? `Prio ${ranked[1]}` : v.split(" - ")[0].trim();
 }
 
 /** Excluded from the price-check rule: C2S and special articles. */
@@ -92,4 +99,45 @@ export function priceCheckQualifies(
     value += a.value ?? 0;
   }
   return { qualifies: counted >= 1 && value >= 500, counted, value, skipped };
+}
+
+/**
+ * The five company filters, applied the way the activity search applies them.
+ *
+ * The customers table is fed from two reads. The activity read is filtered by
+ * HubSpot; the orders read is not, because it starts from orders and knows
+ * nothing about the dropdowns. So a customer who ordered without browsing has
+ * to be filtered here, against the SAME raw properties the search compares -
+ * `hubspot_owner_id` rather than the owner's name, which is only resolved for
+ * display. Getting that wrong is what put an M110 customer at the top of a
+ * table filtered to M100.
+ *
+ * An empty filter matches everything. A set filter excludes a company with no
+ * value for it, exactly as an EQ condition does.
+ */
+export type CompanyFilters = {
+  mandant?: string;
+  country?: string;
+  apsoCustomer?: string;
+  priority?: string;
+  representative?: string;
+};
+
+export type FilterableCompany = {
+  mandant?: string | null;
+  country?: string | null;
+  apsoCustomer?: string | null;
+  salesPriority?: string | null;
+  /** The raw owner id, not the resolved name. */
+  ownerId?: string | null;
+};
+
+export function companyPasses(c: FilterableCompany, f: CompanyFilters): boolean {
+  const eq = (value: string | null | undefined, want: string | undefined) =>
+    !want || (value ?? "") === want;
+  return eq(c.mandant, f.mandant)
+    && eq(c.country, f.country)
+    && eq(c.apsoCustomer, f.apsoCustomer)
+    && eq(c.salesPriority, f.priority)
+    && eq(c.ownerId, f.representative);
 }

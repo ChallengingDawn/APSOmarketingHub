@@ -34,7 +34,7 @@ import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
+import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity } from "@/lib/integrations/articleActivity";
 
@@ -43,8 +43,10 @@ type OrdersPayload = {
   byCompany: Record<string, { orders: number; value: number }>;
   companies: Record<string, { name: string | null; customerNumber: string | null; mandant: string | null;
     country: string | null; apsoCustomer: string | null; salesPriority: string | null; representative: string | null }>;
-  scanned: number; capped: boolean; unattributed: number; detailTruncated: number;
+  scanned: number; capped: boolean; unattributed: number; detailTruncated: number; offChannel: number;
   detailsComplete?: boolean;
+  /** Echoed back so the follow-up call reuses this scan instead of repeating it. */
+  scanId?: string;
 };
 
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; priorities: string[]; representatives: { id: string; name: string }[] };
@@ -304,7 +306,8 @@ export default function EshopActivityPage() {
         // The totals are already complete; only the NAMES of the smaller
         // customers are still missing, so fetch them without blocking the table.
         if (j.detailsComplete === false) {
-          fetch(`${url}&detail=all`, { signal: ctrl.signal })
+          const again = `${url}&detail=all${j.scanId ? `&scan=${encodeURIComponent(j.scanId)}` : ""}`;
+          fetch(again, { signal: ctrl.signal })
             .then((r) => r.json())
             .then((full) => { if (full?.ok) setOrders(full as OrdersPayload); })
             .catch(() => {});
@@ -352,8 +355,11 @@ export default function EshopActivityPage() {
   const allRows = (() => {
     if (!orders) return loadedRows;
     const known = new Set(loadedRows.map((r) => r.id));
+    // These rows came from the orders read, which HubSpot never filtered - see
+    // companyPasses, which applies the same five conditions the search applies.
+    const want = { mandant, country, apsoCustomer, priority, representative };
     const extra = Object.keys(ordersBy)
-      .filter((id) => !known.has(id) && orders.companies[id])
+      .filter((id) => !known.has(id) && orders.companies[id] && companyPasses(orders.companies[id], want))
       .map((id) => {
         const c = orders.companies[id];
         return {
@@ -466,7 +472,13 @@ export default function EshopActivityPage() {
     : period === "custom" ? `${customFrom} → ${customTo}`
     : RANGES.find((r) => r.id === period)?.label ?? "";
 
-  const cell = { borderColor: HAIRLINE, fontSize: "0.78rem" };
+  /**
+   * Narrower gutters inside the cells, because the default 16px each side was
+   * eating half of a short column: "M110" in a 60px cell had 28px to live in
+   * and came out as "M1...", while the identical cell on the next row did not.
+   * Columns that truncate at different points down the page read as ragged.
+   */
+  const cell = { borderColor: HAIRLINE, fontSize: "0.78rem", px: 1 };
   /**
    * Fifteen columns do not fit a laptop, and a horizontal scrollbar hides the
    * numbers people came for. The least-asked-for columns step out as the window
@@ -574,12 +586,23 @@ export default function EshopActivityPage() {
             For anything before that only yearly totals exist, so a date range inside an earlier year cannot be split
             out — pick a full year to see those. Orders and value are exact in any window.
           </Typography>
-{/* Not an error and not a cap: the totals above are already complete and
-              these rows are on their way, so this reads as progress rather than loss. */}
+{/* Not an error and not a cap: these rows are on their way, so this reads
+              as progress rather than loss. The tiles count shown rows, so they
+              rise as the rest land - saying they were already complete would be
+              the kind of small untruth that gets a number republished wrong. */}
           {(orders?.detailTruncated ?? 0) > 0 && (
             <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-              Showing the {full(300)} largest first - still naming {full(orders!.detailTruncated)} more customers who
-              ordered in this window. The totals above already include them.
+              Largest {full(Object.keys(orders!.companies).length)} customers first - still naming{" "}
+              {full(orders!.detailTruncated)} more who ordered in this window. The figures above grow as they arrive.
+            </Typography>
+          )}
+{/* Only `order_channel = eshop` is counted. An ERP or phone order has no
+              login and no view behind it, so counting it here produced rows that
+              could not happen: orders, no logins, no views. */}
+          {(orders?.offChannel ?? 0) > 0 && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+              Shop orders only - {full(orders!.offChannel)} of the {full(orders!.scanned)} orders in this window were
+              placed outside the shop and are not counted here.
             </Typography>
           )}
           {ordersError && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>Orders: {ordersError}</Typography>}
@@ -591,12 +614,15 @@ export default function EshopActivityPage() {
         <StatTile label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
         <StatTile label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
         <StatTile label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
+        {/* Over the SHOWN rows, like the two tiles on the left. Reading the
+            whole window here was what made a filtered table sit under an
+            unfiltered total. */}
         <StatTile label={`Orders · ${periodLabel}`}
-          value={ordersError ? "—" : orders == null ? "…" : full(Object.values(ordersBy).reduce((n, o) => n + o.orders, 0))}
-          note={ordersError ? "Orders could not be read" : "Every mandant in this window"} />
+          value={ordersError ? "—" : orders == null ? "…" : full(sum((r) => ordersBy[r.id]?.orders ?? 0))}
+          note={ordersError ? "Orders could not be read" : "Shown rows only"} />
         <StatTile label={`Order value · ${periodLabel}`}
-          value={ordersError ? "—" : orders == null ? "…" : `€${compact(Object.values(ordersBy).reduce((n, o) => n + o.value, 0))}`}
-          note={ordersError ? "Orders could not be read" : ""} />
+          value={ordersError ? "—" : orders == null ? "…" : `€${compact(sum((r) => ordersBy[r.id]?.value ?? 0))}`}
+          note={ordersError ? "Orders could not be read" : "Shown rows only"} />
       </Box>
 
       <Section sx={{ p: 0, overflow: "hidden" }}>
@@ -605,9 +631,12 @@ export default function EshopActivityPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                {([["mandant", "Mandant", 60], ["customerNumber", "Customer no.", 98], ["name", "Customer", 0],
-                   ["country", "Country", 84], ["representative", "Representative", 118],
-                   ["apsoCustomer", "Selection criterion", 112], ["salesPriority", "Priority", 80]] as [SortKey, string, number][]).map(([k, h, w]) => (
+                {/* Widths sized to the longest value each column really holds -
+                    "Switzerland", "110-8080123", "Not defined" - so a column
+                    either fits or truncates every row, never some of them. */}
+                {([["mandant", "Mandant", 64], ["customerNumber", "Customer no.", 104], ["name", "Customer", 0],
+                   ["country", "Country", 92], ["representative", "Representative", 132],
+                   ["apsoCustomer", "Selection criterion", 108], ["salesPriority", "Priority", 88]] as [SortKey, string, number][]).map(([k, h, w]) => (
                   <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),
                     whiteSpace: "normal", lineHeight: 1.2, verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
@@ -640,8 +669,9 @@ export default function EshopActivityPage() {
                     </IconButton>
                   </TableCell>
                   <TableCell sx={{ color: MUTED, ...clip }}>{r.mandant ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED, ...clip }}>{r.customerNumber ?? "—"}</TableCell>
-                  <TableCell sx={{ color: INK, fontWeight: 600, ...clip }}>
+                  <TableCell title={r.customerNumber ?? ""} sx={{ color: MUTED, ...clip }}>{r.customerNumber ?? "—"}</TableCell>
+                  {/* A column narrow enough to clip must still give up its value on hover. */}
+                  <TableCell title={r.name ?? ""} sx={{ color: INK, fontWeight: 600, ...clip }}>
                     {/* stopPropagation: the row click opens the detail panel, and
                         a link inside it must not do both. */}
                     <Link href={hsCompanyUrl(r.id)} target="_blank" rel="noopener"
@@ -650,9 +680,9 @@ export default function EshopActivityPage() {
                       {r.name ?? "—"}
                     </Link>
                   </TableCell>
-                  <TableCell sx={{ color: MUTED, ...clip, ...COL.country }}>{r.country ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED, ...clip, ...COL.representative }}>{r.representative ?? "—"}</TableCell>
-                  <TableCell sx={{ color: MUTED, ...clip }}>{r.apsoCustomer ?? "—"}</TableCell>
+                  <TableCell title={r.country ?? ""} sx={{ color: MUTED, ...clip, ...COL.country }}>{r.country ?? "—"}</TableCell>
+                  <TableCell title={r.representative ?? ""} sx={{ color: MUTED, ...clip, ...COL.representative }}>{r.representative ?? "—"}</TableCell>
+                  <TableCell title={r.apsoCustomer ?? ""} sx={{ color: MUTED, ...clip }}>{r.apsoCustomer ?? "—"}</TableCell>
                   <TableCell sx={{ color: MUTED, ...clip }}>
                     <Tooltip title={r.salesPriority ?? ""} describeChild><span>{shortPriority(r.salesPriority)}</span></Tooltip>
                   </TableCell>
