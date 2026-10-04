@@ -26,6 +26,8 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
+import CampaignOutlinedIcon from "@mui/icons-material/CampaignOutlined";
+import PhoneCallbackOutlinedIcon from "@mui/icons-material/PhoneCallbackOutlined";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -183,7 +185,8 @@ const navSections: NavSection[] = [
     // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
     // still live in their own repos and migrate here over time; Erosion and DoC
     // came from the APSOAssistant micro apps. DoC is a HubSpot app, not a use
-    // case (SARCLA, 04.10) - it took the place of the "tbd" slot.
+    // case (SARCLA, 04.10) - it took the place of the "tbd" slot. One-shot
+    // actions are campaigns with a start and a fixed list (05.10, from the micro apps).
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
@@ -191,6 +194,9 @@ const navSections: NavSection[] = [
       { group: "Use cases", label: "UCX - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { group: "Use cases", label: "UCX - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
+      { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
+      { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+      { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
     ],
   },
   {
