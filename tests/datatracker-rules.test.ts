@@ -5,6 +5,7 @@ import {
   isArticle, isProduct, isSpecialArticle, priceCheckQualifies, companyPasses,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
+import { teamOf, ownerName } from "../src/lib/datatracker/rosters";
 
 test("isoDay uses the LOCAL day, not UTC", () => {
   // 00:30 local on the 2nd. toISOString() would say the 1st in any zone east of
@@ -154,3 +155,19 @@ test("companyPasses: every filter must hold, not just one", () => {
   assert.equal(companyPasses(c, { mandant: "M100", apsoCustomer: "APSOgrowth", priority: "Prio 2", representative: "77777" }), true);
 });
 
+
+// Routing is data, not a rule, but a wrong roster sends a ticket to somebody who
+// never asked for it - and an owner on NEITHER roster must produce a visible
+// skip rather than a plausible guess.
+test("teamOf: an owner off both rosters gets no team, never a default", () => {
+  assert.equal(teamOf("32968527"), "ESO");        // Yani Alioua
+  assert.equal(teamOf("1202569408"), "TSA");      // TSA Team
+  assert.equal(teamOf("99999999"), null);
+  assert.equal(teamOf(""), null);
+  assert.equal(teamOf(null), null);
+});
+
+test("ownerName falls back to the id rather than inventing a person", () => {
+  assert.equal(ownerName("1229976033"), "Claudio Saraiva");
+  assert.equal(ownerName("99999999"), "99999999");
+});

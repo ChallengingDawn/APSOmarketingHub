@@ -46,6 +46,7 @@ const EXPECTED_ENV = [
   "GSC_SITE_URL",
   "HUBSPOT_TOKEN",
   "HUBSPOT_EVENTS_TOKEN",
+  "TICKETS_TOKEN",
   "COOKIEBOT_API_KEY",
   "COOKIEBOT_DOMAIN_GROUP",
   "COOKIEBOT_DOMAIN",
@@ -72,6 +73,7 @@ export function envDiagnostics(): EnvDiagnostics {
     GA4_PROPERTY_ID: GA4_DEFAULT_PROPERTY_ID,
     GSC_SITE_URL: GSC_DEFAULT_SITE_URL,
     HUBSPOT_EVENTS_TOKEN: "falls back to HUBSPOT_TOKEN (page visits then need its scope)",
+    TICKETS_TOKEN: "unset — price-check tickets cannot be created (reads are unaffected)",
     COOKIEBOT_DOMAIN_GROUP: "0c548172-58a9-4606-9df6-9cfde47bb141",
     COOKIEBOT_DOMAIN: "www.apsoparts.com",
   };
@@ -179,6 +181,16 @@ export function normalizeSiteUrl(raw: string): string {
 
 export function gscSiteUrl(): string {
   return normalizeSiteUrl(env("GSC_SITE_URL") ?? GSC_DEFAULT_SITE_URL);
+}
+
+/**
+ * The ticket-writing token, which is a DIFFERENT private app from the reading
+ * one: HUBSPOT_TOKEN has no ticket scope, so falling back to it would fail at
+ * the create call with a 403 after the whole scan had run. Deliberately no
+ * fallback - missing is reported as missing.
+ */
+export function ticketsToken(): string | null {
+  return env("TICKETS_TOKEN");
 }
 
 export function hubspotToken(): string | null {
