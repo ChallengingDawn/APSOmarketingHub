@@ -1,11 +1,8 @@
 "use client";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { usePathname } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
-import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
-import ListItemIcon from "@mui/material/ListItemIcon";
-import ListItemText from "@mui/material/ListItemText";
 import Collapse from "@mui/material/Collapse";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -20,7 +17,6 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
-import WorkspacesIcon from "@mui/icons-material/Workspaces";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import HandshakeIcon from "@mui/icons-material/Handshake";
 import GroupsIcon from "@mui/icons-material/Groups";
@@ -42,6 +38,9 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
+import TuneIcon from "@mui/icons-material/Tune";
+import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import HistoryIcon from "@mui/icons-material/History";
@@ -58,7 +57,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import LogoutIcon from "@mui/icons-material/Logout";
-import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Link from "next/link";
 
 const DRAWER_WIDTH = 300;
@@ -66,6 +65,8 @@ const RED = "#ed1b2f";
 
 interface NavSection {
   title: string;
+  /** Where the app row at the top of the panel leads. Default: the first entry. */
+  home?: string;
   icon: React.ReactNode;
   color: string;
   items: {
@@ -196,53 +197,133 @@ const navSections: NavSection[] = [
     // Settings is an application now, with its own sections, so it is listed as
     // one. It is still not one of the five: it is the hub's own, which is the
     // point of a single sign-in.
+    // Grouped as in SARCLA's Settings mockup. The app row at the top IS the
+    // overview, so /settings is its home rather than a row of its own. Slots
+    // whose pages are still being built are shown, never linked - flip
+    // `placeholder` off when the page exists.
     title: "Settings",
+    home: "/settings",
     icon: <SettingsIcon />,
     color: "#5b6470",
     items: [
-      { label: "Overview", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
-      { label: "Your account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
-      { label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" /> },
-      { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
-      { label: "Audit", href: "/settings/audit", icon: <SecurityIcon fontSize="small" /> },
-      { label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
+      { group: "Personal", label: "My account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
+      { group: "Personal", label: "Preferences", href: "/settings/preferences", icon: <TuneIcon fontSize="small" />, placeholder: true },
+      { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" />, placeholder: true },
+      { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" /> },
+      { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, placeholder: true },
+      { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
+      { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" /> },
+      { group: "Workspace", label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
     ],
   },
 ];
 
-/** A hex colour moved toward white (amt > 0) or black (amt < 0), 0..1. */
-function shade(hex: string, amt: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const ch = (v: number) => Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(ch);
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+/* ── look ─────────────────────────────────────────────────────────────────
+   A floating frosted panel, the way the front page is built: one soft accent
+   for "you are here" (a light-blue pill), quiet rows everywhere else, small
+   uppercase headings for groups. No coloured tiles, no red bars. */
+
+const ACCENT = "#2459d1";
+const ACCENT_BG = "#e4ecfd";
+const INK = "#1f2633";
+const MUTED = "#6b7385";
+const ICON = "#4a5263";
+const PANEL_GAP = 14;
+
+type Item = NavSection["items"][number];
+
+function Row({
+  href, icon, label, active = false, badge, strong = false, anchor = false,
+}: {
+  href: string; icon: React.ReactNode; label: string; active?: boolean; badge?: string; strong?: boolean; anchor?: boolean;
+}) {
+  return (
+    <ListItemButton
+      component={(anchor ? "a" : Link) as React.ElementType}
+      href={href}
+      disableRipple
+      aria-current={active ? "page" : undefined}
+      sx={{
+        borderRadius: "11px",
+        px: 1.25,
+        py: 0.95,
+        mb: 0.35,
+        minHeight: 42,
+        gap: 1.4,
+        color: active ? ACCENT : INK,
+        bgcolor: active ? ACCENT_BG : "transparent",
+        transition: "background-color 0.15s ease, color 0.15s ease",
+        "&:hover": { bgcolor: active ? ACCENT_BG : "rgba(15,23,42,0.045)" },
+        "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
+        "& .row-icon svg": { fontSize: 20, color: active ? ACCENT : ICON, transition: "color 0.15s ease" },
+      }}
+    >
+      <Box className="row-icon" sx={{ display: "inline-flex", width: 22, justifyContent: "center", flexShrink: 0 }}>{icon}</Box>
+      <Typography
+        sx={{
+          flex: 1, minWidth: 0, fontSize: strong ? 15 : 14.25, fontWeight: active || strong ? 600 : 500,
+          letterSpacing: "-0.005em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "inherit",
+        }}
+      >
+        {label}
+      </Typography>
+      {badge && (
+        <Chip
+          label={badge}
+          size="small"
+          sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: active ? "#ffffff" : "#eef1f6", color: active ? ACCENT : MUTED }}
+        />
+      )}
+    </ListItemButton>
+  );
 }
 
-/** The app's colour as a tile: a soft top-left light, a deeper bottom-right, a hairline of depth. */
-function tile(color: string, size: number, radius: number) {
-  return {
-    width: size, height: size, borderRadius: radius, flexShrink: 0, color: "#ffffff",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    background: `linear-gradient(140deg, ${shade(color, 0.18)} 0%, ${color} 48%, ${shade(color, -0.22)} 100%)`,
-    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.12), 0 4px 10px ${color}33`,
-  } as const;
+/** A named slot not built yet: shown so the structure reads, never a link. */
+function SlotRow({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <Box
+      aria-disabled="true"
+      sx={{ display: "flex", alignItems: "center", gap: 1.4, px: 1.25, py: 0.95, minHeight: 42, color: "#a3a9b5", "& svg": { fontSize: 20, color: "#c3c8d1" } }}
+    >
+      <Box sx={{ display: "inline-flex", width: 22, justifyContent: "center" }}>{icon}</Box>
+      <Typography sx={{ fontSize: 14.25, fontStyle: "italic" }}>{label}</Typography>
+    </Box>
+  );
 }
 
-/** The rows a grouped app is shown as: one per group, in the order first listed. */
-const GROUP_META: Record<string, { icon: React.ReactNode; color: string }> = {
-  "Use cases": { icon: <WorkspacesIcon />, color: "#eda100" },
-  "HubSpot apps": { icon: <HubIcon />, color: "#c97a10" },
-};
+function Heading({ name, collapsed, onToggle }: { name: string; collapsed: boolean; onToggle: () => void }) {
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+      sx={{
+        display: "flex", alignItems: "center", px: 1.25, py: 0.5, mb: 0.5, borderRadius: "8px",
+        cursor: "pointer", userSelect: "none", color: MUTED,
+        "&:hover": { color: INK },
+        "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
+      }}
+    >
+      <Typography sx={{ flex: 1, fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "inherit" }}>
+        {name}
+      </Typography>
+      <KeyboardArrowDownIcon sx={{ fontSize: 18, transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform 0.2s ease" }} />
+    </Box>
+  );
+}
 
-function groupSections(s: NavSection): NavSection[] {
-  const names = [...new Set(s.items.map((i) => i.group ?? s.title))];
-  return names.map((name) => ({
-    title: name,
-    icon: GROUP_META[name]?.icon ?? s.icon,
-    color: GROUP_META[name]?.color ?? s.color,
-    // the row now carries the group's name, so the entries drop the small heading
-    items: s.items.filter((i) => (i.group ?? s.title) === name).map((i) => ({ ...i, group: undefined })),
-  }));
+/** Entries in the order listed, split wherever the group changes. Ungrouped entries form one unnamed block. */
+function groupsOf(items: Item[]): { name: string | null; items: Item[] }[] {
+  const out: { name: string | null; items: Item[] }[] = [];
+  for (const item of items) {
+    const name = item.group ?? null;
+    const last = out[out.length - 1];
+    if (last && last.name === name) last.items.push(item);
+    else out.push({ name, items: [item] });
+  }
+  return out;
 }
 
 export default function Sidebar() {
@@ -251,38 +332,47 @@ export default function Sidebar() {
   // Only ONE item active: the longest href that is an exact or parent-prefix
   // match. Stops "/docs" collisions and "/" lighting up everywhere.
   const activeHref = (() => {
-    const all = navSections.flatMap((s) => s.items.flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]));
+    const all = navSections.flatMap((s) => [
+      ...(s.home ? [s.home] : []),
+      ...s.items.filter((i) => !i.placeholder).flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]),
+    ]);
     const matches = all.filter(
       (h) => pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
     );
     return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
   })();
 
-  const activeSectionTitle = navSections.find((s) =>
+  const activeSection = navSections.find((s) =>
+    s.home === activeHref ||
     s.items.some((i) => i.href === activeHref || i.children?.some((c) => c.href === activeHref)),
-  )?.title;
+  );
 
-  // Collapsible sections — accordion, only one open; the active section
-  // starts open and re-opens on navigation.
-  // On the launch pad every app is listed; inside one, ONLY that one is - the
-  // point of a home screen is that entering an app narrows the world to it.
-  // Governance is never scoped away, because it is the hub's own and a person
-  // locked out of an app still has to be able to reach their account.
-  const onLaunchPad = pathname === "/";
-  const activeSection = navSections.find((x) => x.title === activeSectionTitle);
-  const scoped = !onLaunchPad && !!activeSection && activeSection.title !== "Governance";
-  // An app whose entries carry groups (UC: Use cases / HubSpot apps) shows each
-  // group as its own big collapsible row, the way the categories always looked.
-  const grouped = scoped && activeSection!.items.some((i) => i.group);
-  const sections = !scoped ? navSections : grouped ? groupSections(activeSection!) : [activeSection!];
-  const activeGroup = grouped ? (activeSection!.items.find((i) => i.href === activeHref)?.group ?? null) : null;
-  const openKey = grouped ? activeGroup : (activeSectionTitle ?? null);
+  // Inside an app the panel is THAT app's: the way back to all apps, the app
+  // itself, then its pages. Anywhere that belongs to no app, every app is listed
+  // under its own heading, only the current one open.
+  const scoped = pathname !== "/" && !!activeSection;
+  const blocks = scoped
+    ? groupsOf(activeSection!.items)
+    : navSections.map((s) => ({ name: s.title as string | null, items: s.items }));
 
-  const [open, setOpen] = useState<string | null>(openKey);
-  useEffect(() => {
-    if (openKey) setOpen(openKey);
-  }, [openKey]);
-  const toggle = (t: string) => setOpen((cur) => (cur === t ? null : t));
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const isCollapsed = (name: string) => collapsed[name] ?? (!scoped && name !== activeSection?.title);
+  const toggle = (name: string) => setCollapsed((c) => ({ ...c, [name]: !isCollapsed(name) }));
+
+  const renderItem = (item: Item) => {
+    if (item.placeholder) return <SlotRow key={item.href} icon={item.icon} label={item.label} />;
+    return (
+      <Fragment key={item.href}>
+        <Row href={item.href} icon={item.icon} label={item.label} badge={item.badge} active={item.href === activeHref} />
+        {item.children?.map((c) => (
+          <Box key={c.href} sx={{ pl: 3.5 }}>
+            <Row href={c.href} icon={<Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: c.href === activeHref ? ACCENT : "#c9ced6" }} />}
+              label={c.label} active={c.href === activeHref} />
+          </Box>
+        ))}
+      </Fragment>
+    );
+  };
 
   return (
     <Drawer
@@ -290,348 +380,67 @@ export default function Sidebar() {
       sx={{
         width: DRAWER_WIDTH,
         flexShrink: 0,
+        alignSelf: "flex-start",
+        position: "sticky",
+        top: 0,
+        height: "100vh",
         "& .MuiDrawer-paper": {
-          width: DRAWER_WIDTH,
-          boxSizing: "border-box",
-          bgcolor: "#ffffff",
-          borderRight: "1px solid #e6e8ec",
           position: "relative",
+          boxSizing: "border-box",
+          width: DRAWER_WIDTH - PANEL_GAP * 2,
+          height: `calc(100vh - ${PANEL_GAP * 2}px)`,
+          m: `${PANEL_GAP}px`,
+          borderRadius: "20px",
+          border: "1px solid rgba(255,255,255,0.9)",
+          bgcolor: "rgba(255,255,255,0.84)",
+          backdropFilter: "blur(18px) saturate(140%)",
+          boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 12px 32px rgba(16,24,40,0.07)",
           overflow: "hidden",
         },
       }}
     >
-      {/* Brand Header */}
-      <Box
-        sx={{
-          px: 3.25,
-          pt: scoped ? 2.25 : 3.5,
-          pb: 2.75,
-          position: "relative",
-          zIndex: 2,
-          bgcolor: "#ffffff",
-          borderBottom: "1px solid #e6e8ec",
-        }}
-      >
-        {/* Inside an app the header names THAT app - the menu below is its menu,
-            so "APSOhub" up here only said where you are not. On the launch pad
-            (and in Governance, which is the hub's own) it stays APSOhub. */}
-        {scoped && activeSection ? (
-          <>
-            {/* The way out of an app sits where the eye starts. Without it,
-                entering one is a trapdoor: the sidebar is the app's, and nothing
-                on screen says there are others. */}
-            <Box
-              component={Link}
-              href="/"
-              sx={{
-                display: "inline-flex", alignItems: "center", gap: 0.4, ml: -0.6, mb: 1.75, px: 0.6, py: 0.3,
-                borderRadius: 1.2, textDecoration: "none", color: "#6b7280",
-                "&:hover": { bgcolor: "#f3f4f6", color: "#1d1d1f" },
-              }}
-            >
-              <ChevronLeftIcon sx={{ fontSize: 18 }} />
-              <Typography sx={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.005em" }}>All apps</Typography>
-            </Box>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-              <Box sx={{ ...tile(activeSection.color, 44, 2.6), "& svg": { fontSize: 24 } }}>{activeSection.icon}</Box>
-              <Typography
-                className="brand-display"
-                sx={{ fontSize: 18.5, fontWeight: 700, lineHeight: 1.2, color: "#1d1d1f", letterSpacing: "-0.02em", textWrap: "balance" }}
-              >
-                {activeSection.title}
-              </Typography>
-            </Box>
-          </>
-        ) : (
-        <Box
-          component={Link}
-          href="/"
-          sx={{ display: "flex", alignItems: "baseline", textDecoration: "none" }}
-        >
-          <Box component="span" className="brand-display brand-apso" sx={{ fontSize: 34, fontWeight: 700 }}>
-            <span className="letter letter-a">A</span>
-            <span className="letter letter-p">P</span>
-            <span className="letter letter-s">S</span>
-            <span className="letter letter-o">O</span>
-          </Box>
-          <Box component="span" className="brand-display" sx={{ fontSize: 34, color: RED, fontWeight: 800 }}>
-            hub
-          </Box>
-        </Box>
-        )}
-        {!scoped && (
-          <Typography
-            sx={{
-              fontSize: 12,
-              color: "#5f6368",
-              fontWeight: 500,
-              mt: 1,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-            }}
-          >
-            apsoparts.com
-          </Typography>
-        )}
-      </Box>
-
-      {/* Navigation Sections — collapsible, iOS Settings rows */}
-      <Box sx={{ flex: 1, overflow: "auto", py: 0, position: "relative", zIndex: 1 }}>
-        {sections.map((section) => {
-          const isOpen = (scoped && !grouped) || open === section.title;
-          return (
-            <Box key={section.title} sx={{ borderBottom: "0.5px solid #ececef" }}>
-              {/* Category row - on the launch pad, and for each group of a grouped app.
-                  Inside an ungrouped app the header already names it. */}
-              {(!scoped || grouped) && (
-              <Box
-                onClick={() => toggle(section.title)}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.6,
-                  px: 3.25,
-                  py: 1.35,
-                  cursor: "pointer",
-                  userSelect: "none",
-                  bgcolor: isOpen ? "#f3f4f6" : "transparent",
-                  transition: "background-color 0.16s ease",
-                  "&:hover": { bgcolor: "#f3f4f6" },
-                }}
-              >
-                <Box sx={{ ...tile(section.color, 34, 2.2), "& svg": { fontSize: 20 } }}>{section.icon}</Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      fontSize: 16,
-                      fontWeight: 600,
-                      letterSpacing: "-0.01em",
-                      lineHeight: 1.2,
-                      color: "#1d1d1f",
-                    }}
-                  >
-                    {section.title}
-                  </Typography>
-                </Box>
-                {grouped && (
-                  <Box
-                    aria-label={`${section.items.length} entries`}
-                    sx={{
-                      minWidth: 22, height: 20, px: 0.75, borderRadius: 99, flexShrink: 0,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                      bgcolor: isOpen ? "#ffffff" : "#eef0f3", color: "#5b6470",
-                      border: isOpen ? "1px solid #e3e6ea" : "1px solid transparent",
-                    }}
-                  >
-                    {section.items.length}
-                  </Box>
-                )}
-                <KeyboardArrowRightIcon
-                  sx={{
-                    fontSize: 22,
-                    flexShrink: 0,
-                    color: "#c7c7cc",
-                    transform: isOpen ? "rotate(90deg)" : "none",
-                    transition: "transform 0.22s ease",
-                  }}
-                />
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <Box sx={{ flex: 1, overflowY: "auto", px: 1.5, pt: 2, pb: 1 }}>
+          {scoped ? (
+            <>
+              {/* The way out. Without it entering an app is a trapdoor: the
+                  panel is the app's, and nothing else says there are others. */}
+              <Row href="/" icon={<ChevronLeftIcon />} label="All apps" />
+              <Box sx={{ mt: 1.25, mb: 2.25 }}>
+                <Row href={activeSection!.home ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong />
               </Box>
-              )}
-
-              {/* Items */}
-              <Collapse in={isOpen} timeout={240} unmountOnExit>
-                <List dense disablePadding sx={{ px: 2, py: 0.75 }}>
-                  {section.items.map((item, idx) => {
-                    const active = item.href === activeHref;
-                    const heading = item.group && item.group !== section.items[idx - 1]?.group ? item.group : null;
-                    return (
-                      <Fragment key={item.href}>
-                      {heading && (
-                        <Typography
-                          sx={{
-                            px: 2.25, pt: idx === 0 ? 0.75 : 2, pb: 0.75, fontSize: 11, fontWeight: 700,
-                            letterSpacing: "0.08em", textTransform: "uppercase", color: "#8a919b",
-                          }}
-                        >
-                          {heading}
-                        </Typography>
-                      )}
-                      {item.placeholder ? (
-                        <Box
-                          aria-disabled="true"
-                          sx={{ display: "flex", alignItems: "center", px: 2.25, py: 1, minHeight: 46, mb: 0.4, color: "#a3a9b2", "& svg": { color: "#c3c8cf" } }}
-                        >
-                          <Box component="span" sx={{ display: "inline-flex", minWidth: 36 }}>{item.icon}</Box>
-                          <Typography sx={{ fontSize: 14.5, fontStyle: "italic" }}>{item.label}</Typography>
-                        </Box>
-                      ) : (
-                      <ListItemButton
-                        component={Link}
-                        href={item.href}
-                        disableRipple
-                        sx={{
-                          borderRadius: 1.25,
-                          mb: 0.4,
-                          py: 1,
-                          px: 2.25,
-                          minHeight: 46,
-                          position: "relative",
-                          bgcolor: active ? RED : "transparent",
-                          color: active ? "#ffffff" : "#363c44",
-                          boxShadow: active ? "0 1px 2px rgba(237,27,47,0.25), 0 4px 12px rgba(237,27,47,0.18)" : "none",
-                          transition: "background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease",
-                          "&:hover": {
-                            bgcolor: active ? "#d81528" : "#f1f3f5",
-                          },
-                          "& .MuiListItemIcon-root": {
-                            color: active ? "#ffffff" : "#5b6470",
-                            minWidth: 36,
-                            transition: "color 0.18s ease",
-                          },
-                        }}
-                      >
-                        <ListItemIcon>
-                          <Box
-                            component="span"
-                            className={active ? "nav-icon-active" : undefined}
-                            sx={{ display: "inline-flex", alignItems: "center" }}
-                          >
-                            {item.icon}
-                          </Box>
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={item.label}
-                          slotProps={{
-                            primary: {
-                              sx: {
-                                fontSize: 14.5,
-                                fontWeight: active ? 600 : 500,
-                                color: active ? "#ffffff" : "#3c4043",
-                                letterSpacing: "-0.005em",
-                              },
-                            },
-                          }}
-                        />
-                        {item.badge && (
-                          <Chip
-                            label={item.badge}
-                            size="small"
-                            sx={{
-                              height: 22,
-                              fontSize: 10.5,
-                              fontWeight: 700,
-                              bgcolor: active ? "#ffffff" : RED,
-                              color: active ? RED : "#fff",
-                              ml: 0.5,
-                            }}
-                          />
-                        )}
-                      </ListItemButton>
-                      )}
-                      {item.children?.map((child) => {
-                        const childActive = child.href === activeHref;
-                        return (
-                          <ListItemButton
-                            key={child.href}
-                            component={Link}
-                            href={child.href}
-                            disableRipple
-                            sx={{
-                              borderRadius: 1.25,
-                              mb: 0.2,
-                              py: 0.5,
-                              pl: 7,
-                              pr: 2.25,
-                              minHeight: 32,
-                              bgcolor: childActive ? "rgba(237,27,47,0.08)" : "transparent",
-                              "&:hover": { bgcolor: childActive ? "rgba(237,27,47,0.12)" : "#f1f3f5" },
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                width: 5,
-                                height: 5,
-                                borderRadius: "50%",
-                                bgcolor: childActive ? RED : "#c9ced6",
-                                mr: 1.5,
-                                flexShrink: 0,
-                              }}
-                            />
-                            <ListItemText
-                              primary={child.label}
-                              slotProps={{
-                                primary: {
-                                  sx: {
-                                    fontSize: 13,
-                                    fontWeight: childActive ? 600 : 500,
-                                    color: childActive ? RED : "#5b6470",
-                                    letterSpacing: "-0.005em",
-                                  },
-                                },
-                              }}
-                            />
-                          </ListItemButton>
-                        );
-                      })}
-                      </Fragment>
-                    );
-                  })}
-                </List>
-              </Collapse>
+            </>
+          ) : (
+            <Box component={Link} href="/" sx={{ display: "flex", alignItems: "baseline", textDecoration: "none", px: 1.25, pb: 2.25 }}>
+              <Box component="span" className="brand-display brand-apso" sx={{ fontSize: 28, fontWeight: 700 }}>
+                <span className="letter letter-a">A</span>
+                <span className="letter letter-p">P</span>
+                <span className="letter letter-s">S</span>
+                <span className="letter letter-o">O</span>
+              </Box>
+              <Box component="span" className="brand-display" sx={{ fontSize: 28, color: RED, fontWeight: 800 }}>hub</Box>
             </Box>
-          );
-        })}
-      </Box>
+          )}
 
-      {/* Bottom Status + Sign out */}
-      <Box sx={{ px: 2.5, py: 2.25, borderTop: "1px solid #e6e8ec", position: "relative", zIndex: 1, bgcolor: "#ffffff" }}>
-        <Box sx={{ mb: 1.5, px: 1.75, py: 1.35, borderRadius: 1.25, bgcolor: "#f5f6f8", border: "1px solid #e6e8ec" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
-            <Box
-              sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#1e7e45", boxShadow: "0 0 0 3px rgba(30,126,69,0.15)" }}
-              className="animate-pulse-dot"
-            />
-            <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: "#1a1d21" }}>
-              System Active
-            </Typography>
-          </Box>
-          <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
-            Content engine online
-          </Typography>
+          {blocks.map((b, i) => (
+            <Box key={b.name ?? `block-${i}`} sx={{ mb: 2 }}>
+              {b.name ? (
+                <>
+                  <Heading name={b.name} collapsed={isCollapsed(b.name)} onToggle={() => toggle(b.name!)} />
+                  <Collapse in={!isCollapsed(b.name)} timeout={200}>
+                    {b.items.map(renderItem)}
+                  </Collapse>
+                </>
+              ) : (
+                b.items.map(renderItem)
+              )}
+            </Box>
+          ))}
         </Box>
-        <ListItemButton
-          component="a"
-          href="/api/auth/signout"
-          disableRipple
-          sx={{
-            borderRadius: 1.25,
-            py: 1,
-            px: 2.25,
-            minHeight: 46,
-            color: "#363c44",
-            borderLeft: "3px solid transparent",
-            "&:hover": {
-              bgcolor: "#fdebed",
-              color: RED,
-              borderLeftColor: RED,
-              "& .MuiListItemIcon-root": { color: RED },
-            },
-            "& .MuiListItemIcon-root": { minWidth: 36, color: "#5b6470" },
-          }}
-        >
-          <ListItemIcon>
-            <LogoutIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText
-            primary="Sign out"
-            slotProps={{
-              primary: {
-                sx: { fontSize: 14.5, fontWeight: 500, letterSpacing: "-0.005em" },
-              },
-            }}
-          />
-        </ListItemButton>
+
+        <Box sx={{ px: 1.5, py: 1.25, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+          <Row href="/api/auth/signout" icon={<LogoutIcon />} label="Sign out" anchor />
+        </Box>
       </Box>
     </Drawer>
   );
