@@ -23,16 +23,16 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import HubIcon from "@mui/icons-material/Hub";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import HomeIcon from "@mui/icons-material/Home";
+import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import SensorsIcon from "@mui/icons-material/Sensors";
 import AppsIcon from "@mui/icons-material/Apps";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SearchIcon from "@mui/icons-material/Search";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import SettingsIcon from "@mui/icons-material/Settings";
-import SecurityIcon from "@mui/icons-material/Security";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 import HubIconGlyph from "./HubIcon";
+import QuickLinks from "./QuickLinks";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 
 const INK = "#15223a";
@@ -44,15 +44,6 @@ const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
   trend: <TrendingUpIcon />, hub: <HubIcon />,
 };
-
-/** Only destinations that exist. A dead tile on a front door is a bug. */
-const QUICK = [
-  { name: "APSOparts", note: "The shop", href: "https://www.apsoparts.com", tint: "#efe8fd", fg: "#6a46c9", external: true },
-  { name: "HubSpot", note: "The portal", href: "https://app-eu1.hubspot.com/contacts/26492587", tint: "#fde8f1", fg: "#b63a76", external: true },
-  { name: "Docs", note: "How this works", href: "/docs", tint: "#e7f6ee", fg: "#1b7a55", external: false },
-  { name: "Integrations", note: "What is connected", href: "/settings/integrations", tint: "#fdf0e3", fg: "#a96a12", external: false },
-  { name: "Audit", note: "Who did what", href: "/settings/audit", tint: "#e6edfd", fg: "#3461c9", external: false },
-];
 
 /** Real changes, on the dates they shipped. */
 const NEWS = [
@@ -117,9 +108,14 @@ export default function FrontPage() {
     return () => document.removeEventListener("mousedown", away);
   }, []);
 
+  // One row. Destinations and the two in-page anchors together — a second nav
+  // strip underneath asked people to learn two menus on one screen, and put
+  // Settings in the chrome twice. Account things live behind the avatar now.
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, on: true },
     { name: "Applications", href: "#applications", icon: <AppsIcon />, on: false },
+    { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, on: false },
+    { name: "Live", href: "/live", icon: <SensorsIcon />, on: false },
     { name: "Resources", href: "#resources", icon: <MenuBookIcon />, on: false },
     { name: "Support", href: "/docs", icon: <SupportAgentIcon />, on: false },
   ];
@@ -183,10 +179,10 @@ export default function FrontPage() {
       <Box sx={{ position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 } }}>
 
         {/* ---------------------------------------------------------------- bar */}
-        <Box sx={{ ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5, ...rise(0) }}>
-         <Box sx={{
-          display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2.5 }, flexWrap: "wrap",
-         }}>
+        <Box sx={{
+          ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5, ...rise(0),
+          display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
+        }}>
           <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
             <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.8 }}>
               <Box component="span" sx={{
@@ -278,7 +274,9 @@ export default function FrontPage() {
               </Box>
             )}
 
-            <Box component={Link} href="/settings" aria-label="Your settings" sx={{
+            {/* Your account, not the Settings front page: a person clicking
+                their own initials wants their own account. */}
+            <Box component={Link} href="/settings/you" aria-label="Your account" title="Your account" sx={{
               width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center",
               background: "linear-gradient(140deg,#5b8def,#7c5cf0)", color: "#fff", textDecoration: "none",
               fontSize: "0.8rem", fontWeight: 700, letterSpacing: "0.02em", ...focusRing,
@@ -287,24 +285,6 @@ export default function FrontPage() {
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             }}>{initials || "·"}</Box>
           </Box>
-         </Box>
-
-         {/* The hub's own, in the hub's own bar. They were a row of chips
-             floating at the foot of the page, which put the thing you reach for
-             every day furthest from the thing you look at first. */}
-         <Box sx={{
-           display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap",
-           mt: 1.25, pt: 1.25, borderTop: "1px solid rgba(21,34,58,.07)",
-         }}>
-           {HUB_TOOLS.slice(0, 4).map((t) => (
-             <Box key={t.href} component={Link} href={t.href} sx={{
-               display: "flex", alignItems: "center", gap: 0.7, px: 1.4, py: 0.7, borderRadius: "12px",
-               textDecoration: "none", fontSize: "0.82rem", fontWeight: 600, color: MUTED, ...focusRing,
-               transition: "background-color .18s ease, color .18s ease",
-               "&:hover": { color: INK, bgcolor: "rgba(21,34,58,.05)" },
-             }}><HubIconGlyph name={t.icon} fontSize={17} />{t.name}</Box>
-           ))}
-         </Box>
         </Box>
 
         {/* No hero. The wordmark is in the bar, and a page whose job is to
@@ -411,36 +391,7 @@ export default function FrontPage() {
           "@media (min-width:1280px)": { gridTemplateColumns: "1.15fr 1fr 1fr" },
           ...rise(6),
         }}>
-          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
-            <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", mb: 1.75 }}>
-              Quick links
-            </Typography>
-            <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap" }}>
-              {QUICK.map((r) => (
-                <Box key={r.name}
-                  component={r.external ? "a" : Link}
-                  href={r.href}
-                  {...(r.external ? { target: "_blank", rel: "noopener" } : {})}
-                  sx={{
-                    width: 92, p: 1.5, borderRadius: "16px", textDecoration: "none", textAlign: "center",
-                    bgcolor: "rgba(255,255,255,.72)", border: "1px solid rgba(255,255,255,.85)",
-                    display: "grid", justifyItems: "center", gap: 0.75, ...focusRing,
-                    transition: "transform .18s ease, background-color .18s ease",
-                    "&:hover": { transform: "translateY(-3px)", bgcolor: "#fff" },
-                    "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
-                  }}>
-                  <Box sx={{
-                    width: 38, height: 38, borderRadius: "12px", display: "grid", placeItems: "center",
-                    bgcolor: r.tint, color: r.fg, "& svg": { fontSize: 20 },
-                  }}>{r.external ? <OpenInNewIcon /> : r.name === "Audit" ? <SecurityIcon /> : r.name === "Docs" ? <MenuBookIcon /> : <SettingsIcon />}</Box>
-                  <Box>
-                    <Typography sx={{ fontSize: "0.77rem", fontWeight: 600, color: INK, lineHeight: 1.2 }}>{r.name}</Typography>
-                    <Typography sx={{ fontSize: "0.67rem", color: FAINT, lineHeight: 1.25 }}>{r.note}</Typography>
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-          </Box>
+          <QuickLinks glass={glass} />
 
           <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
             <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", mb: 1.75 }}>
