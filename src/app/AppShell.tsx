@@ -44,6 +44,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  // The home screen carries NO navigation. That is the whole constraint: a
+  // front door with nowhere to sprawl to cannot grow a thicket of links, and
+  // the menu you get after one click is only that app's.
+  const isLaunchPad = pathname === "/";
+  if (isLaunchPad) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: "#f5f6f8" }}>
+        <ReportingWindowProvider>{children}</ReportingWindowProvider>
+      </Box>
+    );
+  }
+
   const padded = isPadded(pathname);
   const isFullBleed = pathname === "/personality";
 
