@@ -11,6 +11,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import AppsIcon from "@mui/icons-material/Apps";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InsightsIcon from "@mui/icons-material/Insights";
@@ -73,113 +74,114 @@ interface NavSection {
 }
 
 /**
- * Every href below resolves to a page under src/app — checked against the route
- * tree, because a dead sidebar entry is worse than a missing one. Deliberately
- * absent: /studio and /calendar (now redirects to /create and /), and
- * /knowledge-base (retired; it redirects to /personality, which is listed).
+ * THE FIVE APPS.
  *
- * Integrations appears exactly ONCE in this app, under Governance beside
- * Settings — it is configuration, and a second entry under Intelligence only
- * made people wonder which of the two was the real one.
+ * The hub stopped being the marketing app: it is the front door to all of them,
+ * with one sign-in and access decided per app. These groups ARE those apps, so
+ * the nav and the launch pad cannot describe the estate differently.
+ *
+ * Nothing moved on disk except Datatracker, which became an app of its own and
+ * now answers at /datatracker; /website/datatracker redirects, because bookmarks
+ * are not ours to break. Everything else keeps its route and changes only the
+ * group it is listed under.
+ *
+ * Every href resolves to a page under src/app — checked against the route tree,
+ * because a dead sidebar entry is worse than a missing one. Deliberately absent:
+ * /studio and /calendar (they redirect to /create and /), and /knowledge-base
+ * (retired; redirects to /personality, which is listed).
+ *
+ * Integrations appears exactly ONCE, under Governance beside Settings — it is
+ * configuration, and a second entry elsewhere only made people wonder which was
+ * the real one.
  */
 const navSections: NavSection[] = [
   {
-    title: "Overview",
+    // The launch pad and the things that belong to no single app.
+    title: "Hub",
     icon: <DashboardIcon />,
     color: "#274e64",
     items: [
-      // The content calendar now lives on Overview — /calendar redirects here.
-      { label: "Mission Control", href: "/", icon: <DashboardIcon fontSize="small" /> },
-      // Top level on purpose: the brain feeds every generator in the app.
-      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+      { label: "All apps", href: "/", icon: <AppsIcon fontSize="small" /> },
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
     ],
   },
   {
-    title: "AI Content",
+    title: "Website & Intelligence",
+    icon: <PublicIcon />,
+    color: "#2d6fa8",
+    items: [
+      { label: "Site overview", href: "/website/overview", icon: <BarChartIcon fontSize="small" /> },
+      { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
+      { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
+      { label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
+      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
+      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
+      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
+      { label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+      { label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
+      { label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
+      { label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
+      { label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
+      { label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
+      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+    ],
+  },
+  {
+    title: "Marketing & Content",
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [
       { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+      // The brain feeds every generator in this app, so it sits with them.
+      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
     ],
   },
   {
-    title: "Website",
-    icon: <LanguageIcon />,
-    color: "#5e5ce6",
-    items: [
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
-      { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
-      { label: "Site overview", href: "/website/overview", icon: <BarChartIcon fontSize="small" /> },
-      { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
-      { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
-      { label: "Datatracker", href: "/website/datatracker", icon: <StorefrontIcon fontSize="small" /> },
-    ],
-  },
-  {
-    title: "Customer Journey",
+    title: "Customer Journey & KPIs",
     icon: <RouteIcon />,
-    color: "#7b5cff",
+    color: "#1baf7a",
     items: [
       { label: "The journey", href: "/journey", icon: <RouteIcon fontSize="small" /> },
       { label: "Lifecycle funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
       { label: "KPIs", href: "/journey/kpis", icon: <AccountTreeIcon fontSize="small" /> },
-    ],
-  },
-  {
-    title: "Intelligence",
-    icon: <InsightsIcon />,
-    color: "#0a84ff",
-    items: [
+      { label: "Customers", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
+      { label: "Visitors", href: "/customers/visitors", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Journeys", href: "/customers/journeys", icon: <RouteIcon fontSize="small" /> },
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
       { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
       { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
-      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+    ],
+  },
+  {
+    // The HubSpot-side apps. Most still live in their own repos and migrate
+    // here over time; Web order sync is the first of them that already does.
+    title: "UC & HubSpot Apps",
+    icon: <HubIcon />,
+    color: "#eda100",
+    items: [
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
   {
-    title: "SEO",
-    icon: <TravelExploreIcon />,
-    color: "#34c759",
+    title: "Datatracker",
+    icon: <StorefrontIcon />,
+    color: "#eb6834",
     items: [
-      { label: "Performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
-      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
-      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
-      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
-      { label: "Work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+      { label: "Customers & articles", href: "/datatracker", icon: <StorefrontIcon fontSize="small" /> },
     ],
   },
   {
-    title: "GEO",
-    icon: <ManageSearchIcon />,
-    color: "#1baf7a",
-    items: [
-      { label: "Readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
-      { label: "Content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
-      { label: "Live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
-      { label: "Competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
-      { label: "Fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
-    ],
-  },
-  {
-    title: "Customers",
-    icon: <HandshakeIcon />,
-    color: "#b4690e",
-    items: [
-      { label: "Overview", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
-      { label: "Visitors", href: "/customers/visitors", icon: <GroupsIcon fontSize="small" /> },
-      { label: "Journeys", href: "/customers/journeys", icon: <RouteIcon fontSize="small" /> },
-    ],
-  },
-  {
+    // Not an app: the hub's own governance. One sign-in, and who may open which
+    // app is a permission set here rather than inside each app.
     title: "Governance",
     icon: <SecurityIcon />,
-    color: "#8e8e93",
+    color: "#5b6470",
     items: [
       { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
       { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
