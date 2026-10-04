@@ -28,6 +28,7 @@ import QueryStatsIcon from "@mui/icons-material/QueryStats";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
+import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -162,13 +163,14 @@ const navSections: NavSection[] = [
   },
   {
     // The HubSpot-side apps. Most still live in their own repos and migrate
-    // here over time; Erosion came from the APSOAssistant micro apps.
+    // here over time; Erosion and DoC came from the APSOAssistant micro apps.
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
     items: [
       { label: "Erosion · article level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
+      { label: "DoC · declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },

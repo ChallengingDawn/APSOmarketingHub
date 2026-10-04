@@ -52,6 +52,16 @@ const EXPECTED_ENV = [
   "COOKIEBOT_DOMAIN",
   "CONNECTOR_READ_KEY",
   "CONNECTOR_URL",
+  // DoC - the declaration emails (src/lib/doc/config.ts)
+  "MAGENTO_CONSUMER_KEY",
+  "MAGENTO_CONSUMER_SECRET",
+  "MAGENTO_ACCESS_TOKEN",
+  "MAGENTO_ACCESS_SECRET",
+  "DOC_SMTP_USER",
+  "DOC_SMTP_PASS",
+  "DOC_BACKEND_KEY",
+  "DOC_CAPTURE_FROM",
+  "DOC_SEND_EMAIL",
 ] as const;
 
 function shapeOf(name: string, value: string): string {

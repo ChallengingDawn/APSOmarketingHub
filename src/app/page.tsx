@@ -28,6 +28,7 @@ import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import HomeIcon from "@mui/icons-material/Home";
 import AppsIcon from "@mui/icons-material/Apps";
@@ -101,6 +102,7 @@ const APPS: App[] = [
     subs: [
       { name: "Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: <TrendingDownIcon />, tint: "#efe8fd", fg: "#6a46c9" },
       { name: "Price checks", note: "Priced, not ordered — and called", href: "/uc/price-checks", icon: <LocalOfferIcon />, tint: "#e6edfd", fg: "#3461c9" },
+      { name: "DoC", note: "Declarations of Conformity, emailed", href: "/uc/doc", icon: <VerifiedOutlinedIcon />, tint: "#e7f6ee", fg: "#1b7a55" },
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: <SyncAltIcon />, tint: "#fde8e8", fg: "#b63a3a" },
     ],
   },

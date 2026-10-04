@@ -70,7 +70,7 @@ function extractHubspotError(payload: string): string | null {
 
 export async function hubspotFetchJson<T>(req: {
   path: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH" | "PUT";
   body?: unknown;
   signal?: AbortSignal;
   /** Events API calls use the dedicated events token when one is set. */
