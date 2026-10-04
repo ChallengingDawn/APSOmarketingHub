@@ -47,6 +47,8 @@ export type ArticleActivity = {
   viewsTo: string | null;
   viewsError: string | null;
   generatedAt: string;
+  /** Cursor for the next page, or null at the end of the result set. */
+  after: string | null;
 };
 
 const num = (v: unknown): number | null => {
@@ -62,7 +64,7 @@ const PROPERTIES = [
 ];
 
 export async function fetchArticleActivity(
-  params: { search?: string; sort?: "orders" | "companies" | "stock"; limit?: number; from?: string; to?: string; signal?: AbortSignal } = {},
+  params: { search?: string; sort?: "orders" | "companies" | "stock"; limit?: number; after?: string; from?: string; to?: string; signal?: AbortSignal } = {},
 ): Promise<ArticleActivity> {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 200);
   const sortProperty =
@@ -81,7 +83,7 @@ export async function fetchArticleActivity(
     );
   }
 
-  const res = await hubspotFetchJson<{ total?: number; results?: { id?: string; properties?: Record<string, unknown> }[] }>({
+  const res = await hubspotFetchJson<{ total?: number; results?: { id?: string; properties?: Record<string, unknown> }[]; paging?: { next?: { after?: string } } }>({
     path: "/crm/v3/objects/2-200042439/search",
     method: "POST",
     body: {
@@ -89,6 +91,7 @@ export async function fetchArticleActivity(
       properties: PROPERTIES,
       sorts: [{ propertyName: sortProperty, direction: "DESCENDING" }],
       limit,
+      after: params.after,
     },
     signal: params.signal,
   });
@@ -132,5 +135,6 @@ export async function fetchArticleActivity(
     viewsTo: null,
     viewsError,
     generatedAt: new Date().toISOString(),
+    after: res.paging?.next?.after ?? null,
   };
 }

@@ -25,6 +25,8 @@ import IconButton from "@mui/material/IconButton";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import TablePagination from "@mui/material/TablePagination";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import Tabs from "@mui/material/Tabs";
@@ -36,7 +38,14 @@ import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
 import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
 
-import type { ArticleActivity } from "@/lib/integrations/articleActivity";
+import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
+import type { PriceChecks } from "@/lib/integrations/priceChecks";
+
+/** Every column on the Articles tab is sortable; these are its keys. */
+type ArticleSortKey =
+  | "articleNumber" | "description" | "mainGroup" | "articleType"
+  | "views" | "lookedBy" | "carts" | "topQty" | "lastLooked"
+  | "orders" | "companies" | "stock";
 
 type OrdersPayload = {
   from: string; to: string;
@@ -243,10 +252,22 @@ export default function EshopActivityPage() {
   const [customTo, setCustomTo] = useState(isoDay(new Date()));
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"customers" | "articles">("customers");
+  const [tab, setTab] = useState<"customers" | "articles" | "priceCheck">("customers");
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
+  // Which 200 HubSpot sends is `articleSort`; how the loaded rows are ordered on
+  // screen is this. Clicking a header that HubSpot can sort on moves BOTH, so
+  // the top of the table is the real top and not just the top of this page.
+  const [articleSortKey, setArticleSortKey] = useState<ArticleSortKey>("orders");
+  const [articleSortDir, setArticleSortDir] = useState<"asc" | "desc">("desc");
+  const [articlePage, setArticlePage] = useState(0);
+  const [articlePerPage, setArticlePerPage] = useState(25);
+  const [articlesLoadingMore, setArticlesLoadingMore] = useState(false);
+  const [priceChecks, setPriceChecks] = useState<PriceChecks | null>(null);
+  const [priceChecksError, setPriceChecksError] = useState<string | null>(null);
+  const [pcOnlyQualifying, setPcOnlyQualifying] = useState(true);
+  const [pcOpen, setPcOpen] = useState<string | null>(null);
 
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
@@ -326,11 +347,29 @@ export default function EshopActivityPage() {
     return () => clearTimeout(t);
   }, [search]);
 
+  // The same window as the rest of the screen, so a price check and the order
+  // that may have followed it are never read over different days.
+  useEffect(() => {
+    if (tab !== "priceCheck") return;
+    const ctrl = new AbortController();
+    setPriceChecks(null);
+    setPriceChecksError(null);
+    fetch(`/api/datatracker/price-checks?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok && j.data) setPriceChecks(j.data as PriceChecks);
+        else setPriceChecksError(j?.error ?? j?.detail ?? "HubSpot did not answer for price checks.");
+      })
+      .catch((e) => { if ((e as Error)?.name !== "AbortError") setPriceChecksError(String(e)); });
+    return () => ctrl.abort();
+  }, [tab, periodFrom, periodTo]);
+
   useEffect(() => {
     if (tab !== "articles") return;
     const ctrl = new AbortController();
     setArticles(null);
     setArticlesError(null);
+    setArticlePage(0);
     const q = new URLSearchParams({ sort: articleSort, limit: "200" });
     if (searchSlow.trim()) q.set("search", searchSlow.trim());
     fetch(`/api/datatracker/articles?${q}`, { signal: ctrl.signal })
@@ -345,6 +384,65 @@ export default function EshopActivityPage() {
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
+  // ---- the Articles tab, sorted and paged over what has been loaded ---------
+  const articleRows = (() => {
+    const rows = [...(articles?.rows ?? [])];
+    const pick = (a: ArticleRow): string | number | null => {
+      switch (articleSortKey) {
+        case "articleNumber": return a.articleNumber ?? "";
+        case "description": return a.description ?? "";
+        case "mainGroup": return a.mainGroup ?? "";
+        case "articleType": return a.articleType ?? "";
+        case "lastLooked": return a.lastLooked ?? "";
+        default: return (a[articleSortKey] as number | null) ?? null;
+      }
+    };
+    return rows.sort((x, y) => {
+      const a = pick(x), b = pick(y);
+      // A dash is "never looked at", not zero, so it sorts to the bottom either
+      // way rather than claiming the top of an ascending sort.
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      const cmp = typeof a === "number" && typeof b === "number"
+        ? a - b
+        : String(a).localeCompare(String(b), undefined, { numeric: true });
+      return articleSortDir === "desc" ? -cmp : cmp;
+    });
+  })();
+  const articlePageRows = articleRows.slice(articlePage * articlePerPage, articlePage * articlePerPage + articlePerPage);
+
+  const onArticleSort = (k: ArticleSortKey) => {
+    if (k === articleSortKey) { setArticleSortDir((d) => (d === "desc" ? "asc" : "desc")); setArticlePage(0); return; }
+    setArticleSortKey(k);
+    setArticleSortDir(k === "articleNumber" || k === "description" || k === "mainGroup" || k === "articleType" ? "asc" : "desc");
+    setArticlePage(0);
+    // These three decide WHICH articles HubSpot sends, so clicking them has to
+    // refetch; the rest only reorder what is already on screen.
+    if (k === "orders" || k === "companies" || k === "stock") setArticleSort(k);
+  };
+
+  const loadMoreArticles = useCallback(async () => {
+    if (!articles?.after || articlesLoadingMore) return;
+    setArticlesLoadingMore(true);
+    try {
+      const q = new URLSearchParams({ sort: articleSort, limit: "200", after: articles.after });
+      if (searchSlow.trim()) q.set("search", searchSlow.trim());
+      const j = await fetch(`/api/datatracker/articles?${q}`).then((r) => r.json());
+      if (j?.ok && j.data) {
+        const next = j.data as ArticleActivity;
+        setArticles((cur) => (cur ? { ...next, rows: [...cur.rows, ...next.rows] } : next));
+      }
+    } finally {
+      setArticlesLoadingMore(false);
+    }
+  }, [articles, articlesLoadingMore, articleSort, searchSlow]);
+
+  // A row that does not qualify is still worth seeing: it is how you check the
+  // rule is drawing its line where you meant it to.
+  const qualifying = (priceChecks?.rows ?? []).filter((r) => r.qualifies && !r.excluded);
+  const pcVisible = pcOnlyQualifying ? qualifying : (priceChecks?.rows ?? []);
+
   const loadedRows = [...(data?.rows ?? []), ...extraRows];
 
   // A customer who ordered in this window but was never seen browsing is still
@@ -503,9 +601,21 @@ export default function EshopActivityPage() {
         fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1,
       }}>Datatracker</Typography>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 0, "& .MuiTab-root": { textTransform: "none", minHeight: 0, py: 1, px: 0, mr: 3, minWidth: 0 } }}>
+{/* The tabs sit on a rail that runs the width of the page, so the selected
+          one reads as a section of one screen rather than three loose words. */}
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{
+        minHeight: 0, borderBottom: `1px solid ${HAIRLINE}`,
+        "& .MuiTabs-indicator": { height: 3, borderRadius: "3px 3px 0 0", bgcolor: "#1b4a80" },
+        "& .MuiTab-root": {
+          textTransform: "none", minHeight: 0, py: 1.25, px: 0, mr: 4, minWidth: 0,
+          fontSize: "0.95rem", fontWeight: 600, letterSpacing: "-0.01em", color: MUTED,
+          "&:hover": { color: INK },
+          "&.Mui-selected": { color: "#1b4a80" },
+        },
+      }}>
         <Tab value="customers" label="Customers" />
         <Tab value="articles" label="Articles" />
+        <Tab value="priceCheck" label="Price checks" />
       </Tabs>
 
       {tab === "customers" && (
@@ -631,32 +741,35 @@ export default function EshopActivityPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 36 }} />
-                {/* Widths sized to the longest value each column really holds -
-                    "Switzerland", "110-8080123", "Not defined" - so a column
-                    either fits or truncates every row, never some of them. */}
-                {([["mandant", "Mandant", 64], ["customerNumber", "Customer no.", 104], ["name", "Customer", 0],
-                   ["country", "Country", 92], ["representative", "Representative", 132],
-                   ["apsoCustomer", "Selection criterion", 108], ["salesPriority", "Priority", 88]] as [SortKey, string, number][]).map(([k, h, w]) => (
-                  <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),
-                    whiteSpace: "normal", lineHeight: 1.2, verticalAlign: "bottom",
+{/* ONE line each. A header that wraps to two or three lines sets a
+                    different baseline in every column and the row reads as a
+                    jumble - so the labels are short enough to fit and the widths
+                    count the sort arrow, which is ~18px nobody had budgeted for.
+                    Anything shortened keeps its full wording on hover. */}
+                {([["mandant", "Mandant", 76, ""], ["customerNumber", "Customer no.", 112, ""], ["name", "Customer", 0, ""],
+                   ["country", "Country", 92, ""], ["representative", "Representative", 136, ""],
+                   ["apsoCustomer", "Selection", 104, "Selection criterion"], ["salesPriority", "Priority", 88, ""]] as [SortKey, string, number, string][]).map(([k, h, w, full]) => (
+                  <TableCell key={k} title={full || undefined} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),
+                    whiteSpace: "nowrap", verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                {([["logins", "Logins", 70], ["views", "Views", 70], ["orders", "Orders", 70],
-                   ["orderValue", "Total value", 98], ["viewsPerLogin", "Views / login", 76],
-                   ["revenueYtd", "Revenue YTD", 98]] as [SortKey, string, number][]).map(([k, h, w]) => (
-                  <TableCell key={k} align="right" sx={{ fontWeight: 600, color: MUTED, width: w,
-                    whiteSpace: "normal", lineHeight: 1.2, verticalAlign: "bottom",
+                {([["logins", "Logins", 80, ""], ["views", "Views", 74, ""], ["orders", "Orders", 80, ""],
+                   ["orderValue", "Value", 90, "Total order value in this period"],
+                   ["viewsPerLogin", "Per login", 94, "Views per login"],
+                   ["revenueYtd", "Revenue", 96, "Revenue year to date"]] as [SortKey, string, number, string][]).map(([k, h, w, full]) => (
+                  <TableCell key={k} align="right" title={full || undefined} sx={{ fontWeight: 600, color: MUTED, width: w,
+                    whiteSpace: "nowrap", verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
                       {h}
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: 92, ...COL.trend }}>2021 → 2026</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: 94, ...COL.trend }}>2021 → 2026</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -771,7 +884,14 @@ export default function EshopActivityPage() {
       {tab === "articles" && (
         <Section sx={{ p: 0, overflow: "hidden" }}>
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-            <Select size="small" value={articleSort} onChange={(e) => setArticleSort(e.target.value as typeof articleSort)} sx={{ minWidth: 180 }}>
+            {/* This picks which 200 HubSpot sends, so the header arrow has to
+                follow it - otherwise the table says it is sorted by one thing
+                while it was fetched by another. */}
+            <Select size="small" value={articleSort} sx={{ minWidth: 180 }}
+              onChange={(e) => {
+                const v = e.target.value as typeof articleSort;
+                setArticleSort(v); setArticleSortKey(v); setArticleSortDir("desc"); setArticlePage(0);
+              }}>
               <MenuItem value="orders">Most ordered</MenuItem>
               <MenuItem value="companies">Most customers</MenuItem>
               <MenuItem value="stock">Most stock</MenuItem>
@@ -786,17 +906,39 @@ export default function EshopActivityPage() {
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
+                {/* "Ordered by" counted customers and so did "Customers", two
+                    columns apart and differently named. They are the same unit -
+                    customers - so they carry the same word, and the band above
+                    says which half of the screen each belongs to. */}
                 <TableRow>
-                  {["Article no.", "Description", "Main group", "Type"].map((h) => (
-                    <TableCell key={h} sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                  <TableCell colSpan={4} sx={{ borderBottom: "none" }} />
+                  <TableCell colSpan={5} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#1b4a80" }}>In the shop · since 2 Oct</TableCell>
+                  <TableCell colSpan={3} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED }}>ERP · all time</TableCell>
+                </TableRow>
+                <TableRow>
+                  {([["articleNumber", "Article no.", 108], ["description", "Description", 0],
+                     ["mainGroup", "Main group", 152], ["articleType", "Type", 88]] as [ArticleSortKey, string, number][]).map(([k, h, w]) => (
+                    <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", ...(w ? { width: w } : {}) }}
+                      sortDirection={articleSortKey === k ? articleSortDir : false}>
+                      <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
+                        onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
+                    </TableCell>
                   ))}
-                  {["Looked at", "Customers", "In cart", "Max qty", "Last look", "Orders", "Ordered by", "Stock"].map((h) => (
-                    <TableCell key={h} align="right" sx={{ fontWeight: 600, color: MUTED }}>{h}</TableCell>
+                  {([["views", "Looked at", 86], ["lookedBy", "Customers", 94], ["carts", "In cart", 78],
+                     ["topQty", "Max qty", 86], ["lastLooked", "Last look", 124],
+                     ["orders", "Orders", 86], ["companies", "Customers", 94], ["stock", "Stock", 110]] as [ArticleSortKey, string, number][]).map(([k, h, w], i) => (
+                    <TableCell key={`${k}-${i}`} align="right" sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: w }}
+                      sortDirection={articleSortKey === k ? articleSortDir : false}>
+                      <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
+                        onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
+                    </TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(articles?.rows ?? []).map((a) => (
+                {articlePageRows.map((a) => (
                   <TableRow key={a.id} hover>
                     <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.articleNumber ?? "—"}</TableCell>
                     <TableCell sx={{ color: INK }}>{a.description ?? "—"}</TableCell>
@@ -824,7 +966,7 @@ export default function EshopActivityPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {articles && articles.rows.length === 0 && (
+                {articles && articleRows.length === 0 && (
                   <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
                 )}
                 {!articles && !articlesError && (
@@ -833,14 +975,180 @@ export default function EshopActivityPage() {
               </TableBody>
             </Table>
           </Box>
+          <TablePagination
+            component="div"
+            count={articleRows.length}
+            page={articlePage}
+            onPageChange={(_, p) => setArticlePage(p)}
+            rowsPerPage={articlePerPage}
+            rowsPerPageOptions={[25, 50, 100]}
+            onRowsPerPageChange={(e) => { setArticlePerPage(Number(e.target.value)); setArticlePage(0); }}
+            labelRowsPerPage="Rows"
+            sx={{ borderTop: `1px solid ${HAIRLINE}` }}
+          />
+          {/* Loading the next page from HubSpot, not just turning a page of what
+              is already here - 128,000 articles do not arrive in one read. */}
+          {articles?.after && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <Button size="small" variant="outlined" onClick={loadMoreArticles} disabled={articlesLoadingMore}>
+                {articlesLoadingMore ? "Reading…" : `Load the next ${full(200)} articles`}
+              </Button>
+            </Box>
+          )}
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
               <strong>Looked at, Customers, In cart, Max qty and Last look come from the shop as it happens</strong> — off the
               price lookup the page makes when a customer picks a size and a quantity, so they cover every signed-in customer
               whatever they chose on the cookie banner. They start on 2 October, when that capture went live.
-              {" "}<strong>Orders, Ordered by and Stock are ERP counts</strong> from Products &amp; Pricing, written every night and
+              {" "}<strong>Orders, Customers and Stock on the right are ERP counts</strong> from Products &amp; Pricing, written every night and
               covering all time. A dash under the shop columns means nobody has priced that article since the capture started.
               {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
+            </Typography>
+          </Box>
+        </Section>
+      )}
+
+      {tab === "priceCheck" && (
+        <Section sx={{ p: 0, overflow: "hidden" }}>
+          <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+            <Chip size="small" label={`${full(qualifying.length)} qualify`}
+              sx={{ bgcolor: "#e6f4ec", color: "#0f7b4f", fontWeight: 700 }} />
+            <Chip size="small" label={`${full(priceChecks ? priceChecks.rows.length - qualifying.length : null)} below the rule`}
+              sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
+            <FormControlLabel
+              control={<Switch size="small" checked={pcOnlyQualifying} onChange={(e) => setPcOnlyQualifying(e.target.checked)} />}
+              label={<Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Only the ones that qualify</Typography>}
+            />
+            {priceChecksError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{priceChecksError}</Typography>}
+          </Box>
+
+          <Box sx={{ overflowX: "auto" }}>
+            <Table size="small" sx={{ "& td, & th": cell }}>
+              <TableHead>
+                <TableRow>
+                  {["Day", "Customer", "Mandant", "Country", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict"]
+                    .map((h, i) => (
+                      <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"}
+                        sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>{h}</TableCell>
+                    ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pcVisible.map((r) => [
+                  <TableRow key={`${r.companyId}-${r.day}`} hover sx={{ cursor: "pointer" }}
+                    onClick={() => setPcOpen(pcOpen === `${r.companyId}-${r.day}` ? null : `${r.companyId}-${r.day}`)}>
+                    <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.day}</TableCell>
+                    <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.companyName ?? ""}>
+                      <Link href={hsCompanyUrl(r.companyId)} target="_blank" rel="noopener"
+                        onClick={(e) => e.stopPropagation()} underline="hover" sx={{ color: INK, fontWeight: 600 }}>
+                        {r.companyName ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell sx={{ color: MUTED }}>{r.mandant ?? "—"}</TableCell>
+                    <TableCell sx={{ color: MUTED, ...clip }} title={r.country ?? ""}>{r.country ?? "—"}</TableCell>
+                    <TableCell sx={{ color: MUTED }}>{shortPriority(r.salesPriority)}</TableCell>
+                    <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
+                    <TableCell align="right" sx={{ color: r.counted ? INK : MUTED, fontWeight: 600 }}>{full(r.counted)}</TableCell>
+                    <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {r.value ? `€${compact(r.value)}` : "—"}
+                    </TableCell>
+                    <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                      {r.gateOpen ? r.dueOn : `due ${r.dueOn}`}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      {/* The reason, never a bare no: a rule you cannot see the
+                          edge of is a rule nobody trusts. */}
+                      <Typography component="span" sx={{
+                        fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
+                        bgcolor: r.excluded ? "#f3f0ff" : r.qualifies ? "#e6f4ec" : "#eef1f5",
+                        color: r.excluded ? "#5a3fa0" : r.qualifies ? "#0f7b4f" : MUTED,
+                      }}>
+                        {r.excluded ? r.excluded
+                          : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting")
+                          : r.counted === 0 ? "No KT/DT article"
+                          : "Under €500"}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>,
+                  pcOpen === `${r.companyId}-${r.day}` && (
+                    <TableRow key={`${r.companyId}-${r.day}-d`}>
+                      <TableCell colSpan={10} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
+                        <Box sx={{ p: 2 }}>
+                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
+                            textTransform: "uppercase", color: MUTED, mb: 1 }}>
+                            Priced and left behind · {r.contactIds.length > 0
+                              ? `${full(r.contactIds.length)} contact${r.contactIds.length > 1 ? "s" : ""} identified`
+                              : "contact not identified"}
+                          </Typography>
+                          <Table size="small" sx={{ "& td, & th": cell, "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 110 }}>Article</TableCell>
+                                <TableCell sx={{ fontWeight: 600, color: MUTED }}>Description</TableCell>
+                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 74 }}>PC</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 80 }}>Qty</TableCell>
+                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 124 }}>Unit · MOQ</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>Price</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Value</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {r.articles.map((a) => (
+                                <TableRow key={a.article}>
+                                  <TableCell sx={{ fontWeight: 600, color: a.counted ? INK : MUTED, whiteSpace: "nowrap" }}>{a.article}</TableCell>
+                                  <TableCell sx={{ color: MUTED, ...clip }} title={a.description ?? ""}>{a.description ?? "—"}</TableCell>
+                                  <TableCell sx={{ color: a.counted ? INK : MUTED }}>
+                                    {a.special ? "special" : a.profitCentre ?? "—"}
+                                  </TableCell>
+                                  <TableCell align="right" sx={{ color: INK }}>{a.qty == null ? "—" : full(a.qty)}</TableCell>
+                                  {/* A quantity means little without these: 20 of
+                                      something sold per metre is not 20 pieces,
+                                      and a request under a MOQ is one the shop
+                                      would have bumped. */}
+                                  <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                    {[a.salesUnit ?? "unit ?",
+                                      a.moq == null ? "MOQ unknown" : /^y/i.test(a.moq) ? `MOQ ${a.moqMinimum ?? "?"}` : "no MOQ",
+                                    ].join(" · ")}
+                                  </TableCell>
+                                  <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                    {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
+                                  </TableCell>
+                                  <TableCell align="right" sx={{ color: a.counted ? INK : MUTED, fontWeight: a.counted ? 700 : 400, whiteSpace: "nowrap" }}>
+                                    {a.value == null ? "—" : `€${compact(a.value)}`}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ),
+                ])}
+                {priceChecks && pcVisible.length === 0 && (
+                  <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                    Nobody priced without carting in this window.
+                  </TableCell></TableRow>
+                )}
+                {!priceChecks && !priceChecksError && (
+                  <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+
+          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
+              <strong>The rule, as it runs on the tickets.</strong> A price check is the quantity lookup the product page
+              makes when a customer types a quantity, so it catches every signed-in customer whatever they chose on the
+              cookie banner. Only articles that were <strong>not</strong> put in the cart and <strong>not</strong> ordered count.
+              An article counts when its profit centre is <strong>KT or DT</strong> and it is not a 3xxx/8xxx special; a special
+              has no Products &amp; Pricing record, so neither its price nor its profit centre can be judged and it is skipped
+              rather than assumed. The day qualifies from <strong>€500</strong> of counted value — €500 is a floor either way, so
+              three cheap articles do not qualify. <strong>APSOmicro and priorities 3 and 4</strong> are out of scope.
+              The verdict then waits <strong>one working day</strong>: a check on a Friday is judged on the Monday, because nobody
+              orders at the weekend and a weekend without an order proves nothing. If an order arrives inside that window,
+              no ticket is raised at all. Public holidays are not in the calendar yet — only Saturday and Sunday.
             </Typography>
           </Box>
         </Section>
