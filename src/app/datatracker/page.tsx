@@ -48,7 +48,6 @@ import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatr
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
-import type { RunReport } from "@/lib/integrations/priceCheckTickets";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
 import type { ContactCard } from "@/app/api/datatracker/contacts/route";
 
@@ -584,26 +583,8 @@ function EshopActivityPage() {
   const [signalsError, setSignalsError] = useState<string | null>(null);
   const [pcOnlyQualifying, setPcOnlyQualifying] = useState(true);
   const [pcOpen, setPcOpen] = useState<string | null>(null);
-  const [pcRun, setPcRun] = useState<RunReport | null>(null);
-  const [pcRunning, setPcRunning] = useState<"dry" | "live" | null>(null);
-  const [pcRunError, setPcRunError] = useState<string | null>(null);
-
-  // The preview and the real run are the SAME call with one flag, so what you
-  // were shown cannot differ from what gets written.
-  const runTickets = useCallback(async (dry: boolean) => {
-    setPcRunning(dry ? "dry" : "live");
-    setPcRunError(null);
-    try {
-      const j = await fetch(`/api/datatracker/price-checks/run?dry=${dry ? 1 : 0}`, { method: "POST" })
-        .then((r) => r.json());
-      if (j?.ok && j.data) setPcRun(j.data as RunReport);
-      else setPcRunError(j?.error ?? j?.detail ?? "The run did not complete.");
-    } catch (e) {
-      setPcRunError(String(e));
-    } finally {
-      setPcRunning(null);
-    }
-  }, []);
+  // Preview / Create tickets live in the UC app (/uc/price-checks) only - this
+  // screen records, it does not raise tickets.
 
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
@@ -795,24 +776,19 @@ function EshopActivityPage() {
   const qualifying = pcRows.filter((r) => r.qualifies && !r.excluded);
   const pcVisible = pcOnlyQualifying ? qualifying : pcRows;
 
-  // Which filters a tab can use. Articles are totals over every customer, so only
-  // the search reaches them; the server sort is the customer list's own.
-  const VIEW_LABEL: Record<TabId, string> = {
-    customers: "Customers", articles: "Articles", priceCheck: "Price checks", moq: "MOQ", availability: "Availability",
-  };
+  // Which filters a tab shows. Articles are totals over every customer, so only
+  // the search reaches them (plus their own sort); the "Most views" sort is the
+  // customer list's own.
   const usedHere = {
     period: tab !== "articles",
     company: tab !== "articles",
     selection: tab === "customers" || tab === "priceCheck",
     sort: tab === "customers",
   };
-  // A plain function, not a component, so the control inside is never remounted.
-  const hint = (on: boolean, control: React.ReactElement) =>
-    on ? control : (
-      <Tooltip title={`Not used on ${VIEW_LABEL[tab]} - it stays set for when you go back`}>
-        <Box component="span" sx={{ display: "inline-flex" }}>{control}</Box>
-      </Tooltip>
-    );
+  // SARCLA: a filter a view cannot use is not shown at all - greyed-out controls
+  // were noise. Its value is kept, and it is back, still set, on the views that
+  // use it. A plain function, not a component, so the control is never remounted.
+  const hint = (on: boolean, control: React.ReactElement) => (on ? control : null);
 
   const loadedRows = [...(data?.rows ?? []), ...extraRows];
 
@@ -1027,11 +1003,26 @@ function EshopActivityPage() {
 
       {/* ONE filter bar for every tab. It used to live inside Customers, so
           switching tab took the filters away - the values survived, but you could
-          neither see nor change them. A filter a tab cannot use is greyed out with
-          the reason, never hidden: it is still set, and still applies when you go
-          back. */}
+          neither see nor change them. Each view shows exactly the filters that
+          shape what it shows: Customers all of them; Price checks, MOQ and
+          Availability the ones their rows carry; Articles its own sort and the
+          search. */}
       <GlassCard>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+          {/* Articles: which 200 HubSpot sends, so the header arrow follows it -
+              otherwise the table says it is sorted by one thing while it was
+              fetched by another. */}
+          {tab === "articles" && (
+            <Select size="small" value={articleSort} sx={{ minWidth: 180 }} aria-label="Sort the articles"
+              onChange={(e) => {
+                const v = e.target.value as typeof articleSort;
+                setArticleSort(v); setArticleSortKey(v); setArticleSortDir("desc"); setArticlePage(0);
+              }}>
+              <MenuItem value="orders">Most ordered</MenuItem>
+              <MenuItem value="companies">Most customers</MenuItem>
+              <MenuItem value="stock">Most stock</MenuItem>
+            </Select>
+          )}
           {/* One control. Pick a range and the live counters answer it; pick a
               year and the Datatracker's own yearly total does. Never both. */}
           {hint(usedHere.period,
@@ -1041,7 +1032,7 @@ function EshopActivityPage() {
               <Divider />
               {ESHOP_YEARS.map((y) => <MenuItem key={y} value={`y${y}`}>Full year {y}</MenuItem>)}
             </Select>)}
-          {period === "custom" && (
+          {usedHere.period && period === "custom" && (
             <>
               <TextField size="small" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} sx={{ minWidth: 150 }} disabled={!usedHere.period} />
               <TextField size="small" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} sx={{ minWidth: 150 }} disabled={!usedHere.period} />
@@ -1103,6 +1094,10 @@ function EshopActivityPage() {
             sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
           />
           )}
+          {tab === "articles" && articles?.total != null && (
+            <Chip size="small" label={`${full(articles.total)} articles match`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
+          )}
+          {tab === "articles" && articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{articlesError}</Typography>}
           {tab === "customers" && (<>
           {/* A bounded scan must say so. A silent cap reads as "this is the
               whole total" and that is how a wrong number gets published. */}
@@ -1312,26 +1307,7 @@ function EshopActivityPage() {
 
       {tab === "articles" && (
         <GlassCard sx={{ p: 0, overflow: "hidden" }}>
-          <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-            {/* This picks which 200 HubSpot sends, so the header arrow has to
-                follow it - otherwise the table says it is sorted by one thing
-                while it was fetched by another. */}
-            <Select size="small" value={articleSort} sx={{ minWidth: 180 }}
-              onChange={(e) => {
-                const v = e.target.value as typeof articleSort;
-                setArticleSort(v); setArticleSortKey(v); setArticleSortDir("desc"); setArticlePage(0);
-              }}>
-              <MenuItem value="orders">Most ordered</MenuItem>
-              <MenuItem value="companies">Most customers</MenuItem>
-              <MenuItem value="stock">Most stock</MenuItem>
-            </Select>
-            {/* The search is the shared bar's now ("Find an article"), bound to the
-                same value - a second box here only said the same thing twice. */}
-            {articles?.total != null && (
-              <Chip size="small" label={`${full(articles.total)} articles match`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
-            )}
-            {articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{articlesError}</Typography>}
-          </Box>
+          {/* Its sort, search and match count sit in the filter bar above. */}
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
@@ -1449,78 +1425,14 @@ function EshopActivityPage() {
               label={<Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Only the ones that qualify</Typography>}
             />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
-            {/* Preview first, create second - and the preview is the default, so
-                a mis-click costs a wait rather than forty tickets. */}
-            <Button size="small" variant="outlined" disabled={pcRunning !== null}
-              onClick={() => runTickets(true)}>
-              {pcRunning === "dry" ? "Checking…" : "Preview tickets"}
+            <Box sx={{ flex: 1 }} />
+            {/* The Datatracker records what happened; raising the tickets is the UC
+                app's job (UC & HubSpot Apps -> Price check tickets), so it is a link here,
+                not a second Create button that could disagree with the first. */}
+            <Button size="small" variant="outlined" component="a" href="/uc/price-checks">
+              Tickets are raised in Price check tickets →
             </Button>
-            <Button size="small" variant="contained" disabled={pcRunning !== null || !pcRun || pcRun.dry === false}
-              onClick={() => { if (confirm(`Create ${pcRun?.rows.filter((r) => r.outcome === "would create").length ?? 0} tickets in HubSpot?`)) runTickets(false); }}>
-              {pcRunning === "live" ? "Creating…" : "Create tickets"}
-            </Button>
-            {pcRunError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{pcRunError}</Typography>}
           </Box>
-          {/* What the run actually did, line by line. A detector that only says
-              "14 created" is one nobody can check. */}
-          {pcRun && (
-            <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "#f7f9fc" }}>
-              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
-                textTransform: "uppercase", color: MUTED, mb: 1 }}>
-                {pcRun.dry ? "Preview" : "Run"} · {pcRun.from} → {pcRun.to} · {full(pcRun.considered)} days considered
-                {pcRun.dry ? "" : ` · ${full(pcRun.created)} created`}
-                {pcRun.articlesWithoutPrice > 0 ? ` · ${full(pcRun.articlesWithoutPrice)} articles with no list price` : ""}
-              </Typography>
-              <Table size="small" sx={{ "& td, & th": { ...cell, px: 1 },
-                "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ ...HEAD, width: 98 }}>Day</TableCell>
-                    <TableCell sx={{ ...HEAD }}>Customer</TableCell>
-                    <TableCell sx={{ ...HEAD, width: 140 }}>Owner</TableCell>
-                    <TableCell align="right" sx={{ ...HEAD, width: 70 }}>Art.</TableCell>
-                    <TableCell align="right" sx={{ ...HEAD, width: 96 }}>Value</TableCell>
-                    <TableCell sx={{ ...HEAD, width: 180 }}>Outcome</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {pcRun.rows.map((r) => (
-                    <TableRow key={r.key}>
-                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.day}</TableCell>
-                      <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.company ?? ""}>{r.company ?? "—"}</TableCell>
-                      <TableCell sx={{ color: MUTED, ...clip }}>{r.owner || "—"}</TableCell>
-                      <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
-                      <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>€{compact(r.value)}</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        <Typography component="span" sx={{
-                          fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
-                          bgcolor: r.outcome === "created" ? "#e6f4ec"
-                            : r.outcome === "would create" ? "#e3edf7"
-                            : r.outcome === "failed" ? "#fdecea" : "#eef1f5",
-                          color: r.outcome === "created" ? "#0f7b4f"
-                            : r.outcome === "would create" ? "#1b4a80"
-                            : r.outcome === "failed" ? "#9e1b18" : MUTED,
-                        }}>
-                          {r.outcome}
-                        </Typography>
-                        {r.ticketId && (
-                          <Link href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${r.ticketId}`}
-                            target="_blank" rel="noopener" underline="hover"
-                            sx={{ ml: 1, fontSize: "0.72rem" }}>open</Link>
-                        )}
-                        {r.error && <Typography component="span" sx={{ ml: 1, fontSize: "0.72rem", color: "#9e1b18" }}>{r.error}</Typography>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {pcRun.rows.length === 0 && (
-                    <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 2, textAlign: "center" }}>
-                      Nothing in the last three days to act on.
-                    </TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </Box>
-          )}
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
