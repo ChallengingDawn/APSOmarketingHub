@@ -33,8 +33,15 @@ import TableSortLabel from "@mui/material/TableSortLabel";
 import Tabs from "@mui/material/Tabs";
 import Link from "@mui/material/Link";
 import Tab from "@mui/material/Tab";
-import { GUTTER, HAIRLINE, INK, MUTED, Section } from "@/app/analytics/Shell";
-import { StatTile } from "@/app/charts/StatTile";
+import { GUTTER, HAIRLINE, INK, MUTED } from "@/app/analytics/Shell";
+import PageHeader from "@/app/PageHeader";
+// The use-case report look, as on Erosion: frosted cards, tinted icon badges.
+import { FAINT, GlassCard, KpiTile, glass } from "@/app/uc/report/ui";
+import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
+import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
 import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
@@ -74,6 +81,8 @@ type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[
 const hsTicketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
 
 const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
+/** Column headers as on the UC reports: small, upper case, faint - the figures carry the weight. */
+const HEAD = { fontWeight: 600, color: FAINT, fontSize: "0.68rem", textTransform: "uppercase" as const, letterSpacing: "0.05em" };
 
 function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
   const top = Math.max(1, ...history.map((h) => h.views ?? 0));
@@ -334,7 +343,7 @@ function LookTable({ rows, kind, mandantOf }: {
   };
 
   const c = { borderColor: HAIRLINE, fontSize: "0.78rem" };
-  const h = { ...c, fontWeight: 600, color: MUTED, whiteSpace: "nowrap" as const };
+  const h = { ...c, ...HEAD, whiteSpace: "nowrap" as const };
 
   return (
     <Box sx={{ overflowX: "auto" }}>
@@ -767,8 +776,43 @@ function EshopActivityPage() {
 
   // A row that does not qualify is still worth seeing: it is how you check the
   // rule is drawing its line where you meant it to.
-  const qualifying = (signals?.priceChecks ?? []).filter((r) => r.qualifies && !r.excluded);
-  const pcVisible = pcOnlyQualifying ? qualifying : (signals?.priceChecks ?? []);
+  // The filters bite on every customer-level view, not only Customers: a price
+  // check, a MOQ look and an availability look each belong to one company, so
+  // mandant, country, priority, the search and the value floor apply to them too.
+  // Selection and representative only where the row carries them (price checks).
+  const floor = Number(minValue.replace(",", ".")) || 0;
+  const needle = searchSlow.trim().toLowerCase();
+  const textHit = (...vals: (string | null | undefined)[]) => !needle || vals.some((v) => (v ?? "").toLowerCase().includes(needle));
+  const pcRows = (signals?.priceChecks ?? []).filter((r) =>
+    companyPasses(r, { mandant, country, apsoCustomer, priority, representative })
+    && textHit(r.companyName, r.customerNumber, ...r.articles.map((a) => a.article))
+    && (!floor || r.value >= floor));
+  const lookPasses = (r: LookRecord) =>
+    (!mandant || r.mandant === mandant) && (!country || r.country === country) && (!priority || r.salesPriority === priority)
+    && textHit(r.companyName, r.customerNumber, r.article, r.description) && (!floor || (r.value ?? 0) >= floor);
+  const moqRows = (signals?.moq ?? []).filter(lookPasses);
+  const availabilityRows = (signals?.availability ?? []).filter(lookPasses);
+  const qualifying = pcRows.filter((r) => r.qualifies && !r.excluded);
+  const pcVisible = pcOnlyQualifying ? qualifying : pcRows;
+
+  // Which filters a tab can use. Articles are totals over every customer, so only
+  // the search reaches them; the server sort is the customer list's own.
+  const VIEW_LABEL: Record<TabId, string> = {
+    customers: "Customers", articles: "Articles", priceCheck: "Price checks", moq: "MOQ", availability: "Availability",
+  };
+  const usedHere = {
+    period: tab !== "articles",
+    company: tab !== "articles",
+    selection: tab === "customers" || tab === "priceCheck",
+    sort: tab === "customers",
+  };
+  // A plain function, not a component, so the control inside is never remounted.
+  const hint = (on: boolean, control: React.ReactElement) =>
+    on ? control : (
+      <Tooltip title={`Not used on ${VIEW_LABEL[tab]} - it stays set for when you go back`}>
+        <Box component="span" sx={{ display: "inline-flex" }}>{control}</Box>
+      </Tooltip>
+    );
 
   const loadedRows = [...(data?.rows ?? []), ...extraRows];
 
@@ -921,103 +965,136 @@ function EshopActivityPage() {
   return (
     // The page sits outside the (site) route group, so it carries its own
     // gutter — nothing above it supplies one and the table ran flush to the rail.
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1, md: 1.25 }, pb: { xs: 2.5, md: 3.5 }, display: "grid", gap: 1.75 }}>
-      <Typography component="h1" sx={{
-        fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-        fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em",
-        fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1,
-      }}>Datatracker</Typography>
-
-      {/* A segmented control rather than five underlined words: with a count on
-          each one the bar says what is waiting before you click anything. */}
-      <Box sx={{ display: "inline-flex", gap: 0.5, p: 0.5, bgcolor: "#eef2f7", borderRadius: 2.5, alignSelf: "flex-start" }}>
-        {([
-          ["customers", "Customers", live ? inPeriod.length : null],
-          ["articles", "Articles", articles?.rows.length ?? null],
-          ["priceCheck", "Price checks", signals ? qualifying.length : null],
-          ["moq", "MOQ", signals?.moq.length ?? null],
-          ["availability", "Availability", signals?.availability.length ?? null],
-        ] as [typeof tab, string, number | null][]).map(([id, label, count]) => (
-          <Box key={id} role="tab" aria-selected={tab === id} onClick={() => selectTab(id)}
-            sx={{
-              display: "flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.85, borderRadius: 2,
-              cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
-              fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
-              color: tab === id ? "#10263f" : MUTED,
-              bgcolor: tab === id ? "#fff" : "transparent",
-              boxShadow: tab === id ? "0 1px 3px rgba(16,38,63,0.14)" : "none",
-              transition: "background-color .12s, color .12s, box-shadow .12s",
-              "&:hover": { color: "#10263f", bgcolor: tab === id ? "#fff" : "rgba(255,255,255,0.6)" },
-            }}>
-            {label}
-            {count != null && (
-              <Typography component="span" sx={{
-                fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.7, py: 0.35, borderRadius: 1,
-                bgcolor: tab === id ? "#e3edf7" : "#e2e7ee",
-                color: tab === id ? "#1b4a80" : MUTED,
-              }}>{full(count)}</Typography>
-            )}
-          </Box>
-        ))}
+    // Same frame as the UC reports (Erosion): the hub's gutter, the same top
+    // padding, and one even gap between blocks.
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
+      <Box>
+        <PageHeader title="Datatracker" subtitle="What each customer looked at, priced and ordered in the shop" />
       </Box>
 
-      {tab === "customers" && (
-      <>
-      <Section>
+      {/* A segmented control rather than five underlined words: with a count on
+          each one the bar says what is waiting before you click anything. The
+          frosted bar and its blue selection are Erosion's, so the apps match. */}
+      <Box role="tablist" aria-label="Datatracker views"
+        sx={{ ...glass, display: "inline-flex", flexWrap: "wrap", gap: 0.5, p: 0.6, borderRadius: "16px",
+          boxShadow: "0 1px 2px rgba(31,45,78,.04)", justifySelf: "start", maxWidth: "100%" }}>
+        {(() => {
+          const views = ([
+            ["customers", "Customers", live ? inPeriod.length : null],
+            ["articles", "Articles", articles?.rows.length ?? null],
+            ["priceCheck", "Price checks", signals ? qualifying.length : null],
+            ["moq", "MOQ", signals ? moqRows.length : null],
+            ["availability", "Availability", signals ? availabilityRows.length : null],
+          ] as [typeof tab, string, number | null][]);
+          const move = (from: typeof tab, step: number) => {
+            const i = views.findIndex(([id]) => id === from);
+            const next = views[(i + step + views.length) % views.length][0];
+            selectTab(next);
+            document.getElementById(`dt-tab-${next}`)?.focus();
+          };
+          return views.map(([id, label, count]) => {
+            const on = tab === id;
+            return (
+              <Box key={id} id={`dt-tab-${id}`} role="tab" aria-selected={on} tabIndex={on ? 0 : -1}
+                onClick={() => selectTab(id)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight") { e.preventDefault(); move(id, 1); }
+                  if (e.key === "ArrowLeft") { e.preventDefault(); move(id, -1); }
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectTab(id); }
+                }}
+                sx={{
+                  display: "flex", alignItems: "center", gap: 0.85, px: 1.75, py: 0.9, borderRadius: "12px",
+                  cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+                  fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
+                  color: on ? "#2459d1" : MUTED,
+                  bgcolor: on ? "#e6edfd" : "transparent",
+                  transition: "background-color .12s, color .12s",
+                  "&:hover": { color: on ? "#2459d1" : INK, bgcolor: on ? "#e6edfd" : "rgba(255,255,255,0.75)" },
+                  "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
+                }}>
+                {label}
+                {count != null && (
+                  <Typography component="span" sx={{
+                    fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.75, py: 0.4, borderRadius: "7px",
+                    bgcolor: on ? "#ffffff" : "rgba(21,34,58,.06)", color: on ? "#2459d1" : MUTED,
+                  }}>{full(count)}</Typography>
+                )}
+              </Box>
+            );
+          });
+        })()}
+      </Box>
+
+      {/* ONE filter bar for every tab. It used to live inside Customers, so
+          switching tab took the filters away - the values survived, but you could
+          neither see nor change them. A filter a tab cannot use is greyed out with
+          the reason, never hidden: it is still set, and still applies when you go
+          back. */}
+      <GlassCard>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
           {/* One control. Pick a range and the live counters answer it; pick a
               year and the Datatracker's own yearly total does. Never both. */}
-          <Select size="small" value={period} onChange={(e) => setPeriod(e.target.value)} sx={{ minWidth: 170 }}>
-            {RANGES.map((r) => <MenuItem key={r.id} value={r.id}>{r.label}</MenuItem>)}
-            <MenuItem value="custom">Custom range…</MenuItem>
-            <Divider />
-            {ESHOP_YEARS.map((y) => <MenuItem key={y} value={`y${y}`}>Full year {y}</MenuItem>)}
-          </Select>
+          {hint(usedHere.period,
+            <Select size="small" value={period} onChange={(e) => setPeriod(e.target.value)} sx={{ minWidth: 170 }} disabled={!usedHere.period}>
+              {RANGES.map((r) => <MenuItem key={r.id} value={r.id}>{r.label}</MenuItem>)}
+              <MenuItem value="custom">Custom range…</MenuItem>
+              <Divider />
+              {ESHOP_YEARS.map((y) => <MenuItem key={y} value={`y${y}`}>Full year {y}</MenuItem>)}
+            </Select>)}
           {period === "custom" && (
             <>
-              <TextField size="small" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} sx={{ minWidth: 150 }} />
-              <TextField size="small" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} sx={{ minWidth: 150 }} />
+              <TextField size="small" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} sx={{ minWidth: 150 }} disabled={!usedHere.period} />
+              <TextField size="small" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} sx={{ minWidth: 150 }} disabled={!usedHere.period} />
             </>
           )}
-          <Select size="small" displayEmpty value={mandant} onChange={(e) => setMandant(e.target.value)} sx={{ minWidth: 190 }}>
-            <MenuItem value="">All mandants</MenuItem>
-            {(options?.mandants ?? []).map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-          </Select>
-          <Select size="small" displayEmpty value={country} onChange={(e) => setCountry(e.target.value)} sx={{ minWidth: 160 }}>
-            <MenuItem value="">All countries</MenuItem>
-            {(options?.countries ?? []).map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-          </Select>
-          <Select size="small" displayEmpty value={apsoCustomer} onChange={(e) => setApsoCustomer(e.target.value)} sx={{ minWidth: 180 }}>
-            <MenuItem value="">Any selection criterion</MenuItem>
-            {(options?.apsoCustomers ?? []).map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
-          </Select>
-          <Select size="small" displayEmpty value={representative} onChange={(e) => setRepresentative(e.target.value)} sx={{ minWidth: 180 }}>
-            <MenuItem value="">Any representative</MenuItem>
-            {(options?.representatives ?? []).map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
-          </Select>
-          <Select size="small" displayEmpty value={priority} onChange={(e) => setPriority(e.target.value)} sx={{ minWidth: 170 }}>
-            <MenuItem value="">Any priority</MenuItem>
-            {(options?.priorities ?? []).map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
-          </Select>
-          <Select size="small" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} sx={{ minWidth: 150 }}>
-            {SORTS.map((s) => <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>)}
-          </Select>
+          {hint(usedHere.company,
+            <Select size="small" displayEmpty value={mandant} onChange={(e) => setMandant(e.target.value)} sx={{ minWidth: 190 }} disabled={!usedHere.company}>
+              <MenuItem value="">All mandants</MenuItem>
+              {(options?.mandants ?? []).map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </Select>)}
+          {hint(usedHere.company,
+            <Select size="small" displayEmpty value={country} onChange={(e) => setCountry(e.target.value)} sx={{ minWidth: 160 }} disabled={!usedHere.company}>
+              <MenuItem value="">All countries</MenuItem>
+              {(options?.countries ?? []).map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            </Select>)}
+          {hint(usedHere.selection,
+            <Select size="small" displayEmpty value={apsoCustomer} onChange={(e) => setApsoCustomer(e.target.value)} sx={{ minWidth: 180 }} disabled={!usedHere.selection}>
+              <MenuItem value="">Any selection criterion</MenuItem>
+              {(options?.apsoCustomers ?? []).map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+            </Select>)}
+          {hint(usedHere.selection,
+            <Select size="small" displayEmpty value={representative} onChange={(e) => setRepresentative(e.target.value)} sx={{ minWidth: 180 }} disabled={!usedHere.selection}>
+              <MenuItem value="">Any representative</MenuItem>
+              {(options?.representatives ?? []).map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
+            </Select>)}
+          {hint(usedHere.company,
+            <Select size="small" displayEmpty value={priority} onChange={(e) => setPriority(e.target.value)} sx={{ minWidth: 170 }} disabled={!usedHere.company}>
+              <MenuItem value="">Any priority</MenuItem>
+              {(options?.priorities ?? []).map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+            </Select>)}
+          {hint(usedHere.sort,
+            <Select size="small" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} sx={{ minWidth: 150 }} disabled={!usedHere.sort}>
+              {SORTS.map((s) => <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>)}
+            </Select>)}
           <TextField
             size="small"
-            placeholder="Find a customer or number"
+            placeholder={tab === "articles" ? "Find an article" : "Find a customer, number or article"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 230 }}
           />
-          <TextField
-            size="small"
-            type="number"
-            placeholder="Min. order value €"
-            value={minValue}
-            onChange={(e) => setMinValue(e.target.value)}
-            sx={{ minWidth: 170 }}
-            inputProps={{ min: 0, step: 100, "aria-label": "Minimum order value in the period" }}
-          />
+          {hint(usedHere.company,
+            <TextField
+              size="small"
+              type="number"
+              placeholder={tab === "customers" ? "Min. order value €" : "Min. value €"}
+              value={minValue}
+              onChange={(e) => setMinValue(e.target.value)}
+              sx={{ minWidth: 170 }}
+              disabled={!usedHere.company}
+              inputProps={{ min: 0, step: 100, "aria-label": "Minimum value" }}
+            />)}
+          {tab === "customers" && (
           <Chip
             size="small"
             label={live
@@ -1025,6 +1102,8 @@ function EshopActivityPage() {
               : `${full(data?.total ?? null)} companies active in ${year}`}
             sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }}
           />
+          )}
+          {tab === "customers" && (<>
           {/* A bounded scan must say so. A silent cap reads as "this is the
               whole total" and that is how a wrong number gets published. */}
           {orders?.capped && (
@@ -1060,25 +1139,28 @@ function EshopActivityPage() {
           )}
           {ordersError && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>Orders: {ordersError}</Typography>}
           {error && <Typography sx={{ fontSize: "0.78rem", color: "#9e1b18" }}>{error}</Typography>}
+          </>)}
         </Box>
-      </Section>
+      </GlassCard>
 
+      {tab === "customers" && (
+      <>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)", lg: "repeat(5, 1fr)" }, gap: 2 }}>
-        <StatTile label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
-        <StatTile label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
-        <StatTile label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
+        <KpiTile icon={<LoginOutlinedIcon />} label={`Logins · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeLogins : r.logins)))} note="Shown rows only" />
+        <KpiTile icon={<VisibilityOutlinedIcon />} tint="purple" label={`Views · ${periodLabel}`} value={full(sum((r) => (live ? r.rangeViews : r.views)))} note="Shown rows only" />
+        <KpiTile icon={<LayersOutlinedIcon />} tint="slate" label="Views per login" value={decimal(sum((r) => (live ? r.rangeViews : r.views)) / Math.max(1, sum((r) => (live ? r.rangeLogins : r.logins))), 1)} note="How deep a visit goes" />
         {/* Over the SHOWN rows, like the two tiles on the left. Reading the
             whole window here was what made a filtered table sit under an
             unfiltered total. */}
-        <StatTile label={`Orders · ${periodLabel}`}
+        <KpiTile icon={<ShoppingCartOutlinedIcon />} tint="green" label={`Orders · ${periodLabel}`}
           value={ordersError ? "—" : orders == null ? "…" : full(sum((r) => ordersBy[r.id]?.orders ?? 0))}
           note={ordersError ? "Orders could not be read" : "Shown rows only"} />
-        <StatTile label={`Order value · ${periodLabel}`}
+        <KpiTile icon={<EuroIcon />} tint="pink" label={`Order value · ${periodLabel}`}
           value={ordersError ? "—" : orders == null ? "…" : `€${compact(sum((r) => ordersBy[r.id]?.value ?? 0))}`}
           note={ordersError ? "Orders could not be read" : "Shown rows only"} />
       </Box>
 
-      <Section sx={{ p: 0, overflow: "hidden" }}>
+      <GlassCard sx={{ p: 0, overflow: "hidden" }}>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ "& td, & th": cell, tableLayout: "fixed", width: "100%", minWidth: 0 }}>
             <TableHead>
@@ -1096,7 +1178,7 @@ function EshopActivityPage() {
                 {([["mandant", "Mandant", 76, ""], ["customerNumber", "Customer no.", 112, ""], ["name", "Customer", 200, ""],
                    ["country", "Country", 92, ""], ["representative", "Representative", 136, ""],
                    ["apsoCustomer", "Selection", 104, "Selection criterion"], ["salesPriority", "Priority", 88, ""]] as [SortKey, string, number, string][]).map(([k, h, w, full]) => (
-                  <TableCell key={k} title={full || undefined} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),
+                  <TableCell key={k} title={full || undefined} sx={{ ...HEAD, ...(w ? { width: w } : {}),
                     whiteSpace: "nowrap", verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
@@ -1108,7 +1190,7 @@ function EshopActivityPage() {
                    ["orderValue", "Value", 90, "Total order value in this period"],
                    ["viewsPerLogin", "Per login", 94, "Views per login"],
                    ["revenueYtd", "Revenue", 96, "Revenue year to date"]] as [SortKey, string, number, string][]).map(([k, h, w, full]) => (
-                  <TableCell key={k} align="right" title={full || undefined} sx={{ fontWeight: 600, color: MUTED, width: w,
+                  <TableCell key={k} align="right" title={full || undefined} sx={{ ...HEAD, width: w,
                     whiteSpace: "nowrap", verticalAlign: "bottom",
                     ...((COL as Record<string, object>)[k] ?? {}) }} sortDirection={sortKey === k ? sortDir : false}>
                     <TableSortLabel active={sortKey === k} direction={sortKey === k ? sortDir : "asc"} onClick={() => onSort(k)}>
@@ -1116,7 +1198,7 @@ function EshopActivityPage() {
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                <TableCell sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: 94, ...COL.trend }}>2021 → 2026</TableCell>
+                <TableCell sx={{ ...HEAD, whiteSpace: "nowrap", width: 94, ...COL.trend }}>2021 → 2026</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1223,13 +1305,13 @@ function EshopActivityPage() {
             `${from}-${to} of ${full(count)}${cursor ? "+" : ""}${loadingMore ? " - loading more" : ""}`}
           sx={{ borderTop: `1px solid ${HAIRLINE}` }}
         />
-      </Section>
+      </GlassCard>
 
       </>
       )}
 
       {tab === "articles" && (
-        <Section sx={{ p: 0, overflow: "hidden" }}>
+        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
             {/* This picks which 200 HubSpot sends, so the header arrow has to
                 follow it - otherwise the table says it is sorted by one thing
@@ -1243,8 +1325,8 @@ function EshopActivityPage() {
               <MenuItem value="companies">Most customers</MenuItem>
               <MenuItem value="stock">Most stock</MenuItem>
             </Select>
-            <TextField size="small" placeholder="Article number or description" value={search}
-              onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 260 }} />
+            {/* The search is the shared bar's now ("Find an article"), bound to the
+                same value - a second box here only said the same thing twice. */}
             {articles?.total != null && (
               <Chip size="small" label={`${full(articles.total)} articles match`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
             )}
@@ -1267,7 +1349,7 @@ function EshopActivityPage() {
                 <TableRow>
                   {([["articleNumber", "Article no.", 108], ["description", "Description", 0],
                      ["mainGroup", "Main group", 152], ["articleType", "Type", 88]] as [ArticleSortKey, string, number][]).map(([k, h, w]) => (
-                    <TableCell key={k} sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", ...(w ? { width: w } : {}) }}
+                    <TableCell key={k} sx={{ ...HEAD, whiteSpace: "nowrap", ...(w ? { width: w } : {}) }}
                       sortDirection={articleSortKey === k ? articleSortDir : false}>
                       <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
                         onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
@@ -1276,7 +1358,7 @@ function EshopActivityPage() {
                   {([["views", "Looked at", 86], ["lookedBy", "Customers", 94], ["carts", "In cart", 78],
                      ["topQty", "Max qty", 86], ["lastLooked", "Last look", 124],
                      ["orders", "Orders", 86], ["companies", "Customers", 94], ["stock", "Stock", 110]] as [ArticleSortKey, string, number][]).map(([k, h, w], i) => (
-                    <TableCell key={`${k}-${i}`} align="right" sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap", width: w }}
+                    <TableCell key={`${k}-${i}`} align="right" sx={{ ...HEAD, whiteSpace: "nowrap", width: w }}
                       sortDirection={articleSortKey === k ? articleSortDir : false}>
                       <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
                         onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
@@ -1352,15 +1434,15 @@ function EshopActivityPage() {
               {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
             </Typography>
           </Box>
-        </Section>
+        </GlassCard>
       )}
 
       {tab === "priceCheck" && (
-        <Section sx={{ p: 0, overflow: "hidden" }}>
+        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
             <Chip size="small" label={`${full(qualifying.length)} qualify`}
               sx={{ bgcolor: "#e6f4ec", color: "#0f7b4f", fontWeight: 700 }} />
-            <Chip size="small" label={`${full(signals ? signals.priceChecks.length - qualifying.length : null)} below the rule`}
+            <Chip size="small" label={`${full(signals ? pcRows.length - qualifying.length : null)} below the rule`}
               sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
             <FormControlLabel
               control={<Switch size="small" checked={pcOnlyQualifying} onChange={(e) => setPcOnlyQualifying(e.target.checked)} />}
@@ -1393,12 +1475,12 @@ function EshopActivityPage() {
                 "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Day</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED }}>Customer</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 140 }}>Owner</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 70 }}>Art.</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>Value</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 180 }}>Outcome</TableCell>
+                    <TableCell sx={{ ...HEAD, width: 98 }}>Day</TableCell>
+                    <TableCell sx={{ ...HEAD }}>Customer</TableCell>
+                    <TableCell sx={{ ...HEAD, width: 140 }}>Owner</TableCell>
+                    <TableCell align="right" sx={{ ...HEAD, width: 70 }}>Art.</TableCell>
+                    <TableCell align="right" sx={{ ...HEAD, width: 96 }}>Value</TableCell>
+                    <TableCell sx={{ ...HEAD, width: 180 }}>Outcome</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1446,7 +1528,7 @@ function EshopActivityPage() {
                   {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict", "Ticket"]
                     .map((h, i) => (
                       <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"}
-                        sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>{h}</TableCell>
+                        sx={{ ...HEAD, whiteSpace: "nowrap" }}>{h}</TableCell>
                     ))}
                 </TableRow>
               </TableHead>
@@ -1517,13 +1599,13 @@ function EshopActivityPage() {
                           <Table size="small" sx={{ "& td, & th": cell, "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
                             <TableHead>
                               <TableRow>
-                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 110 }}>Article</TableCell>
-                                <TableCell sx={{ fontWeight: 600, color: MUTED }}>Description</TableCell>
-                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 74 }}>PC</TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 80 }}>Qty</TableCell>
-                                <TableCell sx={{ fontWeight: 600, color: MUTED, width: 124 }}>Unit · MOQ</TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>Price</TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Value</TableCell>
+                                <TableCell sx={{ ...HEAD, width: 110 }}>Article</TableCell>
+                                <TableCell sx={{ ...HEAD }}>Description</TableCell>
+                                <TableCell sx={{ ...HEAD, width: 74 }}>PC</TableCell>
+                                <TableCell align="right" sx={{ ...HEAD, width: 80 }}>Qty</TableCell>
+                                <TableCell sx={{ ...HEAD, width: 124 }}>Unit · MOQ</TableCell>
+                                <TableCell align="right" sx={{ ...HEAD, width: 94 }}>Price</TableCell>
+                                <TableCell align="right" sx={{ ...HEAD, width: 98 }}>Value</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -1596,21 +1678,21 @@ function EshopActivityPage() {
               the calendar yet, only weekends.
             </Typography>
           </Box>
-        </Section>
+        </GlassCard>
       )}
 
       {tab === "moq" && (
-        <Section sx={{ p: 0, overflow: "hidden" }}>
+        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-            <Chip size="small" label={`${full(signals?.moq.filter((r) => r.belowMoq).length ?? null)} asked below the minimum`}
+            <Chip size="small" label={`${full(signals ? moqRows.filter((r) => r.belowMoq).length : null)} asked below the minimum`}
               sx={{ bgcolor: "#fdf0e6", color: "#b26a00", fontWeight: 700 }} />
-            <Chip size="small" label={`${full(signals?.moq.length ?? null)} looks on articles with a minimum`}
+            <Chip size="small" label={`${full(signals ? moqRows.length : null)} looks on articles with a minimum`}
               sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
           </Box>
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
-            : <LookTable rows={signals?.moq ?? []} kind="moq" mandantOf={(r) => r.mandant ?? ""} />}
+            : <LookTable rows={moqRows} kind="moq" mandantOf={(r) => r.mandant ?? ""} />}
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
               No ticket comes out of this one — it is a record. Somebody wanted an article we only sell from a minimum
@@ -1620,21 +1702,21 @@ function EshopActivityPage() {
               actually on the shelf, and sold in the quantity they wanted. &ldquo;Would have covered it&rdquo; means exactly that.
             </Typography>
           </Box>
-        </Section>
+        </GlassCard>
       )}
 
       {tab === "availability" && (
-        <Section sx={{ p: 0, overflow: "hidden" }}>
+        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-            <Chip size="small" label={`${full(signals?.availability.filter((r) => r.stock === 0).length ?? null)} with nothing on the shelf`}
+            <Chip size="small" label={`${full(signals ? availabilityRows.filter((r) => r.stock === 0).length : null)} with nothing on the shelf`}
               sx={{ bgcolor: "#fdecea", color: "#9e1b18", fontWeight: 700 }} />
-            <Chip size="small" label={`${full(signals?.availability.length ?? null)} looks we could not have filled`}
+            <Chip size="small" label={`${full(signals ? availabilityRows.length : null)} looks we could not have filled`}
               sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
           </Box>
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
-            : <LookTable rows={signals?.availability ?? []} kind="availability" mandantOf={(r) => r.mandant ?? ""} />}
+            : <LookTable rows={availabilityRows} kind="availability" mandantOf={(r) => r.mandant ?? ""} />}
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
               Also a record, not a ticket. Somebody priced an article we had none of, or less of than they asked for,
@@ -1643,7 +1725,7 @@ function EshopActivityPage() {
               know is left out: a blank is not a zero, and treating it as one would invent a shortage.
             </Typography>
           </Box>
-        </Section>
+        </GlassCard>
       )}
     </Box>
   );
