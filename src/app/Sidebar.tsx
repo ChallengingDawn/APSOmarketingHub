@@ -173,15 +173,15 @@ const navSections: NavSection[] = [
   {
     // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
     // still live in their own repos and migrate here over time; Erosion and DoC
-    // came from the APSOAssistant micro apps.
+    // came from the APSOAssistant micro apps. DoC is a HubSpot app, not a use
+    // case (SARCLA, 04.10) - it took the place of the "tbd" slot.
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
     items: [
       { group: "Use cases", label: "UCX - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { group: "Use cases", label: "UCX - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
-      { group: "Use cases", label: "UCX - DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "tbd", href: "#hubspot-apps-tbd", icon: <HubIcon fontSize="small" />, placeholder: true },
+      { group: "HubSpot apps", label: "DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
     ],
   },
   {
@@ -209,6 +209,24 @@ const navSections: NavSection[] = [
     ],
   },
 ];
+
+/** A hex colour moved toward white (amt > 0) or black (amt < 0), 0..1. */
+function shade(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(ch);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+/** The app's colour as a tile: a soft top-left light, a deeper bottom-right, a hairline of depth. */
+function tile(color: string, size: number, radius: number) {
+  return {
+    width: size, height: size, borderRadius: radius, flexShrink: 0, color: "#ffffff",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: `linear-gradient(140deg, ${shade(color, 0.18)} 0%, ${color} 48%, ${shade(color, -0.22)} 100%)`,
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.12), 0 4px 10px ${color}33`,
+  } as const;
+}
 
 /** The rows a grouped app is shown as: one per group, in the order first listed. */
 const GROUP_META: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -286,7 +304,7 @@ export default function Sidebar() {
       <Box
         sx={{
           px: 3.25,
-          pt: 3.5,
+          pt: scoped ? 2.25 : 3.5,
           pb: 2.75,
           position: "relative",
           zIndex: 2,
@@ -298,20 +316,32 @@ export default function Sidebar() {
             so "APSOhub" up here only said where you are not. On the launch pad
             (and in Governance, which is the hub's own) it stays APSOhub. */}
         {scoped && activeSection ? (
-          <Box component={Link} href="/" sx={{ display: "flex", alignItems: "center", gap: 1.5, textDecoration: "none" }}>
+          <>
+            {/* The way out of an app sits where the eye starts. Without it,
+                entering one is a trapdoor: the sidebar is the app's, and nothing
+                on screen says there are others. */}
             <Box
+              component={Link}
+              href="/"
               sx={{
-                width: 40, height: 40, borderRadius: 2.2, bgcolor: activeSection.color, color: "#fff", flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.14)", "& svg": { fontSize: 23 },
+                display: "inline-flex", alignItems: "center", gap: 0.4, ml: -0.6, mb: 1.75, px: 0.6, py: 0.3,
+                borderRadius: 1.2, textDecoration: "none", color: "#6b7280",
+                "&:hover": { bgcolor: "#f3f4f6", color: "#1d1d1f" },
               }}
             >
-              {activeSection.icon}
+              <ChevronLeftIcon sx={{ fontSize: 18 }} />
+              <Typography sx={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.005em" }}>All apps</Typography>
             </Box>
-            <Typography className="brand-display" sx={{ fontSize: 21, fontWeight: 700, lineHeight: 1.15, color: "#1d1d1f", letterSpacing: "-0.015em" }}>
-              {activeSection.title}
-            </Typography>
-          </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box sx={{ ...tile(activeSection.color, 44, 2.6), "& svg": { fontSize: 24 } }}>{activeSection.icon}</Box>
+              <Typography
+                className="brand-display"
+                sx={{ fontSize: 18.5, fontWeight: 700, lineHeight: 1.2, color: "#1d1d1f", letterSpacing: "-0.02em", textWrap: "balance" }}
+              >
+                {activeSection.title}
+              </Typography>
+            </Box>
+          </>
         ) : (
         <Box
           component={Link}
@@ -329,36 +359,21 @@ export default function Sidebar() {
           </Box>
         </Box>
         )}
-        <Typography
-          sx={{
-            fontSize: 12,
-            color: "#5f6368",
-            fontWeight: 500,
-            mt: 1,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-          }}
-        >
-          {scoped ? "APSOhub · apsoparts.com" : "apsoparts.com"}
-        </Typography>
+        {!scoped && (
+          <Typography
+            sx={{
+              fontSize: 12,
+              color: "#5f6368",
+              fontWeight: 500,
+              mt: 1,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            apsoparts.com
+          </Typography>
+        )}
       </Box>
-
-      {/* The way out of an app. Without it, entering one is a trapdoor: the
-          sidebar is the app's, and nothing on screen says there are others. */}
-      {scoped && (
-        <Box
-          component={Link}
-          href="/"
-          sx={{
-            display: "flex", alignItems: "center", gap: 1.4, px: 3.25, py: 1.25,
-            textDecoration: "none", color: "#5f6368", borderBottom: "0.5px solid #ececef",
-            "&:hover": { bgcolor: "#f3f4f6", color: "#1d1d1f" },
-          }}
-        >
-          <ChevronLeftIcon sx={{ fontSize: 19 }} />
-          <Typography sx={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em" }}>All apps</Typography>
-        </Box>
-      )}
 
       {/* Navigation Sections — collapsible, iOS Settings rows */}
       <Box sx={{ flex: 1, overflow: "auto", py: 0, position: "relative", zIndex: 1 }}>
@@ -384,23 +399,7 @@ export default function Sidebar() {
                   "&:hover": { bgcolor: "#f3f4f6" },
                 }}
               >
-                <Box
-                  sx={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 2,
-                    bgcolor: section.color,
-                    color: "#ffffff",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.14)",
-                    "& svg": { fontSize: 21 },
-                  }}
-                >
-                  {section.icon}
-                </Box>
+                <Box sx={{ ...tile(section.color, 34, 2.2), "& svg": { fontSize: 20 } }}>{section.icon}</Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography
                     sx={{
@@ -414,6 +413,20 @@ export default function Sidebar() {
                     {section.title}
                   </Typography>
                 </Box>
+                {grouped && (
+                  <Box
+                    aria-label={`${section.items.length} entries`}
+                    sx={{
+                      minWidth: 22, height: 20, px: 0.75, borderRadius: 99, flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                      bgcolor: isOpen ? "#ffffff" : "#eef0f3", color: "#5b6470",
+                      border: isOpen ? "1px solid #e3e6ea" : "1px solid transparent",
+                    }}
+                  >
+                    {section.items.length}
+                  </Box>
+                )}
                 <KeyboardArrowRightIcon
                   sx={{
                     fontSize: 22,
