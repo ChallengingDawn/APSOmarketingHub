@@ -1,43 +1,49 @@
 "use client";
+// SETTING UP AN AUTHENTICATOR.
+//
+// Demanded of anyone who can change something, offered to anyone who only
+// reads. A viewer who is made to set up an authenticator before they can look
+// at a page is a viewer who does not come back, and the server decides which
+// they are — `maySkip` comes from the role, never from this page asking.
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 
+import { ACCENT, AuthShell, FAINT, INK, MUTED, codeField, primaryButton } from "@/app/AuthShell";
+
 export default function EnrollPage() {
   const router = useRouter();
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
+  const [maySkip, setMaySkip] = useState(false);
   const [code, setCode] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/enroll")
       .then(async (r) => {
         const text = await r.text();
-        let d: { error?: string; qr?: string; secret?: string } = {};
+        let d: { error?: string; qr?: string; secret?: string; maySkip?: boolean } = {};
         try { d = text ? JSON.parse(text) : {}; } catch {}
-        if (d.error) { setErrorMsg(d.error); setStatus("error"); return; }
-        setQr(d.qr ?? null); setSecret(d.secret ?? null);
+        if (d.error) { setErrorMsg(d.error); return; }
+        setQr(d.qr ?? null); setSecret(d.secret ?? null); setMaySkip(!!d.maySkip);
       })
-      .catch(() => { setStatus("error"); setErrorMsg("Failed to start enrollment"); });
+      .catch(() => setErrorMsg("Failed to start enrollment"));
   }, []);
 
-  async function confirm(e: React.FormEvent) {
-    e.preventDefault();
-    setStatus("loading");
+  const post = async (body: object) => {
+    setBusy(true);
+    setErrorMsg("");
     try {
       const r = await fetch("/api/auth/enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       const text = await r.text();
       let d: { error?: string; next?: string } = {};
@@ -45,61 +51,63 @@ export default function EnrollPage() {
       if (!r.ok) throw new Error(d.error || "Wrong code");
       router.push(d.next ?? "/");
     } catch (err) {
-      setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Wrong code");
+      setBusy(false);
     }
-  }
+  };
 
   return (
-    <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f6f7f9", p: 3 }}>
-      <Card sx={{ maxWidth: 460, width: "100%", borderRadius: 4, border: "1px solid #ececec", borderTop: "3px solid #ed1b2f", boxShadow: "0 4px 24px rgba(0,0,0,0.05)" }}>
-        <CardContent sx={{ p: 4 }}>
-          <Typography sx={{ fontFamily: "'Outfit','Inter',sans-serif", fontSize: "1.3rem", fontWeight: 600, color: "#1f1f1f", letterSpacing: "-0.015em" }}>
-            Set up two-factor
-          </Typography>
-          <Typography sx={{ fontSize: "0.85rem", color: "#5f6368", mb: 2 }}>
-            Scan the QR with Google Authenticator (or Authy / 1Password / Microsoft Authenticator), then enter the 6-digit code to confirm.
-          </Typography>
+    <AuthShell>
+      <Typography sx={{ fontSize: "1.15rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
+        Set up two-factor
+      </Typography>
+      <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 0.5, mb: 2.5 }}>
+        Scan the code with Google Authenticator, Authy, 1Password or Microsoft Authenticator, then type the
+        six digits it shows.
+      </Typography>
 
-          {qr ? (
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1.5, mb: 2 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt="TOTP QR" style={{ borderRadius: 8, border: "1px solid #ececec" }} />
-              {secret && (
-                <Typography component="details" sx={{ width: "100%", fontSize: 11, color: "#5f6368" }}>
-                  <summary style={{ cursor: "pointer" }}>Can&apos;t scan? Show secret</summary>
-                  <code style={{ display: "block", fontFamily: "monospace", marginTop: 8, padding: 8, background: "#f6f7f9", borderRadius: 4, wordBreak: "break-all", fontSize: 11 }}>{secret}</code>
-                </Typography>
-              )}
-            </Box>
-          ) : !errorMsg && <CircularProgress size={28} sx={{ color: "#ed1b2f", display: "block", mx: "auto", my: 2 }} />}
+      {qr ? (
+        <Box sx={{ display: "grid", justifyItems: "center", gap: 1.5, mb: 2.5 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr} alt="Authenticator QR code"
+            style={{ borderRadius: 12, border: "1px solid rgba(21,34,58,.10)" }} />
+          {secret && (
+            <Typography component="details" sx={{ width: "100%", fontSize: 11, color: MUTED }}>
+              <summary style={{ cursor: "pointer" }}>Can&apos;t scan? Show the key</summary>
+              <code style={{
+                display: "block", fontFamily: "ui-monospace, monospace", marginTop: 8, padding: 8,
+                background: "#f3f5f8", borderRadius: 8, wordBreak: "break-all", fontSize: 11,
+              }}>{secret}</code>
+            </Typography>
+          )}
+        </Box>
+      ) : !errorMsg && <CircularProgress size={26} sx={{ color: ACCENT, display: "block", mx: "auto", my: 3 }} />}
 
-          <form onSubmit={confirm}>
-            <TextField
-              inputMode="numeric"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000" fullWidth required
-              slotProps={{ input: { sx: { fontSize: "1.4rem", letterSpacing: "0.4em", textAlign: "center", fontFamily: "monospace" } } }}
-              sx={{ mb: 2 }}
-            />
-            <Button
-              type="submit" fullWidth disabled={status === "loading" || code.length !== 6}
-              sx={{
-                bgcolor: "#ed1b2f", color: "#fff", borderRadius: 999,
-                textTransform: "none", fontWeight: 600, py: 1.25,
-                "&:hover": { bgcolor: "#d80901" },
-                "&.Mui-disabled": { bgcolor: "#fbb1b8", color: "#fff" },
-              }}
-            >
-              {status === "loading" ? <CircularProgress size={18} sx={{ color: "#fff" }} /> : "Confirm and finish"}
+      <Box component="form" onSubmit={(e: React.FormEvent) => { e.preventDefault(); post({ code }); }}
+        sx={{ display: "grid", gap: 2 }}>
+        <TextField
+          size="small" inputMode="numeric" value={code} fullWidth placeholder="000000"
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          slotProps={{ input: { sx: codeField } }}
+        />
+        {errorMsg && <Alert severity="error" sx={{ borderRadius: "12px", fontSize: "0.82rem" }}>{errorMsg}</Alert>}
+        <Button type="submit" disabled={busy || code.length !== 6} sx={primaryButton}>
+          {busy ? <CircularProgress size={18} sx={{ color: "#fff" }} /> : "Confirm and finish"}
+        </Button>
+
+        {/* Offered only where the role allows it; the server refuses it anyway. */}
+        {maySkip && (
+          <Box sx={{ textAlign: "center" }}>
+            <Button onClick={() => post({ skip: true })} disabled={busy}
+              sx={{ textTransform: "none", color: MUTED, fontSize: "0.84rem" }}>
+              Not now — take me in
             </Button>
-            {errorMsg && (
-              <Alert severity="error" sx={{ mt: 2, borderRadius: 2, fontSize: "0.8rem" }}>{errorMsg}</Alert>
-            )}
-          </form>
-        </CardContent>
-      </Card>
-    </Box>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: -0.5 }}>
+              You only read, so this is yours to choose. You will be offered it again next time.
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    </AuthShell>
   );
 }

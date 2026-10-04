@@ -10,6 +10,7 @@ import {
   signSession,
 } from '@/lib/auth/session';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
+import { mfaRequired, type Role } from '@/lib/auth/access';
 
 export const runtime = 'nodejs';
 
@@ -30,10 +31,17 @@ export async function GET() {
     await query(`UPDATE apsomh_users SET totp_secret = $1 WHERE id = $2`, [secret, u.id]);
   }
   const qr = await totpQrDataUrl(secret, u.username);
-  return NextResponse.json({ qr, secret });
+  // A viewer reads; a second factor is offered, not demanded. Anyone who can
+  // change something carries one, and the page must know which it is looking at
+  // before it draws a way past.
+  return NextResponse.json({ qr, secret, maySkip: !mfaRequired(u.role as Role) });
 }
 
-const PostBody = z.object({ code: z.string().regex(/^\d{6}$/) });
+const PostBody = z.union([
+  z.object({ code: z.string().regex(/^\d{6}$/) }),
+  /** A role that does not have to carry one, saying not now. */
+  z.object({ skip: z.literal(true) }),
+]);
 
 export async function POST(req: Request) {
   const rlKey = clientKey(req, 'enroll');
@@ -56,7 +64,25 @@ export async function POST(req: Request) {
 
   const r = await query<UserRow>(`SELECT * FROM apsomh_users WHERE id = $1 LIMIT 1`, [pre.uid]);
   const u = r.rows[0];
-  if (!u || !u.totp_secret) {
+  if (!u) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  // Skipping: allowed by role, never by asking. The secret stays on the row
+  // unused, so the offer is made again at the next sign-in.
+  if ('skip' in parsed.data) {
+    if (mfaRequired(u.role as Role)) {
+      return NextResponse.json(
+        { error: 'Your role has to carry a second factor.' },
+        { status: 403 },
+      );
+    }
+    recordSuccess(rlKey);
+    await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
+    await clearPre2faCookie();
+    await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role }));
+    return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+  }
+
+  if (!u.totp_secret) {
     return NextResponse.json({ error: 'No secret pending' }, { status: 400 });
   }
   if (!verifyTotp(u.totp_secret, parsed.data.code)) {
