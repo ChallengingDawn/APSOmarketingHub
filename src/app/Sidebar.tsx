@@ -207,10 +207,10 @@ const navSections: NavSection[] = [
     color: "#5b6470",
     items: [
       { group: "Personal", label: "My account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
-      { group: "Personal", label: "Preferences", href: "/settings/preferences", icon: <TuneIcon fontSize="small" />, placeholder: true },
-      { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" />, placeholder: true },
+      { group: "Personal", label: "Preferences", href: "/settings/preferences", icon: <TuneIcon fontSize="small" /> },
+      { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" /> },
       { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" /> },
-      { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, placeholder: true },
+      { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" /> },
       { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
       { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" /> },
       { group: "Workspace", label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },

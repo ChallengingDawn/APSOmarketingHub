@@ -27,7 +27,8 @@ import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import AppsIcon from "@mui/icons-material/Apps";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import SupportAgentIcon from "@mui/icons-material/SupportAgent";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SearchIcon from "@mui/icons-material/Search";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -118,7 +119,7 @@ export default function FrontPage() {
     { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, on: false },
     { name: "Live", href: "/live", icon: <SensorsIcon />, on: false },
     { name: "Resources", href: "#resources", icon: <MenuBookIcon />, on: false },
-    { name: "Support", href: "/docs", icon: <SupportAgentIcon />, on: false },
+    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, on: false },
   ];
 
   return (
@@ -146,7 +147,9 @@ export default function FrontPage() {
           display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
         }}>
           <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
-            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.8 }}>
+            {/* No gap: it is APSOhub, one word. A space made it read as two
+                products sharing a header. */}
+            <Box sx={{ display: "flex", alignItems: "baseline" }}>
               <Box component="span" sx={{
                 fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
                 fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", color: INK,
@@ -245,7 +248,11 @@ export default function FrontPage() {
               transition: "transform .18s ease",
               "&:hover": { transform: "scale(1.06)" },
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-            }}>{initials || "·"}</Box>
+            }}>
+              {/* A dot told nobody anything. Until the name arrives this is a
+                  face, which at least says whose button it is. */}
+              {initials || <AccountCircleIcon sx={{ fontSize: 24 }} />}
+            </Box>
           </Box>
         </Box>
 

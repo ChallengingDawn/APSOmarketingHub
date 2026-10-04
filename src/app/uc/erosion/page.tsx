@@ -647,6 +647,76 @@ function AllTickets({ tickets }: { tickets: ErosionTicket[] }) {
 
 /* ── the page ─────────────────────────────────────────────────────────── */
 
+/* ── tabs ─────────────────────────────────────────────────────────────── */
+
+type TabId = "calendar" | "results" | "tickets";
+
+/** Each tab has its own address, so a link can open the one that matters. */
+const TAB_HASH: Record<TabId, string> = { calendar: "#calendar", results: "#win-rate", tickets: "#tickets" };
+
+/**
+ * The Datatracker's segmented control, so the two apps read alike: a count on
+ * each tab says what is behind it before anyone clicks.
+ */
+function ErosionTabs({ tab, onSelect, tabs }: {
+  tab: TabId;
+  onSelect: (t: TabId) => void;
+  tabs: { id: TabId; label: string; count: string | null }[];
+}) {
+  const move = (from: TabId, step: number) => {
+    const i = tabs.findIndex((t) => t.id === from);
+    const next = tabs[(i + step + tabs.length) % tabs.length].id;
+    onSelect(next);
+    document.getElementById(`erosion-tab-${next}`)?.focus();
+  };
+  return (
+    <Box
+      role="tablist"
+      aria-label="Erosion views"
+      sx={{ display: "inline-flex", flexWrap: "wrap", gap: 0.5, p: 0.5, mb: 2.5, bgcolor: "#eef2f7", borderRadius: 2.5 }}
+    >
+      {tabs.map(({ id, label, count }) => {
+        const on = tab === id;
+        return (
+          <Box
+            key={id}
+            id={`erosion-tab-${id}`}
+            role="tab"
+            aria-selected={on}
+            aria-controls={`erosion-panel-${id}`}
+            tabIndex={on ? 0 : -1}
+            onClick={() => onSelect(id)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight") { e.preventDefault(); move(id, 1); }
+              if (e.key === "ArrowLeft") { e.preventDefault(); move(id, -1); }
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(id); }
+            }}
+            sx={{
+              display: "flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.85, borderRadius: 2,
+              cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+              fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
+              color: on ? "#10263f" : MUTED,
+              bgcolor: on ? "#fff" : "transparent",
+              boxShadow: on ? "0 1px 3px rgba(16,38,63,0.14)" : "none",
+              transition: "background-color .12s, color .12s, box-shadow .12s",
+              "&:hover": { color: "#10263f", bgcolor: on ? "#fff" : "rgba(255,255,255,0.6)" },
+              "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
+            }}
+          >
+            {label}
+            {count !== null && (
+              <Typography component="span" sx={{
+                fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.7, py: 0.35, borderRadius: 1,
+                bgcolor: on ? "#e3edf7" : "#e2e7ee", color: on ? "#1b4a80" : MUTED,
+              }}>{count}</Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 export default function ErosionApp() {
   const [tick, setTick] = useState(0);
   const [forced, setForced] = useState(0);
@@ -654,6 +724,16 @@ export default function ErosionApp() {
     const t = setInterval(() => setTick((n) => n + 1), POLL_MS);
     return () => clearInterval(t);
   }, []);
+
+  const [tab, setTab] = useState<TabId>("calendar");
+  useEffect(() => {
+    const want = (Object.entries(TAB_HASH) as [TabId, string][]).find(([, h]) => h === window.location.hash)?.[0];
+    if (want) setTab(want);
+  }, []);
+  const selectTab = (t: TabId) => {
+    setTab(t);
+    window.history.replaceState(null, "", TAB_HASH[t]);
+  };
 
   // A click on Refresh asks HubSpot again; the five-minute poll reads the shared cache.
   const ticketsUrl = forced ? `/api/uc/erosion/tickets?refresh=1&n=${forced}` : "/api/uc/erosion/tickets";
@@ -690,6 +770,7 @@ export default function ErosionApp() {
 
   const open = tickets.filter((t) => !isClosed(t)).length;
   const closed = tickets.length - open;
+  const wonCount = tickets.filter(isWon).length;
   const atRisk = items.reduce((s, it) => s + it.amount, 0);
   const summary = forecast?.summary ?? null;
   const idleDays = summary?.lastRun ? daysBetween(summary.lastRun, localDay(new Date())) : null;
@@ -741,14 +822,28 @@ export default function ErosionApp() {
         </Grid>
       </Grid>
 
-      <Calendar tickets={tickets} items={items} horizonDays={forecast?.horizonDays ?? 0} forecastNote={forecastNote} />
+      <ErosionTabs
+        tab={tab}
+        onSelect={selectTab}
+        tabs={[
+          { id: "calendar", label: "Calendar", count: forecast ? full(forecastTicketCount(items)) : null },
+          { id: "results", label: "Win rate & resolution", count: tr?.state === "ok" && closed ? percent(wonCount / closed, 0) : null },
+          { id: "tickets", label: "All erosion tickets", count: tr?.state === "ok" ? full(tickets.length) : null },
+        ]}
+      />
 
-      {tr?.state === "ok" && (
-        <>
-          <Results tickets={tickets} board={board} stale={ticketsHeld.stale} />
-          <AllTickets tickets={tickets} />
-        </>
-      )}
+      <Box role="tabpanel" id={`erosion-panel-${tab}`} aria-labelledby={`erosion-tab-${tab}`}>
+        {tab === "calendar" && (
+          <Calendar tickets={tickets} items={items} horizonDays={forecast?.horizonDays ?? 0} forecastNote={forecastNote} />
+        )}
+        {tab !== "calendar" && tr?.state !== "ok" && (
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>
+            This view needs the tickets from HubSpot, which did not load - the reason is shown above.
+          </Typography>
+        )}
+        {tab === "results" && tr?.state === "ok" && <Results tickets={tickets} board={board} stale={ticketsHeld.stale} />}
+        {tab === "tickets" && tr?.state === "ok" && <AllTickets tickets={tickets} />}
+      </Box>
 
       {summary && (
         <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 3 }}>

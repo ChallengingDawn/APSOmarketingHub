@@ -65,7 +65,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // door onto a grey room — and the frosted panels on top need something to
     // be glass over.
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: MESH_BASE, position: "relative" }}>
-      <MeshBackground />
+      {/* Quiet here: an app screen is mostly empty below its content, so the
+          wash would be the whole lower half of the window at full strength. */}
+      <MeshBackground strength="quiet" />
       <Sidebar />
       <Box
         component="main"

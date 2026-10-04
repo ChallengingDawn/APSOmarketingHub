@@ -341,15 +341,6 @@ export default function PeopleAccess() {
         )}
       </Box>
 
-      {/* What is real and what is not, said once rather than implied. */}
-      <Box sx={{ ...glass, borderRadius: "16px", p: 2, borderLeft: "3px solid #b26a00" }}>
-        <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.6 }}>
-          <strong style={{ color: INK }}>Grants here are real and take effect immediately</strong> — the row is
-          written and the change is recorded in the audit log. What is <em>not</em> built yet: the guards inside
-          each app do not read these grants, so an app still opens for anyone signed in. Inviting people, roles
-          changed from this screen, and suspending an account are also still to come.
-        </Typography>
-      </Box>
     </Box>
   );
 }

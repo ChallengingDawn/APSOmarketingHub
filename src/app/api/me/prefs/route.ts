@@ -28,11 +28,25 @@ const Link = z.object({
   ),
 });
 
+/**
+ * A profile photo, inline.
+ *
+ * Downscaled in the browser before it gets here, so this is a small square, not
+ * whatever came off the phone. Capped at 192 KB of base64 and restricted to
+ * image types: a data URI is rendered straight into an <img>, and `data:text/html`
+ * in that field would be a stored script running under this origin.
+ */
+const Avatar = z.string()
+  .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, "That is not an image.")
+  .max(192 * 1024, "That picture is too large — it is resized before upload, so this should not happen.");
+
 const Prefs = z.object({
   /** Built-in quick links the person has switched off. */
   hiddenQuickLinks: z.array(z.string().max(60)).max(40).optional(),
   /** Links of their own, in the order they put them. */
   customQuickLinks: z.array(Link).max(12).optional(),
+  /** Their picture, or absent for initials. */
+  avatar: Avatar.optional(),
 });
 
 export type Prefs = z.infer<typeof Prefs>;
@@ -61,10 +75,15 @@ export async function PUT(req: NextRequest) {
   }
 
   await ensureSchema();
+  // MERGED, not replaced: the quick-links editor and the profile page each send
+  // only their own keys, and a straight overwrite would have one wipe the other.
+  const existing = await query<{ v: Prefs }>(`SELECT v FROM apsomh_kv WHERE k = $1 LIMIT 1`, [keyFor(user.id)]);
+  const merged = { ...(existing.rows[0]?.v ?? {}), ...parsed.data };
+
   await query(
     `INSERT INTO apsomh_kv (k, v, updated_at) VALUES ($1, $2, NOW())
      ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = NOW()`,
-    [keyFor(user.id), JSON.stringify(parsed.data)],
+    [keyFor(user.id), JSON.stringify(merged)],
   );
-  return NextResponse.json({ ok: true, prefs: parsed.data });
+  return NextResponse.json({ ok: true, prefs: merged });
 }
