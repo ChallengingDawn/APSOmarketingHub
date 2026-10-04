@@ -51,7 +51,7 @@ const QUICK = [
   { name: "HubSpot", note: "The portal", href: "https://app-eu1.hubspot.com/contacts/26492587", tint: "#fde8f1", fg: "#b63a76", external: true },
   { name: "Docs", note: "How this works", href: "/docs", tint: "#e7f6ee", fg: "#1b7a55", external: false },
   { name: "Integrations", note: "What is connected", href: "/settings/integrations", tint: "#fdf0e3", fg: "#a96a12", external: false },
-  { name: "Audit", note: "Who did what", href: "/audit", tint: "#e6edfd", fg: "#3461c9", external: false },
+  { name: "Audit", note: "Who did what", href: "/settings/audit", tint: "#e6edfd", fg: "#3461c9", external: false },
 ];
 
 /** Real changes, on the dates they shipped. */
@@ -183,11 +183,10 @@ export default function FrontPage() {
       <Box sx={{ position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 } }}>
 
         {/* ---------------------------------------------------------------- bar */}
-        <Box sx={{
-          ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5,
+        <Box sx={{ ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5, ...rise(0) }}>
+         <Box sx={{
           display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2.5 }, flexWrap: "wrap",
-          ...rise(0),
-        }}>
+         }}>
           <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
             <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.8 }}>
               <Box component="span" sx={{
@@ -288,6 +287,24 @@ export default function FrontPage() {
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             }}>{initials || "·"}</Box>
           </Box>
+         </Box>
+
+         {/* The hub's own, in the hub's own bar. They were a row of chips
+             floating at the foot of the page, which put the thing you reach for
+             every day furthest from the thing you look at first. */}
+         <Box sx={{
+           display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap",
+           mt: 1.25, pt: 1.25, borderTop: "1px solid rgba(21,34,58,.07)",
+         }}>
+           {HUB_TOOLS.slice(0, 4).map((t) => (
+             <Box key={t.href} component={Link} href={t.href} sx={{
+               display: "flex", alignItems: "center", gap: 0.7, px: 1.4, py: 0.7, borderRadius: "12px",
+               textDecoration: "none", fontSize: "0.82rem", fontWeight: 600, color: MUTED, ...focusRing,
+               transition: "background-color .18s ease, color .18s ease",
+               "&:hover": { color: INK, bgcolor: "rgba(21,34,58,.05)" },
+             }}><HubIconGlyph name={t.icon} fontSize={17} />{t.name}</Box>
+           ))}
+         </Box>
         </Box>
 
         {/* No hero. The wordmark is in the bar, and a page whose job is to
@@ -495,19 +512,6 @@ export default function FrontPage() {
           </Box>
         </Box>
 
-        {/* The hub's own: not apps, but they have to be reachable from here. */}
-        <Box sx={{ display: "flex", gap: 1.5, justifyContent: "center", flexWrap: "wrap", py: { xs: 3, md: 4 }, ...rise(8) }}>
-          {HUB_TOOLS.slice(0, 4).map((t) => (
-            <Box key={t.href} component={Link} href={t.href} sx={{
-              display: "flex", alignItems: "center", gap: 0.85, px: 1.75, py: 0.9, borderRadius: "14px",
-              textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, color: MUTED,
-              bgcolor: "rgba(255,255,255,.58)", border: "1px solid rgba(255,255,255,.75)", ...focusRing,
-              transition: "background-color .18s ease, color .18s ease",
-              "&:hover": { color: INK, bgcolor: "#fff" },
-              "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-            }}><HubIconGlyph name={t.icon} />{t.name}</Box>
-          ))}
-        </Box>
       </Box>
     </Box>
   );

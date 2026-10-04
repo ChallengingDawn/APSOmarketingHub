@@ -41,6 +41,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import HistoryIcon from "@mui/icons-material/History";
@@ -192,16 +193,18 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // Not an app: the hub's own governance. One sign-in, and who may open which
-    // app is a permission set here rather than inside each app.
-    title: "Governance",
-    icon: <SecurityIcon />,
+    // Settings is an application now, with its own sections, so it is listed as
+    // one. It is still not one of the five: it is the hub's own, which is the
+    // point of a single sign-in.
+    title: "Settings",
+    icon: <SettingsIcon />,
     color: "#5b6470",
     items: [
-      { label: "Settings", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+      { label: "Overview", href: "/settings", icon: <SettingsIcon fontSize="small" /> },
+      { label: "Your account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
+      { label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" /> },
       { label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
-      { label: "Audit", href: "/audit", icon: <SecurityIcon fontSize="small" /> },
-      { label: "Admin · Users", href: "/admin", icon: <PeopleIcon fontSize="small" /> },
+      { label: "Audit", href: "/settings/audit", icon: <SecurityIcon fontSize="small" /> },
       { label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
     ],
   },

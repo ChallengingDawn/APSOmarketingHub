@@ -131,7 +131,9 @@ export const HUB_TOOLS: SubApp[] = [
   { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...GREEN },
   { name: "Settings", note: "Your account and the hub's", href: "/settings", icon: "filter", ...PURPLE },
   { name: "Integrations", note: "What is connected", href: "/settings/integrations", icon: "sync", ...AMBER },
-  { name: "Audit", note: "Who did what", href: "/audit", icon: "description", ...PINK },
+  { name: "Your account", note: "Password, two-factor, your details", href: "/settings/you", icon: "groups", ...TEAL },
+  { name: "People", note: "Who has an account", href: "/settings/people", icon: "groups", ...PINK },
+  { name: "Audit", note: "Who did what", href: "/settings/audit", icon: "description", ...PINK },
   { name: "Docs", note: "How this works", href: "/docs", icon: "description", ...TEAL },
 ];
 
