@@ -61,9 +61,10 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
  * The hub's own token writes these.
  *
  * A second private app is not needed - the one this app already uses just needs
- * the `tickets` scope added to it, which is a checkbox on the private app rather
- * than another secret to deploy and rotate. TICKETS_TOKEN stays as an override
- * for the case where the two are deliberately kept apart.
+ * crm.objects.tickets.write and crm.schemas.tickets.read (build #12, 04.10.2026).
+ * That app is a CLI project, so a scope is a line in app-hsmeta.json plus an
+ * `hs project upload`, not a checkbox in HubSpot's settings. TICKETS_TOKEN stays
+ * as an override for the case where the two are deliberately kept apart.
  */
 async function ticketsRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> {
   const token = ticketsToken() ?? hubspotToken();

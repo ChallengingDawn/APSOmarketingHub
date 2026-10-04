@@ -1,8 +1,10 @@
 // Turn the qualifying price checks into tickets.
 //
-// Writing needs the `tickets` scope on the hub's private app - a checkbox on the
-// app, not a second token to deploy. Without it HubSpot refuses and the refusal
-// is returned as it came, which is the clearest thing we can say about a scope.
+// Writing needs crm.objects.tickets.write (and crm.schemas.tickets.read for the
+// `tags` check) on the hub's private app - granted in build #12, 04.10.2026, via
+// app-hsmeta.json, since that app is a CLI project. Without them HubSpot refuses
+// and the refusal is returned as it came, which is the clearest thing we can say
+// about a scope.
 //
 // POST with ?dry=1 (the default) computes and reports; ?dry=0 writes. Signed-in
 // users only, or a scheduler carrying INTERNAL_API_KEY - so a daily EventBridge

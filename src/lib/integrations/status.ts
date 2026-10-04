@@ -50,6 +50,8 @@ const EXPECTED_ENV = [
   "COOKIEBOT_API_KEY",
   "COOKIEBOT_DOMAIN_GROUP",
   "COOKIEBOT_DOMAIN",
+  "CONNECTOR_READ_KEY",
+  "CONNECTOR_URL",
 ] as const;
 
 function shapeOf(name: string, value: string): string {
@@ -73,9 +75,11 @@ export function envDiagnostics(): EnvDiagnostics {
     GA4_PROPERTY_ID: GA4_DEFAULT_PROPERTY_ID,
     GSC_SITE_URL: GSC_DEFAULT_SITE_URL,
     HUBSPOT_EVENTS_TOKEN: "falls back to HUBSPOT_TOKEN (page visits then need its scope)",
-    TICKETS_TOKEN: "unset — tickets are written with HUBSPOT_TOKEN, which needs the `tickets` scope",
+    TICKETS_TOKEN: "unset — tickets are read and written with HUBSPOT_TOKEN (crm.objects.tickets.read/write)",
     COOKIEBOT_DOMAIN_GROUP: "0c548172-58a9-4606-9df6-9cfde47bb141",
     COOKIEBOT_DOMAIN: "www.apsoparts.com",
+    CONNECTOR_READ_KEY: "unset — the Erosion forecast stays off; its tickets still show",
+    CONNECTOR_URL: CONNECTOR_DEFAULT_URL,
   };
   const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
     const value = process.env[name];
@@ -184,15 +188,32 @@ export function gscSiteUrl(): string {
 }
 
 /**
- * An OPTIONAL separate token for writing tickets.
+ * An OPTIONAL separate token for reading and writing tickets.
  *
- * Normally unset: the hub's own private app only needs the `tickets` scope
- * ticked, which is a checkbox rather than another secret to deploy and rotate.
- * This exists for the case where the reading and writing apps are deliberately
- * kept apart.
+ * Normally unset: the hub's own private app carries crm.objects.tickets.read and
+ * .write (build #12, 04.10.2026). That app is a CLI project, so a scope is NOT a
+ * checkbox in HubSpot's settings - it is a line in app-hsmeta.json
+ * (C:\dev\hubspot-apsomarketinghub) and an `hs project upload`. This exists for the case where the reading and writing
+ * apps are deliberately kept apart, or the scope has not been uploaded yet.
  */
 export function ticketsToken(): string | null {
   return env("TICKETS_TOKEN");
+}
+
+/** The Compass connector on Railway, which holds the erosion forecast. */
+export const CONNECTOR_DEFAULT_URL = "https://data-connector-production-3e33.up.railway.app";
+
+export function connectorUrl(): string {
+  return (env("CONNECTOR_URL") ?? CONNECTOR_DEFAULT_URL).replace(/\/+$/, "");
+}
+
+/**
+ * The connector's READ-ONLY key - never its shared CONNECTOR_KEY, which would
+ * also let the hub pull SFTP files, link review-queue items and start runs.
+ * Unset, the Erosion forecast says it is not connected and nothing else changes.
+ */
+export function connectorReadKey(): string | null {
+  return env("CONNECTOR_READ_KEY");
 }
 
 export function hubspotToken(): string | null {

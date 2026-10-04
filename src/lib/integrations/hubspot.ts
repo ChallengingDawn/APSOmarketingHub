@@ -2,7 +2,7 @@
 // CRM search endpoint's `total` — one request per count instead of paging every
 // record. The token is read per call and never logged.
 
-import { IntegrationError, hubspotEventsToken, hubspotToken } from "./status";
+import { IntegrationError, hubspotEventsToken, hubspotToken, ticketsToken } from "./status";
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -75,8 +75,14 @@ export async function hubspotFetchJson<T>(req: {
   signal?: AbortSignal;
   /** Events API calls use the dedicated events token when one is set. */
   useEventsToken?: boolean;
+  /** Ticket calls use TICKETS_TOKEN when one is set, else the hub's own token. */
+  useTicketsToken?: boolean;
 }): Promise<T> {
-  const token = req.useEventsToken ? hubspotEventsToken() : hubspotToken();
+  const token = req.useEventsToken
+    ? hubspotEventsToken()
+    : req.useTicketsToken
+      ? (ticketsToken() ?? hubspotToken())
+      : hubspotToken();
   if (!token) throw new IntegrationError("HUBSPOT_TOKEN is not set.");
 
   let res: Response | null = null;

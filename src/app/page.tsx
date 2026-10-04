@@ -61,7 +61,7 @@ const APPS: App[] = [
   {
     id: "uc", href: "/uc/price-checks", name: "UC & HubSpot Apps",
     line: "The apps that write back into HubSpot — tickets, cards, syncs.",
-    inside: "Price checks · Web order sync",
+    inside: "Price checks · Erosion · Web order sync",
     icon: <HubIcon />, from: "#f0b73c", to: "#9a6600",
   },
   {

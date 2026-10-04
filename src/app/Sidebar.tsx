@@ -162,12 +162,13 @@ const navSections: NavSection[] = [
   },
   {
     // The HubSpot-side apps. Most still live in their own repos and migrate
-    // here over time; Web order sync is the first of them that already does.
+    // here over time; Erosion came from the APSOAssistant micro apps.
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
     items: [
       { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
+      { label: "Erosion · article level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
