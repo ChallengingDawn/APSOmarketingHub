@@ -1,7 +1,7 @@
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 
-const ISSUER = process.env.TOTP_ISSUER || 'APSOmarketingHub';
+const ISSUER = process.env.TOTP_ISSUER || 'APSOhub';
 
 export function generateSecret(): string {
   return new OTPAuth.Secret({ size: 20 }).base32;

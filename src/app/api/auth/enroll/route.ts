@@ -29,7 +29,7 @@ export async function GET() {
     secret = generateSecret();
     await query(`UPDATE apsomh_users SET totp_secret = $1 WHERE id = $2`, [secret, u.id]);
   }
-  const qr = await totpQrDataUrl(secret, `${u.username}@APSOmarketingHub`);
+  const qr = await totpQrDataUrl(secret, u.username);
   return NextResponse.json({ qr, secret });
 }
 

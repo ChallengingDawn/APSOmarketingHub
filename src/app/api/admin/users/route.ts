@@ -59,8 +59,8 @@ export async function POST(req: Request) {
   }
 
   const r = await query<{ id: number }>(
-    `INSERT INTO apsomh_users (username, email, full_name, password_hash, role, is_active, must_change_password)
-     VALUES ($1, $2, $3, $4, $5, TRUE, TRUE) RETURNING id`,
+    `INSERT INTO apsomh_users (username, email, full_name, password_hash, role, is_active, must_change_password, awaiting_setup)
+     VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, $6) RETURNING id`,
     [
       username,
       email,
@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       // cannot be signed into until the invitation is spent.
       await hashPassword(parsed.data.initialPassword ?? randomBytes(32).toString('base64url')),
       parsed.data.role ?? 'user',
+      setupByUser,
     ],
   );
   const id = r.rows[0].id;

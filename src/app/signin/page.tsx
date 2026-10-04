@@ -178,6 +178,14 @@ function SignInForm() {
               </Link>{" "}
               Reset it with your authenticator.
             </Typography>
+            {/* An account somebody created for you has no password until you set
+                one, and there is no mail from the hub to send you a link. */}
+            <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mt: 1, textAlign: "center" }}>
+              First time here?{" "}
+              <Link href="/signup" style={{ color: "#274e64", fontWeight: 600 }}>
+                Set up your account
+              </Link>
+            </Typography>
           </form>
         </CardContent>
       </Card>

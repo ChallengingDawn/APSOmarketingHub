@@ -1,23 +1,12 @@
-"use client";
+// Everything under this path belongs to Marketing & Content.
+//
+// The guard has to run on the server, and the shell below is a client component
+// — so the shell moved into GeoLayoutShell.tsx and this wraps it. A sub-page
+// that let you in when the tile said no access is the hole this closes.
+import { requireApp } from "@/lib/auth/appAccess";
+import GeoLayoutShell from "./GeoLayoutShell";
 
-/**
- * The GEO cockpit shell.
- *
- * Everything shared by the five sub-apps lives here — the header, the
- * persistent sub-navigation rail and the single scored library — so each page
- * file can be nothing but its own job. App Router keeps this layout mounted
- * across /geo, /geo/content, /geo/live, /geo/competitors and /geo/fix-queue,
- * which is what makes the rail persistent and the library load happen once.
- */
-
-import type { ReactNode } from "react";
-import { GeoLibraryProvider } from "./GeoLibraryContext";
-import GeoChrome from "./GeoChrome";
-
-export default function GeoLayout({ children }: { children: ReactNode }) {
-  return (
-    <GeoLibraryProvider>
-      <GeoChrome>{children}</GeoChrome>
-    </GeoLibraryProvider>
-  );
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  await requireApp("marketing");
+  return <GeoLayoutShell>{children}</GeoLayoutShell>;
 }

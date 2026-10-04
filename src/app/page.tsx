@@ -84,6 +84,15 @@ export default function FrontPage() {
   // they can open, and the rest locked rather than hidden, so you can see both
   // what they have and what they are missing.
   const { viewed, canOpen } = useViewAs();
+  // Your OWN access, so the wall is honest before you click. The guard on each
+  // app's layout is what actually refuses; this only saves the trip.
+  const [mine, setMine] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => {
+    fetch("/api/me/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) setMine(j.open as Record<string, boolean>); })
+      .catch(() => {});
+  }, []);
   const [initials, setInitials] = useState("");
   const [q, setQ] = useState("");
   const [openSearch, setOpenSearch] = useState(false);
@@ -276,7 +285,8 @@ export default function FrontPage() {
           {APPS.map((a, i) => {
             const open = !!expanded[a.key];
             const shown = open ? a.subs : a.subs.slice(0, 3);
-            const locked = !canOpen(a.key);
+            // While previewing, show THEIR access; otherwise your own.
+            const locked = viewed ? !canOpen(a.key) : mine ? !mine[a.key] : false;
             return (
               <Box key={a.key} sx={{
                 ...glass, borderRadius: "22px", p: { xs: 2, md: 2.1 },

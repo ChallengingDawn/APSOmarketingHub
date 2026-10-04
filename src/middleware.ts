@@ -4,6 +4,8 @@ import { jwtVerify } from "jose";
 const SESSION_COOKIE = "apsomarketinghub_session";
 const PUBLIC_PREFIXES = [
   "/signin",
+  "/signup",
+  "/invite",
   "/login",
   "/login/totp",
   "/enroll",

@@ -25,6 +25,12 @@ export function ensureSchema(): Promise<void> {
       );
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_apsomh_users_email ON apsomh_users(email)`);
+    // An account created without a password, waiting for its person to set one.
+    // It is the ONLY state in which the sign-up page will set a password, so it
+    // cannot be used to take over an account that is already in use.
+    await query(
+      `ALTER TABLE apsomh_users ADD COLUMN IF NOT EXISTS awaiting_setup BOOLEAN NOT NULL DEFAULT FALSE`
+    );
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_kv (
         k TEXT PRIMARY KEY,
@@ -89,6 +95,41 @@ export function ensureSchema(): Promise<void> {
     await query(
       `CREATE INDEX IF NOT EXISTS idx_apsomh_access_user ON apsomh_user_app_access(user_id)`
     );
+
+    // NOBODY LOSES ACCESS ON THE DAY THE GUARDS SWITCH ON.
+    //
+    // No row means no access, so turning enforcement on against an empty table
+    // would lock every non-admin out of all five apps at once. SARCLA's rule was
+    // that everyone keeps what they can reach today and is tightened afterwards,
+    // one person at a time, in daylight.
+    //
+    // So existing accounts are granted every app at their role's own ceiling —
+    // a viewer gets read, an editor write, and admins need no row at all. Runs
+    // ONCE, behind a flag, so a grant revoked tomorrow is not handed back on the
+    // next boot.
+    const seeded = await query<{ k: string }>(
+      `SELECT k FROM apsomh_kv WHERE k = 'access:seeded' LIMIT 1`,
+    );
+    if (seeded.rows.length === 0) {
+      await query(`
+        INSERT INTO apsomh_user_app_access (user_id, app_key, level, granted_by)
+        SELECT u.id, a.app_key,
+               CASE WHEN u.role = 'viewer' THEN 'read' ELSE 'write' END,
+               'migration'
+          FROM apsomh_users u
+          CROSS JOIN (VALUES ('datatracker'), ('website'), ('marketing'), ('journey'), ('uc'))
+                  AS a(app_key)
+         WHERE u.role <> 'admin'
+        ON CONFLICT (user_id, app_key) DO NOTHING
+      `);
+      await query(
+        `INSERT INTO apsomh_kv (k, v, updated_at) VALUES ('access:seeded', $1, NOW())
+         ON CONFLICT (k) DO NOTHING`,
+        [JSON.stringify({ at: new Date().toISOString(), note: "existing accounts kept what they had" })],
+      );
+      // eslint-disable-next-line no-console
+      console.log('[db] app access seeded for existing accounts (once)');
+    }
     // eslint-disable-next-line no-console
     console.log('[db] apsomh schema ready (users, kv, content, audit, app access)');
   })().catch((err) => {
@@ -141,6 +182,7 @@ export type UserRow = {
   role: 'admin' | 'user' | 'viewer';
   is_active: boolean;
   must_change_password: boolean;
+  awaiting_setup: boolean;
   created_at: Date;
   updated_at: Date;
   last_login: Date | null;

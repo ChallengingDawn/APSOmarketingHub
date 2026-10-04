@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
-  maySelfRegister, SELF_SIGNUP_ROLE,
+  maySelfRegister, SELF_SIGNUP_ROLE, appForPath,
 } from "../src/lib/auth/access";
 
 // The two halves must stay apart: the role caps, the grant chooses.
@@ -74,4 +74,40 @@ test("only the two company domains may self-register", () => {
 test("a self-registered account starts as a viewer with nothing granted", () => {
   assert.equal(SELF_SIGNUP_ROLE, "viewer");
   assert.equal(effectiveLevel(SELF_SIGNUP_ROLE, undefined), "none");
+});
+
+// A sub-page that belongs to no app is exactly how somebody walks around the
+// guard, so every route under an app has to resolve to it.
+test("appForPath puts every app route under its own app", () => {
+  assert.equal(appForPath("/datatracker"), "datatracker");
+  assert.equal(appForPath("/datatracker/anything"), "datatracker");
+  assert.equal(appForPath("/website/overview"), "website");
+  assert.equal(appForPath("/live"), "website");
+  assert.equal(appForPath("/seo/quick-wins"), "marketing");
+  assert.equal(appForPath("/geo/fix-queue"), "marketing");
+  assert.equal(appForPath("/journey/funnels"), "journey");
+  assert.equal(appForPath("/customers/visitors"), "journey");
+  assert.equal(appForPath("/uc/price-checks"), "uc");
+  assert.equal(appForPath("/uc/erosion"), "uc");
+});
+
+test("analytics splits by subject, longest prefix winning", () => {
+  // Website questions
+  assert.equal(appForPath("/analytics/tracking"), "website");
+  assert.equal(appForPath("/analytics/consent"), "website");
+  assert.equal(appForPath("/analytics/web-orders"), "website");
+  // Journey questions
+  assert.equal(appForPath("/analytics/smec"), "journey");
+  assert.equal(appForPath("/analytics/buyers"), "journey");
+  // Anything else under analytics falls to journey rather than to nothing
+  assert.equal(appForPath("/analytics/something-new"), "journey");
+});
+
+test("the hub's own pages belong to no app", () => {
+  assert.equal(appForPath("/"), null);
+  assert.equal(appForPath("/settings"), null);
+  assert.equal(appForPath("/settings/people"), null);
+  assert.equal(appForPath("/mission-control"), null);
+  // A near-miss must not match: /website-ish is not /website
+  assert.equal(appForPath("/websites"), null);
 });

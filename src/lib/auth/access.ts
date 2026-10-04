@@ -120,3 +120,58 @@ export function levelsFor(role: Role): { value: Level; label: string }[] {
   const limit = ORDER[ceiling(role)];
   return LEVELS.filter((l) => ORDER[l.value] <= limit);
 }
+
+/**
+ * Which app a path belongs to.
+ *
+ * One list, so a sub-page cannot quietly belong to nothing — that is exactly how
+ * a route becomes a way in around the guard. Longest prefix wins, because
+ * /analytics splits across two apps.
+ */
+const ROUTES: [string, AppKey][] = [
+  ["/datatracker", "datatracker"],
+
+  ["/website", "website"],
+  ["/live", "website"],
+  ["/analytics/tracking", "website"],
+  ["/analytics/consent", "website"],
+  ["/analytics/web-orders", "website"],
+
+  ["/create", "marketing"],
+  ["/library", "marketing"],
+  ["/templates", "marketing"],
+  ["/personality", "marketing"],
+  ["/logs", "marketing"],
+  ["/seo", "marketing"],
+  ["/geo", "marketing"],
+  ["/content", "marketing"],
+  ["/editor", "marketing"],
+  ["/blog", "marketing"],
+  ["/newsletter", "marketing"],
+  ["/linkedin", "marketing"],
+  ["/personas", "marketing"],
+  ["/photos", "marketing"],
+  ["/knowledge-base", "marketing"],
+
+  ["/journey", "journey"],
+  ["/customers", "journey"],
+  ["/analytics/new-customers", "journey"],
+  ["/analytics/buyers", "journey"],
+  ["/analytics/contact-requests", "journey"],
+  ["/analytics/smec", "journey"],
+  ["/analytics", "journey"],
+
+  ["/uc", "uc"],
+];
+
+/** The app a path belongs to, or null for the hub's own pages. */
+export function appForPath(pathname: string): AppKey | null {
+  let best: [string, AppKey] | null = null;
+  for (const entry of ROUTES) {
+    const [prefix] = entry;
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      if (!best || prefix.length > best[0].length) best = entry;
+    }
+  }
+  return best?.[1] ?? null;
+}
