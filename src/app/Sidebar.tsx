@@ -20,6 +20,7 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
+import WorkspacesIcon from "@mui/icons-material/Workspaces";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import HandshakeIcon from "@mui/icons-material/Handshake";
 import GroupsIcon from "@mui/icons-material/Groups";
@@ -206,6 +207,23 @@ const navSections: NavSection[] = [
   },
 ];
 
+/** The rows a grouped app is shown as: one per group, in the order first listed. */
+const GROUP_META: Record<string, { icon: React.ReactNode; color: string }> = {
+  "Use cases": { icon: <WorkspacesIcon />, color: "#eda100" },
+  "HubSpot apps": { icon: <HubIcon />, color: "#c97a10" },
+};
+
+function groupSections(s: NavSection): NavSection[] {
+  const names = [...new Set(s.items.map((i) => i.group ?? s.title))];
+  return names.map((name) => ({
+    title: name,
+    icon: GROUP_META[name]?.icon ?? s.icon,
+    color: GROUP_META[name]?.color ?? s.color,
+    // the row now carries the group's name, so the entries drop the small heading
+    items: s.items.filter((i) => (i.group ?? s.title) === name).map((i) => ({ ...i, group: undefined })),
+  }));
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
 
@@ -232,12 +250,17 @@ export default function Sidebar() {
   const onLaunchPad = pathname === "/";
   const activeSection = navSections.find((x) => x.title === activeSectionTitle);
   const scoped = !onLaunchPad && !!activeSection && activeSection.title !== "Governance";
-  const sections = scoped ? [activeSection!] : navSections;
+  // An app whose entries carry groups (UC: Use cases / HubSpot apps) shows each
+  // group as its own big collapsible row, the way the categories always looked.
+  const grouped = scoped && activeSection!.items.some((i) => i.group);
+  const sections = !scoped ? navSections : grouped ? groupSections(activeSection!) : [activeSection!];
+  const activeGroup = grouped ? (activeSection!.items.find((i) => i.href === activeHref)?.group ?? null) : null;
+  const openKey = grouped ? activeGroup : (activeSectionTitle ?? null);
 
-  const [open, setOpen] = useState<string | null>(activeSectionTitle ?? null);
+  const [open, setOpen] = useState<string | null>(openKey);
   useEffect(() => {
-    if (activeSectionTitle) setOpen(activeSectionTitle);
-  }, [activeSectionTitle]);
+    if (openKey) setOpen(openKey);
+  }, [openKey]);
   const toggle = (t: string) => setOpen((cur) => (cur === t ? null : t));
 
   return (
@@ -337,11 +360,12 @@ export default function Sidebar() {
       {/* Navigation Sections — collapsible, iOS Settings rows */}
       <Box sx={{ flex: 1, overflow: "auto", py: 0, position: "relative", zIndex: 1 }}>
         {sections.map((section) => {
-          const isOpen = scoped || open === section.title;
+          const isOpen = (scoped && !grouped) || open === section.title;
           return (
             <Box key={section.title} sx={{ borderBottom: "0.5px solid #ececef" }}>
-              {/* Category row - on the launch pad only; inside an app the header names it */}
-              {!scoped && (
+              {/* Category row - on the launch pad, and for each group of a grouped app.
+                  Inside an ungrouped app the header already names it. */}
+              {(!scoped || grouped) && (
               <Box
                 onClick={() => toggle(section.title)}
                 sx={{
