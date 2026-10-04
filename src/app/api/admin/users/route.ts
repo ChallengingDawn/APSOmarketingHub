@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { randomBytes } from 'node:crypto';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { createInvite, INVITE_HOURS } from '@/lib/auth/invite';
+import { grantStarterApps } from '@/lib/auth/appAccess';
 
 export const runtime = 'nodejs';
 
@@ -73,17 +74,21 @@ export async function POST(req: Request) {
     ],
   );
   const id = r.rows[0].id;
+  // Everybody who is not an admin starts with the Datatracker, so a new account
+  // opens on something rather than on an empty hall.
+  const role = parsed.data.role ?? 'user';
+  await grantStarterApps(id, role);
   const token = setupByUser ? await createInvite(id) : null;
 
   await query(
     `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
     [me.username, 'user.create', JSON.stringify({
-      userId: id, username, role: parsed.data.role ?? 'user', setupByUser,
+      userId: id, username, role, setupByUser,
     })],
   ).catch(() => { /* never fail the creation because the log did */ });
 
   return NextResponse.json({
-    user: { id, username, email, role: parsed.data.role ?? 'user' },
+    user: { id, username, email, role },
     // Shown to the admin once. There is no mail from the hub yet, so they hand
     // it over themselves; it is single-use and expires.
     invitePath: token ? `/invite/${token}` : null,

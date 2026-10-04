@@ -98,8 +98,19 @@ export function mfaRequired(role: Role, requiredForPerson = false): boolean {
  */
 export const SELF_SIGNUP_DOMAINS = ["apsoparts.com", "angst-pfister.com"] as const;
 
-/** What a self-registered account starts as: a viewer who can open nothing. */
+/** What a self-registered account starts as. */
 export const SELF_SIGNUP_ROLE: Role = "viewer";
+
+/**
+ * What any new account that is not an admin starts with.
+ *
+ * An account granted nothing is an account that signs in to an empty hall, and
+ * the first thing it does is generate a request to an admin. The Datatracker is
+ * the one app that is useful to everybody and discloses nothing that is not
+ * already in the order book, so it is where everyone starts; anything beyond it
+ * is asked for and granted.
+ */
+export const STARTER_GRANTS: Partial<Record<AppKey, Level>> = { datatracker: "read" };
 
 export function maySelfRegister(email: string): boolean {
   const at = email.trim().toLowerCase().lastIndexOf("@");

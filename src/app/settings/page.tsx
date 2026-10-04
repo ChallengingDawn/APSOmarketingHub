@@ -25,6 +25,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import LinkIcon from "@mui/icons-material/Link";
 
 import { ROLE_LABEL, ROLE_NOTE, type Role } from "@/lib/auth/access";
+import { useViewAs } from "@/app/ViewAs";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -81,6 +82,9 @@ const FOR_EVERYONE = [
 
 export default function SettingsOverview() {
   const [me, setMe] = useState<Me | null>(null);
+  // Previewing somebody shows THEIR Settings — a viewer's Settings is their own
+  // account and nothing else, and seeing that is the point of the preview.
+  const { viewed } = useViewAs();
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -88,6 +92,8 @@ export default function SettingsOverview() {
       .then((j) => { if (j?.user) setMe(j.user as Me); })
       .catch(() => {});
   }, []);
+
+  const role: Role | undefined = viewed?.role ?? me?.role;
 
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gap: 2.5 }}>
@@ -160,7 +166,7 @@ export default function SettingsOverview() {
       {/* Admins only. A viewer offered People, Integrations and the audit log is
           a viewer being offered four doors that all refuse them — and three of
           them say, by existing, that there is something here worth asking for. */}
-      {me?.role === "admin" && (
+      {role === "admin" && (
       <Card>
         <Head icon={<HubIcon />} title="Workspace settings"
           note="Access, integrations and the record of what was done." />
@@ -190,7 +196,7 @@ export default function SettingsOverview() {
       )}
 
       {/* Nothing in the docs is privileged, so everyone gets a way to them. */}
-      {me && me.role !== "admin" && (
+      {role && role !== "admin" && (
         <Card>
           <Head icon={<DescriptionIcon />} title="Help" note="How the hub works." />
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}>

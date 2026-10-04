@@ -64,6 +64,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Link from "next/link";
 
 import { appForPath, type Role } from "@/lib/auth/access";
+import { useViewAs } from "@/app/ViewAs";
 
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
@@ -384,6 +385,10 @@ export default function Sidebar() {
   // While it is still loading: app rows are shown (a failed fetch should not
   // empty the panel — the guards still hold), governance rows are not (showing
   // them and taking them away is worse than a moment's delay).
+  // While previewing somebody, the panel is theirs: same rule, their role and
+  // their grants, so "view as" shows the hub they actually get rather than
+  // yours with a banner on top.
+  const { viewed, canOpen: canOpenAs } = useViewAs();
   const [acc, setAcc] = useState<{ role: Role; open: Record<string, boolean> } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -394,12 +399,14 @@ export default function Sidebar() {
     return () => { alive = false; };
   }, []);
 
+  const role = viewed?.role ?? acc?.role;
   const allowed = (item: Item) => {
-    if (item.adminOnly && acc?.role !== "admin") return false;
+    if (item.adminOnly && role !== "admin") return false;
     // The Datatracker's rows carry a tab in the query; the route map reads paths.
     const app = appForPath(item.href.split("?")[0]);
-    if (app && acc && !acc.open[app]) return false;
-    return true;
+    if (!app) return true;
+    if (viewed) return canOpenAs(app);
+    return !acc || acc.open[app];
   };
   const visibleItems = (s: NavSection) => s.items.filter(allowed);
 

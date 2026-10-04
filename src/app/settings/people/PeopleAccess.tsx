@@ -39,14 +39,10 @@ import { useRouter } from "next/navigation";
 
 import { APPS } from "@/app/hubApps";
 import { useViewAs } from "@/app/ViewAs";
+import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, Kicker, MUTED, glass } from "@/app/uc/report/ui";
 import {
   ROLE_LABEL, ROLE_NOTE, effectiveLevel, levelsFor, type Level, type Role,
 } from "@/lib/auth/access";
-
-const INK = "#15223a";
-const MUTED = "#5d6b85";
-const FAINT = "#8b97ac";
-const HAIRLINE = "rgba(21,34,58,.10)";
 
 type Person = {
   id: number; username: string; full_name: string; email: string | null;
@@ -54,18 +50,28 @@ type Person = {
   last_login: string | null; access: Record<string, Level>;
 };
 
-const glass = {
-  bgcolor: "rgba(255,255,255,.72)",
-  backdropFilter: "blur(18px)",
-  border: "1px solid rgba(255,255,255,.8)",
-  boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)",
-};
-
 const ROLE_TINT: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe8fd", fg: "#5a3fa0" },
   user: { bg: "#e6edfd", fg: "#2459d1" },
   viewer: { bg: "#e9eef5", fg: "#4a5a70" },
 };
+
+/** One list, so the headings and the cells cannot drift out of step. */
+const COLUMNS = [
+  { label: "Person", align: "left" as const },
+  { label: "Role", align: "left" as const },
+  { label: "Status", align: "left" as const },
+  { label: "App access", align: "left" as const },
+  { label: "Last active", align: "right" as const },
+];
+
+const headCell = {
+  fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em",
+  textTransform: "uppercase" as const, color: FAINT, whiteSpace: "nowrap" as const,
+};
+
+/** Every body cell: same height, same gutters, one hairline. */
+const cell = { px: 1.25, py: 1.15, borderBottom: `1px solid ${HAIRLINE}`, verticalAlign: "middle" as const };
 
 const initials = (n: string) =>
   n.trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -94,7 +100,9 @@ export default function PeopleAccess() {
   const [note, setNote] = useState<string | null>(null);
   const [invite, setInvite] = useState<{
     fullName: string; username: string; email: string; role: Role;
-    how: "link" | "password"; password: string; link: string | null; busy: boolean;
+    how: "self" | "password"; password: string;
+    /** Once created and told how to get in: the address they sign in with. */
+    createdAs: string | null; busy: boolean;
   } | null>(null);
 
   const load = useCallback(() => {
@@ -229,33 +237,30 @@ export default function PeopleAccess() {
         alignItems: "start",
       }}>
         {/* ------------------------------------------------------- the table */}
-        <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, minWidth: 0 }}>
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: "wrap", mb: 2 }}>
-            <Box sx={{
-              width: 38, height: 38, borderRadius: "12px", display: "grid", placeItems: "center",
-              bgcolor: "#e6edfd", color: "#2459d1", flexShrink: 0,
-            }}><PeopleIcon sx={{ fontSize: 21 }} /></Box>
-            <Box sx={{ flex: "1 1 220px", minWidth: 0 }}>
-              <Typography sx={{ fontSize: "1.05rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
-                People &amp; access
-              </Typography>
-              <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-                Who may open which app. The role sets how far they go; the grant sets where.
-              </Typography>
-            </Box>
-            <Button
-              size="small" variant="contained" startIcon={<PersonAddAlt1Icon />}
-              onClick={() => setInvite({
-                fullName: "", username: "", email: "", role: "viewer",
-                how: "link", password: newPassword(), link: null, busy: false,
-              })}
-              sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}
-            >
-              Add person
-            </Button>
+        <GlassCard>
+          {/* Title first, on its own line. The controls used to sit beside it and
+              pushed the sentence into two ragged lines on anything narrow. */}
+          <CardTitle
+            icon={<PeopleIcon />} title="People &amp; access"
+            note="Who may open which app. The role sets how far they go; the grant sets where."
+            right={
+              <Button
+                size="small" variant="contained" startIcon={<PersonAddAlt1Icon />}
+                onClick={() => setInvite({
+                  fullName: "", username: "", email: "", role: "viewer",
+                  how: "self", password: newPassword(), createdAs: null, busy: false,
+                })}
+                sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}
+              >
+                Add person
+              </Button>
+            }
+          />
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
             <TextField size="small" placeholder="Search people…" value={q}
-              onChange={(e) => setQ(e.target.value)} sx={{ width: 180 }} />
-            <Select size="small" value={role} onChange={(e) => setRole(e.target.value as typeof role)} sx={{ width: 130 }}>
+              onChange={(e) => setQ(e.target.value)} sx={{ flex: "1 1 200px", minWidth: 160 }} />
+            <Select size="small" value={role} onChange={(e) => setRole(e.target.value as typeof role)}
+              sx={{ width: 140, flexShrink: 0 }}>
               <MenuItem value="all">All roles</MenuItem>
               <MenuItem value="admin">Admin</MenuItem>
               <MenuItem value="user">Editor</MenuItem>
@@ -274,12 +279,11 @@ export default function PeopleAccess() {
               <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
                 <Box component="thead">
                   <Box component="tr">
-                    {["Person", "Role", "Status", "App access", "Last active"].map((h) => (
-                      <Box component="th" key={h} sx={{
-                        textAlign: "left", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em",
-                        textTransform: "uppercase", color: FAINT, pb: 1, px: 1, whiteSpace: "nowrap",
+                    {COLUMNS.map((c) => (
+                      <Box component="th" key={c.label} sx={{
+                        ...headCell, textAlign: c.align, pb: 1, px: 1.25,
                         borderBottom: `1px solid ${HAIRLINE}`,
-                      }}>{h}</Box>
+                      }}>{c.label}</Box>
                     ))}
                   </Box>
                 </Box>
@@ -292,7 +296,7 @@ export default function PeopleAccess() {
                         bgcolor: person?.id === p.id ? "rgba(36,89,209,.07)" : "transparent",
                         "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
                       }}>
-                      <Box component="td" sx={{ px: 1, py: 1.25, borderBottom: `1px solid ${HAIRLINE}` }}>
+                      <Box component="td" sx={{ ...cell }}>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
                           <Box sx={{
                             width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "grid", placeItems: "center",
@@ -309,7 +313,7 @@ export default function PeopleAccess() {
                           </Box>
                         </Box>
                       </Box>
-                      <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}` }}
+                      <Box component="td" sx={{ ...cell }}
                         onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                         {p.id === me ? (
                           <Tooltip title="You cannot change your own role. Ask another admin.">
@@ -338,7 +342,7 @@ export default function PeopleAccess() {
                           </Select>
                         )}
                       </Box>
-                      <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}`, whiteSpace: "nowrap" }}>
+                      <Box component="td" sx={{ ...cell, whiteSpace: "nowrap" }}>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                           <Box sx={{
                             width: 8, height: 8, borderRadius: "50%",
@@ -349,7 +353,7 @@ export default function PeopleAccess() {
                           </Typography>
                         </Box>
                       </Box>
-                      <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
+                      <Box component="td" sx={{ ...cell }}>
                         <Box sx={{ display: "flex", gap: 0.5 }}>
                           {APPS.map((a) => {
                             const lvl = effectiveLevel(p.role, p.access[a.key]);
@@ -367,14 +371,14 @@ export default function PeopleAccess() {
                         </Box>
                       </Box>
                       <Box component="td" sx={{
-                        px: 1, borderBottom: `1px solid ${HAIRLINE}`,
+                        ...cell, textAlign: "right",
                         fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap",
                       }}>{ago(p.last_login)}</Box>
                     </Box>
                   ))}
                   {visible.length === 0 && (
                     <Box component="tr">
-                      <Box component="td" colSpan={5} sx={{ px: 1, py: 3, textAlign: "center", color: MUTED, fontSize: "0.88rem" }}>
+                      <Box component="td" colSpan={COLUMNS.length} sx={{ px: 1.25, py: 3, textAlign: "center", color: MUTED, fontSize: "0.88rem" }}>
                         Nobody matches that.
                       </Box>
                     </Box>
@@ -383,11 +387,11 @@ export default function PeopleAccess() {
               </Box>
             </Box>
           )}
-        </Box>
+        </GlassCard>
 
         {/* ------------------------------------------------- the one person */}
         {person && (
-          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, display: "grid", gap: 2 }}>
+          <GlassCard sx={{ display: "grid", gap: 2.25, position: { lg: "sticky" }, top: { lg: 16 } }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
               <Box sx={{
                 width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center",
@@ -407,10 +411,7 @@ export default function PeopleAccess() {
             </Box>
 
             <Box>
-              <Typography sx={{
-                fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em",
-                textTransform: "uppercase", color: FAINT, mb: 1,
-              }}>Workspace access</Typography>
+              <Kicker>Workspace access</Kicker>
 
               {person.role === "admin" ? (
                 <Typography sx={{ fontSize: "0.85rem", color: MUTED, lineHeight: 1.5 }}>
@@ -420,18 +421,23 @@ export default function PeopleAccess() {
               ) : (
                 <Box sx={{ display: "grid", gap: 1 }}>
                   {APPS.map((a) => (
-                    <Box key={a.key} sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                    <Box key={a.key} sx={{
+                      display: "flex", alignItems: "center", gap: 1.25, minHeight: 40,
+                    }}>
                       <Box sx={{
                         width: 26, height: 26, borderRadius: "8px", flexShrink: 0,
                         background: `linear-gradient(140deg, ${a.from}, ${a.to})`,
                       }} />
-                      <Typography sx={{ fontSize: "0.85rem", color: INK, flex: 1, minWidth: 0 }}>{a.name}</Typography>
+                      <Typography sx={{
+                        fontSize: "0.85rem", color: INK, flex: 1, minWidth: 0,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>{a.name}</Typography>
                       <Select
                         size="small"
                         value={person.access[a.key] ?? "none"}
                         disabled={saving === `${person.id}:${a.key}`}
                         onChange={(e) => setLevel(person, a.key, e.target.value as Level)}
-                        sx={{ width: 118, fontSize: "0.82rem" }}
+                        sx={{ width: 124, flexShrink: 0, fontSize: "0.82rem", borderRadius: "10px" }}
                       >
                         {levelsFor(person.role).map((l) => (
                           <MenuItem key={l.value} value={l.value} sx={{ fontSize: "0.85rem" }}>{l.label}</MenuItem>
@@ -443,7 +449,10 @@ export default function PeopleAccess() {
               )}
             </Box>
 
-            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Box sx={{
+              display: "flex", gap: 1, flexWrap: "wrap",
+              "& .MuiButton-root": { textTransform: "none", borderRadius: "12px", flexShrink: 0 },
+            }}>
               {/* A preview, not a login: it changes what the screens draw, never
                   what the server will do for you. */}
               <Button
@@ -489,11 +498,8 @@ export default function PeopleAccess() {
               )}
             </Box>
 
-            <Box sx={{ pt: 1.5, borderTop: `1px solid ${HAIRLINE}` }}>
-              <Typography sx={{
-                fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em",
-                textTransform: "uppercase", color: FAINT, mb: 1,
-              }}>Security</Typography>
+            <Box sx={{ pt: 1.75, borderTop: `1px solid ${HAIRLINE}` }}>
+              <Kicker>Security</Kicker>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 {person.totp_enrolled
                   ? <CheckCircleIcon sx={{ fontSize: 18, color: "#1e7e45" }} />
@@ -511,28 +517,28 @@ export default function PeopleAccess() {
                 </Typography>
               )}
             </Box>
-          </Box>
+          </GlassCard>
         )}
       </Box>
 
-      {/* Two ways to start an account, and the first is the right one for an
-          admin: a link they use to set a password nobody else has ever seen. */}
+      {/* Two ways to start an account, and neither is a link to forward. */}
       <Dialog open={!!invite} onClose={() => setInvite(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
-          {invite?.link ? "Account created" : "Add a person"}
+          {invite?.createdAs ? "Account created" : "Add a person"}
         </DialogTitle>
         <DialogContent>
-          {invite?.link ? (
+          {invite?.createdAs ? (
             <>
               <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
-                Send them this link. It works once, lasts three days, and lets them choose their own password —
-                so nobody, including you, ever knows it.
+                Tell them to go to the hub and sign in with this address. It will ask them to choose a
+                password, because the account has never been signed into — so nobody, including you, ever
+                knows it.
               </Typography>
               <Box sx={{
-                fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.82rem",
+                fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.86rem",
                 p: 1.5, borderRadius: "12px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
                 wordBreak: "break-all", userSelect: "all",
-              }}>{invite.link}</Box>
+              }}>{invite.createdAs}</Box>
             </>
           ) : invite ? (
             <Box sx={{ display: "grid", gap: 2, pt: 0.5 }}>
@@ -554,30 +560,36 @@ export default function PeopleAccess() {
               </Typography>
 
               <RadioGroup value={invite.how}
-                onChange={(e) => setInvite({ ...invite, how: e.target.value as "link" | "password" })}>
-                <FormControlLabel value="link" control={<Radio size="small" />}
-                  label={<Typography sx={{ fontSize: "0.86rem" }}>They set their own password, from a link</Typography>} />
+                onChange={(e) => setInvite({ ...invite, how: e.target.value as "self" | "password" })}>
+                <FormControlLabel value="self" control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: "0.86rem" }}>They choose it the first time they sign in</Typography>} />
                 <FormControlLabel value="password" control={<Radio size="small" />}
-                  label={<Typography sx={{ fontSize: "0.86rem" }}>Give them a password now</Typography>} />
+                  label={<Typography sx={{ fontSize: "0.86rem" }}>Set a password for them now</Typography>} />
               </RadioGroup>
 
               {invite.how === "password" ? (
-                <Box sx={{
-                  fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.9rem",
-                  p: 1.25, borderRadius: "10px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
-                  wordBreak: "break-all", userSelect: "all",
-                }}>{invite.password}</Box>
+                <Box>
+                  <Box sx={{
+                    fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.9rem",
+                    p: 1.25, borderRadius: "10px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+                    wordBreak: "break-all", userSelect: "all",
+                  }}>{invite.password}</Box>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1 }}>
+                    Generated, shown once, and they must change it at the next sign-in — so a password you have
+                    seen is good for exactly one login.
+                  </Typography>
+                </Box>
               ) : (
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-                  The right choice for an admin: a password you have seen is one the audit log cannot tell apart
-                  from theirs.
+                  The right choice for an admin: they go to the hub, type this address, and are asked to choose
+                  a password. One you have seen is one the audit log cannot tell apart from theirs.
                 </Typography>
               )}
             </Box>
           ) : null}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          {invite?.link ? (
+          {invite?.createdAs ? (
             <Button variant="contained" onClick={() => { setInvite(null); load(); }} sx={{ textTransform: "none" }}>
               Done
             </Button>
@@ -600,15 +612,18 @@ export default function PeopleAccess() {
                         username: invite.username.trim(),
                         email: invite.email.trim() || undefined,
                         role: invite.role,
-                        ...(invite.how === "link"
+                        ...(invite.how === "self"
                           ? { setupByUser: true }
                           : { initialPassword: invite.password }),
                       }),
                     });
                     const j = await r.json();
                     if (!r.ok || j?.error) { setError(`${j?.error ?? "That account could not be created."} (HTTP ${r.status})`); return; }
-                    if (j.invitePath) {
-                      setInvite({ ...invite, busy: false, link: `${window.location.origin}${j.invitePath}` });
+                    if (invite.how === "self") {
+                      // Not a link. The address they sign in with, which is all
+                      // they need: the door asks for a password when it sees an
+                      // account that has never been used.
+                      setInvite({ ...invite, busy: false, createdAs: invite.email.trim() || invite.username.trim() });
                     } else {
                       setInvite(null);
                       setNote("Account created. Give them the password you just saw.");

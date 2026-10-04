@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { getOptionalUser } from "./guard";
-import { APP_KEYS, canOpen, canWrite, type AppKey, type Level, type Role } from "./access";
+import { APP_KEYS, STARTER_GRANTS, canOpen, canWrite, type AppKey, type Level, type Role } from "./access";
 
 export type MyAccess = {
   userId: number;
@@ -41,6 +41,26 @@ export async function myAccess(): Promise<MyAccess | null> {
     canOpen: (app) => canOpen(role, grants[app]),
     canWrite: (app) => canWrite(role, grants[app]),
   };
+}
+
+/**
+ * Give a brand-new account the apps everybody starts with.
+ *
+ * Written once, at creation, and never re-applied: a grant an admin has since
+ * taken away must stay taken away, so this is not a floor the account keeps
+ * falling back to. An admin needs no rows at all.
+ */
+export async function grantStarterApps(userId: number, role: Role): Promise<void> {
+  if (role === "admin") return;
+  await ensureSchema();
+  for (const [app, level] of Object.entries(STARTER_GRANTS)) {
+    await query(
+      `INSERT INTO apsomh_user_app_access (user_id, app_key, level)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, app_key) DO NOTHING`,
+      [userId, app, level],
+    );
+  }
 }
 
 /**

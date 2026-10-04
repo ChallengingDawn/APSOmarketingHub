@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
-  maySelfRegister, SELF_SIGNUP_ROLE, appForPath,
+  maySelfRegister, SELF_SIGNUP_ROLE, STARTER_GRANTS, appForPath,
 } from "../src/lib/auth/access";
 
 // The two halves must stay apart: the role caps, the grant chooses.
@@ -110,4 +110,14 @@ test("the hub's own pages belong to no app", () => {
   assert.equal(appForPath("/mission-control"), null);
   // A near-miss must not match: /website-ish is not /website
   assert.equal(appForPath("/websites"), null);
+});
+
+// A new account that can open nothing is an account that does nothing, so there
+// is one app everybody starts with — and exactly one.
+test("a new account starts on the Datatracker and nothing else", () => {
+  assert.equal(STARTER_GRANTS.datatracker, "read");
+  assert.deepEqual(Object.keys(STARTER_GRANTS), ["datatracker"]);
+  // And the starting role can actually use it: a viewer reads.
+  assert.equal(effectiveLevel(SELF_SIGNUP_ROLE, STARTER_GRANTS.datatracker), "read");
+  assert.equal(canOpen(SELF_SIGNUP_ROLE, STARTER_GRANTS.website), false);
 });
