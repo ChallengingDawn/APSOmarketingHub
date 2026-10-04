@@ -470,6 +470,15 @@ export default function EshopActivityPage() {
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"customers" | "articles" | "priceCheck" | "moq" | "availability">("customers");
+
+  // A plain #hash is the only part of a URL that reaches this page, so it is how
+  // another app links straight to one tab - /uc/price-checks lands here.
+  useEffect(() => {
+    const want = { "#price-checks": "priceCheck", "#articles": "articles",
+                   "#moq": "moq", "#availability": "availability" } as const;
+    const t = want[window.location.hash as keyof typeof want];
+    if (t) setTab(t);
+  }, []);
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);

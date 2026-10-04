@@ -12,6 +12,7 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import AppsIcon from "@mui/icons-material/Apps";
+import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InsightsIcon from "@mui/icons-material/Insights";
@@ -114,16 +115,6 @@ const navSections: NavSection[] = [
       { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
       { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
-      { label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
-      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
-      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
-      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
-      { label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
-      { label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
-      { label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
-      { label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
-      { label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
-      { label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
       { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
     ],
@@ -139,6 +130,17 @@ const navSections: NavSection[] = [
       // The brain feeds every generator in this app, so it sits with them.
       { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
+      { label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
+      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
+      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
+      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
+      { label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+      { label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
+      { label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
+      { label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
+      { label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
+      { label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+      { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
     ],
   },
   {
@@ -155,7 +157,6 @@ const navSections: NavSection[] = [
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
       { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
-      { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
     ],
   },
   {
@@ -165,6 +166,7 @@ const navSections: NavSection[] = [
     icon: <HubIcon />,
     color: "#eda100",
     items: [
+      { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
