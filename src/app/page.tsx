@@ -10,7 +10,7 @@
 // placeholder, and a placeholder on a front door looks unfinished.
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -78,7 +78,6 @@ const PINS_KEY = "apsohub:dock-pins";
 const DEFAULT_PINS = ["dt", "web"];
 
 export default function HomeScreen() {
-  const router = useRouter();
   const [pins, setPins] = useState<string[]>(DEFAULT_PINS);
 
   // Which apps sit in the dock is a per-person convenience, so it lives in this
@@ -104,19 +103,14 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const go = (href: string) => () => router.push(href);
-  const keyGo = (href: string) => (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(href); }
-  };
 
   /** One tile. `lead` only changes its size, never what it says. */
   const Tile = ({ a, lead }: { a: App; lead?: boolean }) => (
     <Box
-      role="link"
-      tabIndex={0}
-      onClick={go(a.href)}
-      onKeyDown={keyGo(a.href)}
+      component={Link}
+      href={a.href}
       sx={{
+        textDecoration: "none",
         position: "relative", display: "flex", flexDirection: "column", minWidth: 0,
         borderRadius: 3, overflow: "hidden", cursor: "pointer", bgcolor: "#fff",
         border: `1px solid ${HAIRLINE}`,
@@ -130,14 +124,25 @@ export default function HomeScreen() {
         "&:focus-visible": { outline: `2px solid ${a.to}`, outlineOffset: 2 },
       }}
     >
+      {/* The colour area is composed, not left blank: a large ghost of the
+          app's own mark bleeds out of the corner behind the icon. A tall tile
+          then reads as a deliberate field rather than as an empty slab, which
+          is exactly what the lead tile looked like when it only held one icon. */}
       <Box sx={{
         flex: lead ? 1 : "0 0 auto",
-        minHeight: lead ? { xs: 110, lg: 150 } : { xs: 86, md: 94 },
+        minHeight: lead ? { xs: 132, lg: 196 } : { xs: 84, md: 90 },
+        position: "relative", overflow: "hidden",
         display: "grid", placeItems: "center",
         background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
-        "& svg": { fontSize: lead ? { xs: 42, lg: 58 } : 36 },
       }}>
-        {a.icon}
+        <Box aria-hidden sx={{
+          position: "absolute", right: lead ? -44 : -26, bottom: lead ? -56 : -30,
+          opacity: 0.16, lineHeight: 0,
+          "& svg": { fontSize: lead ? { xs: 190, lg: 268 } : 128 },
+        }}>{a.icon}</Box>
+        <Box sx={{ position: "relative", lineHeight: 0, "& svg": { fontSize: lead ? { xs: 46, lg: 62 } : 34 } }}>
+          {a.icon}
+        </Box>
       </Box>
 
       {/* Pinning sits on the tile it pins; a preference buried in a settings
@@ -146,7 +151,7 @@ export default function HomeScreen() {
         <Box
           component="button"
           aria-label={pins.includes(a.id) ? `Remove ${a.name} from the dock` : `Pin ${a.name} to the dock`}
-          onClick={(e) => { e.stopPropagation(); togglePin(a.id); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(a.id); }}
           sx={{
             position: "absolute", top: 10, right: 10, width: 26, height: 26,
             borderRadius: "50%", border: 0, cursor: "pointer", display: "grid", placeItems: "center",
@@ -160,16 +165,20 @@ export default function HomeScreen() {
         </Box>
       </Tooltip>
 
-      <Box sx={{ p: { xs: 2, md: 2.25 }, display: "grid", gap: 0.6, flex: lead ? "0 0 auto" : 1 }}>
+      {/* alignContent: start keeps name, line and contents as one block. They
+          were being pushed apart by a box that stretched to the row height. */}
+      <Box sx={{
+        p: { xs: 1.9, md: 2.1 }, display: "grid", gap: 0.55, alignContent: "start", flex: "0 0 auto",
+      }}>
         <Typography sx={{
           fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: lead ? { xs: "1.2rem", lg: "1.4rem" } : "1.08rem",
+          fontSize: lead ? { xs: "1.2rem", lg: "1.38rem" } : "1.04rem",
           fontWeight: 600, letterSpacing: "-0.02em", color: INK, lineHeight: 1.2,
         }}>{a.name}</Typography>
-        <Typography sx={{ fontSize: lead ? "0.92rem" : "0.85rem", color: MUTED, lineHeight: 1.45 }}>
+        <Typography sx={{ fontSize: lead ? "0.9rem" : "0.84rem", color: MUTED, lineHeight: 1.4 }}>
           {a.line}
         </Typography>
-        <Typography sx={{ mt: 0.5, fontSize: "0.72rem", color: FAINT, lineHeight: 1.4 }}>
+        <Typography sx={{ mt: 0.35, fontSize: "0.715rem", color: FAINT, lineHeight: 1.45 }}>
           {a.inside}
         </Typography>
       </Box>
@@ -181,9 +190,9 @@ export default function HomeScreen() {
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", pb: { xs: 13, md: 14 } }}>
       <Box sx={{
-        width: "100%", maxWidth: 1240, mx: "auto",
+        width: "100%", maxWidth: 1120, mx: "auto",
         px: { xs: 2.5, sm: 3, md: 4 }, pt: { xs: 3, md: 4 },
-        display: "flex", flexDirection: "column", gap: { xs: 2.5, md: 3 }, flex: 1,
+        display: "flex", flexDirection: "column", gap: { xs: 2.25, md: 2.75 },
       }}>
         {/* The wordmark, where a wordmark goes. The home screen does not need a
             headline telling you what you are looking at. */}
@@ -205,9 +214,10 @@ export default function HomeScreen() {
         {/* Bento: one app leads at twice the height, the rest fit around it.
             Asymmetry fills a wide screen where an even grid leaves a hole. */}
         <Box sx={{
-          flex: 1, display: "grid", gap: { xs: 2, md: 2.5 },
-          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "1.35fr 1fr 1fr" },
-          gridAutoRows: { lg: "minmax(0, 1fr)" },
+          display: "grid", gap: { xs: 1.75, md: 2 },
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "1.2fr 1fr 1fr" },
+          gridTemplateRows: { lg: "auto auto" },
+          alignItems: "stretch",
         }}>
           <Tile a={lead} lead />
           {rest.map((a) => <Tile key={a.id} a={a} />)}
@@ -231,8 +241,7 @@ export default function HomeScreen() {
           {APPS.filter((a) => pins.includes(a.id)).map((a) => (
             <Tooltip key={a.id} title={a.name}>
               <Box
-                role="link" tabIndex={0} aria-label={a.name}
-                onClick={go(a.href)} onKeyDown={keyGo(a.href)}
+                component={Link} href={a.href} aria-label={a.name}
                 sx={{
                   width: 42, height: 42, borderRadius: 2.6, display: "grid", placeItems: "center",
                   cursor: "pointer", color: "#fff", flexShrink: 0,
@@ -253,8 +262,7 @@ export default function HomeScreen() {
           {HUB_TOOLS.map((t) => (
             <Tooltip key={t.id} title={t.name}>
               <Box
-                role="link" tabIndex={0} aria-label={t.name}
-                onClick={go(t.href)} onKeyDown={keyGo(t.href)}
+                component={Link} href={t.href} aria-label={t.name}
                 sx={{
                   width: 42, height: 42, borderRadius: 2.6, display: "grid", placeItems: "center",
                   cursor: "pointer", color: "#44525e", bgcolor: "#eef2f5", flexShrink: 0,
