@@ -124,10 +124,10 @@ test("resolutionTally counts closed tickets only, largest first, with EUR and th
   ]);
 });
 
-test("isWon: only the three order outcomes, and only once closed", () => {
+test("isWon: only \"Ordered\" - one-shot orders and Bought at AP are lost", () => {
   assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "Ordered" })), true);
-  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot order" })), true);
-  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot C2S order" })), true);
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot order" })), false);
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot C2S order" })), false);
   // bought from Angst+Pfister, not APSOparts: not ours
   assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "Bought at AP" })), false);
   assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "No demand" })), false);

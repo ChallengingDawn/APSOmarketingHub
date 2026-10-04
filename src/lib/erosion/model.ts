@@ -225,12 +225,12 @@ export function isClosed(t: ErosionTicket): boolean {
 }
 
 /**
- * WON = the customer ordered from APSOparts again. Exactly these three outcomes
- * of the ESO/TSA resolution dropdown, read off the live tickets on 04.10.2026.
- * "Bought at AP" is deliberately NOT a win: the customer stayed with the group
- * but bought from Angst+Pfister, not from us. Change it here and nowhere else.
+ * WON = closed as "Ordered", and nothing else (SARCLA, 04.10.2026). A one-shot
+ * order - catalogue or C2S - is a single purchase, not the customer coming back,
+ * and "Bought at AP" went to Angst+Pfister, not to us: all three count as lost.
+ * Change it here and nowhere else.
  */
-export const WON_RESOLUTIONS: ReadonlySet<string> = new Set(["Ordered", "One-shot order", "One-shot C2S order"]);
+export const WON_RESOLUTIONS: ReadonlySet<string> = new Set(["Ordered"]);
 
 export function isWon(t: ErosionTicket): boolean {
   return isClosed(t) && t.resolution !== null && WON_RESOLUTIONS.has(t.resolution);

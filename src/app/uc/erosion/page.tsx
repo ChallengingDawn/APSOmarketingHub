@@ -478,17 +478,19 @@ function ByPerson({ owners }: { owners: OwnerRow[] }) {
   );
 }
 
-const CLOSED_PREVIEW = 12;
+const CLOSED_PAGE = 10;
 
 function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; reason: string | null; onClear: () => void }) {
-  const [all, setAll] = useState(false);
+  const [page, setPage] = useState(0);
+  // a new reason is a new list: start it at its first page
+  useEffect(() => setPage(0), [reason]);
   const closed = useMemo(
     () => tickets
       .filter((t) => isClosed(t) && (reason === null || outcomeLabel(t) === reason))
       .sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? "")),
     [tickets, reason],
   );
-  const shown = all ? closed : closed.slice(0, CLOSED_PREVIEW);
+  const shown = closed.slice(page * CLOSED_PAGE, page * CLOSED_PAGE + CLOSED_PAGE);
   return (
     <Box sx={{ mb: 3 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
@@ -518,10 +520,9 @@ function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; re
           );
         })}
       </Box>
-      {closed.length > CLOSED_PREVIEW && (
-        <Button size="small" onClick={() => setAll((v) => !v)} sx={{ mt: 1 }}>
-          {all ? "Show fewer" : `Show all ${closed.length}`}
-        </Button>
+      {closed.length > CLOSED_PAGE && (
+        <TablePagination component="div" count={closed.length} page={page} rowsPerPage={CLOSED_PAGE} rowsPerPageOptions={[CLOSED_PAGE]}
+          onPageChange={(_, p) => setPage(p)} />
       )}
     </Box>
   );
@@ -550,7 +551,8 @@ function Results({ tickets, board, stale }: { tickets: ErosionTicket[]; board: R
         </Grid>
       </Grid>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 2.5 }}>
-        Won = closed as {[...WON_RESOLUTIONS].join(", ")}. “Bought at AP” is not counted: that customer bought from Angst+Pfister, not from APSOparts.
+        Won = closed as {[...WON_RESOLUTIONS].join(", ")}. A one-shot order (catalogue or C2S) is a single purchase, not the customer
+        coming back, and “Bought at AP” went to Angst+Pfister: all three count as lost.
       </Typography>
 
       <Box sx={{ mb: 3 }}>

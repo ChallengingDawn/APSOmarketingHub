@@ -54,7 +54,7 @@ let ownersCache: { at: number; map: Map<string, string> } | null = null;
  * Only asked for when a ticket's owner is on neither roster. A failure here is
  * a raw id in one cell, not an error page.
  */
-async function ownerNames(signal?: AbortSignal): Promise<Map<string, string>> {
+export async function ownerNames(signal?: AbortSignal): Promise<Map<string, string>> {
   if (ownersCache && Date.now() - ownersCache.at < 60 * 60_000) return ownersCache.map;
   const map = new Map<string, string>();
   try {

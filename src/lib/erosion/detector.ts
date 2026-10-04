@@ -19,7 +19,16 @@ import { fixText } from "./model";
 export const PREV_YEAR = "2025";
 export const CUR_YEAR = "2026";
 /** The connector's first run (erosion_state.json). Nothing lapsing on or before it tickets. */
-export const WATERMARK = "2026-08-21";
+export const FIRST_RUN = "2026-08-21";
+/**
+ * The 01.10 rules (invoice-only, year from the INVOICE, open orders hold back) apply
+ * from the day they were made. Counting from the invoice moved ~138 anniversaries of
+ * 22.08-30.09 after the first-run date; SARCLA (04.10): "don't trigger these,
+ * calculate correctly moving forward". Same constant as RULES_FROM in the connector.
+ */
+export const RULES_FROM = "2026-10-01";
+/** Nothing lapsing on or before this tickets - the later of the two. */
+export const WATERMARK = FIRST_RUN > RULES_FROM ? FIRST_RUN : RULES_FROM;
 /** Per-owner floor, applied after routing and only when stricter: Luca Fantasia asked for 1000 EUR everywhere. */
 export const OWNER_MIN_REV: Record<string, number> = { "1229999587": 1000 };
 
@@ -348,6 +357,20 @@ export type OutlookItem = {
   due: string; un: string; month: string; company: string; amount: number;
   articles: string[]; article: string; team: string; owner: string;
 };
+
+/** The companies the forecast can name at all - same filters as buildOutlook, before any lookup. */
+export function outlookCompanies(agg: Map<string, Agg>, today: string, keys: Set<string>): string[] {
+  const lim = `${today.slice(0, 4)}-12-31`;
+  const uns = new Set<string>();
+  for (const [k, a] of agg) {
+    const [un, art] = k.split("\u0000");
+    if (a.revCur > 0.005 || !a.lastPrev || a.openCur || a.revPrev < countryMinRev(un)) continue;
+    const anniv = anniversary(a);
+    if (!(today < anniv && anniv <= lim) || keys.has(erosionKey(un, art))) continue;
+    uns.add(un);
+  }
+  return [...uns];
+}
 
 /**
  * Upcoming anniversaries not yet ticketed, one entry per company and MONTH, under
