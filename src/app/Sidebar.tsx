@@ -1,6 +1,6 @@
 "use client";
-import { Fragment, useState } from "react";
-import { usePathname } from "next/navigation";
+import { Fragment, Suspense, useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
 import ListItemButton from "@mui/material/ListItemButton";
 import Collapse from "@mui/material/Collapse";
@@ -54,6 +54,9 @@ import TrackChangesIcon from "@mui/icons-material/TrackChanges";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import CookieIcon from "@mui/icons-material/Cookie";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+import ProductionQuantityLimitsIcon from "@mui/icons-material/ProductionQuantityLimits";
+import RemoveShoppingCartOutlinedIcon from "@mui/icons-material/RemoveShoppingCartOutlined";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -190,7 +193,13 @@ const navSections: NavSection[] = [
     icon: <StorefrontIcon />,
     color: "#eb6834",
     items: [
-      { label: "Customers & articles", href: "/datatracker", icon: <StorefrontIcon fontSize="small" /> },
+      // The Datatracker's own tabs, so they can be reached - and seen to be open -
+      // from here. Each tab has its own address (?tab=), kept in step by the page.
+      { label: "Customers", href: "/datatracker", icon: <GroupsIcon fontSize="small" /> },
+      { label: "Articles", href: "/datatracker?tab=articles", icon: <Inventory2OutlinedIcon fontSize="small" /> },
+      { label: "Price checks", href: "/datatracker?tab=price-checks", icon: <PriceCheckIcon fontSize="small" /> },
+      { label: "MOQ", href: "/datatracker?tab=moq", icon: <ProductionQuantityLimitsIcon fontSize="small" /> },
+      { label: "Availability", href: "/datatracker?tab=availability", icon: <RemoveShoppingCartOutlinedIcon fontSize="small" /> },
     ],
   },
   {
@@ -326,18 +335,33 @@ function groupsOf(items: Item[]): { name: string | null; items: Item[] }[] {
   return out;
 }
 
+/**
+ * Reports the query string. Kept in its own component behind a Suspense boundary
+ * because useSearchParams would otherwise pull every page that renders the
+ * sidebar out of static rendering. It also follows a page's own
+ * history.replaceState (the Datatracker's tab clicks), which Next keeps in step.
+ */
+function SearchProbe({ onChange }: { onChange: (search: string) => void }) {
+  const search = useSearchParams().toString();
+  useEffect(() => onChange(search), [search, onChange]);
+  return null;
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const [search, setSearch] = useState("");
+  const here = search ? `${pathname}?${search}` : pathname;
 
   // Only ONE item active: the longest href that is an exact or parent-prefix
-  // match. Stops "/docs" collisions and "/" lighting up everywhere.
+  // match. Stops "/docs" collisions and "/" lighting up everywhere. An href that
+  // carries a query (the Datatracker's tabs) must match the address exactly.
   const activeHref = (() => {
     const all = navSections.flatMap((s) => [
       ...(s.home ? [s.home] : []),
       ...s.items.filter((i) => !i.placeholder).flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]),
     ]);
-    const matches = all.filter(
-      (h) => pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
+    const matches = all.filter((h) =>
+      h.includes("?") ? here === h : pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
     );
     return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
   })();
@@ -399,6 +423,7 @@ export default function Sidebar() {
         },
       }}
     >
+      <Suspense fallback={null}><SearchProbe onChange={setSearch} /></Suspense>
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <Box sx={{ flex: 1, overflowY: "auto", px: 1.5, pt: 2, pb: 1 }}>
           {scoped ? (

@@ -7,7 +7,8 @@
 // and views are counted by the shop on an essential-cookie basis, which is why
 // they cover every customer and GA4's numbers do not.
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
@@ -42,6 +43,7 @@ import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActi
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
 import type { RunReport } from "@/lib/integrations/priceCheckTickets";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
+import type { ContactCard } from "@/app/api/datatracker/contacts/route";
 
 /** What the alternatives route hands back for one article. */
 type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[];
@@ -107,6 +109,8 @@ const RANGES = [
 /** Portal 26492587 on the EU cluster; 0-2 = companies. Same as /customers. */
 const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
+/** 0-1 = contacts. */
+const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
 
 // What the SERVER sorts by, which decides which rows arrive first when there
 // are more than a page of them. Order value is not a HubSpot-sortable field, so
@@ -156,11 +160,27 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
     return () => { alive = false; };
   }, [wantNames]);
 
+  // Who was logged in: the gateway writes the HubSpot contact id on each line
+  // (`u`), so the row can name the person, not only the company. One batch read
+  // when the row opens; lines from before October carry no id and show "—".
+  const [people, setPeople] = useState<Record<string, ContactCard>>({});
+  const wantPeople = [...new Set(lines.map((l) => l.contact).filter((c): c is string => !!c))].join(",");
+  useEffect(() => {
+    if (!wantPeople) return;
+    let alive = true;
+    fetch(`/api/datatracker/contacts?ids=${wantPeople}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive && j?.ok && j.data) setPeople(j.data as Record<string, ContactCard>); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [wantPeople]);
+  const personLabel = (id: string | null) => (id ? people[id]?.email ?? people[id]?.name ?? `contact ${id}` : null);
+
   const payload = ordered && ordered !== "loading" && ordered !== "error" ? ordered : null;
   const byArticle = new Map((payload?.lines ?? []).map((l) => [l.article, l]));
   const everBought = new Set(payload?.articles ?? []);
 
-  type Row = { key: string; article: string | null; product: string | null; lookedAt: string | null; qtyTyped: number | null; cart: boolean; reported: boolean };
+  type Row = { key: string; article: string | null; product: string | null; lookedAt: string | null; qtyTyped: number | null; cart: boolean; reported: boolean; contact: string | null };
   const rows: Row[] = [];
   const seen = new Set<string>();
   // Once the quantity lookup has named the article, the bare product-page line
@@ -172,13 +192,13 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
     const key = v.article ?? `p:${v.product}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    rows.push({ key, article: v.article, product: v.product, lookedAt: v.t, qtyTyped: v.qty, cart: v.cart, reported: v.ordered });
+    rows.push({ key, article: v.article, product: v.product, lookedAt: v.t, qtyTyped: v.qty, cart: v.cart, reported: v.ordered, contact: v.contact });
   }
   // Ordered in this window but never seen being looked at - the Metrohm case.
   for (const l of payload?.lines ?? []) {
     if (seen.has(l.article)) continue;
     seen.add(l.article);
-    rows.push({ key: l.article, article: l.article, product: null, lookedAt: null, qtyTyped: null, cart: false, reported: false });
+    rows.push({ key: l.article, article: l.article, product: null, lookedAt: null, qtyTyped: null, cart: false, reported: false, contact: null });
   }
   rows.sort((a, b) => {
     const va = byArticle.get(a.article ?? "")?.revenue ?? 0;
@@ -202,13 +222,32 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
   const h = { ...c, fontWeight: 700, color: MUTED, fontSize: "0.67rem",
     textTransform: "uppercase" as const, letterSpacing: 0.4, whiteSpace: "nowrap" as const };
 
+  // Everyone who was logged in for these lines, most recent first.
+  const loggedIn = [...new Set([...lines].reverse().map((l) => l.contact).filter((c): c is string => !!c))];
+
   return (
+    <>
+    {loggedIn.length > 0 && (
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
+        Logged in as{" "}
+        {loggedIn.map((id, i) => (
+          <Fragment key={id}>
+            {i > 0 && " · "}
+            <Link href={hsContactUrl(id)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK, fontWeight: 600 }}
+              title={people[id]?.name ?? undefined}>
+              {personLabel(id)}
+            </Link>
+          </Fragment>
+        ))}
+      </Typography>
+    )}
     <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
       <TableHead>
         <TableRow>
           <TableCell sx={{ ...h, width: 120 }}>Looked at</TableCell>
           <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
           <TableCell sx={h}>Description</TableCell>
+          <TableCell sx={{ ...h, width: 210 }}>Contact</TableCell>
           <TableCell align="right" sx={{ ...h, width: 76 }}>Qty</TableCell>
           <TableCell align="center" sx={{ ...h, width: 70 }}>In cart</TableCell>
           <TableCell align="center" sx={{ ...h, width: 78 }}>Ordered</TableCell>
@@ -238,6 +277,11 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
                     anything. */}
                 {o?.description ?? named ?? (r.article ? "no catalogue record" : "product page, no size chosen")}
               </TableCell>
+              <TableCell sx={{ ...c, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.contact ? people[r.contact]?.name ?? "" : ""}>
+                {r.contact
+                  ? <Link href={hsContactUrl(r.contact)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}>{personLabel(r.contact)}</Link>
+                  : <Box component="span" sx={{ color: MUTED }}>—</Box>}
+              </TableCell>
               <TableCell align="right" sx={{ ...c, color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
                 {qty == null ? "—" : decimal(qty, 0)}
               </TableCell>
@@ -255,6 +299,7 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
         })}
       </TableBody>
     </Table>
+    </>
   );
 }
 
@@ -439,7 +484,25 @@ function LookTable({ rows, kind, mandantOf }: {
   );
 }
 
-export default function EshopActivityPage() {
+type TabId = "customers" | "articles" | "priceCheck" | "moq" | "availability";
+/** The address of each tab, as the sidebar links to it (?tab=<slug>). */
+const SLUG_OF_TAB: Record<TabId, string> = {
+  customers: "customers", articles: "articles", priceCheck: "price-checks", moq: "moq", availability: "availability",
+};
+const TAB_OF_SLUG: Record<string, TabId> = Object.fromEntries(
+  Object.entries(SLUG_OF_TAB).map(([t, s]) => [s, t as TabId]),
+);
+
+/** useSearchParams needs a Suspense boundary, or the page leaves static rendering. */
+export default function DatatrackerPage() {
+  return (
+    <Suspense fallback={null}>
+      <EshopActivityPage />
+    </Suspense>
+  );
+}
+
+function EshopActivityPage() {
   const [data, setData] = useState<EshopActivity | null>(null);
   const [extraRows, setExtraRows] = useState<EshopActivity["rows"]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -471,14 +534,29 @@ export default function EshopActivityPage() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"customers" | "articles" | "priceCheck" | "moq" | "availability">("customers");
 
-  // A plain #hash is the only part of a URL that reaches this page, so it is how
-  // another app links straight to one tab - /uc/price-checks lands here.
+  // Each tab has its own address - /datatracker?tab=moq - so the sidebar can list
+  // the tabs, open one and show which is open. A click here changes the address
+  // with history.replaceState, which Next keeps in step with the sidebar, and the
+  // page is not reloaded, so the period and the filters stay as they are. The
+  // old #hash links (#price-checks, #articles ...) still land on their tab.
+  const urlTab = useSearchParams().get("tab");
   useEffect(() => {
-    const want = { "#price-checks": "priceCheck", "#articles": "articles",
-                   "#moq": "moq", "#availability": "availability" } as const;
-    const t = want[window.location.hash as keyof typeof want];
-    if (t) setTab(t);
+    const fromHash = TAB_OF_SLUG[window.location.hash.replace("#", "")];
+    setTab(TAB_OF_SLUG[urlTab ?? ""] ?? fromHash ?? "customers");
+  }, [urlTab]);
+  // A #hash link followed while the page is already open changes only the hash.
+  useEffect(() => {
+    const onHash = () => {
+      const t = TAB_OF_SLUG[window.location.hash.replace("#", "")];
+      if (t) setTab(t);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  const selectTab = (t: typeof tab) => {
+    setTab(t);
+    window.history.replaceState(null, "", t === "customers" ? "/datatracker" : `/datatracker?tab=${SLUG_OF_TAB[t]}`);
+  };
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
@@ -860,7 +938,7 @@ export default function EshopActivityPage() {
           ["moq", "MOQ", signals?.moq.length ?? null],
           ["availability", "Availability", signals?.availability.length ?? null],
         ] as [typeof tab, string, number | null][]).map(([id, label, count]) => (
-          <Box key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+          <Box key={id} role="tab" aria-selected={tab === id} onClick={() => selectTab(id)}
             sx={{
               display: "flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.85, borderRadius: 2,
               cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
@@ -1011,7 +1089,11 @@ export default function EshopActivityPage() {
                     jumble - so the labels are short enough to fit and the widths
                     count the sort arrow, which is ~18px nobody had budgeted for.
                     Anything shortened keeps its full wording on hover. */}
-                {([["mandant", "Mandant", 76, ""], ["customerNumber", "Customer no.", 112, ""], ["name", "Customer", 0, ""],
+                {/* Customer has a width of its own. It used to take whatever the
+                    other columns left, and at 1440 px beside the app panel that was
+                    3 px - the names vanished. Better the table scrolls sideways
+                    than the one column that says who it is disappears. */}
+                {([["mandant", "Mandant", 76, ""], ["customerNumber", "Customer no.", 112, ""], ["name", "Customer", 200, ""],
                    ["country", "Country", 92, ""], ["representative", "Representative", 136, ""],
                    ["apsoCustomer", "Selection", 104, "Selection criterion"], ["salesPriority", "Priority", 88, ""]] as [SortKey, string, number, string][]).map(([k, h, w, full]) => (
                   <TableCell key={k} title={full || undefined} sx={{ fontWeight: 600, color: MUTED, ...(w ? { width: w } : {}),

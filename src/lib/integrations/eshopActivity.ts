@@ -32,6 +32,9 @@ export type ActivityLine = {
   qty: number | null;
   cart: boolean;
   ordered: boolean;
+  /** The HubSpot contact who was logged in when the line was recorded (`u`) -
+   *  written by the gateway since early October; null on older lines. */
+  contact: string | null;
 };
 
 type ActivityJson = {
@@ -42,7 +45,7 @@ type ActivityJson = {
    * only `a` joins to stock, price and orders. `q` is the quantity the customer
    * typed, `c` that it went in the cart, `o` that it was bought.
    */
-  recent?: { t?: string; a?: string; p?: string; q?: number; c?: number; o?: number }[];
+  recent?: { t?: string; a?: string; p?: string; q?: number; c?: number; o?: number; u?: string | number }[];
 };
 
 /** Sum the live counters between two ISO days, inclusive. Null when untouched. */
@@ -257,6 +260,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
               qty: typeof r.q === "number" && r.q > 0 ? r.q : null,
               cart: r.c === 1,
               ordered: r.o === 1,
+              contact: r.u != null && String(r.u).trim() ? String(r.u).trim() : null,
             }))
             .slice(-12);
         } catch { return []; }
