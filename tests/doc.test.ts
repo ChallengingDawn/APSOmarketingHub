@@ -5,6 +5,7 @@ import { displayName, genderOf } from "../src/lib/doc/salutation";
 import { boardRow, leadingStatus, phaseOf } from "../src/lib/doc/board";
 import { dedupeName } from "../src/lib/doc/magento";
 import { TEXTS } from "../src/lib/doc/texts";
+import { copyTo, isInternalAddress } from "../src/lib/doc/config";
 
 const INVOICED = "5093092552";
 const CANCELLED = "5676846286";
@@ -134,6 +135,19 @@ test("a board row names the furthest ERP stage and the time it was sent", () => 
   assert.equal(row.erpStage, "Invoiced");
   assert.equal(row.sentAt, "2026-10-02T07:15Z");
   assert.deepEqual(row.steps, { ordered: true, linked: true, invoiced: true, emailed: true });
+});
+
+// ── the follow-along copy ────────────────────────────────────────────────
+
+test("copies go to our own mailboxes only, each once", () => {
+  assert.deepEqual(copyTo("claudio.saraiva@apsoparts.com"), ["claudio.saraiva@apsoparts.com"]);
+  assert.deepEqual(
+    copyTo(" Claudio.Saraiva@apsoparts.com; someone@angst-pfister.com, claudio.saraiva@apsoparts.com "),
+    ["claudio.saraiva@apsoparts.com", "someone@angst-pfister.com"],
+  );
+  assert.deepEqual(copyTo("buyer@customer.ch, claudio.saraiva2apsoparts.com"), []);
+  assert.deepEqual(copyTo(null), []);
+  assert.equal(isInternalAddress("x@apsoparts.com.evil.io"), false);
 });
 
 // ── shop line names ──────────────────────────────────────────────────────

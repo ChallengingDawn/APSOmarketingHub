@@ -8,7 +8,7 @@ import { getOptionalUser } from "@/lib/auth/guard";
 import { describeIntegrationError, hubspotToken } from "@/lib/integrations/status";
 import { declarationBoard, readRuns, sentToday, type Runs } from "@/lib/doc/engine";
 import {
-  CAPTURE_EVERY_MIN, SWEEP_EVERY_MIN, captureFrom, captureOn, magentoConfigured, maxPerDay,
+  CAPTURE_EVERY_MIN, SWEEP_EVERY_MIN, captureFrom, captureOn, copyTo, magentoConfigured, maxPerDay,
   missingForDocuments, sendingOn, smtpConfigured,
 } from "@/lib/doc/config";
 
@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
           lastCapture: runs.lastCapture ?? null,
           lastSweep: runs.lastSweep ?? null,
           sentToday: sent,
+          copyTo: copyTo(),
           maxPerDay: maxPerDay(),
           isAdmin: user.role === "admin",
         },

@@ -62,6 +62,7 @@ const EXPECTED_ENV = [
   "DOC_BACKEND_KEY",
   "DOC_CAPTURE_FROM",
   "DOC_SEND_EMAIL",
+  "DOC_COPY_TO",
 ] as const;
 
 function shapeOf(name: string, value: string): string {

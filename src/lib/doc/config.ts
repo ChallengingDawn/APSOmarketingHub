@@ -47,6 +47,23 @@ export function maxPerDay(): number {
   return Number(env("DOC_MAX_PER_DAY") ?? 40);
 }
 
+const INTERNAL_ADDRESS = /^[^@\s]+@(apsoparts\.com|angst-pfister\.com)$/i;
+
+/** Our own mailboxes only: a declaration email carries a customer's order. */
+export function isInternalAddress(address: string): boolean {
+  return INTERNAL_ADDRESS.test(address.trim());
+}
+
+/**
+ * DOC_COPY_TO: who gets a separate copy of every declaration email sent to a
+ * customer, to follow the sends. A copy, not a Bcc: a Bcc rides on the
+ * customer's own message, so a refused extra recipient could sink the customer's
+ * email with it. Anything that is not one of our addresses is ignored.
+ */
+export function copyTo(raw: string | null = env("DOC_COPY_TO")): string[] {
+  return [...new Set((raw ?? "").split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(isInternalAddress))];
+}
+
 export function captureFrom(): number {
   return Date.parse(env("DOC_CAPTURE_FROM") ?? "") || 0;
 }

@@ -29,7 +29,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { kvGet, kvSet } from "@/lib/db/init";
 import {
   AP_NUMBER, CANCELLED, DOC_SKU, FEE_SKUS, FROM, INVOICED, REPLY_TO, REQUEST_PROP, STATUS_PROP,
-  TICKET_PIPELINE_ID, TICKET_STAGE_ID, WEB_PROP, backend, captureFrom, captureOn, expireDays,
+  TICKET_PIPELINE_ID, TICKET_STAGE_ID, WEB_PROP, backend, captureFrom, captureOn, copyTo, expireDays,
   maxPerDay, sendingOn, smtp,
 } from "./config";
 import { esc, greetingFor, languageFor, renderEmail, type Greeting, type RenderedEmail } from "./email";
@@ -444,6 +444,16 @@ async function deliver(p: { webNo: string; base: string; orderIds: string[]; log
   await countSent();
   const status = `sent ${new Date().toISOString().slice(0, 16)}Z (${files.length} declaration${files.length === 1 ? "" : "s"})`;
   await setStatus(p.orderIds, status);
+
+  // The follow-along copy goes AFTER the customer's email is out and stamped, as
+  // its own message: the customer never sees it, and a failed copy changes nothing.
+  for (const copy of copyTo()) {
+    try {
+      await sendMail({ to: copy, subject: `[DoC copy for ${v.recipient}] ${v.mail.subject}`, html: v.mail.html, text: v.mail.text, files });
+    } catch (e) {
+      p.log.warn(`[doc] the copy of ${p.webNo} to ${copy} failed: ${(e as Error).message}`);
+    }
+  }
   try {
     await logEmail({ orderIds: p.orderIds, contactId: contact?.id, companyId: contact?.companyId, to: v.recipient, mail: v.mail, files, log: p.log });
   } catch (e) {

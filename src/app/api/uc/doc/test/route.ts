@@ -9,13 +9,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { resolveWebNumber, sendTest } from "@/lib/doc/engine";
-import { magentoConfigured, smtpConfigured } from "@/lib/doc/config";
+import { isInternalAddress, magentoConfigured, smtpConfigured } from "@/lib/doc/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
-
-const INTERNAL = /^[^@\s]+@(apsoparts\.com|angst-pfister\.com)$/i;
 
 export async function POST(req: NextRequest) {
   const user = await getOptionalUser();
@@ -29,7 +27,7 @@ export async function POST(req: NextRequest) {
   const order = (sp.get("web") ?? "").trim();
   const to = (sp.get("to") ?? "").trim();
   if (!order) return NextResponse.json({ ok: false, error: "web=<shop or ERP order number> is required." }, { status: 400 });
-  if (!INTERNAL.test(to)) {
+  if (!isInternalAddress(to)) {
     return NextResponse.json({ ok: false, error: "to= must be an @apsoparts.com or @angst-pfister.com address." }, { status: 400 });
   }
 

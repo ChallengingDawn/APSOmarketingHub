@@ -53,7 +53,7 @@ type DocData = {
     captureOn: boolean; sendingOn: boolean; captureFrom: string | null;
     smtpConfigured: boolean; magentoConfigured: boolean; missingForDocuments: string[];
     captureEveryMin: number; sweepEveryMin: number; lastCapture: Run; lastSweep: Run;
-    sentToday: number; maxPerDay: number; isAdmin: boolean;
+    sentToday: number; maxPerDay: number; isAdmin: boolean; copyTo?: string[];
   };
 };
 
@@ -315,6 +315,11 @@ export default function DocApp() {
             sx={{ borderColor: svc.smtpConfigured ? GREEN : GREY, color: svc.smtpConfigured ? GREEN : MUTED }} />
           {svc.sendingOn && (
             <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{full(svc.sentToday)} of {full(svc.maxPerDay)} sent today (daily breaker)</Typography>
+          )}
+          {svc.sendingOn && !!svc.copyTo?.length && (
+            <Tooltip title="Each declaration email is also sent, as a separate message after the customer's, to these addresses. The customer does not see it." arrow>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>· copy of every email to {svc.copyTo.join(", ")}</Typography>
+            </Tooltip>
           )}
         </Box>
         {!readOnly && (
