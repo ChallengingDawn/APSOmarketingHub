@@ -33,6 +33,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
+import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 
 const INK = "#15223a";
@@ -122,7 +123,7 @@ export default function FrontPage() {
 
   return (
     <Box sx={{
-      minHeight: "100vh", position: "relative", overflowX: "hidden", bgcolor: "#f7f8fc",
+      minHeight: "100vh", position: "relative", overflowX: "hidden", bgcolor: MESH_BASE,
       // One rule for the whole page: somebody who asked their system for less
       // motion gets none, and no component has to remember to opt out.
       "@media (prefers-reduced-motion: reduce)": {
@@ -134,47 +135,8 @@ export default function FrontPage() {
         },
       },
       "@keyframes riseIn": { from: { opacity: 0, transform: "translateY(14px)" }, to: { opacity: 1, transform: "none" } },
-      "@keyframes driftA": {
-        "0%,100%": { transform: "translate3d(0,0,0) scale(1)" },
-        "50%": { transform: "translate3d(6%,4%,0) scale(1.12)" },
-      },
-      "@keyframes driftB": {
-        "0%,100%": { transform: "translate3d(0,0,0) scale(1.05)" },
-        "50%": { transform: "translate3d(-7%,5%,0) scale(.95)" },
-      },
-      "@keyframes driftC": {
-        "0%,100%": { transform: "translate3d(0,0,0) scale(1)" },
-        "50%": { transform: "translate3d(4%,-6%,0) scale(1.1)" },
-      },
     }}>
-      {/* The mesh. Four soft fields on their own slow paths — the colour moves,
-          so the page is never quite the same twice, and it never pulls focus. */}
-      <Box aria-hidden sx={{
-        position: "fixed", inset: "-18%", zIndex: 0, pointerEvents: "none", filter: "blur(10px)",
-        "& > span": { position: "absolute", borderRadius: "50%", display: "block" },
-        "@media (prefers-reduced-motion: reduce)": { "& > span": { animation: "none !important" } },
-      }}>
-        <Box component="span" sx={{
-          width: "58%", height: "62%", left: "-6%", top: "-8%",
-          background: "radial-gradient(circle, rgba(196,181,253,.62), transparent 68%)",
-          animation: "driftA 26s ease-in-out infinite",
-        }} />
-        <Box component="span" sx={{
-          width: "52%", height: "58%", right: "-8%", top: "-4%",
-          background: "radial-gradient(circle, rgba(251,207,232,.60), transparent 68%)",
-          animation: "driftB 31s ease-in-out infinite",
-        }} />
-        <Box component="span" sx={{
-          width: "60%", height: "60%", right: "4%", bottom: "-14%",
-          background: "radial-gradient(circle, rgba(165,216,243,.58), transparent 68%)",
-          animation: "driftC 29s ease-in-out infinite",
-        }} />
-        <Box component="span" sx={{
-          width: "46%", height: "52%", left: "4%", bottom: "-10%",
-          background: "radial-gradient(circle, rgba(167,233,202,.52), transparent 68%)",
-          animation: "driftA 35s ease-in-out infinite reverse",
-        }} />
-      </Box>
+      <MeshBackground />
 
       <Box sx={{ position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 } }}>
 

@@ -2,6 +2,7 @@
 import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
+import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { ReportingWindowProvider } from "./window/ReportingWindow";
 
 /**
@@ -50,7 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isLaunchPad = pathname === "/";
   if (isLaunchPad) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: "#f5f6f8" }}>
+      <Box sx={{ minHeight: "100vh", bgcolor: MESH_BASE }}>
         <ReportingWindowProvider>{children}</ReportingWindowProvider>
       </Box>
     );
@@ -60,13 +61,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isFullBleed = pathname === "/personality";
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f5f6f8" }}>
+    // The same mesh as the front page. One surface rather than a colourful
+    // door onto a grey room — and the frosted panels on top need something to
+    // be glass over.
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: MESH_BASE, position: "relative" }}>
+      <MeshBackground />
       <Sidebar />
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           minWidth: 0,
+          position: "relative",
+          zIndex: 1,
           p: isFullBleed ? 0 : padded ? 2 : 0,
           overflow: isFullBleed ? "hidden" : "auto",
           height: isFullBleed ? "100vh" : "auto",

@@ -67,8 +67,30 @@ export function ensureSchema(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    // WHO MAY OPEN WHICH APP.
+    //
+    // One row per person per app. The ROLE caps how far a grant can go — a
+    // viewer's grant never resolves above read, whatever this says — so a
+    // promotion or a demotion needs no rewriting of grants.
+    //
+    // No row means no access. That is deliberate: a new account can see
+    // nothing until somebody grants it, so an account created by mistake is
+    // harmless by construction.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_user_app_access (
+        user_id INTEGER NOT NULL REFERENCES apsomh_users(id) ON DELETE CASCADE,
+        app_key VARCHAR(48) NOT NULL,
+        level VARCHAR(8) NOT NULL DEFAULT 'read',
+        granted_by VARCHAR(255),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, app_key)
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_access_user ON apsomh_user_app_access(user_id)`
+    );
     // eslint-disable-next-line no-console
-    console.log('[db] apsomh schema ready (users, kv, content, audit)');
+    console.log('[db] apsomh schema ready (users, kv, content, audit, app access)');
   })().catch((err) => {
     initPromise = null;
     throw err;
