@@ -70,6 +70,21 @@ export async function PATCH(
   const sql = `UPDATE apsomh_users SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING id`;
   const r = await query<{ id: number }>(sql, vals);
   if (r.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Who changed whose role, who reset whose password — exactly what an audit
+  // log is for, and this endpoint was writing none of it. The new password is
+  // NOT recorded; only that one was set.
+  await query(
+    `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
+    [me.username, 'user.update', JSON.stringify({
+      userId,
+      role: b.role,
+      isActive: b.isActive,
+      passwordReset: b.resetPassword !== undefined || undefined,
+      totpReset: b.resetTotp || undefined,
+    })],
+  ).catch(() => { /* never fail the change because the log did */ });
+
   return NextResponse.json({ ok: true });
 }
 

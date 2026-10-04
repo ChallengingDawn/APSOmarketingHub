@@ -3,6 +3,7 @@ import { usePathname } from "next/navigation";
 import Box from "@mui/material/Box";
 import Sidebar from "./Sidebar";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
+import { ViewAsProvider } from "./ViewAs";
 import { ReportingWindowProvider } from "./window/ReportingWindow";
 
 /**
@@ -51,9 +52,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isLaunchPad = pathname === "/";
   if (isLaunchPad) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: MESH_BASE }}>
-        <ReportingWindowProvider>{children}</ReportingWindowProvider>
-      </Box>
+      <ViewAsProvider>
+        <Box sx={{ minHeight: "100vh", bgcolor: MESH_BASE }}>
+          <ReportingWindowProvider>{children}</ReportingWindowProvider>
+        </Box>
+      </ViewAsProvider>
     );
   }
 
@@ -64,6 +67,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // The same mesh as the front page. One surface rather than a colourful
     // door onto a grey room — and the frosted panels on top need something to
     // be glass over.
+    <ViewAsProvider>
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: MESH_BASE, position: "relative" }}>
       {/* Quiet here: an app screen is mostly empty below its content, so the
           wash would be the whole lower half of the window at full strength. */}
@@ -84,5 +88,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <ReportingWindowProvider>{children}</ReportingWindowProvider>
       </Box>
     </Box>
+    </ViewAsProvider>
   );
 }

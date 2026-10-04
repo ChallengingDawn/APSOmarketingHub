@@ -19,10 +19,20 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import PeopleIcon from "@mui/icons-material/People";
-import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
+import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
+import { useRouter } from "next/navigation";
+
 import { APPS } from "@/app/hubApps";
+import { useViewAs } from "@/app/ViewAs";
 import {
   ROLE_LABEL, ROLE_NOTE, effectiveLevel, levelsFor, type Level, type Role,
 } from "@/lib/auth/access";
@@ -65,12 +75,16 @@ function ago(iso: string | null): string {
 }
 
 export default function PeopleAccess() {
+  const router = useRouter();
+  const { setViewed } = useViewAs();
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [me, setMe] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [role, setRole] = useState<"all" | Role>("all");
   const [selected, setSelected] = useState<number | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [pw, setPw] = useState<{ person: Person; value: string; done: boolean } | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/admin/people")
@@ -82,6 +96,56 @@ export default function PeopleAccess() {
       .catch((e) => setError(String(e)));
   }, []);
   useEffect(load, [load]);
+
+  // Your own id, so the screen can refuse what the server would refuse anyway:
+  // nobody changes their own role.
+  useEffect(() => {
+    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.user) setMe(j.user.id as number); })
+      .catch(() => {});
+  }, []);
+
+  /**
+   * Role, suspension, a new password, a cleared second factor — all four go to
+   * the endpoint that already knew how to do them, rather than a second copy
+   * here that would drift away from its guards.
+   */
+  const patch = async (
+    p: Person,
+    body: { role?: Role; isActive?: boolean; resetPassword?: string; resetTotp?: boolean },
+    local?: Partial<Person>,
+  ) => {
+    setSaving(`${p.id}:role`);
+    setError(null);
+    try {
+      const r = await fetch(`/api/admin/users/${p.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j?.error) { setError(j?.error ?? "That change was refused."); return false; }
+      if (local) setPeople((cur) => (cur ?? []).map((x) => (x.id === p.id ? { ...x, ...local } : x)));
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  /**
+   * A password the admin never invents. Generated here, shown once, and the
+   * account is forced to change it at the next sign-in — so a password an admin
+   * has seen is only ever good for one login.
+   */
+  const newPassword = () => {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    const bytes = new Uint32Array(18);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  };
 
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -202,13 +266,34 @@ export default function PeopleAccess() {
                           </Box>
                         </Box>
                       </Box>
-                      <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
-                        <Tooltip title={ROLE_NOTE[p.role]}>
-                          <Chip size="small" label={ROLE_LABEL[p.role]} sx={{
-                            height: 22, fontSize: "0.72rem", fontWeight: 700,
-                            bgcolor: ROLE_TINT[p.role].bg, color: ROLE_TINT[p.role].fg,
-                          }} />
-                        </Tooltip>
+                      <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}` }}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                        {p.id === me ? (
+                          <Tooltip title="You cannot change your own role. Ask another admin.">
+                            <Chip size="small" label={ROLE_LABEL[p.role]} sx={{
+                              height: 22, fontSize: "0.72rem", fontWeight: 700,
+                              bgcolor: ROLE_TINT[p.role].bg, color: ROLE_TINT[p.role].fg,
+                            }} />
+                          </Tooltip>
+                        ) : (
+                          <Select
+                            size="small"
+                            value={p.role}
+                            disabled={saving === `${p.id}:role`}
+                            onChange={(e) => patch(p, { role: e.target.value as Role }, { role: e.target.value as Role })}
+                            sx={{
+                              minWidth: 104, fontSize: "0.78rem", fontWeight: 700,
+                              color: ROLE_TINT[p.role].fg,
+                              "& .MuiOutlinedInput-notchedOutline": { borderColor: "transparent" },
+                              bgcolor: ROLE_TINT[p.role].bg, borderRadius: "999px",
+                              "& .MuiSelect-select": { py: 0.35 },
+                            }}
+                          >
+                            {(["admin", "user", "viewer"] as Role[]).map((r) => (
+                              <MenuItem key={r} value={r} sx={{ fontSize: "0.85rem" }}>{ROLE_LABEL[r]}</MenuItem>
+                            ))}
+                          </Select>
+                        )}
                       </Box>
                       <Box component="td" sx={{ px: 1, borderBottom: `1px solid ${HAIRLINE}`, whiteSpace: "nowrap" }}>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -315,6 +400,52 @@ export default function PeopleAccess() {
               )}
             </Box>
 
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {/* A preview, not a login: it changes what the screens draw, never
+                  what the server will do for you. */}
+              <Button
+                size="small" variant="outlined" startIcon={<VisibilityIcon />}
+                onClick={() => {
+                  setViewed({ id: person.id, name: person.full_name || person.username, role: person.role, access: person.access });
+                  router.push("/");
+                }}
+                sx={{ textTransform: "none", borderRadius: "12px" }}
+              >
+                View as {(person.full_name || person.username).split(" ")[0]}
+              </Button>
+              <Button
+                size="small" variant="outlined" startIcon={<KeyOutlinedIcon />}
+                disabled={saving === `${person.id}:role`}
+                onClick={() => { setPw({ person, value: newPassword(), done: false }); }}
+                sx={{ textTransform: "none", borderRadius: "12px" }}
+              >
+                Reset password
+              </Button>
+              {person.totp_enrolled && (
+                <Button
+                  size="small" startIcon={<ShieldOutlinedIcon />}
+                  disabled={saving === `${person.id}:role`}
+                  onClick={async () => {
+                    if (!confirm(`Clear ${person.full_name || person.username}'s second factor? They will enrol a new authenticator at their next sign-in. Only do this if you have spoken to them.`)) return;
+                    await patch(person, { resetTotp: true }, { totp_enrolled: false });
+                  }}
+                  sx={{ textTransform: "none", color: MUTED }}
+                >
+                  Reset two-factor
+                </Button>
+              )}
+              {person.id !== me && (
+                <Button
+                  size="small" color={person.is_active ? "inherit" : "primary"}
+                  disabled={saving === `${person.id}:role`}
+                  onClick={() => patch(person, { isActive: !person.is_active }, { is_active: !person.is_active })}
+                  sx={{ textTransform: "none", color: person.is_active ? MUTED : undefined }}
+                >
+                  {person.is_active ? "Suspend account" : "Restore account"}
+                </Button>
+              )}
+            </Box>
+
             <Box sx={{ pt: 1.5, borderTop: `1px solid ${HAIRLINE}` }}>
               <Typography sx={{
                 fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em",
@@ -341,6 +472,43 @@ export default function PeopleAccess() {
         )}
       </Box>
 
+      {/* Shown once. There is no mail from here yet, so the admin hands it over
+          themselves — and because it must be changed at the next sign-in, a
+          password an admin has seen is good for exactly one login. */}
+      <Dialog open={!!pw} onClose={() => setPw(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
+          {pw?.done ? "Password set" : `Reset password for ${pw?.person.full_name || pw?.person.username}`}
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
+            {pw?.done
+              ? "Give them this once, by a route you trust. They must change it when they sign in, and it will not be shown again."
+              : "A password is generated rather than chosen, so nobody picks one they have used elsewhere. Nothing changes until you confirm."}
+          </Typography>
+          <Box sx={{
+            fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "1rem",
+            p: 1.5, borderRadius: "12px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+            wordBreak: "break-all", userSelect: "all",
+          }}>{pw?.value}</Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {pw?.done ? (
+            <Button onClick={() => setPw(null)} variant="contained" sx={{ textTransform: "none" }}>Done</Button>
+          ) : (
+            <>
+              <Button onClick={() => setPw(null)} sx={{ textTransform: "none", color: MUTED }}>Cancel</Button>
+              <Button
+                variant="contained" sx={{ textTransform: "none" }}
+                onClick={async () => {
+                  if (!pw) return;
+                  const ok = await patch(pw.person, { resetPassword: pw.value });
+                  if (ok) setPw({ ...pw, done: true });
+                }}
+              >Set this password</Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

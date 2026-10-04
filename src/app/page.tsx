@@ -36,6 +36,7 @@ import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
+import { useViewAs } from "./ViewAs";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -79,6 +80,10 @@ const rise = (i: number) => ({
 
 export default function FrontPage() {
   const router = useRouter();
+  // While previewing somebody, the wall shows what THEY would get: the apps
+  // they can open, and the rest locked rather than hidden, so you can see both
+  // what they have and what they are missing.
+  const { viewed, canOpen } = useViewAs();
   const [initials, setInitials] = useState("");
   const [q, setQ] = useState("");
   const [openSearch, setOpenSearch] = useState(false);
@@ -159,6 +164,7 @@ export default function FrontPage() {
                 fontSize: 26, fontWeight: 700, letterSpacing: "-0.03em",
                 background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
                 WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+                display: "inline-block", pr: "0.08em",
               }}>hub</Box>
             </Box>
             <Typography sx={{ fontSize: "0.68rem", color: FAINT, mt: 0.3 }}>apsoparts.com</Typography>
@@ -270,11 +276,15 @@ export default function FrontPage() {
           {APPS.map((a, i) => {
             const open = !!expanded[a.key];
             const shown = open ? a.subs : a.subs.slice(0, 3);
+            const locked = !canOpen(a.key);
             return (
               <Box key={a.key} sx={{
                 ...glass, borderRadius: "22px", p: { xs: 2, md: 2.1 },
                 display: "flex", flexDirection: "column", gap: 1.5,
                 background: `linear-gradient(170deg, ${a.wash}, rgba(255,255,255,.64) 58%)`,
+                opacity: locked ? 0.45 : 1,
+                filter: locked ? "saturate(.35)" : "none",
+                position: "relative",
                 transition: "transform .22s cubic-bezier(.22,.8,.3,1), box-shadow .22s ease",
                 "&:hover": { transform: "translateY(-4px)", boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 24px 52px rgba(31,45,78,.12)" },
                 "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
@@ -285,6 +295,14 @@ export default function FrontPage() {
                   background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
                   boxShadow: `0 10px 22px ${a.wash}`, "& svg": { fontSize: 31 },
                 }}>{APP_ICON[a.icon]}</Box>
+
+                {locked && (
+                  <Box sx={{
+                    position: "absolute", top: 14, right: 14, px: 1, py: 0.35, borderRadius: "999px",
+                    bgcolor: "rgba(59,45,107,.92)", color: "#fff",
+                    fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.03em",
+                  }}>No access</Box>
+                )}
 
                 <Box>
                   <Box component={Link} href={a.href} sx={{
@@ -416,6 +434,7 @@ export default function FrontPage() {
               <Box component="span" sx={{
                 background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
                 WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+                display: "inline-block", pr: "0.08em",
               }}>A bigger tomorrow.</Box>
             </Typography>
             <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 1 }}>
