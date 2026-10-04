@@ -63,6 +63,8 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Link from "next/link";
 
+import { appForPath, type Role } from "@/lib/auth/access";
+
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
 
@@ -83,6 +85,8 @@ interface NavSection {
     group?: string;
     /** A slot that is named but not built yet: shown, never linked. */
     placeholder?: boolean;
+    /** Hidden from anyone who is not an admin — the server refuses it anyway. */
+    adminOnly?: boolean;
   }[];
 }
 
@@ -218,10 +222,10 @@ const navSections: NavSection[] = [
       { group: "Personal", label: "My account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
       { group: "Personal", label: "Preferences", href: "/settings/preferences", icon: <TuneIcon fontSize="small" /> },
       { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" /> },
-      { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" /> },
-      { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" /> },
-      { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" /> },
-      { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" /> },
+      { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" />, adminOnly: true },
+      { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, adminOnly: true },
+      { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" />, adminOnly: true },
+      { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
     ],
   },
@@ -371,13 +375,43 @@ export default function Sidebar() {
     s.items.some((i) => i.href === activeHref || i.children?.some((c) => c.href === activeHref)),
   );
 
+  // WHAT THIS PERSON MAY SEE.
+  //
+  // A viewer granted one app was still being offered all five here, and the
+  // governance rows besides. The guard on each app's layout is what refuses
+  // them; this stops the nav from advertising doors that will.
+  //
+  // While it is still loading: app rows are shown (a failed fetch should not
+  // empty the panel — the guards still hold), governance rows are not (showing
+  // them and taking them away is worse than a moment's delay).
+  const [acc, setAcc] = useState<{ role: Role; open: Record<string, boolean> } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/me/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (alive && j?.ok) setAcc({ role: j.role as Role, open: j.open as Record<string, boolean> }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const allowed = (item: Item) => {
+    if (item.adminOnly && acc?.role !== "admin") return false;
+    // The Datatracker's rows carry a tab in the query; the route map reads paths.
+    const app = appForPath(item.href.split("?")[0]);
+    if (app && acc && !acc.open[app]) return false;
+    return true;
+  };
+  const visibleItems = (s: NavSection) => s.items.filter(allowed);
+
   // Inside an app the panel is THAT app's: the way back to all apps, the app
   // itself, then its pages. Anywhere that belongs to no app, every app is listed
   // under its own heading, only the current one open.
   const scoped = pathname !== "/" && !!activeSection;
   const blocks = scoped
-    ? groupsOf(activeSection!.items)
-    : navSections.map((s) => ({ name: s.title as string | null, items: s.items }));
+    ? groupsOf(visibleItems(activeSection!))
+    : navSections
+        .map((s) => ({ name: s.title as string | null, items: visibleItems(s) }))
+        .filter((b) => b.items.length > 0);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const isCollapsed = (name: string) => collapsed[name] ?? (!scoped && name !== activeSection?.title);

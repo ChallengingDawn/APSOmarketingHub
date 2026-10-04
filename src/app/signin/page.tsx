@@ -101,11 +101,18 @@ function SignInForm() {
                   letterSpacing: "-0.015em",
                   lineHeight: 1.2,
                 }}
+                component="span"
               >
-                Marketing Hub
+                <Box component="span" sx={{ color: "#15223a", fontWeight: 800 }}>APSO</Box>
+                <Box component="span" sx={{
+                  fontWeight: 700,
+                  background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
+                  WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+                  display: "inline-block", paddingRight: "6px", marginRight: "-4px",
+                }}>hub</Box>
               </Typography>
               <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
-                APSOparts
+                apsoparts.com
               </Typography>
             </Box>
           </Box>

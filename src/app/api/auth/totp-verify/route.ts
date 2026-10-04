@@ -50,5 +50,8 @@ export async function POST(req: Request) {
   await setSessionCookie(
     await signSession({ uid: u.id, username: u.username, role: u.role }),
   );
-  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/personality' });
+  // The front door, not the brain. Landing on Personality is a leftover from
+  // when this was the marketing app; now it is one app of five, and most people
+  // signing in cannot even open it.
+  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
 }

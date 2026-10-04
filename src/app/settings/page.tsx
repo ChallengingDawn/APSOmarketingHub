@@ -72,6 +72,10 @@ const WORKSPACE = [
   { name: "People & access", note: "Who may open which app", href: "/settings/people", icon: <PeopleIcon />, tint: "#e6edfd", fg: "#2459d1" },
   { name: "Integrations", note: "Connect your apps and services", href: "/settings/integrations", icon: <HubIcon />, tint: "#e7f6ee", fg: "#1b7a55" },
   { name: "Audit log", note: "What was done, and by whom", href: "/settings/audit", icon: <SecurityIcon />, tint: "#efe8fd", fg: "#6a46c9" },
+];
+
+/** Everyone can read the docs; nothing in them is privileged. */
+const FOR_EVERYONE = [
   { name: "Docs", note: "How the hub works", href: "/docs", icon: <DescriptionIcon />, tint: "#fdf0e3", fg: "#a96a12" },
 ];
 
@@ -153,6 +157,10 @@ export default function SettingsOverview() {
         </Card>
       </Box>
 
+      {/* Admins only. A viewer offered People, Integrations and the audit log is
+          a viewer being offered four doors that all refuse them — and three of
+          them say, by existing, that there is something here worth asking for. */}
+      {me?.role === "admin" && (
       <Card>
         <Head icon={<HubIcon />} title="Workspace settings"
           note="Access, integrations and the record of what was done." />
@@ -179,6 +187,33 @@ export default function SettingsOverview() {
           ))}
         </Box>
       </Card>
+      )}
+
+      {/* Nothing in the docs is privileged, so everyone gets a way to them. */}
+      {me && me.role !== "admin" && (
+        <Card>
+          <Head icon={<DescriptionIcon />} title="Help" note="How the hub works." />
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" } }}>
+            {FOR_EVERYONE.map((w) => (
+              <Box key={w.href} component={Link} href={w.href} sx={{
+                display: "flex", alignItems: "center", gap: 1.5, p: 1.75, borderRadius: "16px",
+                textDecoration: "none", bgcolor: "rgba(255,255,255,.62)", border: `1px solid ${HAIRLINE}`,
+                "&:hover": { bgcolor: "#fff" },
+              }}>
+                <Box sx={{
+                  width: 36, height: 36, borderRadius: "11px", display: "grid", placeItems: "center",
+                  bgcolor: w.tint, color: w.fg, flexShrink: 0, "& svg": { fontSize: 19 },
+                }}>{w.icon}</Box>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>{w.name}</Typography>
+                  <Typography sx={{ fontSize: "0.75rem", color: FAINT }}>{w.note}</Typography>
+                </Box>
+                <ArrowForwardIcon sx={{ fontSize: 17, color: FAINT, flexShrink: 0 }} />
+              </Box>
+            ))}
+          </Box>
+        </Card>
+      )}
     </Box>
   );
 }

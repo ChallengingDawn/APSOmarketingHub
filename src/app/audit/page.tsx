@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth/guard";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import AuditLog, { type AuditEvent } from "./AuditLog";
@@ -38,6 +39,10 @@ function toIso(value: Date | string): string {
 }
 
 export default async function AuditPage() {
+  // Who did what, to whom — including resets and role changes. It was readable
+  // by anyone signed in; it is a governance page, so it is the admin's.
+  await requireAdmin();
+
   let events: AuditEvent[] = [];
   let error: string | null = null;
 

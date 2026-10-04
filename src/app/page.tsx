@@ -114,6 +114,14 @@ export default function FrontPage() {
     return () => { alive = false; };
   }, []);
 
+  // HIDDEN, not greyed. SARCLA: somebody with no access should see no apps —
+  // a wall of doors that all turn you away is a worse answer than an empty hall
+  // and a sentence saying who to ask. While previewing, this shows what THEY
+  // would see, which is the point of previewing.
+  const openFor = (key: string) => (viewed ? canOpen(key) : mine ? mine[key] : true);
+  const visibleApps = APPS.filter((a) => openFor(a.key));
+  const hiddenCount = APPS.length - visibleApps.length;
+
   const hits = useMemo<Hit[]>(() => searchApps(q), [q]);
 
   useEffect(() => {
@@ -282,18 +290,14 @@ export default function FrontPage() {
           },
           "@media (min-width:1280px)": { gridTemplateColumns: "repeat(5, 1fr)" },
         }}>
-          {APPS.map((a, i) => {
+          {visibleApps.map((a, i) => {
             const open = !!expanded[a.key];
             const shown = open ? a.subs : a.subs.slice(0, 3);
-            // While previewing, show THEIR access; otherwise your own.
-            const locked = viewed ? !canOpen(a.key) : mine ? !mine[a.key] : false;
             return (
               <Box key={a.key} sx={{
                 ...glass, borderRadius: "22px", p: { xs: 2, md: 2.1 },
                 display: "flex", flexDirection: "column", gap: 1.5,
                 background: `linear-gradient(170deg, ${a.wash}, rgba(255,255,255,.64) 58%)`,
-                opacity: locked ? 0.45 : 1,
-                filter: locked ? "saturate(.35)" : "none",
                 position: "relative",
                 transition: "transform .22s cubic-bezier(.22,.8,.3,1), box-shadow .22s ease",
                 "&:hover": { transform: "translateY(-4px)", boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 24px 52px rgba(31,45,78,.12)" },
@@ -306,13 +310,7 @@ export default function FrontPage() {
                   boxShadow: `0 10px 22px ${a.wash}`, "& svg": { fontSize: 31 },
                 }}>{APP_ICON[a.icon]}</Box>
 
-                {locked && (
-                  <Box sx={{
-                    position: "absolute", top: 14, right: 14, px: 1, py: 0.35, borderRadius: "999px",
-                    bgcolor: "rgba(59,45,107,.92)", color: "#fff",
-                    fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.03em",
-                  }}>No access</Box>
-                )}
+
 
                 <Box>
                   <Box component={Link} href={a.href} sx={{
@@ -380,6 +378,26 @@ export default function FrontPage() {
             );
           })}
         </Box>
+
+        {visibleApps.length === 0 && (
+          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 3, md: 4 }, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "1.1rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
+              {viewed ? `${viewed.name} has no apps yet` : "You do not have any apps yet"}
+            </Typography>
+            <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.75, maxWidth: "46ch", mx: "auto" }}>
+              {viewed
+                ? "Give them one on Settings → People and it appears here."
+                : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
+            </Typography>
+          </Box>
+        )}
+
+        {hiddenCount > 0 && visibleApps.length > 0 && (
+          <Typography sx={{ fontSize: "0.78rem", color: FAINT, mt: 1.5, textAlign: "center" }}>
+            {hiddenCount === 1 ? "One more app exists" : `${hiddenCount} more apps exist`} that
+            {viewed ? " they have" : " you have"} no access to.
+          </Typography>
+        )}
 
         {/* ------------------------------------------------------------ resources */}
         <Box id="resources" sx={{
