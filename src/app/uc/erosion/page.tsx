@@ -726,9 +726,16 @@ export default function ErosionApp() {
   }, []);
 
   const [tab, setTab] = useState<TabId>("calendar");
+  // Read on load AND whenever the #fragment changes (a link to another tab on
+  // this same page, the back button) - neither reloads the page.
   useEffect(() => {
-    const want = (Object.entries(TAB_HASH) as [TabId, string][]).find(([, h]) => h === window.location.hash)?.[0];
-    if (want) setTab(want);
+    const apply = () => {
+      const want = (Object.entries(TAB_HASH) as [TabId, string][]).find(([, h]) => h === window.location.hash)?.[0];
+      if (want) setTab(want);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
   }, []);
   const selectTab = (t: TabId) => {
     setTab(t);
