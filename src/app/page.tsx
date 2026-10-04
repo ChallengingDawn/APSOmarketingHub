@@ -26,6 +26,7 @@ import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import SearchIcon from "@mui/icons-material/Search";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import HomeIcon from "@mui/icons-material/Home";
@@ -91,10 +92,14 @@ const APPS: App[] = [
     ],
   },
   {
-    href: "/uc/price-checks", name: "UC & HubSpot Apps",
+    // Lands on Erosion, not Price checks: /uc/price-checks still redirects into
+    // the Datatracker tab, so the tile would drop you into Datatracker's menu and
+    // the UC apps would never be seen.
+    href: "/uc/erosion", name: "UC & HubSpot Apps",
     line: "The apps that write back into HubSpot.",
     icon: <HubIcon />, from: "#f5a23c", to: "#c97a10", wash: "rgba(245,162,60,.10)",
     subs: [
+      { name: "Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: <TrendingDownIcon />, tint: "#efe8fd", fg: "#6a46c9" },
       { name: "Price checks", note: "Priced, not ordered — and called", href: "/uc/price-checks", icon: <LocalOfferIcon />, tint: "#e6edfd", fg: "#3461c9" },
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: <SyncAltIcon />, tint: "#fde8e8", fg: "#b63a3a" },
     ],
@@ -112,11 +117,10 @@ const RESOURCES = [
 
 /** Real changes, with the dates they shipped. */
 const NEWS = [
+  { text: "Erosion moved in from APSOAssistant, with its forecast", when: "4 Oct", dot: "#f5a23c" },
   { text: "Price checks, MOQ and availability in Datatracker", when: "4 Oct", dot: "#5b8def" },
   { text: "The hub became five apps with one front page", when: "4 Oct", dot: "#ef5fa0" },
-  { text: "GEO readiness and the fix queue", when: "1 Oct", dot: "#2ec29a" },
-  { text: "Erosion tickets merge per customer per month", when: "28 Sep", dot: "#9a7bf0" },
-];
+  { text: "GEO readiness and the fix queue", when: "1 Oct", dot: "#2ec29a" },];
 
 const NAV = [
   { name: "Home", href: "/", icon: <HomeIcon />, on: true },
