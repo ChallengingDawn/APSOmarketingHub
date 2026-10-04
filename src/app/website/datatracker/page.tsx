@@ -40,10 +40,12 @@ import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatr
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
+import type { RunReport } from "@/lib/integrations/priceCheckTickets";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
 
 /** What the alternatives route hands back for one article. */
-type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[] };
+type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[];
+  wantedSize?: number | null; considered?: number };
 
 /** Every column on the Articles tab is sortable; these are its keys. */
 type ArticleSortKey =
@@ -135,6 +137,25 @@ type OrderedState = OrderedPayload | "loading" | "error" | undefined;
  * they also cover an order placed by phone.
  */
 function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: OrderedState }) {
+  // Names for everything on this panel, articles and product pages alike. One
+  // call when the row opens; a failure costs the names and nothing else.
+  const [names, setNames] = useState<Record<string, string>>({});
+  const wantNames = lines.map((l) => l.article || l.product || "").filter(Boolean).join(",");
+  useEffect(() => {
+    if (!wantNames) return;
+    const ids = wantNames.split(",");
+    const q = new URLSearchParams({
+      articles: ids.filter((i) => /^\d{10}$/.test(i)).join(","),
+      products: ids.filter((i) => /^\d{8}$/.test(i)).join(","),
+    });
+    let alive = true;
+    fetch(`/api/datatracker/describe?${q}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive && j?.ok && j.data) setNames(j.data as Record<string, string>); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [wantNames]);
+
   const payload = ordered && ordered !== "loading" && ordered !== "error" ? ordered : null;
   const byArticle = new Map((payload?.lines ?? []).map((l) => [l.article, l]));
   const everBought = new Set(payload?.articles ?? []);
@@ -197,6 +218,7 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
       <TableBody>
         {rows.map((r) => {
           const o = r.article ? byArticle.get(r.article) : undefined;
+          const named = names[r.article ?? r.product ?? ""] ?? null;
           const boughtNow = !!o || r.reported;
           const inCart = r.cart || !!o?.eshop;
           const boughtEver = !boughtNow && !!r.article && everBought.has(r.article);
@@ -210,7 +232,11 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
                 {r.article ?? r.product}
               </TableCell>
               <TableCell sx={{ ...c, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {o?.description ?? (r.article ? "—" : "product page, no size chosen")}
+                {/* The order line names it when they bought it; otherwise the
+                    name is fetched, because the shop records what was looked at
+                    and not what it is called. A bare number tells nobody
+                    anything. */}
+                {o?.description ?? named ?? (r.article ? "no catalogue record" : "product page, no size chosen")}
               </TableCell>
               <TableCell align="right" sx={{ ...c, color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
                 {qty == null ? "—" : decimal(qty, 0)}
@@ -332,12 +358,22 @@ function LookTable({ rows, kind, mandantOf }: {
                         textTransform: "uppercase", color: MUTED, mb: 1 }}>
                         What we could have offered instead
                       </Typography>
+                      {/* Say what the list matched on, or eight rows of the same
+                          product family read as a guess. */}
+                      {alt && alt !== "loading" && alt.rows.length > 0 && alt.wantedSize != null && (
+                        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1 }}>
+                          Nearest sizes to Ø {alt.wantedSize}, from {full(alt.considered ?? null)} in the same
+                          sub-group that are on the shelf. Anything more than a quarter away is left out.
+                        </Typography>
+                      )}
                       {alt === "loading" && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Looking…</Typography>}
                       {alt && alt !== "loading" && alt.rows.length === 0 && (
                         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
                           {alt.subGroup == null
                             ? "This article has no Products & Pricing record, so it has no neighbours to search."
-                            : "Nothing in the same sub-group is on the shelf either."}
+                            : alt.considered
+                              ? `${alt.considered} articles in the same sub-group are on the shelf, but none within a quarter of this size.`
+                              : "Nothing in the same sub-group is on the shelf either."}
                         </Typography>
                       )}
                       {alt && alt !== "loading" && alt.rows.length > 0 && (
@@ -347,6 +383,7 @@ function LookTable({ rows, kind, mandantOf }: {
                             <TableRow>
                               <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
                               <TableCell sx={h}>Description</TableCell>
+                              <TableCell align="right" sx={{ ...h, width: 70 }}>Size</TableCell>
                               <TableCell align="right" sx={{ ...h, width: 120 }}>In stock</TableCell>
                               <TableCell sx={{ ...h, width: 124 }}>Minimum</TableCell>
                               <TableCell align="right" sx={{ ...h, width: 94 }}>Price</TableCell>
@@ -358,6 +395,9 @@ function LookTable({ rows, kind, mandantOf }: {
                               <TableRow key={a.article}>
                                 <TableCell sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>{a.article}</TableCell>
                                 <TableCell sx={{ color: MUTED, ...clip }} title={a.description ?? ""}>{a.description ?? "—"}</TableCell>
+                                <TableCell align="right" sx={{ color: a.sameColour ? INK : MUTED, whiteSpace: "nowrap" }}>
+                                  {a.size == null ? "—" : `Ø ${a.size}`}
+                                </TableCell>
                                 <TableCell align="right" sx={{ color: INK, whiteSpace: "nowrap" }}>
                                   {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}
                                 </TableCell>
@@ -448,6 +488,26 @@ export default function EshopActivityPage() {
   const [signalsError, setSignalsError] = useState<string | null>(null);
   const [pcOnlyQualifying, setPcOnlyQualifying] = useState(true);
   const [pcOpen, setPcOpen] = useState<string | null>(null);
+  const [pcRun, setPcRun] = useState<RunReport | null>(null);
+  const [pcRunning, setPcRunning] = useState<"dry" | "live" | null>(null);
+  const [pcRunError, setPcRunError] = useState<string | null>(null);
+
+  // The preview and the real run are the SAME call with one flag, so what you
+  // were shown cannot differ from what gets written.
+  const runTickets = useCallback(async (dry: boolean) => {
+    setPcRunning(dry ? "dry" : "live");
+    setPcRunError(null);
+    try {
+      const j = await fetch(`/api/datatracker/price-checks/run?dry=${dry ? 1 : 0}`, { method: "POST" })
+        .then((r) => r.json());
+      if (j?.ok && j.data) setPcRun(j.data as RunReport);
+      else setPcRunError(j?.error ?? j?.detail ?? "The run did not complete.");
+    } catch (e) {
+      setPcRunError(String(e));
+    } finally {
+      setPcRunning(null);
+    }
+  }, []);
 
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
@@ -1216,7 +1276,78 @@ export default function EshopActivityPage() {
               label={<Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Only the ones that qualify</Typography>}
             />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
+            {/* Preview first, create second - and the preview is the default, so
+                a mis-click costs a wait rather than forty tickets. */}
+            <Button size="small" variant="outlined" disabled={pcRunning !== null}
+              onClick={() => runTickets(true)}>
+              {pcRunning === "dry" ? "Checking…" : "Preview tickets"}
+            </Button>
+            <Button size="small" variant="contained" disabled={pcRunning !== null || !pcRun || pcRun.dry === false}
+              onClick={() => { if (confirm(`Create ${pcRun?.rows.filter((r) => r.outcome === "would create").length ?? 0} tickets in HubSpot?`)) runTickets(false); }}>
+              {pcRunning === "live" ? "Creating…" : "Create tickets"}
+            </Button>
+            {pcRunError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{pcRunError}</Typography>}
           </Box>
+          {/* What the run actually did, line by line. A detector that only says
+              "14 created" is one nobody can check. */}
+          {pcRun && (
+            <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "#f7f9fc" }}>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", color: MUTED, mb: 1 }}>
+                {pcRun.dry ? "Preview" : "Run"} · {pcRun.from} → {pcRun.to} · {full(pcRun.considered)} days considered
+                {pcRun.dry ? "" : ` · ${full(pcRun.created)} created`}
+                {pcRun.articlesWithoutPrice > 0 ? ` · ${full(pcRun.articlesWithoutPrice)} articles with no list price` : ""}
+              </Typography>
+              <Table size="small" sx={{ "& td, & th": { ...cell, px: 1 },
+                "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Day</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: MUTED }}>Customer</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 140 }}>Owner</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 70 }}>Art.</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>Value</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 180 }}>Outcome</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {pcRun.rows.map((r) => (
+                    <TableRow key={r.key}>
+                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.day}</TableCell>
+                      <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.company ?? ""}>{r.company ?? "—"}</TableCell>
+                      <TableCell sx={{ color: MUTED, ...clip }}>{r.owner || "—"}</TableCell>
+                      <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
+                      <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>€{compact(r.value)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        <Typography component="span" sx={{
+                          fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
+                          bgcolor: r.outcome === "created" ? "#e6f4ec"
+                            : r.outcome === "would create" ? "#e3edf7"
+                            : r.outcome === "failed" ? "#fdecea" : "#eef1f5",
+                          color: r.outcome === "created" ? "#0f7b4f"
+                            : r.outcome === "would create" ? "#1b4a80"
+                            : r.outcome === "failed" ? "#9e1b18" : MUTED,
+                        }}>
+                          {r.outcome}
+                        </Typography>
+                        {r.ticketId && (
+                          <Link href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${r.ticketId}`}
+                            target="_blank" rel="noopener" underline="hover"
+                            sx={{ ml: 1, fontSize: "0.72rem" }}>open</Link>
+                        )}
+                        {r.error && <Typography component="span" sx={{ ml: 1, fontSize: "0.72rem", color: "#9e1b18" }}>{r.error}</Typography>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {pcRun.rows.length === 0 && (
+                    <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 2, textAlign: "center" }}>
+                      Nothing in the last three days to act on.
+                    </TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Box>
+          )}
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
@@ -1351,28 +1482,27 @@ export default function EshopActivityPage() {
 
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              <strong>How a price check becomes a ticket.</strong> When somebody types a quantity on a product page, the
-              shop asks the ERP what it costs. That question is the price check — and because it is the page doing its
-              job rather than a tracking tag, we hear it from every signed-in customer, cookie banner or no cookie
-              banner. If the article then goes in the basket, or gets ordered, there is nothing to chase. What is left
-              is someone who asked the price and walked away.
+              <strong>When a price check becomes a ticket.</strong> A customer asked us what something costs and
+              did not buy it. That is a question still open, and the ticket is somebody being asked to close it.
               <br /><br />
-              Not all of it is worth a call. We count an article when its profit centre is <strong>KT or DT</strong> and
-              it is a catalogue article: a 3xxx or 8xxx special has no Products &amp; Pricing record at all, so we know
-              neither its price nor its profit centre and we leave it out rather than guess. The day is worth a ticket
-              from <strong>€500</strong> — a floor, so three cheap articles still is not one.
-              <strong> APSOmicro and priorities 3 and 4</strong> are not chased.
+              <strong>One ticket per customer per day</strong>, listing everything they priced that day — not one per
+              article, or a rep gets five conversations about the same visit. It carries each article with the
+              quantity they asked for, its unit and its minimum order quantity, the value at list price, and the
+              contact who did the pricing, so the call can start from what they wanted rather than from a lookup.
               <br /><br />
-              Then we wait <strong>one working day</strong>. People buy the next morning, and a Friday afternoon tells
-              you nothing until Monday — so a Friday check is judged on the Monday, not the Saturday. If the order
-              turns up in the meantime, nobody is called and no ticket is written. Public holidays are not in the
-              calendar yet, only weekends.
+              <strong>It goes to the company&rsquo;s owner</strong>, into their ESO or TSA queue at New. An owner on
+              neither roster gets no ticket at all — that row says so rather than promising a call nobody will make.
               <br /><br />
-              <strong>The tickets themselves are raised by the detector on the data-connector</strong>, which runs
-              daily and reads this same rule. This screen shows the rule and reads the ticket back from HubSpot
-              rather than assuming it — so a day that qualifies here and shows no ticket is the two disagreeing,
-              which is worth knowing. The run itself, with every reason it held a ticket back, is on the
-              Price checks micro app.
+              <strong>Not every price check earns one.</strong> We count plastics and sealings (KT and DT), because
+              those are the ones this team sells; a 3xxx or 8xxx special is left out, since we hold no price or
+              profit centre for it and would be guessing. The day has to be worth the call at <strong>€500</strong>
+              of list value — a floor, so three cheap articles still is not one. <strong>APSOmicro</strong> and
+              <strong> priorities 3 and 4</strong> are not chased at all.
+              <br /><br />
+              <strong>And we wait a working day.</strong> People buy the next morning. A Friday afternoon tells you
+              nothing until Monday, so a Friday check is judged on the Monday and never on the Saturday. If the order
+              arrives in that window the question answered itself and nobody is called. Public holidays are not in
+              the calendar yet, only weekends.
             </Typography>
           </Box>
         </Section>

@@ -14,6 +14,7 @@
 // lines would be three times the wait for no extra truth, so this runs once.
 
 import { hubspotFetchJson } from "./hubspot";
+import { IntegrationError } from "./status";
 import { isArticle, isSpecialArticle, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
 import { ownerName, teamOf } from "../datatracker/rosters";
 
@@ -114,6 +115,12 @@ export type ShopSignals = {
   scanned: number;
   articlesLookedUp: number;
   generatedAt: string;
+  /**
+   * Set when the ticket read-back could not run - a missing scope, usually.
+   * The rule still renders; only the Ticket column goes blank, and saying so is
+   * the difference between "no ticket was raised" and "we could not look".
+   */
+  ticketLookupError: string | null;
 };
 
 type ActivityLine = { t?: string; a?: string; q?: number; c?: number; o?: number; u?: string };
@@ -137,6 +144,23 @@ function excludedBecause(apsoCustomer: string | null, salesPriority: string | nu
 
 export async function fetchShopSignals(
   params: { from?: string; to?: string; today?: string; signal?: AbortSignal } = {},
+): Promise<ShopSignals> {
+  // Which call failed matters more than that one did: the three reads below sit
+  // behind different scopes, and an unlabelled message sends you looking in the
+  // wrong place. The label is prefixed onto whatever HubSpot said.
+  const at = { step: "company scan" };
+  try {
+    return await scan(params, at);
+  } catch (err) {
+    const e = err as Error;
+    throw new IntegrationError(`${at.step}: ${e?.message ?? String(err)}`,
+                               (e as IntegrationError)?.status);
+  }
+}
+
+async function scan(
+  params: { from?: string; to?: string; today?: string; signal?: AbortSignal },
+  at: { step: string },
 ): Promise<ShopSignals> {
   const { from, to, signal } = params;
   // Passed in rather than read here, so the caller owns "today" and the result
@@ -234,6 +258,7 @@ export async function fetchShopSignals(
   } while (after);
 
   // ---- what those articles are: price, profit centre, MOQ, what is on the shelf
+  at.step = "article lookup";
   const spec = new Map<string, Record<string, string | null>>();
   const articles = [...wanted];
   for (let i = 0; i < articles.length; i += 100) {
@@ -365,6 +390,7 @@ export async function fetchShopSignals(
   // keys, and only for the days that actually qualify - the rest can never have
   // a ticket, so asking about them would be a round trip for a certain no.
   const askable = priceChecks.filter((r) => r.qualifies && !r.excluded);
+  let ticketLookupError: string | null = null;
   for (let i = 0; i < askable.length; i += 100) {
     const slice = askable.slice(i, i + 100);
     try {
@@ -380,8 +406,11 @@ export async function fetchShopSignals(
       });
       const byKey = new Map((res.results ?? []).map((t) => [t.properties?.price_check_key ?? "", String(t.id ?? "")]));
       for (const r of slice) r.ticketId = byKey.get(r.key) ?? null;
-    } catch {
-      // The rule still renders without this; only the ticket column goes blank.
+    } catch (err) {
+      // The rule still renders without this; only the ticket column goes blank -
+      // but it says why, rather than looking like nothing was ever raised.
+      ticketLookupError = String((err as Error)?.message ?? err);
+      break;
     }
   }
 
@@ -391,5 +420,6 @@ export async function fetchShopSignals(
   moq.sort((a, b) => Number(b.belowMoq) - Number(a.belowMoq) || b.day.localeCompare(a.day) || (b.value ?? 0) - (a.value ?? 0));
   availability.sort((a, b) => (b.shortfall ?? 0) - (a.shortfall ?? 0) || b.day.localeCompare(a.day));
 
-  return { priceChecks, moq, availability, scanned, articlesLookedUp: spec.size, generatedAt: new Date().toISOString() };
+  return { priceChecks, moq, availability, scanned, articlesLookedUp: spec.size,
+           ticketLookupError, generatedAt: new Date().toISOString() };
 }

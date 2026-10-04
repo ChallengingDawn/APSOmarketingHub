@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
+import { rankAlternatives, governingSize } from "@/lib/datatracker/similar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,10 @@ export type Alternative = {
   price: number | null;
   /** Covers what the customer asked for, out of stock we actually hold. */
   covers: boolean;
+  /** The size it is chosen by, read out of the description. */
+  size: number | null;
+  /** Same colour as the one they wanted. */
+  sameColour: boolean;
 };
 
 const num = (v: unknown): number | null => {
@@ -78,8 +83,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: { subGroup: null, rows: [] as Alternative[] } });
     }
 
-    // 2. Its neighbours that are actually on the shelf. Stock first, because an
-    //    alternative nobody can ship is not an alternative.
+    // 2. Its neighbours that are actually on the shelf - an alternative nobody
+    //    can ship is not an alternative. A hundred of them, because the eight
+    //    worth showing are chosen by SIZE below, and the eight we hold most of
+    //    are not the same eight.
     const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
       path: "/crm/v3/objects/2-200042439/search",
       method: "POST",
@@ -91,11 +98,11 @@ export async function GET(req: NextRequest) {
         ] }],
         properties: PROPS,
         sorts: [{ propertyName: "stock_quantity", direction: "DESCENDING" }],
-        limit: 12,
+        limit: 100,
       },
     });
 
-    const rows: Alternative[] = (res.results ?? [])
+    const pool = (res.results ?? [])
       .map((r) => r.properties ?? {})
       .filter((p) => p.article_number && p.article_number !== article)
       .map((p) => {
@@ -116,13 +123,27 @@ export async function GET(req: NextRequest) {
             ? (stock ?? 0) > 0
             : (stock ?? 0) >= need && !(hasMoq && moqMinimum != null && need < moqMinimum),
         };
-      })
-      .sort((a, b) => Number(b.covers) - Number(a.covers) || (b.stock ?? 0) - (a.stock ?? 0))
-      .slice(0, 8);
+      });
+
+    // Closest SIZE first. Being in the same sub-group only makes two articles
+    // neighbours; it does not make one a substitute for the other.
+    const ranked = rankAlternatives({ description: me?.article_description ?? null }, pool);
+    const rows: Alternative[] = ranked.slice(0, 8).map((r) => ({
+      article: r.article, description: r.description, stock: r.stock, stockUnit: r.stockUnit,
+      salesUnit: r.salesUnit, moq: r.moq, moqMinimum: r.moqMinimum, price: r.price,
+      covers: r.covers, size: r.size, sameColour: r.sameColour,
+    }));
 
     return NextResponse.json({
       configured: true, ok: true,
-      data: { subGroup, group: me?.main_group_description ?? null, rows },
+      data: {
+        subGroup,
+        group: me?.main_group_description ?? null,
+        /** The size they were looking at, so the list can say what it matched on. */
+        wantedSize: governingSize(me?.article_description ?? null),
+        considered: pool.length,
+        rows,
+      },
     });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) }, { status: 200 });

@@ -6,6 +6,7 @@ import {
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 import { teamOf, ownerName } from "../src/lib/datatracker/rosters";
+import { governingSize, rankAlternatives } from "../src/lib/datatracker/similar";
 
 test("isoDay uses the LOCAL day, not UTC", () => {
   // 00:30 local on the 2nd. toISOString() would say the 1st in any zone east of
@@ -170,4 +171,38 @@ test("teamOf: an owner off both rosters gets no team, never a default", () => {
 test("ownerName falls back to the id rather than inventing a person", () => {
   assert.equal(ownerName("1229976033"), "Claudio Saraiva");
   assert.equal(ownerName("99999999"), "99999999");
+});
+
+// Offering a Ø 6 round bar against a Ø 45 is what made the alternatives list
+// look like it had been picked at random.
+test("governingSize reads the size a part is chosen by", () => {
+  assert.equal(governingSize("POM-C round bar black Ø 45 +1.3/+0.3 mm -"), 45);
+  assert.equal(governingSize("POM-C round bar natural (white) Ø 6 +0.6/+0.1 mm -"), 6);
+  assert.equal(governingSize("UNIPRESS™ Industrial hose ID 6.3 x OD 14.3 mm -"), 6.3);
+  assert.equal(governingSize("HITEC® O-ring FKM 75.16-04 ID 3.68 x 1.78 mm -"), 3.68);
+  // No measurement at all - rankable only behind everything that has one.
+  assert.equal(governingSize("BAND-IT® Scru-Seal lock M 211; stain. steel AISI 301; 10 pce -"), null);
+  assert.equal(governingSize(null), null);
+});
+
+test("rankAlternatives drops the sizes nobody would accept", () => {
+  const target = { description: "POM-C round bar black Ø 45 +1.3/+0.3 mm -" };
+  const pool = [
+    { description: "POM-C round bar natural (white) Ø 6 +0.6/+0.1 mm -", stock: 821 },
+    { description: "POM-C round bar black Ø 40 +1.2/+0.2 mm -", stock: 10 },
+    { description: "POM-C round bar black Ø 55 +1.3/+0.3 mm -", stock: 338 },
+    { description: "POM-C round bar natural (white) Ø 40 +1.2/+0.2 mm -", stock: 392 },
+  ];
+  const out = rankAlternatives(target, pool);
+  // Ø 6 is 87% away from Ø 45 and is gone, however much of it we hold.
+  assert.equal(out.some((r) => r.description?.includes("Ø 6 ")), false);
+  // Ø 40 is closest; of the two at Ø 40 the one in the right colour leads.
+  assert.equal(out[0].description, "POM-C round bar black Ø 40 +1.2/+0.2 mm -");
+  assert.equal(out.length, 3);
+});
+
+test("rankAlternatives keeps everything when the target has no readable size", () => {
+  const out = rankAlternatives({ description: "BAND-IT® Scru-Seal lock M 211 -" },
+    [{ description: "Anything at all", stock: 5 }]);
+  assert.equal(out.length, 1);
 });
