@@ -33,7 +33,7 @@ import {
   maxPerDay, sendingOn, smtp,
 } from "./config";
 import { esc, greetingFor, languageFor, renderEmail, type Greeting, type RenderedEmail } from "./email";
-import { orderByIncrementId, orderSkusCreatedSince, type ShopOrder } from "./magento";
+import { orderByIncrementId, orderSkusCreatedSince, recentOrdersWithSku, type ShopOrder, type ShopOrderRef } from "./magento";
 import { phaseOf, boardRow, type BoardRow } from "./board";
 import type { DocLang } from "./texts";
 
@@ -357,6 +357,48 @@ export async function preview(webNo: string, opts: { to?: string | null; lang?: 
     `${p.notEligible.length ? `, ${p.notEligible.length} without one` : ""} [${lang}, ${greeting.personal ? "personal" : "generic"} greeting]`;
   const out: Preview = { summary, lang, greeting, recipient, company: p.mo.company, groups: p.groups, notEligible: p.notEligible, mail };
   return { ...out, contact };
+}
+
+// ── which order a person means ─────────────────────────────────────────────
+// People copy whichever number is in front of them: the shop number (6000291517)
+// or the ERP number (A26.660715, possibly with its .001 delivery suffix). The ERP
+// number is translated through HubSpot, where the web number sits on the order.
+
+const ERP_NUMBER = /^([A-Z]\d{2}\.\d{6})(\.\d{3})?$/i;
+const SHOP_NUMBER = /^\d{10,11}$/;
+
+export async function resolveWebNumber(input: string): Promise<string> {
+  const raw = input.trim();
+  if (SHOP_NUMBER.test(raw.replace(/\s+/g, ""))) return raw.replace(/\s+/g, "");
+  const erp = ERP_NUMBER.exec(raw);
+  if (!erp) throw new Error(`"${raw}" is neither a shop order number (like 6000291517) nor an ERP order number (like A26.660715).`);
+  const base = erp[1].toUpperCase();
+  const r = await searchOrders({
+    filterGroups: [{ filters: [{ propertyName: "order_order_number", operator: "CONTAINS_TOKEN", value: base }] }],
+    properties: ["order_order_number", WEB_PROP, "hs_external_order_id"],
+    limit: 20,
+  });
+  const web = (r.results ?? [])
+    .filter((o) => String(o.properties?.order_order_number ?? "").startsWith(base))
+    .map((o) => o.properties?.[WEB_PROP] || o.properties?.hs_external_order_id)
+    .find((w): w is string => !!w && SHOP_NUMBER.test(w));
+  if (!web) {
+    throw new Error(`${base} is an ERP order number, and HubSpot holds no shop order number for it - it may not be a web order. Pick a shop order from the list.`);
+  }
+  return web;
+}
+
+// ── orders to test with ────────────────────────────────────────────────────
+
+const candidatesCache: { at: number; rows: ShopOrderRef[] | null } = { at: 0, rows: null };
+
+/** The latest shop orders with the declaration line, straight from Magento - cached ten minutes. */
+export async function testCandidates(): Promise<ShopOrderRef[]> {
+  if (candidatesCache.rows && Date.now() - candidatesCache.at < 10 * 60_000) return candidatesCache.rows;
+  const rows = await recentOrdersWithSku(DOC_SKU, 25);
+  candidatesCache.rows = rows;
+  candidatesCache.at = Date.now();
+  return rows;
 }
 
 /**

@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { sendTest } from "@/lib/doc/engine";
+import { resolveWebNumber, sendTest } from "@/lib/doc/engine";
 import { magentoConfigured, smtpConfigured } from "@/lib/doc/config";
 
 export const runtime = "nodejs";
@@ -26,16 +26,22 @@ export async function POST(req: NextRequest) {
   }
 
   const sp = req.nextUrl.searchParams;
-  const web = (sp.get("web") ?? "").replace(/\D/g, "");
+  const order = (sp.get("web") ?? "").trim();
   const to = (sp.get("to") ?? "").trim();
-  if (!web) return NextResponse.json({ ok: false, error: "web=<shop order number> is required." }, { status: 400 });
+  if (!order) return NextResponse.json({ ok: false, error: "web=<shop or ERP order number> is required." }, { status: 400 });
   if (!INTERNAL.test(to)) {
     return NextResponse.json({ ok: false, error: "to= must be an @apsoparts.com or @angst-pfister.com address." }, { status: 400 });
   }
 
+  let web: string;
   try {
-    return NextResponse.json({ ok: true, ...(await sendTest(web, to, sp.get("lang"))) });
+    web = await resolveWebNumber(order); // a shop number as it is, an ERP number through HubSpot
   } catch (err) {
-    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 502 });
+    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 400 });
+  }
+  try {
+    return NextResponse.json({ ok: true, web, ...(await sendTest(web, to, sp.get("lang"))) });
+  } catch (err) {
+    return NextResponse.json({ ok: false, web, error: (err as Error).message }, { status: 502 });
   }
 }

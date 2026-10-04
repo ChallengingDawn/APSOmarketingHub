@@ -183,6 +183,59 @@ export async function orderByIncrementId(incrementId: string): Promise<ShopOrder
   };
 }
 
+export type ShopOrderRef = { incrementId: string; createdAt: string; company: string; country: string };
+
+/**
+ * The most recent shop orders carrying one article line - newest first. Two
+ * requests whatever the period: the order ITEMS are searched by sku, then their
+ * orders by entity id. The id list MUST be encoded: a raw comma in the value
+ * makes the shop drop the connection.
+ */
+export async function recentOrdersWithSku(sku: string, limit = 25): Promise<ShopOrderRef[]> {
+  const base = magentoKeys().base;
+  const itemsQs = [
+    "searchCriteria[filterGroups][0][filters][0][field]=sku",
+    `searchCriteria[filterGroups][0][filters][0][value]=${encodeURIComponent(sku)}`,
+    "searchCriteria[filterGroups][0][filters][0][conditionType]=eq",
+    "searchCriteria[sortOrders][0][field]=created_at",
+    "searchCriteria[sortOrders][0][direction]=DESC",
+    `searchCriteria[pageSize]=${limit}`,
+    `fields=${encodeURIComponent("items[order_id]")}`,
+  ].join("&");
+  const items = (await getJsonGently(`${base}/rest/V1/orders/items?${itemsQs}`)) as { items?: { order_id: number }[] } | null;
+  if (!items) throw new Error("Magento order item search failed");
+  const ids = [...new Set((items.items ?? []).map((i) => i.order_id))];
+  if (!ids.length) return [];
+
+  const ordersQs = [
+    "searchCriteria[filterGroups][0][filters][0][field]=entity_id",
+    `searchCriteria[filterGroups][0][filters][0][value]=${encodeURIComponent(ids.join(","))}`,
+    "searchCriteria[filterGroups][0][filters][0][conditionType]=in",
+    `searchCriteria[pageSize]=${ids.length}`,
+    `fields=${encodeURIComponent("items[increment_id,created_at,customer_firstname,customer_lastname,billing_address[company,country_id]]")}`,
+  ].join("&");
+  const orders = (await getJsonGently(`${base}/rest/V1/orders?${ordersQs}`)) as { items?: RawOrder[] } | null;
+  if (!orders) throw new Error("Magento order lookup failed");
+  return (orders.items ?? [])
+    .map((o) => ({
+      incrementId: o.increment_id,
+      createdAt: o.created_at ?? "",
+      company: o.billing_address?.company || [o.customer_firstname, o.customer_lastname].filter(Boolean).join(" ") || "",
+      country: o.billing_address?.country_id ?? "",
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** The shop resets connections now and then: a few spaced retries, never a burst. */
+async function getJsonGently(url: string): Promise<unknown> {
+  for (const wait of [0, 2000, 5000]) {
+    if (wait) await new Promise((res) => setTimeout(res, wait));
+    const j = await getJson(url);
+    if (j) return j;
+  }
+  return null;
+}
+
 // Some shop lines carry the product name twice ("PMMA-GS Platte transparent klar
 // PMMA -GS Platte transparent klar # 2200 x 800 x 3 mm"). Say it once: compare on
 // letters and digits only, and dedupe the name ahead of any "# size" tail.

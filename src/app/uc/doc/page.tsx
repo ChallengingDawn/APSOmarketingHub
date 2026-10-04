@@ -27,6 +27,7 @@ import TableRow from "@mui/material/TableRow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, HAIRLINE, INK, LoadingPanel, MUTED, NotConnectedPanel, Section, UpstreamPanel } from "@/app/analytics/Shell";
@@ -119,9 +120,75 @@ function RunLine({ label, run, every }: { label: string; run: Run; every: number
   return <>{label} every {every} min, last {when(run.at, true)}{extra}</>;
 }
 
+type Candidate = { incrementId: string; createdAt: string; company: string; country: string };
+type CandidatesResult =
+  | { configured: false; missing: string[] }
+  | { configured: true; ok: true; data: { rows: Candidate[] } }
+  | { configured: true; ok: false; error: string };
+
+/* The latest shop orders with the declaration line, straight from Magento - to test with. */
+function Candidates({ onUse, followed }: { onUse: (web: string) => void; followed: Set<string> }) {
+  const [res, setRes] = useState<CandidatesResult | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/uc/doc/candidates", { cache: "no-store" })
+      .then((r) => r.json() as Promise<CandidatesResult>)
+      .then((j) => live && setRes(j))
+      .catch((e) => live && setRes({ configured: true, ok: false, error: (e as Error).message }));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (res === null) return <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 2 }}>Reading the latest declaration orders from the shop…</Typography>;
+  if (!res.configured) return <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 2 }}>The shop list needs {res.missing.join(", ")}.</Typography>;
+  if (!res.ok) return <Typography sx={{ fontSize: "0.8rem", color: RED, mt: 2 }}>The shop did not answer: {res.error}</Typography>;
+  const rows = res.data.rows;
+  return (
+    <Box sx={{ mt: 2.5 }}>
+      <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, mb: 0.75 }}>
+        Latest shop orders with the declaration line ({rows.length}) - pick one to test with
+      </Typography>
+      <Box sx={{ overflowX: "auto", border: `1px solid ${HAIRLINE}`, borderRadius: 2, maxHeight: 360, overflowY: "auto" }}>
+        <Table size="small" stickyHeader sx={{ minWidth: 560 }}>
+          <TableHead>
+            <TableRow>
+              {["Ordered", "Shop order", "Customer", "Country", ""].map((h) => (
+                <TableCell key={h} sx={{ fontSize: "0.7rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.03em", bgcolor: "#fafbfc" }}>{h}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((c) => (
+              <TableRow key={c.incrementId} hover>
+                <TableCell sx={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>{when(c.createdAt.replace(" ", "T") + "Z")}</TableCell>
+                <TableCell sx={{ fontSize: "0.78rem", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                  {c.incrementId}
+                  {followed.has(c.incrementId) && <Chip size="small" label="on the board" sx={{ ml: 1, height: 18, fontSize: "0.62rem" }} />}
+                </TableCell>
+                <TableCell sx={{ fontSize: "0.78rem", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.company || "—"}</TableCell>
+                <TableCell sx={{ fontSize: "0.78rem" }}>{c.country || "—"}</TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  <Button size="small" onClick={() => onUse(c.incrementId)} sx={{ minWidth: 0, fontSize: "0.72rem" }}>Use</Button>
+                  <Tooltip title="Preview the email (nothing is sent)" arrow>
+                    <IconButton size="small" component="a" href={`/api/uc/doc/preview?web=${c.incrementId}`} target="_blank" rel="noopener" aria-label={`Preview the email for ${c.incrementId}`}>
+                      <MailOutlineIcon sx={{ fontSize: 17, color: BLUE }} />
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+    </Box>
+  );
+}
+
 /* Admin only: one order's real email, PDFs attached, to one internal address. */
-function TestSend() {
-  const [web, setWeb] = useState("");
+function TestSend({ web, setWeb, open, setOpen, followed }: {
+  web: string; setWeb: (w: string) => void; open: boolean; setOpen: (o: boolean) => void; followed: Set<string>;
+}) {
   const [to, setTo] = useState("");
   const [lang, setLang] = useState("");
   const [busy, setBusy] = useState(false);
@@ -132,7 +199,7 @@ function TestSend() {
     try {
       const q = new URLSearchParams({ web, to, ...(lang ? { lang } : {}) });
       const r = await fetch(`/api/uc/doc/test?${q}`, { method: "POST" });
-      const j = (await r.json()) as { ok: boolean; sent?: boolean; error?: string; summary?: string; attached?: string[] };
+      const j = (await r.json()) as { ok: boolean; web?: string; sent?: boolean; error?: string; summary?: string; attached?: string[] };
       setResult(j.ok && j.sent
         ? { ok: true, text: `Sent to ${to}: ${j.summary}. Attached: ${(j.attached ?? []).join(", ")}` }
         : { ok: false, text: j.error ?? j.summary ?? "Not sent." });
@@ -143,14 +210,15 @@ function TestSend() {
     }
   };
   return (
-    <Box component="details" sx={{ mt: 3, "& summary": { cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, color: INK } }}>
+    <Box id="doc-test" component="details" open={open} onToggle={(e: React.SyntheticEvent<HTMLDetailsElement>) => setOpen(e.currentTarget.open)}
+      sx={{ mt: 3, "& summary": { cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, color: INK } }}>
       <summary>Test the whole chain from this deployment</summary>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1, mb: 1.5, maxWidth: 720 }}>
         Sends one order&apos;s real email - PDFs from AP-Link attached, through HubSpot SMTP - to one internal address only. Nothing is stamped
-        on the order and nothing is logged in HubSpot.
+        on the order and nothing is logged in HubSpot. Either number works: the shop&apos;s (6000291517) or the ERP&apos;s (A26.660715).
       </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
-        <TextField size="small" label="Shop order number" value={web} onChange={(e) => setWeb(e.target.value)} sx={{ width: 190 }} />
+        <TextField size="small" label="Shop or ERP order number" value={web} onChange={(e) => setWeb(e.target.value)} sx={{ width: 220 }} />
         <TextField size="small" label="Send to" placeholder="name@apsoparts.com" value={to} onChange={(e) => setTo(e.target.value)} sx={{ width: 260 }} />
         <TextField size="small" select label="Language" value={lang} onChange={(e) => setLang(e.target.value)} sx={{ width: 150 }}>
           <MenuItem value="">As the customer</MenuItem>
@@ -161,6 +229,7 @@ function TestSend() {
         </Button>
       </Box>
       {result && <Typography sx={{ fontSize: "0.8rem", mt: 1.25, color: result.ok ? GREEN : RED }}>{result.text}</Typography>}
+      {open && <Candidates onUse={(w) => { setWeb(w); setResult(null); }} followed={followed} />}
     </Box>
   );
 }
@@ -169,6 +238,13 @@ export default function DocApp() {
   const [tick, setTick] = useState(0);
   const [forced, setForced] = useState(0);
   const [filter, setFilter] = useState("all");
+  const [testWeb, setTestWeb] = useState("");
+  const [testOpen, setTestOpen] = useState(false);
+  const testThis = (web: string) => {
+    setTestWeb(web);
+    setTestOpen(true);
+    requestAnimationFrame(() => document.getElementById("doc-test")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), POLL_MS);
     return () => clearInterval(t);
@@ -214,6 +290,7 @@ export default function DocApp() {
   const open = (c["awaiting-erp"] ?? 0) + (c["awaiting-invoice"] ?? 0) + (c.due ?? 0);
   const attention = (c["back-office"] ?? 0) + (c.sending ?? 0);
   const readOnly = !svc.captureOn && !svc.sendingOn;
+  const canTest = svc.isAdmin && svc.smtpConfigured && svc.magentoConfigured;
 
   return shell(
     <>
@@ -311,6 +388,13 @@ export default function DocApp() {
                             <MailOutlineIcon sx={{ fontSize: 18, color: BLUE }} />
                           </IconButton>
                         </Tooltip>
+                        {canTest && (
+                          <Tooltip title="Send yourself this order's real email (test)" arrow>
+                            <IconButton size="small" onClick={() => testThis(row.web)} aria-label={`Test ${row.web}`}>
+                              <SendOutlinedIcon sx={{ fontSize: 17, color: BLUE }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {row.hubspotIds[0] && (
                           <Tooltip title="Open the order in HubSpot" arrow>
                             <IconButton size="small" component="a" href={hsOrderUrl(row.hubspotIds[0])} target="_blank" rel="noopener" aria-label={`Open ${row.web} in HubSpot`}>
@@ -328,7 +412,9 @@ export default function DocApp() {
         )}
       </Section>
 
-      {svc.isAdmin && svc.smtpConfigured && svc.magentoConfigured && <TestSend />}
+      {canTest && (
+        <TestSend web={testWeb} setWeb={setTestWeb} open={testOpen} setOpen={setTestOpen} followed={new Set(board.rows.map((row) => row.web))} />
+      )}
     </>,
   );
 }

@@ -5,7 +5,7 @@
 
 import { NextRequest } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { preview } from "@/lib/doc/engine";
+import { preview, resolveWebNumber } from "@/lib/doc/engine";
 import { esc } from "@/lib/doc/email";
 import { missingForDocuments } from "@/lib/doc/config";
 
@@ -24,12 +24,12 @@ export async function GET(req: NextRequest) {
   const missing = missingForDocuments();
   if (missing.length) return page(503, `Not configured on this deployment: ${esc(missing.join(", "))}.`);
 
-  const web = (req.nextUrl.searchParams.get("web") ?? "").replace(/\D/g, "");
-  if (!web) return page(400, "Which order? (?web=&lt;shop order number&gt;)");
+  const order = (req.nextUrl.searchParams.get("web") ?? "").trim();
+  if (!order) return page(400, "Which order? (?web=&lt;shop or ERP order number&gt;)");
   const lang = req.nextUrl.searchParams.get("lang");
 
   try {
-    const v = await preview(web, { lang });
+    const v = await preview(await resolveWebNumber(order), { lang });
     const attached = v.groups.length
       ? v.groups.map((g) => `<li>${esc(g.file)} - ${esc(g.compound)}, ${g.positions.length} position(s)</li>`).join("")
       : "<li><b>none</b> - this order would go to the Back Office as a CERTIFICATES ticket</li>";
