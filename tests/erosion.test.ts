@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  dayCells, daysBetween, fixText, forecastTicketCount, isClosed, mapTicket, noteText, parseForecast,
-  resolutionTally, resolutionText, scoreboard, teamFor, zurichDay,
+  dayCells, daysBetween, fixText, forecastTicketCount, isClosed, isWon, mapTicket, noteText, parseForecast,
+  resolutionTally, resolutionText, scoreboard, teamFor, topReason, winRate, zurichDay,
   type ErosionTicket, type ForecastItem, type StageInfo,
 } from "../src/lib/erosion/model";
 
@@ -107,37 +107,70 @@ test("resolutionText: a field beats a note, and a closed ticket with neither is 
   assert.deepEqual(resolutionText(ticket({})), { text: "—", missing: false });
 });
 
-test("resolutionTally counts closed tickets only, largest first", () => {
+test("resolutionTally counts closed tickets only, largest first, with EUR and the win flag", () => {
   const tally = resolutionTally([
-    ticket({ id: "a", closed: "2026-09-02", resolution: "No demand" }),
-    ticket({ id: "b", closed: "2026-09-03", resolution: "No demand" }),
+    ticket({ id: "a", closed: "2026-09-02", resolution: "No demand", amount: 10 }),
+    ticket({ id: "b", closed: "2026-09-03", resolution: "No demand", amount: 5 }),
     ticket({ id: "c", closed: "2026-09-03" }),
     ticket({ id: "d", closed: "2026-09-04", closingNote: "n" }),
-    ticket({ id: "e" }),
+    ticket({ id: "e", closed: "2026-09-04", resolution: "Ordered", amount: 7 }),
+    ticket({ id: "f", resolution: "Ordered" }),
   ]);
   assert.deepEqual(tally, [
-    { label: "No demand", count: 2, recorded: true },
-    { label: "No resolution", count: 1, recorded: false },
-    { label: "Note only", count: 1, recorded: true },
+    { label: "No demand", count: 2, eur: 15, recorded: true, won: false },
+    { label: "No resolution", count: 1, eur: 0, recorded: false, won: false },
+    { label: "Note only", count: 1, eur: 0, recorded: true, won: false },
+    { label: "Ordered", count: 1, eur: 7, recorded: true, won: true },
   ]);
 });
 
-test("scoreboard: team totals, owner rows and days to close", () => {
+test("isWon: only the three order outcomes, and only once closed", () => {
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "Ordered" })), true);
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot order" })), true);
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "One-shot C2S order" })), true);
+  // bought from Angst+Pfister, not APSOparts: not ours
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "Bought at AP" })), false);
+  assert.equal(isWon(ticket({ closed: "2026-09-02", resolution: "No demand" })), false);
+  // a resolution on a ticket that is still open is not yet a win
+  assert.equal(isWon(ticket({ resolution: "Ordered" })), false);
+});
+
+test("scoreboard: team totals, wins, reasons, owner rows and days to close", () => {
   const b = scoreboard([
-    ticket({ id: "a", team: "ESO", owner: "A", amount: 100, created: "2026-09-01", closed: "2026-09-05" }),
+    ticket({ id: "a", team: "ESO", owner: "A", amount: 100, created: "2026-09-01", closed: "2026-09-05", resolution: "Ordered" }),
     ticket({ id: "b", team: "ESO", owner: "A", amount: 50 }),
-    ticket({ id: "c", team: "TSA", owner: "B", amount: 30, stageClosed: true }),
+    ticket({ id: "c", team: "TSA", owner: "B", amount: 30, stageClosed: true, resolution: "No demand" }),
     ticket({ id: "d", team: null, owner: "C", amount: 10 }),
   ]);
   assert.deepEqual(
     { ...b.teams.ESO },
-    { n: 2, open: 1, closed: 1, eur: 150, closedEur: 100, closeDays: [4] },
+    { n: 2, open: 1, closed: 1, won: 1, eur: 150, closedEur: 100, wonEur: 100, closeDays: [4], reasons: { Ordered: 1 } },
   );
   // closed by stage but with no closed date: counted closed, adds no duration
-  assert.deepEqual({ ...b.teams.TSA }, { n: 1, open: 0, closed: 1, eur: 30, closedEur: 30, closeDays: [] });
+  assert.deepEqual(
+    { ...b.teams.TSA },
+    { n: 1, open: 0, closed: 1, won: 0, eur: 30, closedEur: 30, wonEur: 0, closeDays: [], reasons: { "No demand": 1 } },
+  );
   // a ticket with no team is in its owner's row and in neither team
   assert.equal(b.owners.length, 3);
   assert.equal(b.owners.find((o) => o.owner === "C")?.team, null);
+  assert.equal(winRate(b.teams.ESO), 1);
+  assert.equal(winRate(b.owners.find((o) => o.owner === "C")!), null);
+});
+
+test("topReason: the most given outcome, ties broken alphabetically", () => {
+  const b = scoreboard([
+    ticket({ id: "a", owner: "A", closed: "2026-09-02", resolution: "No demand" }),
+    ticket({ id: "b", owner: "A", closed: "2026-09-02", resolution: "Ordered" }),
+    ticket({ id: "c", owner: "A", closed: "2026-09-02", resolution: "No demand" }),
+    ticket({ id: "d", owner: "B", closed: "2026-09-02", resolution: "Price issue" }),
+    ticket({ id: "e", owner: "B", closed: "2026-09-02", resolution: "MOQ issue" }),
+    ticket({ id: "f", owner: "C" }),
+  ]);
+  const by = (o: string) => b.owners.find((r) => r.owner === o)!;
+  assert.deepEqual(topReason(by("A")), { label: "No demand", count: 2 });
+  assert.deepEqual(topReason(by("B")), { label: "MOQ issue", count: 1 });
+  assert.equal(topReason(by("C")), null);
 });
 
 test("dayCells puts tickets on their day and merges one company's forecast entries on a day", () => {

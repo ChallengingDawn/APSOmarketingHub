@@ -224,6 +224,23 @@ export function isClosed(t: ErosionTicket): boolean {
   return t.stageClosed || t.closed !== null;
 }
 
+/**
+ * WON = the customer ordered from APSOparts again. Exactly these three outcomes
+ * of the ESO/TSA resolution dropdown, read off the live tickets on 04.10.2026.
+ * "Bought at AP" is deliberately NOT a win: the customer stayed with the group
+ * but bought from Angst+Pfister, not from us. Change it here and nowhere else.
+ */
+export const WON_RESOLUTIONS: ReadonlySet<string> = new Set(["Ordered", "One-shot order", "One-shot C2S order"]);
+
+export function isWon(t: ErosionTicket): boolean {
+  return isClosed(t) && t.resolution !== null && WON_RESOLUTIONS.has(t.resolution);
+}
+
+/** The reason a closed ticket is counted under - its resolution, else what is missing. */
+export function outcomeLabel(t: ErosionTicket): string {
+  return t.resolution ?? (t.closingNote ? "Note only" : "No resolution");
+}
+
 /** What the closed ticket says happened. `missing` = closed with nothing recorded. */
 export function resolutionText(t: ErosionTicket): { text: string; missing: boolean } {
   if (t.resolution) return { text: t.resolution + (t.resolutionDetail ? ` — ${t.resolutionDetail}` : ""), missing: false };
@@ -232,17 +249,20 @@ export function resolutionText(t: ErosionTicket): { text: string; missing: boole
   return { text: "—", missing: false };
 }
 
-/** Closed tickets counted per outcome, largest first. */
-export function resolutionTally(tickets: ErosionTicket[]): { label: string; count: number; recorded: boolean }[] {
-  const n = new Map<string, number>();
+export type OutcomeRow = { label: string; count: number; eur: number; recorded: boolean; won: boolean };
+
+/** Closed tickets counted per outcome, largest first, with the EUR behind each. */
+export function resolutionTally(tickets: ErosionTicket[]): OutcomeRow[] {
+  const n = new Map<string, OutcomeRow>();
   for (const t of tickets) {
     if (!isClosed(t)) continue;
-    const k = t.resolution ?? (t.closingNote ? "Note only" : "No resolution");
-    n.set(k, (n.get(k) ?? 0) + 1);
+    const label = outcomeLabel(t);
+    let row = n.get(label);
+    if (!row) n.set(label, (row = { label, count: 0, eur: 0, recorded: label !== "No resolution", won: WON_RESOLUTIONS.has(label) }));
+    row.count += 1;
+    row.eur += t.amount;
   }
-  return [...n.entries()]
-    .map(([label, count]) => ({ label, count, recorded: label !== "No resolution" }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  return [...n.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 /* ── scoreboard ───────────────────────────────────────────────────────── */
@@ -251,15 +271,20 @@ export type ScoreRow = {
   n: number;
   open: number;
   closed: number;
+  /** Closed with an APSOparts order - see WON_RESOLUTIONS. */
+  won: number;
   eur: number;
   closedEur: number;
+  wonEur: number;
   /** Days from creation to close, one entry per closed ticket that carries both dates. */
   closeDays: number[];
+  /** Closed tickets per outcome label. */
+  reasons: Record<string, number>;
 };
 
 export type OwnerRow = ScoreRow & { owner: string; team: Team | null };
 
-const emptyRow = (): ScoreRow => ({ n: 0, open: 0, closed: 0, eur: 0, closedEur: 0, closeDays: [] });
+const emptyRow = (): ScoreRow => ({ n: 0, open: 0, closed: 0, won: 0, eur: 0, closedEur: 0, wonEur: 0, closeDays: [], reasons: {} });
 
 function add(r: ScoreRow, t: ErosionTicket): void {
   r.n += 1;
@@ -267,10 +292,27 @@ function add(r: ScoreRow, t: ErosionTicket): void {
   if (isClosed(t)) {
     r.closed += 1;
     r.closedEur += t.amount;
+    const why = outcomeLabel(t);
+    r.reasons[why] = (r.reasons[why] ?? 0) + 1;
+    if (isWon(t)) {
+      r.won += 1;
+      r.wonEur += t.amount;
+    }
     if (t.closed && t.created) r.closeDays.push(Math.max(0, daysBetween(t.created, t.closed)));
   } else {
     r.open += 1;
   }
+}
+
+/** Won as a share of CLOSED tickets - an open ticket has not had its chance yet. */
+export function winRate(r: ScoreRow): number | null {
+  return r.closed ? r.won / r.closed : null;
+}
+
+/** The outcome given most often on this row's closed tickets; ties go alphabetically. */
+export function topReason(r: ScoreRow): { label: string; count: number } | null {
+  const best = Object.entries(r.reasons).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  return best ? { label: best[0], count: best[1] } : null;
 }
 
 export function scoreboard(tickets: ErosionTicket[]): { teams: Record<Team, ScoreRow>; owners: OwnerRow[] } {

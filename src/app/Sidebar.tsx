@@ -73,6 +73,10 @@ interface NavSection {
     badge?: string;
     /** Sub-apps listed indented beneath the entry. */
     children?: { label: string; href: string }[];
+    /** A heading the entry sits under inside its app (e.g. "Use cases"). */
+    group?: string;
+    /** A slot that is named but not built yet: shown, never linked. */
+    placeholder?: boolean;
   }[];
 }
 
@@ -119,6 +123,9 @@ const navSections: NavSection[] = [
       { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
       { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
+      // with Tracking health rather than among the use cases.
+      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
   {
@@ -162,16 +169,17 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // The HubSpot-side apps. Most still live in their own repos and migrate
-    // here over time; Erosion and DoC came from the APSOAssistant micro apps.
+    // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
+    // still live in their own repos and migrate here over time; Erosion and DoC
+    // came from the APSOAssistant micro apps.
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
     items: [
-      { label: "Erosion · article level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
-      { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
-      { label: "DoC · declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
-      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
+      { group: "Use cases", label: "UCX - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
+      { group: "Use cases", label: "UCX - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
+      { group: "Use cases", label: "UCX - DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
+      { group: "HubSpot apps", label: "tbd", href: "#hubspot-apps-tbd", icon: <HubIcon fontSize="small" />, placeholder: true },
     ],
   },
   {
@@ -260,9 +268,25 @@ export default function Sidebar() {
           borderBottom: "1px solid #e6e8ec",
         }}
       >
-        {/* APSOhub, not "APSO Marketing Hub" - this stopped being the
-            marketing app when the other four moved in. The letter animation
-            stays; only the word after it changes. */}
+        {/* Inside an app the header names THAT app - the menu below is its menu,
+            so "APSOhub" up here only said where you are not. On the launch pad
+            (and in Governance, which is the hub's own) it stays APSOhub. */}
+        {scoped && activeSection ? (
+          <Box component={Link} href="/" sx={{ display: "flex", alignItems: "center", gap: 1.5, textDecoration: "none" }}>
+            <Box
+              sx={{
+                width: 40, height: 40, borderRadius: 2.2, bgcolor: activeSection.color, color: "#fff", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.14)", "& svg": { fontSize: 23 },
+              }}
+            >
+              {activeSection.icon}
+            </Box>
+            <Typography className="brand-display" sx={{ fontSize: 21, fontWeight: 700, lineHeight: 1.15, color: "#1d1d1f", letterSpacing: "-0.015em" }}>
+              {activeSection.title}
+            </Typography>
+          </Box>
+        ) : (
         <Box
           component={Link}
           href="/"
@@ -278,6 +302,7 @@ export default function Sidebar() {
             hub
           </Box>
         </Box>
+        )}
         <Typography
           sx={{
             fontSize: 12,
@@ -288,7 +313,7 @@ export default function Sidebar() {
             textTransform: "uppercase",
           }}
         >
-          apsoparts.com
+          {scoped ? "APSOhub · apsoparts.com" : "apsoparts.com"}
         </Typography>
       </Box>
 
@@ -315,7 +340,8 @@ export default function Sidebar() {
           const isOpen = scoped || open === section.title;
           return (
             <Box key={section.title} sx={{ borderBottom: "0.5px solid #ececef" }}>
-              {/* Category row */}
+              {/* Category row - on the launch pad only; inside an app the header names it */}
+              {!scoped && (
               <Box
                 onClick={() => toggle(section.title)}
                 sx={{
@@ -371,14 +397,35 @@ export default function Sidebar() {
                   }}
                 />
               </Box>
+              )}
 
               {/* Items */}
               <Collapse in={isOpen} timeout={240} unmountOnExit>
                 <List dense disablePadding sx={{ px: 2, py: 0.75 }}>
-                  {section.items.map((item) => {
+                  {section.items.map((item, idx) => {
                     const active = item.href === activeHref;
+                    const heading = item.group && item.group !== section.items[idx - 1]?.group ? item.group : null;
                     return (
                       <Fragment key={item.href}>
+                      {heading && (
+                        <Typography
+                          sx={{
+                            px: 2.25, pt: idx === 0 ? 0.75 : 2, pb: 0.75, fontSize: 11, fontWeight: 700,
+                            letterSpacing: "0.08em", textTransform: "uppercase", color: "#8a919b",
+                          }}
+                        >
+                          {heading}
+                        </Typography>
+                      )}
+                      {item.placeholder ? (
+                        <Box
+                          aria-disabled="true"
+                          sx={{ display: "flex", alignItems: "center", px: 2.25, py: 1, minHeight: 46, mb: 0.4, color: "#a3a9b2", "& svg": { color: "#c3c8cf" } }}
+                        >
+                          <Box component="span" sx={{ display: "inline-flex", minWidth: 36 }}>{item.icon}</Box>
+                          <Typography sx={{ fontSize: 14.5, fontStyle: "italic" }}>{item.label}</Typography>
+                        </Box>
+                      ) : (
                       <ListItemButton
                         component={Link}
                         href={item.href}
@@ -441,6 +488,7 @@ export default function Sidebar() {
                           />
                         )}
                       </ListItemButton>
+                      )}
                       {item.children?.map((child) => {
                         const childActive = child.href === activeHref;
                         return (

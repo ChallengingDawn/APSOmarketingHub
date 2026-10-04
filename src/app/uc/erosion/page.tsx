@@ -36,11 +36,15 @@ import {
   DISPLAY, GUTTER, HAIRLINE, INK, LoadingPanel, MUTED, NotConnectedPanel, Section, UpstreamPanel,
 } from "@/app/analytics/Shell";
 import { StatTile } from "@/app/charts/StatTile";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { BarList } from "@/app/charts/BarList";
 import { DELTA, SEQUENTIAL, SERIES } from "@/app/charts/palette";
 import { full, percent } from "@/app/charts/format";
 import {
-  average, dayCells, daysBetween, forecastTicketCount, isClosed, localDay, resolutionTally, resolutionText, scoreboard,
-  type DayCell, type ErosionForecast, type ErosionTicket, type ErosionTickets, type ForecastItem, type OwnerRow, type Team,
+  WON_RESOLUTIONS, average, dayCells, daysBetween, forecastTicketCount, isClosed, isWon, localDay, outcomeLabel,
+  resolutionTally, resolutionText, scoreboard, topReason, winRate,
+  type DayCell, type ErosionForecast, type ErosionTicket, type ErosionTickets, type ForecastItem, type OwnerRow,
+  type ScoreRow, type Team,
 } from "@/lib/erosion/model";
 
 const PORTAL = "26492587";
@@ -126,17 +130,6 @@ function HsLink({ id }: { id: string }) {
         <OpenInNewIcon sx={{ fontSize: 15, color: BLUE }} />
       </IconButton>
     </Tooltip>
-  );
-}
-
-/** Closed share as a bar: green closed, sand open. */
-function SplitBar({ closed, n, height = 10 }: { closed: number; n: number; height?: number }) {
-  const pct = n ? (closed / n) * 100 : 0;
-  return (
-    <Box sx={{ height, borderRadius: 99, overflow: "hidden", display: "flex", bgcolor: TRACK }} title={`${closed} closed · ${n - closed} open`}>
-      {closed > 0 && <Box sx={{ width: `${pct}%`, bgcolor: GREEN }} />}
-      {n - closed > 0 && <Box sx={{ flex: 1, bgcolor: OPEN_FILL }} />}
-    </Box>
   );
 }
 
@@ -375,81 +368,105 @@ function Calendar({ tickets, items, horizonDays, forecastNote }: {
   );
 }
 
-/* ── scoreboard ───────────────────────────────────────────────────────── */
+/* ── what the action achieved ─────────────────────────────────────────── */
 
-function TeamPanel({ team, n, open, closed, eurAll, eurClosed, closeDays }: {
-  team: Team; n: number; open: number; closed: number; eurAll: number; eurClosed: number; closeDays: number[];
-}) {
-  const avg = average(closeDays);
+/** Won share of the closed tickets: green won, sand the rest. */
+function WinBar({ won, closed, height = 10 }: { won: number; closed: number; height?: number }) {
+  const pct = closed ? (won / closed) * 100 : 0;
+  return (
+    <Box sx={{ height, borderRadius: 99, overflow: "hidden", display: "flex", bgcolor: TRACK }} title={`${won} won of ${closed} closed`}>
+      {won > 0 && <Box sx={{ width: `${pct}%`, bgcolor: GREEN }} />}
+      {closed - won > 0 && <Box sx={{ flex: 1, bgcolor: OPEN_FILL }} />}
+    </Box>
+  );
+}
+
+function TeamPanel({ team, r }: { team: Team; r: ScoreRow }) {
+  const avg = average(r.closeDays);
+  const rate = winRate(r);
+  const top = topReason(r);
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: 2.4, p: 2, height: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mb: 1.25 }}>
         <Typography sx={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: "1.15rem", color: INK }}>{team}</Typography>
         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-          {n} tickets · {open} open · {closed} closed · {avg === null ? "no close yet" : `${avg.toFixed(1)} days to close on average`}
+          {r.n} tickets · {r.open} open · {r.closed} closed{avg === null ? "" : ` · ${avg.toFixed(1)} days to close`}
         </Typography>
       </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.75 }}>
-        <Box sx={{ flex: 1 }}><SplitBar closed={closed} n={n} height={12} /></Box>
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, minWidth: 52, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-          {n ? percent(closed / n, 0) : "—"}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
+        <Box sx={{ flex: 1 }}><WinBar won={r.won} closed={r.closed} height={12} /></Box>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, minWidth: 56, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+          {rate === null ? "—" : percent(rate, 0)}
         </Typography>
       </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-        <Box sx={{ flex: 1, height: 6, borderRadius: 99, overflow: "hidden", bgcolor: TRACK }}>
-          <Box sx={{ width: `${eurAll ? (eurClosed / eurAll) * 100 : 0}%`, height: "100%", bgcolor: BLUE }} />
-        </Box>
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-          {eur(eurClosed)} of {eur(eurAll)} EUR closed
-        </Typography>
-      </Box>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.25 }}>
+        <b style={{ color: INK }}>{r.won} won</b> of {r.closed} closed · {eur(r.wonEur)} EUR won back
+      </Typography>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+        Most given reason: <b style={{ color: INK }}>{top ? `${top.label} (${top.count})` : "—"}</b>
+      </Typography>
     </Box>
   );
 }
 
-type OwnerSort = "n" | "closedPct" | "eur";
+type OwnerSort = "won" | "rate" | "wonEur" | "n";
 
-function Leaderboard({ owners }: { owners: OwnerRow[] }) {
-  const [sort, setSort] = useState<OwnerSort>("n");
+function ByPerson({ owners }: { owners: OwnerRow[] }) {
+  const [sort, setSort] = useState<OwnerSort>("won");
   const rows = useMemo(() => [...owners].sort((a, b) => {
-    if (sort === "closedPct") return (b.n ? b.closed / b.n : 0) - (a.n ? a.closed / a.n : 0) || b.n - a.n;
-    if (sort === "eur") return b.eur - a.eur;
-    return b.n - a.n || b.eur - a.eur;
+    if (sort === "rate") {
+      // an owner with nothing closed has no rate yet - last, not 0 %
+      const ra = winRate(a), rb = winRate(b);
+      if (ra === null || rb === null) return ra === null && rb === null ? b.n - a.n : ra === null ? 1 : -1;
+      return rb - ra || b.closed - a.closed;
+    }
+    if (sort === "wonEur") return b.wonEur - a.wonEur || b.won - a.won;
+    if (sort === "n") return b.n - a.n || b.won - a.won;
+    return b.won - a.won || (winRate(b) ?? -1) - (winRate(a) ?? -1);
   }), [owners, sort]);
-  const maxN = Math.max(1, ...rows.map((r) => r.n));
   return (
     <>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.25, flexWrap: "wrap" }}>
-        <Box sx={{ flex: 1 }}><Kicker>By owner</Kicker></Box>
-        {([["n", "Tickets"], ["closedPct", "Closed %"], ["eur", "EUR at stake"]] as const).map(([k, label]) => (
+        <Box sx={{ flex: 1 }}><Kicker>Per person</Kicker></Box>
+        {([["won", "Won"], ["rate", "Win rate"], ["wonEur", "EUR won"], ["n", "Tickets"]] as const).map(([k, label]) => (
           <Chip key={k} size="small" label={label} clickable onClick={() => setSort(k)}
             sx={{ height: 24, fontSize: "0.72rem", fontWeight: 600, bgcolor: sort === k ? INK : "#f1f3f5", color: sort === k ? "#fff" : MUTED }} />
         ))}
       </Box>
       <Box sx={{ overflowX: "auto" }}>
-        <Table size="small" sx={{ minWidth: 640 }}>
+        <Table size="small" sx={{ minWidth: 900 }}>
           <TableHead><TableRow>
-            {["#", "Owner", "Team", "Tickets", "Closed", "EUR at stake", "EUR closed", "Days to close"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
+            {["#", "Owner", "Team", "Tickets", "Closed", "Won", "Win rate", "EUR won", "Most given reason", "Days to close"].map((h) => (
+              <TableCell key={h} sx={headCell}>{h}</TableCell>
+            ))}
           </TableRow></TableHead>
           <TableBody>
             {rows.map((r, i) => {
               const avg = average(r.closeDays);
+              const rate = winRate(r);
+              const top = topReason(r);
               return (
                 <TableRow key={r.owner} hover>
                   <TableCell sx={{ fontSize: "0.76rem", color: MUTED, width: 28 }}>{i + 1}</TableCell>
                   <TableCell sx={{ fontSize: "0.82rem", fontWeight: 600, whiteSpace: "nowrap" }}>{r.owner}</TableCell>
                   <TableCell><TeamChip team={r.team} /></TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>
+                    {r.n}{r.open ? <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}> · {r.open} open</Typography> : null}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>{r.closed}</TableCell>
+                  <TableCell sx={{ fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: r.won ? "#11704f" : MUTED }}>{r.won}</TableCell>
                   <TableCell sx={{ minWidth: 150 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Box sx={{ width: `${Math.max(12, (r.n / maxN) * 100)}%`, maxWidth: 120 }}><SplitBar closed={r.closed} n={r.n} /></Box>
-                      <Typography sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>{r.n}</Typography>
+                      <Box sx={{ width: 84 }}><WinBar won={r.won} closed={r.closed} /></Box>
+                      <Typography sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: rate === null ? MUTED : INK }}>
+                        {rate === null ? "—" : percent(rate, 0)}
+                      </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                    {r.closed} <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>({r.n ? percent(r.closed / r.n, 0) : "—"})</Typography>
+                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: r.wonEur ? INK : MUTED }}>{eur(r.wonEur)}</TableCell>
+                  <TableCell sx={{ fontSize: "0.78rem", ...clip(220) }} title={top ? `${top.label} (${top.count})` : ""}>
+                    {top ? `${top.label} (${top.count})` : "—"}
                   </TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>{eur(r.eur)}</TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: r.closedEur ? INK : MUTED }}>{eur(r.closedEur)}</TableCell>
                   <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: avg === null ? MUTED : INK }}>{avg === null ? "—" : avg.toFixed(0)}</TableCell>
                 </TableRow>
               );
@@ -463,58 +480,118 @@ function Leaderboard({ owners }: { owners: OwnerRow[] }) {
 
 const CLOSED_PREVIEW = 12;
 
-function Outcomes({ tickets }: { tickets: ErosionTicket[] }) {
+function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; reason: string | null; onClear: () => void }) {
   const [all, setAll] = useState(false);
   const closed = useMemo(
-    () => tickets.filter(isClosed).sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? "")),
-    [tickets],
+    () => tickets
+      .filter((t) => isClosed(t) && (reason === null || outcomeLabel(t) === reason))
+      .sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? "")),
+    [tickets, reason],
   );
-  const tally = useMemo(() => resolutionTally(tickets), [tickets]);
   const shown = all ? closed : closed.slice(0, CLOSED_PREVIEW);
   return (
     <Box sx={{ mb: 3 }}>
-      <Kicker>What happened on the {closed.length} closed ticket{closed.length === 1 ? "" : "s"}</Kicker>
-      {closed.length === 0 ? (
-        <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing closed yet.</Typography>
-      ) : (
-        <>
-          <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", mb: 1.5 }}>
-            {tally.map((r) => (
-              <Chip key={r.label} size="small" label={`${r.label} · ${r.count}`}
-                icon={r.recorded ? undefined : <WarningAmberIcon />}
-                sx={{ height: 24, fontSize: "0.74rem", fontWeight: 600, bgcolor: r.recorded ? "#e6f6ef" : "#fdf1e2", color: r.recorded ? "#11704f" : AMBER,
-                  "& .MuiChip-icon": { fontSize: 14, color: "inherit" } }} />
-            ))}
-          </Box>
-          <Box sx={{ display: "grid", gap: 0.75 }}>
-            {shown.map((t) => {
-              const res = resolutionText(t);
-              const days = t.closed && t.created ? Math.max(0, daysBetween(t.created, t.closed)) : null;
-              return (
-                <Box key={t.id} sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", p: 1.25, border: `1px solid ${HAIRLINE}`, borderLeft: `3px solid ${res.missing ? AMBER : GREEN}`, borderRadius: 2 }}>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                      <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{t.company ?? "—"}</Typography>
-                      <TeamChip team={t.team} />
-                      <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{t.owner}</Typography>
-                      <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{eur(t.amount)} EUR</Typography>
-                      <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>closed {t.closed}{days !== null ? ` · ${days} day${days === 1 ? "" : "s"} after it was raised` : ""}</Typography>
-                    </Box>
-                    <Typography sx={{ fontSize: "0.82rem", color: res.missing ? AMBER : INK, mt: 0.4 }}>{res.text}</Typography>
-                  </Box>
-                  <HsLink id={t.id} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+        <Kicker>{reason ? `Closed as “${reason}” — ${closed.length}` : `The ${closed.length} closed tickets, latest first`}</Kicker>
+        {reason && <Chip size="small" label="Show all reasons" onDelete={onClear} onClick={onClear} sx={{ height: 22, fontSize: "0.7rem", mb: 1 }} />}
+      </Box>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {shown.map((t) => {
+          const res = resolutionText(t);
+          const won = isWon(t);
+          const days = t.closed && t.created ? Math.max(0, daysBetween(t.created, t.closed)) : null;
+          return (
+            <Box key={t.id} sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", p: 1.25, border: `1px solid ${HAIRLINE}`, borderLeft: `3px solid ${won ? GREEN : res.missing ? AMBER : "#c9ced6"}`, borderRadius: 2 }}>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{t.company ?? "—"}</Typography>
+                  {won && <Chip size="small" icon={<CheckCircleIcon />} label="Won" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 700, bgcolor: "#e6f6ef", color: "#11704f", "& .MuiChip-icon": { fontSize: 13, color: "inherit" } }} />}
+                  <TeamChip team={t.team} />
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{t.owner}</Typography>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{eur(t.amount)} EUR</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>closed {t.closed}{days !== null ? ` · ${days} day${days === 1 ? "" : "s"} after it was raised` : ""}</Typography>
                 </Box>
-              );
-            })}
-          </Box>
-          {closed.length > CLOSED_PREVIEW && (
-            <Button size="small" onClick={() => setAll((v) => !v)} sx={{ mt: 1 }}>
-              {all ? "Show fewer" : `Show all ${closed.length}`}
-            </Button>
-          )}
-        </>
+                <Typography sx={{ fontSize: "0.82rem", color: res.missing ? AMBER : INK, mt: 0.4 }}>{res.text}</Typography>
+              </Box>
+              <HsLink id={t.id} />
+            </Box>
+          );
+        })}
+      </Box>
+      {closed.length > CLOSED_PREVIEW && (
+        <Button size="small" onClick={() => setAll((v) => !v)} sx={{ mt: 1 }}>
+          {all ? "Show fewer" : `Show all ${closed.length}`}
+        </Button>
       )}
     </Box>
+  );
+}
+
+function Results({ tickets, board, stale }: { tickets: ErosionTicket[]; board: ReturnType<typeof scoreboard>; stale: boolean }) {
+  const [reason, setReason] = useState<string | null>(null);
+  const tally = useMemo(() => resolutionTally(tickets), [tickets]);
+  const closed = tally.reduce((s, r) => s + r.count, 0);
+  const won = tally.filter((r) => r.won).reduce((s, r) => s + r.count, 0);
+  const wonEur = tally.filter((r) => r.won).reduce((s, r) => s + r.eur, 0);
+  const top = tally[0] ?? null;
+  return (
+    <Section sx={{ mb: 2.5, opacity: stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
+      <CardHead title="What the action achieved" />
+      <Grid container spacing={2} sx={{ mb: 1 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <StatTile label="Won back" value={full(won)} note={`${eur(wonEur)} EUR of last year's revenue on those articles`} />
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <StatTile label="Win rate" value={closed ? percent(won / closed, 0) : "—"} note={`${won} of ${closed} closed tickets ended in an order`} />
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <StatTile label="Most given reason" value={top ? top.label : "—"}
+            note={top ? `${top.count} of ${closed} closed tickets (${percent(top.count / Math.max(closed, 1), 0)})` : undefined} />
+        </Grid>
+      </Grid>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 2.5 }}>
+        Won = closed as {[...WON_RESOLUTIONS].join(", ")}. “Bought at AP” is not counted: that customer bought from Angst+Pfister, not from APSOparts.
+      </Typography>
+
+      <Box sx={{ mb: 3 }}>
+        <ChartFrame
+          title="Why the closed tickets closed"
+          caption="One bar per reason given when the ticket was closed · click a reason to list its tickets"
+          table={{
+            columns: ["Reason", "Tickets", "Share of closed", "EUR", "Counts as won"],
+            rows: tally.map((r) => [r.label, r.count, percent(r.count / Math.max(closed, 1), 0), eur(r.eur), r.won ? "yes" : "no"]),
+            numeric: [1, 2, 3],
+          }}
+          empty={closed ? null : "Nothing closed yet."}
+        >
+          <BarList
+            rows={tally.map((r) => ({
+              label: r.label,
+              value: r.count,
+              secondary: `${percent(r.count / Math.max(closed, 1), 0)}${r.won ? " · won" : ""}`,
+            }))}
+            format={full}
+            labelWidth={260}
+            onSelect={(label) => setReason((cur) => (cur === label ? null : label))}
+            selectedLabel={reason}
+          />
+        </ChartFrame>
+      </Box>
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {(["ESO", "TSA"] as const).map((team) => (
+          <Grid key={team} size={{ xs: 12, lg: 6 }}>
+            <TeamPanel team={team} r={board.teams[team]} />
+          </Grid>
+        ))}
+      </Grid>
+
+      <Box sx={{ mb: 3 }}>
+        <ByPerson owners={board.owners} />
+      </Box>
+
+      <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} />
+    </Section>
   );
 }
 
@@ -668,21 +745,7 @@ export default function ErosionApp() {
 
       {tr?.state === "ok" && (
         <>
-          <Section sx={{ mb: 2.5, opacity: ticketsHeld.stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
-            <CardHead title="How the action is going" />
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              {(["ESO", "TSA"] as const).map((team) => {
-                const r = board.teams[team];
-                return (
-                  <Grid key={team} size={{ xs: 12, lg: 6 }}>
-                    <TeamPanel team={team} n={r.n} open={r.open} closed={r.closed} eurAll={r.eur} eurClosed={r.closedEur} closeDays={r.closeDays} />
-                  </Grid>
-                );
-              })}
-            </Grid>
-            <Outcomes tickets={tickets} />
-            <Leaderboard owners={board.owners} />
-          </Section>
+          <Results tickets={tickets} board={board} stale={ticketsHeld.stale} />
           <AllTickets tickets={tickets} />
         </>
       )}
