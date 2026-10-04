@@ -15,6 +15,7 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { isArticle, isSpecialArticle, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
+import { ownerName, teamOf } from "../datatracker/rosters";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
 const PP_PROPS = [
@@ -62,6 +63,18 @@ export type PriceCheckRow = {
   gateOpen: boolean;
   /** Why this customer is out of scope, or null. */
   excluded: string | null;
+  /** `un|YYYY-MM-DD` - the same key the detector writes on the ticket. */
+  key: string;
+  /**
+   * The ticket the detector raised for this day, if it has. The detector lives
+   * on the connector and this screen is the view onto it, so a row that
+   * qualifies here and has no ticket there is a disagreement worth seeing -
+   * which is the whole reason this is read back rather than assumed.
+   */
+  ticketId: string | null;
+  /** The team the company owner routes to, or null when they are on neither roster. */
+  team: "ESO" | "TSA" | null;
+  owner: string;
 };
 
 /** One customer, one article, one day - for the MOQ and Availability records. */
@@ -297,6 +310,10 @@ export async function fetchShopSignals(
 
       priceChecks.push({
         ...d.company,
+        key: `${d.company.customerNumber || d.company.companyId}|${d.day}`,
+        ticketId: null,
+        team: teamOf(d.company.ownerId),
+        owner: ownerName(d.company.ownerId),
         day: d.day,
         contactIds: [...d.contacts],
         articles: list,
@@ -341,6 +358,30 @@ export async function fetchShopSignals(
       // Nothing on the shelf, or not as much as they asked for. A null stock is
       // not a zero - we simply do not know, and guessing would invent a problem.
       if (x.stock === 0 || base.shortfall != null) availability.push(base);
+    }
+  }
+
+  // Which of these the detector has already ticketed. One search per hundred
+  // keys, and only for the days that actually qualify - the rest can never have
+  // a ticket, so asking about them would be a round trip for a certain no.
+  const askable = priceChecks.filter((r) => r.qualifies && !r.excluded);
+  for (let i = 0; i < askable.length; i += 100) {
+    const slice = askable.slice(i, i + 100);
+    try {
+      const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
+        path: "/crm/v3/objects/tickets/search",
+        method: "POST",
+        signal,
+        body: {
+          filterGroups: [{ filters: [{ propertyName: "price_check_key", operator: "IN", values: slice.map((r) => r.key) }] }],
+          properties: ["price_check_key"],
+          limit: 100,
+        },
+      });
+      const byKey = new Map((res.results ?? []).map((t) => [t.properties?.price_check_key ?? "", String(t.id ?? "")]));
+      for (const r of slice) r.ticketId = byKey.get(r.key) ?? null;
+    } catch {
+      // The rule still renders without this; only the ticket column goes blank.
     }
   }
 

@@ -40,7 +40,6 @@ import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatr
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
-import type { RunReport } from "@/lib/integrations/priceCheckTickets";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
 
 /** What the alternatives route hands back for one article. */
@@ -67,6 +66,9 @@ type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[
 
 /** Six years of views in one cell. Bars, not a line: the values are counts. */
 /** One line, ellipsis when it will not fit. Used by every table on the page. */
+/** A ticket in the portal. Tickets are object type 0-5. */
+const hsTicketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
+
 const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
 
 function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
@@ -446,26 +448,6 @@ export default function EshopActivityPage() {
   const [signalsError, setSignalsError] = useState<string | null>(null);
   const [pcOnlyQualifying, setPcOnlyQualifying] = useState(true);
   const [pcOpen, setPcOpen] = useState<string | null>(null);
-  const [pcRun, setPcRun] = useState<RunReport | null>(null);
-  const [pcRunning, setPcRunning] = useState<"dry" | "live" | null>(null);
-  const [pcRunError, setPcRunError] = useState<string | null>(null);
-
-  // The preview and the real run are the SAME call with one flag, so what you
-  // were shown cannot differ from what gets written.
-  const runTickets = useCallback(async (dry: boolean) => {
-    setPcRunning(dry ? "dry" : "live");
-    setPcRunError(null);
-    try {
-      const j = await fetch(`/api/datatracker/price-checks/run?dry=${dry ? 1 : 0}`, { method: "POST" })
-        .then((r) => r.json());
-      if (j?.ok && j.data) setPcRun(j.data as RunReport);
-      else setPcRunError(j?.error ?? j?.detail ?? "The run did not complete.");
-    } catch (e) {
-      setPcRunError(String(e));
-    } finally {
-      setPcRunning(null);
-    }
-  }, []);
 
   // One definition of the window, shared by the activity read and the orders
   // read, so the two halves of a row can never describe different days.
@@ -1234,83 +1216,12 @@ export default function EshopActivityPage() {
               label={<Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Only the ones that qualify</Typography>}
             />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
-            {/* Preview first, create second - and the preview is the default, so
-                a mis-click costs a wait rather than forty tickets. */}
-            <Button size="small" variant="outlined" disabled={pcRunning !== null}
-              onClick={() => runTickets(true)}>
-              {pcRunning === "dry" ? "Checking…" : "Preview tickets"}
-            </Button>
-            <Button size="small" variant="contained" disabled={pcRunning !== null || !pcRun || pcRun.dry === false}
-              onClick={() => { if (confirm(`Create ${pcRun?.rows.filter((r) => r.outcome === "would create").length ?? 0} tickets in HubSpot?`)) runTickets(false); }}>
-              {pcRunning === "live" ? "Creating…" : "Create tickets"}
-            </Button>
-            {pcRunError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{pcRunError}</Typography>}
           </Box>
-          {/* What the run actually did, line by line. A detector that only says
-              "14 created" is one nobody can check. */}
-          {pcRun && (
-            <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "#f7f9fc" }}>
-              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
-                textTransform: "uppercase", color: MUTED, mb: 1 }}>
-                {pcRun.dry ? "Preview" : "Run"} · {pcRun.from} → {pcRun.to} · {full(pcRun.considered)} days considered
-                {pcRun.dry ? "" : ` · ${full(pcRun.created)} created`}
-                {pcRun.articlesWithoutPrice > 0 ? ` · ${full(pcRun.articlesWithoutPrice)} articles with no list price` : ""}
-              </Typography>
-              <Table size="small" sx={{ "& td, & th": { ...cell, px: 1 },
-                "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Day</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED }}>Customer</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 140 }}>Owner</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 70 }}>Art.</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>Value</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: MUTED, width: 180 }}>Outcome</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {pcRun.rows.map((r) => (
-                    <TableRow key={r.key}>
-                      <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.day}</TableCell>
-                      <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.company ?? ""}>{r.company ?? "—"}</TableCell>
-                      <TableCell sx={{ color: MUTED, ...clip }}>{r.owner || "—"}</TableCell>
-                      <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
-                      <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>€{compact(r.value)}</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        <Typography component="span" sx={{
-                          fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
-                          bgcolor: r.outcome === "created" ? "#e6f4ec"
-                            : r.outcome === "would create" ? "#e3edf7"
-                            : r.outcome === "failed" ? "#fdecea" : "#eef1f5",
-                          color: r.outcome === "created" ? "#0f7b4f"
-                            : r.outcome === "would create" ? "#1b4a80"
-                            : r.outcome === "failed" ? "#9e1b18" : MUTED,
-                        }}>
-                          {r.outcome}
-                        </Typography>
-                        {r.ticketId && (
-                          <Link href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${r.ticketId}`}
-                            target="_blank" rel="noopener" underline="hover"
-                            sx={{ ml: 1, fontSize: "0.72rem" }}>open</Link>
-                        )}
-                        {r.error && <Typography component="span" sx={{ ml: 1, fontSize: "0.72rem", color: "#9e1b18" }}>{r.error}</Typography>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {pcRun.rows.length === 0 && (
-                    <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 2, textAlign: "center" }}>
-                      Nothing in the last three days to act on.
-                    </TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </Box>
-          )}
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
                 <TableRow>
-                  {["Day", "Customer", "Mandant", "Country", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict"]
+                  {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict", "Ticket"]
                     .map((h, i) => (
                       <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"}
                         sx={{ fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>{h}</TableCell>
@@ -1329,7 +1240,12 @@ export default function EshopActivityPage() {
                       </Link>
                     </TableCell>
                     <TableCell sx={{ color: MUTED }}>{r.mandant ?? "—"}</TableCell>
-                    <TableCell sx={{ color: MUTED, ...clip }} title={r.country ?? ""}>{r.country ?? "—"}</TableCell>
+                    {/* Who would get it. An owner on neither roster gets no
+                        ticket at all, and that has to be visible here or the
+                        screen promises a call nobody is going to make. */}
+                    <TableCell sx={{ color: r.team ? MUTED : "#9e1b18", ...clip }} title={r.owner || ""}>
+                      {r.owner || "no owner"}{r.team ? "" : " · off roster"}
+                    </TableCell>
                     <TableCell sx={{ color: MUTED }}>{shortPriority(r.salesPriority)}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
                     <TableCell align="right" sx={{ color: r.counted ? INK : MUTED, fontWeight: 600 }}>{full(r.counted)}</TableCell>
@@ -1353,10 +1269,22 @@ export default function EshopActivityPage() {
                           : "Under €500"}
                       </Typography>
                     </TableCell>
+                    {/* Read back from HubSpot, not assumed. The detector runs on
+                        the connector; if a row qualifies here and has no ticket
+                        there, the two have drifted and this is where it shows. */}
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      {r.ticketId
+                        ? <Link href={hsTicketUrl(r.ticketId)} target="_blank" rel="noopener"
+                            onClick={(e) => e.stopPropagation()} underline="hover"
+                            sx={{ fontSize: "0.76rem", fontWeight: 600 }}>raised ↗</Link>
+                        : r.qualifies && !r.excluded && r.gateOpen
+                          ? <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>next run</Typography>
+                          : <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>—</Typography>}
+                    </TableCell>
                   </TableRow>,
                   pcOpen === `${r.companyId}-${r.day}` && (
                     <TableRow key={`${r.companyId}-${r.day}-d`}>
-                      <TableCell colSpan={10} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
+                      <TableCell colSpan={11} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
                         <Box sx={{ p: 2 }}>
                           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
                             textTransform: "uppercase", color: MUTED, mb: 1 }}>
@@ -1410,12 +1338,12 @@ export default function EshopActivityPage() {
                   ),
                 ])}
                 {signals && pcVisible.length === 0 && (
-                  <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                  <TableRow><TableCell colSpan={11} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     Nobody priced without carting in this window.
                   </TableCell></TableRow>
                 )}
                 {!signals && !signalsError && (
-                  <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -1439,6 +1367,12 @@ export default function EshopActivityPage() {
               you nothing until Monday — so a Friday check is judged on the Monday, not the Saturday. If the order
               turns up in the meantime, nobody is called and no ticket is written. Public holidays are not in the
               calendar yet, only weekends.
+              <br /><br />
+              <strong>The tickets themselves are raised by the detector on the data-connector</strong>, which runs
+              daily and reads this same rule. This screen shows the rule and reads the ticket back from HubSpot
+              rather than assuming it — so a day that qualifies here and shows no ticket is the two disagreeing,
+              which is worth knowing. The run itself, with every reason it held a ticket back, is on the
+              Price checks micro app.
             </Typography>
           </Box>
         </Section>
