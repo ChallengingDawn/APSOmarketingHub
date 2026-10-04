@@ -12,7 +12,6 @@ import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
-import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Button from "@mui/material/Button";
@@ -24,38 +23,34 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TablePagination from "@mui/material/TablePagination";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import ListAltIcon from "@mui/icons-material/ListAlt";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
+import EuroIcon from "@mui/icons-material/Euro";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
-import {
-  DISPLAY, GUTTER, HAIRLINE, INK, LoadingPanel, MUTED, NotConnectedPanel, Section, UpstreamPanel,
-} from "@/app/analytics/Shell";
-import { StatTile } from "@/app/charts/StatTile";
-import { ChartFrame } from "@/app/charts/ChartFrame";
-import { BarList } from "@/app/charts/BarList";
-import { DELTA, SEQUENTIAL, SERIES } from "@/app/charts/palette";
+import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { SEQUENTIAL, SERIES } from "@/app/charts/palette";
 import { full, percent } from "@/app/charts/format";
+import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import {
-  WON_RESOLUTIONS, average, dayCells, daysBetween, forecastTicketCount, isClosed, isWon, localDay, outcomeLabel,
-  resolutionTally, resolutionText, scoreboard, topReason, winRate,
-  type DayCell, type ErosionForecast, type ErosionTicket, type ErosionTickets, type ForecastItem, type OwnerRow,
-  type ScoreRow, type Team,
+  dayCells, daysBetween, forecastTicketCount, isClosed, isWon, localDay, resolutionText,
+  type DayCell, type ErosionForecast, type ErosionTicket, type ErosionTickets, type ForecastItem,
 } from "@/lib/erosion/model";
+import { OutcomeReport } from "@/app/uc/report/OutcomeReport";
+import {
+  CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, Kicker, MUTED, Notice, StageChip, TeamChip,
+  clip, eur, glass, headCell,
+} from "@/app/uc/report/ui";
 
-const PORTAL = "26492587";
-const hsTicket = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-5/${id}`;
 
 const BLUE = SERIES[0];
 const ORANGE = SERIES[1];
-const GREEN = SERIES[2];
 const AMBER = "#b26a00";
-const OPEN_FILL = "#f3d9b1";
-const TRACK = "#eef0f3";
 
 /** Tickets raised (green) and forecast (blue), five steps each, light to dark. */
 const CREATED_RAMP = ["#ddf3ea", "#b3e4cf", "#7ccfae", "#3cb889", "#16875f"];
@@ -68,83 +63,9 @@ function ramp(colors: string[], count: number, max: number): string | null {
   return colors[i];
 }
 
-const eur = (n: number) => full(Math.round(n));
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const PAGE = 20;
 const POLL_MS = 5 * 60_000;
-
-/* ── small pieces ─────────────────────────────────────────────────────── */
-
-function CardHead({ title, right }: { title: string; right?: React.ReactNode }) {
-  return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2, flexWrap: "wrap" }}>
-      <Typography sx={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: "1.02rem", color: INK, flex: 1, minWidth: 180 }}>
-        {title}
-      </Typography>
-      {right}
-    </Box>
-  );
-}
-
-function Kicker({ children }: { children: React.ReactNode }) {
-  return (
-    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.07em", mb: 1 }}>
-      {children}
-    </Typography>
-  );
-}
-
-/** Status reads in words and an icon, never in colour alone. */
-function StageChip({ t }: { t: ErosionTicket }) {
-  const closed = isClosed(t);
-  const fresh = !closed && /new/i.test(t.stage);
-  return (
-    <Chip
-      size="small"
-      icon={closed ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
-      label={t.stage || "—"}
-      sx={{
-        height: 22, fontSize: "0.7rem", fontWeight: 600,
-        bgcolor: closed ? "#e6f6ef" : fresh ? "#e8f0f9" : "#fdf1e2",
-        color: closed ? "#11704f" : fresh ? "#1f5486" : AMBER,
-        "& .MuiChip-icon": { fontSize: 14, color: "inherit", ml: 0.6 },
-      }}
-    />
-  );
-}
-
-function TeamChip({ team }: { team: Team | null }) {
-  return (
-    <Chip
-      size="small"
-      label={team ?? "—"}
-      sx={{ height: 20, fontSize: "0.68rem", fontWeight: 700, bgcolor: team === "ESO" ? "#e8f0f9" : team === "TSA" ? "#fdeee6" : "#f1f3f5", color: INK }}
-    />
-  );
-}
-
-function HsLink({ id }: { id: string }) {
-  return (
-    <Tooltip title="Open in HubSpot">
-      <IconButton size="small" href={hsTicket(id)} target="_blank" rel="noreferrer" aria-label="Open in HubSpot">
-        <OpenInNewIcon sx={{ fontSize: 15, color: BLUE }} />
-      </IconButton>
-    </Tooltip>
-  );
-}
-
-function Notice({ tone, children }: { tone: "bad" | "warn"; children: React.ReactNode }) {
-  const c = tone === "bad" ? DELTA.bad : AMBER;
-  return (
-    <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.5, mb: 2, border: `1px solid ${HAIRLINE}`, borderLeft: `3px solid ${c}`, borderRadius: 2, bgcolor: "#fff" }}>
-      <WarningAmberIcon sx={{ fontSize: 18, color: c, mt: "1px" }} />
-      <Typography sx={{ fontSize: "0.84rem", color: INK }}>{children}</Typography>
-    </Box>
-  );
-}
-
-const headCell = { color: MUTED, fontSize: "0.68rem", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.04em", whiteSpace: "nowrap" as const };
-const clip = (max: number) => ({ maxWidth: max, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" });
 
 /* ── calendar ─────────────────────────────────────────────────────────── */
 
@@ -275,9 +196,11 @@ function Calendar({ tickets, items, horizonDays, forecastNote }: {
   const go = (to: number) => { setPicked(to); setSelected(null); };
 
   return (
-    <Section sx={{ mb: 2.5 }}>
-      <CardHead
+    <GlassCard>
+      <CardTitle
+        icon={<CalendarMonthOutlinedIcon />}
         title="Tickets raised and expected"
+        note="Green: raised · blue: what the detector expects next · every day since the start, whatever the period"
         right={
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <IconButton size="small" disabled={idx <= 0} onClick={() => go(idx - 1)} aria-label="Previous month"><ChevronLeftIcon fontSize="small" /></IconButton>
@@ -364,249 +287,23 @@ function Calendar({ tickets, items, horizonDays, forecastNote }: {
         <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>numbers are tickets, one per company · click a day for the list</Typography>
       </Box>
       {forecastNote}
-    </Section>
-  );
-}
-
-/* ── what the action achieved ─────────────────────────────────────────── */
-
-/** Won share of the closed tickets: green won, sand the rest. */
-function WinBar({ won, closed, height = 10 }: { won: number; closed: number; height?: number }) {
-  const pct = closed ? (won / closed) * 100 : 0;
-  return (
-    <Box sx={{ height, borderRadius: 99, overflow: "hidden", display: "flex", bgcolor: TRACK }} title={`${won} won of ${closed} closed`}>
-      {won > 0 && <Box sx={{ width: `${pct}%`, bgcolor: GREEN }} />}
-      {closed - won > 0 && <Box sx={{ flex: 1, bgcolor: OPEN_FILL }} />}
-    </Box>
-  );
-}
-
-function TeamPanel({ team, r }: { team: Team; r: ScoreRow }) {
-  const avg = average(r.closeDays);
-  const rate = winRate(r);
-  const top = topReason(r);
-  return (
-    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: 2.4, p: 2, height: "100%" }}>
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mb: 1.25 }}>
-        <Typography sx={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: "1.15rem", color: INK }}>{team}</Typography>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-          {r.n} tickets · {r.open} open · {r.closed} closed{avg === null ? "" : ` · ${avg.toFixed(1)} days to close`}
-        </Typography>
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 0.5 }}>
-        <Box sx={{ flex: 1 }}><WinBar won={r.won} closed={r.closed} height={12} /></Box>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, minWidth: 56, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-          {rate === null ? "—" : percent(rate, 0)}
-        </Typography>
-      </Box>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.25 }}>
-        <b style={{ color: INK }}>{r.won} won</b> of {r.closed} closed · {eur(r.wonEur)} EUR won back
-      </Typography>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-        Most given reason: <b style={{ color: INK }}>{top ? `${top.label} (${top.count})` : "—"}</b>
-      </Typography>
-    </Box>
-  );
-}
-
-type OwnerSort = "won" | "rate" | "wonEur" | "n";
-
-function ByPerson({ owners }: { owners: OwnerRow[] }) {
-  const [sort, setSort] = useState<OwnerSort>("won");
-  const rows = useMemo(() => [...owners].sort((a, b) => {
-    if (sort === "rate") {
-      // an owner with nothing closed has no rate yet - last, not 0 %
-      const ra = winRate(a), rb = winRate(b);
-      if (ra === null || rb === null) return ra === null && rb === null ? b.n - a.n : ra === null ? 1 : -1;
-      return rb - ra || b.closed - a.closed;
-    }
-    if (sort === "wonEur") return b.wonEur - a.wonEur || b.won - a.won;
-    if (sort === "n") return b.n - a.n || b.won - a.won;
-    return b.won - a.won || (winRate(b) ?? -1) - (winRate(a) ?? -1);
-  }), [owners, sort]);
-  return (
-    <>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.25, flexWrap: "wrap" }}>
-        <Box sx={{ flex: 1 }}><Kicker>Per person</Kicker></Box>
-        {([["won", "Won"], ["rate", "Win rate"], ["wonEur", "EUR won"], ["n", "Tickets"]] as const).map(([k, label]) => (
-          <Chip key={k} size="small" label={label} clickable onClick={() => setSort(k)}
-            sx={{ height: 24, fontSize: "0.72rem", fontWeight: 600, bgcolor: sort === k ? INK : "#f1f3f5", color: sort === k ? "#fff" : MUTED }} />
-        ))}
-      </Box>
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small" sx={{ minWidth: 900 }}>
-          <TableHead><TableRow>
-            {["#", "Owner", "Team", "Tickets", "Closed", "Won", "Win rate", "EUR won", "Most given reason", "Days to close"].map((h) => (
-              <TableCell key={h} sx={headCell}>{h}</TableCell>
-            ))}
-          </TableRow></TableHead>
-          <TableBody>
-            {rows.map((r, i) => {
-              const avg = average(r.closeDays);
-              const rate = winRate(r);
-              const top = topReason(r);
-              return (
-                <TableRow key={r.owner} hover>
-                  <TableCell sx={{ fontSize: "0.76rem", color: MUTED, width: 28 }}>{i + 1}</TableCell>
-                  <TableCell sx={{ fontSize: "0.82rem", fontWeight: 600, whiteSpace: "nowrap" }}>{r.owner}</TableCell>
-                  <TableCell><TeamChip team={r.team} /></TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>
-                    {r.n}{r.open ? <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}> · {r.open} open</Typography> : null}
-                  </TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>{r.closed}</TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: r.won ? "#11704f" : MUTED }}>{r.won}</TableCell>
-                  <TableCell sx={{ minWidth: 150 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Box sx={{ width: 84 }}><WinBar won={r.won} closed={r.closed} /></Box>
-                      <Typography sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: rate === null ? MUTED : INK }}>
-                        {rate === null ? "—" : percent(rate, 0)}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: r.wonEur ? INK : MUTED }}>{eur(r.wonEur)}</TableCell>
-                  <TableCell sx={{ fontSize: "0.78rem", ...clip(220) }} title={top ? `${top.label} (${top.count})` : ""}>
-                    {top ? `${top.label} (${top.count})` : "—"}
-                  </TableCell>
-                  <TableCell sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: avg === null ? MUTED : INK }}>{avg === null ? "—" : avg.toFixed(0)}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Box>
-    </>
-  );
-}
-
-const CLOSED_PAGE = 10;
-
-function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; reason: string | null; onClear: () => void }) {
-  const [page, setPage] = useState(0);
-  // a new reason is a new list: start it at its first page
-  useEffect(() => setPage(0), [reason]);
-  const closed = useMemo(
-    () => tickets
-      .filter((t) => isClosed(t) && (reason === null || outcomeLabel(t) === reason))
-      .sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? "")),
-    [tickets, reason],
-  );
-  const shown = closed.slice(page * CLOSED_PAGE, page * CLOSED_PAGE + CLOSED_PAGE);
-  return (
-    <Box sx={{ mb: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-        <Kicker>{reason ? `Closed as “${reason}” — ${closed.length}` : `The ${closed.length} closed tickets, latest first`}</Kicker>
-        {reason && <Chip size="small" label="Show all reasons" onDelete={onClear} onClick={onClear} sx={{ height: 22, fontSize: "0.7rem", mb: 1 }} />}
-      </Box>
-      <Box sx={{ display: "grid", gap: 0.75 }}>
-        {shown.map((t) => {
-          const res = resolutionText(t);
-          const won = isWon(t);
-          const days = t.closed && t.created ? Math.max(0, daysBetween(t.created, t.closed)) : null;
-          return (
-            <Box key={t.id} sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", p: 1.25, border: `1px solid ${HAIRLINE}`, borderLeft: `3px solid ${won ? GREEN : res.missing ? AMBER : "#c9ced6"}`, borderRadius: 2 }}>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{t.company ?? "—"}</Typography>
-                  {won && <Chip size="small" icon={<CheckCircleIcon />} label="Won" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 700, bgcolor: "#e6f6ef", color: "#11704f", "& .MuiChip-icon": { fontSize: 13, color: "inherit" } }} />}
-                  <TeamChip team={t.team} />
-                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{t.owner}</Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{eur(t.amount)} EUR</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>closed {t.closed}{days !== null ? ` · ${days} day${days === 1 ? "" : "s"} after it was raised` : ""}</Typography>
-                </Box>
-                <Typography sx={{ fontSize: "0.82rem", color: res.missing ? AMBER : INK, mt: 0.4 }}>{res.text}</Typography>
-              </Box>
-              <HsLink id={t.id} />
-            </Box>
-          );
-        })}
-      </Box>
-      {closed.length > CLOSED_PAGE && (
-        <TablePagination component="div" count={closed.length} page={page} rowsPerPage={CLOSED_PAGE} rowsPerPageOptions={[CLOSED_PAGE]}
-          onPageChange={(_, p) => setPage(p)} />
-      )}
-    </Box>
-  );
-}
-
-function Results({ tickets, board, stale }: { tickets: ErosionTicket[]; board: ReturnType<typeof scoreboard>; stale: boolean }) {
-  const [reason, setReason] = useState<string | null>(null);
-  const tally = useMemo(() => resolutionTally(tickets), [tickets]);
-  const closed = tally.reduce((s, r) => s + r.count, 0);
-  const won = tally.filter((r) => r.won).reduce((s, r) => s + r.count, 0);
-  const wonEur = tally.filter((r) => r.won).reduce((s, r) => s + r.eur, 0);
-  const top = tally[0] ?? null;
-  return (
-    <Section sx={{ mb: 2.5, opacity: stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
-      <CardHead title="What the action achieved" />
-      <Grid container spacing={2} sx={{ mb: 1 }}>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <StatTile label="Won back" value={full(won)} note={`${eur(wonEur)} EUR of last year's revenue on those articles`} />
-        </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <StatTile label="Win rate" value={closed ? percent(won / closed, 0) : "—"} note={`${won} of ${closed} closed tickets ended in an order`} />
-        </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <StatTile label="Most given reason" value={top ? top.label : "—"}
-            note={top ? `${top.count} of ${closed} closed tickets (${percent(top.count / Math.max(closed, 1), 0)})` : undefined} />
-        </Grid>
-      </Grid>
-      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 2.5 }}>
-        Won = closed as {[...WON_RESOLUTIONS].join(", ")}. A one-shot order (catalogue or C2S) is a single purchase, not the customer
-        coming back, and “Bought at AP” went to Angst+Pfister: all three count as lost.
-      </Typography>
-
-      <Box sx={{ mb: 3 }}>
-        <ChartFrame
-          title="Why the closed tickets closed"
-          caption="One bar per reason given when the ticket was closed · click a reason to list its tickets"
-          table={{
-            columns: ["Reason", "Tickets", "Share of closed", "EUR", "Counts as won"],
-            rows: tally.map((r) => [r.label, r.count, percent(r.count / Math.max(closed, 1), 0), eur(r.eur), r.won ? "yes" : "no"]),
-            numeric: [1, 2, 3],
-          }}
-          empty={closed ? null : "Nothing closed yet."}
-        >
-          <BarList
-            rows={tally.map((r) => ({
-              label: r.label,
-              value: r.count,
-              secondary: `${percent(r.count / Math.max(closed, 1), 0)}${r.won ? " · won" : ""}`,
-            }))}
-            format={full}
-            labelWidth={260}
-            onSelect={(label) => setReason((cur) => (cur === label ? null : label))}
-            selectedLabel={reason}
-          />
-        </ChartFrame>
-      </Box>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {(["ESO", "TSA"] as const).map((team) => (
-          <Grid key={team} size={{ xs: 12, lg: 6 }}>
-            <TeamPanel team={team} r={board.teams[team]} />
-          </Grid>
-        ))}
-      </Grid>
-
-      <Box sx={{ mb: 3 }}>
-        <ByPerson owners={board.owners} />
-      </Box>
-
-      <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} />
-    </Section>
+    </GlassCard>
   );
 }
 
 /* ── all tickets ──────────────────────────────────────────────────────── */
 
-function AllTickets({ tickets }: { tickets: ErosionTicket[] }) {
+function AllTickets({ tickets, period }: { tickets: ErosionTicket[]; period: string }) {
   const [page, setPage] = useState(0);
+  // a new period is a new list: start it at its first page
+  useEffect(() => setPage(0), [tickets]);
   const rows = tickets.slice(page * PAGE, page * PAGE + PAGE);
   return (
-    <Section>
-      <CardHead title={`All erosion tickets (${tickets.length})`} />
+    <GlassCard>
+      <CardTitle icon={<ListAltIcon />} tint="slate" title="All erosion tickets"
+        note={`${full(tickets.length)} raised · ${period} · newest first, status and owner live from HubSpot`} />
       {tickets.length === 0 ? (
-        <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No tickets yet. They appear here as soon as the detector raises them.</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No ticket was raised in this period.</Typography>
       ) : (
         <>
           <Box sx={{ overflowX: "auto" }}>
@@ -643,7 +340,7 @@ function AllTickets({ tickets }: { tickets: ErosionTicket[] }) {
             onPageChange={(_, p) => setPage(p)} />
         </>
       )}
-    </Section>
+    </GlassCard>
   );
 }
 
@@ -656,10 +353,7 @@ type TabId = "calendar" | "results" | "tickets";
 /** Each tab has its own address, so a link can open the one that matters. */
 const TAB_HASH: Record<TabId, string> = { calendar: "#calendar", results: "#win-rate", tickets: "#tickets" };
 
-/**
- * The Datatracker's segmented control, so the two apps read alike: a count on
- * each tab says what is behind it before anyone clicks.
- */
+/** A frosted segmented control, a count on each tab saying what is behind it before anyone clicks. */
 function ErosionTabs({ tab, onSelect, tabs }: {
   tab: TabId;
   onSelect: (t: TabId) => void;
@@ -675,7 +369,7 @@ function ErosionTabs({ tab, onSelect, tabs }: {
     <Box
       role="tablist"
       aria-label="Erosion views"
-      sx={{ display: "inline-flex", flexWrap: "wrap", gap: 0.5, p: 0.5, mb: 2.5, bgcolor: "#eef2f7", borderRadius: 2.5 }}
+      sx={{ ...glass, display: "inline-flex", flexWrap: "wrap", gap: 0.5, p: 0.6, borderRadius: "16px", boxShadow: "0 1px 2px rgba(31,45,78,.04)" }}
     >
       {tabs.map(({ id, label, count }) => {
         const on = tab === id;
@@ -694,22 +388,21 @@ function ErosionTabs({ tab, onSelect, tabs }: {
               if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(id); }
             }}
             sx={{
-              display: "flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.85, borderRadius: 2,
+              display: "flex", alignItems: "center", gap: 0.85, px: 1.75, py: 0.9, borderRadius: "12px",
               cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
               fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
-              color: on ? "#10263f" : MUTED,
-              bgcolor: on ? "#fff" : "transparent",
-              boxShadow: on ? "0 1px 3px rgba(16,38,63,0.14)" : "none",
-              transition: "background-color .12s, color .12s, box-shadow .12s",
-              "&:hover": { color: "#10263f", bgcolor: on ? "#fff" : "rgba(255,255,255,0.6)" },
+              color: on ? "#2459d1" : MUTED,
+              bgcolor: on ? "#e6edfd" : "transparent",
+              transition: "background-color .12s, color .12s",
+              "&:hover": { color: on ? "#2459d1" : INK, bgcolor: on ? "#e6edfd" : "rgba(255,255,255,0.75)" },
               "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
             }}
           >
             {label}
             {count !== null && (
               <Typography component="span" sx={{
-                fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.7, py: 0.35, borderRadius: 1,
-                bgcolor: on ? "#e3edf7" : "#e2e7ee", color: on ? "#1b4a80" : MUTED,
+                fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.75, py: 0.4, borderRadius: "7px",
+                bgcolor: on ? "#ffffff" : "rgba(21,34,58,.06)", color: on ? "#2459d1" : MUTED,
               }}>{count}</Typography>
             )}
           </Box>
@@ -744,6 +437,11 @@ export default function ErosionApp() {
     window.history.replaceState(null, "", TAB_HASH[t]);
   };
 
+  // The hub-wide period (presets and custom), the same one every report uses.
+  // It picks the tickets by the day they were RAISED; the calendar is the one
+  // view that keeps every day, since paging through months is its whole point.
+  const { window: win, label: periodLabel } = useReportingWindow();
+
   // A click on Refresh asks HubSpot again; the five-minute poll reads the shared cache.
   const ticketsUrl = forced ? `/api/uc/erosion/tickets?refresh=1&n=${forced}` : "/api/uc/erosion/tickets";
   const ticketsHeld = useHeld<ErosionTickets>(ticketsUrl, [ticketsUrl, tick]);
@@ -753,9 +451,12 @@ export default function ErosionApp() {
   const tr = ticketsHeld.result;
   const fr = forecastHeld.result;
   const tickets = useMemo(() => (tr?.state === "ok" ? tr.data.tickets : []), [tr]);
+  const inPeriod = useMemo(
+    () => tickets.filter((t) => t.created >= win.from && t.created <= win.to),
+    [tickets, win.from, win.to],
+  );
   const forecast = fr?.state === "ok" ? fr.data : null;
   const items = useMemo(() => forecast?.items ?? [], [forecast]);
-  const board = useMemo(() => scoreboard(tickets), [tickets]);
 
   const busy = tr === null || fr === null || ticketsHeld.stale || forecastHeld.stale;
   const header = (
@@ -765,6 +466,7 @@ export default function ErosionApp() {
       rightSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {busy && <CircularProgress size={14} sx={{ color: MUTED }} />}
+          <WindowPicker />
           <Tooltip title="Ask HubSpot and the connector again">
             <IconButton size="small" onClick={refresh} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
           </Tooltip>
@@ -777,9 +479,10 @@ export default function ErosionApp() {
     return <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>{header}<LoadingPanel label="Reading the erosion tickets from HubSpot…" /></Box>;
   }
 
-  const open = tickets.filter((t) => !isClosed(t)).length;
-  const closed = tickets.length - open;
-  const wonCount = tickets.filter(isWon).length;
+  const ok = tr?.state === "ok";
+  const open = inPeriod.filter((t) => !isClosed(t)).length;
+  const closed = inPeriod.length - open;
+  const wonCount = inPeriod.filter(isWon).length;
   const atRisk = items.reduce((s, it) => s + it.amount, 0);
   const summary = forecast?.summary ?? null;
   const idleDays = summary?.lastRun ? daysBetween(summary.lastRun, localDay(new Date())) : null;
@@ -797,78 +500,83 @@ export default function ErosionApp() {
     ) : null;
 
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
-      {header}
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
+      <Box>
+        {header}
 
-      {idleDays !== null && idleDays > 1 && (
-        <Notice tone="bad">
-          The detector last ran on {summary?.lastRun}, {idleDays} days ago. It runs after each nightly Compass delta on the connector; if this
-          persists, check the connector&apos;s chain.
-        </Notice>
-      )}
+        {idleDays !== null && idleDays > 1 && (
+          <Notice tone="bad">
+            The detector last ran on {summary?.lastRun}, {idleDays} days ago. It runs after each nightly Compass delta on the connector; if this
+            persists, check the connector&apos;s chain.
+          </Notice>
+        )}
 
-      {tr?.state === "not-configured" && <Box sx={{ mb: 2.5 }}><NotConnectedPanel source="HubSpot" missing={tr.missing} /></Box>}
-      {tr?.state === "error" && (
-        <Box sx={{ mb: 2.5 }}><UpstreamPanel source="HubSpot (erosion tickets)" error={tr.error} status={tr.status} onRetry={refresh} /></Box>
-      )}
-      {tr?.state === "ok" && tr.data.notesError && <Notice tone="warn">{tr.data.notesError}. Closed tickets show their resolution field only.</Notice>}
+        {tr?.state === "not-configured" && <NotConnectedPanel source="HubSpot" missing={tr.missing} />}
+        {tr?.state === "error" && <UpstreamPanel source="HubSpot (erosion tickets)" error={tr.error} status={tr.status} onRetry={refresh} />}
+        {ok && tr.data.notesError && <Notice tone="warn">{tr.data.notesError}. Closed tickets show their resolution field only.</Notice>}
+      </Box>
 
-      <Grid container spacing={2} sx={{ mb: 2.5 }}>
+      <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatTile label="Tickets raised" value={tr?.state === "ok" ? full(tickets.length) : "—"}
-            note={summary?.watermark ? `since the detector started on ${summary.watermark}` : undefined} />
+          <KpiTile icon={<ConfirmationNumberOutlinedIcon />} label="Tickets raised" value={ok ? full(inPeriod.length) : "—"}
+            note={`${periodLabel} · ${ok ? full(tickets.length) : "—"} since the start`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatTile label="Open now" value={tr?.state === "ok" ? full(open) : "—"} note="not yet in a closed stage" />
+          <KpiTile icon={<HourglassEmptyIcon />} tint="amber" label="Open now" value={ok ? full(open) : "—"}
+            note="of those, not yet in a closed stage" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatTile label="Closed" value={tr?.state === "ok" ? full(closed) : "—"}
-            note={tickets.length ? `${percent(closed / tickets.length, 0)} of all tickets` : undefined} />
+          <KpiTile icon={<TaskAltIcon />} tint="green" label="Closed" value={ok ? full(closed) : "—"}
+            note={inPeriod.length ? `${percent(closed / inPeriod.length, 0)} of them · ${wonCount} won` : "of those"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatTile label="At stake to 31 December" value={forecast ? `${eur(atRisk)} EUR` : "—"}
-            note={forecast ? `${full(forecastTicketCount(items))} tickets expected · last year's revenue on the lapsed articles` : "needs the forecast"} />
+          <KpiTile icon={<EuroIcon />} tint="pink" label="At stake to 31 December" value={forecast ? `${eur(atRisk)} EUR` : "—"}
+            note={forecast ? `${full(forecastTicketCount(items))} tickets expected · ahead, whatever the period` : "needs the forecast"} />
         </Grid>
       </Grid>
 
-      <ErosionTabs
-        tab={tab}
-        onSelect={selectTab}
-        tabs={[
-          { id: "calendar", label: "Calendar", count: forecast ? full(forecastTicketCount(items)) : null },
-          { id: "results", label: "Win rate & resolution", count: tr?.state === "ok" && closed ? percent(wonCount / closed, 0) : null },
-          { id: "tickets", label: "All erosion tickets", count: tr?.state === "ok" ? full(tickets.length) : null },
-        ]}
-      />
+      <Box>
+        <ErosionTabs
+          tab={tab}
+          onSelect={selectTab}
+          tabs={[
+            { id: "calendar", label: "Calendar", count: forecast ? full(forecastTicketCount(items)) : null },
+            { id: "results", label: "Win rate & resolution", count: ok && closed ? percent(wonCount / closed, 0) : null },
+            { id: "tickets", label: "All erosion tickets", count: ok ? full(inPeriod.length) : null },
+          ]}
+        />
+      </Box>
 
       <Box role="tabpanel" id={`erosion-panel-${tab}`} aria-labelledby={`erosion-tab-${tab}`}>
         {tab === "calendar" && (
           <Calendar tickets={tickets} items={items} horizonDays={forecast?.horizonDays ?? 0} forecastNote={forecastNote} />
         )}
-        {tab !== "calendar" && tr?.state !== "ok" && (
+        {tab !== "calendar" && !ok && (
           <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>
             This view needs the tickets from HubSpot, which did not load - the reason is shown above.
           </Typography>
         )}
-        {tab === "results" && tr?.state === "ok" && <Results tickets={tickets} board={board} stale={ticketsHeld.stale} />}
-        {tab === "tickets" && tr?.state === "ok" && <AllTickets tickets={tickets} />}
+        {tab === "results" && ok && <OutcomeReport tickets={inPeriod} period={periodLabel} stale={ticketsHeld.stale} />}
+        {tab === "tickets" && ok && <AllTickets tickets={inPeriod} period={periodLabel} />}
       </Box>
 
-      {summary && (
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 3 }}>
-          Detector last ran {summary.lastRun ?? "—"}
-          {summary.createdToday !== null ? ` and raised ${summary.createdToday}` : ""}
-          {summary.mergedToday ? `, added ${summary.mergedToday} article${summary.mergedToday === 1 ? "" : "s"} to tickets raised earlier this month` : ""}
-          {summary.skippedOpenOrderToday ? `, held back ${summary.skippedOpenOrderToday} on orders not invoiced yet` : ""}
-          {summary.skippedOwnerToday ? `, skipped ${summary.skippedOwnerToday} whose owner is on neither roster` : ""}.
-        </Typography>
-      )}
-      {tr?.state === "ok" && (
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: summary ? 0.5 : 3 }}>
-          Tickets read from HubSpot {new Date(tr.data.generatedAt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}; status and
-          owner are live, amounts are last year&apos;s invoiced revenue on the lapsed articles.
-        </Typography>
-      )}
+      <Box>
+        {summary && (
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+            Detector last ran {summary.lastRun ?? "—"}
+            {summary.createdToday !== null ? ` and raised ${summary.createdToday}` : ""}
+            {summary.mergedToday ? `, added ${summary.mergedToday} article${summary.mergedToday === 1 ? "" : "s"} to tickets raised earlier this month` : ""}
+            {summary.skippedOpenOrderToday ? `, held back ${summary.skippedOpenOrderToday} on orders not invoiced yet` : ""}
+            {summary.skippedOwnerToday ? `, skipped ${summary.skippedOwnerToday} whose owner is on neither roster` : ""}.
+          </Typography>
+        )}
+        {ok && (
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.5 }}>
+            Tickets read from HubSpot {new Date(tr.data.generatedAt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}; status and
+            owner are live, amounts are last year&apos;s invoiced revenue on the lapsed articles.
+          </Typography>
+        )}
+      </Box>
     </Box>
   );
 }
