@@ -167,8 +167,8 @@ const navSections: NavSection[] = [
     icon: <HubIcon />,
     color: "#eda100",
     items: [
-      { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       { label: "Erosion · article level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
+      { label: "Price checks", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },

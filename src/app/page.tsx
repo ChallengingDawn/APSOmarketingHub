@@ -60,9 +60,12 @@ const APPS: App[] = [
     icon: <RouteIcon />, from: "#2fc896", to: "#0e7152",
   },
   {
-    id: "uc", href: "/uc/price-checks", name: "UC & HubSpot Apps",
+    // Lands on Erosion, not Price checks: /uc/price-checks still redirects into
+    // the Datatracker tab, so the tile would drop you into Datatracker's menu and
+    // the UC apps would never be seen.
+    id: "uc", href: "/uc/erosion", name: "UC & HubSpot Apps",
     line: "The apps that write back into HubSpot — tickets, cards, syncs.",
-    inside: "Price checks · Web order sync",
+    inside: "Erosion · Price checks · Web order sync",
     icon: <HubIcon />, from: "#f0b73c", to: "#9a6600",
   },
 ];
