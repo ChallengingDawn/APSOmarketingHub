@@ -11,6 +11,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import AppsIcon from "@mui/icons-material/Apps";
 import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
@@ -102,7 +103,7 @@ const navSections: NavSection[] = [
     icon: <DashboardIcon />,
     color: "#274e64",
     items: [
-      { label: "All apps", href: "/", icon: <AppsIcon fontSize="small" /> },
+      { label: "Mission Control", href: "/mission-control", icon: <DashboardIcon fontSize="small" /> },
       { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
     ],
   },
@@ -213,6 +214,15 @@ export default function Sidebar() {
 
   // Collapsible sections — accordion, only one open; the active section
   // starts open and re-opens on navigation.
+  // On the launch pad every app is listed; inside one, ONLY that one is - the
+  // point of a home screen is that entering an app narrows the world to it.
+  // Governance is never scoped away, because it is the hub's own and a person
+  // locked out of an app still has to be able to reach their account.
+  const onLaunchPad = pathname === "/";
+  const activeSection = navSections.find((x) => x.title === activeSectionTitle);
+  const scoped = !onLaunchPad && !!activeSection && activeSection.title !== "Governance";
+  const sections = scoped ? [activeSection!] : navSections;
+
   const [open, setOpen] = useState<string | null>(activeSectionTitle ?? null);
   useEffect(() => {
     if (activeSectionTitle) setOpen(activeSectionTitle);
@@ -287,10 +297,27 @@ export default function Sidebar() {
         </Typography>
       </Box>
 
+      {/* The way out of an app. Without it, entering one is a trapdoor: the
+          sidebar is the app's, and nothing on screen says there are others. */}
+      {scoped && (
+        <Box
+          component={Link}
+          href="/"
+          sx={{
+            display: "flex", alignItems: "center", gap: 1.4, px: 3.25, py: 1.25,
+            textDecoration: "none", color: "#5f6368", borderBottom: "0.5px solid #ececef",
+            "&:hover": { bgcolor: "#f3f4f6", color: "#1d1d1f" },
+          }}
+        >
+          <ChevronLeftIcon sx={{ fontSize: 19 }} />
+          <Typography sx={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em" }}>All apps</Typography>
+        </Box>
+      )}
+
       {/* Navigation Sections — collapsible, iOS Settings rows */}
       <Box sx={{ flex: 1, overflow: "auto", py: 0, position: "relative", zIndex: 1 }}>
-        {navSections.map((section) => {
-          const isOpen = open === section.title;
+        {sections.map((section) => {
+          const isOpen = scoped || open === section.title;
           return (
             <Box key={section.title} sx={{ borderBottom: "0.5px solid #ececef" }}>
               {/* Category row */}
