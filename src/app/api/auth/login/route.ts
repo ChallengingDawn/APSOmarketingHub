@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { ensureSchema, type UserRow } from '@/lib/db/init';
 import { query } from '@/lib/db/client';
 import { verifyPassword } from '@/lib/auth/password';
-import { setPre2faCookie, signPre2fa } from '@/lib/auth/session';
+import { setPre2faCookie, setSessionCookie, signPre2fa, signSession } from '@/lib/auth/session';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
+import { mfaRequired, type Role } from '@/lib/auth/access';
 
 export const runtime = 'nodejs';
 
@@ -54,6 +55,17 @@ export async function POST(req: Request) {
     }
 
     recordSuccess(rlKey);
+
+    // A role that does not have to carry a second factor is not sent to set one
+    // up. Being marched to a QR code before you may read a page is the thing
+    // that makes people stop coming back, and a viewer only reads. They can
+    // still turn it on themselves from Settings -> Security.
+    if (!u.totp_enrolled && !mfaRequired(u.role as Role)) {
+      await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
+      await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role }));
+      return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+    }
+
     await setPre2faCookie(await signPre2fa(u.id));
     return NextResponse.json({ next: u.totp_enrolled ? '/login/totp' : '/enroll' });
   } catch (err) {

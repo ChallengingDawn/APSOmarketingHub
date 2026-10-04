@@ -65,9 +65,18 @@ export const codeField = {
   fontFamily: "ui-monospace, monospace",
 };
 
+/**
+ * White on this blue is 6.1:1. The disabled pair is the part that was wrong:
+ * a 35%-alpha blue took MUI's own grey disabled text, which left "Continue"
+ * barely readable on it. Grey on grey now — 4.5:1, and unmistakably off.
+ *
+ * The extra .MuiButton-root raises specificity above MUI's disabled rule, so
+ * the colour below is the one that paints whatever variant the button is.
+ */
 export const primaryButton = {
   textTransform: "none" as const, borderRadius: "12px", fontWeight: 600, py: 1.1,
   bgcolor: ACCENT, color: "#fff", boxShadow: "none",
   "&:hover": { bgcolor: "#1c47a8", boxShadow: "none" },
-  "&.Mui-disabled": { bgcolor: "rgba(36,89,209,.35)", color: "#fff" },
+  "&.MuiButton-root.Mui-disabled": { bgcolor: "#e7ebf3", color: "#5d6b85" },
+  "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 2 },
 };

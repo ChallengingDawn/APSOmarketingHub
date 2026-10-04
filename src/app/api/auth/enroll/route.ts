@@ -11,14 +11,28 @@ import {
 } from '@/lib/auth/session';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 import { mfaRequired, type Role } from '@/lib/auth/access';
+import { getOptionalUser } from '@/lib/auth/guard';
+
+/**
+ * Who is enrolling: somebody in the middle of signing in, or somebody already
+ * signed in who has come from Settings -> Security to turn it on. Both are the
+ * same act; only the cookie differs. A viewer never passes through the login
+ * half any more, so without this the button in Settings led nowhere.
+ */
+async function enrollingUser(): Promise<number | null> {
+  const pre = await readPre2fa();
+  if (pre) return pre.uid;
+  const u = await getOptionalUser();
+  return u?.id ?? null;
+}
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const pre = await readPre2fa();
-  if (!pre) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
+  const uid = await enrollingUser();
+  if (!uid) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
 
-  const r = await query<UserRow>(`SELECT * FROM apsomh_users WHERE id = $1 LIMIT 1`, [pre.uid]);
+  const r = await query<UserRow>(`SELECT * FROM apsomh_users WHERE id = $1 LIMIT 1`, [uid]);
   const u = r.rows[0];
   if (!u) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   if (u.totp_enrolled) {
@@ -53,8 +67,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const pre = await readPre2fa();
-  if (!pre) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
+  const uid = await enrollingUser();
+  if (!uid) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
 
   const parsed = PostBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
@@ -62,7 +76,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid code' }, { status: 400 });
   }
 
-  const r = await query<UserRow>(`SELECT * FROM apsomh_users WHERE id = $1 LIMIT 1`, [pre.uid]);
+  const r = await query<UserRow>(`SELECT * FROM apsomh_users WHERE id = $1 LIMIT 1`, [uid]);
   const u = r.rows[0];
   if (!u) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
