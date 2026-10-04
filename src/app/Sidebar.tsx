@@ -258,30 +258,22 @@ export default function Sidebar() {
           borderBottom: "1px solid #e6e8ec",
         }}
       >
-        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.25 }}>
-          <Box
-            component="span"
-            className="brand-display brand-apso"
-            sx={{ fontSize: 36, fontWeight: 700 }}
-          >
+        {/* APSOhub, not "APSO Marketing Hub" - this stopped being the
+            marketing app when the other four moved in. The letter animation
+            stays; only the word after it changes. */}
+        <Box
+          component={Link}
+          href="/"
+          sx={{ display: "flex", alignItems: "baseline", textDecoration: "none" }}
+        >
+          <Box component="span" className="brand-display brand-apso" sx={{ fontSize: 34, fontWeight: 700 }}>
             <span className="letter letter-a">A</span>
             <span className="letter letter-p">P</span>
             <span className="letter letter-s">S</span>
             <span className="letter letter-o">O</span>
           </Box>
-          <Box
-            component="span"
-            className="brand-display"
-            sx={{ fontSize: 22, color: "#3c4043", fontWeight: 400, ml: 0.25 }}
-          >
-            Marketing
-          </Box>
-          <Box
-            component="span"
-            className="brand-display"
-            sx={{ fontSize: 32, color: RED, fontWeight: 800, ml: 0.25 }}
-          >
-            Hub
+          <Box component="span" className="brand-display" sx={{ fontSize: 34, color: RED, fontWeight: 800 }}>
+            hub
           </Box>
         </Box>
         <Typography

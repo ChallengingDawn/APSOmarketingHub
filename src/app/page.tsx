@@ -1,13 +1,13 @@
 "use client";
-// THE HOME SCREEN.
+// THE HOME SCREEN — a bento of five apps, and no navigation.
 //
-// A wall of apps and a dock, and no navigation whatsoever. That is deliberate:
-// a front door with nowhere to sprawl to cannot grow a thicket of links, and
-// the menu you get after one click is only the menu of the app you opened.
-// Adding a sixth app is one more cover, not one more branch.
+// A front door with nowhere to sprawl to cannot grow a thicket of links: the
+// menu you get after one click is only the menu of the app you opened, and a
+// sixth app is one more tile rather than one more branch.
 //
-// One sign-in covers all of it. Which apps a person sees will be a permission
-// on their account, set in Governance.
+// Every tile carries the app's real name, what it is for and what is inside it.
+// The lead tile is bigger, not different — an abbreviated tile reads as a
+// placeholder, and a placeholder on a front door looks unfinished.
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -25,21 +25,22 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 
 const INK = "#1a1d21";
 const MUTED = "#5f6b76";
+const FAINT = "#8b96a1";
 const HAIRLINE = "#e6e8ec";
+const RED = "#e2231a";
 
 type App = {
-  id: string;
-  href: string;
-  name: string;
-  line: string;
-  inside: string;
-  icon: React.ReactNode;
-  from: string;
-  to: string;
+  id: string; href: string; name: string; line: string; inside: string;
+  icon: React.ReactNode; from: string; to: string;
 };
 
-/** The five apps, in the order they are worked in rather than alphabetically. */
 const APPS: App[] = [
+  {
+    id: "dt", href: "/datatracker", name: "Datatracker",
+    line: "What the shop saw, customer by customer, the day it happened.",
+    inside: "Customers · Articles · MOQ · Availability",
+    icon: <StorefrontIcon />, from: "#f2854f", to: "#9e4318",
+  },
   {
     id: "web", href: "/website/overview", name: "Website & Intelligence",
     line: "What the site does, who comes, and what they do once they are here.",
@@ -61,18 +62,12 @@ const APPS: App[] = [
   {
     id: "uc", href: "/uc/price-checks", name: "UC & HubSpot Apps",
     line: "The apps that write back into HubSpot — tickets, cards, syncs.",
-    inside: "Price checks · Erosion · Web order sync",
+    inside: "Price checks · Web order sync",
     icon: <HubIcon />, from: "#f0b73c", to: "#9a6600",
-  },
-  {
-    id: "dt", href: "/datatracker", name: "Datatracker",
-    line: "What the shop saw, customer by customer, the day it happened.",
-    inside: "Customers · Articles · MOQ · Availability",
-    icon: <StorefrontIcon />, from: "#f2854f", to: "#9e4318",
   },
 ];
 
-/** Not apps: the hub's own. They sit after the divider, the way a dock does. */
+/** Not apps: the hub's own. After the divider, the way a dock does it. */
 const HUB_TOOLS = [
   { id: "mc", href: "/mission-control", name: "Mission Control", icon: <DashboardIcon /> },
   { id: "live", href: "/live", name: "Live", icon: <SensorsIcon /> },
@@ -87,14 +82,16 @@ export default function HomeScreen() {
   const [pins, setPins] = useState<string[]>(DEFAULT_PINS);
 
   // Which apps sit in the dock is a per-person convenience, so it lives in this
-  // browser rather than in the database. It can come back empty — a private
-  // window, cleared site data — so the defaults have to stand on their own.
+  // browser. It can come back empty — a private window, cleared site data — so
+  // the defaults have to stand on their own.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PINS_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as string[];
-        if (Array.isArray(parsed) && parsed.length) setPins(parsed.filter((id) => APPS.some((a) => a.id === id)));
+        if (Array.isArray(parsed) && parsed.length) {
+          setPins(parsed.filter((id) => APPS.some((a) => a.id === id)));
+        }
       }
     } catch { /* defaults are fine */ }
   }, []);
@@ -112,102 +109,115 @@ export default function HomeScreen() {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(href); }
   };
 
-  return (
-    <Box sx={{
-      minHeight: "100vh", display: "flex", flexDirection: "column",
-      // room for the dock, which floats over the foot of the screen
-      pb: { xs: 13, md: 14 },
-    }}>
+  /** One tile. `lead` only changes its size, never what it says. */
+  const Tile = ({ a, lead }: { a: App; lead?: boolean }) => (
+    <Box
+      role="link"
+      tabIndex={0}
+      onClick={go(a.href)}
+      onKeyDown={keyGo(a.href)}
+      sx={{
+        position: "relative", display: "flex", flexDirection: "column", minWidth: 0,
+        borderRadius: 3, overflow: "hidden", cursor: "pointer", bgcolor: "#fff",
+        border: `1px solid ${HAIRLINE}`,
+        gridRow: lead ? { lg: "span 2" } : undefined,
+        transition: "transform .15s ease, box-shadow .15s ease, border-color .15s ease",
+        "&:hover": {
+          transform: "translateY(-3px)",
+          boxShadow: "0 2px 4px rgba(26,58,76,.06), 0 16px 36px rgba(26,58,76,.12)",
+          borderColor: "#d9dfe5",
+        },
+        "&:focus-visible": { outline: `2px solid ${a.to}`, outlineOffset: 2 },
+      }}
+    >
       <Box sx={{
-        width: "100%", maxWidth: 1180, mx: "auto",
-        px: { xs: 2.5, sm: 3, md: 4 }, pt: { xs: 4, md: 7 },
-        display: "grid", gap: { xs: 3, md: 4 },
+        flex: lead ? 1 : "0 0 auto",
+        minHeight: lead ? { xs: 110, lg: 150 } : { xs: 86, md: 94 },
+        display: "grid", placeItems: "center",
+        background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
+        "& svg": { fontSize: lead ? { xs: 42, lg: 58 } : 36 },
       }}>
-        <Box>
-          <Typography component="h1" sx={{
-            fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-            fontWeight: 600, color: INK, letterSpacing: "-0.035em",
-            fontSize: { xs: "2.1rem", md: "2.9rem" }, lineHeight: 1.03,
-          }}>APSOhub</Typography>
-          <Typography sx={{ fontSize: "1.02rem", color: MUTED, mt: 0.75, maxWidth: "58ch" }}>
-            Five apps, one sign-in. Open one and the menu becomes its menu.
+        {a.icon}
+      </Box>
+
+      {/* Pinning sits on the tile it pins; a preference buried in a settings
+          screen is a preference nobody sets. */}
+      <Tooltip title={pins.includes(a.id) ? "Remove from dock" : "Pin to dock"}>
+        <Box
+          component="button"
+          aria-label={pins.includes(a.id) ? `Remove ${a.name} from the dock` : `Pin ${a.name} to the dock`}
+          onClick={(e) => { e.stopPropagation(); togglePin(a.id); }}
+          sx={{
+            position: "absolute", top: 10, right: 10, width: 26, height: 26,
+            borderRadius: "50%", border: 0, cursor: "pointer", display: "grid", placeItems: "center",
+            bgcolor: pins.includes(a.id) ? "rgba(255,255,255,.92)" : "rgba(255,255,255,.22)",
+            color: pins.includes(a.id) ? a.to : "#fff",
+            fontSize: 14, lineHeight: 1, transition: "background-color .14s ease",
+            "&:hover": { bgcolor: "rgba(255,255,255,.95)", color: a.to },
+          }}
+        >
+          {pins.includes(a.id) ? "●" : "○"}
+        </Box>
+      </Tooltip>
+
+      <Box sx={{ p: { xs: 2, md: 2.25 }, display: "grid", gap: 0.6, flex: lead ? "0 0 auto" : 1 }}>
+        <Typography sx={{
+          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+          fontSize: lead ? { xs: "1.2rem", lg: "1.4rem" } : "1.08rem",
+          fontWeight: 600, letterSpacing: "-0.02em", color: INK, lineHeight: 1.2,
+        }}>{a.name}</Typography>
+        <Typography sx={{ fontSize: lead ? "0.92rem" : "0.85rem", color: MUTED, lineHeight: 1.45 }}>
+          {a.line}
+        </Typography>
+        <Typography sx={{ mt: 0.5, fontSize: "0.72rem", color: FAINT, lineHeight: 1.4 }}>
+          {a.inside}
+        </Typography>
+      </Box>
+    </Box>
+  );
+
+  const [lead, ...rest] = APPS;
+
+  return (
+    <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", pb: { xs: 13, md: 14 } }}>
+      <Box sx={{
+        width: "100%", maxWidth: 1240, mx: "auto",
+        px: { xs: 2.5, sm: 3, md: 4 }, pt: { xs: 3, md: 4 },
+        display: "flex", flexDirection: "column", gap: { xs: 2.5, md: 3 }, flex: 1,
+      }}>
+        {/* The wordmark, where a wordmark goes. The home screen does not need a
+            headline telling you what you are looking at. */}
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5 }}>
+          <Box component="span" className="brand-display brand-apso" sx={{ fontSize: { xs: 30, md: 36 }, fontWeight: 700 }}>
+            <span className="letter letter-a">A</span>
+            <span className="letter letter-p">P</span>
+            <span className="letter letter-s">S</span>
+            <span className="letter letter-o">O</span>
+          </Box>
+          <Box component="span" className="brand-display" sx={{ fontSize: { xs: 30, md: 36 }, color: RED, fontWeight: 800 }}>
+            hub
+          </Box>
+          <Typography sx={{ fontSize: "0.82rem", color: FAINT, ml: 0.5 }}>
+            apsoparts.com
           </Typography>
         </Box>
 
-        {/* The wall. Each app is a cover, not an icon floating on a background —
-            recognisable by its colour band before the name is read. */}
+        {/* Bento: one app leads at twice the height, the rest fit around it.
+            Asymmetry fills a wide screen where an even grid leaves a hole. */}
         <Box sx={{
-          display: "grid", gap: { xs: 2, md: 2.5 },
-          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+          flex: 1, display: "grid", gap: { xs: 2, md: 2.5 },
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "1.35fr 1fr 1fr" },
+          gridAutoRows: { lg: "minmax(0, 1fr)" },
         }}>
-          {APPS.map((a) => (
-            <Box
-              key={a.id}
-              role="link"
-              tabIndex={0}
-              onClick={go(a.href)}
-              onKeyDown={keyGo(a.href)}
-              sx={{
-                position: "relative", display: "flex", flexDirection: "column",
-                borderRadius: 3, overflow: "hidden", cursor: "pointer", bgcolor: "#fff",
-                border: `1px solid ${HAIRLINE}`,
-                transition: "transform .15s ease, box-shadow .15s ease, border-color .15s ease",
-                "&:hover": {
-                  transform: "translateY(-3px)",
-                  boxShadow: "0 2px 4px rgba(26,58,76,.06), 0 16px 36px rgba(26,58,76,.12)",
-                  borderColor: "#d9dfe5",
-                },
-                "&:focus-visible": { outline: `2px solid ${a.to}`, outlineOffset: 2 },
-              }}
-            >
-              <Box sx={{
-                height: { xs: 92, md: 104 }, display: "grid", placeItems: "center",
-                background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
-                "& svg": { fontSize: 40 },
-              }}>
-                {a.icon}
-              </Box>
-
-              {/* Pinning is the dock's only input, so it sits on the cover it
-                  pins rather than in a settings screen nobody opens. */}
-              <Tooltip title={pins.includes(a.id) ? "Remove from dock" : "Pin to dock"}>
-                <Box
-                  component="button"
-                  aria-label={pins.includes(a.id) ? `Remove ${a.name} from the dock` : `Pin ${a.name} to the dock`}
-                  onClick={(e) => { e.stopPropagation(); togglePin(a.id); }}
-                  sx={{
-                    position: "absolute", top: 10, right: 10, width: 26, height: 26,
-                    borderRadius: "50%", border: 0, cursor: "pointer", display: "grid", placeItems: "center",
-                    bgcolor: pins.includes(a.id) ? "rgba(255,255,255,.92)" : "rgba(255,255,255,.22)",
-                    color: pins.includes(a.id) ? a.to : "#fff",
-                    fontSize: 14, lineHeight: 1, transition: "background-color .14s ease",
-                    "&:hover": { bgcolor: "rgba(255,255,255,.95)", color: a.to },
-                  }}
-                >
-                  {pins.includes(a.id) ? "●" : "○"}
-                </Box>
-              </Tooltip>
-
-              <Box sx={{ p: { xs: 2, md: 2.25 }, display: "grid", gap: 0.6, flex: 1 }}>
-                <Typography sx={{
-                  fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                  fontSize: "1.12rem", fontWeight: 600, letterSpacing: "-0.02em", color: INK, lineHeight: 1.2,
-                }}>{a.name}</Typography>
-                <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.45 }}>{a.line}</Typography>
-                <Typography sx={{ mt: "auto", pt: 0.75, fontSize: "0.72rem", color: "#8b96a1", lineHeight: 1.4 }}>
-                  {a.inside}
-                </Typography>
-              </Box>
-            </Box>
-          ))}
+          <Tile a={lead} lead />
+          {rest.map((a) => <Tile key={a.id} a={a} />)}
         </Box>
       </Box>
 
-      {/* The dock: what you actually open, and the hub's own after a divider.
-          Two tiers without a second screen. */}
+      {/* The dock: what you actually open, then the hub's own after a divider. */}
       <Box sx={{
         position: "fixed", left: 0, right: 0,
-        bottom: `calc(14px + env(safe-area-inset-bottom, 0px))`,
+        bottom: "calc(14px + env(safe-area-inset-bottom, 0px))",
         display: "flex", justifyContent: "center", px: 2, pointerEvents: "none", zIndex: 10,
       }}>
         <Box sx={{
