@@ -113,6 +113,9 @@ export async function hubspotFetchJson<T>(req: {
     );
   }
 
+  // A write can answer 2xx with no body (an association PUT, a 204); that is success,
+  // not a malformed response.
+  if (!text.trim()) return {} as T;
   try {
     return JSON.parse(text) as T;
   } catch {

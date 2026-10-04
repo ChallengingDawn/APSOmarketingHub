@@ -8,5 +8,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startDocScheduler } = await import("./lib/doc/scheduler");
     startDocScheduler();
+    // erosion tickets, once a day after the connector's nightly chain (EROSION_DETECTOR=live)
+    const { startErosionScheduler } = await import("./lib/erosion/scheduler");
+    startErosionScheduler();
   }
 }
