@@ -1,10 +1,10 @@
-// Price checks: priced in the shop, not put in the cart. The detection half of
-// the HubSpot ticket of the same name, reading the same rules so the two cannot
-// drift apart.
+// Three screens, one scan: price checks, MOQ blocks and availability gaps all
+// read the same shop lines, so they are read once and split here.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { fetchPriceChecks } from "@/lib/integrations/priceChecks";
+import { fetchShopSignals } from "@/lib/integrations/shopSignals";
+import { cachedReport } from "@/lib/integrations/hubspotJourney";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -31,11 +31,9 @@ export async function GET(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const data = await fetchPriceChecks({
-      from: from ?? undefined,
-      to: to ?? undefined,
-      signal: controller.signal,
-    });
+    const data = await cachedReport(`signals:${from ?? ""}:${to ?? ""}`, () =>
+      fetchShopSignals({ from: from ?? undefined, to: to ?? undefined, signal: controller.signal }),
+    );
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {
     // 200 with ok:false, like its siblings: the client reads the reason out of

@@ -39,7 +39,11 @@ import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } fr
 import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
-import type { PriceChecks } from "@/lib/integrations/priceChecks";
+import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
+import type { Alternative } from "@/app/api/datatracker/alternatives/route";
+
+/** What the alternatives route hands back for one article. */
+type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[] };
 
 /** Every column on the Articles tab is sortable; these are its keys. */
 type ArticleSortKey =
@@ -61,6 +65,9 @@ type OrdersPayload = {
 type Options = { countries: string[]; mandants: string[]; apsoCustomers: string[]; priorities: string[]; representatives: { id: string; name: string }[] };
 
 /** Six years of views in one cell. Bars, not a line: the values are counts. */
+/** One line, ellipsis when it will not fit. Used by every table on the page. */
+const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
+
 function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
   const top = Math.max(1, ...history.map((h) => h.views ?? 0));
   return (
@@ -222,6 +229,173 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
   );
 }
 
+/**
+ * The MOQ and Availability screens are the same table with a different reason
+ * attached, so they are one component. Neither raises a ticket - they are a
+ * record of a sale that did not happen and of why, which is the thing nobody
+ * had written down anywhere.
+ */
+function LookTable({ rows, kind, mandantOf }: {
+  rows: LookRecord[];
+  kind: "moq" | "availability";
+  mandantOf: (r: LookRecord) => string;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [alts, setAlts] = useState<Record<string, AltPayload | "loading">>({});
+
+  const openRow = async (r: LookRecord) => {
+    const id = `${r.companyId}|${r.day}|${r.article}`;
+    if (open === id) { setOpen(null); return; }
+    setOpen(id);
+    if (alts[id]) return;
+    setAlts((a) => ({ ...a, [id]: "loading" }));
+    const q = new URLSearchParams({ article: r.article, mandant: mandantOf(r) });
+    if (r.qty != null) q.set("need", String(r.qty));
+    try {
+      const j = await fetch(`/api/datatracker/alternatives?${q}`).then((x) => x.json());
+      setAlts((a) => ({ ...a, [id]: j?.ok && j.data ? (j.data as AltPayload) : { subGroup: null, rows: [] } }));
+    } catch {
+      setAlts((a) => ({ ...a, [id]: { subGroup: null, rows: [] } }));
+    }
+  };
+
+  const c = { borderColor: HAIRLINE, fontSize: "0.78rem" };
+  const h = { ...c, fontWeight: 600, color: MUTED, whiteSpace: "nowrap" as const };
+
+  return (
+    <Box sx={{ overflowX: "auto" }}>
+      <Table size="small" sx={{ "& td, & th": { ...c, px: 1 } }}>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ ...h, width: 98 }}>Day</TableCell>
+            <TableCell sx={h}>Customer</TableCell>
+            <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
+            <TableCell sx={h}>Description</TableCell>
+            <TableCell align="right" sx={{ ...h, width: 86 }}>Wanted</TableCell>
+            <TableCell align="right" sx={{ ...h, width: 100 }}>
+              {kind === "moq" ? "Minimum" : "On the shelf"}
+            </TableCell>
+            <TableCell align="right" sx={{ ...h, width: 96 }}>Value</TableCell>
+            <TableCell sx={{ ...h, width: 150 }}>Why it stalled</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((r) => {
+            const id = `${r.companyId}|${r.day}|${r.article}`;
+            const alt = alts[id];
+            return [
+              <TableRow key={id} hover sx={{ cursor: "pointer" }} onClick={() => openRow(r)}>
+                <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.day}</TableCell>
+                <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.companyName ?? ""}>
+                  <Link href={hsCompanyUrl(r.companyId)} target="_blank" rel="noopener"
+                    onClick={(e) => e.stopPropagation()} underline="hover" sx={{ color: INK, fontWeight: 600 }}>
+                    {r.companyName ?? "—"}
+                  </Link>
+                </TableCell>
+                <TableCell sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>{r.article}</TableCell>
+                <TableCell sx={{ color: MUTED, ...clip }} title={r.description ?? ""}>{r.description ?? "—"}</TableCell>
+                <TableCell align="right" sx={{ color: INK, whiteSpace: "nowrap" }}>
+                  {r.qty == null ? "—" : `${full(r.qty)}${r.salesUnit ? ` ${r.salesUnit}` : ""}`}
+                </TableCell>
+                <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {kind === "moq"
+                    ? (r.moqMinimum == null ? "yes, unknown" : full(r.moqMinimum))
+                    : (r.stock == null ? "—" : `${full(r.stock)}${r.stockUnit ? ` ${r.stockUnit}` : ""}`)}
+                </TableCell>
+                <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                  {r.value == null ? "—" : `€${compact(r.value)}`}
+                </TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  <Typography component="span" sx={{
+                    fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
+                    bgcolor: kind === "moq"
+                      ? (r.belowMoq ? "#fdf0e6" : "#eef1f5")
+                      : (r.stock === 0 ? "#fdecea" : "#fdf0e6"),
+                    color: kind === "moq"
+                      ? (r.belowMoq ? "#b26a00" : MUTED)
+                      : (r.stock === 0 ? "#9e1b18" : "#b26a00"),
+                  }}>
+                    {kind === "moq"
+                      ? (r.belowMoq ? "Asked below the minimum" : r.carted ? "In cart, not ordered" : "Has a minimum")
+                      : (r.stock === 0 ? "Nothing on the shelf" : `${full(r.shortfall)} short`)}
+                  </Typography>
+                </TableCell>
+              </TableRow>,
+              open === id && (
+                <TableRow key={`${id}-alt`}>
+                  <TableCell colSpan={8} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
+                    <Box sx={{ p: 2 }}>
+                      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
+                        textTransform: "uppercase", color: MUTED, mb: 1 }}>
+                        What we could have offered instead
+                      </Typography>
+                      {alt === "loading" && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Looking…</Typography>}
+                      {alt && alt !== "loading" && alt.rows.length === 0 && (
+                        <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+                          {alt.subGroup == null
+                            ? "This article has no Products & Pricing record, so it has no neighbours to search."
+                            : "Nothing in the same sub-group is on the shelf either."}
+                        </Typography>
+                      )}
+                      {alt && alt !== "loading" && alt.rows.length > 0 && (
+                        <Table size="small" sx={{ "& td, & th": { ...c, px: 1 },
+                          "& tbody tr:nth-of-type(odd)": { bgcolor: "#eef3f9" } }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
+                              <TableCell sx={h}>Description</TableCell>
+                              <TableCell align="right" sx={{ ...h, width: 120 }}>In stock</TableCell>
+                              <TableCell sx={{ ...h, width: 124 }}>Minimum</TableCell>
+                              <TableCell align="right" sx={{ ...h, width: 94 }}>Price</TableCell>
+                              <TableCell sx={{ ...h, width: 118 }} />
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {alt.rows.map((a) => (
+                              <TableRow key={a.article}>
+                                <TableCell sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>{a.article}</TableCell>
+                                <TableCell sx={{ color: MUTED, ...clip }} title={a.description ?? ""}>{a.description ?? "—"}</TableCell>
+                                <TableCell align="right" sx={{ color: INK, whiteSpace: "nowrap" }}>
+                                  {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}
+                                </TableCell>
+                                <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                  {a.moq == null ? "unknown" : /^y/i.test(a.moq) ? `${a.moqMinimum ?? "?"}` : "none"}
+                                </TableCell>
+                                <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                  {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
+                                </TableCell>
+                                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                  {/* The whole point of the list: which of these
+                                      would actually have served the order. */}
+                                  {a.covers && (
+                                    <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700,
+                                      px: 0.9, py: 0.3, borderRadius: 1, bgcolor: "#e6f4ec", color: "#0f7b4f" }}>
+                                      Would have covered it
+                                    </Typography>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ),
+            ];
+          })}
+          {rows.length === 0 && (
+            <TableRow><TableCell colSpan={8} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+              Nothing to record in this window.
+            </TableCell></TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+}
+
 export default function EshopActivityPage() {
   const [data, setData] = useState<EshopActivity | null>(null);
   const [extraRows, setExtraRows] = useState<EshopActivity["rows"]>([]);
@@ -252,7 +426,7 @@ export default function EshopActivityPage() {
   const [customTo, setCustomTo] = useState(isoDay(new Date()));
   const [sort, setSort] = useState<(typeof SORTS)[number]["id"]>("views");
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"customers" | "articles" | "priceCheck">("customers");
+  const [tab, setTab] = useState<"customers" | "articles" | "priceCheck" | "moq" | "availability">("customers");
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
   const [articlesError, setArticlesError] = useState<string | null>(null);
@@ -264,8 +438,11 @@ export default function EshopActivityPage() {
   const [articlePage, setArticlePage] = useState(0);
   const [articlePerPage, setArticlePerPage] = useState(25);
   const [articlesLoadingMore, setArticlesLoadingMore] = useState(false);
-  const [priceChecks, setPriceChecks] = useState<PriceChecks | null>(null);
-  const [priceChecksError, setPriceChecksError] = useState<string | null>(null);
+  // One read behind three tabs: price checks, MOQ and availability all come
+  // out of the same shop lines, so asking three times would be three waits for
+  // the same answer.
+  const [signals, setSignals] = useState<ShopSignals | null>(null);
+  const [signalsError, setSignalsError] = useState<string | null>(null);
   const [pcOnlyQualifying, setPcOnlyQualifying] = useState(true);
   const [pcOpen, setPcOpen] = useState<string | null>(null);
 
@@ -350,17 +527,17 @@ export default function EshopActivityPage() {
   // The same window as the rest of the screen, so a price check and the order
   // that may have followed it are never read over different days.
   useEffect(() => {
-    if (tab !== "priceCheck") return;
+    if (tab !== "priceCheck" && tab !== "moq" && tab !== "availability") return;
     const ctrl = new AbortController();
-    setPriceChecks(null);
-    setPriceChecksError(null);
-    fetch(`/api/datatracker/price-checks?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
+    setSignals(null);
+    setSignalsError(null);
+    fetch(`/api/datatracker/signals?from=${periodFrom}&to=${periodTo}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok && j.data) setPriceChecks(j.data as PriceChecks);
-        else setPriceChecksError(j?.error ?? j?.detail ?? "HubSpot did not answer for price checks.");
+        if (j?.ok && j.data) setSignals(j.data as ShopSignals);
+        else setSignalsError(j?.error ?? j?.detail ?? "HubSpot did not answer for the shop signals.");
       })
-      .catch((e) => { if ((e as Error)?.name !== "AbortError") setPriceChecksError(String(e)); });
+      .catch((e) => { if ((e as Error)?.name !== "AbortError") setSignalsError(String(e)); });
     return () => ctrl.abort();
   }, [tab, periodFrom, periodTo]);
 
@@ -440,8 +617,8 @@ export default function EshopActivityPage() {
 
   // A row that does not qualify is still worth seeing: it is how you check the
   // rule is drawing its line where you meant it to.
-  const qualifying = (priceChecks?.rows ?? []).filter((r) => r.qualifies && !r.excluded);
-  const pcVisible = pcOnlyQualifying ? qualifying : (priceChecks?.rows ?? []);
+  const qualifying = (signals?.priceChecks ?? []).filter((r) => r.qualifies && !r.excluded);
+  const pcVisible = pcOnlyQualifying ? qualifying : (signals?.priceChecks ?? []);
 
   const loadedRows = [...(data?.rows ?? []), ...extraRows];
 
@@ -588,7 +765,7 @@ export default function EshopActivityPage() {
     viewsPerLogin: { display: { xs: "none", xl: "table-cell" } },
     trend: { display: { xs: "none", lg: "table-cell" } },
   } as const;
-  const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
+
 
 
   return (
@@ -601,22 +778,38 @@ export default function EshopActivityPage() {
         fontSize: { xs: "1.7rem", md: "2rem" }, lineHeight: 1.1,
       }}>Datatracker</Typography>
 
-{/* The tabs sit on a rail that runs the width of the page, so the selected
-          one reads as a section of one screen rather than three loose words. */}
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{
-        minHeight: 0, borderBottom: `1px solid ${HAIRLINE}`,
-        "& .MuiTabs-indicator": { height: 3, borderRadius: "3px 3px 0 0", bgcolor: "#1b4a80" },
-        "& .MuiTab-root": {
-          textTransform: "none", minHeight: 0, py: 1.25, px: 0, mr: 4, minWidth: 0,
-          fontSize: "0.95rem", fontWeight: 600, letterSpacing: "-0.01em", color: MUTED,
-          "&:hover": { color: INK },
-          "&.Mui-selected": { color: "#1b4a80" },
-        },
-      }}>
-        <Tab value="customers" label="Customers" />
-        <Tab value="articles" label="Articles" />
-        <Tab value="priceCheck" label="Price checks" />
-      </Tabs>
+      {/* A segmented control rather than five underlined words: with a count on
+          each one the bar says what is waiting before you click anything. */}
+      <Box sx={{ display: "inline-flex", gap: 0.5, p: 0.5, bgcolor: "#eef2f7", borderRadius: 2.5, alignSelf: "flex-start" }}>
+        {([
+          ["customers", "Customers", live ? inPeriod.length : null],
+          ["articles", "Articles", articles?.rows.length ?? null],
+          ["priceCheck", "Price checks", signals ? qualifying.length : null],
+          ["moq", "MOQ", signals?.moq.length ?? null],
+          ["availability", "Availability", signals?.availability.length ?? null],
+        ] as [typeof tab, string, number | null][]).map(([id, label, count]) => (
+          <Box key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+            sx={{
+              display: "flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.85, borderRadius: 2,
+              cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+              fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
+              color: tab === id ? "#10263f" : MUTED,
+              bgcolor: tab === id ? "#fff" : "transparent",
+              boxShadow: tab === id ? "0 1px 3px rgba(16,38,63,0.14)" : "none",
+              transition: "background-color .12s, color .12s, box-shadow .12s",
+              "&:hover": { color: "#10263f", bgcolor: tab === id ? "#fff" : "rgba(255,255,255,0.6)" },
+            }}>
+            {label}
+            {count != null && (
+              <Typography component="span" sx={{
+                fontSize: "0.72rem", fontWeight: 700, lineHeight: 1, px: 0.7, py: 0.35, borderRadius: 1,
+                bgcolor: tab === id ? "#e3edf7" : "#e2e7ee",
+                color: tab === id ? "#1b4a80" : MUTED,
+              }}>{full(count)}</Typography>
+            )}
+          </Box>
+        ))}
+      </Box>
 
       {tab === "customers" && (
       <>
@@ -1013,13 +1206,13 @@ export default function EshopActivityPage() {
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
             <Chip size="small" label={`${full(qualifying.length)} qualify`}
               sx={{ bgcolor: "#e6f4ec", color: "#0f7b4f", fontWeight: 700 }} />
-            <Chip size="small" label={`${full(priceChecks ? priceChecks.rows.length - qualifying.length : null)} below the rule`}
+            <Chip size="small" label={`${full(signals ? signals.priceChecks.length - qualifying.length : null)} below the rule`}
               sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
             <FormControlLabel
               control={<Switch size="small" checked={pcOnlyQualifying} onChange={(e) => setPcOnlyQualifying(e.target.checked)} />}
               label={<Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Only the ones that qualify</Typography>}
             />
-            {priceChecksError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{priceChecksError}</Typography>}
+            {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
           </Box>
 
           <Box sx={{ overflowX: "auto" }}>
@@ -1125,12 +1318,12 @@ export default function EshopActivityPage() {
                     </TableRow>
                   ),
                 ])}
-                {priceChecks && pcVisible.length === 0 && (
+                {signals && pcVisible.length === 0 && (
                   <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     Nobody priced without carting in this window.
                   </TableCell></TableRow>
                 )}
-                {!priceChecks && !priceChecksError && (
+                {!signals && !signalsError && (
                   <TableRow><TableCell colSpan={10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
                 )}
               </TableBody>
@@ -1139,21 +1332,73 @@ export default function EshopActivityPage() {
 
           <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              <strong>The rule, as it runs on the tickets.</strong> A price check is the quantity lookup the product page
-              makes when a customer types a quantity, so it catches every signed-in customer whatever they chose on the
-              cookie banner. Only articles that were <strong>not</strong> put in the cart and <strong>not</strong> ordered count.
-              An article counts when its profit centre is <strong>KT or DT</strong> and it is not a 3xxx/8xxx special; a special
-              has no Products &amp; Pricing record, so neither its price nor its profit centre can be judged and it is skipped
-              rather than assumed. The day qualifies from <strong>€500</strong> of counted value — €500 is a floor either way, so
-              three cheap articles do not qualify. <strong>APSOmicro and priorities 3 and 4</strong> are out of scope.
-              The verdict then waits <strong>one working day</strong>: a check on a Friday is judged on the Monday, because nobody
-              orders at the weekend and a weekend without an order proves nothing. If an order arrives inside that window,
-              no ticket is raised at all. Public holidays are not in the calendar yet — only Saturday and Sunday.
+              <strong>How a price check becomes a ticket.</strong> When somebody types a quantity on a product page, the
+              shop asks the ERP what it costs. That question is the price check — and because it is the page doing its
+              job rather than a tracking tag, we hear it from every signed-in customer, cookie banner or no cookie
+              banner. If the article then goes in the basket, or gets ordered, there is nothing to chase. What is left
+              is someone who asked the price and walked away.
+              <br /><br />
+              Not all of it is worth a call. We count an article when its profit centre is <strong>KT or DT</strong> and
+              it is a catalogue article: a 3xxx or 8xxx special has no Products &amp; Pricing record at all, so we know
+              neither its price nor its profit centre and we leave it out rather than guess. The day is worth a ticket
+              from <strong>€500</strong> — a floor, so three cheap articles still is not one.
+              <strong> APSOmicro and priorities 3 and 4</strong> are not chased.
+              <br /><br />
+              Then we wait <strong>one working day</strong>. People buy the next morning, and a Friday afternoon tells
+              you nothing until Monday — so a Friday check is judged on the Monday, not the Saturday. If the order
+              turns up in the meantime, nobody is called and no ticket is written. Public holidays are not in the
+              calendar yet, only weekends.
             </Typography>
           </Box>
         </Section>
       )}
 
+      {tab === "moq" && (
+        <Section sx={{ p: 0, overflow: "hidden" }}>
+          <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+            <Chip size="small" label={`${full(signals?.moq.filter((r) => r.belowMoq).length ?? null)} asked below the minimum`}
+              sx={{ bgcolor: "#fdf0e6", color: "#b26a00", fontWeight: 700 }} />
+            <Chip size="small" label={`${full(signals?.moq.length ?? null)} looks on articles with a minimum`}
+              sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
+            {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
+          </Box>
+          {!signals && !signalsError
+            ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
+            : <LookTable rows={signals?.moq ?? []} kind="moq" mandantOf={(r) => r.mandant ?? ""} />}
+          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
+              No ticket comes out of this one — it is a record. Somebody wanted an article we only sell from a minimum
+              quantity, and did not buy it. The rows at the top are the ones where they asked for <em>less</em> than that
+              minimum, which is the version we can do something about: either the minimum is wrong for that article, or
+              there was a neighbour we should have offered. Open a row and the hub looks for one — same sub-group,
+              actually on the shelf, and sold in the quantity they wanted. &ldquo;Would have covered it&rdquo; means exactly that.
+            </Typography>
+          </Box>
+        </Section>
+      )}
+
+      {tab === "availability" && (
+        <Section sx={{ p: 0, overflow: "hidden" }}>
+          <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+            <Chip size="small" label={`${full(signals?.availability.filter((r) => r.stock === 0).length ?? null)} with nothing on the shelf`}
+              sx={{ bgcolor: "#fdecea", color: "#9e1b18", fontWeight: 700 }} />
+            <Chip size="small" label={`${full(signals?.availability.length ?? null)} looks we could not have filled`}
+              sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
+            {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
+          </Box>
+          {!signals && !signalsError
+            ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
+            : <LookTable rows={signals?.availability ?? []} kind="availability" mandantOf={(r) => r.mandant ?? ""} />}
+          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
+              Also a record, not a ticket. Somebody priced an article we had none of, or less of than they asked for,
+              and did not buy. The gap is worth seeing on its own — it is the one reason for a lost sale we can fix by
+              ordering stock. Open a row for what we could have offered instead. An article whose stock we simply do not
+              know is left out: a blank is not a zero, and treating it as one would invent a shortage.
+            </Typography>
+          </Box>
+        </Section>
+      )}
     </Box>
   );
 }
