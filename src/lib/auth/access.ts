@@ -112,10 +112,20 @@ export const SELF_SIGNUP_ROLE: Role = "viewer";
  */
 export const STARTER_GRANTS: Partial<Record<AppKey, Level>> = { datatracker: "read" };
 
+/**
+ * May this address make its own account?
+ *
+ * The address has to BE an address first. Reading the domain off the last "@"
+ * alone let "me@evil.com@apsoparts.com" and "@apsoparts.com" through — neither
+ * is an email, both ended in an account. And the domain must match exactly:
+ * a subdomain is somebody else's namespace, not ours.
+ */
+const EMAIL = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
 export function maySelfRegister(email: string): boolean {
-  const at = email.trim().toLowerCase().lastIndexOf("@");
-  if (at < 0) return false;
-  const domain = email.trim().toLowerCase().slice(at + 1);
+  const address = email.trim().toLowerCase();
+  if (!EMAIL.test(address)) return false;
+  const domain = address.slice(address.lastIndexOf("@") + 1);
   return (SELF_SIGNUP_DOMAINS as readonly string[]).includes(domain);
 }
 

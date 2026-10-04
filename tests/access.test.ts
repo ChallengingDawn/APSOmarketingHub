@@ -66,9 +66,17 @@ test("only the two company domains may self-register", () => {
   // Not a suffix match: a lookalike domain must not slip through.
   assert.equal(maySelfRegister("someone@notapsoparts.com"), false);
   assert.equal(maySelfRegister("someone@apsoparts.com.evil.net"), false);
-  // An address with an @ in the local part still resolves on the LAST one.
-  assert.equal(maySelfRegister("odd@name@apsoparts.com"), true);
   assert.equal(maySelfRegister("not-an-address"), false);
+  // It has to BE an address. Reading the domain off the last "@" on its own let
+  // each of these make an account at one of our domains.
+  assert.equal(maySelfRegister("someone@evil.com@apsoparts.com"), false);
+  assert.equal(maySelfRegister("@apsoparts.com"), false);
+  assert.equal(maySelfRegister("two words@apsoparts.com"), false);
+  // A subdomain is somebody else's namespace, not ours.
+  assert.equal(maySelfRegister("someone@mail.apsoparts.com"), false);
+  // And the ordinary shapes still pass.
+  assert.equal(maySelfRegister("first.last@apsoparts.com"), true);
+  assert.equal(maySelfRegister("  first.last@angst-pfister.com  "), true);
 });
 
 test("a self-registered account starts as a viewer with nothing granted", () => {
