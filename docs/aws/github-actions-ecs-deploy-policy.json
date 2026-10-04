@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ForceNewDeploymentOfApsomarketinghub",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": "arn:aws:ecs:eu-central-1:905418292914:service/apso-dev/apso-dev-apsomarketinghub"
+    }
+  ]
+}
