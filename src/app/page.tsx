@@ -161,10 +161,10 @@ export default function FrontPage() {
               }}>APSO</Box>
               <Box component="span" sx={{
                 fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                fontSize: 26, fontWeight: 700, letterSpacing: "-0.03em",
+                fontSize: 26, fontWeight: 700, letterSpacing: "-0.01em",
                 background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
                 WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-                display: "inline-block", pr: "0.08em",
+                display: "inline-block", paddingRight: "6px", marginRight: "-4px",
               }}>hub</Box>
             </Box>
             <Typography sx={{ fontSize: "0.68rem", color: FAINT, mt: 0.3 }}>apsoparts.com</Typography>
@@ -434,7 +434,7 @@ export default function FrontPage() {
               <Box component="span" sx={{
                 background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
                 WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-                display: "inline-block", pr: "0.08em",
+                display: "inline-block", paddingRight: "6px", marginRight: "-4px",
               }}>A bigger tomorrow.</Box>
             </Typography>
             <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 1 }}>

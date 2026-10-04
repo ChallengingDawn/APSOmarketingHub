@@ -86,6 +86,28 @@ export function mfaRequired(role: Role, requiredForPerson = false): boolean {
   return requiredForPerson || role === "admin" || role === "user";
 }
 
+/**
+ * WHO MAY REGISTER THEMSELVES.
+ *
+ * Confirmed by SARCLA, 04.10.2026. An address at one of these may create its
+ * own account; everybody else has to be invited by an admin.
+ *
+ * The domain rule only protects anything once the address is VERIFIED — without
+ * that, anyone outside who knows the pattern can claim any address at it. So
+ * self-registration must not be switched on before the verification mail works.
+ */
+export const SELF_SIGNUP_DOMAINS = ["apsoparts.com", "angst-pfister.com"] as const;
+
+/** What a self-registered account starts as: a viewer who can open nothing. */
+export const SELF_SIGNUP_ROLE: Role = "viewer";
+
+export function maySelfRegister(email: string): boolean {
+  const at = email.trim().toLowerCase().lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = email.trim().toLowerCase().slice(at + 1);
+  return (SELF_SIGNUP_DOMAINS as readonly string[]).includes(domain);
+}
+
 /** Levels in the order a chooser should offer them. */
 export const LEVELS: { value: Level; label: string }[] = [
   { value: "none", label: "No access" },

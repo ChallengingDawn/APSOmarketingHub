@@ -21,13 +21,19 @@ import Typography from "@mui/material/Typography";
 import PeopleIcon from "@mui/icons-material/People";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import Snackbar from "@mui/material/Snackbar";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
+import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Radio from "@mui/material/Radio";
+import RadioGroup from "@mui/material/RadioGroup";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 import { useRouter } from "next/navigation";
 
@@ -85,6 +91,11 @@ export default function PeopleAccess() {
   const [selected, setSelected] = useState<number | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [pw, setPw] = useState<{ person: Person; value: string; done: boolean } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [invite, setInvite] = useState<{
+    fullName: string; username: string; email: string; role: Role;
+    how: "link" | "password"; password: string; link: string | null; busy: boolean;
+  } | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/admin/people")
@@ -123,9 +134,20 @@ export default function PeopleAccess() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const j = await r.json();
-      if (!r.ok || j?.error) { setError(j?.error ?? "That change was refused."); return false; }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.error) {
+        // The status matters: a 403 means the session is not an admin any more,
+        // a 400 means the change itself was refused, and "nothing happened" told
+        // nobody which.
+        setError(`${j?.error ?? "That change was refused."} (HTTP ${r.status})`);
+        return false;
+      }
       if (local) setPeople((cur) => (cur ?? []).map((x) => (x.id === p.id ? { ...x, ...local } : x)));
+      // Read it back rather than trust the optimistic update: if the server
+      // stored something other than what was clicked, the screen should show
+      // what is really there.
+      load();
+      setNote("Saved.");
       return true;
     } catch (e) {
       setError(String(e));
@@ -189,6 +211,17 @@ export default function PeopleAccess() {
           <Typography sx={{ fontSize: "0.88rem", color: "#9e1b18" }}>{error}</Typography>
         </Box>
       )}
+      <Snackbar
+        open={!!error || !!note}
+        autoHideDuration={error ? 8000 : 2500}
+        onClose={() => { setError(null); setNote(null); }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity={error ? "error" : "success"} variant="filled"
+          onClose={() => { setError(null); setNote(null); }} sx={{ fontSize: "0.86rem" }}>
+          {error ?? note}
+        </Alert>
+      </Snackbar>
 
       <Box sx={{
         display: "grid", gap: 2.5,
@@ -210,6 +243,16 @@ export default function PeopleAccess() {
                 Who may open which app. The role sets how far they go; the grant sets where.
               </Typography>
             </Box>
+            <Button
+              size="small" variant="contained" startIcon={<PersonAddAlt1Icon />}
+              onClick={() => setInvite({
+                fullName: "", username: "", email: "", role: "viewer",
+                how: "link", password: newPassword(), link: null, busy: false,
+              })}
+              sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}
+            >
+              Add person
+            </Button>
             <TextField size="small" placeholder="Search people…" value={q}
               onChange={(e) => setQ(e.target.value)} sx={{ width: 180 }} />
             <Select size="small" value={role} onChange={(e) => setRole(e.target.value as typeof role)} sx={{ width: 130 }}>
@@ -471,6 +514,117 @@ export default function PeopleAccess() {
           </Box>
         )}
       </Box>
+
+      {/* Two ways to start an account, and the first is the right one for an
+          admin: a link they use to set a password nobody else has ever seen. */}
+      <Dialog open={!!invite} onClose={() => setInvite(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
+          {invite?.link ? "Account created" : "Add a person"}
+        </DialogTitle>
+        <DialogContent>
+          {invite?.link ? (
+            <>
+              <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
+                Send them this link. It works once, lasts three days, and lets them choose their own password —
+                so nobody, including you, ever knows it.
+              </Typography>
+              <Box sx={{
+                fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.82rem",
+                p: 1.5, borderRadius: "12px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+                wordBreak: "break-all", userSelect: "all",
+              }}>{invite.link}</Box>
+            </>
+          ) : invite ? (
+            <Box sx={{ display: "grid", gap: 2, pt: 0.5 }}>
+              <TextField size="small" label="Full name" value={invite.fullName}
+                onChange={(e) => setInvite({ ...invite, fullName: e.target.value })} autoFocus />
+              <TextField size="small" label="Username" value={invite.username}
+                onChange={(e) => setInvite({ ...invite, username: e.target.value })}
+                helperText="What they type to sign in. Letters, digits, . _ @ + -" />
+              <TextField size="small" label="Email" type="email" value={invite.email}
+                onChange={(e) => setInvite({ ...invite, email: e.target.value })} />
+              <Select size="small" value={invite.role}
+                onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}>
+                {(["viewer", "user", "admin"] as Role[]).map((r) => (
+                  <MenuItem key={r} value={r} sx={{ fontSize: "0.85rem" }}>{ROLE_LABEL[r]}</MenuItem>
+                ))}
+              </Select>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: -1 }}>
+                {ROLE_NOTE[invite.role]} They start with no apps until you grant some.
+              </Typography>
+
+              <RadioGroup value={invite.how}
+                onChange={(e) => setInvite({ ...invite, how: e.target.value as "link" | "password" })}>
+                <FormControlLabel value="link" control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: "0.86rem" }}>They set their own password, from a link</Typography>} />
+                <FormControlLabel value="password" control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: "0.86rem" }}>Give them a password now</Typography>} />
+              </RadioGroup>
+
+              {invite.how === "password" ? (
+                <Box sx={{
+                  fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.9rem",
+                  p: 1.25, borderRadius: "10px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+                  wordBreak: "break-all", userSelect: "all",
+                }}>{invite.password}</Box>
+              ) : (
+                <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+                  The right choice for an admin: a password you have seen is one the audit log cannot tell apart
+                  from theirs.
+                </Typography>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {invite?.link ? (
+            <Button variant="contained" onClick={() => { setInvite(null); load(); }} sx={{ textTransform: "none" }}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => setInvite(null)} sx={{ textTransform: "none", color: MUTED }}>Cancel</Button>
+              <Button
+                variant="contained" sx={{ textTransform: "none" }}
+                disabled={!invite?.fullName.trim() || !invite?.username.trim() || invite?.busy}
+                onClick={async () => {
+                  if (!invite) return;
+                  setInvite({ ...invite, busy: true });
+                  setError(null);
+                  try {
+                    const r = await fetch("/api/admin/users", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        fullName: invite.fullName.trim(),
+                        username: invite.username.trim(),
+                        email: invite.email.trim() || undefined,
+                        role: invite.role,
+                        ...(invite.how === "link"
+                          ? { setupByUser: true }
+                          : { initialPassword: invite.password }),
+                      }),
+                    });
+                    const j = await r.json();
+                    if (!r.ok || j?.error) { setError(`${j?.error ?? "That account could not be created."} (HTTP ${r.status})`); return; }
+                    if (j.invitePath) {
+                      setInvite({ ...invite, busy: false, link: `${window.location.origin}${j.invitePath}` });
+                    } else {
+                      setInvite(null);
+                      setNote("Account created. Give them the password you just saw.");
+                      load();
+                    }
+                  } catch (e) {
+                    setError(String(e));
+                  } finally {
+                    setInvite((cur) => (cur ? { ...cur, busy: false } : cur));
+                  }
+                }}
+              >Create account</Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
 
       {/* Shown once. There is no mail from here yet, so the admin hands it over
           themselves — and because it must be changed at the next sign-in, a

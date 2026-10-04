@@ -40,7 +40,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/signin") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/enroll") ||
-    pathname.startsWith("/change-password");
+    pathname.startsWith("/change-password") ||
+    // An invited person has no account to navigate with yet, so no shell.
+    pathname.startsWith("/invite");
 
   if (isAuthRoute) {
     return <>{children}</>;

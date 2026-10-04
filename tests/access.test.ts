@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
+  maySelfRegister, SELF_SIGNUP_ROLE,
 } from "../src/lib/auth/access";
 
 // The two halves must stay apart: the role caps, the grant chooses.
@@ -55,4 +56,22 @@ test("anyone who can change something carries a second factor", () => {
 test("a viewer is never offered Edit", () => {
   assert.deepEqual(levelsFor("viewer").map((l) => l.value), ["none", "read"]);
   assert.deepEqual(levelsFor("user").map((l) => l.value), ["none", "read", "write"]);
+});
+
+// SARCLA, 04.10.2026: these two domains may self-register, nobody else.
+test("only the two company domains may self-register", () => {
+  assert.equal(maySelfRegister("someone@apsoparts.com"), true);
+  assert.equal(maySelfRegister("Someone@ANGST-PFISTER.COM"), true);
+  assert.equal(maySelfRegister("someone@gmail.com"), false);
+  // Not a suffix match: a lookalike domain must not slip through.
+  assert.equal(maySelfRegister("someone@notapsoparts.com"), false);
+  assert.equal(maySelfRegister("someone@apsoparts.com.evil.net"), false);
+  // An address with an @ in the local part still resolves on the LAST one.
+  assert.equal(maySelfRegister("odd@name@apsoparts.com"), true);
+  assert.equal(maySelfRegister("not-an-address"), false);
+});
+
+test("a self-registered account starts as a viewer with nothing granted", () => {
+  assert.equal(SELF_SIGNUP_ROLE, "viewer");
+  assert.equal(effectiveLevel(SELF_SIGNUP_ROLE, undefined), "none");
 });
