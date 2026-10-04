@@ -41,7 +41,7 @@ import {
   dayCells, daysBetween, forecastTicketCount, isClosed, isWon, localDay, resolutionText,
   type DayCell, type ErosionForecast, type ErosionTicket, type ErosionTickets, type ForecastItem,
 } from "@/lib/erosion/model";
-import { OutcomeReport } from "@/app/uc/report/OutcomeReport";
+import { OutcomeReport, TeamsReport } from "@/app/uc/report/OutcomeReport";
 import {
   CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, Kicker, MUTED, Notice, StageChip, TeamChip,
   clip, eur, glass, headCell,
@@ -348,10 +348,10 @@ function AllTickets({ tickets, period }: { tickets: ErosionTicket[]; period: str
 
 /* ── tabs ─────────────────────────────────────────────────────────────── */
 
-type TabId = "calendar" | "results" | "tickets";
+type TabId = "calendar" | "results" | "people" | "tickets";
 
 /** Each tab has its own address, so a link can open the one that matters. */
-const TAB_HASH: Record<TabId, string> = { calendar: "#calendar", results: "#win-rate", tickets: "#tickets" };
+const TAB_HASH: Record<TabId, string> = { calendar: "#calendar", results: "#win-rate", people: "#people", tickets: "#tickets" };
 
 /** A frosted segmented control, a count on each tab saying what is behind it before anyone clicks. */
 function ErosionTabs({ tab, onSelect, tabs }: {
@@ -542,6 +542,7 @@ export default function ErosionApp() {
           tabs={[
             { id: "calendar", label: "Calendar", count: forecast ? full(forecastTicketCount(items)) : null },
             { id: "results", label: "Win rate & resolution", count: ok && closed ? percent(wonCount / closed, 0) : null },
+            { id: "people", label: "Teams & people", count: ok ? full(new Set(inPeriod.map((t) => t.owner)).size) : null },
             { id: "tickets", label: "All erosion tickets", count: ok ? full(inPeriod.length) : null },
           ]}
         />
@@ -557,6 +558,7 @@ export default function ErosionApp() {
           </Typography>
         )}
         {tab === "results" && ok && <OutcomeReport tickets={inPeriod} period={periodLabel} stale={ticketsHeld.stale} />}
+        {tab === "people" && ok && <TeamsReport tickets={inPeriod} period={periodLabel} stale={ticketsHeld.stale} />}
         {tab === "tickets" && ok && <AllTickets tickets={inPeriod} period={periodLabel} />}
       </Box>
 

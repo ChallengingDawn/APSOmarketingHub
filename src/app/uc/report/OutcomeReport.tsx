@@ -6,7 +6,7 @@
 // picker on the page decides what every figure here describes. Erosion is the
 // first user; Price checks and the rest feed it their own tickets.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
@@ -225,7 +225,11 @@ export function OutcomeReport({ tickets, period, stale }: {
   const [reason, setReason] = useState<string | null>(null);
   const [view, setView] = useState<"chart" | "table">("chart");
   const tally = useMemo(() => resolutionTally(tickets), [tickets]);
-  const board = useMemo(() => scoreboard(tickets), [tickets]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // a click on a reason lists its tickets just below - scroll there, not the reader
+  useEffect(() => {
+    if (reason) listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [reason]);
   // a reason that is not in the new period's list would filter to nothing
   useEffect(() => { if (reason && !tally.some((r) => r.label === reason)) setReason(null); }, [tally, reason]);
   const closed = tally.reduce((s, r) => s + r.count, 0);
@@ -300,16 +304,30 @@ export function OutcomeReport({ tickets, period, stale }: {
         )}
       </GlassCard>
 
+      {/* straight under the chart, and brought into view when a reason is clicked */}
+      <Box ref={listRef} sx={{ scrollMarginTop: "16px" }}>
+        <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} />
+      </Box>
+
+      {tickets.length > 0 && <Kicker>Every figure here counts the tickets raised in the period: {period}</Kicker>}
+    </Box>
+  );
+}
+
+/**
+ * The two teams and each person, on their own: how ESO and TSA are doing, then
+ * won, win rate and the reason given most - one row per owner.
+ */
+export function TeamsReport({ tickets, period, stale }: { tickets: ErosionTicket[]; period: string; stale: boolean }) {
+  const board = useMemo(() => scoreboard(tickets), [tickets]);
+  return (
+    <Box sx={{ display: "grid", gap: 2.5, opacity: stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
       <Grid container spacing={2}>
         {(["ESO", "TSA"] as const).map((team) => (
           <Grid key={team} size={{ xs: 12, lg: 6 }}><TeamPanel team={team} r={board.teams[team]} /></Grid>
         ))}
       </Grid>
-
       <ByPerson owners={board.owners} />
-
-      <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} />
-
       {tickets.length > 0 && <Kicker>Every figure here counts the tickets raised in the period: {period}</Kicker>}
     </Box>
   );
