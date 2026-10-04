@@ -4,9 +4,10 @@
 // same properties, same pipeline and "New" stage, same company, order, contact
 // and Products & Pricing associations.
 //
-// Ticket writes and associations go out with the tickets token (TICKETS_TOKEN,
-// the same "SARCLA - Erosion tickets" app the connector wrote with); reads use the
-// hub's own token, as the connector used its CRM token for them.
+// Every call - reads, ticket writes, associations - goes out with the tickets token
+// (TICKETS_TOKEN, the same "SARCLA - Erosion tickets" app the connector wrote with,
+// and the token the parity check ran on). The buyer lookups swallow errors, so a
+// token missing a read scope there would raise tickets with no buyer instead of failing.
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
@@ -38,12 +39,12 @@ async function assoc(path: string, body?: unknown): Promise<void> {
 async function buyerContact(orderIds: string[], companyId: string): Promise<string | null> {
   for (const oid of orderIds.slice(0, 5)) {
     const r = await hubspotFetchJson<{ results?: { toObjectId: number | string }[] }>({
-      path: `/crm/v4/objects/orders/${oid}/associations/contacts`,
+      path: `/crm/v4/objects/orders/${oid}/associations/contacts`, useTicketsToken: true,
     }).catch(() => ({ results: [] as { toObjectId: number | string }[] }));
     if (r.results?.length) return String(r.results[0].toObjectId);
   }
   const c = await hubspotFetchJson<{ results?: { toObjectId: number | string; associationTypes?: { typeId?: number }[] }[] }>({
-    path: `/crm/v4/objects/companies/${companyId}/associations/contacts`,
+    path: `/crm/v4/objects/companies/${companyId}/associations/contacts`, useTicketsToken: true,
   }).catch(() => ({ results: [] as { toObjectId: number | string; associationTypes?: { typeId?: number }[] }[] }));
   const all = c.results ?? [];
   const buyer = all.find((r) => (r.associationTypes ?? []).some((t) => t.typeId === MAIN_PURCHASER));

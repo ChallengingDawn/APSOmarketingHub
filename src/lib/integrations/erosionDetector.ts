@@ -1,6 +1,8 @@
 // THE EROSION DETECTOR'S READS - everything the rules in src/lib/erosion/detector.ts
 // need, read from HubSpot the way the connector reads it, so a preview here and a
-// run on the connector see the same world.
+// run on the connector see the same world. Every call goes out with the tickets
+// token (the "SARCLA - Erosion tickets" app the connector raised them with) - the
+// token the ticket-for-ticket parity check against the connector ran on.
 //
 // PREVIEW ONLY. Nothing in this file writes to HubSpot. The write path (creating
 // and merging tickets, associations) is added only when the hub takes over from
@@ -48,6 +50,7 @@ export async function pullOrders(today: string, signal?: AbortSignal): Promise<O
       const res = await hubspotFetchJson<SearchPage<Record<string, unknown>>>({
         path: "/crm/v3/objects/orders/search",
         method: "POST",
+        useTicketsToken: true,
         body: {
           filterGroups: [{ filters: [
             { propertyName: "order_order_date", operator: "GTE", value: String(utcMs(y, m)) },
@@ -116,6 +119,7 @@ export async function companiesByUn(uns: string[], signal?: AbortSignal): Promis
       const res = await hubspotFetchJson<SearchPage<Record<string, string | null>>>({
         path: "/crm/v3/objects/companies/search",
         method: "POST",
+        useTicketsToken: true,
         body: {
           filterGroups: [{ filters: [{ propertyName: "company_unique_number", operator: "IN", values: list.slice(i, i + 100) }] }],
           properties: ["name", "hubspot_owner_id", "company_unique_number"],
@@ -142,12 +146,12 @@ export async function companiesByUn(uns: string[], signal?: AbortSignal): Promis
 async function ownerFromBuyer(orderIds: string[], signal?: AbortSignal): Promise<string> {
   for (const oid of orderIds.slice(0, 2)) {
     const assoc = await hubspotFetchJson<{ results?: { toObjectId: number | string }[] }>({
-      path: `/crm/v4/objects/orders/${oid}/associations/contacts`, signal,
+      path: `/crm/v4/objects/orders/${oid}/associations/contacts`, signal, useTicketsToken: true,
     }).catch(() => ({ results: [] as { toObjectId: number | string }[] }));
     const first = assoc.results?.[0];
     if (first) {
       const c = await hubspotFetchJson<{ properties?: { hubspot_owner_id?: string | null } }>({
-        path: `/crm/v3/objects/contacts/${first.toObjectId}?properties=hubspot_owner_id`, signal,
+        path: `/crm/v3/objects/contacts/${first.toObjectId}?properties=hubspot_owner_id`, signal, useTicketsToken: true,
       }).catch(() => null);
       return (c?.properties?.hubspot_owner_id ?? "").trim();
     }
@@ -160,6 +164,7 @@ async function catalogue(art: string, signal?: AbortSignal): Promise<{ id: strin
   const res = await hubspotFetchJson<SearchPage<{ article_description?: string | null }>>({
     path: `/crm/v3/objects/${PP_OBJ}/search`,
     method: "POST",
+    useTicketsToken: true,
     body: {
       filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: [art, art.padStart(10, "0")] }] }],
       properties: ["article_description"],
