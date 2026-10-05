@@ -44,7 +44,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE, companyPasses, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, companyPasses, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
@@ -761,7 +761,10 @@ function EshopActivityPage() {
   // check, a MOQ look and an availability look each belong to one company, so
   // mandant, country, priority, the search and the value floor apply to them too.
   // Selection and representative only where the row carries them (price checks).
-  const floor = Number(minValue.replace(",", ".")) || 0;
+  // Not while the 500 EUR floor is paused: list value is per ERP price unit there,
+  // so a minimum would cut on a number that can be 100x off. The box is hidden on
+  // these tabs, and a figure typed on Customers must not keep biting unseen.
+  const floor = VALUE_FLOOR_ACTIVE ? Number(minValue.replace(",", ".")) || 0 : 0;
   const needle = searchSlow.trim().toLowerCase();
   const textHit = (...vals: (string | null | undefined)[]) => !needle || vals.some((v) => (v ?? "").toLowerCase().includes(needle));
   const pcRows = (signals?.priceChecks ?? []).filter((r) =>
@@ -784,6 +787,8 @@ function EshopActivityPage() {
     company: tab !== "articles",
     selection: tab === "customers" || tab === "priceCheck",
     sort: tab === "customers",
+    // Customers filter on order value, which is real; the record tabs on list value.
+    value: tab === "customers" || (tab !== "articles" && VALUE_FLOOR_ACTIVE),
   };
   // SARCLA: a filter a view cannot use is not shown at all - greyed-out controls
   // were noise. Its value is kept, and it is back, still set, on the views that
@@ -1074,7 +1079,7 @@ function EshopActivityPage() {
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 230 }}
           />
-          {hint(usedHere.company,
+          {hint(usedHere.value,
             <TextField
               size="small"
               type="number"
@@ -1082,7 +1087,7 @@ function EshopActivityPage() {
               value={minValue}
               onChange={(e) => setMinValue(e.target.value)}
               sx={{ minWidth: 170 }}
-              disabled={!usedHere.company}
+              disabled={!usedHere.value}
               inputProps={{ min: 0, step: 100, "aria-label": "Minimum value" }}
             />)}
           {tab === "customers" && (
@@ -1564,38 +1569,11 @@ function EshopActivityPage() {
             </Table>
           </Box>
 
-          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              <strong>When a price check becomes a ticket.</strong> A customer asked us what something costs and
-              did not buy it. That is a question still open, and the ticket is somebody being asked to close it.
-              <br /><br />
-              <strong>One ticket per customer per day</strong>, listing everything they priced that day — not one per
-              article, or a rep gets five conversations about the same visit. It carries each article with the
-              quantity they asked for, its unit and its minimum order quantity,{VALUE_FLOOR_ACTIVE ? " the value at list price," : ""} and the
-              contact who did the pricing, so the call can start from what they wanted rather than from a lookup.
-              <br /><br />
-              <strong>It goes to the company&rsquo;s owner</strong>, into their ESO or TSA queue at New. An owner on
-              neither roster gets no ticket at all — that row says so rather than promising a call nobody will make.
-              <br /><br />
-              <strong>Not every price check earns one.</strong> We count plastics and sealings (KT and DT), because
-              those are the ones this team sells; a 3xxx or 8xxx special is left out, since we hold no price or
-              profit centre for it and would be guessing. {VALUE_FLOOR_ACTIVE ? (
-                <>The day has to be worth the call at <strong>€500</strong> of list value — a floor, so three cheap
-                articles still is not one.</>
-              ) : (
-                <>The day needs <strong>{MIN_ARTICLES} or more</strong> of those articles. The €500 floor is paused:
-                Products &amp; Pricing keeps list prices per ERP price unit — per 1, 100 or 1,000 pieces — and not
-                the unit, so a value can read 100 or 1,000 times too high. <strong>List price*</strong> and{" "}
-                <strong>List value*</strong> are those raw figures, a guide only, until the unit is in.</>
-              )} <strong>APSOmicro</strong> and
-              <strong> priorities 3 and 4</strong> are not chased at all.
-              <br /><br />
-              <strong>And we wait a working day.</strong> People buy the next morning. A Friday afternoon tells you
-              nothing until Monday, so a Friday check is judged on the Monday and never on the Saturday. If the order
-              arrives in that window the question answered itself and nobody is called. Public holidays are not in
-              the calendar yet, only weekends.
+          {!VALUE_FLOOR_ACTIVE && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
             </Typography>
-          </Box>
+          )}
         </GlassCard>
       )}
 

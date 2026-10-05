@@ -301,9 +301,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
           </Table>
           {!VALUE_FLOOR_ACTIVE && (
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-              * Per ERP price unit. Products &amp; Pricing keeps list prices per 1, 100 or 1,000 pieces and not the unit,
-              so a value can read 100 or 1,000 times too high. A day qualifies on {MIN_ARTICLES} or more KT/DT articles
-              until the unit is in; the €500 floor is paused.
+              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
             </Typography>
           )}
         </Box>
