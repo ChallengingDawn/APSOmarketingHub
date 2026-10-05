@@ -612,6 +612,9 @@ export async function watchTick(): Promise<void> {
     if (r.written || (r.potential_changed as { written?: number } | undefined)?.written) {
       console.log(`[segwatch] ${JSON.stringify({ ...r, log: undefined }).slice(0, 400)}`);
     }
+    // a refused write leaves written at 0 - it must never pass in silence
+    const refused = [...r.log, ...(((r.potential_changed as { log?: string[] } | undefined)?.log) ?? [])];
+    if (refused.length) console.warn(`[segwatch] write refused: ${refused.join(" | ").slice(0, 400)}`);
   });
 }
 
@@ -626,17 +629,20 @@ export async function nightly(): Promise<unknown> {
     if (process.env.POTENTIAL_RECALC === "1") {
       try {
         const pr = await potentialInner(false, beat);
+        if (pr.log.length) console.warn(`[segmentation] nightly potential: write refused: ${pr.log.join(" | ").slice(0, 400)}`);
         result.potential = { ...pr, log: undefined };
       } catch (e) {
         result.potential = { error: (e as Error).message.slice(0, 200) };
       }
     }
     const sw = await sweepInner(false, beat);
-    Object.assign(result, { ...sw, log: undefined, changes: undefined });
+    if (sw.log.length) console.warn(`[segmentation] nightly sweep: write refused: ${sw.log.join(" | ").slice(0, 400)}`);
+    Object.assign(result, { ...sw, log: undefined });
     const cap = Number(process.env.WEB_ENRICH_NIGHTLY ?? "200");
     if (cap > 0) {
       try {
         const w = await webInner(cap, false);
+        if (w.log.length) console.warn(`[segmentation] nightly web: write refused: ${w.log.join(" | ").slice(0, 400)}`);
         result.web = { ...w, log: undefined };
       } catch (e) {
         result.web = { error: (e as Error).message.slice(0, 200) };
