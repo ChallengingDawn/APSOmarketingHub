@@ -44,10 +44,10 @@ type Doc = {
 };
 
 const HOW: Record<EditSource, { label: string; tint: Tint }> = {
-  visit: { label: "Visit report", tint: "blue" },
+  visit: { label: "Visit workflow", tint: "blue" },
   rep: { label: "Typed in HubSpot", tint: "green" },
   bulk: { label: "Bulk edit", tint: "purple" },
-  workflow: { label: "Other workflow", tint: "amber" },
+  workflow: { label: "Visit workflow", tint: "blue" },
   merge: { label: "Merge", tint: "slate" },
   import: { label: "Import", tint: "slate" },
   other: { label: "Other app", tint: "slate" },
@@ -69,6 +69,16 @@ function weekOf(iso: string) {
   const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
   const dow = (d.getUTCDay() + 6) % 7;
   return new Date(d.getTime() - dow * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The "how" counts by what the page calls them - the two visit-workflow kinds are one. */
+function byLabel(how: Partial<Record<EditSource, number>>): [string, number, Tint][] {
+  const m = new Map<string, [number, Tint]>();
+  for (const [s, n] of Object.entries(how) as [EditSource, number][]) {
+    const cur = m.get(HOW[s].label);
+    m.set(HOW[s].label, [(cur?.[0] ?? 0) + n, HOW[s].tint]);
+  }
+  return [...m.entries()].map(([l, [n, t]]) => [l, n, t] as [string, number, Tint]).sort((a, b) => b[1] - a[1]);
 }
 
 const signedEur = (n: number) => `${n >= 0 ? "+" : "−"}${eur(Math.abs(n))}`;
@@ -132,8 +142,8 @@ export function PotentialChanges() {
     const m = new Map<string, Record<string, number>>();
     for (const e of inPeriod) {
       const w = weekOf(e.at);
-      const b = m.get(w) ?? { visit: 0, rep: 0, bulk: 0, workflow: 0, other: 0 };
-      const key = e.source === "visit" || e.source === "rep" || e.source === "bulk" || e.source === "workflow" ? e.source : "other";
+      const b = m.get(w) ?? { visit: 0, rep: 0, bulk: 0, other: 0 };
+      const key = e.source === "visit" || e.source === "workflow" ? "visit" : e.source === "rep" || e.source === "bulk" ? e.source : "other";
       b[key] += 1;
       m.set(w, b);
     }
@@ -176,7 +186,7 @@ export function PotentialChanges() {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<EditNoteOutlinedIcon />} label="Changed by sales" value={full(k.sales)}
-            note={`${full(k.companies)} companies · visit reports ${full(k.visit)} · typed ${full(k.rep)} · bulk ${full(k.bulk)} · other workflows ${full(k.workflow)}`} />
+            note={`${full(k.companies)} companies · visit workflow ${full(k.visit + k.workflow)} · typed ${full(k.rep)} · bulk ${full(k.bulk)}`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<SwapVertIcon />} tint={k.net >= 0 ? "green" : "pink"} label="Raised / lowered" value={`${full(k.raised)} / ${full(k.lowered)}`}
@@ -201,7 +211,7 @@ export function PotentialChanges() {
         <CardTitle icon={<BarChartOutlinedIcon />} title="Changes per week" note={`${periodLabel} · how each value got in · mass updates left out`} />
         {weeks.length ? (
           <StackedColumns data={weeks} height={240} xFormat={(x) => `${x.slice(8, 10)}.${x.slice(5, 7)}`}
-            parts={[{ key: "visit", label: "Visit report" }, { key: "workflow", label: "Other workflow" }, { key: "rep", label: "Typed in HubSpot" }, { key: "bulk", label: "Bulk edit" }]}
+            parts={[{ key: "visit", label: "Visit workflow" }, { key: "rep", label: "Typed in HubSpot" }, { key: "bulk", label: "Bulk edit" }]}
             format={(v) => full(v)} />
         ) : <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No potential was changed by sales in this period.</Typography>}
       </GlassCard>
@@ -209,7 +219,7 @@ export function PotentialChanges() {
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.75 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
           <CardTitle icon={<PeopleOutlineIcon />} tint="purple" title={`By person (${full(people.filter((p) => p.name !== NOBODY).length)})`}
-            note="The visit's owner for a visit report, the user for a typed or bulk change - and what their changes did" />
+            note="The visit's owner for a change through the visit workflow (when the visit is on record), the user for a typed or bulk change" />
         </Box>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ minWidth: 900 }}>
@@ -233,9 +243,9 @@ export function PotentialChanges() {
                   <TableCell sx={bodyCell} align="right">{full(p.down)}</TableCell>
                   <TableCell sx={bodyCell}>
                     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                      {(Object.entries(p.how) as [EditSource, number][]).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
-                        <Chip key={s} size="small" label={`${HOW[s].label} ${full(n)}`}
-                          sx={{ height: 20, fontSize: "0.66rem", fontWeight: 600, bgcolor: TINT[HOW[s].tint].bg, color: TINT[HOW[s].tint].fg }} />
+                      {byLabel(p.how).map(([label, n, tint]) => (
+                        <Chip key={label} size="small" label={`${label} ${full(n)}`}
+                          sx={{ height: 20, fontSize: "0.66rem", fontWeight: 600, bgcolor: TINT[tint].bg, color: TINT[tint].fg }} />
                       ))}
                     </Box>
                   </TableCell>
@@ -325,7 +335,7 @@ export function PotentialChanges() {
 
       <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
         From the potential&apos;s own history in HubSpot; the engine&apos;s own writes are not changes, and a value written again unchanged is not counted.
-        A workflow&apos;s write within two hours of a customer visit on the same company counts as that visit&apos;s report. * values over 1 M € are typos or merge artefacts - shown, never summed.
+        The visit workflow&apos;s person is the owner of the customer visit on the same company within two hours; without such a visit on record no person is shown. * values over 1 M € are typos or merge artefacts - shown, never summed.
         Full scan {d.scannedAt.slice(0, 16).replace("T", " ")} UTC ({full(d.scanned)} companies, every night with the recalculation); new changes are added by the watcher within about two minutes.
       </Typography>
     </Box>

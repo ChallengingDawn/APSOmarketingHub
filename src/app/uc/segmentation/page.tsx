@@ -82,10 +82,10 @@ const num = (v: unknown) => (typeof v === "number" ? v : 0);
 
 /** What each run's counters mean, under its card. */
 const LEGEND: Record<string, string> = {
-  "Segment new companies": "Assigned: the priority each unsegmented company got · enriched: industry / APIC filled from its name.",
-  "Full sweep": "Fill empty: had no priority · upgrade: basis rose past a threshold, priority raised (never lowered) · facts only: priority unchanged, best revenue year / bucket / basis refreshed · unlost: APSOlost that bought this year → APSOcore or APSOprospect · enriched: industry / APIC filled.",
-  "Website enrichment": "Attempted: sites tried · site ok: something learned · then which fields were filled - empty fields only.",
-  "Potential recalculation": "Manual kept: a person's number, never touched · kept higher: our machine's value is above the formula - raise-only, so kept · unchanged: within 10% of the formula · no revenue: nothing to compute from (no 2024-2026 revenue) · filled: was empty · machine recalc: our machine's value raised to the formula · human restored: a person's number we had overwritten, put back.",
+  "Segment new companies": "The numbers: how many companies had no priority, and which priority each got.",
+  "Full sweep": "Upgrade: the priority went up because potential or revenue grew · facts only: the priority stayed, its helper fields were refreshed · unlost: an APSOlost customer bought again and became Core or Prospect · fill empty: had no priority yet.",
+  "Website enrichment": "Attempted: websites tried · site ok: the site answered and something was learned · then which fields it filled.",
+  "Potential recalculation": "Manual kept: a person's value - never touched · kept higher: the engine's value is already above the formula, it is not lowered · unchanged: less than 10 % away · no revenue: nothing to calculate from · filled: was empty · machine recalc: the engine's value raised to the formula.",
 };
 
 function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRun, live }: {
@@ -215,7 +215,7 @@ export default function SmartSegmentation() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<RemoveCircleOutlineIcon />} tint="amber" label="No priority" value={full(p.p4)}
-            note={`basis under 500 € · ${st.no_prio_share_pct ?? "—"}% of the portfolio with the unsegmented`} />
+            note={`basis under 500 € · ${st.no_prio_share_pct ?? "—"}% of the portfolio`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<HelpOutlineIcon />} tint={st.empty ? "pink" : "green"} label="No priority yet" value={full(st.empty)}
@@ -249,7 +249,7 @@ export default function SmartSegmentation() {
             ]} />
           </GlassCard>
           <GlassCard>
-            <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" note={`The apso_customer field - a different thing from the sales priority above. ${full(bd.with_apso_customer)} of ${full(bd.total)} companies carry one; the engine reads it and only writes the lost-recovery`} />
+            <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" />
             <SegmentMix total={bd.total} rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), ...(bd.empty > 0 ? [{ label: "No APSO segment", value: bd.empty }] : [])]} />
             {(bd.without_segment ?? []).length > 0 && (
               <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.5 }}>
@@ -278,17 +278,17 @@ export default function SmartSegmentation() {
             </Grid>
           )}
           <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Segment new companies" icon={<PlayArrowIcon />} note="Only companies with an EMPTY sales priority get one"
+            <RunCard title="Segment new companies" icon={<PlayArrowIcon />} note="Gives a priority to every company that has none yet - a safety net: the watcher already does it within minutes"
               last={st.last_run_new} busy={running} canRun={admin} live={live}
               onPreview={() => act("run-new", true)} onRun={() => act("run-new", false)} />
           </Grid>
           <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Full sweep" icon={<TuneOutlinedIcon />} note="The whole portfolio, upgrade-only, facts refreshed - runs every night"
+            <RunCard title="Full sweep" icon={<TuneOutlinedIcon />} note="Every night, all 60,000 companies: keeps each priority up to date - raises it when it should, never lowers it"
               last={st.last_sweep} busy={running} canRun={admin} live={live}
               onPreview={() => act("sweep", true)} onRun={() => act("sweep", false)} />
           </Grid>
           <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Website enrichment" icon={<LanguageOutlinedIcon />} note="Description, size and address from the company's own site - empty fields only"
+            <RunCard title="Website enrichment" icon={<LanguageOutlinedIcon />} note="Reads a company's own website to fill an empty description, size and address"
               last={st.last_web} busy={running} canRun={admin} live={live} onRun={() => act("web", false, "&limit=300")}
               extra={(
                 <FormControlLabel sx={{ mb: 0.5 }} control={<Switch size="small" checked={st.web_new_enabled} disabled={!admin || !live} onChange={(e) => toggleWeb(e.target.checked)} />}
@@ -296,7 +296,7 @@ export default function SmartSegmentation() {
               )} />
           </Grid>
           <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Potential recalculation" icon={<ScheduleOutlinedIcon />} note="Machine-written or empty potentials only - raise-only, a person's number is never touched"
+            <RunCard title="Potential recalculation" icon={<ScheduleOutlinedIcon />} note="Recalculates the potentials the engine set itself (revenue × product fit) - never one a person entered, never lower"
               last={st.last_potential} busy={running} canRun={admin} live={live}
               onPreview={() => act("potential", true)} onRun={() => act("potential", false)} />
           </Grid>

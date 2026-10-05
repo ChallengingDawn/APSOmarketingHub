@@ -39,6 +39,13 @@ function Arrow({ down = false, plus = false }: { down?: boolean; plus?: boolean 
 
 const flow = { display: "flex", flexDirection: { xs: "column", md: "row" }, alignItems: "stretch", gap: 1 } as const;
 
+/** The APIC product-fit multipliers, grouped (longest code prefix wins in the engine). */
+const MULTIPLIERS: [string, string][] = [
+  ["3.8", "wholesale & trading"], ["3.0", "pumps & valves"], ["2.5", "pharma, medical, chemicals"], ["2.2", "food"],
+  ["2.0", "automotive, agriculture, aerospace, HVAC"], ["1.8", "machinery"], ["1.5", "processing & plastics, renewables, railway, shipbuilding"],
+  ["1.4", "electronics, automation"], ["1.2", "construction, mining"], ["1.0", "everything else - research, no industry known"], ["0.8", "engineering"], ["0.7", "watch industry"],
+];
+
 function Lane({ icon, tint, title, when, steps }: { icon: React.ReactNode; tint: Tint; title: string; when: string; steps: { title: string; text: React.ReactNode }[] }) {
   const t = TINT[tint];
   return (
@@ -66,13 +73,37 @@ export function HowItWorks() {
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
       <GlassCard>
-        <CardTitle icon={<FunctionsOutlinedIcon />} title="The formula" note="The CEO formula - the same everywhere the priority is computed" />
+        <CardTitle icon={<FunctionsOutlinedIcon />} title="1 · The yearly potential" note="Where each company's yearly potential comes from - three ways, and a person's number always wins" />
         <Box sx={flow}>
-          <Node tint="blue" strong title="Yearly potential">A person&apos;s number (visit report, typed, bulk) - or the engine&apos;s starter / recalculated value</Node>
+          <Node tint="blue" strong title="A person enters it">In a visit report or in HubSpot. Kept exactly as entered - the engine never changes it.</Node>
+          <Node tint="green" strong title="It is empty: a starter value">
+            With revenue: the average of the last three years × the product-fit multiplier - at least 1.3 × the best year ever, at most 1 M €.
+            {" "}Without revenue: 300 € for a micro customer, otherwise 500 €, 600 € (multiplier ≥ 1.5) or 800 € (≥ 2.0).
+          </Node>
+          <Node tint="purple" strong title="The engine set it: recalculated every night">
+            The same sum: last three years&apos; average × multiplier, at least 1.3 × the best year, at most 1 M € - and at most +40 % on the current value at a time.
+            {" "}Only ever raised; a change under 10 % is left alone.
+          </Node>
+        </Box>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, mt: 2, mb: 0.75 }}>Product-fit multipliers (from the APIC industry code)</Typography>
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+          {MULTIPLIERS.map(([m, what]) => (
+            <Box key={m} sx={{ display: "flex", alignItems: "baseline", gap: 0.75, px: 1.25, py: 0.6, borderRadius: "10px", bgcolor: "rgba(255,255,255,.75)", border: `1px solid ${HAIRLINE}` }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, color: INK, fontVariantNumeric: "tabular-nums" }}>×{m}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{what}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </GlassCard>
+
+      <GlassCard>
+        <CardTitle icon={<FunctionsOutlinedIcon />} tint="amber" title="2 · The priority" note="From the potential and the revenue - the same rule wherever the priority is set" />
+        <Box sx={flow}>
+          <Node tint="blue" strong title="Yearly potential">From step 1</Node>
           <Arrow plus />
           <Node tint="green" strong title="Best revenue year">The highest revenue of any year since 2015 - from Compass, every night</Node>
           <Arrow />
-          <Node tint="purple" strong title="Basis = the higher of the two">A potential over 1 M € and 20× the best year is a typo - left out of the maths, never changed</Node>
+          <Node tint="purple" strong title="Basis = the higher of the two">A potential over 1 M € and 20× the best year is a typo - left out, never changed</Node>
           <Arrow />
           <Node tint="amber" strong title="Priority">P1 ≥ 25,000 € · P2 ≥ 2,500 € · P3 ≥ 500 € · below: no priority</Node>
         </Box>
