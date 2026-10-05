@@ -76,6 +76,26 @@ async function toThumbnail(file: File): Promise<string> {
   }
 }
 
+/**
+ * A reply, whatever came back.
+ *
+ * 401 from the middleware is JSON now, but a proxy page or a crash is still
+ * HTML, and every one of those used to reach the person as a JSON parser error.
+ */
+async function readJson(r: Response): Promise<{ ok?: boolean; error?: string } | null> {
+  const text = await r.text().catch(() => "");
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return {
+      ok: false,
+      error: r.status === 401
+        ? "Your session has ended. Sign in again and it will save."
+        : `The hub answered with something unexpected (HTTP ${r.status}).`,
+    };
+  }
+}
+
 function Card({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 } }}>
@@ -121,8 +141,11 @@ export default function MyAccount() {
         // merge to "unchanged" rather than "removed".
         body: JSON.stringify(value === null ? { avatar: undefined } : { avatar: value }),
       });
-      const j = await r.json();
-      if (!j?.ok) { setError(j?.error ?? "That picture could not be saved."); return; }
+      // Not every reply is JSON. A session that expired while this page was open
+      // used to come back as the sign-in page, and `r.json()` turned that into
+      // "Unexpected token '<'" \u2014 a parser error standing in for "sign in again".
+      const j = await readJson(r);
+      if (!j?.ok) { setError(j?.error ?? `That picture could not be saved. (HTTP ${r.status})`); return; }
       setAvatar(value);
       setNote(value ? "Picture saved." : "Picture removed.");
     } catch (e) {
@@ -150,8 +173,8 @@ export default function MyAccount() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ full_name: name, email }),
       });
-      const j = await r.json();
-      if (!j?.ok) { setError(j?.error ?? "That could not be saved."); return; }
+      const j = await readJson(r);
+      if (!j?.ok) { setError(j?.error ?? `That could not be saved. (HTTP ${r.status})`); return; }
       setMe((cur) => (cur ? { ...cur, full_name: name, email: email || null } : cur));
       setNote("Saved.");
     } catch (e) {

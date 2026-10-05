@@ -23,6 +23,30 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+/**
+ * Turning somebody away.
+ *
+ * A PAGE gets the sign-in screen. An API call gets 401 and a JSON body — it used
+ * to get the sign-in screen too, which is HTML, which is why a session that
+ * expired while a page was open surfaced as
+ *
+ *   SyntaxError: Unexpected token '<', "<html> <h"... is not valid JSON
+ *
+ * on whatever the person clicked next. Every fetch in the hub reads JSON; none
+ * of them asked for a login page.
+ */
+function turnAway(req: NextRequest, pathname: string) {
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { ok: false, error: "Your session has ended. Sign in again." },
+      { status: 401 },
+    );
+  }
+  const url = new URL("/signin", req.url);
+  if (pathname !== "/") url.searchParams.set("next", pathname);
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -31,20 +55,14 @@ export async function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) {
-    const url = new URL("/signin", req.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
-  }
+  if (!token) return turnAway(req, pathname);
 
   try {
     const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== "session") throw new Error("wrong type");
     return NextResponse.next();
   } catch {
-    const url = new URL("/signin", req.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    return turnAway(req, pathname);
   }
 }
 

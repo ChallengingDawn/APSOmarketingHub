@@ -30,8 +30,9 @@ export const ICON_CHOICES: IconChoice[] = [
 /**
  * Paint one into a square and hand back a data URI.
  *
- * PNG rather than JPEG: an emoji on a gradient is flat colour with hard edges,
- * which is what JPEG is worst at. It still lands far inside the size cap.
+ * JPEG, like the upload path: a PNG of a 256px gradient runs to tens of
+ * kilobytes once base64 has added a third, and this travels in a JSON body on
+ * every change. At 0.9 the gradient is clean and the whole thing is a few KB.
  */
 export function drawIcon(choice: IconChoice): string {
   const SIDE = 256;
@@ -54,5 +55,5 @@ export function drawIcon(choice: IconChoice): string {
   ctx.textBaseline = "middle";
   ctx.fillText(choice.glyph, SIDE / 2, SIDE / 2 + SIDE * 0.03);
 
-  return canvas.toDataURL("image/png");
+  return canvas.toDataURL("image/jpeg", 0.9);
 }
