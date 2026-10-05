@@ -10,6 +10,12 @@ export interface SessionPayload {
   uid: number;
   username: string;
   role: 'admin' | 'user' | 'viewer';
+  /**
+   * Which session this is, so it can be listed and revoked. Optional because a
+   * token minted before the sessions table existed does not carry one; those are
+   * honoured until they expire rather than signing everybody out on a deploy.
+   */
+  sid?: string;
 }
 
 function getSecret(): Uint8Array {
@@ -37,6 +43,7 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
       uid: payload.uid,
       username: payload.username as string,
       role: (payload.role as SessionPayload['role']) ?? 'user',
+      sid: typeof payload.sid === 'string' ? payload.sid : undefined,
     };
   } catch {
     return null;

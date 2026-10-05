@@ -1,9 +1,12 @@
 "use client";
 // PREFERENCES — what you can change about your own hub.
 //
-// One thing is real: your quick links, kept against your account so they follow
-// you between machines. The rest is named rather than drawn, because a control
-// that saves nothing reads as a promise.
+// Two things are real, both saved against the account rather than the browser so
+// they follow you between machines: your quick links, and your home screen —
+// which panels sit on the launch pad and what order your apps are in.
+//
+// The two that remain are named rather than drawn, because a control that saves
+// nothing reads as a promise. Each says what it would actually take.
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -11,9 +14,9 @@ import LinkIcon from "@mui/icons-material/Link";
 import TranslateIcon from "@mui/icons-material/Translate";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 
 import QuickLinks from "@/app/QuickLinks";
+import HomeScreen from "./HomeScreen";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -39,11 +42,7 @@ const NOT_YET = [
   },
   {
     name: "Notifications", icon: <NotificationsNoneIcon />,
-    why: "The hub sends nothing. There is a mailer now, so this is the next one that can become real.",
-  },
-  {
-    name: "Default reporting window", icon: <CalendarMonthIcon />,
-    why: "The window you pick is remembered in this browser, not on your account, so it does not follow you.",
+    why: "The hub can send mail now, but nothing has asked to be told about anything yet. A switch here needs an event worth hearing about first \u2014 say, a price check raised on one of your customers.",
   },
 ];
 
@@ -67,6 +66,8 @@ export default function Preferences() {
         </Box>
         <QuickLinks glass={glass} />
       </Box>
+
+      <HomeScreen glass={glass} />
 
       <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 } }}>
         <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>

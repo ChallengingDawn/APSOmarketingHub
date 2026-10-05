@@ -3,12 +3,8 @@ import { z } from 'zod';
 import { query } from '@/lib/db/client';
 import type { UserRow } from '@/lib/db/init';
 import { generateSecret, totpQrDataUrl, verifyTotp } from '@/lib/auth/totp';
-import {
-  clearPre2faCookie,
-  readPre2fa,
-  setSessionCookie,
-  signSession,
-} from '@/lib/auth/session';
+import { clearPre2faCookie, readPre2fa } from '@/lib/auth/session';
+import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 import { mfaRequired, type Role } from '@/lib/auth/access';
 import { getOptionalUser } from '@/lib/auth/guard';
@@ -92,7 +88,7 @@ export async function POST(req: Request) {
     recordSuccess(rlKey);
     await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
     await clearPre2faCookie();
-    await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role }));
+    await beginSession(u, req);
     return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
   }
 
@@ -110,9 +106,7 @@ export async function POST(req: Request) {
     [u.id],
   );
   await clearPre2faCookie();
-  await setSessionCookie(
-    await signSession({ uid: u.id, username: u.username, role: u.role }),
-  );
+  await beginSession(u, req);
   // The front door, not the brain. Landing on Personality is a leftover from
   // when this was the marketing app; now it is one app of five, and most people
   // signing in cannot even open it.

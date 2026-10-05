@@ -96,6 +96,31 @@ export function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_apsomh_access_user ON apsomh_user_app_access(user_id)`
     );
 
+    // WHERE SOMEBODY IS SIGNED IN.
+    //
+    // The session cookie is a signed token and proves itself without asking
+    // anything — which is why changing a password used to leave every other
+    // browser signed in, and why nobody could see where they were signed in at
+    // all. One row per session makes both answerable: the token now carries a
+    // `sid`, and a revoked row stops it being accepted.
+    //
+    // Tokens issued before this table existed carry no sid. They are honoured
+    // until they expire rather than signing everybody out on the deploy.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_sessions (
+        sid VARCHAR(64) PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES apsomh_users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        user_agent TEXT,
+        ip VARCHAR(64),
+        revoked_at TIMESTAMPTZ
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_sessions_user ON apsomh_sessions(user_id)`
+    );
+
     // NOBODY LOSES ACCESS ON THE DAY THE GUARDS SWITCH ON.
     //
     // No row means no access, so turning enforcement on against an empty table

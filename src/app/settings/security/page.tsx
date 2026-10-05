@@ -2,16 +2,24 @@
 // SECURITY — how you get in, and what stands between a stolen password and
 // everything you can see.
 //
-// Two things work today: changing the password, and enrolling an authenticator.
-// The gaps are named rather than hidden, because the one that matters — losing
-// the phone — currently needs an admin, and somebody should know that before it
-// happens rather than after.
+// Four things, all of them real: the password, the authenticator, ten recovery
+// codes for the day the phone is gone, and the list of where you are signed in
+// with a way to end any of it.
+//
+// The two that were named as gaps are the two that bite — losing the phone used
+// to need an admin and a phone call, and a password change used to leave every
+// other browser signed in. Neither is true now.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
@@ -36,6 +44,10 @@ const glass = {
 };
 
 type Me = { username: string; role: Role; totp_enrolled: boolean; last_login: string | null };
+type Device = {
+  id: string; sid: string; label: string; ip: string | null;
+  since: string; lastSeen: string; current: boolean;
+};
 
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "never";
@@ -43,13 +55,69 @@ const when = (iso: string | null) =>
 export default function Security() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [codes, setCodes] = useState<{ remaining: number; total: number; size: number } | null>(null);
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [legacy, setLegacy] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // The only moment the codes exist in the clear.
+  const [issued, setIssued] = useState<string[] | null>(null);
+  const [ask, setAsk] = useState<{ password: string } | null>(null);
+
+  const loadCodes = useCallback(() => {
+    fetch("/api/me/recovery-codes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) setCodes({ remaining: j.remaining, total: j.total, size: j.size }); })
+      .catch(() => {});
+  }, []);
+
+  const loadDevices = useCallback(() => {
+    fetch("/api/me/sessions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) { setDevices(j.sessions as Device[]); setLegacy(!!j.legacy); } })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("You are not signed in."))))
       .then((j) => setMe(j.user as Me))
       .catch((e) => setError(String((e as Error).message ?? e)));
-  }, []);
+    loadCodes();
+    loadDevices();
+  }, [loadCodes, loadDevices]);
+
+  const issue = async (password: string) => {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch("/api/me/recovery-codes", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const j = await r.json();
+      if (!j?.ok) { setError(j?.error ?? "Those codes could not be made."); return; }
+      setIssued(j.codes as string[]);
+      setAsk(null);
+      loadCodes();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const endSessions = async (sid?: string) => {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch(`/api/me/sessions${sid ? `?sid=${encodeURIComponent(sid)}` : ""}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!j?.ok) { setError(j?.error ?? "That did not work."); return; }
+      loadDevices();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const must = me ? mfaRequired(me.role) : false;
 
@@ -112,41 +180,160 @@ export default function Security() {
             </Box>
           </Box>
 
-          {/* The gaps, named. The first one is the one that bites. */}
+          {/* ---------------------------------------------- recovery codes */}
           <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 } }}>
-            <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
-              Not built yet
-            </Typography>
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.25, mb: 2 }}>
-              Worth knowing before you need them, rather than at the moment you do.
-            </Typography>
-            <Box sx={{ display: "grid", gap: 1.5 }}>
-              {[
-                {
-                  icon: <ConfirmationNumberOutlinedIcon />, name: "Recovery codes",
-                  why: "Lose the phone today and an admin has to reset your second factor. Ten one-time codes, issued when you enrol, would make that a two-minute job you do yourself.",
-                },
-                {
-                  icon: <DevicesOtherIcon />, name: "Signed-in devices",
-                  why: "There is no list of where you are signed in, and changing your password does not end the other sessions.",
-                },
-              ].map((g) => (
-                <Box key={g.name} sx={{
-                  display: "flex", gap: 1.5, p: 1.75, borderRadius: "16px",
-                  bgcolor: "rgba(255,255,255,.55)", border: `1px solid ${HAIRLINE}`,
+            <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <Box sx={{
+                width: 44, height: 44, borderRadius: "13px", display: "grid", placeItems: "center", flexShrink: 0,
+                bgcolor: codes && codes.remaining > 0 ? "#e6f4ec" : "#fff6e8",
+                color: codes && codes.remaining > 0 ? OK : WARN,
+              }}><ConfirmationNumberOutlinedIcon /></Box>
+              <Box sx={{ flex: "1 1 300px", minWidth: 0 }}>
+                <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
+                  Recovery codes
+                </Typography>
+                <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 0.4, lineHeight: 1.5 }}>
+                  {codes && codes.total > 0
+                    ? `${codes.remaining} of ${codes.total} left. Each one works once, in place of the code from your app.`
+                    : "For the day the phone is lost or wiped. Ten one-time codes you keep somewhere that is not the phone \u2014 print them, or put them in a password manager."}
+                </Typography>
+                {codes && codes.total > 0 && codes.remaining <= 3 && (
+                  <Typography sx={{ fontSize: "0.8rem", color: WARN, mt: 0.5, fontWeight: 600 }}>
+                    Running low. Generating a new set replaces all of them.
+                  </Typography>
+                )}
+              </Box>
+              <Button variant={codes && codes.total > 0 ? "outlined" : "contained"} size="small"
+                disabled={busy} onClick={() => { setIssued(null); setAsk({ password: "" }); }}
+                sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}>
+                {codes && codes.total > 0 ? "Generate new codes" : "Generate codes"}
+              </Button>
+            </Box>
+          </Box>
+
+          {/* ------------------------------------------------------ devices */}
+          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 } }}>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", flexWrap: "wrap", mb: devices?.length ? 2 : 0 }}>
+              <Box sx={{
+                width: 44, height: 44, borderRadius: "13px", display: "grid", placeItems: "center", flexShrink: 0,
+                bgcolor: "#e6edfd", color: "#2459d1",
+              }}><DevicesOtherIcon /></Box>
+              <Box sx={{ flex: "1 1 300px", minWidth: 0 }}>
+                <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
+                  Where you are signed in
+                </Typography>
+                <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 0.4, lineHeight: 1.5 }}>
+                  Ending a session takes effect on its next click, not in twelve hours. Changing your password
+                  ends them all except this one.
+                </Typography>
+              </Box>
+              {devices && devices.length > 1 && (
+                <Button variant="outlined" size="small" disabled={busy} onClick={() => endSessions()}
+                  sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}>
+                  Sign out everywhere else
+                </Button>
+              )}
+            </Box>
+
+            {devices === null && (
+              <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Reading your sessions\u2026</Typography>
+            )}
+            {devices?.length === 0 && (
+              <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
+                Nothing to show yet. This browser will appear the next time you sign in.
+              </Typography>
+            )}
+            <Box sx={{ display: "grid", gap: 1.25 }}>
+              {devices?.map((d) => (
+                <Box key={d.sid} sx={{
+                  display: "flex", gap: 1.5, alignItems: "center", p: 1.6, borderRadius: "16px",
+                  bgcolor: d.current ? "rgba(36,89,209,.06)" : "rgba(255,255,255,.55)",
+                  border: `1px solid ${d.current ? "rgba(36,89,209,.22)" : HAIRLINE}`,
                 }}>
-                  <Box sx={{
-                    width: 34, height: 34, borderRadius: "10px", display: "grid", placeItems: "center",
-                    bgcolor: "#eef1f5", color: FAINT, flexShrink: 0, "& svg": { fontSize: 18 },
-                  }}>{g.icon}</Box>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>{g.name}</Typography>
-                    <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5 }}>{g.why}</Typography>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>
+                      {d.label}
+                      {d.current && (
+                        <Box component="span" sx={{ color: "#2459d1", fontWeight: 700 }}> &middot; this browser</Box>
+                      )}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
+                      {d.ip ? `${d.ip} \u00b7 ` : ""}last used {when(d.lastSeen)}
+                    </Typography>
                   </Box>
+                  {!d.current && (
+                    <Button size="small" disabled={busy} onClick={() => endSessions(d.sid)}
+                      sx={{ textTransform: "none", color: MUTED, flexShrink: 0 }}>
+                      End
+                    </Button>
+                  )}
                 </Box>
               ))}
             </Box>
+            {legacy && (
+              <Typography sx={{ fontSize: "0.78rem", color: WARN, mt: 1.5, lineHeight: 1.5 }}>
+                You signed in before this list existed, so your own session is not in it. Sign out and back in
+                and it will be \u2014 and so will anything else you have open.
+              </Typography>
+            )}
           </Box>
+
+          {/* Ask for the password, then show the codes once. Two states in one
+              dialog, because the second is not something to dismiss by accident. */}
+          <Dialog open={!!ask || !!issued} onClose={() => { if (!busy) { setAsk(null); setIssued(null); } }}
+            maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
+              {issued ? "Your recovery codes" : "Confirm it is you"}
+            </DialogTitle>
+            <DialogContent>
+              {issued ? (
+                <>
+                  <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5, lineHeight: 1.5 }}>
+                    Copy these somewhere that is not the phone your authenticator is on. They will not be shown
+                    again, and any set you had before has stopped working.
+                  </Typography>
+                  <Box sx={{
+                    fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.9rem", lineHeight: 1.9,
+                    p: 1.75, borderRadius: "12px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+                    userSelect: "all", display: "grid", gap: 0.25,
+                  }}>
+                    {issued.map((c) => <Box key={c}>{c}</Box>)}
+                  </Box>
+                </>
+              ) : (
+                <>
+                  <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 2, lineHeight: 1.5 }}>
+                    Whoever is at this keyboard already has your session, so your password is what stands
+                    between a borrowed laptop and ten permanent ways back in.
+                  </Typography>
+                  <TextField size="small" fullWidth autoFocus type="password" label="Your password"
+                    value={ask?.password ?? ""}
+                    onChange={(e) => setAsk({ password: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter" && ask?.password) issue(ask.password); }} />
+                </>
+              )}
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+              {issued ? (
+                <>
+                  <Button onClick={() => navigator.clipboard?.writeText(issued.join("\n")).catch(() => {})}
+                    sx={{ textTransform: "none", color: MUTED }}>Copy all</Button>
+                  <Button variant="contained" onClick={() => setIssued(null)} sx={{ textTransform: "none" }}>
+                    I have saved them
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={() => setAsk(null)} sx={{ textTransform: "none", color: MUTED }}>Cancel</Button>
+                  <Button variant="contained" disabled={busy || !ask?.password}
+                    onClick={() => ask && issue(ask.password)} sx={{ textTransform: "none" }}>
+                    {busy ? "Working\u2026" : "Generate"}
+                  </Button>
+                </>
+              )}
+            </DialogActions>
+          </Dialog>
+
         </>
       )}
     </Box>

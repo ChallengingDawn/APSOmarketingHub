@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { ensureSchema, type UserRow } from '@/lib/db/init';
 import { query } from '@/lib/db/client';
 import { verifyPassword } from '@/lib/auth/password';
-import { setPre2faCookie, setSessionCookie, signPre2fa, signSession } from '@/lib/auth/session';
+import { setPre2faCookie, signPre2fa } from '@/lib/auth/session';
+import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 import { mfaRequired, type Role } from '@/lib/auth/access';
 
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
     // still turn it on themselves from Settings -> Security.
     if (!u.totp_enrolled && !mfaRequired(u.role as Role)) {
       await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
-      await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role }));
+      await beginSession(u, req);
       return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
     }
 

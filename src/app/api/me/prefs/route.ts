@@ -47,6 +47,15 @@ const Prefs = z.object({
   customQuickLinks: z.array(Link).max(12).optional(),
   /** Their picture, or absent for initials. */
   avatar: Avatar.optional(),
+  /**
+   * Their home screen: which panels they want on it, and the order their apps
+   * sit in. Hiding is by name, so a panel that is removed later simply stops
+   * being matched rather than leaving a dead entry behind.
+   */
+  home: z.object({
+    hiddenPanels: z.array(z.string().max(40)).max(20).optional(),
+    appOrder: z.array(z.string().max(40)).max(20).optional(),
+  }).optional(),
 });
 
 export type Prefs = z.infer<typeof Prefs>;

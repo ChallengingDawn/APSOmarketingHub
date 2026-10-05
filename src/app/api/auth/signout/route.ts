@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { clearAuthCookies } from '@/lib/auth/session';
+import { clearAuthCookies, readSession } from '@/lib/auth/session';
+import { revokeSession } from '@/lib/auth/sessions';
 
 export const runtime = 'nodejs';
 
@@ -12,12 +13,19 @@ function signinUrl(req: Request): URL {
   return new URL('/signin', `${proto}://${host}`);
 }
 
-export async function GET(req: Request) {
+/** Drop the cookie AND close the row, or the device list keeps the ghost. */
+async function end() {
+  const s = await readSession().catch(() => null);
+  if (s?.sid) await revokeSession(s.uid, s.sid).catch(() => {});
   await clearAuthCookies();
+}
+
+export async function GET(req: Request) {
+  await end();
   return NextResponse.redirect(signinUrl(req));
 }
 
 export async function POST(req: Request) {
-  await clearAuthCookies();
+  await end();
   return NextResponse.redirect(signinUrl(req));
 }

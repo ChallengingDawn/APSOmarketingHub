@@ -19,6 +19,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 
 import { ROLE_LABEL, ROLE_NOTE, type Role } from "@/lib/auth/access";
+import { ICON_CHOICES, drawIcon } from "./avatarIcons";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -204,6 +205,45 @@ export default function MyAccount() {
                 <Typography sx={{ fontSize: "0.76rem", color: FAINT, width: "100%" }}>
                   Cropped square and resized to 256px before it leaves this browser.
                 </Typography>
+              </Box>
+            </Box>
+
+            {/* Nobody uploads a photograph of themselves to an internal tool, so
+                the realistic alternative to a picture is two grey initials. A
+                dozen icons costs nothing and gives the hub some faces. They are
+                drawn here into the same square an upload is resized to, so
+                everywhere that shows a picture shows these too. */}
+            <Box sx={{ mt: 2.5, pt: 2.5, borderTop: `1px solid ${HAIRLINE}` }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, mb: 0.25 }}>
+                Or pick one
+              </Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>
+                No upload, no photo of you. Change it as often as you like.
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1.1, flexWrap: "wrap" }}>
+                {ICON_CHOICES.map((c) => (
+                  <Box
+                    key={c.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Use the ${c.id} icon`}
+                    onClick={() => { if (!busy) saveAvatar(drawIcon(c)); }}
+                    onKeyDown={(e: React.KeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!busy) saveAvatar(drawIcon(c)); }
+                    }}
+                    sx={{
+                      width: 46, height: 46, borderRadius: "50%", flexShrink: 0, cursor: busy ? "default" : "pointer",
+                      display: "grid", placeItems: "center", fontSize: 23, lineHeight: 1, userSelect: "none",
+                      background: `linear-gradient(140deg, ${c.from}, ${c.to})`,
+                      transition: "transform .14s ease, box-shadow .14s ease",
+                      "&:hover": { transform: busy ? "none" : "scale(1.08)", boxShadow: "0 6px 16px rgba(31,45,78,.2)" },
+                      "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 2 },
+                      "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
+                    }}
+                  >
+                    {c.glyph}
+                  </Box>
+                ))}
               </Box>
             </Box>
           </Card>

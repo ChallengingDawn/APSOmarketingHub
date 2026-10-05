@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { query } from '@/lib/db/client';
 import type { UserRow } from '@/lib/db/init';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '@/lib/auth/password';
-import { requireUser } from '@/lib/auth/guard';
+import { currentSid, requireUser } from '@/lib/auth/guard';
+import { revokeOtherSessions } from '@/lib/auth/sessions';
 
 export const runtime = 'nodejs';
 
@@ -32,5 +33,15 @@ export async function POST(req: Request) {
     [await hashPassword(parsed.data.newPassword), u.id],
   );
 
-  return NextResponse.json({ ok: true });
+  // Changing a password is usually somebody saying "I think somebody else has
+  // it". Leaving every other browser signed in made that gesture meaningless.
+  // This one stays — nobody expects to be logged out of the window they just
+  // typed it into.
+  const ended = await revokeOtherSessions(u.id, await currentSid());
+  await query(
+    `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
+    [u.username, 'password.changed', JSON.stringify({ userId: u.id, otherSessionsEnded: ended })],
+  ).catch(() => {});
+
+  return NextResponse.json({ ok: true, otherSessionsEnded: ended });
 }

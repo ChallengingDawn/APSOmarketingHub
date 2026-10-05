@@ -99,6 +99,23 @@ export default function FrontPage() {
       })
       .catch(() => {});
   }, []);
+  // Their home screen, as set in Settings -> Preferences: which panels they want
+  // and what order the apps go in. Absent means the default, which is all of it.
+  const [home, setHome] = useState<{ hiddenPanels: string[]; appOrder: string[] }>({ hiddenPanels: [], appOrder: [] });
+  useEffect(() => {
+    fetch("/api/me/prefs")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j?.ok) return;
+        setHome({
+          hiddenPanels: j.prefs?.home?.hiddenPanels ?? [],
+          appOrder: j.prefs?.home?.appOrder ?? [],
+        });
+      })
+      .catch(() => {});
+  }, []);
+  const panel = (id: string) => !home.hiddenPanels.includes(id);
+
   const [initials, setInitials] = useState("");
   const [q, setQ] = useState("");
   const [openSearch, setOpenSearch] = useState(false);
@@ -130,7 +147,13 @@ export default function FrontPage() {
   const role = viewed?.role ?? myRole;
   // No count of what is missing. Telling somebody there are four apps they
   // cannot have is a locked door described in words — SARCLA: take it out.
-  const visibleApps = APPS.filter((a) => openFor(a.key));
+  const allowedApps = APPS.filter((a) => openFor(a.key));
+  // Their order first, then anything that has appeared since — a new app turns
+  // up at the end rather than disappearing because it is not in a saved list.
+  const visibleApps = [
+    ...home.appOrder.map((k) => allowedApps.find((a) => a.key === k)).filter(Boolean),
+    ...allowedApps.filter((a) => !home.appOrder.includes(a.key)),
+  ] as typeof allowedApps;
 
   /**
    * One rule for every link this page draws: the header, the search, the quick
@@ -236,7 +259,7 @@ export default function FrontPage() {
 
           <Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
             <Box sx={{
-              display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 1,
+              display: panel("search") ? { xs: "none", sm: "flex" } : "none", alignItems: "center", gap: 1,
               width: { sm: 220, lg: 320 }, px: 1.75, py: 1, borderRadius: "14px",
               bgcolor: "rgba(255,255,255,.8)", border: "1px solid rgba(21,34,58,.08)",
               transition: "border-color .18s ease, box-shadow .18s ease",
@@ -431,8 +454,9 @@ export default function FrontPage() {
           "@media (min-width:1280px)": { gridTemplateColumns: "1.15fr 1fr 1fr" },
           ...rise(6),
         }}>
-          <QuickLinks glass={glass} mayOpen={mayOpen} />
+          {panel("quickLinks") && <QuickLinks glass={glass} mayOpen={mayOpen} />}
 
+          {panel("whatsNew") && (
           <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
             <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", mb: 1.75 }}>
               What&rsquo;s new
@@ -447,8 +471,9 @@ export default function FrontPage() {
               ))}
             </Box>
           </Box>
+          )}
 
-          {openFor("marketing") && (
+          {openFor("marketing") && panel("missionControl") && (
           <Box component={Link} href="/mission-control" sx={{
             ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, position: "relative", overflow: "hidden",
             textDecoration: "none", minHeight: 170, display: "flex", flexDirection: "column", justifyContent: "center",
