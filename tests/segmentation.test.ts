@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  apicMult, compute, enrich, fnum, initialPotential, isOwnMachine, parseSite, potentialFormula, prioBucket, pyStr,
+  apicMult, compute, enrich, fnum, initialPotential, isOwnMachine, parseSite, potentialEdits, potentialFormula, potentialSetter, prioBucket, prioWith, pyStr,
   recalcDecision, revBucket, revProps, unlost, webUpdates, type Enums,
 } from "../src/lib/segmentation/engine";
 
@@ -95,4 +95,24 @@ test("website: meta description, schema.org address, TLD country, empty fields o
   assert.equal(upd.apic_ap, "1.10 Pumps & valves");
   assert.equal(webUpdates({ domain: "gmail.com" }, page, EN), null);
   assert.deepEqual(webUpdates({ domain: "muster.ch" }, null, EN), {});
+});
+
+test("potential edits: a person's changes with before/after priority; our machines' writes are not edits", () => {
+  const p = { name: "Muster AG", yearly_customer_potential: "30000", revenue_2025: "1200" };
+  const hist = [
+    { value: "30000", timestamp: "2026-10-01T09:00:00Z", sourceType: "CRM_UI", sourceId: "userId:59853577", updatedByUserId: 59853577 },
+    { value: "800", timestamp: "2026-09-01T09:00:00Z", sourceType: "INTEGRATION", sourceId: "41691680" },
+    { value: "800", timestamp: "2026-08-01T09:00:00Z", sourceType: "AUTOMATION_PLATFORM", sourceId: "enrollmentId:1" },
+    { value: "", timestamp: "2026-07-01T09:00:00Z", sourceType: "CRM_UI_BULK_ACTION", sourceId: "userId:1", updatedByUserId: 1 },
+  ];
+  const e = potentialEdits("42", p, hist as never, REV);
+  assert.deepEqual(e.map((x) => [x.source, x.prev, x.value, x.userId, x.prioBefore, x.prioAfter]), [
+    ["rep", 800, 30000, "59853577", "3", "1"],
+    ["workflow", null, 800, null, "3", "3"],
+  ]);
+  // the bulk clear repeats nothing before it - it is a change only if the value differs (null -> null is not)
+  assert.equal(potentialSetter(p, hist as never), "person");
+  assert.equal(potentialSetter({ yearly_customer_potential: "800" }, [hist[1]] as never), "machine");
+  assert.equal(potentialSetter({}, []), "empty");
+  assert.equal(prioWith(500015000, { revenue_2025: "1200" }, REV), "3"); // garbage potential ignored
 });

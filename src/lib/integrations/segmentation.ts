@@ -19,12 +19,13 @@ import { connectorGet } from "@/lib/erosion/run";
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
 import {
-  OWN_MACHINE_APPS, READ_PROPS_BASE, WEB_PROPS, compute, enrich, initialPotential, isOwnMachine, pyStr, recalcDecision, revProps, unlost, webUpdates,
-  type Enums, type HistoryEntry, type Props,
+  OWN_MACHINE_APPS, READ_PROPS_BASE, WEB_PROPS, compute, enrich, initialPotential, isOwnMachine, potentialEdits, potentialSetter, pyStr, recalcDecision,
+  revProps, unlost, webUpdates,
+  type Enums, type HistoryEntry, type PotentialEdit, type Props,
 } from "../segmentation/engine";
 
 const LOCK = 4_107_204;
-const KV = { state: "segmentation:state", ownApp: "segmentation:own-app-id", run: "segmentation:run" } as const;
+const KV = { state: "segmentation:state", ownApp: "segmentation:own-app-id", run: "segmentation:run", edits: "segmentation:potential-edits" } as const;
 const STALE_MS = 3 * 60 * 60_000;
 
 const curYear = () => new Date().getUTCFullYear();
@@ -365,14 +366,21 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
   const own = await ownApps();
   const changes: [string, Props][] = [];
   const stats: Record<string, number> = { manual_kept: 0, machine_recalc: 0, filled: 0, unchanged: 0, no_revenue: 0, kept_higher: 0, human_restored: 0 };
+  // the same pass measures the sales side: every person's edit, and who set each potential now
+  const edits: PotentialEdit[] = [];
+  const setters = { person: 0, machine: 0, empty: 0 };
   let scanned = 0, pages = 0;
   // the list API caps a page at 50 when it carries history
-  for await (const page of allCompanies(["yearly_customer_potential", "apic_ap", "apso_customer", ...rev], { withHistory: "yearly_customer_potential", limit: 50 })) {
+  for await (const page of allCompanies(["name", "yearly_customer_potential", "apic_ap", "apso_customer", ...rev], { withHistory: "yearly_customer_potential", limit: 50 })) {
     for (const res of page) {
       scanned += 1;
-      const d = recalcDecision(res.properties ?? {}, res.propertiesWithHistory?.yearly_customer_potential ?? [], rev, own);
+      const p = res.properties ?? {};
+      const hist = res.propertiesWithHistory?.yearly_customer_potential ?? [];
+      const d = recalcDecision(p, hist, rev, own);
       stats[d.kind] += 1;
       if ("value" in d) changes.push([res.id, { yearly_customer_potential: pyStr(d.value) }]);
+      edits.push(...potentialEdits(res.id, p, hist, rev, own));
+      setters[potentialSetter(p, hist, own)] += 1;
     }
     pages += 1;
     if (pages % 50 === 0) await beat();
@@ -382,7 +390,75 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
   const written = dry ? 0 : await batchUpdate(changes, log);
   const res = { at: nowIso(), scanned, planned: changes.length, written, stats, dry };
   await patchState({ last_potential: res });
+  await saveEdits({ scannedAt: res.at, scanned, setters }, edits, true);
   return { ...res, log };
+}
+
+/* ── the sales side of the potential ──────────────────────────────────── */
+
+export type EditsDoc = {
+  /** The last full history scan (the nightly recalculation, or its preview). */
+  scannedAt: string | null;
+  scanned: number;
+  /** Who set the potential each company carries now. */
+  setters: { person: number; machine: number; empty: number };
+  updated: string;
+  edits: PotentialEdit[];
+};
+
+const editKey = (e: PotentialEdit) => `${e.companyId}|${e.at}`;
+
+/** Store the edits: a full scan replaces the list, the watcher's finds are merged in. */
+async function saveEdits(meta: { scannedAt: string; scanned: number; setters: EditsDoc["setters"] } | null, found: PotentialEdit[], full: boolean) {
+  const cur = await kvGet<EditsDoc>(KV.edits);
+  const map = new Map<string, PotentialEdit>();
+  if (!full) for (const e of cur?.edits ?? []) map.set(editKey(e), e);
+  for (const e of found) map.set(editKey(e), e);
+  const edits = [...map.values()].sort((a, b) => b.at.localeCompare(a.at));
+  await kvSet(KV.edits, {
+    scannedAt: meta?.scannedAt ?? cur?.scannedAt ?? null,
+    scanned: meta?.scanned ?? cur?.scanned ?? 0,
+    setters: meta?.setters ?? cur?.setters ?? { person: 0, machine: 0, empty: 0 },
+    updated: new Date().toISOString(),
+    edits,
+  } satisfies EditsDoc);
+}
+
+let usersCache: { at: number; map: Map<string, string> } | null = null;
+
+/** HubSpot user id -> name, active and archived owners, paged to the end. */
+async function userNames(): Promise<Map<string, string>> {
+  if (usersCache && Date.now() - usersCache.at < 60 * 60_000) return usersCache.map;
+  const map = new Map<string, string>();
+  for (const archived of [false, true]) {
+    let after: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const r = await hubspotFetchJson<{ results?: { userId?: number; firstName?: string; lastName?: string; email?: string }[]; paging?: { next?: { after?: string } } }>({
+        path: `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${after}` : ""}`,
+      });
+      for (const o of r.results ?? []) {
+        if (o.userId === undefined) continue;
+        const name = `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email || String(o.userId);
+        if (!map.has(String(o.userId))) map.set(String(o.userId), name);
+      }
+      after = r.paging?.next?.after;
+      if (!after) break;
+    }
+  }
+  usersCache = { at: Date.now(), map };
+  return map;
+}
+
+/** The measure for the page: every edit, and the names of the people who made them. */
+export async function potentialEditsData(): Promise<EditsDoc & { people: Record<string, string> }> {
+  const doc = (await kvGet<EditsDoc>(KV.edits)) ?? { scannedAt: null, scanned: 0, setters: { person: 0, machine: 0, empty: 0 }, updated: "", edits: [] };
+  let people: Record<string, string> = {};
+  try {
+    people = Object.fromEntries(await userNames());
+  } catch (e) {
+    console.warn(`[segmentation] owner names unavailable: ${(e as Error).message}`);
+  }
+  return { ...doc, people };
 }
 
 async function fetchSite(domain: string): Promise<string | null> {
@@ -473,6 +549,7 @@ async function recheckInner(windowMin: number, dry: boolean, cap = 500) {
   const out = { window_min: windowMin, modified: ids.length, potential_changed: 0, written: 0, up: 0, down: 0, facts: 0, log: [] as string[] };
   if (!ids.length) return out;
   const changes: [string, Props][] = [];
+  const found: PotentialEdit[] = [];
   for (const cid of ids.slice(0, cap)) {
     let res: Obj;
     try {
@@ -487,6 +564,7 @@ async function recheckInner(windowMin: number, dry: boolean, cap = 500) {
     if (!Number.isFinite(ts) || ts < since || isOwnMachine(last, own)) continue; // unchanged, or we wrote it
     out.potential_changed += 1;
     const p = res.properties ?? {};
+    found.push(...potentialEdits(cid, p, hist, rev, own).filter((e) => Date.parse(e.at) >= since));
     const c = compute(p, en, rev);
     const upd: Props = { ...c.upd };
     const cur = p.sales_priority ?? "";
@@ -498,6 +576,7 @@ async function recheckInner(windowMin: number, dry: boolean, cap = 500) {
     if (Object.keys(upd).length) changes.push([cid, upd]);
   }
   out.written = dry ? 0 : await batchUpdate(changes, out.log);
+  if (found.length) await saveEdits(null, found, false);
   return out;
 }
 

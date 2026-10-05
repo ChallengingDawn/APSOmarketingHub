@@ -43,6 +43,8 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { pctText } from "@/app/uc/oneshot/parts";
+import { WindowPicker } from "@/app/window/ReportingWindow";
+import { PotentialChanges } from "./PotentialChanges";
 
 type Run = Record<string, unknown> | null;
 type Status = {
@@ -57,8 +59,8 @@ type Breakdown = {
 };
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
-type TabId = "overview" | "runs" | "properties";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", runs: "#runs", properties: "#properties" };
+type TabId = "overview" | "changes" | "runs" | "properties";
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", changes: "#potential-changes", runs: "#runs", properties: "#properties" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
   ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep",
@@ -76,6 +78,14 @@ const PROPERTY_ROWS: [string, string, string][] = [
 
 const when = (r: Run) => (r && typeof r.at === "string" ? `${r.at.slice(8, 10)}.${r.at.slice(5, 7)} ${r.at.slice(11, 16)} UTC` : "never");
 const num = (v: unknown) => (typeof v === "number" ? v : 0);
+
+/** What each run's counters mean, under its card. */
+const LEGEND: Record<string, string> = {
+  "Segment new companies": "Assigned: the priority each unsegmented company got · enriched: industry / APIC filled from its name.",
+  "Full sweep": "Fill empty: had no priority · upgrade: basis rose past a threshold, priority raised (never lowered) · facts only: priority unchanged, best revenue year / bucket / basis refreshed · unlost: APSOlost that bought this year → APSOcore or APSOprospect · enriched: industry / APIC filled.",
+  "Website enrichment": "Attempted: sites tried · site ok: something learned · then which fields were filled - empty fields only.",
+  "Potential recalculation": "Manual kept: a person's number, never touched · kept higher: our machine's value is above the formula - raise-only, so kept · unchanged: within 10% of the formula · no revenue: nothing to compute from (no 2024-2026 revenue) · filled: was empty · machine recalc: our machine's value raised to the formula · human restored: a person's number we had overwritten, put back.",
+};
 
 function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRun, live }: {
   title: string; note: string; icon: React.ReactNode; last: Run; extra?: React.ReactNode;
@@ -101,6 +111,7 @@ function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRu
           ))}
         </Box>
       )}
+      {LEGEND[title] && <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>{LEGEND[title]}</Typography>}
       {extra}
       {canRun && (
         <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
@@ -162,6 +173,7 @@ export default function SmartSegmentation() {
       rightSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+          {tab === "changes" && <WindowPicker />}
           <Tooltip title="Count again in HubSpot">
             <IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
           </Tooltip>
@@ -217,6 +229,7 @@ export default function SmartSegmentation() {
       <Box>
         <ReportTabs name="segmentation" tab={tab} onSelect={selectTab} tabs={[
           { id: "overview", label: "Portfolio", count: null },
+          { id: "changes", label: "Potential changes", count: null },
           { id: "runs", label: "Runs", count: running ? "running" : null },
           { id: "properties", label: "What it writes", count: null },
         ]} />
@@ -236,6 +249,12 @@ export default function SmartSegmentation() {
             <BarList rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), { label: "No segment", value: bd.empty }]}
               format={(v) => full(v)} labelWidth={220} />
           </GlassCard>
+        </Box>
+      )}
+
+      {tab === "changes" && (
+        <Box id="segmentation-panel-changes" role="tabpanel" sx={{ minWidth: 0 }}>
+          <PotentialChanges />
         </Box>
       )}
 

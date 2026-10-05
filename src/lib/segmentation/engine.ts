@@ -428,3 +428,73 @@ export function webUpdates(p: Props, page: string | null, en: Enums): Props | nu
   }
   return upd;
 }
+
+/* ── sales edits of the potential (the "Potential changes" measure) ───── */
+
+export type EditSource = "rep" | "bulk" | "workflow" | "import" | "merge" | "other";
+
+export type PotentialEdit = {
+  companyId: string;
+  name: string;
+  /** ISO timestamp of the edit. */
+  at: string;
+  value: number | null;
+  prev: number | null;
+  source: EditSource;
+  /** HubSpot user id for a person's edit (CRM_UI, bulk), else null. */
+  userId: string | null;
+  /** The priority the potential gave before and after, at today's revenue ("1".."4"). */
+  prioBefore: string;
+  prioAfter: string;
+};
+
+export function editSource(e: HistoryEntry): EditSource {
+  switch (e.sourceType) {
+    case "CRM_UI": return "rep";
+    case "CRM_UI_BULK_ACTION": return "bulk";
+    case "AUTOMATION_PLATFORM": return "workflow";
+    case "IMPORT": return "import";
+    case "MERGE_OBJECTS": return "merge";
+    default: return "other";
+  }
+}
+
+/** The priority a potential gives with this company's revenue - the CEO formula, garbage clamp included. */
+export function prioWith(potential: number | null, p: Props, rev: string[]): string {
+  const revs = rev.map((k) => fnum(p[k])).filter((x): x is number => x !== null);
+  const maxrev = revs.length ? Math.max(...revs) : null;
+  const use = potential !== null && potential > GARBAGE_ABS && potential > GARBAGE_FACTOR * (maxrev || 0) ? null : potential;
+  const c = [use, maxrev].filter((x): x is number => x !== null);
+  return prioBucket(c.length ? Math.max(...c) : null);
+}
+
+/**
+ * Every change to the yearly potential made by a person or for one (typed, bulk,
+ * a form copied by a workflow, an import, a merge) - our own machines' writes are
+ * not edits. History comes newest first; an entry that repeats the value before it
+ * is not a change.
+ */
+export function potentialEdits(companyId: string, p: Props, hist: HistoryEntry[], rev: string[], own: Set<string> = OWN_MACHINE_APPS): PotentialEdit[] {
+  const out: PotentialEdit[] = [];
+  for (let i = 0; i < hist.length; i++) {
+    const e = hist[i];
+    if (!e || !e.timestamp || isOwnMachine(e, own)) continue;
+    const value = fnum(e.value);
+    const prev = hist[i + 1] ? fnum(hist[i + 1].value) : null;
+    if (value === prev || (value !== null && prev !== null && Math.abs(value - prev) < 0.005)) continue;
+    const uid = (e as HistoryEntry & { updatedByUserId?: number | string }).updatedByUserId;
+    out.push({
+      companyId, name: p.name ?? "", at: e.timestamp, value, prev, source: editSource(e),
+      userId: uid !== undefined && uid !== null ? String(uid) : null,
+      prioBefore: prioWith(prev, p, rev), prioAfter: prioWith(value, p, rev),
+    });
+  }
+  return out;
+}
+
+/** Who set the potential a company carries now: a person, one of our machines, or nobody. */
+export function potentialSetter(p: Props, hist: HistoryEntry[], own: Set<string> = OWN_MACHINE_APPS): "person" | "machine" | "empty" {
+  const cur = fnum(p.yearly_customer_potential);
+  if (cur === null || cur === 0) return "empty";
+  return isOwnMachine(hist[0] ?? null, own) ? "machine" : "person";
+}

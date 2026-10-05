@@ -8,7 +8,7 @@
 // The first time it runs it takes over the connector's state (the 30-day website memory).
 
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
-import { importConnectorState, loadState, nightly, watchTick } from "@/lib/integrations/segmentation";
+import { importConnectorState, loadState, nightly, potentialEditsData, startAction, watchTick } from "@/lib/integrations/segmentation";
 
 const WATCH_MS = 120_000;
 const NIGHTLY_TICK_MS = 10 * 60_000;
@@ -49,6 +49,17 @@ export function startSegmentationScheduler() {
       }
     } catch (e) {
       console.warn(`[segmentation] connector state not imported (websites may be tried again): ${(e as Error).message}`);
+    }
+    // the "Potential changes" measure needs one full history scan; the nightly
+    // recalculation does it, but a fresh hub should not wait a night - a preview
+    // (read-only) fills it now
+    try {
+      if (!(await potentialEditsData()).scannedAt) {
+        const r = await startAction("potential", { dry: true, by: "first history scan" });
+        console.log(`[segmentation] potential history: ${r.note}`);
+      }
+    } catch (e) {
+      console.warn(`[segmentation] first history scan not started: ${(e as Error).message}`);
     }
   })();
   const w = setInterval(() => {
