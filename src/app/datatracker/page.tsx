@@ -420,7 +420,7 @@ function LookTable({ rows, kind, mandantOf }: {
                       : (r.stock === 0 ? "#9e1b18" : "#b26a00"),
                   }}>
                     {kind === "moq"
-                      ? (r.belowMoq ? "Asked below the minimum" : r.carted ? "In cart, not ordered" : "Has a minimum")
+                      ? (r.belowMoq ? "Asked below the minimum" : r.carted ? "In cart, not ordered" : "Met the minimum")
                       : (r.stock === 0 ? "Nothing on the shelf" : `${full(r.shortfall)} short`)}
                   </Typography>
                 </TableCell>
@@ -1652,22 +1652,18 @@ function EshopActivityPage() {
           <Box sx={{ p: 2, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
             <Chip size="small" label={`${full(signals ? moqRows.filter((r) => r.belowMoq).length : null)} asked below the minimum`}
               sx={{ bgcolor: "#fdf0e6", color: "#b26a00", fontWeight: 700 }} />
-            <Chip size="small" label={`${full(signals ? moqRows.length : null)} looks on articles with a minimum`}
+            <Chip size="small" label={`${full(signals ? moqRows.length : null)} priced an article with a minimum`}
               sx={{ bgcolor: "#eef1f5", color: MUTED, fontWeight: 600 }} />
             {signalsError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{signalsError}</Typography>}
           </Box>
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
             : <LookTable rows={moqRows} kind="moq" mandantOf={(r) => r.mandant ?? ""} />}
-          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              No ticket comes out of this one — it is a record. Somebody wanted an article we only sell from a minimum
-              quantity, and did not buy it. The rows at the top are the ones where they asked for <em>less</em> than that
-              minimum, which is the version we can do something about: either the minimum is wrong for that article, or
-              there was a neighbour we should have offered. Open a row and the hub looks for one — same sub-group,
-              actually on the shelf, and sold in the quantity they wanted. &ldquo;Would have covered it&rdquo; means exactly that.
+          {!VALUE_FLOOR_ACTIVE && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
             </Typography>
-          </Box>
+          )}
         </GlassCard>
       )}
 
@@ -1683,14 +1679,11 @@ function EshopActivityPage() {
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
             : <LookTable rows={availabilityRows} kind="availability" mandantOf={(r) => r.mandant ?? ""} />}
-          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              Also a record, not a ticket. Somebody priced an article we had none of, or less of than they asked for,
-              and did not buy. The gap is worth seeing on its own — it is the one reason for a lost sale we can fix by
-              ordering stock. Open a row for what we could have offered instead. An article whose stock we simply do not
-              know is left out: a blank is not a zero, and treating it as one would invent a shortage.
+          {!VALUE_FLOOR_ACTIVE && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
             </Typography>
-          </Box>
+          )}
         </GlassCard>
       )}
     </Box>

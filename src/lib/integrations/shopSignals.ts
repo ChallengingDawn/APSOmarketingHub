@@ -15,7 +15,7 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
-import { isArticle, isSpecialArticle, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
+import { isArticle, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
 import { ownerName, teamOf } from "../datatracker/rosters";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
@@ -296,7 +296,8 @@ async function scan(
       const qty = look.qty;
       const moqMinimum = pp ? num(pp.moq_minimum_quantity) : null;
       const stock = pp ? num(pp.stock_quantity) : null;
-      const hasMoq = /^y/i.test(String(pp?.moq ?? ""));
+      // A minimum only when P&P says YES and gives a number above one.
+      const minimum = knownMinimum(pp?.moq, moqMinimum);
       return {
         article,
         look,
@@ -305,7 +306,7 @@ async function scan(
         qty,
         moqMinimum,
         stock,
-        hasMoq,
+        minimum,
         profitCentre: pp?.profit_center ?? null,
         special: isSpecialArticle(article),
       };
@@ -375,11 +376,14 @@ async function scan(
         price: x.price,
         value: x.price != null && x.qty != null ? x.price * x.qty : null,
         carted: x.look.carted,
-        belowMoq: x.hasMoq && x.qty != null && x.moqMinimum != null && x.qty < x.moqMinimum,
+        belowMoq: x.minimum != null && x.qty != null && x.qty < x.minimum,
         shortfall: x.stock != null && x.qty != null && x.stock < x.qty ? x.qty - x.stock : null,
       };
 
-      if (x.hasMoq) moq.push(base);
+      // Only a look with a quantity against a minimum we know. Without the
+      // quantity nothing says the minimum is what stopped them (SARCLA 05.10:
+      // "some don't have wanted, some don't have MOQ").
+      if (x.minimum != null && x.qty != null) moq.push(base);
       // Nothing on the shelf, or not as much as they asked for. A null stock is
       // not a zero - we simply do not know, and guessing would invent a problem.
       if (x.stock === 0 || base.shortfall != null) availability.push(base);

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   isoDay, periodWindow, nextWorkingDay, shortPriority,
   isArticle, isProduct, isSpecialArticle, priceCheckQualifies, priceCheckShortfall, VALUE_FLOOR_ACTIVE, companyPasses,
+  knownMinimum,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 import { teamOf, ownerName } from "../src/lib/datatracker/rosters";
@@ -231,4 +232,14 @@ test("rankAlternatives keeps everything when the target has no readable size", (
   const out = rankAlternatives({ description: "BAND-IT® Scru-Seal lock M 211 -" },
     [{ description: "Anything at all", stock: 5 }]);
   assert.equal(out.length, 1);
+});
+
+test("knownMinimum: a MOQ flag with 0, 1 or nothing behind it is no minimum", () => {
+  assert.equal(knownMinimum("YES", 300), 300);
+  assert.equal(knownMinimum("yes", 2), 2);
+  assert.equal(knownMinimum("YES", 0), null, "APSOparts Poland's Kalrez read 'Has a minimum' over a minimum of 0");
+  assert.equal(knownMinimum("YES", 1), null);
+  assert.equal(knownMinimum("YES", null), null);
+  assert.equal(knownMinimum("NO", 300), null, "a number without the flag is not a minimum either");
+  assert.equal(knownMinimum(null, 300), null);
 });

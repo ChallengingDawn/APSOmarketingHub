@@ -125,6 +125,20 @@ export function priceCheckShortfall(r: { counted: number; value: number }, value
 }
 
 /**
+ * The minimum order quantity, when there really is one.
+ *
+ * P&P flags `moq` YES on about a quarter of the articles but fills
+ * `moq_minimum_quantity` on about 3%, so a YES with 0 or nothing behind it is
+ * not a minimum anybody could have run into - the MOQ screen listed those as
+ * "Has a minimum" over a minimum of 0 (SARCLA, 05.10). One piece is no minimum
+ * either.
+ */
+export function knownMinimum(flag: string | null | undefined, minimum: number | null | undefined): number | null {
+  if (!/^y/i.test(String(flag ?? ""))) return null;
+  return minimum != null && Number.isFinite(minimum) && minimum > 1 ? minimum : null;
+}
+
+/**
  * The five company filters, applied the way the activity search applies them.
  *
  * The customers table is fed from two reads. The activity read is filtered by
