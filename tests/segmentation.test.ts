@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  apicMult, compute, enrich, fnum, initialPotential, isOwnMachine, parseSite, potentialEdits, potentialFormula, potentialSetter, prioBucket, prioWith, pyStr,
+  apicMult, compute, editDelta, enrich, fnum, initialPotential, isAbsurd, isOwnMachine, labelVisits, markMass, parseSite, potentialEdits, potentialFormula,
+  potentialSetter, prioBucket, prioWith, pyStr,
   recalcDecision, revBucket, revProps, unlost, webUpdates, type Enums,
 } from "../src/lib/segmentation/engine";
 
@@ -115,4 +116,20 @@ test("potential edits: a person's changes with before/after priority; our machin
   assert.equal(potentialSetter({ yearly_customer_potential: "800" }, [hist[1]] as never), "machine");
   assert.equal(potentialSetter({}, []), "empty");
   assert.equal(prioWith(500015000, { revenue_2025: "1200" }, REV), "3"); // garbage potential ignored
+});
+
+test("visit reports, mass updates and absurd values", () => {
+  const base = { companyId: "1", name: "A", prev: 500, value: 2000, userId: null, prioBefore: "3", prioAfter: "2" } as const;
+  const edits = [
+    { ...base, at: "2026-09-25T09:17:20Z", source: "workflow" as const },
+    { ...base, at: "2026-09-26T12:00:00Z", source: "workflow" as const },
+  ];
+  const visits = new Map([["1", [{ id: "v1", created: "2026-09-25T09:17:00Z", modified: "2026-09-25T09:20:00Z", ownerId: "77" }]]]);
+  const l = labelVisits(edits, visits);
+  assert.deepEqual(l.map((e) => [e.source, e.visitOwnerId ?? null]), [["visit", "77"], ["workflow", null]]);
+  const many = Array.from({ length: 201 }, (_, i) => ({ ...base, companyId: String(i), at: "2025-12-18T09:00:00Z", source: "workflow" as const, value: null }));
+  assert.equal(markMass([...many, edits[1]]).filter((e) => e.mass).length, 201);
+  assert.equal(editDelta({ ...base, at: "x", source: "rep", value: 500015000 }), 0);
+  assert.equal(editDelta({ ...base, at: "x", source: "rep" }), 1500);
+  assert.equal(isAbsurd({ ...base, at: "x", source: "rep", value: 500015000 }), true);
 });

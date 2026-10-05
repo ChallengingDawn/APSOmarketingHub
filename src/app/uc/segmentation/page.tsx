@@ -37,14 +37,14 @@ import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { ShareBar } from "@/app/charts/ShareBar";
-import { BarList } from "@/app/charts/BarList";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { pctText } from "@/app/uc/oneshot/parts";
 import { WindowPicker } from "@/app/window/ReportingWindow";
 import { PotentialChanges } from "./PotentialChanges";
+import { HowItWorks } from "./HowItWorks";
+import { PriorityMix, SegmentMix } from "./PortfolioCharts";
 
 type Run = Record<string, unknown> | null;
 type Status = {
@@ -60,7 +60,7 @@ type Breakdown = {
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
 type TabId = "overview" | "changes" | "runs" | "properties";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", changes: "#potential-changes", runs: "#runs", properties: "#properties" };
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
   ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep",
@@ -231,7 +231,7 @@ export default function SmartSegmentation() {
           { id: "overview", label: "Portfolio", count: null },
           { id: "changes", label: "Potential changes", count: null },
           { id: "runs", label: "Runs", count: running ? "running" : null },
-          { id: "properties", label: "What it writes", count: null },
+          { id: "properties", label: "How it works", count: null },
         ]} />
       </Box>
 
@@ -239,15 +239,17 @@ export default function SmartSegmentation() {
         <Box id="segmentation-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
           <GlassCard>
             <CardTitle icon={<DonutSmallOutlinedIcon />} title="Sales priority" note="MAX(yearly potential, best revenue year since 2015) → P1 ≥ 25'000 € · P2 ≥ 2'500 € · P3 ≥ 500 €" />
-            <ShareBar format={(v) => full(v)} segments={[
-              { label: "P1", value: p.p1 }, { label: "P2", value: p.p2 }, { label: "P3", value: p.p3 },
-              { label: "No priority", value: p.p4 }, { label: "Unsegmented", value: st.empty },
+            <PriorityMix total={st.total} slices={[
+              { label: "P1", note: "basis ≥ 25,000 €", value: p.p1, color: "#1b7a55" },
+              { label: "P2", note: "2,500 – 24,999 €", value: p.p2, color: "#3cb889" },
+              { label: "P3", note: "500 – 2,499 €", value: p.p3, color: "#eda100" },
+              { label: "No priority", note: "basis under 500 €", value: p.p4, color: "#b9c0c9" },
+              ...(st.empty ? [{ label: "Unsegmented", note: "no priority yet", value: st.empty, color: "#c5221f" }] : []),
             ]} />
           </GlassCard>
           <GlassCard>
             <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" note={`${full(bd.with_apso_customer)} of ${full(bd.total)} companies carry one · the engine reads it and only writes the lost-recovery`} />
-            <BarList rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), { label: "No segment", value: bd.empty }]}
-              format={(v) => full(v)} labelWidth={220} />
+            <SegmentMix total={bd.total} rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), ...(bd.empty > 0 ? [{ label: "No segment", value: bd.empty }] : [])]} />
           </GlassCard>
         </Box>
       )}
@@ -298,10 +300,11 @@ export default function SmartSegmentation() {
       )}
 
       {tab === "properties" && (
-        <Box id="segmentation-panel-properties" role="tabpanel" sx={{ minWidth: 0 }}>
+        <Box id="segmentation-panel-properties" role="tabpanel" sx={{ minWidth: 0, display: "grid", gap: 2.5 }}>
+          <HowItWorks />
           <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.75 } }}>
             <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-              <CardTitle icon={<TuneOutlinedIcon />} title="What the engine writes, and when" note="The same CEO formula and guard rails everywhere; a value a rep entered is never overwritten" />
+              <CardTitle icon={<TuneOutlinedIcon />} title="Every property it writes - and nothing else" note="These are ALL the fields the engine changes; everything else on a company is only read. A person's value is never overwritten" />
             </Box>
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small" sx={{ minWidth: 820 }}>

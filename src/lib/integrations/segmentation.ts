@@ -16,12 +16,13 @@
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
+import { ownerNames } from "./erosion";
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
 import {
-  OWN_MACHINE_APPS, READ_PROPS_BASE, WEB_PROPS, compute, enrich, initialPotential, isOwnMachine, potentialEdits, potentialSetter, pyStr, recalcDecision,
-  revProps, unlost, webUpdates,
-  type Enums, type HistoryEntry, type PotentialEdit, type Props,
+  OWN_MACHINE_APPS, READ_PROPS_BASE, WEB_PROPS, compute, enrich, initialPotential, isOwnMachine, labelVisits, markMass, potentialEdits, potentialSetter,
+  pyStr, recalcDecision, revProps, unlost, webUpdates,
+  type Enums, type HistoryEntry, type PotentialEdit, type Props, type Visit,
 } from "../segmentation/engine";
 
 const LOCK = 4_107_204;
@@ -449,16 +450,74 @@ async function userNames(): Promise<Map<string, string>> {
   return map;
 }
 
-/** The measure for the page: every edit, and the names of the people who made them. */
-export async function potentialEditsData(): Promise<EditsDoc & { people: Record<string, string> }> {
+const VISIT_OBJ = "2-139767037";
+let visitsCache: { at: number; map: Map<string, Visit[]> } | null = null;
+
+/** Every customer visit by company - to tell a visit report's write from another workflow's. */
+async function visitsByCompany(): Promise<Map<string, Visit[]>> {
+  if (visitsCache && Date.now() - visitsCache.at < 30 * 60_000) return visitsCache.map;
+  const visits = new Map<string, Visit>();
+  let after: string | undefined;
+  for (let page = 0; page < 500; page++) {
+    const r = await hubspotFetchJson<{ results?: { id: string; properties?: Record<string, string | null> }[]; paging?: { next?: { after?: string } } }>({
+      path: `/crm/v3/objects/${VISIT_OBJ}?limit=100&properties=hs_createdate,hs_lastmodifieddate,hubspot_owner_id${after ? `&after=${after}` : ""}`,
+      useTicketsToken: true,
+    });
+    for (const v of r.results ?? []) {
+      const p = v.properties ?? {};
+      visits.set(v.id, { id: v.id, created: p.hs_createdate ?? "", modified: p.hs_lastmodifieddate ?? "", ownerId: p.hubspot_owner_id ?? null });
+    }
+    after = r.paging?.next?.after;
+    if (!after) break;
+  }
+  const map = new Map<string, Visit[]>();
+  const ids = [...visits.keys()];
+  for (let i = 0; i < ids.length; i += 100) {
+    const r = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[] }>({
+      path: `/crm/v4/associations/${VISIT_OBJ}/companies/batch/read`, method: "POST", useTicketsToken: true,
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })) },
+    });
+    for (const row of r.results ?? []) {
+      const v = row.from?.id ? visits.get(String(row.from.id)) : undefined;
+      if (!v) continue;
+      for (const t of row.to ?? []) {
+        const k = String(t.toObjectId);
+        map.set(k, [...(map.get(k) ?? []), v]);
+      }
+    }
+  }
+  visitsCache = { at: Date.now(), map };
+  return map;
+}
+
+/**
+ * The measure for the page: every edit - visit reports told from other workflows,
+ * mass updates marked - and the names of the people (HubSpot users by user id,
+ * visit owners by owner id).
+ */
+export async function potentialEditsData(): Promise<EditsDoc & { people: Record<string, string>; owners: Record<string, string>; visitsMatched: boolean }> {
   const doc = (await kvGet<EditsDoc>(KV.edits)) ?? { scannedAt: null, scanned: 0, setters: { person: 0, machine: 0, empty: 0 }, updated: "", edits: [] };
   let people: Record<string, string> = {};
+  let owners: Record<string, string> = {};
+  let edits = doc.edits;
+  let visitsMatched = false;
   try {
     people = Object.fromEntries(await userNames());
   } catch (e) {
+    console.warn(`[segmentation] user names unavailable: ${(e as Error).message}`);
+  }
+  try {
+    owners = Object.fromEntries(await ownerNames());
+  } catch (e) {
     console.warn(`[segmentation] owner names unavailable: ${(e as Error).message}`);
   }
-  return { ...doc, people };
+  try {
+    edits = labelVisits(edits, await visitsByCompany());
+    visitsMatched = true;
+  } catch (e) {
+    console.warn(`[segmentation] customer visits unavailable - workflow edits stay unlabelled: ${(e as Error).message}`);
+  }
+  return { ...doc, edits: markMass(edits), people, owners, visitsMatched };
 }
 
 async function fetchSite(domain: string): Promise<string | null> {

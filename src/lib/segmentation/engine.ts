@@ -431,7 +431,7 @@ export function webUpdates(p: Props, page: string | null, en: Enums): Props | nu
 
 /* ── sales edits of the potential (the "Potential changes" measure) ───── */
 
-export type EditSource = "rep" | "bulk" | "workflow" | "import" | "merge" | "other";
+export type EditSource = "rep" | "bulk" | "visit" | "workflow" | "import" | "merge" | "other";
 
 export type PotentialEdit = {
   companyId: string;
@@ -446,7 +446,60 @@ export type PotentialEdit = {
   /** The priority the potential gave before and after, at today's revenue ("1".."4"). */
   prioBefore: string;
   prioAfter: string;
+  /** Set when a workflow's write matches a customer visit: the visit, and its owner (the person). */
+  visitId?: string | null;
+  visitOwnerId?: string | null;
+  /** Part of a mass update (hundreds in a day from one source) - not a sales input. */
+  mass?: boolean;
 };
+
+export type Visit = { id: string; created: string; modified: string; ownerId: string | null };
+
+/** A workflow's write within this long of a visit on the same company is that visit's report. */
+export const VISIT_MATCH_MS = 2 * 60 * 60_000;
+/** More than this many changes in one day from one source and person is a mass update. */
+export const MASS_PER_DAY = 200;
+/** A potential above this is a typo or a merge artefact - shown, never summed. */
+export const ABSURD_POTENTIAL = 1_000_000;
+
+/**
+ * A workflow's write that lands within two hours of a customer visit on the same
+ * company is the visit report copying the rep's figure (05.10: 41% of them, a
+ * median 22 seconds apart) - the visit's owner is the person. The rest stay
+ * "workflow": some other automation, no person on record.
+ */
+export function labelVisits(edits: PotentialEdit[], visitsByCompany: Map<string, Visit[]>): PotentialEdit[] {
+  return edits.map((e) => {
+    if (e.source !== "workflow") return e;
+    const t = Date.parse(e.at);
+    let best: { d: number; v: Visit } | null = null;
+    for (const v of visitsByCompany.get(e.companyId) ?? []) {
+      for (const when of [v.created, v.modified]) {
+        const d = Math.abs(t - Date.parse(when));
+        if (d <= VISIT_MATCH_MS && (!best || d < best.d)) best = { d, v };
+      }
+    }
+    return best ? { ...e, source: "visit" as const, visitId: best.v.id, visitOwnerId: best.v.ownerId } : e;
+  });
+}
+
+/** Mark the mass updates: one source (and person) changing hundreds of potentials in a day. */
+export function markMass(edits: PotentialEdit[]): PotentialEdit[] {
+  const key = (e: PotentialEdit) => `${e.at.slice(0, 10)}|${e.source}|${e.userId ?? ""}`;
+  const n = new Map<string, number>();
+  for (const e of edits) n.set(key(e), (n.get(key(e)) ?? 0) + 1);
+  return edits.map((e) => ((n.get(key(e)) ?? 0) > MASS_PER_DAY ? { ...e, mass: true } : e));
+}
+
+/** The EUR a change adds, absurd values (typos, merge artefacts) left out. */
+export function editDelta(e: PotentialEdit): number {
+  const ok = (v: number | null) => (v === null || Math.abs(v) > ABSURD_POTENTIAL ? null : v);
+  const a = ok(e.prev), b = ok(e.value);
+  if ((e.prev !== null && a === null) || (e.value !== null && b === null)) return 0;
+  return (b ?? 0) - (a ?? 0);
+}
+
+export const isAbsurd = (e: PotentialEdit) => Math.abs(e.value ?? 0) > ABSURD_POTENTIAL || Math.abs(e.prev ?? 0) > ABSURD_POTENTIAL;
 
 export function editSource(e: HistoryEntry): EditSource {
   switch (e.sourceType) {
