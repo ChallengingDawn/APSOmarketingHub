@@ -73,6 +73,16 @@ export function shortPriority(v: string | null | undefined): string {
   return ranked ? `Prio ${ranked[1]}` : v.split(" - ")[0].trim();
 }
 
+/** The profit centres an article belongs to (P&P `profit_center`), for the filter. */
+export const PROFIT_CENTRES = [
+  { code: "DT", label: "DT · Sealing" },
+  { code: "KT", label: "KT · Plastics" },
+  { code: "FT", label: "FT · Hoses & fluid" },
+  { code: "AT", label: "AT · Drive belts" },
+  { code: "ST", label: "ST · Anti-vibration" },
+  { code: "PW", label: "PW · Power & electronics" },
+] as const;
+
 /** Excluded from the price-check rule: C2S and special articles. */
 export const isSpecialArticle = (a: string): boolean => /^[38]/.test(a);
 

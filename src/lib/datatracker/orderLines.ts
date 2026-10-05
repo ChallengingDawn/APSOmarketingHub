@@ -18,6 +18,8 @@ export type OrderDoc = {
   id: string;
   /** "A1234567.000" as placed, ".001" and up for the deliveries. */
   number: string | null;
+  /** The shop's own number - all a new web order has until the ERP gives it one. */
+  web: string | null;
   /** YYYY-MM-DD */
   date: string | null;
   eshop: boolean;
@@ -35,6 +37,8 @@ export type OrderRef = {
   id: string;
   /** The order number without its document suffix, e.g. "A1234567". */
   number: string | null;
+  /** The shop's order number, for an order the ERP has not numbered yet. */
+  web: string | null;
   date: string | null;
   contactId: string | null;
   /** Who placed it when there is no contact record: the reference or the e-mail. */
@@ -106,6 +110,7 @@ export function mergeOrderLines(docs: OrderDoc[]): OrderedLine[] {
     const ref: OrderRef = {
       id: head.id,
       number: base.startsWith("#") ? null : base,
+      web: group.map((d) => d.web).find(Boolean) ?? null,
       date: head.date ?? group.find((d) => d.date)?.date ?? null,
       contactId: group.map((d) => d.contactId).find(Boolean) ?? null,
       person: group.map((d) => personFromTitle(d.title)).find(Boolean)

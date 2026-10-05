@@ -25,12 +25,14 @@ export async function GET(req: NextRequest) {
   const sort = (["orders", "companies", "stock"] as const).find((s) => s === sp.get("sort")) ?? "orders";
   const limit = Number(sp.get("limit")) || 100;
   const after = sp.get("after") ?? undefined;
+  const pcRaw = (sp.get("pc") ?? "").trim().toUpperCase();
+  const pc = /^[A-Z]{2}$/.test(pcRaw) ? pcRaw : undefined;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const data = await cachedReport(`articles:${search ?? ""}:${sort}:${limit}:${after ?? ""}`, () =>
-      fetchArticleActivity({ search, sort, limit, after, signal: controller.signal }),
+    const data = await cachedReport(`articles:${search ?? ""}:${sort}:${pc ?? ""}:${limit}:${after ?? ""}`, () =>
+      fetchArticleActivity({ search, sort, pc, limit, after, signal: controller.signal }),
     );
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {

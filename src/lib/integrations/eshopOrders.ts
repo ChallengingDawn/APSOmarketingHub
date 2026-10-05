@@ -144,7 +144,7 @@ export type { OrderedLine } from "@/lib/datatracker/orderLines";
 export async function fetchCompanyOrderLines(
   companyId: string, from: string, to: string, signal?: AbortSignal,
 ): Promise<OrderedLine[]> {
-  const props = ["order_order_date", "order_channel", "order_order_number", "hs_order_name", "hs_billing_address_email"];
+  const props = ["order_order_date", "order_channel", "order_order_number", "hs_order_name", "hs_billing_address_email", "order_web_order_number"];
   for (let i = 0; i < 80; i++) for (const f of LINE_FIELDS) props.push(lineProp(i, f));
 
   const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
@@ -200,6 +200,7 @@ export async function fetchCompanyOrderLines(
     return {
       id: String(o.id),
       number: p.order_order_number || null,
+      web: p.order_web_order_number || null,
       date: (p.order_order_date ?? "").slice(0, 10) || null,
       eshop: String(p.order_channel ?? "").toLowerCase() === "eshop",
       title: p.hs_order_name ?? null,

@@ -11,6 +11,7 @@
 // that fires for every signed-in customer whatever they chose on the cookie
 // banner. Those are the counts here, and they can name the customers behind them.
 
+import { loadReport } from "./articleReport";
 import { hubspotFetchJson } from "./hubspot";
 import { fetchArticleLooks } from "./eshopActivity";
 
@@ -23,6 +24,16 @@ export type ArticleRow = {
   subGroup: string | null;
   stock: number | null;
   stockUnit: string | null;
+  /** P&P profit_center: DT, KT, FT, AT, ST, PW. */
+  profitCentre: string | null;
+  /**
+   * Bought this year to date, from the Articles CY/LY report (each order once):
+   * how many customers, how much in all, and how much each on average - one
+   * customer taking a lot reads very differently from many taking a little.
+   */
+  buyersYtd: number | null;
+  qtyYtd: number | null;
+  qtyPerBuyer: number | null;
   /** ERP: how many orders carried this article. Complete. */
   orders: number | null;
   /** ERP: how many distinct companies ordered it. */
@@ -40,6 +51,8 @@ export type ArticleRow = {
 };
 
 export type ArticleActivity = {
+  /** The day this year's buying runs to; null when the Articles report has not been built. */
+  boughtAsOf: string | null;
   rows: ArticleRow[];
   total: number | null;
   /** Null now that views come from the shop itself rather than a GA4 window. */
@@ -60,11 +73,23 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.length > 
 const PROPERTIES = [
   "article_number", "article_description", "product_description", "article_type",
   "main_group_description", "sub_group_description",
-  "stock_quantity", "stock_unit", "order_article_count", "company_article_count",
+  "stock_quantity", "stock_unit", "order_article_count", "company_article_count", "profit_center",
 ];
 
+/** article -> this year's buying, rebuilt only when a newer report exists. */
+let boughtIndex: { generated: string; asOf: string; byArticle: Map<string, { buyers: number; qty: number }> } | null = null;
+async function boughtThisYear(): Promise<typeof boughtIndex> {
+  const report = await loadReport();
+  if (!report) return null;
+  if (boughtIndex?.generated === report.generated) return boughtIndex;
+  const byArticle = new Map<string, { buyers: number; qty: number }>();
+  for (const r of report.rows) byArticle.set(r.article, { buyers: r.customersCy, qty: r.qtyCy });
+  boughtIndex = { generated: report.generated, asOf: report.today, byArticle };
+  return boughtIndex;
+}
+
 export async function fetchArticleActivity(
-  params: { search?: string; sort?: "orders" | "companies" | "stock"; limit?: number; after?: string; from?: string; to?: string; signal?: AbortSignal } = {},
+  params: { search?: string; sort?: "orders" | "companies" | "stock"; pc?: string; limit?: number; after?: string; from?: string; to?: string; signal?: AbortSignal } = {},
 ): Promise<ArticleActivity> {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 200);
   const sortProperty =
@@ -73,6 +98,8 @@ export async function fetchArticleActivity(
   const filters: { propertyName: string; operator: string; value?: string }[] = [
     { propertyName: sortProperty, operator: "GT", value: "0" },
   ];
+  // One profit centre, filtered by HubSpot so paging and sorting stay right.
+  if (params.pc) filters.push({ propertyName: "profit_center", operator: "EQ", value: params.pc });
   // A number search is an article; anything else is matched on the description.
   const search = params.search?.trim();
   if (search) {
@@ -105,6 +132,9 @@ export async function fetchArticleActivity(
   } catch (err) {
     viewsError = String((err as Error)?.message ?? err);
   }
+  // This year's buying. No report yet (or no database) costs these three
+  // columns, never the table.
+  const bought = await boughtThisYear().catch(() => null);
 
   const rows: ArticleRow[] = (res.results ?? []).map((r) => {
     const p = r.properties ?? {};
@@ -118,6 +148,13 @@ export async function fetchArticleActivity(
       subGroup: str(p.sub_group_description),
       stock: num(p.stock_quantity),
       stockUnit: str(p.stock_unit),
+      profitCentre: str(p.profit_center),
+      ...(() => {
+        const b = articleNumber ? bought?.byArticle.get(articleNumber) : undefined;
+        if (!bought) return { buyersYtd: null, qtyYtd: null, qtyPerBuyer: null };
+        if (!b || !b.buyers) return { buyersYtd: 0, qtyYtd: 0, qtyPerBuyer: null };
+        return { buyersYtd: b.buyers, qtyYtd: b.qty, qtyPerBuyer: b.qty / b.buyers };
+      })(),
       orders: num(p.order_article_count),
       companies: num(p.company_article_count),
       views: articleNumber ? looks[articleNumber]?.views ?? null : null,
@@ -134,6 +171,7 @@ export async function fetchArticleActivity(
     viewsFrom: null,
     viewsTo: null,
     viewsError,
+    boughtAsOf: bought?.asOf ?? null,
     generatedAt: new Date().toISOString(),
     after: res.paging?.next?.after ?? null,
   };

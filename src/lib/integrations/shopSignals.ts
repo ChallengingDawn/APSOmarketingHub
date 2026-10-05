@@ -91,6 +91,8 @@ export type LookRecord = {
   description: string | null;
   mainGroup: string | null;
   subGroup: string | null;
+  /** P&P profit_center, for the filter. */
+  profitCentre: string | null;
   qty: number | null;
   salesUnit: string | null;
   moq: string | null;
@@ -367,6 +369,7 @@ async function scan(
         description: x.pp?.article_description ?? null,
         mainGroup: x.pp?.main_group_description ?? null,
         subGroup: x.pp?.sub_group_number ?? null,
+        profitCentre: x.profitCentre,
         qty: x.qty,
         salesUnit: x.pp?.sales_unit ?? null,
         moq: x.pp?.moq ?? null,

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { baseNumber, mergeOrderLines, personFromTitle, type OrderDoc } from "../src/lib/datatracker/orderLines";
 
 const doc = (o: Partial<OrderDoc> & { id: string }): OrderDoc => ({
-  number: null, date: "2026-10-05", eshop: true, title: null, contactId: null, email: null, lines: [], ...o,
+  number: null, web: null, date: "2026-10-05", eshop: true, title: null, contactId: null, email: null, lines: [], ...o,
 });
 
 test("personFromTitle reads the middle of 'A# | Person | Company' and nothing else", () => {
@@ -27,7 +27,7 @@ test("an order placed and delivered counts ONCE, with its day, number and person
   assert.equal(l.revenue, 370);
   assert.equal(l.orders, 1);
   assert.equal(l.description, "APSOvib insulating ring");
-  assert.deepEqual(l.last, { id: "1", number: "A1", date: "2026-10-05", contactId: "77", person: "Marco Rossi" });
+  assert.deepEqual(l.last, { id: "1", number: "A1", web: null, date: "2026-10-05", contactId: "77", person: "Marco Rossi" });
 });
 
 test("not all of it delivered yet: the order as placed is the larger figure and wins", () => {

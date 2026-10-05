@@ -44,7 +44,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopRow, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { VALUE_FLOOR_ACTIVE, companyPasses, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
+import { PROFIT_CENTRES, VALUE_FLOOR_ACTIVE, companyPasses, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
@@ -60,6 +60,7 @@ type AltPayload = { subGroup: string | null; group?: string | null; rows: Altern
 type ArticleSortKey =
   | "articleNumber" | "description" | "mainGroup" | "articleType"
   | "views" | "lookedBy" | "carts" | "topQty" | "lastLooked"
+  | "buyersYtd" | "qtyYtd" | "qtyPerBuyer"
   | "orders" | "companies" | "stock";
 
 type OrdersPayload = {
@@ -315,9 +316,10 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
               </TableCell>
               <TableCell align="center" sx={{ ...c, color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
                 {o?.last
-                  ? <Link href={hsOrderUrl(o.last.id)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}
+                  ? <Link href={hsOrderUrl(o.last.id)} target="_blank" rel="noopener" underline="hover" sx={{ fontWeight: 600 }}
                       title={o.orders > 1 ? `${o.orders} orders in this period - the latest` : "Open the order in HubSpot"}>
-                      {o.last.number ?? "Yes"}{o.orders > 1 ? ` +${o.orders - 1}` : ""}
+                      {/* A new web order has no ERP number yet - the shop's stands in. */}
+                      {o.last.number ?? (o.last.web ? `Web ${o.last.web}` : "Open")}{o.orders > 1 ? ` +${o.orders - 1}` : ""} ↗
                     </Link>
                   : boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
               </TableCell>
@@ -557,6 +559,7 @@ function EshopActivityPage() {
   const [apsoCustomer, setApsoCustomer] = useState("");
   const [representative, setRepresentative] = useState("");
   const [priority, setPriority] = useState("");
+  const [profitCentre, setProfitCentre] = useState("");
   const [period, setPeriod] = useState<string>("today");  // a RANGES id, "custom", or "y2026"
   const [customFrom, setCustomFrom] = useState(isoDay(new Date(Date.now() - 6 * 86_400_000)));
   const [customTo, setCustomTo] = useState(isoDay(new Date()));
@@ -711,6 +714,7 @@ function EshopActivityPage() {
     setArticlePage(0);
     const q = new URLSearchParams({ sort: articleSort, limit: "200" });
     if (searchSlow.trim()) q.set("search", searchSlow.trim());
+    if (profitCentre) q.set("pc", profitCentre);
     fetch(`/api/datatracker/articles?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
@@ -719,7 +723,7 @@ function EshopActivityPage() {
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setArticlesError(String(e)); });
     return () => ctrl.abort();
-  }, [tab, articleSort, searchSlow]);
+  }, [tab, articleSort, searchSlow, profitCentre]);
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
@@ -767,6 +771,7 @@ function EshopActivityPage() {
     try {
       const q = new URLSearchParams({ sort: articleSort, limit: "200", after: articles.after });
       if (searchSlow.trim()) q.set("search", searchSlow.trim());
+      if (profitCentre) q.set("pc", profitCentre);
       const j = await fetch(`/api/datatracker/articles?${q}`).then((r) => r.json());
       if (j?.ok && j.data) {
         const next = j.data as ArticleActivity;
@@ -775,7 +780,7 @@ function EshopActivityPage() {
     } finally {
       setArticlesLoadingMore(false);
     }
-  }, [articles, articlesLoadingMore, articleSort, searchSlow]);
+  }, [articles, articlesLoadingMore, articleSort, searchSlow, profitCentre]);
 
   // A row that does not qualify is still worth seeing: it is how you check the
   // rule is drawing its line where you meant it to.
@@ -795,7 +800,8 @@ function EshopActivityPage() {
     && (!floor || r.value >= floor));
   const lookPasses = (r: LookRecord) =>
     (!mandant || r.mandant === mandant) && (!country || r.country === country) && (!priority || r.salesPriority === priority)
-    && textHit(r.companyName, r.customerNumber, r.article, r.description) && (!floor || (r.value ?? 0) >= floor);
+    && textHit(r.companyName, r.customerNumber, r.article, r.description) && (!floor || (r.value ?? 0) >= floor)
+    && (!profitCentre || r.profitCentre === profitCentre);
   const moqRows = (signals?.moq ?? []).filter(lookPasses);
   const availabilityRows = (signals?.availability ?? []).filter(lookPasses);
   const qualifying = pcRows.filter((r) => r.qualifies && !r.excluded);
@@ -809,6 +815,8 @@ function EshopActivityPage() {
     company: tab !== "articles",
     selection: tab === "customers" || tab === "priceCheck",
     sort: tab === "customers",
+    // Articles carry a profit centre; so do the MOQ and Availability looks.
+    pc: tab === "articles" || tab === "moq" || tab === "availability",
     // Customers filter on order value, which is real; the record tabs on list value.
     value: tab === "customers" || (tab !== "articles" && VALUE_FLOOR_ACTIVE),
   };
@@ -1129,6 +1137,11 @@ function EshopActivityPage() {
               <MenuItem value="">Any priority</MenuItem>
               {(options?.priorities ?? []).map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
             </Select>)}
+          {hint(usedHere.pc,
+            <Select size="small" displayEmpty value={profitCentre} onChange={(e) => setProfitCentre(e.target.value)} sx={{ minWidth: 200 }} disabled={!usedHere.pc}>
+              <MenuItem value="">All profit centres</MenuItem>
+              {PROFIT_CENTRES.map((p) => <MenuItem key={p.code} value={p.code}>{p.label}</MenuItem>)}
+            </Select>)}
           {hint(usedHere.sort,
             <Select size="small" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} sx={{ minWidth: 150 }} disabled={!usedHere.sort}>
               {SORTS.map((s) => <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>)}
@@ -1395,6 +1408,11 @@ function EshopActivityPage() {
                   <TableCell colSpan={5} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
                     letterSpacing: "0.06em", textTransform: "uppercase", color: "#1b4a80" }}>In the shop · since 2 Oct</TableCell>
                   <TableCell colSpan={3} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#1f6b3a" }}
+                    title="From the Articles CY/LY report: each order counted once, this year to date">
+                    Bought this year{articles?.boughtAsOf ? ` · to ${articles.boughtAsOf}` : ""}
+                  </TableCell>
+                  <TableCell colSpan={3} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
                     letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED }}>ERP · all time</TableCell>
                 </TableRow>
                 <TableRow>
@@ -1408,6 +1426,7 @@ function EshopActivityPage() {
                   ))}
                   {([["views", "Looked at", 86], ["lookedBy", "Customers", 94], ["carts", "In cart", 78],
                      ["topQty", "Max qty", 86], ["lastLooked", "Last look", 124],
+                     ["buyersYtd", "Customers", 94], ["qtyYtd", "Qty", 92], ["qtyPerBuyer", "Per customer", 108],
                      ["orders", "Orders", 86], ["companies", "Customers", 94], ["stock", "Stock", 110]] as [ArticleSortKey, string, number][]).map(([k, h, w], i) => (
                     <TableCell key={`${k}-${i}`} align="right" sx={{ ...HEAD, whiteSpace: "nowrap", width: w }}
                       sortDirection={articleSortKey === k ? articleSortDir : false}>
@@ -1438,6 +1457,14 @@ function EshopActivityPage() {
                     <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                       {a.lastLooked ? a.lastLooked.replace("T", " ") : "—"}
                     </TableCell>
+                    {/* This year's buying: one customer taking a lot, or many taking a little. */}
+                    <TableCell align="right" sx={{ color: a.buyersYtd ? INK : MUTED, fontWeight: a.buyersYtd ? 600 : 400 }}>
+                      {a.buyersYtd == null ? "—" : full(a.buyersYtd)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: a.qtyYtd ? INK : MUTED }}>{a.qtyYtd == null ? "—" : full(a.qtyYtd)}</TableCell>
+                    <TableCell align="right" sx={{ color: a.qtyPerBuyer ? INK : MUTED, fontWeight: a.qtyPerBuyer ? 700 : 400 }}>
+                      {a.qtyPerBuyer == null ? "—" : a.qtyPerBuyer < 10 ? decimal(a.qtyPerBuyer, 1) : full(a.qtyPerBuyer)}
+                    </TableCell>
                     {/* then the ERP counts, which are all-time */}
                     <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(a.companies)}</TableCell>
@@ -1447,7 +1474,7 @@ function EshopActivityPage() {
                   </TableRow>
                 ))}
                 {articles && articleRows.length === 0 && (
-                  <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={15} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
                 )}
                 {!articles && !articlesError && (
                   <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
