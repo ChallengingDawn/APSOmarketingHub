@@ -17,5 +17,9 @@ export async function register() {
     // Smart Segmentation's watcher and nightly sweep, once the hub owns the engine (SEGMENTATION_ENGINE=live)
     const { startSegmentationScheduler } = await import("./lib/segmentation/scheduler");
     startSegmentationScheduler();
+    // The morning post: yesterday's price checks to the owner who cares
+    // (NOTIFY_SCHEDULER=live)
+    const { startNotifyScheduler } = await import("./lib/notify/scheduler");
+    startNotifyScheduler();
   }
 }

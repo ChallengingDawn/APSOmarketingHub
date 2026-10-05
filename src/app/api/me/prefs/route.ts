@@ -52,6 +52,10 @@ const Prefs = z.object({
    * sit in. Hiding is by name, so a panel that is removed later simply stops
    * being matched rather than leaving a dead entry behind.
    */
+  /** What the hub may write to you about. Off unless asked for. */
+  notify: z.object({
+    priceChecks: z.boolean().optional(),
+  }).optional(),
   home: z.object({
     hiddenPanels: z.array(z.string().max(40)).max(20).optional(),
     appOrder: z.array(z.string().max(40)).max(20).optional(),
