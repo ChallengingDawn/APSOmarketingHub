@@ -44,7 +44,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopRow, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { PROFIT_CENTRES, VALUE_FLOOR_ACTIVE, companyPasses, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
+import { PROFIT_CENTRES, VALUE_FLOOR_ACTIVE, companyPasses, isInternalCompany, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
@@ -121,6 +121,8 @@ const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
 /** 0-1 = contacts. */
 const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
+/** Columns of the price-check table: the value column only while values mean something. */
+const PC_COLS = VALUE_FLOOR_ACTIVE ? 11 : 10;
 /** Hover text for a customer who ordered with no visit on record. */
 const NO_VISIT = "Ordered, but the shop tracker recorded no visit: it only counts a customer it sees signed in with the smart bar loaded.";
 const hsOrderUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-123/${id}`;
@@ -191,7 +193,8 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
       .catch(() => {});
     return () => { alive = false; };
   }, [wantPeople]);
-  const personLabel = (id: string | null) => (id ? people[id]?.email ?? people[id]?.name ?? `contact ${id}` : null);
+  // The name first - a person, not an address; the e-mail is the fallback and the hover.
+  const personLabel = (id: string | null) => (id ? people[id]?.name ?? people[id]?.email ?? `contact ${id}` : null);
 
   const payload = ordered && ordered !== "loading" && ordered !== "error" ? ordered : null;
   const byArticle = new Map((payload?.lines ?? []).map((l) => [l.article, l]));
@@ -239,24 +242,38 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
   const h = { ...c, fontWeight: 700, color: MUTED, fontSize: "0.67rem",
     textTransform: "uppercase" as const, letterSpacing: 0.4, whiteSpace: "nowrap" as const };
 
-  // Everyone who was logged in for these lines, most recent first.
-  const loggedIn = [...new Set([...lines].reverse().map((l) => l.contact).filter((c): c is string => !!c))];
+  // Everyone behind these lines - who was logged in, and who placed the orders -
+  // with what it takes to reach them (SARCLA 05.10: name, phone, address).
+  const loggedIn = new Set(lines.map((l) => l.contact).filter((c): c is string => !!c));
+  const orderedBy = new Set(orderedLines.map((l) => l.last?.contactId ?? null).filter((c): c is string => !!c));
+  const everyone = [...new Set([
+    ...[...lines].reverse().map((l) => l.contact),
+    ...orderedLines.map((l) => l.last?.contactId ?? null),
+  ].filter((c): c is string => !!c))];
 
   return (
     <>
-    {loggedIn.length > 0 && (
-      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-        Logged in as{" "}
-        {loggedIn.map((id, i) => (
-          <Fragment key={id}>
-            {i > 0 && " · "}
-            <Link href={hsContactUrl(id)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK, fontWeight: 600 }}
-              title={people[id]?.name ?? undefined}>
-              {personLabel(id)}
-            </Link>
-          </Fragment>
-        ))}
-      </Typography>
+    {everyone.length > 0 && (
+      <Box sx={{ mb: 1.25, display: "grid", gap: 0.6 }}>
+        {everyone.map((id) => {
+          const p = people[id];
+          const role = loggedIn.has(id) && orderedBy.has(id) ? "logged in · ordered"
+            : loggedIn.has(id) ? "logged in" : "placed the order";
+          const details = [p?.name ? p.email : null, p?.phone ? `Phone ${p.phone}` : null,
+            p?.mobile ? `Mobile ${p.mobile}` : null, p?.address].filter(Boolean);
+          return (
+            <Typography key={id} sx={{ fontSize: "0.78rem", color: MUTED }}>
+              <Link href={hsContactUrl(id)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK, fontWeight: 700 }}>
+                {p?.name ?? p?.email ?? `contact ${id}`}
+              </Link>
+              <Box component="span" sx={{ mx: 0.75, fontSize: "0.66rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                {role}
+              </Box>
+              {details.join(" · ")}
+            </Typography>
+          );
+        })}
+      </Box>
     )}
     <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
       <TableHead>
@@ -301,7 +318,7 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
                 {o?.description ?? named ?? (!r.article ? "product page, no size chosen"
                   : isSpecialArticle(r.article) ? "special article, no catalogue text" : "no catalogue record")}
               </TableCell>
-              <TableCell sx={{ ...c, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={who ? people[who]?.name ?? "" : o?.last?.person ?? ""}>
+              <TableCell sx={{ ...c, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={who ? people[who]?.email ?? "" : o?.last?.person ?? ""}>
                 {who
                   ? <Link href={hsContactUrl(who)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}>{personLabel(who)}</Link>
                   : o?.last?.person
@@ -381,7 +398,8 @@ function LookTable({ rows, kind, mandantOf }: {
             <TableCell align="right" sx={{ ...h, width: 100 }}>
               {kind === "moq" ? "Minimum" : "On the shelf"}
             </TableCell>
-            <TableCell align="right" sx={{ ...h, width: 96 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
+            {/* Hidden while list prices are per an ERP unit we do not know. */}
+            {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ ...h, width: 96 }}>Value</TableCell>}
             <TableCell sx={{ ...h, width: 150 }}>Why it stalled</TableCell>
           </TableRow>
         </TableHead>
@@ -408,9 +426,11 @@ function LookTable({ rows, kind, mandantOf }: {
                     ? (r.moqMinimum == null ? "yes, unknown" : full(r.moqMinimum))
                     : (r.stock == null ? "—" : `${full(r.stock)}${r.stockUnit ? ` ${r.stockUnit}` : ""}`)}
                 </TableCell>
-                <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
-                  {r.value == null ? "—" : `€${compact(r.value)}`}
-                </TableCell>
+                {VALUE_FLOOR_ACTIVE && (
+                  <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                    {r.value == null ? "—" : `€${compact(r.value)}`}
+                  </TableCell>
+                )}
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   <Typography component="span" sx={{
                     fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
@@ -429,7 +449,7 @@ function LookTable({ rows, kind, mandantOf }: {
               </TableRow>,
               open === id && (
                 <TableRow key={`${id}-alt`}>
-                  <TableCell colSpan={8} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
+                  <TableCell colSpan={VALUE_FLOOR_ACTIVE ? 8 : 7} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
                     <Box sx={{ p: 2 }}>
                       <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
                         textTransform: "uppercase", color: MUTED, mb: 1 }}>
@@ -463,7 +483,7 @@ function LookTable({ rows, kind, mandantOf }: {
                               <TableCell align="right" sx={{ ...h, width: 70 }}>Size</TableCell>
                               <TableCell align="right" sx={{ ...h, width: 120 }}>In stock</TableCell>
                               <TableCell sx={{ ...h, width: 124 }}>Minimum</TableCell>
-                              <TableCell align="right" sx={{ ...h, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
+                              {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ ...h, width: 94 }}>Price</TableCell>}
                               <TableCell sx={{ ...h, width: 118 }} />
                             </TableRow>
                           </TableHead>
@@ -481,9 +501,11 @@ function LookTable({ rows, kind, mandantOf }: {
                                 <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                                   {a.moq == null ? "unknown" : /^y/i.test(a.moq) ? `${a.moqMinimum ?? "?"}` : "none"}
                                 </TableCell>
-                                <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
-                                  {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
-                                </TableCell>
+                                {VALUE_FLOOR_ACTIVE && (
+                                  <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                    {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
+                                  </TableCell>
+                                )}
                                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                                   {/* The whole point of the list: which of these
                                       would actually have served the order. */}
@@ -870,7 +892,7 @@ function EshopActivityPage() {
     }
   }, [orderOnlyWanted, periodFrom, periodTo, year]);
   const allRows = (() => {
-    if (!orders) return loadedRows;
+    if (!orders) return loadedRows.filter((r) => !isInternalCompany(r.name));
     const known = new Set(loadedRows.map((r) => r.id));
     // These rows came from the orders read, which HubSpot never filtered - see
     // companyPasses, which applies the same five conditions the search applies.
@@ -895,7 +917,8 @@ function EshopActivityPage() {
           history: [],
         };
       });
-    return [...loadedRows, ...extra];
+    // Our own companies (tests, intercompany) are not customers (SARCLA 05.10).
+    return [...loadedRows, ...extra].filter((r) => !isInternalCompany(r.name));
   })();
   // Picking "Today" must change WHO is listed, not just the numbers beside them.
   // HubSpot cannot filter inside the JSON, so the narrowing happens here.
@@ -1424,11 +1447,22 @@ function EshopActivityPage() {
                         onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
                     </TableCell>
                   ))}
-                  {([["views", "Looked at", 86], ["lookedBy", "Customers", 94], ["carts", "In cart", 78],
-                     ["topQty", "Max qty", 86], ["lastLooked", "Last look", 124],
-                     ["buyersYtd", "Customers", 94], ["qtyYtd", "Qty", 92], ["qtyPerBuyer", "Per customer", 108],
-                     ["orders", "Orders", 86], ["companies", "Customers", 94], ["stock", "Stock", 110]] as [ArticleSortKey, string, number][]).map(([k, h, w], i) => (
-                    <TableCell key={`${k}-${i}`} align="right" sx={{ ...HEAD, whiteSpace: "nowrap", width: w }}
+                  {/* SARCLA 05.10: "Customers" three times was confusing - each header
+                      now says what it counts, and the hover says how. */}
+                  {([
+                     ["views", "Times looked at", 92, "How often signed-in customers opened or priced it in the shop"],
+                     ["lookedBy", "Customers looking", 100, "How many different customers looked at it"],
+                     ["carts", "Put in cart", 82, "How many of those looks went into the cart"],
+                     ["topQty", "Biggest qty asked", 96, "The largest quantity anyone priced it at"],
+                     ["lastLooked", "Last looked at", 124, "When it was last looked at"],
+                     ["buyersYtd", "Customers buying", 100, "How many different customers ordered it this year"],
+                     ["qtyYtd", "Qty bought", 92, "Total quantity ordered this year, each order counted once"],
+                     ["qtyPerBuyer", "Qty per customer", 100, "Qty bought divided by customers buying: high = one big buyer, low = many small ones"],
+                     ["orders", "Orders ever", 86, "Orders that ever carried it (ERP, all years)"],
+                     ["companies", "Customers ever", 96, "Customers that ever ordered it (ERP, all years)"],
+                     ["stock", "Stock now", 110, "What is on the shelf now"],
+                   ] as [ArticleSortKey, string, number, string][]).map(([k, h, w, tip], i) => (
+                    <TableCell key={`${k}-${i}`} align="right" title={tip} sx={{ ...HEAD, whiteSpace: "normal", lineHeight: 1.25, width: w }}
                       sortDirection={articleSortKey === k ? articleSortDir : false}>
                       <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
                         onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
@@ -1502,16 +1536,10 @@ function EshopActivityPage() {
               </Button>
             </Box>
           )}
-          <Box sx={{ p: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.6 }}>
-              <strong>Looked at, Customers, In cart, Max qty and Last look come from the shop as it happens</strong> — off the
-              price lookup the page makes when a customer picks a size and a quantity, so they cover every signed-in customer
-              whatever they chose on the cookie banner. They start on 2 October, when that capture went live.
-              {" "}<strong>Orders, Customers and Stock on the right are ERP counts</strong> from Products &amp; Pricing, written every night and
-              covering all time. A dash under the shop columns means nobody has priced that article since the capture started.
-              {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
-            </Typography>
-          </Box>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+            Hover a column name to see what it counts.
+            {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
+          </Typography>
         </GlassCard>
       )}
 
@@ -1539,9 +1567,9 @@ function EshopActivityPage() {
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
                 <TableRow>
-                  {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", VALUE_FLOOR_ACTIVE ? "Value" : "List value*", "Judged on", "Verdict", "Ticket"]
-                    .map((h, i) => (
-                      <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"}
+                  {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", ...(VALUE_FLOOR_ACTIVE ? ["Value"] : []), "Judged on", "Verdict", "Ticket"]
+                    .map((h) => (
+                      <TableCell key={h} align={h === "Articles" || h === "Counted" || h === "Value" ? "right" : "left"}
                         sx={{ ...HEAD, whiteSpace: "nowrap" }}>{h}</TableCell>
                     ))}
                 </TableRow>
@@ -1567,9 +1595,11 @@ function EshopActivityPage() {
                     <TableCell sx={{ color: MUTED }}>{shortPriority(r.salesPriority)}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
                     <TableCell align="right" sx={{ color: r.counted ? INK : MUTED, fontWeight: 600 }}>{full(r.counted)}</TableCell>
-                    <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>
-                      {r.value ? `€${compact(r.value)}` : "—"}
-                    </TableCell>
+                    {VALUE_FLOOR_ACTIVE && (
+                      <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {r.value ? `€${compact(r.value)}` : "—"}
+                      </TableCell>
+                    )}
                     <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                       {r.gateOpen ? r.dueOn : `due ${r.dueOn}`}
                     </TableCell>
@@ -1601,7 +1631,7 @@ function EshopActivityPage() {
                   </TableRow>,
                   pcOpen === `${r.companyId}-${r.day}` && (
                     <TableRow key={`${r.companyId}-${r.day}-d`}>
-                      <TableCell colSpan={11} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
+                      <TableCell colSpan={PC_COLS} sx={{ p: 0, bgcolor: "#f7f9fc" }}>
                         <Box sx={{ p: 2 }}>
                           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em",
                             textTransform: "uppercase", color: MUTED, mb: 1 }}>
@@ -1617,8 +1647,8 @@ function EshopActivityPage() {
                                 <TableCell sx={{ ...HEAD, width: 74 }}>PC</TableCell>
                                 <TableCell align="right" sx={{ ...HEAD, width: 80 }}>Qty</TableCell>
                                 <TableCell sx={{ ...HEAD, width: 124 }}>Unit · MOQ</TableCell>
-                                <TableCell align="right" sx={{ ...HEAD, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
-                                <TableCell align="right" sx={{ ...HEAD, width: 98 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
+                                {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ ...HEAD, width: 94 }}>Price</TableCell>}
+                                {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ ...HEAD, width: 98 }}>Value</TableCell>}
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -1639,12 +1669,16 @@ function EshopActivityPage() {
                                       a.moq == null ? "MOQ unknown" : /^y/i.test(a.moq) ? `MOQ ${a.moqMinimum ?? "?"}` : "no MOQ",
                                     ].join(" · ")}
                                   </TableCell>
-                                  <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
-                                    {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
-                                  </TableCell>
-                                  <TableCell align="right" sx={{ color: a.counted ? INK : MUTED, fontWeight: a.counted ? 700 : 400, whiteSpace: "nowrap" }}>
-                                    {a.value == null ? "—" : `€${compact(a.value)}`}
-                                  </TableCell>
+                                  {VALUE_FLOOR_ACTIVE && (
+                                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
+                                      {a.price == null ? "—" : `€${decimal(a.price, 2)}`}
+                                    </TableCell>
+                                  )}
+                                  {VALUE_FLOOR_ACTIVE && (
+                                    <TableCell align="right" sx={{ color: a.counted ? INK : MUTED, fontWeight: a.counted ? 700 : 400, whiteSpace: "nowrap" }}>
+                                      {a.value == null ? "—" : `€${compact(a.value)}`}
+                                    </TableCell>
+                                  )}
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -1655,22 +1689,17 @@ function EshopActivityPage() {
                   ),
                 ])}
                 {signals && pcVisible.length === 0 && (
-                  <TableRow><TableCell colSpan={11} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                  <TableRow><TableCell colSpan={PC_COLS} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                     Nobody priced without carting in this window.
                   </TableCell></TableRow>
                 )}
                 {!signals && !signalsError && (
-                  <TableRow><TableCell colSpan={11} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={PC_COLS} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the shop activity…</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
           </Box>
 
-          {!VALUE_FLOOR_ACTIVE && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
-            </Typography>
-          )}
         </GlassCard>
       )}
 
@@ -1686,11 +1715,6 @@ function EshopActivityPage() {
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
             : <LookTable rows={moqRows} kind="moq" mandantOf={(r) => r.mandant ?? ""} />}
-          {!VALUE_FLOOR_ACTIVE && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
-            </Typography>
-          )}
         </GlassCard>
       )}
 
@@ -1706,11 +1730,6 @@ function EshopActivityPage() {
           {!signals && !signalsError
             ? <Box sx={{ p: 3 }}><Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>Reading the shop activity…</Typography></Box>
             : <LookTable rows={availabilityRows} kind="availability" mandantOf={(r) => r.mandant ?? ""} />}
-          {!VALUE_FLOOR_ACTIVE && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
-            </Typography>
-          )}
         </GlassCard>
       )}
     </Box>

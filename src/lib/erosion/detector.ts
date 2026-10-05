@@ -13,6 +13,7 @@
 // Where the Python reads a pickle (un -> company id) the hub searches HubSpot by
 // company_unique_number - the same field the pickle was crawled from.
 
+import { isInternalCompany } from "../datatracker/rules";
 import { ESO_OWNERS, PIPE_STAGE, TSA_OWNERS } from "../datatracker/rosters";
 import { fixText } from "./model";
 
@@ -215,6 +216,8 @@ export type RunReport = {
   skippedNoCompany: string[];
   skippedOwner: { un: string; article: string; owner: string }[];
   skippedThreshold: { un: string; article: string; owner: string; amount: number; min: number }[];
+  /** APSOparts' / A+P's own companies - never ticketed (SARCLA 05.10). */
+  skippedInternal?: string[];
 };
 
 export function teamOfOwner(owner: string): Team | null {
@@ -234,10 +237,14 @@ export function buildGroups(
   month: Map<string, { tid: string; arts: string[] }>,
 ): { groups: Map<string, Group>; report: RunReport } {
   const groups = new Map<string, Group>();
-  const report: RunReport = { skippedNoCompany: [], skippedOwner: [], skippedThreshold: [] };
+  const report: RunReport = { skippedNoCompany: [], skippedOwner: [], skippedThreshold: [], skippedInternal: [] };
   for (const c of resolved) {
     if (!c.company) {
       report.skippedNoCompany.push(c.un);
+      continue;
+    }
+    if (isInternalCompany(c.company.name)) {
+      report.skippedInternal!.push(c.un);
       continue;
     }
     const team = teamOfOwner(c.owner);

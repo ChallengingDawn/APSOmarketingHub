@@ -83,6 +83,16 @@ export const PROFIT_CENTRES = [
   { code: "PW", label: "PW · Power & electronics" },
 ] as const;
 
+/**
+ * APSOparts' and Angst + Pfister's own companies. They log in, price and order
+ * like customers - tests, intercompany - and showed up as the biggest price
+ * check of the day. SARCLA, 05.10: "exclude APSOparts companies from the boards
+ * and tickets". By name, because HubSpot carries no internal flag.
+ */
+export function isInternalCompany(name: string | null | undefined): boolean {
+  return /^\s*(apso\s*parts|angst\s*\+?\s*pfister)\b/i.test(String(name ?? ""));
+}
+
 /** Excluded from the price-check rule: C2S and special articles. */
 export const isSpecialArticle = (a: string): boolean => /^[38]/.test(a);
 

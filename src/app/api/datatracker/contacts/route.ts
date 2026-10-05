@@ -14,7 +14,14 @@ export const dynamic = "force-dynamic";
 /** One open row's worth; a request longer than this is not a panel. */
 const MAX = 100;
 
-export type ContactCard = { email: string | null; name: string | null };
+export type ContactCard = {
+  email: string | null;
+  name: string | null;
+  phone: string | null;
+  mobile: string | null;
+  /** Street, postcode and town, country - whatever the contact carries. */
+  address: string | null;
+};
 
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
@@ -30,13 +37,22 @@ export async function GET(req: NextRequest) {
     const res = await hubspotFetchJson<{ results?: { id: string; properties?: Record<string, string | null> }[] }>({
       path: "/crm/v3/objects/contacts/batch/read",
       method: "POST",
-      body: { properties: ["email", "firstname", "lastname"], inputs: ids.map((id) => ({ id })) },
+      body: {
+        properties: ["email", "firstname", "lastname", "phone", "mobilephone", "address", "zip", "city", "country"],
+        inputs: ids.map((id) => ({ id })),
+      },
     });
     const data: Record<string, ContactCard> = {};
     for (const r of res.results ?? []) {
       const p = r.properties ?? {};
       const name = [p.firstname, p.lastname].map((x) => (x ?? "").trim()).filter(Boolean).join(" ");
-      data[r.id] = { email: p.email?.trim() || null, name: name || null };
+      const t = (v: string | null | undefined) => (v ?? "").trim();
+      const town = [t(p.zip), t(p.city)].filter(Boolean).join(" ");
+      const address = [t(p.address), town, t(p.country)].filter(Boolean).join(", ");
+      data[r.id] = {
+        email: t(p.email) || null, name: name || null,
+        phone: t(p.phone) || null, mobile: t(p.mobilephone) || null, address: address || null,
+      };
     }
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {

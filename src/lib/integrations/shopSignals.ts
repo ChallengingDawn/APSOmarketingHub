@@ -15,7 +15,7 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
-import { isArticle, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
 import { ownerName, teamOf } from "../datatracker/rosters";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
@@ -207,6 +207,9 @@ async function scan(
     for (const r of res.results ?? []) {
       scanned++;
       const p = r.properties ?? {};
+      // Our own companies (tests, intercompany): not on the boards, never a
+      // ticket, never a morning mail - all three read this scan.
+      if (isInternalCompany(p.name)) continue;
       let parsed: ActivityJson;
       try { parsed = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson; } catch { continue; }
 
@@ -421,7 +424,8 @@ async function scan(
     }
   }
 
-  priceChecks.sort((a, b) => b.value - a.value || b.day.localeCompare(a.day));
+  // Biggest first - by value once it means something, by articles until then.
+  priceChecks.sort((a, b) => (VALUE_FLOOR_ACTIVE ? b.value - a.value : b.counted - a.counted) || b.day.localeCompare(a.day));
   // The ones we can act on first: a customer who asked for less than the minimum,
   // or a shelf we can count the gap on.
   moq.sort((a, b) => Number(b.belowMoq) - Number(a.belowMoq) || b.day.localeCompare(a.day) || (b.value ?? 0) - (a.value ?? 0));

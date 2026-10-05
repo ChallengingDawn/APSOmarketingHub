@@ -100,8 +100,8 @@ function Articles({ r }: { r: PriceCheckRow }) {
               <TableCell sx={{ fontWeight: 600, color: MUTED, width: 74 }}>PC</TableCell>
               <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 80 }}>Qty</TableCell>
               <TableCell sx={{ fontWeight: 600, color: MUTED, width: 124 }}>Unit · MOQ</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
+              {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>Price</TableCell>}
+              {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Value</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -116,10 +116,12 @@ function Articles({ r }: { r: PriceCheckRow }) {
                 <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                   {[a.salesUnit ?? "unit ?", a.moq == null ? "MOQ unknown" : /^y/i.test(a.moq) ? `MOQ ${a.moqMinimum ?? "?"}` : "no MOQ"].join(" · ")}
                 </TableCell>
-                <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.price == null ? "—" : `€${decimal(a.price, 2)}`}</TableCell>
-                <TableCell align="right" sx={{ color: a.counted ? INK : MUTED, fontWeight: a.counted ? 700 : 400, whiteSpace: "nowrap" }}>
-                  {a.value == null ? "—" : `€${compact(a.value)}`}
-                </TableCell>
+                {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.price == null ? "—" : `€${decimal(a.price, 2)}`}</TableCell>}
+                {VALUE_FLOOR_ACTIVE && (
+                  <TableCell align="right" sx={{ color: a.counted ? INK : MUTED, fontWeight: a.counted ? 700 : 400, whiteSpace: "nowrap" }}>
+                    {a.value == null ? "—" : `€${compact(a.value)}`}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
@@ -209,7 +211,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>Customer</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED, width: 140 }}>Owner</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 70 }}>Art.</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
+                  {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>Value</TableCell>}
                   <TableCell sx={{ fontWeight: 600, color: MUTED, width: 180 }}>Outcome</TableCell>
                 </TableRow>
               </TableHead>
@@ -220,7 +222,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                     <TableCell sx={{ color: INK, fontWeight: 600, ...clip }} title={r.company ?? ""}>{r.company ?? "—"}</TableCell>
                     <TableCell sx={{ color: MUTED, ...clip }}>{r.owner || "—"}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
-                    <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>€{compact(r.value)}</TableCell>
+                    {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>€{compact(r.value)}</TableCell>}
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
                       <Typography component="span" sx={{
                         fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
@@ -237,7 +239,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                   </TableRow>
                 ))}
                 {run.rows.length === 0 && (
-                  <TableRow><TableCell colSpan={6} sx={{ color: MUTED, py: 2, textAlign: "center" }}>Nothing in the last three days to act on.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={VALUE_FLOOR_ACTIVE ? 6 : 5} sx={{ color: MUTED, py: 2, textAlign: "center" }}>Nothing in the last three days to act on.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -252,8 +254,8 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
           <Table size="small" sx={{ minWidth: 1000, "& td, & th": cell }}>
             <TableHead>
               <TableRow>
-                {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", VALUE_FLOOR_ACTIVE ? "Value" : "List value*", "Judged on", "Verdict", "Ticket"].map((h, i) => (
-                  <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"} sx={{ ...headCell, fontSize: "0.68rem" }}>{h}</TableCell>
+                {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", ...(VALUE_FLOOR_ACTIVE ? ["Value"] : []), "Judged on", "Verdict", "Ticket"].map((h) => (
+                  <TableCell key={h} align={h === "Articles" || h === "Counted" || h === "Value" ? "right" : "left"} sx={{ ...headCell, fontSize: "0.68rem" }}>{h}</TableCell>
                 ))}
               </TableRow>
             </TableHead>
@@ -274,7 +276,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                   <TableCell sx={{ color: MUTED }}>{shortPriority(r.salesPriority)}</TableCell>
                   <TableCell align="right" sx={{ color: INK }}>{full(r.articles.length)}</TableCell>
                   <TableCell align="right" sx={{ color: r.counted ? INK : MUTED, fontWeight: 600 }}>{full(r.counted)}</TableCell>
-                  <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>{r.value ? `€${compact(r.value)}` : "—"}</TableCell>
+                  {VALUE_FLOOR_ACTIVE && <TableCell align="right" sx={{ color: INK, fontWeight: 700, whiteSpace: "nowrap" }}>{r.value ? `€${compact(r.value)}` : "—"}</TableCell>}
                   <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{r.gateOpen ? r.dueOn : `due ${r.dueOn}`}</TableCell>
                   <TableCell><Verdict r={r} /></TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
@@ -288,22 +290,17 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                 </TableRow>,
                 open === rowKey(r) && (
                   <TableRow key={`${rowKey(r)}-d`}>
-                    <TableCell colSpan={11} sx={{ p: 0, bgcolor: "#f7f9fc" }}><Articles r={r} /></TableCell>
+                    <TableCell colSpan={VALUE_FLOOR_ACTIVE ? 11 : 10} sx={{ p: 0, bgcolor: "#f7f9fc" }}><Articles r={r} /></TableCell>
                   </TableRow>
                 ),
               ])}
               {signals && visible.length === 0 && (
-                <TableRow><TableCell colSpan={11} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
+                <TableRow><TableCell colSpan={VALUE_FLOOR_ACTIVE ? 11 : 10} sx={{ color: MUTED, py: 3, textAlign: "center" }}>
                   {onlyQualifying ? "No customer-day qualifies in this period." : "No price checks in this period."}
                 </TableCell></TableRow>
               )}
             </TableBody>
           </Table>
-          {!VALUE_FLOOR_ACTIVE && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-              * Per ERP price unit (1, 100 or 1,000 pieces), so not a real value yet.
-            </Typography>
-          )}
         </Box>
       )}
     </GlassCard>

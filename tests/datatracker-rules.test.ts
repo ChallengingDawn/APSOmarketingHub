@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   isoDay, periodWindow, nextWorkingDay, shortPriority,
   isArticle, isProduct, isSpecialArticle, priceCheckQualifies, priceCheckShortfall, VALUE_FLOOR_ACTIVE, companyPasses,
-  knownMinimum,
+  knownMinimum, isInternalCompany,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 import { teamOf, ownerName } from "../src/lib/datatracker/rosters";
@@ -242,4 +242,13 @@ test("knownMinimum: a MOQ flag with 0, 1 or nothing behind it is no minimum", ()
   assert.equal(knownMinimum("YES", null), null);
   assert.equal(knownMinimum("NO", 300), null, "a number without the flag is not a minimum either");
   assert.equal(knownMinimum(null, 300), null);
+});
+
+test("isInternalCompany: APSOparts and Angst + Pfister entities, nobody else", () => {
+  for (const n of ["APSOparts AG", "APSOparts GmbH (Poland)", "apsoparts s.r.l.", "Angst + Pfister AG", "Angst+Pfister GmbH"]) {
+    assert.equal(isInternalCompany(n), true, n);
+  }
+  for (const n of ["Rubix Spa", "Sati S.r.l.", "Seal Supply B.V.", "Pfister Maschinen AG", null, ""]) {
+    assert.equal(isInternalCompany(n), false, String(n));
+  }
 });
