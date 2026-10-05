@@ -128,8 +128,9 @@ export default function FrontPage() {
   // Declared here, not beside the header: everything below reads it, and a
   // const used above its own line is a blank page, not a type error.
   const role = viewed?.role ?? myRole;
+  // No count of what is missing. Telling somebody there are four apps they
+  // cannot have is a locked door described in words — SARCLA: take it out.
   const visibleApps = APPS.filter((a) => openFor(a.key));
-  const hiddenCount = APPS.length - visibleApps.length;
 
   /**
    * One rule for every link this page draws: the header, the search, the quick
@@ -421,13 +422,6 @@ export default function FrontPage() {
                 : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
             </Typography>
           </Box>
-        )}
-
-        {hiddenCount > 0 && visibleApps.length > 0 && (
-          <Typography sx={{ fontSize: "0.78rem", color: FAINT, mt: 1.5, textAlign: "center" }}>
-            {hiddenCount === 1 ? "One more app exists" : `${hiddenCount} more apps exist`} that
-            {viewed ? " they have" : " you have"} no access to.
-          </Typography>
         )}
 
         {/* ------------------------------------------------------------ resources */}
