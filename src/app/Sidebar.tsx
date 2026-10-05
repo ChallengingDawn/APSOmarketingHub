@@ -69,6 +69,7 @@ import Link from "next/link";
 
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 import { useViewAs } from "@/app/ViewAs";
+import { Wordmark } from "@/app/Wordmark";
 
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
@@ -502,14 +503,11 @@ export default function Sidebar() {
               </Box>
             </>
           ) : (
-            <Box component={Link} href="/" sx={{ display: "flex", alignItems: "baseline", textDecoration: "none", px: 1.25, pb: 2.25 }}>
-              <Box component="span" className="brand-display brand-apso" sx={{ fontSize: 28, fontWeight: 700 }}>
-                <span className="letter letter-a">A</span>
-                <span className="letter letter-p">P</span>
-                <span className="letter letter-s">S</span>
-                <span className="letter letter-o">O</span>
-              </Box>
-              <Box component="span" className="brand-display" sx={{ fontSize: 28, color: RED, fontWeight: 800 }}>hub</Box>
+            // The same mark as the launch pad and the sign-in card. It used to be
+            // a third version here: stretched, red, with the letters cycling
+            // through colours on a nine-second loop.
+            <Box component={Link} href="/" sx={{ display: "block", textDecoration: "none", px: 1.25, pb: 2.25 }}>
+              <Wordmark size={20} subtitle={null} />
             </Box>
           )}
 

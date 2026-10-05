@@ -14,7 +14,9 @@ const inter = Inter({
 });
 const outfit = Outfit({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  // 200 and 300 are the wordmark: Outfit is a different typeface at its light
+  // weights, and that is the one this hub is set in.
+  weight: ["200", "300", "400", "500", "600", "700", "800"],
   variable: "--font-outfit",
   display: "swap",
 });

@@ -39,6 +39,7 @@ import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
+import { Wordmark } from "./Wordmark";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
@@ -231,22 +232,7 @@ export default function FrontPage() {
           display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
         }}>
           <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
-            {/* No gap: it is APSOhub, one word. A space made it read as two
-                products sharing a header. */}
-            <Box sx={{ display: "flex", alignItems: "baseline" }}>
-              <Box component="span" sx={{
-                fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", color: INK,
-              }}>APSO</Box>
-              <Box component="span" sx={{
-                fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                fontSize: 26, fontWeight: 700, letterSpacing: "-0.01em",
-                background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
-                WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-                display: "inline-block", paddingRight: "6px", marginRight: "-4px",
-              }}>hub</Box>
-            </Box>
-            <Typography sx={{ fontSize: "0.68rem", color: FAINT, mt: 0.3 }}>apsoparts.com</Typography>
+            <Wordmark size={22} />
           </Box>
 
           <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>

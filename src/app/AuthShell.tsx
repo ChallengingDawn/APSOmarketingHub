@@ -9,33 +9,12 @@
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
+import { Wordmark } from "./Wordmark";
+
 export const INK = "#15223a";
 export const MUTED = "#5d6b85";
 export const FAINT = "#8b97ac";
 export const ACCENT = "#2459d1";
-
-export function Wordmark() {
-  return (
-    <Box sx={{ display: "grid", lineHeight: 1, mb: 3 }}>
-      {/* One word. A space made it read as two products sharing a header. */}
-      <Box sx={{ display: "flex", alignItems: "baseline" }}>
-        <Box component="span" sx={{
-          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: 30, fontWeight: 800, letterSpacing: "-0.03em", color: INK,
-        }}>APSO</Box>
-        <Box component="span" sx={{
-          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: 30, fontWeight: 700, letterSpacing: "-0.01em",
-          background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
-          WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-          // The painted box has to be wider than the glyphs or the b is clipped.
-          display: "inline-block", paddingRight: "6px", marginRight: "-4px",
-        }}>hub</Box>
-      </Box>
-      <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.4 }}>apsoparts.com</Typography>
-    </Box>
-  );
-}
 
 export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
@@ -52,7 +31,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         border: "1px solid rgba(255,255,255,.85)",
         boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 20px 48px rgba(31,45,78,.12)",
       }}>
-        <Wordmark />
+        <Box sx={{ mb: 3 }}><Wordmark size={24} /></Box>
         {children}
       </Box>
     </Box>
