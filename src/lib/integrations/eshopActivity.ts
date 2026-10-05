@@ -199,21 +199,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
     method: "POST",
     body: {
       filterGroups: [{ filters: conditions }],
-      properties: [
-        "name", "company_unique_number", "mandant", logins, views,
-        // every year, so a row can show whether this customer is growing or dying
-        ...ESHOP_YEARS.flatMap((y) => [loginsProp(y), viewsProp(y)]),
-        "erp_rev_ytd_cy", "country_custom", "apso_customer", "sales_priority",
-        // The columns the desktop E-Shop Data Tracker carries that this screen
-        // did not: short address, phone, usage class, delivery and payment.
-        "compass_customer_short_address", "phone", "compass_customer_class",
-        "compass_delivery_condition", "compass_payment_condition",
-        // The representative IS the company owner (SARCLA, 01.10). ownername and
-        // owneremail are empty on these records, so the id is resolved against
-        // the owners API rather than read off the company.
-        "hubspot_owner_id",
-        "eshop_activity",
-      ],
+      properties: rowProperties(year),
       sorts: [{ propertyName: sortProperty, direction: "DESCENDING" }],
       limit,
       ...(filters.after ? { after: filters.after } : {}),
@@ -224,52 +210,7 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
   const to = filters.to ?? new Date().toISOString().slice(0, 10);
   const from = filters.from ?? new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
   const ownerIndex = await owners(signal);
-  const rows: EshopRow[] = (res.results ?? []).map((r) => {
-    const p = r.properties ?? {};
-    const l = num(p[logins]);
-    const v = num(p[views]);
-    return {
-      id: String(r.id ?? ""),
-      mandant: str(p.mandant),
-      customerNumber: str(p.company_unique_number),
-      name: str(p.name),
-      logins: l,
-      views: v,
-      viewsPerLogin: v != null && l ? v / l : null,
-      revenueYtd: num(p.erp_rev_ytd_cy),
-      country: str(p.country_custom),
-      representative: ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
-      apsoCustomer: str(p.apso_customer),
-      salesPriority: str(p.sales_priority),
-      shortAddress: str(p.compass_customer_short_address),
-      phone: str(p.phone),
-      usageClass: str(p.compass_customer_class),
-      deliveryCondition: str(p.compass_delivery_condition),
-      paymentCondition: str(p.compass_payment_condition),
-      rangeViews: sumRange(p.eshop_activity, from, to).views,
-      rangeLogins: sumRange(p.eshop_activity, from, to).logins,
-      recent: (() => {
-        try {
-          const j = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson;
-          return (j.recent ?? [])
-            .filter((r) => r?.t && (r.a || r.p))
-            .map((r) => ({
-              t: String(r.t),
-              article: r.a ? String(r.a) : null,
-              product: r.p ? String(r.p) : null,
-              qty: typeof r.q === "number" && r.q > 0 ? r.q : null,
-              cart: r.c === 1,
-              ordered: r.o === 1,
-              contact: r.u != null && String(r.u).trim() ? String(r.u).trim() : null,
-            }))
-            .slice(-12);
-        } catch { return []; }
-      })(),
-      history: [...ESHOP_YEARS]
-        .sort((a, b) => a - b)
-        .map((y) => ({ year: y, logins: num(p[loginsProp(y)]), views: num(p[viewsProp(y)]) })),
-    };
-  });
+  const rows: EshopRow[] = (res.results ?? []).map((r) => rowFromCompany(r, { year, from, to, ownerIndex }));
 
   return {
     year,
@@ -283,6 +224,106 @@ export async function fetchEshopActivity(filters: EshopFilters = {}, signal?: Ab
     mandants: [...new Set(rows.map((r) => r.mandant).filter((m): m is string => !!m))].sort(),
     generatedAt: new Date().toISOString(),
   };
+}
+
+/** Everything a customer row is drawn from - one list, so every way a row is read shows the same columns. */
+function rowProperties(year: EshopYear): string[] {
+  return [
+    "name", "company_unique_number", "mandant", loginsProp(year), viewsProp(year),
+    // every year, so a row can show whether this customer is growing or dying
+    ...ESHOP_YEARS.flatMap((y) => [loginsProp(y), viewsProp(y)]),
+    "erp_rev_ytd_cy", "country_custom", "apso_customer", "sales_priority",
+    // The columns the desktop E-Shop Data Tracker carries that this screen
+    // did not: short address, phone, usage class, delivery and payment.
+    "compass_customer_short_address", "phone", "compass_customer_class",
+    "compass_delivery_condition", "compass_payment_condition",
+    // The representative IS the company owner (SARCLA, 01.10). ownername and
+    // owneremail are empty on these records, so the id is resolved against
+    // the owners API rather than read off the company.
+    "hubspot_owner_id",
+    "eshop_activity",
+  ];
+}
+
+function rowFromCompany(
+  r: { id?: string; properties?: Record<string, unknown> },
+  ctx: { year: EshopYear; from: string; to: string; ownerIndex: Map<string, string> },
+): EshopRow {
+  const { from, to, ownerIndex } = ctx;
+  const logins = loginsProp(ctx.year);
+  const views = viewsProp(ctx.year);
+  const p = r.properties ?? {};
+  const l = num(p[logins]);
+  const v = num(p[views]);
+  return {
+    id: String(r.id ?? ""),
+    mandant: str(p.mandant),
+    customerNumber: str(p.company_unique_number),
+    name: str(p.name),
+    logins: l,
+    views: v,
+    viewsPerLogin: v != null && l ? v / l : null,
+    revenueYtd: num(p.erp_rev_ytd_cy),
+    country: str(p.country_custom),
+    representative: ownerIndex.get(String(p.hubspot_owner_id ?? "")) ?? null,
+    apsoCustomer: str(p.apso_customer),
+    salesPriority: str(p.sales_priority),
+    shortAddress: str(p.compass_customer_short_address),
+    phone: str(p.phone),
+    usageClass: str(p.compass_customer_class),
+    deliveryCondition: str(p.compass_delivery_condition),
+    paymentCondition: str(p.compass_payment_condition),
+    rangeViews: sumRange(p.eshop_activity, from, to).views,
+    rangeLogins: sumRange(p.eshop_activity, from, to).logins,
+    recent: (() => {
+      try {
+        const j = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson;
+        return (j.recent ?? [])
+          .filter((r) => r?.t && (r.a || r.p))
+          .map((r) => ({
+            t: String(r.t),
+            article: r.a ? String(r.a) : null,
+            product: r.p ? String(r.p) : null,
+            qty: typeof r.q === "number" && r.q > 0 ? r.q : null,
+            cart: r.c === 1,
+            ordered: r.o === 1,
+            contact: r.u != null && String(r.u).trim() ? String(r.u).trim() : null,
+          }))
+          .slice(-12);
+      } catch { return []; }
+    })(),
+    history: [...ESHOP_YEARS]
+      .sort((a, b) => a - b)
+      .map((y) => ({ year: y, logins: num(p[loginsProp(y)]), views: num(p[viewsProp(y)]) })),
+  };
+}
+
+/**
+ * The same row for named companies - the customers who ORDERED in the window
+ * but are not among the rows the activity search returned.
+ *
+ * SARCLA, 05.10: "order but no view, no login - a lot of fields are empty that
+ * should not be". Those rows were built from the order read alone, so revenue,
+ * the year-by-year history, address, phone and conditions were blank although
+ * the company carries them - and a customer whose activity simply sat past the
+ * first page of the search showed no visit it had in fact made.
+ */
+export async function fetchCompanyRows(
+  ids: string[], opts: { year?: EshopYear; from: string; to: string }, signal?: AbortSignal,
+): Promise<EshopRow[]> {
+  const year = opts.year ?? 2026;
+  const ownerIndex = await owners(signal);
+  const out: EshopRow[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, unknown> }[] }>({
+      path: "/crm/v3/objects/companies/batch/read",
+      method: "POST",
+      body: { properties: rowProperties(year), inputs: ids.slice(i, i + 100).map((id) => ({ id })) },
+      signal,
+    });
+    for (const r of res.results ?? []) out.push(rowFromCompany(r, { year, from: opts.from, to: opts.to, ownerIndex }));
+  }
+  return out;
 }
 
 /** The option lists for the pickers, read from the property definitions. */

@@ -43,7 +43,7 @@ import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
-import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
+import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopRow, type EshopYear } from "@/lib/integrations/eshopActivity";
 import { VALUE_FLOOR_ACTIVE, companyPasses, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
@@ -120,6 +120,8 @@ const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
 /** 0-1 = contacts. */
 const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
+/** Hover text for a customer who ordered with no visit on record. */
+const NO_VISIT = "Ordered, but the shop tracker recorded no visit: it only counts a customer it sees signed in with the smart bar loaded.";
 const hsOrderUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-123/${id}`;
 
 // What the SERVER sorts by, which decides which rows arrive first when there
@@ -822,6 +824,43 @@ function EshopActivityPage() {
   // leaving them out is what made the live screen look like it was missing
   // data. They come in with no views rather than with invented ones.
   const ordersBy = orders?.byCompany ?? {};
+
+  // A customer who ordered but is not among the activity rows gets the SAME row,
+  // read by id: revenue, the 2021-2026 history, address, phone, conditions - and
+  // a visit that sat past the first page of the search. Until it arrives (or if
+  // the read fails) the row stands on what the orders said.
+  const [orderOnly, setOrderOnly] = useState<Record<string, EshopRow>>({});
+  const orderOnlyAsked = useRef(new Set<string>());
+  const orderOnlyGen = useRef(0);
+  useEffect(() => {
+    orderOnlyGen.current++;
+    orderOnlyAsked.current = new Set();
+    setOrderOnly({});
+  }, [periodFrom, periodTo, year]);
+  const loadedIds = new Set(loadedRows.map((r) => r.id));
+  const orderOnlyWanted = orders
+    ? Object.keys(ordersBy).filter((id) => !loadedIds.has(id) && orders.companies[id]).sort().join(",")
+    : "";
+  useEffect(() => {
+    const ids = orderOnlyWanted ? orderOnlyWanted.split(",").filter((id) => !orderOnlyAsked.current.has(id)) : [];
+    if (!ids.length) return;
+    ids.forEach((id) => orderOnlyAsked.current.add(id));
+    const gen = orderOnlyGen.current;
+    for (let i = 0; i < ids.length; i += 100) {
+      const q = new URLSearchParams({ ids: ids.slice(i, i + 100).join(","), from: periodFrom, to: periodTo, year: String(year) });
+      fetch(`/api/datatracker/companies?${q}`)
+        .then((r) => r.json())
+        .then((j) => {
+          if (!j?.ok || gen !== orderOnlyGen.current) return;
+          setOrderOnly((cur) => {
+            const next = { ...cur };
+            for (const row of j.rows as EshopRow[]) next[row.id] = row;
+            return next;
+          });
+        })
+        .catch(() => {});
+    }
+  }, [orderOnlyWanted, periodFrom, periodTo, year]);
   const allRows = (() => {
     if (!orders) return loadedRows;
     const known = new Set(loadedRows.map((r) => r.id));
@@ -831,6 +870,8 @@ function EshopActivityPage() {
     const extra = Object.keys(ordersBy)
       .filter((id) => !known.has(id) && orders.companies[id] && companyPasses(orders.companies[id], want))
       .map((id) => {
+        const full = orderOnly[id];
+        if (full) return full;
         const c = orders.companies[id];
         return {
           id, mandant: c.mandant, customerNumber: c.customerNumber, name: c.name,
@@ -1248,8 +1289,17 @@ function EshopActivityPage() {
                   <TableCell sx={{ color: MUTED, ...clip }}>
                     <Tooltip title={r.salesPriority ?? ""} describeChild><span>{shortPriority(r.salesPriority)}</span></Tooltip>
                   </TableCell>
-                  <TableCell align="right" sx={{ color: INK }}>{full(live ? r.rangeLogins : r.logins)}</TableCell>
-                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(live ? r.rangeViews : r.views)}</TableCell>
+                  {/* Ordered, yet no visit recorded: the shop tracker never saw this
+                      customer signed in. Said on hover, so the dash is not read as
+                      a value that failed to load. */}
+                  <TableCell align="right" sx={{ color: INK }}
+                    title={(live ? r.rangeLogins : r.logins) == null && (ordersBy[r.id]?.orders ?? 0) > 0 ? NO_VISIT : undefined}>
+                    {full(live ? r.rangeLogins : r.logins)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}
+                    title={(live ? r.rangeViews : r.views) == null && (ordersBy[r.id]?.orders ?? 0) > 0 ? NO_VISIT : undefined}>
+                    {full(live ? r.rangeViews : r.views)}
+                  </TableCell>
                   <TableCell align="right" sx={{ color: INK }}>
                     {orders == null ? "…" : full(ordersBy[r.id]?.orders ?? 0)}
                   </TableCell>
