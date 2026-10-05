@@ -13,7 +13,11 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { runPriceCheckNotifications } from "./priceChecks";
 
-const NOTIFY_LOCK = 4_107_203;
+// Advisory locks across the hub, so two schedulers cannot silently skip each
+// other: 4107201 DoC, 4107202 Erosion, 4107203 Articles, 4107204 Segmentation,
+// 4107205 shop looks. This one took 203 and collided with Articles — whichever
+// ticked second got nothing and said nothing.
+const NOTIFY_LOCK = 4_107_206;
 const TICK_MS = 10 * 60_000;
 const SEND_HOUR = 7;
 const KV_DONE = "notify:priceChecks:done";
