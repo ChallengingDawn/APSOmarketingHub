@@ -72,23 +72,6 @@ export const APPS: HubApp[] = [
     ],
   },
   {
-    // The measurement behind the site rather than the site's own numbers: what
-    // is happening now, whether the counting can be trusted, and what consent
-    // lets us see at all. Website answers "how did we do"; this answers "can we
-    // believe it, and what is happening this minute".
-    key: "reporting",
-    href: "/live",
-    name: "Advanced reporting",
-    line: "Live traffic, the health of the measurement, and what consent allows.",
-    from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
-    subs: [
-      { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
-      { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
-      { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
-      { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
-    ],
-  },
-  {
     key: "marketing",
     href: "/create",
     name: "Marketing & Content",
@@ -119,6 +102,23 @@ export const APPS: HubApp[] = [
       { name: "Visitors", note: "Traffic beside the companies we know", href: "/customers/visitors", icon: "groups", ...TEAL },
       { name: "SMEC targets", note: "Where the targets stand", href: "/analytics/smec", icon: "target", ...AMBER },
       { name: "New customers", note: "Who arrived this period", href: "/analytics/new-customers", icon: "groups", ...PINK },
+    ],
+  },
+  {
+    // The measurement behind the site rather than the site's own numbers: what
+    // is happening now, whether the counting can be trusted, and what consent
+    // lets us see at all. Website answers "how did we do"; this answers "can we
+    // believe it, and what is happening this minute".
+    key: "reporting",
+    href: "/live",
+    name: "Advanced reporting",
+    line: "Live traffic, the health of the measurement, and what consent allows.",
+    from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
+    subs: [
+      { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
+      { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
+      { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
+      { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
     ],
   },
   {

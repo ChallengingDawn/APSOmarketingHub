@@ -127,7 +127,18 @@ export function ensureSchema(): Promise<void> {
     // Website into Advanced reporting. Everyone who had Website would have lost
     // them on the deploy, so their Website grant is copied across once \u2014 behind
     // a flag, so an admin who then takes Advanced reporting away keeps it away.
-    if (!(await kvGet("access:reporting-split"))) {
+    //
+    // The flag is read and written with RAW QUERIES, not kvGet/kvSet. Those
+    // begin with `await ensureSchema()` — which, called from inside
+    // ensureSchema, hands back the promise this very function is still inside.
+    // It waits on itself and never resolves, so every request that touches the
+    // database hangs for ever while the health check, which does not, keeps
+    // reporting the task healthy. That is what took the hub down on 05.10; the
+    // seed below has always used raw queries for exactly this reason.
+    const split = await query<{ k: string }>(
+      `SELECT k FROM apsomh_kv WHERE k = 'access:reporting-split' LIMIT 1`,
+    );
+    if (split.rows.length === 0) {
       await query(`
         INSERT INTO apsomh_user_app_access (user_id, app_key, level, granted_by)
         SELECT user_id, 'reporting', level, 'the Website split'
@@ -135,7 +146,11 @@ export function ensureSchema(): Promise<void> {
          WHERE app_key = 'website'
         ON CONFLICT (user_id, app_key) DO NOTHING
       `);
-      await kvSet("access:reporting-split", { at: new Date().toISOString() });
+      await query(
+        `INSERT INTO apsomh_kv (k, v, updated_at) VALUES ('access:reporting-split', $1, NOW())
+         ON CONFLICT (k) DO NOTHING`,
+        [JSON.stringify({ at: new Date().toISOString() })],
+      );
     }
 
     // NOBODY LOSES ACCESS ON THE DAY THE GUARDS SWITCH ON.

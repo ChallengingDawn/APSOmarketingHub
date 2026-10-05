@@ -138,23 +138,6 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // What the site did is one question; whether we can believe the numbers, and
-    // what is happening this minute, is another. Live comes first because it is
-    // the one people open without a reason.
-    title: "Advanced reporting",
-    home: "/live",
-    icon: <InsightsIcon />,
-    color: "#1f6fa8",
-    items: [
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
-      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
-      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
-      // with Tracking health rather than among the use cases.
-      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
-    ],
-  },
-  {
     title: "Marketing & Content",
     icon: <AutoAwesomeIcon />,
     color: RED,
@@ -192,6 +175,23 @@ const navSections: NavSection[] = [
       { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
       { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
       { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
+    ],
+  },
+  {
+    // What the site did is one question; whether we can believe the numbers, and
+    // what is happening this minute, is another. Live comes first because it is
+    // the one people open without a reason.
+    title: "Advanced reporting",
+    home: "/live",
+    icon: <InsightsIcon />,
+    color: "#1f6fa8",
+    items: [
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
+      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
+      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
+      // with Tracking health rather than among the use cases.
+      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
   {

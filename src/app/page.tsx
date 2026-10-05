@@ -173,6 +173,9 @@ export default function FrontPage() {
     return !key || openFor(key);
   };
 
+  // One or two apps should not stretch across the window; three or more share it.
+  const wide = visibleApps.length < 3 ? "minmax(0, 340px)" : "minmax(0, 1fr)";
+
   const hits = useMemo<Hit[]>(
     () => searchApps(q).filter((h) => mayOpen(h.href)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -346,12 +349,23 @@ export default function FrontPage() {
             hand you five doors does not need a paragraph telling you so. The
             apps start at the top, where the eye already is. */}
         {/* --------------------------------------------------------- applications */}
+        {/* As many columns as there are apps, never more. The count was fixed at
+            five, so somebody with one app got a tile a fifth of the width and a
+            row of white space beside it — and six apps wrapped one onto a line
+            of its own. Below three the tiles stop stretching and take a sensible
+            width instead, because a single card spanning the window is not a
+            launch pad, it is a billboard. */}
         <Box id="applications" sx={{
           display: "grid", gap: { xs: 2, md: 2 }, alignItems: "stretch", mt: { xs: 2.5, md: 3 },
+          justifyContent: "start",
           gridTemplateColumns: {
-            xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)",
+            xs: "1fr",
+            sm: `repeat(${Math.min(visibleApps.length, 2)}, ${wide})`,
+            md: `repeat(${Math.min(visibleApps.length, 3)}, ${wide})`,
           },
-          "@media (min-width:1280px)": { gridTemplateColumns: "repeat(5, 1fr)" },
+          "@media (min-width:1280px)": {
+            gridTemplateColumns: `repeat(${Math.min(visibleApps.length, 6)}, ${wide})`,
+          },
         }}>
           {visibleApps.map((a, i) => {
             const open = !!expanded[a.key];
