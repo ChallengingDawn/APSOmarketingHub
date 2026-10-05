@@ -188,6 +188,28 @@ const ROUTES: [string, AppKey][] = [
   ["/uc", "uc"],
 ];
 
+/**
+ * The hub's own pages that are still only an admin's.
+ *
+ * These belong to no app, so the grants say nothing about them — which is how a
+ * viewer ended up being offered "Integrations" and "Audit" in their quick links
+ * and in search results. The pages themselves refuse; this is so nothing offers
+ * them in the first place.
+ */
+const ADMIN_PATHS = [
+  "/settings/people",
+  "/settings/roles",
+  "/settings/integrations",
+  "/settings/audit",
+  "/audit",
+  "/admin",
+];
+
+export function adminOnlyPath(pathname: string): boolean {
+  const path = pathname.split("?")[0];
+  return ADMIN_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
 /** The app a path belongs to, or null for the hub's own pages. */
 export function appForPath(pathname: string): AppKey | null {
   let best: [string, AppKey] | null = null;

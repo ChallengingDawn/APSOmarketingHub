@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
-  maySelfRegister, SELF_SIGNUP_ROLE, STARTER_GRANTS, appForPath,
+  maySelfRegister, SELF_SIGNUP_ROLE, STARTER_GRANTS, appForPath, adminOnlyPath,
 } from "../src/lib/auth/access";
 
 // The two halves must stay apart: the role caps, the grant chooses.
@@ -133,4 +133,21 @@ test("a new account starts on the Datatracker and nothing else", () => {
   // And the starting role can actually use it: a viewer reads.
   assert.equal(effectiveLevel(SELF_SIGNUP_ROLE, STARTER_GRANTS.datatracker), "read");
   assert.equal(canOpen(SELF_SIGNUP_ROLE, STARTER_GRANTS.website), false);
+});
+
+// Governance pages belong to no app, so the grants cannot speak for them. They
+// were being offered in quick links and in search to people the page refuses.
+test("the governance pages are an admin's, app or no app", () => {
+  assert.equal(adminOnlyPath("/settings/people"), true);
+  assert.equal(adminOnlyPath("/settings/integrations"), true);
+  assert.equal(adminOnlyPath("/settings/audit"), true);
+  assert.equal(adminOnlyPath("/audit"), true);
+  assert.equal(adminOnlyPath("/settings/roles"), true);
+  // Everybody's own corner of Settings is not one of them.
+  assert.equal(adminOnlyPath("/settings"), false);
+  assert.equal(adminOnlyPath("/settings/you"), false);
+  assert.equal(adminOnlyPath("/settings/security"), false);
+  assert.equal(adminOnlyPath("/docs"), false);
+  // A near-miss must not match.
+  assert.equal(adminOnlyPath("/settings/people-ish"), false);
 });

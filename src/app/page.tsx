@@ -37,7 +37,7 @@ import QuickLinks from "./QuickLinks";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
-import type { Role } from "@/lib/auth/access";
+import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -125,10 +125,31 @@ export default function FrontPage() {
   // and a sentence saying who to ask. While previewing, this shows what THEY
   // would see, which is the point of previewing.
   const openFor = (key: string) => (viewed ? canOpen(key) : mine ? mine[key] : true);
+  // Declared here, not beside the header: everything below reads it, and a
+  // const used above its own line is a blank page, not a type error.
+  const role = viewed?.role ?? myRole;
   const visibleApps = APPS.filter((a) => openFor(a.key));
   const hiddenCount = APPS.length - visibleApps.length;
 
-  const hits = useMemo<Hit[]>(() => searchApps(q), [q]);
+  /**
+   * One rule for every link this page draws: the header, the search, the quick
+   * links. Nothing is offered that the person would be turned away from — the
+   * guards still refuse, but being offered a door that slams is worse than not
+   * seeing the door.
+   */
+  const mayOpen = (href: string) => {
+    const path = href.split("?")[0];
+    if (!path.startsWith("/")) return true; // the shop, HubSpot — not ours to gate
+    if (adminOnlyPath(path) && role !== "admin") return false;
+    const key = appForPath(path);
+    return !key || openFor(key);
+  };
+
+  const hits = useMemo<Hit[]>(
+    () => searchApps(q).filter((h) => mayOpen(h.href)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [q, mine, viewed, role],
+  );
 
   useEffect(() => {
     const away = (e: MouseEvent) => {
@@ -144,7 +165,6 @@ export default function FrontPage() {
   // A viewer was offered the whole strip — Applications, Mission Control, Live,
   // Resources — when their hub is one app. Home and Settings is the honest
   // header for them; everything else earns its place or is not drawn.
-  const role = viewed?.role ?? myRole;
   const reads = role === "viewer";
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, on: true, show: true },
@@ -417,7 +437,7 @@ export default function FrontPage() {
           "@media (min-width:1280px)": { gridTemplateColumns: "1.15fr 1fr 1fr" },
           ...rise(6),
         }}>
-          <QuickLinks glass={glass} />
+          <QuickLinks glass={glass} mayOpen={mayOpen} />
 
           <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
             <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", mb: 1.75 }}>

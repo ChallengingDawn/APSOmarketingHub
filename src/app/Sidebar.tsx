@@ -65,7 +65,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Link from "next/link";
 
-import { appForPath, type Role } from "@/lib/auth/access";
+import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 import { useViewAs } from "@/app/ViewAs";
 
 const DRAWER_WIDTH = 300;
@@ -407,7 +407,9 @@ export default function Sidebar() {
 
   const role = viewed?.role ?? acc?.role;
   const allowed = (item: Item) => {
-    if (item.adminOnly && role !== "admin") return false;
+    // The flag says so, or the path does. Two ways to spell the same rule, so a
+    // governance page added later is covered without anyone remembering to.
+    if ((item.adminOnly || adminOnlyPath(item.href)) && role !== "admin") return false;
     // The Datatracker's rows carry a tab in the query; the route map reads paths.
     const app = appForPath(item.href.split("?")[0]);
     if (!app) return true;

@@ -47,7 +47,15 @@ const glyph = (b: Built) =>
 
 type Custom = { label: string; href: string };
 
-export default function QuickLinks({ glass }: { glass: Record<string, unknown> }) {
+/**
+ * `mayOpen` comes from the front page, which is the one place that knows this
+ * person's role and grants. Without it a viewer was offered Integrations and
+ * Audit here — two tiles that exist only to turn them away.
+ */
+export default function QuickLinks({ glass, mayOpen }: {
+  glass: Record<string, unknown>;
+  mayOpen?: (href: string) => boolean;
+}) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [custom, setCustom] = useState<Custom[]>([]);
   const [editing, setEditing] = useState(false);
@@ -117,7 +125,10 @@ export default function QuickLinks({ glass }: { glass: Record<string, unknown> }
     "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 3 },
   };
 
-  const shown = BUILT_IN.filter((b) => !hidden.includes(b.id));
+  // Reachable first, then the ones they have not hidden. Editing shows every
+  // tile they could have — not every tile that exists.
+  const reachable = BUILT_IN.filter((b) => !mayOpen || mayOpen(b.href));
+  const shown = reachable.filter((b) => !hidden.includes(b.id));
 
   return (
     <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
@@ -134,7 +145,7 @@ export default function QuickLinks({ glass }: { glass: Record<string, unknown> }
       </Box>
 
       <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap" }}>
-        {(editing ? BUILT_IN : shown).map((b) => {
+        {(editing ? reachable : shown).map((b) => {
           const off = hidden.includes(b.id);
           return (
             <Box key={b.id}
