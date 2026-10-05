@@ -158,6 +158,9 @@ const ROUTES: [string, AppKey][] = [
   ["/analytics/consent", "website"],
   ["/analytics/web-orders", "website"],
 
+  // It is named after the hub, but what it draws is the content calendar and
+  // the library — the Marketing app's own data. It belongs where its data does.
+  ["/mission-control", "marketing"],
   ["/create", "marketing"],
   ["/library", "marketing"],
   ["/templates", "marketing"],

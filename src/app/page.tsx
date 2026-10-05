@@ -37,6 +37,7 @@ import QuickLinks from "./QuickLinks";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
+import type { Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -87,10 +88,15 @@ export default function FrontPage() {
   // Your OWN access, so the wall is honest before you click. The guard on each
   // app's layout is what actually refuses; this only saves the trip.
   const [mine, setMine] = useState<Record<string, boolean> | null>(null);
+  const [myRole, setMyRole] = useState<Role | null>(null);
   useEffect(() => {
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j?.ok) setMine(j.open as Record<string, boolean>); })
+      .then((j) => {
+        if (!j?.ok) return;
+        setMine(j.open as Record<string, boolean>);
+        setMyRole(j.role as Role);
+      })
       .catch(() => {});
   }, []);
   const [initials, setInitials] = useState("");
@@ -135,14 +141,19 @@ export default function FrontPage() {
   // One row. Destinations and the two in-page anchors together — a second nav
   // strip underneath asked people to learn two menus on one screen, and put
   // Settings in the chrome twice. Account things live behind the avatar now.
+  // A viewer was offered the whole strip — Applications, Mission Control, Live,
+  // Resources — when their hub is one app. Home and Settings is the honest
+  // header for them; everything else earns its place or is not drawn.
+  const role = viewed?.role ?? myRole;
+  const reads = role === "viewer";
   const NAV = [
-    { name: "Home", href: "/", icon: <HomeIcon />, on: true },
-    { name: "Applications", href: "#applications", icon: <AppsIcon />, on: false },
-    { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, on: false },
-    { name: "Live", href: "/live", icon: <SensorsIcon />, on: false },
-    { name: "Resources", href: "#resources", icon: <MenuBookIcon />, on: false },
-    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, on: false },
-  ];
+    { name: "Home", href: "/", icon: <HomeIcon />, on: true, show: true },
+    { name: "Applications", href: "#applications", icon: <AppsIcon />, on: false, show: !reads },
+    { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, on: false, show: openFor("marketing") },
+    { name: "Live", href: "/live", icon: <SensorsIcon />, on: false, show: openFor("website") },
+    { name: "Resources", href: "#resources", icon: <MenuBookIcon />, on: false, show: !reads },
+    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, on: false, show: true },
+  ].filter((n) => n.show);
 
   return (
     <Box sx={{
@@ -423,6 +434,7 @@ export default function FrontPage() {
             </Box>
           </Box>
 
+          {openFor("marketing") && (
           <Box component={Link} href="/mission-control" sx={{
             ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, position: "relative", overflow: "hidden",
             textDecoration: "none", minHeight: 170, display: "flex", flexDirection: "column", justifyContent: "center",
@@ -453,20 +465,32 @@ export default function FrontPage() {
               <path d="M130 12 L148 17 L130 23 Z" fill="#ec4899" />
             </Box>
 
+            {/* It said "Different tools. A bigger tomorrow." — a slogan where a
+                description should be. The thing it names is not built, so the
+                card says what it is meant to become and admits it is not that
+                yet. A promise drawn as a finished feature is the worst of the
+                three options. */}
+            <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.6, mb: 1 }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#a96a12" }} />
+              <Typography sx={{
+                fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em",
+                textTransform: "uppercase", color: "#a96a12",
+              }}>Not built yet</Typography>
+            </Box>
             <Typography sx={{
               position: "relative",
               fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
               fontSize: "1.32rem", fontWeight: 600, color: INK, letterSpacing: "-0.03em", lineHeight: 1.18,
             }}>
-              Different tools.<br />
               <Box component="span" sx={{
                 background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
                 WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
                 display: "inline-block", paddingRight: "6px", marginRight: "-4px",
-              }}>A bigger tomorrow.</Box>
+              }}>Mission Control</Box>
             </Typography>
-            <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 1 }}>
-              Data. Content. Customers. Growth.
+            <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 0.75, maxWidth: "34ch", lineHeight: 1.45 }}>
+              One screen for the whole hub: what each app is doing, what is waiting on a person, and what
+              changed overnight. Today it shows the content calendar and nothing else.
             </Typography>
             <Box className="go" sx={{
               position: "absolute", right: 18, bottom: 18, width: 42, height: 42, borderRadius: "50%",
@@ -477,6 +501,7 @@ export default function FrontPage() {
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             }}><ChevronRightIcon /></Box>
           </Box>
+          )}
         </Box>
 
       </Box>

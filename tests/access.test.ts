@@ -111,11 +111,16 @@ test("analytics splits by subject, longest prefix winning", () => {
   assert.equal(appForPath("/analytics/something-new"), "journey");
 });
 
+// Named after the hub, but it draws the content calendar: it is the Marketing
+// app's page, and a viewer with only the Datatracker must not be offered it.
+test("mission control belongs to the app whose data it shows", () => {
+  assert.equal(appForPath("/mission-control"), "marketing");
+});
+
 test("the hub's own pages belong to no app", () => {
   assert.equal(appForPath("/"), null);
   assert.equal(appForPath("/settings"), null);
   assert.equal(appForPath("/settings/people"), null);
-  assert.equal(appForPath("/mission-control"), null);
   // A near-miss must not match: /website-ish is not /website
   assert.equal(appForPath("/websites"), null);
 });
