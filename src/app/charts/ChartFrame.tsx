@@ -34,7 +34,11 @@ export function ChartFrame({
   children,
   aside,
 }: {
-  title: string;
+  /**
+   * Optional: a card that already carries a titled header passes none, and the
+   * frame draws the toggle alone rather than a second heading under the first.
+   */
+  title?: string;
   caption?: ReactNode;
   table?: TableTwin;
   /** A newer request is in flight — hold the last render, dimmed. */
@@ -56,15 +60,20 @@ export function ChartFrame({
           gap: 2,
           mb: 1.5,
           flexWrap: "wrap",
+          // Nothing on the left when the card owns the heading: push the toggle
+          // to the right rather than leaving it stranded mid-row.
+          ...(title ? {} : { justifyContent: "flex-end", mt: -1 }),
         }}
       >
         <Box sx={{ minWidth: 0 }}>
-          <Typography
-            component="figcaption"
-            sx={{ fontSize: "0.95rem", fontWeight: 600, color: CHROME.ink, letterSpacing: "-0.01em" }}
-          >
-            {title}
-          </Typography>
+          {title && (
+            <Typography
+              component="figcaption"
+              sx={{ fontSize: "0.95rem", fontWeight: 600, color: CHROME.ink, letterSpacing: "-0.01em" }}
+            >
+              {title}
+            </Typography>
+          )}
           {caption && (
             <Typography sx={{ fontSize: "0.78rem", color: CHROME.muted, mt: 0.25 }}>{caption}</Typography>
           )}

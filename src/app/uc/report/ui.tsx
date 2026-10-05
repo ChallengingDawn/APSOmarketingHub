@@ -82,11 +82,25 @@ export function CardTitle({ icon, tint = "blue", title, note, right }: {
   );
 }
 
-/** A headline number: badge, label, the figure, one note under it. */
-export function KpiTile({ icon, tint = "blue", label, value, note }: {
+/**
+ * A headline number: badge, label, the figure, and either a note or a change.
+ *
+ * The change is the half that was missing. A figure on its own says what it is;
+ * "402K, down 4.4% on the previous 365 days" says whether to care. Up is not
+ * assumed to be good — the arrow and the words carry the direction, the colour
+ * only agrees with them, so a metric where down is better reads correctly to
+ * somebody who cannot see the colour at all.
+ */
+export function KpiTile({ icon, tint = "blue", label, value, note, delta }: {
   icon: React.ReactNode; tint?: Tint; label: string; value: string; note?: string;
+  delta?: { ratio: number | null; versus: string; goodWhenUp?: boolean };
 }) {
   const reported = value !== "—";
+  const r = delta?.ratio ?? null;
+  const flat = r !== null && Math.abs(r) < 0.0005;
+  const up = r !== null && r > 0;
+  const good = delta?.goodWhenUp === false ? !up : up;
+  const colour = r === null || flat ? MUTED : good ? GREEN : RED;
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, height: "100%", display: "flex", flexDirection: "column", gap: 1.1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
@@ -97,6 +111,16 @@ export function KpiTile({ icon, tint = "blue", label, value, note }: {
         fontSize: "1.9rem", fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums",
         color: reported ? INK : FAINT,
       }}>{value}</Typography>
+      {delta && (
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6, flexWrap: "wrap" }}>
+          <Typography component="span" sx={{ fontSize: "0.82rem", fontWeight: 700, color: colour, whiteSpace: "nowrap" }}>
+            {r === null ? "no comparison" : flat ? "level" : `${up ? "↑" : "↓"} ${Math.abs(r * 100).toFixed(1)}%`}
+          </Typography>
+          <Typography component="span" sx={{ fontSize: "0.78rem", color: FAINT }}>
+            vs {delta.versus}
+          </Typography>
+        </Box>
+      )}
       {note && <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.4 }}>{note}</Typography>}
     </Box>
   );

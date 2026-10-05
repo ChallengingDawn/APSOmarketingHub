@@ -121,6 +121,23 @@ export function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_apsomh_sessions_user ON apsomh_sessions(user_id)`
     );
 
+    // NOBODY LOSES LIVE WHEN IT CHANGES APPS.
+    //
+    // Live, Tracking health, Cookie consent and Web order sync moved out of
+    // Website into Advanced reporting. Everyone who had Website would have lost
+    // them on the deploy, so their Website grant is copied across once \u2014 behind
+    // a flag, so an admin who then takes Advanced reporting away keeps it away.
+    if (!(await kvGet("access:reporting-split"))) {
+      await query(`
+        INSERT INTO apsomh_user_app_access (user_id, app_key, level, granted_by)
+        SELECT user_id, 'reporting', level, 'the Website split'
+          FROM apsomh_user_app_access
+         WHERE app_key = 'website'
+        ON CONFLICT (user_id, app_key) DO NOTHING
+      `);
+      await kvSet("access:reporting-split", { at: new Date().toISOString() });
+    }
+
     // NOBODY LOSES ACCESS ON THE DAY THE GUARDS SWITCH ON.
     //
     // No row means no access, so turning enforcement on against an empty table

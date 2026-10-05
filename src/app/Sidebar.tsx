@@ -124,11 +124,10 @@ const navSections: NavSection[] = [
     color: "#274e64",
     items: [
       { label: "Mission Control", href: "/mission-control", icon: <DashboardIcon fontSize="small" /> },
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
     ],
   },
   {
-    title: "Website & Intelligence",
+    title: "Website",
     icon: <PublicIcon />,
     color: "#2d6fa8",
     items: [
@@ -136,6 +135,18 @@ const navSections: NavSection[] = [
       { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
       { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
+    ],
+  },
+  {
+    // What the site did is one question; whether we can believe the numbers, and
+    // what is happening this minute, is another. Live comes first because it is
+    // the one people open without a reason.
+    title: "Advanced reporting",
+    home: "/live",
+    icon: <InsightsIcon />,
+    color: "#1f6fa8",
+    items: [
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
       { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
       // A data check (are shop orders reaching HubSpot, against GA4), so it sits

@@ -19,7 +19,7 @@ export type Role = "admin" | "user" | "viewer";
 /** What a person may do in an app they have been granted. */
 export type Level = "none" | "read" | "write";
 
-export const APP_KEYS = ["datatracker", "website", "marketing", "journey", "uc"] as const;
+export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc"] as const;
 export type AppKey = (typeof APP_KEYS)[number];
 
 /** What each role is called on screen. `user` has always meant editor. */
@@ -153,10 +153,13 @@ const ROUTES: [string, AppKey][] = [
   ["/datatracker", "datatracker"],
 
   ["/website", "website"],
-  ["/live", "website"],
-  ["/analytics/tracking", "website"],
-  ["/analytics/consent", "website"],
-  ["/analytics/web-orders", "website"],
+
+  // Advanced reporting: the measurement behind the website rather than the
+  // website's own numbers. Live is its first sub-app.
+  ["/live", "reporting"],
+  ["/analytics/tracking", "reporting"],
+  ["/analytics/consent", "reporting"],
+  ["/analytics/web-orders", "reporting"],
 
   // It is named after the hub, but what it draws is the content calendar and
   // the library — the Marketing app's own data. It belongs where its data does.

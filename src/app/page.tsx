@@ -20,6 +20,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import PublicIcon from "@mui/icons-material/Public";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import HomeIcon from "@mui/icons-material/Home";
@@ -47,7 +48,7 @@ const ACCENT = "#3b7df6";
 
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
-  trend: <TrendingUpIcon />, hub: <HubIcon />,
+  trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />,
 };
 
 /** Real changes, on the dates they shipped. */

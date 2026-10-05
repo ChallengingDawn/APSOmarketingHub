@@ -1,4 +1,4 @@
-// THE FIVE APPS, AND EVERYTHING INSIDE THEM.
+// THE APPS, AND EVERYTHING INSIDE THEM.
 //
 // One list, read by the front page's cards, its search and its "View all".
 // The sidebar groups the same routes; this is the front page's view of them,
@@ -32,7 +32,7 @@ export type HubApp = {
   from: string;
   to: string;
   wash: string;
-  icon: "store" | "globe" | "campaign" | "trend" | "hub";
+  icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart";
   subs: SubApp[];
 };
 
@@ -61,17 +61,30 @@ export const APPS: HubApp[] = [
   {
     key: "website",
     href: "/website/overview",
-    name: "Website & Intelligence",
-    line: "Monitor performance and understand your audience.",
+    name: "Website",
+    line: "What the site does: visits, pages and where they come from.",
     from: "#2ec29a", to: "#13866a", wash: "rgba(46,194,154,.10)", icon: "globe",
     subs: [
-      { name: "Overview", note: "Key website metrics", href: "/website/overview", icon: "bar", ...BLUE },
-      { name: "Audience", note: "Visitor insights and segments", href: "/website/audience", icon: "groups", ...PINK },
-      { name: "Pages", note: "Manage and analyse content", href: "/website/pages", icon: "layers", ...PURPLE },
+      { name: "Site overview", note: "Visits, engagement and revenue", href: "/website/overview", icon: "bar", ...BLUE },
       { name: "Acquisition", note: "Where the visits come from", href: "/website/acquisition", icon: "ads", ...AMBER },
+      { name: "Audience", note: "Who comes, and from where", href: "/website/audience", icon: "groups", ...PINK },
+      { name: "Pages", note: "Which pages carry the traffic", href: "/website/pages", icon: "layers", ...PURPLE },
+    ],
+  },
+  {
+    // The measurement behind the site rather than the site's own numbers: what
+    // is happening now, whether the counting can be trusted, and what consent
+    // lets us see at all. Website answers "how did we do"; this answers "can we
+    // believe it, and what is happening this minute".
+    key: "reporting",
+    href: "/live",
+    name: "Advanced reporting",
+    line: "Live traffic, the health of the measurement, and what consent allows.",
+    from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
+    subs: [
+      { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
       { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
       { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
-      { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
     ],
   },

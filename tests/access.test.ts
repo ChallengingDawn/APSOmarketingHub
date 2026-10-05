@@ -90,7 +90,7 @@ test("appForPath puts every app route under its own app", () => {
   assert.equal(appForPath("/datatracker"), "datatracker");
   assert.equal(appForPath("/datatracker/anything"), "datatracker");
   assert.equal(appForPath("/website/overview"), "website");
-  assert.equal(appForPath("/live"), "website");
+  assert.equal(appForPath("/live"), "reporting");
   assert.equal(appForPath("/seo/quick-wins"), "marketing");
   assert.equal(appForPath("/geo/fix-queue"), "marketing");
   assert.equal(appForPath("/journey/funnels"), "journey");
@@ -100,10 +100,10 @@ test("appForPath puts every app route under its own app", () => {
 });
 
 test("analytics splits by subject, longest prefix winning", () => {
-  // Website questions
-  assert.equal(appForPath("/analytics/tracking"), "website");
-  assert.equal(appForPath("/analytics/consent"), "website");
-  assert.equal(appForPath("/analytics/web-orders"), "website");
+  // The measurement behind the site is Advanced reporting, not Website
+  assert.equal(appForPath("/analytics/tracking"), "reporting");
+  assert.equal(appForPath("/analytics/consent"), "reporting");
+  assert.equal(appForPath("/analytics/web-orders"), "reporting");
   // Journey questions
   assert.equal(appForPath("/analytics/smec"), "journey");
   assert.equal(appForPath("/analytics/buyers"), "journey");
