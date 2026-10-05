@@ -44,7 +44,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { companyPasses, isoDay, periodWindow, shortPriority } from "@/lib/datatracker/rules";
+import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE, companyPasses, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
@@ -357,7 +357,7 @@ function LookTable({ rows, kind, mandantOf }: {
             <TableCell align="right" sx={{ ...h, width: 100 }}>
               {kind === "moq" ? "Minimum" : "On the shelf"}
             </TableCell>
-            <TableCell align="right" sx={{ ...h, width: 96 }}>Value</TableCell>
+            <TableCell align="right" sx={{ ...h, width: 96 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
             <TableCell sx={{ ...h, width: 150 }}>Why it stalled</TableCell>
           </TableRow>
         </TableHead>
@@ -439,7 +439,7 @@ function LookTable({ rows, kind, mandantOf }: {
                               <TableCell align="right" sx={{ ...h, width: 70 }}>Size</TableCell>
                               <TableCell align="right" sx={{ ...h, width: 120 }}>In stock</TableCell>
                               <TableCell sx={{ ...h, width: 124 }}>Minimum</TableCell>
-                              <TableCell align="right" sx={{ ...h, width: 94 }}>Price</TableCell>
+                              <TableCell align="right" sx={{ ...h, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
                               <TableCell sx={{ ...h, width: 118 }} />
                             </TableRow>
                           </TableHead>
@@ -1437,7 +1437,7 @@ function EshopActivityPage() {
             <Table size="small" sx={{ "& td, & th": cell }}>
               <TableHead>
                 <TableRow>
-                  {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict", "Ticket"]
+                  {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", VALUE_FLOOR_ACTIVE ? "Value" : "List value*", "Judged on", "Verdict", "Ticket"]
                     .map((h, i) => (
                       <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"}
                         sx={{ ...HEAD, whiteSpace: "nowrap" }}>{h}</TableCell>
@@ -1481,8 +1481,7 @@ function EshopActivityPage() {
                       }}>
                         {r.excluded ? r.excluded
                           : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting")
-                          : r.counted === 0 ? "No KT/DT article"
-                          : "Under €500"}
+                          : priceCheckShortfall(r)}
                       </Typography>
                     </TableCell>
                     {/* Read back from HubSpot, not assumed. The detector runs on
@@ -1516,8 +1515,8 @@ function EshopActivityPage() {
                                 <TableCell sx={{ ...HEAD, width: 74 }}>PC</TableCell>
                                 <TableCell align="right" sx={{ ...HEAD, width: 80 }}>Qty</TableCell>
                                 <TableCell sx={{ ...HEAD, width: 124 }}>Unit · MOQ</TableCell>
-                                <TableCell align="right" sx={{ ...HEAD, width: 94 }}>Price</TableCell>
-                                <TableCell align="right" sx={{ ...HEAD, width: 98 }}>Value</TableCell>
+                                <TableCell align="right" sx={{ ...HEAD, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
+                                <TableCell align="right" sx={{ ...HEAD, width: 98 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -1572,7 +1571,7 @@ function EshopActivityPage() {
               <br /><br />
               <strong>One ticket per customer per day</strong>, listing everything they priced that day — not one per
               article, or a rep gets five conversations about the same visit. It carries each article with the
-              quantity they asked for, its unit and its minimum order quantity, the value at list price, and the
+              quantity they asked for, its unit and its minimum order quantity,{VALUE_FLOOR_ACTIVE ? " the value at list price," : ""} and the
               contact who did the pricing, so the call can start from what they wanted rather than from a lookup.
               <br /><br />
               <strong>It goes to the company&rsquo;s owner</strong>, into their ESO or TSA queue at New. An owner on
@@ -1580,8 +1579,15 @@ function EshopActivityPage() {
               <br /><br />
               <strong>Not every price check earns one.</strong> We count plastics and sealings (KT and DT), because
               those are the ones this team sells; a 3xxx or 8xxx special is left out, since we hold no price or
-              profit centre for it and would be guessing. The day has to be worth the call at <strong>€500</strong>
-              of list value — a floor, so three cheap articles still is not one. <strong>APSOmicro</strong> and
+              profit centre for it and would be guessing. {VALUE_FLOOR_ACTIVE ? (
+                <>The day has to be worth the call at <strong>€500</strong> of list value — a floor, so three cheap
+                articles still is not one.</>
+              ) : (
+                <>The day needs <strong>{MIN_ARTICLES} or more</strong> of those articles. The €500 floor is paused:
+                Products &amp; Pricing keeps list prices per ERP price unit — per 1, 100 or 1,000 pieces — and not
+                the unit, so a value can read 100 or 1,000 times too high. <strong>List price*</strong> and{" "}
+                <strong>List value*</strong> are those raw figures, a guide only, until the unit is in.</>
+              )} <strong>APSOmicro</strong> and
               <strong> priorities 3 and 4</strong> are not chased at all.
               <br /><br />
               <strong>And we wait a working day.</strong> People buy the next morning. A Friday afternoon tells you

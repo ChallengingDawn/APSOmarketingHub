@@ -46,7 +46,7 @@ import {
   CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, MUTED, Notice, StageChip, TeamChip, bodyCell, clip as clipTo, eur, headCell,
 } from "@/app/uc/report/ui";
 import { isClosed, isWon } from "@/lib/erosion/model";
-import { shortPriority } from "@/lib/datatracker/rules";
+import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 import type { PriceCheckRow, ShopSignals } from "@/lib/integrations/shopSignals";
 import type { RunReport } from "@/lib/integrations/priceCheckTickets";
 import type { PriceCheckTicket, PriceCheckTickets } from "@/lib/integrations/priceCheckOutcomes";
@@ -78,8 +78,7 @@ function Verdict({ r }: { r: PriceCheckRow }) {
     }}>
       {r.excluded ? r.excluded
         : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting")
-        : r.counted === 0 ? "No KT/DT article"
-        : "Under €500"}
+        : priceCheckShortfall(r)}
     </Typography>
   );
 }
@@ -101,8 +100,8 @@ function Articles({ r }: { r: PriceCheckRow }) {
               <TableCell sx={{ fontWeight: 600, color: MUTED, width: 74 }}>PC</TableCell>
               <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 80 }}>Qty</TableCell>
               <TableCell sx={{ fontWeight: 600, color: MUTED, width: 124 }}>Unit · MOQ</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>Price</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>Value</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 94 }}>{VALUE_FLOOR_ACTIVE ? "Price" : "List price*"}</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 98 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -210,7 +209,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
                   <TableCell sx={{ fontWeight: 600, color: MUTED }}>Customer</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED, width: 140 }}>Owner</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 70 }}>Art.</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>Value</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, color: MUTED, width: 96 }}>{VALUE_FLOOR_ACTIVE ? "Value" : "List value*"}</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: MUTED, width: 180 }}>Outcome</TableCell>
                 </TableRow>
               </TableHead>
@@ -253,7 +252,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
           <Table size="small" sx={{ minWidth: 1000, "& td, & th": cell }}>
             <TableHead>
               <TableRow>
-                {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", "Value", "Judged on", "Verdict", "Ticket"].map((h, i) => (
+                {["Day", "Customer", "Mandant", "Owner", "Priority", "Articles", "Counted", VALUE_FLOOR_ACTIVE ? "Value" : "List value*", "Judged on", "Verdict", "Ticket"].map((h, i) => (
                   <TableCell key={h} align={i >= 5 && i <= 7 ? "right" : "left"} sx={{ ...headCell, fontSize: "0.68rem" }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -300,6 +299,13 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
               )}
             </TableBody>
           </Table>
+          {!VALUE_FLOOR_ACTIVE && (
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+              * Per ERP price unit. Products &amp; Pricing keeps list prices per 1, 100 or 1,000 pieces and not the unit,
+              so a value can read 100 or 1,000 times too high. A day qualifies on {MIN_ARTICLES} or more KT/DT articles
+              until the unit is in; the €500 floor is paused.
+            </Typography>
+          )}
         </Box>
       )}
     </GlassCard>
@@ -339,7 +345,7 @@ function AllTickets({ tickets, period }: { tickets: PriceCheckTicket[]; period: 
                     <TableCell sx={{ ...bodyCell, ...clipTo(200) }} align="right" title={t.articles ?? ""}>
                       {full(t.articleCount)}{t.profitCenters ? <Typography component="span" sx={{ color: MUTED, fontSize: "0.74rem" }}> · {t.profitCenters}</Typography> : null}
                     </TableCell>
-                    <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }} align="right">{eur(t.value)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }} align="right">{t.value ? eur(t.value) : "—"}</TableCell>
                     <TableCell sx={bodyCell}><TeamChip team={t.team} /></TableCell>
                     <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", fontSize: "0.82rem" }}>{t.owner}</TableCell>
                     <TableCell sx={bodyCell}><StageChip t={t} /></TableCell>
@@ -429,7 +435,7 @@ export default function PriceCheckTickets() {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<SellOutlinedIcon />} label="Qualify" value={signals ? full(qualifying.length) : "—"}
-            note={`customer-days ${sigFrom} to ${win.to} · ${signals ? `€${compact(qualifying.reduce((s, r) => s + (r.value || 0), 0))} priced and not ordered` : "reading…"}`} />
+            note={`customer-days ${sigFrom} to ${win.to} · ${!signals ? "reading…" : VALUE_FLOOR_ACTIVE ? `€${compact(qualifying.reduce((s, r) => s + (r.value || 0), 0))} priced and not ordered` : `${MIN_ARTICLES}+ KT/DT articles each`}`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="amber" label="Tickets raised" value={ok ? full(inPeriod.length) : "—"}
@@ -440,8 +446,8 @@ export default function PriceCheckTickets() {
             note={ok ? (closed.length ? `${Math.round((100 * won.length) / closed.length)}% of the closed tickets ended in an order` : "no ticket closed yet") : undefined} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<EuroIcon />} tint="pink" label="Value on the tickets" value={ok ? `${eur(inPeriod.reduce((s, t) => s + t.value, 0))} EUR` : "—"}
-            note={ok ? `${eur(won.reduce((s, t) => s + t.value, 0))} EUR of it on tickets closed as ordered` : undefined} />
+          <KpiTile icon={<EuroIcon />} tint="pink" label="Value on the tickets" value={ok && VALUE_FLOOR_ACTIVE ? `${eur(inPeriod.reduce((s, t) => s + t.value, 0))} EUR` : "—"}
+            note={!VALUE_FLOOR_ACTIVE ? "not shown: list prices are per ERP price unit (1, 100 or 1,000 pieces) and the unit is not in Products & Pricing yet" : ok ? `${eur(won.reduce((s, t) => s + t.value, 0))} EUR of it on tickets closed as ordered` : undefined} />
         </Grid>
       </Grid>
 

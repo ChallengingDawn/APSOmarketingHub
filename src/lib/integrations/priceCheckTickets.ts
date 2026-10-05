@@ -19,6 +19,7 @@ import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError, hubspotToken, ticketsToken } from "./status";
 import { fetchShopSignals, type PriceCheckRow } from "./shopSignals";
 import { PIPE_STAGE, ownerName, teamOf } from "../datatracker/rosters";
+import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE } from "../datatracker/rules";
 
 const PP_OBJ = "2-200042439";
 /**
@@ -198,11 +199,17 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
     const { lines, centres, unpriced } = describe(r);
     articlesWithoutPrice += unpriced;
     if (r.counted === 0) { rows.push({ ...base, outcome: "no KT/DT article" }); continue; }
-    if (r.value < 500) {
+    if (VALUE_FLOOR_ACTIVE && r.value < 500) {
       // Nothing priced at all is not a customer below the bar, it is a customer
       // we cannot measure. The two look identical from outside and mean
       // opposite things.
       rows.push({ ...base, outcome: unpriced === r.counted ? "no list price" : "under €500" });
+      continue;
+    }
+    // While the floor is paused (the ERP price unit is not in P&P), the rule is
+    // three KT/DT articles - the same verdict shopSignals drew with priceCheckQualifies.
+    if (!VALUE_FLOOR_ACTIVE && !r.qualifies) {
+      rows.push({ ...base, outcome: `${r.counted} of ${MIN_ARTICLES} articles` });
       continue;
     }
 
@@ -214,7 +221,12 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
 
     const total = Math.round(r.value);
     const n = r.counted;
-    const subject = `PRICE CHECK | ${n} article${n === 1 ? "" : "s"} | ${total.toLocaleString("de-CH")} EUR | ${r.companyName ?? ""}`;
+    // No money on the ticket while the price unit is unknown: list price x
+    // quantity can be 100 or 1,000 times too high, and a sales potential written
+    // from it would be reported on as if it were real.
+    const subject = VALUE_FLOOR_ACTIVE
+      ? `PRICE CHECK | ${n} article${n === 1 ? "" : "s"} | ${total.toLocaleString("de-CH")} EUR | ${r.companyName ?? ""}`
+      : `PRICE CHECK | ${n} article${n === 1 ? "" : "s"} | ${r.companyName ?? ""}`;
     const content = [
       "PRICE CHECK - priced, not ordered",
       "",
@@ -223,7 +235,7 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
       "",
       ...lines,
       "",
-      `Value at list price: ${total.toLocaleString("de-CH")} EUR`,
+      VALUE_FLOOR_ACTIVE ? `Value at list price: ${total.toLocaleString("de-CH")} EUR` : "",
       r.skipped ? `Articles skipped (special, or not KT/DT): ${r.skipped}` : "",
       `Company:  ${r.companyName ?? ""} (${r.customerNumber ?? r.companyId})`,
       `Team:     ${team} (${ownerName(r.ownerId)})`,
@@ -243,16 +255,20 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
       price_check_date: r.day,
       price_check_articles: lines.join("; ").slice(0, 1000),
       price_check_article_count: n,
-      price_check_value: total,
       price_check_unpriced_articles: unpriced,
       price_check_profit_centers: centres.join(", "),
       price_check_verified_no_order_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-      // The potential IS the priced value - a real number, not a tier.
-      sales_potential_estimate: total,
-      sales_potential_source: "direct_field",
-      sales_potential_confidence: "high",
       source_type: "AUTOMATION",
-      hs_ticket_priority: total >= 5000 ? "HIGH" : total >= 1000 ? "MEDIUM" : "LOW",
+      ...(VALUE_FLOOR_ACTIVE
+        ? {
+            price_check_value: total,
+            // The potential IS the priced value - a real number, not a tier.
+            sales_potential_estimate: total,
+            sales_potential_source: "direct_field",
+            sales_potential_confidence: "high",
+            hs_ticket_priority: total >= 5000 ? "HIGH" : total >= 1000 ? "MEDIUM" : "LOW",
+          }
+        : { hs_ticket_priority: n >= 5 ? "HIGH" : "MEDIUM" }),
     };
 
     try {

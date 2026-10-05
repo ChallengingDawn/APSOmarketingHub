@@ -81,16 +81,32 @@ export const isArticle = (v: string): boolean => /^\d{10}$/.test(v);
 export const isProduct = (v: string): boolean => /^\d{8}$/.test(v);
 
 /**
+ * THE 500 EUR FLOOR IS PAUSED (SARCLA, 05.10.2026). Products & Pricing keeps list
+ * prices per ERP price unit - per 1, 100 or 1,000 pieces - and does not store the
+ * unit, so price x quantity can be 100 or 1,000 times too high: twenty O-rings read
+ * 9,910 EUR. A sample of 600 KT/DT articles put list price / standard cost in three
+ * groups (1-10, 300-1,000, over 1,000), so the unit cannot be guessed either.
+ * Until the ERP's price unit is in P&P, a day qualifies on 3 or more KT/DT
+ * articles, which needs no price at all. Set to true once the unit is there and
+ * values are divided by it.
+ */
+export const VALUE_FLOOR_ACTIVE = false;
+/** Articles a day needs while the value floor is paused. */
+export const MIN_ARTICLES = 3;
+
+/**
  * Does a day's price-checking warrant a ticket?
  *
- * 3+ articles, or 500 EUR - and 500 EUR is a floor either way ("less than 500
- * we can't"), so three cheap articles do not qualify. Only KT and DT count, and
- * an article whose profit centre cannot be determined is SKIPPED rather than
- * assumed - a special has no P&P record at all.
+ * With the floor active: 500 EUR, as a floor either way ("less than 500 we
+ * can't"), so three cheap articles do not qualify. While it is paused: three or
+ * more articles. Only KT and DT count, and an article whose profit centre cannot
+ * be determined is SKIPPED rather than assumed - a special has no P&P record at all.
  */
 export function priceCheckQualifies(
   articles: { article: string; profitCentre: string | null; value: number | null }[],
+  opts: { valueFloor?: boolean } = {},
 ): { qualifies: boolean; counted: number; value: number; skipped: number } {
+  const valueFloor = opts.valueFloor ?? VALUE_FLOOR_ACTIVE;
   const FOCUS = new Set(["KT", "DT"]);
   let counted = 0, value = 0, skipped = 0;
   for (const a of articles) {
@@ -98,7 +114,14 @@ export function priceCheckQualifies(
     counted++;
     value += a.value ?? 0;
   }
-  return { qualifies: counted >= 1 && value >= 500, counted, value, skipped };
+  const qualifies = valueFloor ? counted >= 1 && value >= 500 : counted >= MIN_ARTICLES;
+  return { qualifies, counted, value, skipped };
+}
+
+/** The reason a day does not qualify, in the words the screens use. */
+export function priceCheckShortfall(r: { counted: number; value: number }, valueFloor = VALUE_FLOOR_ACTIVE): string {
+  if (r.counted === 0) return "No KT/DT article";
+  return valueFloor ? "Under €500" : `${r.counted} of ${MIN_ARTICLES} articles`;
 }
 
 /**
