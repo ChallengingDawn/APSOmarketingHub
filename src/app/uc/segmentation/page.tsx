@@ -56,6 +56,7 @@ type Status = {
 };
 type Breakdown = {
   total: number; with_apso_customer: number; empty: number; by_value: Record<string, number>; other: number; lost_with_current_revenue: number;
+  without_segment?: { id: string; name: string }[];
 };
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
@@ -217,8 +218,8 @@ export default function SmartSegmentation() {
             note={`basis under 500 € · ${st.no_prio_share_pct ?? "—"}% of the portfolio with the unsegmented`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<HelpOutlineIcon />} tint={st.empty ? "pink" : "green"} label="Unsegmented" value={full(st.empty)}
-            note={st.empty ? "no sales_priority yet - the watcher or the next run fills them" : "every company has a priority"} />
+          <KpiTile icon={<HelpOutlineIcon />} tint={st.empty ? "pink" : "green"} label="No priority yet" value={full(st.empty)}
+            note={st.empty ? "no sales_priority yet - the watcher or the next run fills them" : "every company has a sales priority"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<LanguageOutlinedIcon />} tint="purple" label="Websites to read" value={full(st.web_candidates)}
@@ -244,12 +245,21 @@ export default function SmartSegmentation() {
               { label: "P2", note: "2,500 – 24,999 €", value: p.p2, color: "#3cb889" },
               { label: "P3", note: "500 – 2,499 €", value: p.p3, color: "#eda100" },
               { label: "No priority", note: "basis under 500 €", value: p.p4, color: "#b9c0c9" },
-              ...(st.empty ? [{ label: "Unsegmented", note: "no priority yet", value: st.empty, color: "#c5221f" }] : []),
+              ...(st.empty ? [{ label: "No priority yet", note: "sales_priority empty", value: st.empty, color: "#c5221f" }] : []),
             ]} />
           </GlassCard>
           <GlassCard>
-            <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" note={`${full(bd.with_apso_customer)} of ${full(bd.total)} companies carry one · the engine reads it and only writes the lost-recovery`} />
-            <SegmentMix total={bd.total} rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), ...(bd.empty > 0 ? [{ label: "No segment", value: bd.empty }] : [])]} />
+            <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" note={`The apso_customer field - a different thing from the sales priority above. ${full(bd.with_apso_customer)} of ${full(bd.total)} companies carry one; the engine reads it and only writes the lost-recovery`} />
+            <SegmentMix total={bd.total} rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), ...(bd.empty > 0 ? [{ label: "No APSO segment", value: bd.empty }] : [])]} />
+            {(bd.without_segment ?? []).length > 0 && (
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.5 }}>
+                Without an APSO segment (a person sets it - the engine never does):{" "}
+                {(bd.without_segment ?? []).map((c, i) => (
+                  <span key={c.id}>{i ? ", " : ""}<a href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${c.id}`} target="_blank" rel="noreferrer" style={{ color: "#2459d1" }}>{c.name}</a></span>
+                ))}
+                {bd.empty > (bd.without_segment ?? []).length ? ` and ${full(bd.empty - (bd.without_segment ?? []).length)} more` : ""}
+              </Typography>
+            )}
           </GlassCard>
         </Box>
       )}

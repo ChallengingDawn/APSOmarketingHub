@@ -284,11 +284,17 @@ export async function breakdown() {
     { propertyName: "apso_customer", operator: "EQ", value: "APSOlost" },
     { propertyName: `revenue_${curYear()}`, operator: "GT", value: "0" },
   ]);
+  // the few without an APSO segment, by name - the engine never fills it, a person has to
+  const missing = await hubspotFetchJson<{ results?: Obj[] }>({
+    path: "/crm/v3/objects/companies/search", method: "POST",
+    body: { filterGroups: [{ filters: [{ propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }] }], limit: 10, properties: ["name"] },
+  });
   return {
     total, with_apso_customer: withSeg, empty: total - withSeg,
     by_value: Object.fromEntries(Object.entries(byValue).sort((a, b) => b[1] - a[1])),
     other: withSeg - Object.values(byValue).reduce((a, b) => a + b, 0),
     lost_with_current_revenue: lostBought,
+    without_segment: (missing.results ?? []).map((c) => ({ id: c.id, name: c.properties?.name ?? c.id })),
   };
 }
 
