@@ -43,7 +43,7 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { CardTitle, GlassCard, GREEN, HAIRLINE, HsLink, INK, KpiTile, MUTED, Notice, TINT, bodyCell, clip, eur, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import {
-  CAMPAIGNS, GROUP_LABEL, STATE_LABEL, callNext, contactDay, groupOf, reactivationSummary, stateOf,
+  CAMPAIGNS, GROUP_LABEL, STATE_LABEL, callNext, contactDay, groupOf, orderedAgain, reactivationSummary, stateOf,
   type Group, type ReCard, type ReState, type ReactivationData,
 } from "@/lib/oneshot/model";
 import { CompanyLink, FilterChips, Meter, PeriodLine, SearchBox, dm, dmy, pctText } from "./parts";
@@ -191,6 +191,9 @@ export function ReactivationBoard({ campaign }: { campaign: "marc" | "nancy" }) 
   if (!data || !s) return shell(null);
 
   const states = s.byState.map((x) => ({ label: STATE_LABEL[x.state], value: x.customers }));
+  // The whole action, since the start: who ordered again and what they ordered.
+  const wholeBuyers = data.cards.filter(orderedAgain);
+  const wholeRevenue = wholeBuyers.reduce((a, c) => a + c.orders.reduce((x, o) => x + o.rev, 0), 0);
 
   return shell(
     <>
@@ -210,12 +213,17 @@ export function ReactivationBoard({ campaign }: { campaign: "marc" | "nancy" }) 
             note={`${pctText(s.reactivated, s.customers)} of the list · ${full(s.reactivatedAfterContact)} of them were contacted`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          {/* Money is measured on the customers who ordered - never against the
+              list's whole potential, which put 3,138 EUR next to 1.09 M and read as
+              a failure while 11 customers had come back (SARCLA, 05.10). */}
           <KpiTile icon={<EuroIcon />} tint="pink" label="Won back" value={`${eur(s.wonBack)} EUR`}
-            note={`${pctText(s.wonBack, s.valueInScope)} of the ${compact(s.valueInScope)} EUR to win back · ${full(s.orders)} orders`} />
+            note={s.reactivated
+              ? `from the ${full(s.reactivated)} who ordered again · ${full(s.orders)} orders · ${eur(s.wonBack / s.reactivated)} EUR each`
+              : "nobody on the list has ordered again in this period"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<PendingActionsOutlinedIcon />} tint="amber" label="Still to contact" value={full(s.stillToContact)}
-            note={`worth ${compact(s.valueNotContacted)} EUR in their best year · day ${s.daysRunning} of the action`} />
+            note={`day ${s.daysRunning} of the action`} />
         </Grid>
       </Grid>
       <PeriodLine {...s.window} start={camp.start} end={camp.end} />
@@ -233,10 +241,11 @@ export function ReactivationBoard({ campaign }: { campaign: "marc" | "nancy" }) 
           <GlassCard>
             <CardTitle icon={<FlagOutlinedIcon />} title="The whole action" note={`Since ${dmy(camp.start)}, whatever the period above`} />
             <Box sx={{ display: "grid", gap: 2 }}>
+              {/* Two measures, kept apart: contacts from the activities, money only
+                  from the customers who ordered again. */}
               <Meter label="Customers contacted" value={s.contacted} of={s.customers} text={`${full(s.contacted)} of ${full(s.customers)} · ${pctText(s.contacted, s.customers)}`} />
-              <Meter label="Money back against the value to win back" color={GREEN}
-                value={data.cards.reduce((a, c) => a + c.orders.reduce((x, o) => x + o.rev, 0), 0)} of={s.valueInScope}
-                text={`${eur(data.cards.reduce((a, c) => a + c.orders.reduce((x, o) => x + o.rev, 0), 0))} of ${eur(s.valueInScope)} EUR`} />
+              <Meter label="Customers who ordered again" color={GREEN} value={wholeBuyers.length} of={s.customers}
+                text={`${full(wholeBuyers.length)} of ${full(s.customers)} · ${pctText(wholeBuyers.length, s.customers)} · ${eur(wholeRevenue)} EUR ordered by them`} />
               <Box>
                 <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, mb: 0.75 }}>Where the {full(s.customers)} stand</Typography>
                 <ShareBar segments={states} format={(v) => full(v)} />
@@ -267,7 +276,7 @@ export function ReactivationBoard({ campaign }: { campaign: "marc" | "nancy" }) 
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        {["Group", "Customers", "Contacted", "Ordered again", "Value EUR", "Won back EUR"].map((h, i) => (
+                        {["Group", "Customers", "Contacted", "Ordered again", "Won back EUR"].map((h, i) => (
                           <TableCell key={h} sx={headCell} align={i ? "right" : "left"}>{h}</TableCell>
                         ))}
                       </TableRow>
@@ -279,7 +288,6 @@ export function ReactivationBoard({ campaign }: { campaign: "marc" | "nancy" }) 
                           <TableCell sx={bodyCell} align="right">{full(g.customers)}</TableCell>
                           <TableCell sx={bodyCell} align="right">{full(g.contacted)} <Typography component="span" sx={{ color: MUTED, fontSize: "0.76rem" }}>{pctText(g.contacted, g.customers)}</Typography></TableCell>
                           <TableCell sx={bodyCell} align="right">{full(g.reactivated)} <Typography component="span" sx={{ color: MUTED, fontSize: "0.76rem" }}>{pctText(g.reactivated, g.customers)}</Typography></TableCell>
-                          <TableCell sx={bodyCell} align="right">{eur(g.value)}</TableCell>
                           <TableCell sx={{ ...bodyCell, color: g.wonBack > 0 ? GREEN : INK, fontWeight: 600 }} align="right">{eur(g.wonBack)}</TableCell>
                         </TableRow>
                       ))}
