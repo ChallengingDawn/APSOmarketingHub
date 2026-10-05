@@ -37,6 +37,7 @@ import QuickLinks from "./QuickLinks";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
+import { AvatarFace } from "./AvatarFace";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
@@ -111,10 +112,12 @@ export default function FrontPage() {
           hiddenPanels: j.prefs?.home?.hiddenPanels ?? [],
           appOrder: j.prefs?.home?.appOrder ?? [],
         });
+        setFace({ photo: j.prefs?.avatar ?? null, iconId: j.prefs?.avatarIcon ?? null });
       })
       .catch(() => {});
   }, []);
   const panel = (id: string) => !home.hiddenPanels.includes(id);
+  const [face, setFace] = useState<{ photo: string | null; iconId: string | null }>({ photo: null, iconId: null });
 
   const [initials, setInitials] = useState("");
   const [q, setQ] = useState("");
@@ -320,16 +323,20 @@ export default function FrontPage() {
             {/* Your account, not the Settings front page: a person clicking
                 their own initials wants their own account. */}
             <Box component={Link} href="/settings/you" aria-label="Your account" title="Your account" sx={{
-              width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center",
-              background: "linear-gradient(140deg,#5b8def,#7c5cf0)", color: "#fff", textDecoration: "none",
-              fontSize: "0.8rem", fontWeight: 700, letterSpacing: "0.02em", ...focusRing,
+              display: "grid", placeItems: "center", textDecoration: "none", borderRadius: "50%", ...focusRing,
               transition: "transform .18s ease",
               "&:hover": { transform: "scale(1.06)" },
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+              // The initials keep the purple circle they have always had; a photo
+              // or an icon brings its own.
+              "& > *": face.photo || face.iconId
+                ? {}
+                : { background: "linear-gradient(140deg,#5b8def,#7c5cf0)", color: "#fff" },
             }}>
               {/* A dot told nobody anything. Until the name arrives this is a
                   face, which at least says whose button it is. */}
-              {initials || <AccountCircleIcon sx={{ fontSize: 24 }} />}
+              <AvatarFace size={38} photo={face.photo} iconId={face.iconId} initials={initials}
+                fallback={<AccountCircleIcon sx={{ fontSize: 24 }} />} />
             </Box>
           </Box>
         </Box>

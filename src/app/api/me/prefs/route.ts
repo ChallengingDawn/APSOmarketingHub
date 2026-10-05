@@ -38,7 +38,10 @@ const Link = z.object({
  */
 const Avatar = z.string()
   .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, "That is not an image.")
-  .max(192 * 1024, "That picture is too large — it is resized before upload, so this should not happen.");
+  // 6 KB, not 192: there is an 8 KB request-body rule in front of this app, and a
+  // body over it is refused with a bare 403 that never reaches the route. The
+  // browser shrinks the picture until it fits before sending it.
+  .max(6 * 1024, "That picture is too large. It is shrunk before upload, so this should not happen.");
 
 const Prefs = z.object({
   /** Built-in quick links the person has switched off. */
@@ -47,6 +50,15 @@ const Prefs = z.object({
   customQuickLinks: z.array(Link).max(12).optional(),
   /** Their picture, or absent for initials. */
   avatar: Avatar.optional(),
+  /**
+   * An icon they picked, by name.
+   *
+   * Five bytes rather than a painted image. The icons used to be drawn to a
+   * canvas and sent as base64, which put a 40-pixel circle into a 15 KB request
+   * body and ran straight into the 8 KB body rule in front of this app: 403, no
+   * message. A name costs nothing and renders sharper at every size.
+   */
+  avatarIcon: z.string().trim().max(24).optional(),
   /**
    * Their home screen: which panels they want on it, and the order their apps
    * sit in. Hiding is by name, so a panel that is removed later simply stops

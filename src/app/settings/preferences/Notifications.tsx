@@ -58,10 +58,10 @@ export default function Notifications({ glass }: { glass: Record<string, unknown
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, mb: 2, flexWrap: "wrap" }}>
         <Box sx={{ flex: "1 1 260px", minWidth: 0 }}>
           <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
-            What the hub writes to you about
+            Mail from the hub
           </Typography>
           <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-            Nothing, unless you switch it on here.
+            It sends you nothing unless you turn something on here.
           </Typography>
         </Box>
         {saving && <Typography sx={{ fontSize: "0.76rem", color: FAINT, pt: 0.5 }}>Saving…</Typography>}
@@ -77,18 +77,22 @@ export default function Notifications({ glass }: { glass: Record<string, unknown
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>
             Price checks on your customers
           </Typography>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.5, mt: 0.25 }}>
-            One mail each morning, listing the customers you own who priced articles in the shop yesterday and
-            did not order. Only the ones that meet the ticket rule, so a customer pricing one cheap seal does
-            not reach you. No mail on a morning when nothing happened.
-          </Typography>
-          <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.75, lineHeight: 1.45 }}>
-            You are matched to your customers by your email address, which has to be the same one as in
-            HubSpot. If it is not, nothing arrives and nothing says why — check Your account.
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.55, mt: 0.25 }}>
+            A mail each morning when one of your customers priced something yesterday and did not buy.
+            Nothing happened, no mail.
           </Typography>
         </Box>
         <Switch checked={on} disabled={!ready || saving} onChange={(e) => save(e.target.checked)} />
       </Box>
+
+      {/* Only once it is on, and only because the failure is silent: no mail
+          could mean a quiet day or the wrong address, and those look identical. */}
+      {on && (
+        <Typography sx={{ fontSize: "0.78rem", color: FAINT, mt: 1.25, lineHeight: 1.5 }}>
+          Your customers are found by your email address. If the one on your account is not the one in HubSpot,
+          no mail arrives and nothing says why.
+        </Typography>
+      )}
     </Box>
   );
 }

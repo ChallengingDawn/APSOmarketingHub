@@ -19,7 +19,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 
 import { ROLE_LABEL, ROLE_NOTE, type Role } from "@/lib/auth/access";
-import { ICON_CHOICES, drawIcon } from "./avatarIcons";
+import { AvatarFace, ICON_CHOICES } from "@/app/AvatarFace";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -63,14 +63,23 @@ async function toThumbnail(file: File): Promise<string> {
       i.src = url;
     });
     const side = Math.min(img.width, img.height);
+    const SIDE = 160;
     const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = SIDE;
+    canvas.height = SIDE;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("This browser cannot resize the picture.");
     // Centre crop, so a portrait is not squashed into a square.
-    ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
-    return canvas.toDataURL("image/jpeg", 0.82);
+    ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, SIDE, SIDE);
+
+    // It has to fit inside the 8 KB body rule in front of this app, or it is
+    // refused with a bare 403 that never reaches the route. Step the quality
+    // down until it does rather than guess once and fail on dark photographs.
+    for (const q of [0.78, 0.66, 0.55, 0.45, 0.35]) {
+      const url = canvas.toDataURL("image/jpeg", q);
+      if (url.length <= 6 * 1024) return url;
+    }
+    throw new Error("That picture will not compress small enough. Try a simpler one, or pick an icon.");
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -127,11 +136,18 @@ export default function MyAccount() {
       .catch((e) => setError(String((e as Error).message ?? e)));
     fetch("/api/me/prefs")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j?.ok && j.prefs?.avatar) setAvatar(j.prefs.avatar); })
+      .then((j) => {
+        if (!j?.ok) return;
+        if (j.prefs?.avatar) setAvatar(j.prefs.avatar);
+        if (j.prefs?.avatarIcon) setIcon(j.prefs.avatarIcon);
+      })
       .catch(() => {});
   }, []);
 
-  const saveAvatar = useCallback(async (value: string | null) => {
+  const [icon, setIcon] = useState<string | null>(null);
+
+  /** A photo and an icon are the same slot: setting one clears the other. */
+  const saveFace = useCallback(async (next: { avatar?: string; avatarIcon?: string }) => {
     setBusy(true); setError(null); setNote(null);
     try {
       const r = await fetch("/api/me/prefs", {
@@ -139,15 +155,16 @@ export default function MyAccount() {
         headers: { "Content-Type": "application/json" },
         // An empty string clears it; the field is optional, so omitting it would
         // merge to "unchanged" rather than "removed".
-        body: JSON.stringify(value === null ? { avatar: undefined } : { avatar: value }),
+        body: JSON.stringify({ avatar: next.avatar ?? "", avatarIcon: next.avatarIcon ?? "" }),
       });
       // Not every reply is JSON. A session that expired while this page was open
       // used to come back as the sign-in page, and `r.json()` turned that into
       // "Unexpected token '<'" \u2014 a parser error standing in for "sign in again".
       const j = await readJson(r);
       if (!j?.ok) { setError(j?.error ?? `That picture could not be saved. (HTTP ${r.status})`); return; }
-      setAvatar(value);
-      setNote(value ? "Picture saved." : "Picture removed.");
+      setAvatar(next.avatar ?? null);
+      setIcon(next.avatarIcon ?? null);
+      setNote(next.avatar || next.avatarIcon ? "Saved." : "Removed.");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -159,7 +176,7 @@ export default function MyAccount() {
     if (!f) return;
     setError(null);
     try {
-      await saveAvatar(await toThumbnail(f));
+      await saveFace({ avatar: await toThumbnail(f) });
     } catch (e) {
       setError(String((e as Error).message ?? e));
     }
@@ -201,32 +218,25 @@ export default function MyAccount() {
         <>
           <Card title="Your picture" note="Shown beside your name here and in the header. Yours to change.">
             <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, flexWrap: "wrap" }}>
-              <Box sx={{
-                width: 84, height: 84, borderRadius: "50%", overflow: "hidden", flexShrink: 0,
-                display: "grid", placeItems: "center",
-                bgcolor: ROLE_TINT[me.role].bg, color: ROLE_TINT[me.role].fg,
-                fontSize: "1.6rem", fontWeight: 700,
-              }}>
-                {avatar
-                  ? <Box component="img" src={avatar} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  : initials(me.full_name || me.username)}
-              </Box>
+              <AvatarFace size={84} photo={avatar} iconId={icon}
+                initials={initials(me.full_name || me.username)}
+                tint={ROLE_TINT[me.role].bg} fg={ROLE_TINT[me.role].fg} />
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                 <Button variant="outlined" size="small" startIcon={<PhotoCameraIcon />} disabled={busy}
                   onClick={() => file.current?.click()} sx={{ textTransform: "none", borderRadius: "12px" }}>
                   {avatar ? "Change picture" : "Upload a picture"}
                 </Button>
-                {avatar && (
+                {(avatar || icon) && (
                   <Button size="small" color="inherit" startIcon={<DeleteOutlineIcon />} disabled={busy}
-                    onClick={() => saveAvatar(null)} sx={{ textTransform: "none", color: MUTED }}>
-                    Remove
+                    onClick={() => saveFace({})} sx={{ textTransform: "none", color: MUTED }}>
+                    Back to initials
                   </Button>
                 )}
                 <Box component="input" ref={file} type="file" accept="image/png,image/jpeg,image/webp"
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => pick(e.target.files?.[0])}
                   sx={{ display: "none" }} />
                 <Typography sx={{ fontSize: "0.76rem", color: FAINT, width: "100%" }}>
-                  Cropped square and resized to 256px before it leaves this browser.
+                  Cropped square and shrunk in this browser before it is sent.
                 </Typography>
               </Box>
             </Box>
@@ -250,14 +260,15 @@ export default function MyAccount() {
                     role="button"
                     tabIndex={0}
                     aria-label={`Use the ${c.id} icon`}
-                    onClick={() => { if (!busy) saveAvatar(drawIcon(c)); }}
+                    onClick={() => { if (!busy) saveFace({ avatarIcon: c.id }); }}
                     onKeyDown={(e: React.KeyboardEvent) => {
-                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!busy) saveAvatar(drawIcon(c)); }
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!busy) saveFace({ avatarIcon: c.id }); }
                     }}
                     sx={{
                       width: 46, height: 46, borderRadius: "50%", flexShrink: 0, cursor: busy ? "default" : "pointer",
                       display: "grid", placeItems: "center", fontSize: 23, lineHeight: 1, userSelect: "none",
                       background: `linear-gradient(140deg, ${c.from}, ${c.to})`,
+                      boxShadow: icon === c.id ? "0 0 0 3px #fff, 0 0 0 5px #2459d1" : "none",
                       transition: "transform .14s ease, box-shadow .14s ease",
                       "&:hover": { transform: busy ? "none" : "scale(1.08)", boxShadow: "0 6px 16px rgba(31,45,78,.2)" },
                       "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 2 },
