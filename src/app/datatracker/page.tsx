@@ -44,12 +44,13 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopYear } from "@/lib/integrations/eshopActivity";
-import { VALUE_FLOOR_ACTIVE, companyPasses, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, companyPasses, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
 
 import type { ArticleActivity, ArticleRow } from "@/lib/integrations/articleActivity";
 import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
 import type { ContactCard } from "@/app/api/datatracker/contacts/route";
+import type { OrderedLine } from "@/lib/datatracker/orderLines";
 
 /** What the alternatives route hands back for one article. */
 type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[];
@@ -119,6 +120,7 @@ const HS_PORTAL = "26492587";
 const hsCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-2/${id}`;
 /** 0-1 = contacts. */
 const hsContactUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-1/${id}`;
+const hsOrderUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${HS_PORTAL}/record/0-123/${id}`;
 
 // What the SERVER sorts by, which decides which rows arrive first when there
 // are more than a page of them. Order value is not a HubSpot-sortable field, so
@@ -133,7 +135,7 @@ type SortKey =
   | "mandant" | "customerNumber" | "name" | "country" | "representative" | "apsoCustomer" | "salesPriority"
   | "logins" | "views" | "orders" | "orderValue" | "viewsPerLogin" | "revenueYtd";
 
-type OrderLine = { article: string; description: string | null; qty: number | null; revenue: number | null; orders: number; eshop?: boolean };
+type OrderLine = OrderedLine;
 type OrderedPayload = { lines: OrderLine[]; articles: string[] };
 type OrderedState = OrderedPayload | "loading" | "error" | undefined;
 
@@ -172,7 +174,11 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
   // (`u`), so the row can name the person, not only the company. One batch read
   // when the row opens; lines from before October carry no id and show "—".
   const [people, setPeople] = useState<Record<string, ContactCard>>({});
-  const wantPeople = [...new Set(lines.map((l) => l.contact).filter((c): c is string => !!c))].join(",");
+  const orderedLines = ordered && ordered !== "loading" && ordered !== "error" ? ordered.lines : [];
+  const wantPeople = [...new Set([
+    ...lines.map((l) => l.contact),
+    ...orderedLines.map((l) => l.last?.contactId ?? null),
+  ].filter((c): c is string => !!c))].sort().join(",");
   useEffect(() => {
     if (!wantPeople) return;
     let alive = true;
@@ -252,13 +258,13 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
     <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
       <TableHead>
         <TableRow>
-          <TableCell sx={{ ...h, width: 120 }}>Looked at</TableCell>
+          <TableCell sx={{ ...h, width: 120 }}>When</TableCell>
           <TableCell sx={{ ...h, width: 110 }}>Article</TableCell>
           <TableCell sx={h}>Description</TableCell>
           <TableCell sx={{ ...h, width: 210 }}>Contact</TableCell>
           <TableCell align="right" sx={{ ...h, width: 76 }}>Qty</TableCell>
           <TableCell align="center" sx={{ ...h, width: 70 }}>In cart</TableCell>
-          <TableCell align="center" sx={{ ...h, width: 78 }}>Ordered</TableCell>
+          <TableCell align="center" sx={{ ...h, width: 104 }}>Ordered</TableCell>
           <TableCell align="right" sx={{ ...h, width: 88 }}>Value</TableCell>
         </TableRow>
       </TableHead>
@@ -270,10 +276,16 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
           const inCart = r.cart || !!o?.eshop;
           const boughtEver = !boughtNow && !!r.article && everBought.has(r.article);
           const qty = o?.qty ?? r.qtyTyped;
+          // Who: the person logged in for the look, else whoever placed the order.
+          const who = r.contact ?? o?.last?.contactId ?? null;
           return (
             <TableRow key={r.key} sx={z}>
               <TableCell sx={{ ...c, color: MUTED, whiteSpace: "nowrap" }}>
-                {r.lookedAt ? r.lookedAt.replace("T", " ") : "—"}
+                {/* Never looked at, only ordered: the day of the order stands in,
+                    marked so it is not read as a look. */}
+                {r.lookedAt ? r.lookedAt.replace("T", " ")
+                  : o?.last?.date ? <>{o.last.date} <Box component="span" sx={{ fontSize: "0.7rem" }}>· order</Box></>
+                  : "—"}
               </TableCell>
               <TableCell sx={{ ...c, color: r.article ? INK : MUTED, fontWeight: 600, whiteSpace: "nowrap" }}>
                 {r.article ?? r.product}
@@ -283,12 +295,15 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
                     name is fetched, because the shop records what was looked at
                     and not what it is called. A bare number tells nobody
                     anything. */}
-                {o?.description ?? named ?? (r.article ? "no catalogue record" : "product page, no size chosen")}
+                {o?.description ?? named ?? (!r.article ? "product page, no size chosen"
+                  : isSpecialArticle(r.article) ? "special article, no catalogue text" : "no catalogue record")}
               </TableCell>
-              <TableCell sx={{ ...c, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.contact ? people[r.contact]?.name ?? "" : ""}>
-                {r.contact
-                  ? <Link href={hsContactUrl(r.contact)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}>{personLabel(r.contact)}</Link>
-                  : <Box component="span" sx={{ color: MUTED }}>—</Box>}
+              <TableCell sx={{ ...c, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={who ? people[who]?.name ?? "" : o?.last?.person ?? ""}>
+                {who
+                  ? <Link href={hsContactUrl(who)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}>{personLabel(who)}</Link>
+                  : o?.last?.person
+                    ? <Box component="span" sx={{ color: INK }}>{o.last.person}</Box>
+                    : <Box component="span" sx={{ color: MUTED }}>—</Box>}
               </TableCell>
               <TableCell align="right" sx={{ ...c, color: qty == null ? MUTED : INK, fontWeight: qty == null ? 400 : 600 }}>
                 {qty == null ? "—" : decimal(qty, 0)}
@@ -297,7 +312,12 @@ function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: Order
                 {inCart ? "Yes" : "—"}
               </TableCell>
               <TableCell align="center" sx={{ ...c, color: boughtNow ? INK : MUTED, fontWeight: boughtNow ? 700 : 400, whiteSpace: "nowrap" }}>
-                {boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
+                {o?.last
+                  ? <Link href={hsOrderUrl(o.last.id)} target="_blank" rel="noopener" underline="hover" sx={{ color: INK }}
+                      title={o.orders > 1 ? `${o.orders} orders in this period - the latest` : "Open the order in HubSpot"}>
+                      {o.last.number ?? "Yes"}{o.orders > 1 ? ` +${o.orders - 1}` : ""}
+                    </Link>
+                  : boughtNow ? "Yes" : boughtEver ? "Before" : ordered === "loading" ? "…" : "—"}
               </TableCell>
               <TableCell align="right" sx={{ ...c, color: o?.revenue ? INK : MUTED, fontWeight: o?.revenue ? 600 : 400, whiteSpace: "nowrap" }}>
                 {o?.revenue ? `€${compact(o.revenue)}` : "—"}

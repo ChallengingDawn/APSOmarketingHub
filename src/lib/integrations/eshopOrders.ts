@@ -16,6 +16,7 @@
 // load dates and any range longer than a few weeks would be nonsense.
 
 import { hubspotFetchJson } from "./hubspot";
+import { mergeOrderLines, type OrderDoc, type OrderedLine } from "@/lib/datatracker/orderLines";
 
 const PAGE = 100;
 /** A guard, not a quota. Reported rather than applied silently - see `capped`. */
@@ -127,33 +128,26 @@ export async function fetchOrdersByCompany(from: string, to: string, signal?: Ab
 const LINE_FIELDS = ["article", "text", "qty", "revenue"] as const;
 const lineProp = (n: number, f: string) => `order_line_${String(n + 1).padStart(2, "0")}_${f}`;
 
-export type OrderedLine = {
-  article: string;
-  description: string | null;
-  qty: number | null;
-  revenue: number | null;
-  orders: number;
-  /** Ordered through the webshop. Such an order went through the cart and a
-   *  login by construction - it cannot be placed any other way. */
-  eshop: boolean;
-};
+export type { OrderedLine } from "@/lib/datatracker/orderLines";
 
 /**
- * What one customer actually ORDERED in the window, article by article.
+ * What one customer actually ORDERED in the window, article by article, and
+ * from which order.
  *
  * This is the half of the desktop tracker's "Views - Orders" tab that no
  * browser event can supply: Metrohm AG placed the largest order of 2 October
  * and the activity feed recorded one login and zero views, because the article
  * is chosen on the page and the order is placed from the cart. The order lines
- * know exactly which articles, how many and for how much.
+ * know exactly which articles, how many and for how much - and the order knows
+ * the day, its number and who placed it.
  */
 export async function fetchCompanyOrderLines(
   companyId: string, from: string, to: string, signal?: AbortSignal,
 ): Promise<OrderedLine[]> {
-  const props = ["order_order_date", "order_channel"];
+  const props = ["order_order_date", "order_channel", "order_order_number", "hs_order_name", "hs_billing_address_email"];
   for (let i = 0; i < 80; i++) for (const f of LINE_FIELDS) props.push(lineProp(i, f));
 
-  const res = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+  const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
     path: "/crm/v3/objects/orders/search",
     method: "POST",
     signal,
@@ -168,26 +162,53 @@ export async function fetchCompanyOrderLines(
       limit: 100,
     },
   });
+  const results = (res.results ?? []).filter((o) => o.id);
 
-  const byArticle = new Map<string, OrderedLine>();
-  for (const o of res.results ?? []) {
+  // Who placed each order: one batch read for the whole window. A failure costs
+  // the names and nothing else - the reference on the title still names most.
+  const contactOf = new Map<string, string>();
+  if (results.length) {
+    try {
+      const assoc = await hubspotFetchJson<AssocResult>({
+        path: "/crm/v4/associations/orders/contacts/batch/read",
+        method: "POST",
+        signal,
+        body: { inputs: results.map((o) => ({ id: String(o.id) })) },
+      });
+      for (const r of assoc.results ?? []) {
+        const to = r.to?.[0]?.toObjectId;
+        if (r.from?.id && to != null) contactOf.set(String(r.from.id), String(to));
+      }
+    } catch { /* the names are a courtesy; the lines stand without them */ }
+  }
+
+  const docs: OrderDoc[] = results.map((o) => {
     const p = o.properties ?? {};
+    const lines: OrderDoc["lines"] = [];
     for (let i = 0; i < 80; i++) {
       const article = p[lineProp(i, "article")];
       if (!article) continue;
-      const cur = byArticle.get(article)
-        ?? { article, description: null, qty: 0, revenue: 0, orders: 0, eshop: false };
-      cur.orders += 1;
-      cur.qty = (cur.qty ?? 0) + (Number(p[lineProp(i, "qty")]) || 0);
-      cur.revenue = (cur.revenue ?? 0) + (Number(p[lineProp(i, "revenue")]) || 0);
-      // `text` is often empty on ERP lines; the description is filled in from
-      // Products & Pricing afterwards rather than left blank.
-      cur.description = cur.description ?? (p[lineProp(i, "text")] || null);
-      if (String(p.order_channel ?? "").toLowerCase() === "eshop") cur.eshop = true;
-      byArticle.set(article, cur);
+      lines.push({
+        article,
+        // `text` is often empty on ERP lines; the description is filled in from
+        // Products & Pricing afterwards rather than left blank.
+        text: p[lineProp(i, "text")] || null,
+        qty: Number(p[lineProp(i, "qty")]) || 0,
+        revenue: Number(p[lineProp(i, "revenue")]) || 0,
+      });
     }
-  }
-  return [...byArticle.values()].sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0));
+    return {
+      id: String(o.id),
+      number: p.order_order_number || null,
+      date: (p.order_order_date ?? "").slice(0, 10) || null,
+      eshop: String(p.order_channel ?? "").toLowerCase() === "eshop",
+      title: p.hs_order_name ?? null,
+      contactId: contactOf.get(String(o.id)) ?? null,
+      email: p.hs_billing_address_email || null,
+      lines,
+    };
+  });
+  return mergeOrderLines(docs);
 }
 
 /** Fills in the descriptions the order lines did not carry. */
