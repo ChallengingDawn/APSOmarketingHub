@@ -7,6 +7,8 @@ import { deflateRawSync } from "node:zlib";
 
 export type Cell = string | number | null | undefined;
 export type Column = { header: string; width?: number; format?: "int" | "money" | "pct1" };
+/** A band over several columns - "In the shop", "Bought this year" - so the source of each column reads at a glance. */
+export type Group = { label: string; span: number; tone?: "navy" | "blue" | "green" | "slate" };
 export type Sheet = {
   name: string;
   columns: Column[];
@@ -15,7 +17,12 @@ export type Sheet = {
   preamble?: string[];
   /** Frozen header and autofilter (default true). */
   table?: boolean;
+  /** Bands over the header, left to right; their spans should add up to the columns. */
+  groups?: Group[];
 };
+
+/** 1-based row of the header: after the preamble and the band row, if any. */
+const headerRow = (s: Sheet) => (s.preamble?.length ?? 0) + (s.groups?.length ? 1 : 0) + 1;
 
 /* ── zip ──────────────────────────────────────────────────────────────── */
 
@@ -94,17 +101,18 @@ function colName(i: number): string {
   return s;
 }
 
-// style ids in styles.xml below: 0 plain, 1 header, 2 int, 3 money, 4 pct1, 5 title, 6 note
+// style ids in styles.xml below: 0 plain, 1 header, 2 int, 3 money, 4 pct1, 5 title, 6 note,
+// 7-10 group bands (navy, blue, green, slate)
 const STYLE: Record<NonNullable<Column["format"]>, number> = { int: 2, money: 3, pct1: 4 };
 
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0"/><numFmt numFmtId="165" formatCode="#,##0.00"/><numFmt numFmtId="166" formatCode="0.0"/></numFmts>
-<fonts count="4"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="14"/><color rgb="FF15223A"/><name val="Calibri"/></font><font><sz val="9"/><color rgb="FF8B97AC"/><name val="Calibri"/></font></fonts>
-<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF274E64"/><bgColor indexed="64"/></patternFill></fill></fills>
+<fonts count="8"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="14"/><color rgb="FF15223A"/><name val="Calibri"/></font><font><sz val="9"/><color rgb="FF8B97AC"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF15223A"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF1B4A80"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF1F6B3A"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF4A5568"/><name val="Calibri"/></font></fonts>
+<fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF274E64"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE3E8EF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF2FB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF6EE"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF1F4F8"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="7">
+<cellXfs count="11">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
@@ -112,6 +120,10 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 <xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="4" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf numFmtId="0" fontId="5" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf numFmtId="0" fontId="6" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf numFmtId="0" fontId="7" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -126,10 +138,27 @@ function sheetXml(s: Sheet): string {
   const pre = s.preamble ?? [];
   const table = s.table !== false;
   // a plain sheet (a summary) has no header row; a table's sits right under the preamble
-  const head = pre.length + (table ? 1 : 0); // 1-based row of the header
+  const bands = s.groups?.length ? s.groups : null;
+  const head = pre.length + (bands ? 1 : 0) + (table ? 1 : 0); // 1-based row of the header
   const last = colName(s.columns.length - 1);
   const rows: string[] = [];
   pre.forEach((line, i) => rows.push(`<row r="${i + 1}">${cellXml(`A${i + 1}`, line, i === 0 ? 5 : 6)}</row>`));
+  const merges: string[] = [];
+  if (bands) {
+    const r = pre.length + 1;
+    const TONE = { navy: 7, blue: 8, green: 9, slate: 10 } as const;
+    let at = 0;
+    const cells: string[] = [];
+    for (const g of bands) {
+      const span = Math.max(1, Math.floor(g.span));
+      const style = TONE[g.tone ?? "navy"];
+      // every cell of the band carries the fill, so it reads as one block even unmerged
+      for (let k = 0; k < span; k++) cells.push(cellXml(`${colName(at + k)}${r}`, k === 0 ? g.label : null, style));
+      if (span > 1) merges.push(`<mergeCell ref="${colName(at)}${r}:${colName(at + span - 1)}${r}"/>`);
+      at += span;
+    }
+    rows.push(`<row r="${r}">${cells.join("")}</row>`);
+  }
   if (table) rows.push(`<row r="${head}">${s.columns.map((c, j) => cellXml(`${colName(j)}${head}`, c.header, 1)).join("")}</row>`);
   s.rows.forEach((r, i) => {
     const n = head + 1 + i;
@@ -140,8 +169,10 @@ function sheetXml(s: Sheet): string {
     : `<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>`;
   const cols = `<cols>${s.columns.map((c, j) => `<col min="${j + 1}" max="${j + 1}" width="${c.width ?? 12}" customWidth="1"/>`).join("")}</cols>`;
   const filter = table && s.rows.length ? `<autoFilter ref="A${head}:${last}${head + s.rows.length}"/>` : "";
+  // schema order: autoFilter comes before mergeCells
+  const merged = merges.length ? `<mergeCells count="${merges.length}">${merges.join("")}</mergeCells>` : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${pane}${cols}<sheetData>${rows.join("")}</sheetData>${filter}</worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${pane}${cols}<sheetData>${rows.join("")}</sheetData>${filter}${merged}</worksheet>`;
 }
 
 /** Sheet names: max 31 characters, none of []:*?/\ */
@@ -155,7 +186,7 @@ export function xlsx(sheets: Sheet[]): Buffer {
     { name: "_rels/.rels", data: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`) },
     { name: "xl/workbook.xml", data: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${esc(sheetName(s.name))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>${sheets.some((s) => s.table !== false && s.rows.length) ? `<definedNames>${sheets.map((s, i) => s.table !== false && s.rows.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${esc(sheetName(s.name))}'!$A$${(s.preamble?.length ?? 0) + 1}:$${colName(s.columns.length - 1)}$${(s.preamble?.length ?? 0) + 1 + s.rows.length}</definedName>` : "").join("")}</definedNames>` : ""}</workbook>`) },
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${esc(sheetName(s.name))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>${sheets.some((s) => s.table !== false && s.rows.length) ? `<definedNames>${sheets.map((s, i) => s.table !== false && s.rows.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${esc(sheetName(s.name))}'!$A$${headerRow(s)}:$${colName(s.columns.length - 1)}$${headerRow(s) + s.rows.length}</definedName>` : "").join("")}</definedNames>` : ""}</workbook>`) },
     { name: "xl/_rels/workbook.xml.rels", data: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`) },
     { name: "xl/styles.xml", data: enc(STYLES) },

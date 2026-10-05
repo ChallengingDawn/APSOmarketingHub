@@ -42,6 +42,7 @@ import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroIcon from "@mui/icons-material/Euro";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { compact, decimal, full } from "@/app/charts/format";
 import { ESHOP_YEARS, type ActivityLine, type EshopActivity, type EshopRow, type EshopYear } from "@/lib/integrations/eshopActivity";
 import { PROFIT_CENTRES, VALUE_FLOOR_ACTIVE, companyPasses, isInternalCompany, isSpecialArticle, isoDay, periodWindow, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
@@ -84,6 +85,61 @@ const hsTicketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/264925
 const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
 /** Column headers as on the UC reports: small, upper case, faint - the figures carry the weight. */
 const HEAD = { fontWeight: 600, color: FAINT, fontSize: "0.68rem", textTransform: "uppercase" as const, letterSpacing: "0.05em" };
+
+/**
+ * The Articles table reads three sources. SARCLA 05.10: "the table title should
+ * feel more integrated to the subcategories" - so each band and its columns
+ * share one tint and a rule on the left, and the eye can tell where one source
+ * ends and the next begins.
+ */
+const GROUP_TONE = {
+  shop: { ink: "#1b4a80", bg: "#eef4fb" },
+  bought: { ink: "#1f6b3a", bg: "#edf7f0" },
+  erp: { ink: "#4a5568", bg: "#f2f4f7" },
+} as const;
+type ArticleGroup = keyof typeof GROUP_TONE;
+const ARTICLE_GROUP: Partial<Record<string, ArticleGroup>> = {
+  views: "shop", lookedBy: "shop", carts: "shop", topQty: "shop", lastLooked: "shop",
+  buyersYtd: "bought", qtyYtd: "bought", qtyPerBuyer: "bought",
+  orders: "erp", companies: "erp", stock: "erp",
+};
+const GROUP_EDGE = { borderLeft: "2px solid #d5deea" };
+/** A unit after a number - only the one P&P stores, never one we assume. */
+const withUnit = (text: string, unit: string | null | undefined) => (unit ? `${text} ${unit}` : text);
+
+type XlsxSheet = {
+  name: string;
+  preamble?: string[];
+  groups?: { label: string; span: number; tone?: "navy" | "blue" | "green" | "slate" }[];
+  columns: { header: string; width?: number; format?: "int" | "money" | "pct1" }[];
+  rows: (string | number | null)[][];
+};
+
+/** POST the view to the server, which writes the .xlsx, and save it. Null when it worked. */
+async function downloadXlsx(filename: string, sheets: XlsxSheet[]): Promise<string | null> {
+  try {
+    const res = await fetch("/api/datatracker/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, sheets }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      return j?.error ?? `Export failed (HTTP ${res.status})`;
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return null;
+  } catch (e) {
+    return String((e as Error)?.message ?? e);
+  }
+}
 
 function YearBars({ history, year }: { history: { year: number; views: number | null }[]; year: number }) {
   const top = Math.max(1, ...history.map((h) => h.views ?? 0));
@@ -1014,6 +1070,141 @@ function EshopActivityPage() {
     : period === "custom" ? `${customFrom} → ${customTo}`
     : RANGES.find((r) => r.id === period)?.label ?? "";
 
+  // EXPORT THE VIEW - what this tab shows, with its filters, sort and units, as
+  // a formatted Excel: title, filters, banded header, frozen, filterable.
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const exportView = async () => {
+    const stamp = new Date();
+    const day = isoDay(stamp);
+    const repName = representative ? options?.representatives?.find((r) => r.id === representative)?.name ?? representative : "";
+    const filters = [
+      usedHere.company && mandant, usedHere.company && country, usedHere.company && apsoCustomer,
+      usedHere.company && priority && `priority ${shortPriority(priority)}`, usedHere.company && repName,
+      usedHere.pc && profitCentre && `profit centre ${profitCentre}`, search.trim() && `search "${search.trim()}"`,
+    ].filter(Boolean).join(" · ") || "no filter";
+    const head = (title: string, n: number) => [
+      `Datatracker · ${title}`,
+      `${tab === "articles" ? "All time and this year" : `Period: ${periodLabel} (${periodFrom} → ${periodTo})`} · ${filters}`,
+      `Exported ${stamp.toLocaleString("en-GB")} · ${n.toLocaleString("en")} rows`,
+    ];
+    const n = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? null : v);
+    let filename = `datatracker-${tab}-${day}.xlsx`;
+    let sheets: XlsxSheet[] = [];
+
+    if (tab === "articles") {
+      const rows = articleRows;
+      sheets = [{
+        name: "Articles", preamble: head("Articles", rows.length),
+        groups: [
+          { label: "Article", span: 6, tone: "navy" },
+          { label: "In the shop · since 2 Oct", span: 5, tone: "blue" },
+          { label: `Bought this year${articles?.boughtAsOf ? ` · to ${articles.boughtAsOf}` : ""}`, span: 3, tone: "green" },
+          { label: "ERP · all time", span: 4, tone: "slate" },
+        ],
+        columns: [
+          { header: "Article no.", width: 14 }, { header: "Description", width: 52 }, { header: "Main group", width: 22 },
+          { header: "Type", width: 11 }, { header: "Profit centre", width: 11 }, { header: "Sales unit", width: 10 },
+          { header: "Times looked at", width: 12, format: "int" }, { header: "Customers looking", width: 12, format: "int" },
+          { header: "Put in cart", width: 10, format: "int" }, { header: "Biggest qty asked", width: 13, format: "int" },
+          { header: "Last looked at", width: 17 },
+          { header: "Customers buying", width: 12, format: "int" }, { header: "Qty bought", width: 12, format: "int" },
+          { header: "Qty per customer", width: 13, format: "pct1" },
+          { header: "Orders ever", width: 11, format: "int" }, { header: "Customers ever", width: 12, format: "int" },
+          { header: "Stock now", width: 11, format: "int" }, { header: "Stock unit", width: 10 },
+        ],
+        rows: rows.map((a) => [
+          a.articleNumber, a.description, a.mainGroup, a.articleType, a.profitCentre, a.salesUnit,
+          n(a.views), n(a.lookedBy), n(a.carts), n(a.topQty), a.lastLooked ? a.lastLooked.replace("T", " ") : null,
+          n(a.buyersYtd), n(a.qtyYtd), n(a.qtyPerBuyer),
+          n(a.orders), n(a.companies), n(a.stock), a.stockUnit,
+        ]),
+      }];
+    } else if (tab === "customers") {
+      sheets = [{
+        name: "Customers", preamble: head("Customers", visible.length),
+        groups: [
+          { label: "Customer", span: 7, tone: "navy" },
+          { label: `In the shop · ${periodLabel}`, span: 3, tone: "blue" },
+          { label: `Orders · ${periodLabel}`, span: 2, tone: "green" },
+          { label: "Company", span: 3, tone: "slate" },
+        ],
+        columns: [
+          { header: "Mandant", width: 9 }, { header: "Customer no.", width: 13 }, { header: "Customer", width: 40 },
+          { header: "Country", width: 14 }, { header: "Representative", width: 20 }, { header: "Selection", width: 18 },
+          { header: "Priority", width: 9 },
+          { header: "Logins", width: 9, format: "int" }, { header: "Views", width: 9, format: "int" }, { header: `Views per login (${year})`, width: 13, format: "pct1" },
+          { header: "Orders", width: 9, format: "int" }, { header: "Order value EUR", width: 14, format: "money" },
+          { header: "Revenue this year EUR", width: 16, format: "money" }, { header: "Address", width: 28 }, { header: "Phone", width: 18 },
+        ],
+        rows: visible.map((r) => [
+          r.mandant, r.customerNumber, r.name, r.country, r.representative, r.apsoCustomer, shortPriority(r.salesPriority),
+          n(live ? r.rangeLogins : r.logins), n(live ? r.rangeViews : r.views), n(r.viewsPerLogin),
+          n(ordersBy[r.id]?.orders ?? 0), n(ordersBy[r.id]?.value ?? 0),
+          n(r.revenueYtd), r.shortAddress, r.phone,
+        ]),
+      }];
+    } else if (tab === "priceCheck") {
+      const verdict = (r: (typeof pcVisible)[number]) =>
+        r.excluded ? r.excluded : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting") : priceCheckShortfall(r);
+      sheets = [{
+        name: "Price checks", preamble: head("Price checks", pcVisible.length),
+        columns: [
+          { header: "Day", width: 11 }, { header: "Customer", width: 36 }, { header: "Customer no.", width: 13 },
+          { header: "Mandant", width: 9 }, { header: "Owner", width: 20 }, { header: "Team", width: 7 }, { header: "Priority", width: 9 },
+          { header: "Articles", width: 9, format: "int" }, { header: "KT/DT articles", width: 12, format: "int" },
+          { header: "Judged on", width: 11 }, { header: "Verdict", width: 20 }, { header: "Ticket", width: 14 },
+        ],
+        rows: pcVisible.map((r) => [
+          r.day, r.companyName, r.customerNumber, r.mandant, r.owner || null, r.team, shortPriority(r.salesPriority),
+          r.articles.length, r.counted, r.dueOn, verdict(r), r.ticketId,
+        ]),
+      }, {
+        name: "Articles priced", preamble: head("Price checks · every article priced", pcVisible.reduce((s, r) => s + r.articles.length, 0)),
+        columns: [
+          { header: "Day", width: 11 }, { header: "Customer", width: 36 }, { header: "Article", width: 13 }, { header: "Description", width: 50 },
+          { header: "Profit centre", width: 11 }, { header: "Qty", width: 9, format: "int" }, { header: "Sales unit", width: 10 },
+          { header: "MOQ", width: 12 }, { header: "Counts for the rule", width: 15 },
+        ],
+        rows: pcVisible.flatMap((r) => r.articles.map((a) => [
+          r.day, r.companyName, a.article, a.description, a.special ? "special" : a.profitCentre, n(a.qty), a.salesUnit,
+          a.moq == null ? "unknown" : /^y/i.test(a.moq) ? (a.moqMinimum != null ? `yes, ${a.moqMinimum}` : "yes") : "no",
+          a.counted ? "yes" : "no",
+        ])),
+      }];
+    } else {
+      const moq = tab === "moq";
+      const rows = moq ? moqRows : availabilityRows;
+      sheets = [{
+        name: moq ? "MOQ" : "Availability", preamble: head(moq ? "MOQ" : "Availability", rows.length),
+        columns: [
+          { header: "Day", width: 11 }, { header: "Customer", width: 36 }, { header: "Customer no.", width: 13 },
+          { header: "Mandant", width: 9 }, { header: "Country", width: 14 }, { header: "Article", width: 13 },
+          { header: "Description", width: 50 }, { header: "Profit centre", width: 11 },
+          { header: "Wanted", width: 10, format: "int" }, { header: "Sales unit", width: 10 },
+          ...(moq
+            ? [{ header: "Minimum", width: 10, format: "int" as const }]
+            : [{ header: "On the shelf", width: 12, format: "int" as const }, { header: "Stock unit", width: 10 }]),
+          { header: "Why it stalled", width: 24 },
+        ],
+        rows: rows.map((r) => [
+          r.day, r.companyName, r.customerNumber, r.mandant, r.country, r.article, r.description, r.profitCentre,
+          n(r.qty), r.salesUnit,
+          ...(moq ? [n(r.moqMinimum)] : [n(r.stock), r.stockUnit]),
+          moq
+            ? (r.belowMoq ? "Asked below the minimum" : r.carted ? "In cart, not ordered" : "Met the minimum")
+            : (r.stock === 0 ? "Nothing on the shelf" : `${r.shortfall ?? "?"} short`),
+        ]),
+      }];
+      filename = `datatracker-${moq ? "moq" : "availability"}-${day}.xlsx`;
+    }
+    if (tab === "priceCheck") filename = `datatracker-price-checks-${day}.xlsx`;
+    setExporting(true);
+    setExportError(null);
+    setExportError(await downloadXlsx(filename, sheets));
+    setExporting(false);
+  };
+
   /**
    * Narrower gutters inside the cells, because the default 16px each side was
    * eating half of a short column: "M110" in a 60px cell had 28px to live in
@@ -1187,6 +1378,11 @@ function EshopActivityPage() {
               disabled={!usedHere.value}
               inputProps={{ min: 0, step: 100, "aria-label": "Minimum value" }}
             />)}
+          <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => void exportView()}
+            disabled={exporting} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2 }}>
+            {exporting ? "Exporting…" : "Export to Excel"}
+          </Button>
+          {exportError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{exportError}</Typography>}
           {tab === "customers" && (
           <Chip
             size="small"
@@ -1428,15 +1624,17 @@ function EshopActivityPage() {
                     says which half of the screen each belongs to. */}
                 <TableRow>
                   <TableCell colSpan={4} sx={{ borderBottom: "none" }} />
-                  <TableCell colSpan={5} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
-                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#1b4a80" }}>In the shop · since 2 Oct</TableCell>
-                  <TableCell colSpan={3} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
-                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#1f6b3a" }}
-                    title="From the Articles CY/LY report: each order counted once, this year to date">
-                    Bought this year{articles?.boughtAsOf ? ` · to ${articles.boughtAsOf}` : ""}
-                  </TableCell>
-                  <TableCell colSpan={3} align="center" sx={{ borderBottom: "none", fontWeight: 700, fontSize: "0.68rem",
-                    letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED }}>ERP · all time</TableCell>
+                  {([
+                     ["shop", 5, "In the shop · since 2 Oct", "What signed-in customers did in the shop, counted since the capture started on 2 October"],
+                     ["bought", 3, `Bought this year${articles?.boughtAsOf ? ` · to ${articles.boughtAsOf}` : ""}`, "From the Articles CY/LY report: each order counted once, this year to date"],
+                     ["erp", 3, "ERP · all time", "Products & Pricing, written from the ERP every night, all years"],
+                   ] as [ArticleGroup, number, string, string][]).map(([g, span, label, tip]) => (
+                    <TableCell key={g} colSpan={span} align="center" title={tip}
+                      sx={{ ...GROUP_EDGE, bgcolor: GROUP_TONE[g].bg, color: GROUP_TONE[g].ink, borderTop: `3px solid ${GROUP_TONE[g].ink}`,
+                        borderBottom: "none", fontWeight: 800, fontSize: "0.7rem", letterSpacing: "0.06em", textTransform: "uppercase", py: 0.9 }}>
+                      {label}
+                    </TableCell>
+                  ))}
                 </TableRow>
                 <TableRow>
                   {([["articleNumber", "Article no.", 108], ["description", "Description", 0],
@@ -1462,7 +1660,10 @@ function EshopActivityPage() {
                      ["companies", "Customers ever", 96, "Customers that ever ordered it (ERP, all years)"],
                      ["stock", "Stock now", 110, "What is on the shelf now"],
                    ] as [ArticleSortKey, string, number, string][]).map(([k, h, w, tip], i) => (
-                    <TableCell key={`${k}-${i}`} align="right" title={tip} sx={{ ...HEAD, whiteSpace: "normal", lineHeight: 1.25, width: w }}
+                    <TableCell key={`${k}-${i}`} align="right" title={tip}
+                      sx={{ ...HEAD, whiteSpace: "normal", lineHeight: 1.25, width: w,
+                        bgcolor: GROUP_TONE[ARTICLE_GROUP[k] ?? "erp"].bg, color: GROUP_TONE[ARTICLE_GROUP[k] ?? "erp"].ink,
+                        ...(k === "views" || k === "buyersYtd" || k === "orders" ? GROUP_EDGE : {}) }}
                       sortDirection={articleSortKey === k ? articleSortDir : false}>
                       <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
                         onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
@@ -1478,7 +1679,7 @@ function EshopActivityPage() {
                     <TableCell sx={{ color: MUTED }}>{a.mainGroup ?? "—"}</TableCell>
                     <TableCell sx={{ color: MUTED }}>{a.articleType ?? "—"}</TableCell>
                     {/* What the shop reported, first: it is the live half of this screen. */}
-                    <TableCell align="right" sx={{ color: a.views ? INK : MUTED, fontWeight: a.views ? 700 : 400 }}>
+                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: a.views ? INK : MUTED, fontWeight: a.views ? 700 : 400 }}>
                       {a.views == null ? "—" : full(a.views)}
                     </TableCell>
                     <TableCell align="right" sx={{ color: a.lookedBy ? INK : MUTED }}>
@@ -1487,20 +1688,20 @@ function EshopActivityPage() {
                     <TableCell align="right" sx={{ color: a.carts ? INK : MUTED, fontWeight: a.carts ? 600 : 400 }}>
                       {a.carts ? full(a.carts) : "—"}
                     </TableCell>
-                    <TableCell align="right" sx={{ color: MUTED }}>{a.topQty == null ? "—" : decimal(a.topQty, 0)}</TableCell>
+                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.topQty == null ? "—" : withUnit(full(a.topQty), a.salesUnit)}</TableCell>
                     <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                       {a.lastLooked ? a.lastLooked.replace("T", " ") : "—"}
                     </TableCell>
                     {/* This year's buying: one customer taking a lot, or many taking a little. */}
-                    <TableCell align="right" sx={{ color: a.buyersYtd ? INK : MUTED, fontWeight: a.buyersYtd ? 600 : 400 }}>
+                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: a.buyersYtd ? INK : MUTED, fontWeight: a.buyersYtd ? 600 : 400 }}>
                       {a.buyersYtd == null ? "—" : full(a.buyersYtd)}
                     </TableCell>
-                    <TableCell align="right" sx={{ color: a.qtyYtd ? INK : MUTED }}>{a.qtyYtd == null ? "—" : full(a.qtyYtd)}</TableCell>
-                    <TableCell align="right" sx={{ color: a.qtyPerBuyer ? INK : MUTED, fontWeight: a.qtyPerBuyer ? 700 : 400 }}>
-                      {a.qtyPerBuyer == null ? "—" : a.qtyPerBuyer < 10 ? decimal(a.qtyPerBuyer, 1) : full(a.qtyPerBuyer)}
+                    <TableCell align="right" sx={{ color: a.qtyYtd ? INK : MUTED, whiteSpace: "nowrap" }}>{a.qtyYtd == null ? "—" : withUnit(full(a.qtyYtd), a.qtyYtd ? a.salesUnit : null)}</TableCell>
+                    <TableCell align="right" sx={{ color: a.qtyPerBuyer ? INK : MUTED, fontWeight: a.qtyPerBuyer ? 700 : 400, whiteSpace: "nowrap" }}>
+                      {a.qtyPerBuyer == null ? "—" : withUnit(a.qtyPerBuyer < 10 ? decimal(a.qtyPerBuyer, 1) : full(a.qtyPerBuyer), a.salesUnit)}
                     </TableCell>
                     {/* then the ERP counts, which are all-time */}
-                    <TableCell align="right" sx={{ color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
+                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
                     <TableCell align="right" sx={{ color: INK }}>{full(a.companies)}</TableCell>
                     <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
                       {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}

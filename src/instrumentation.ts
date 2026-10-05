@@ -21,5 +21,9 @@ export async function register() {
     // (NOTIFY_SCHEDULER=live)
     const { startNotifyScheduler } = await import("./lib/notify/scheduler");
     startNotifyScheduler();
+    // Every look in the shop, kept in the hub's own database before the gateway's
+    // 50-line window overwrites it (read-only on HubSpot; SHOP_LOOKS=off stops it)
+    const { startShopLooksScheduler } = await import("./lib/shopLooks/scheduler");
+    startShopLooksScheduler();
   }
 }

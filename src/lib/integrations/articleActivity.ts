@@ -26,6 +26,8 @@ export type ArticleRow = {
   stockUnit: string | null;
   /** P&P profit_center: DT, KT, FT, AT, ST, PW. */
   profitCentre: string | null;
+  /** P&P sales_unit, as stored - the unit quantities are asked and ordered in. Never guessed. */
+  salesUnit: string | null;
   /**
    * Bought this year to date, from the Articles CY/LY report (each order once):
    * how many customers, how much in all, and how much each on average - one
@@ -73,7 +75,7 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.length > 
 const PROPERTIES = [
   "article_number", "article_description", "product_description", "article_type",
   "main_group_description", "sub_group_description",
-  "stock_quantity", "stock_unit", "order_article_count", "company_article_count", "profit_center",
+  "stock_quantity", "stock_unit", "order_article_count", "company_article_count", "profit_center", "sales_unit",
 ];
 
 /** article -> this year's buying, rebuilt only when a newer report exists. */
@@ -149,6 +151,7 @@ export async function fetchArticleActivity(
       stock: num(p.stock_quantity),
       stockUnit: str(p.stock_unit),
       profitCentre: str(p.profit_center),
+      salesUnit: str(p.sales_unit),
       ...(() => {
         const b = articleNumber ? bought?.byArticle.get(articleNumber) : undefined;
         if (!bought) return { buyersYtd: null, qtyYtd: null, qtyPerBuyer: null };
