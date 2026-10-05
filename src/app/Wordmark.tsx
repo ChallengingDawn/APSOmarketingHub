@@ -17,7 +17,7 @@
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start" }: {
+export function Wordmark({ size = 32, subtitle = "apsoparts.com", align = "start" }: {
   size?: number;
   /** The small line underneath. Pass null where there is no room. */
   subtitle?: string | null;
@@ -26,8 +26,12 @@ export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start
   const type = {
     fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
     fontSize: size,
-    fontWeight: 300,
-    letterSpacing: "0.3em",
+    // 400, not 300. Light type at wide tracking loses presence fast, and the
+    // first attempt was sized as if it were still the old 800 weight — SARCLA
+    // saw it as simply smaller, which it was. More size and a little more
+    // weight buy back the authority; the airiness is in the tracking.
+    fontWeight: 400,
+    letterSpacing: "0.22em",
     lineHeight: 1.1,
   } as const;
 
@@ -35,7 +39,7 @@ export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start
     <Box sx={{ display: "grid", justifyItems: align, lineHeight: 1 }}>
       {/* The tracking adds a gap after the final letter; pulling it back keeps
           the mark optically flush with whatever sits under it. */}
-      <Box sx={{ display: "flex", alignItems: "baseline", mr: "-0.3em" }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", mr: "-0.22em" }}>
         <Box component="span" sx={{ ...type, color: "#15223a" }}>APSO</Box>
         <Box component="span" sx={{
           ...type,

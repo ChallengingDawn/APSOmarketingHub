@@ -31,7 +31,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         border: "1px solid rgba(255,255,255,.85)",
         boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 20px 48px rgba(31,45,78,.12)",
       }}>
-        <Box sx={{ mb: 3 }}><Wordmark size={24} /></Box>
+        <Box sx={{ mb: 3 }}><Wordmark size={32} /></Box>
         {children}
       </Box>
     </Box>

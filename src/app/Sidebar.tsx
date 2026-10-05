@@ -70,6 +70,7 @@ import Link from "next/link";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
+import { APPS } from "@/app/hubApps";
 
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
@@ -263,6 +264,18 @@ const navSections: NavSection[] = [
 
 const ACCENT = "#2459d1";
 const ACCENT_BG = "#e4ecfd";
+
+/**
+ * The pale wash behind the row you are on, mixed from whichever colour the app
+ * wears. Inside UC that is orange, inside Website green — the panel stops being
+ * hub-blue the moment you are somewhere specific, so the colour tells you where
+ * you are before you have read a word.
+ *
+ * `color-mix` does it in the browser, from the one hex each section already
+ * carries, rather than a second hand-picked tint per app that would drift away
+ * from the first.
+ */
+const wash = (hex: string) => `color-mix(in srgb, ${hex} 13%, #ffffff)`;
 const INK = "#1f2633";
 const MUTED = "#6b7385";
 const ICON = "#4a5263";
@@ -271,10 +284,14 @@ const PANEL_GAP = 14;
 type Item = NavSection["items"][number];
 
 function Row({
-  href, icon, label, active = false, badge, strong = false, anchor = false,
+  href, icon, label, active = false, badge, strong = false, anchor = false, tone,
 }: {
   href: string; icon: React.ReactNode; label: string; active?: boolean; badge?: string; strong?: boolean; anchor?: boolean;
+  /** The app's own colour while you are inside it; the hub blue everywhere else. */
+  tone?: string;
 }) {
+  const accent = tone ?? ACCENT;
+  const accentBg = tone ? wash(tone) : ACCENT_BG;
   return (
     <ListItemButton
       component={(anchor ? "a" : Link) as React.ElementType}
@@ -288,12 +305,12 @@ function Row({
         mb: 0.35,
         minHeight: 42,
         gap: 1.4,
-        color: active ? ACCENT : INK,
-        bgcolor: active ? ACCENT_BG : "transparent",
+        color: active ? accent : INK,
+        bgcolor: active ? accentBg : "transparent",
         transition: "background-color 0.15s ease, color 0.15s ease",
-        "&:hover": { bgcolor: active ? ACCENT_BG : "rgba(15,23,42,0.045)" },
-        "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
-        "& .row-icon svg": { fontSize: 20, color: active ? ACCENT : ICON, transition: "color 0.15s ease" },
+        "&:hover": { bgcolor: active ? accentBg : "rgba(15,23,42,0.045)" },
+        "&:focus-visible": { outline: `2px solid ${accent}`, outlineOffset: 1 },
+        "& .row-icon svg": { fontSize: 20, color: active ? accent : ICON, transition: "color 0.15s ease" },
       }}
     >
       <Box className="row-icon" sx={{ display: "inline-flex", width: 22, justifyContent: "center", flexShrink: 0 }}>{icon}</Box>
@@ -309,7 +326,7 @@ function Row({
         <Chip
           label={badge}
           size="small"
-          sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: active ? "#ffffff" : "#eef1f6", color: active ? ACCENT : MUTED }}
+          sx={{ height: 20, fontSize: 10.5, fontWeight: 700, bgcolor: active ? "#ffffff" : "#eef1f6", color: active ? accent : MUTED }}
         />
       )}
     </ListItemButton>
@@ -450,15 +467,24 @@ export default function Sidebar() {
   const isCollapsed = (name: string) => collapsed[name] ?? (!scoped && name !== activeSection?.title);
   const toggle = (name: string) => setCollapsed((c) => ({ ...c, [name]: !isCollapsed(name) }));
 
+  // Inside an app, everything in the panel wears that app's colour — taken from
+  // the TILE on the launch pad, not from this file's own `color`. Those two had
+  // drifted apart: Marketing is pink on the front page and was green here,
+  // Datatracker blue there and orange here. The tile is the one people see
+  // first, so it wins, and the panel is recognisably the same app they clicked.
+  const tone = scoped && activeSection
+    ? APPS.find((a) => a.name === activeSection.title)?.to ?? activeSection.color
+    : undefined;
+
   const renderItem = (item: Item) => {
     if (item.placeholder) return <SlotRow key={item.href} icon={item.icon} label={item.label} />;
     return (
       <Fragment key={item.href}>
-        <Row href={item.href} icon={item.icon} label={item.label} badge={item.badge} active={item.href === activeHref} />
+        <Row href={item.href} icon={item.icon} label={item.label} badge={item.badge} active={item.href === activeHref} tone={tone} />
         {item.children?.map((c) => (
           <Box key={c.href} sx={{ pl: 3.5 }}>
-            <Row href={c.href} icon={<Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: c.href === activeHref ? ACCENT : "#c9ced6" }} />}
-              label={c.label} active={c.href === activeHref} />
+            <Row href={c.href} icon={<Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: c.href === activeHref ? (tone ?? ACCENT) : "#c9ced6" }} />}
+              label={c.label} active={c.href === activeHref} tone={tone} />
           </Box>
         ))}
       </Fragment>
@@ -499,7 +525,7 @@ export default function Sidebar() {
                   panel is the app's, and nothing else says there are others. */}
               <Row href="/" icon={<ChevronLeftIcon />} label="All apps" />
               <Box sx={{ mt: 1.25, mb: 2.25 }}>
-                <Row href={activeSection!.home ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong />
+                <Row href={activeSection!.home ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong tone={tone} />
               </Box>
             </>
           ) : (
@@ -507,7 +533,7 @@ export default function Sidebar() {
             // a third version here: stretched, red, with the letters cycling
             // through colours on a nine-second loop.
             <Box component={Link} href="/" sx={{ display: "block", textDecoration: "none", px: 1.25, pb: 2.25 }}>
-              <Wordmark size={20} subtitle={null} />
+              <Wordmark size={24} subtitle={null} />
             </Box>
           )}
 
