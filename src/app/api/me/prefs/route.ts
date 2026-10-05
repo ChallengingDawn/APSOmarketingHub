@@ -48,8 +48,14 @@ const Prefs = z.object({
   hiddenQuickLinks: z.array(z.string().max(60)).max(40).optional(),
   /** Links of their own, in the order they put them. */
   customQuickLinks: z.array(Link).max(12).optional(),
-  /** Their picture, or absent for initials. */
-  avatar: Avatar.optional(),
+  /**
+   * Their picture, or absent for initials.
+   *
+   * The empty string is how the browser says "remove it" — a photo and an icon
+   * are one slot, so setting either clears the other, and `undefined` means
+   * "unchanged" once the record is merged rather than replaced.
+   */
+  avatar: z.union([Avatar, z.literal("")]).optional(),
   /**
    * An icon they picked, by name.
    *
@@ -103,7 +109,10 @@ export async function PUT(req: NextRequest) {
   // MERGED, not replaced: the quick-links editor and the profile page each send
   // only their own keys, and a straight overwrite would have one wipe the other.
   const existing = await query<{ v: Prefs }>(`SELECT v FROM apsomh_kv WHERE k = $1 LIMIT 1`, [keyFor(user.id)]);
-  const merged = { ...(existing.rows[0]?.v ?? {}), ...parsed.data };
+  const merged: Record<string, unknown> = { ...(existing.rows[0]?.v ?? {}), ...parsed.data };
+  // An empty string clears rather than stores: nothing should read back a key
+  // whose value means "there is none".
+  for (const k of ["avatar", "avatarIcon"]) if (merged[k] === "") delete merged[k];
 
   await query(
     `INSERT INTO apsomh_kv (k, v, updated_at) VALUES ($1, $2, NOW())

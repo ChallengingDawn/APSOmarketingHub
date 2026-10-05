@@ -43,6 +43,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import TuneIcon from "@mui/icons-material/Tune";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
+import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
@@ -231,6 +232,7 @@ const navSections: NavSection[] = [
     items: [
       { group: "Personal", label: "My account", href: "/settings/you", icon: <PersonOutlineIcon fontSize="small" /> },
       { group: "Personal", label: "Preferences", href: "/settings/preferences", icon: <TuneIcon fontSize="small" /> },
+      { group: "Personal", label: "Notifications", href: "/settings/notifications", icon: <MailOutlineIcon fontSize="small" /> },
       { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" /> },
       { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, adminOnly: true },

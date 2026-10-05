@@ -93,6 +93,19 @@ export default function Notifications({ glass }: { glass: Record<string, unknown
           no mail arrives and nothing says why.
         </Typography>
       )}
+
+      {/* The ones that do not exist, named rather than drawn as dead switches.
+          When one of them is built it becomes a row above, not a line here. */}
+      <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+        <Typography sx={{
+          fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase",
+          letterSpacing: "0.08em", mb: 1,
+        }}>Nothing else writes to you</Typography>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.6 }}>
+          Not erosion, not a ticket assigned to you, not a stock gap on an article you watch. Each of those is
+          a day&rsquo;s work once somebody says it is worth a mail — ask, and it becomes a row here.
+        </Typography>
+      </Box>
     </Box>
   );
 }

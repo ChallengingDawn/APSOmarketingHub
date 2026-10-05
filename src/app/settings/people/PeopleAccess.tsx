@@ -73,6 +73,9 @@ const headCell = {
 /** Every body cell: same height, same gutters, one hairline. */
 const cell = { px: 1.25, py: 1.15, borderBottom: `1px solid ${HAIRLINE}`, verticalAlign: "middle" as const };
 
+/** Enough that a team of twenty is one page, few enough that a long list pages. */
+const PAGE_SIZE = 25;
+
 const initials = (n: string) =>
   n.trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
@@ -94,6 +97,9 @@ export default function PeopleAccess() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [role, setRole] = useState<"all" | Role>("all");
+  const [status, setStatus] = useState<"all" | "active" | "suspended">("all");
+  const [page, setPage] = useState(0);
+  const [remove, setRemove] = useState<{ person: Person; typed: string } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [pw, setPw] = useState<{ person: Person; value: string; done: boolean } | null>(null);
@@ -181,11 +187,20 @@ export default function PeopleAccess() {
     const needle = q.trim().toLowerCase();
     return (people ?? []).filter((p) =>
       (role === "all" || p.role === role) &&
+      (status === "all" || (status === "active" ? p.is_active : !p.is_active)) &&
       (!needle || p.full_name.toLowerCase().includes(needle) ||
         (p.email ?? "").toLowerCase().includes(needle) ||
         p.username.toLowerCase().includes(needle)),
     );
-  }, [people, q, role]);
+  }, [people, q, role, status]);
+
+  // A page of rows. Narrowing the filter while on page 4 used to show an empty
+  // table rather than the two matches, so any change to the filters goes back
+  // to the first page.
+  const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const onPage = Math.min(page, pages - 1);
+  const rows = visible.slice(onPage * PAGE_SIZE, onPage * PAGE_SIZE + PAGE_SIZE);
+  useEffect(() => { setPage(0); }, [q, role, status]);
 
   const person = (people ?? []).find((p) => p.id === selected) ?? visible[0] ?? null;
 
@@ -266,6 +281,12 @@ export default function PeopleAccess() {
               <MenuItem value="user">Editor</MenuItem>
               <MenuItem value="viewer">Viewer</MenuItem>
             </Select>
+            <Select size="small" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
+              sx={{ width: 140, flexShrink: 0 }}>
+              <MenuItem value="all">Any status</MenuItem>
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="suspended">Suspended</MenuItem>
+            </Select>
           </Box>
 
           {!people && !error && (
@@ -288,7 +309,7 @@ export default function PeopleAccess() {
                   </Box>
                 </Box>
                 <Box component="tbody">
-                  {visible.map((p) => (
+                  {rows.map((p) => (
                     <Box component="tr" key={p.id}
                       onClick={() => setSelected(p.id)}
                       sx={{
@@ -376,7 +397,7 @@ export default function PeopleAccess() {
                       }}>{ago(p.last_login)}</Box>
                     </Box>
                   ))}
-                  {visible.length === 0 && (
+                  {rows.length === 0 && (
                     <Box component="tr">
                       <Box component="td" colSpan={COLUMNS.length} sx={{ px: 1.25, py: 3, textAlign: "center", color: MUTED, fontSize: "0.88rem" }}>
                         Nobody matches that.
@@ -385,6 +406,28 @@ export default function PeopleAccess() {
                   )}
                 </Box>
               </Box>
+            </Box>
+          )}
+
+          {people && visible.length > 0 && (
+            <Box sx={{
+              display: "flex", alignItems: "center", gap: 1.5, pt: 1.5, mt: 0.5,
+              borderTop: `1px solid ${HAIRLINE}`, flexWrap: "wrap",
+            }}>
+              <Typography sx={{ fontSize: "0.78rem", color: FAINT, flex: 1 }}>
+                {visible.length === people.length
+                  ? `${visible.length} ${visible.length === 1 ? "person" : "people"}`
+                  : `${visible.length} of ${people.length}`}
+                {pages > 1 ? ` \u00b7 page ${onPage + 1} of ${pages}` : ""}
+              </Typography>
+              {pages > 1 && (
+                <>
+                  <Button size="small" disabled={onPage === 0} onClick={() => setPage(onPage - 1)}
+                    sx={{ textTransform: "none", color: MUTED, minWidth: 0 }}>Back</Button>
+                  <Button size="small" disabled={onPage >= pages - 1} onClick={() => setPage(onPage + 1)}
+                    sx={{ textTransform: "none", color: MUTED, minWidth: 0 }}>Next</Button>
+                </>
+              )}
             </Box>
           )}
         </GlassCard>
@@ -484,6 +527,16 @@ export default function PeopleAccess() {
                   sx={{ textTransform: "none", color: MUTED }}
                 >
                   Reset two-factor
+                </Button>
+              )}
+              {person.id !== me && (
+                <Button
+                  size="small" color="error"
+                  disabled={saving === `${person.id}:role`}
+                  onClick={() => setRemove({ person, typed: "" })}
+                  sx={{ textTransform: "none" }}
+                >
+                  Delete account
                 </Button>
               )}
               {person.id !== me && (
@@ -638,6 +691,62 @@ export default function PeopleAccess() {
               >Create account</Button>
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* No undo, so it asks for the username rather than for a click. The
+          alternative is offered in the same breath, because nine times out of
+          ten "delete" means "stop them signing in" and that is suspend. */}
+      <Dialog open={!!remove} onClose={() => { if (!saving) setRemove(null); }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 600 }}>
+          Delete {remove?.person.full_name || remove?.person.username}?
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 2, lineHeight: 1.55 }}>
+            The account goes, and with it their app access and every session they have open. What they did
+            stays in the audit log under their name. This cannot be undone.
+          </Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK, mb: 2, lineHeight: 1.55 }}>
+            If you only want to stop them signing in, <strong>suspend</strong> instead \u2014 it is reversible and
+            keeps the account attached to its history.
+          </Typography>
+          <TextField
+            size="small" fullWidth autoFocus
+            label={`Type ${remove?.person.username} to confirm`}
+            value={remove?.typed ?? ""}
+            onChange={(e) => setRemove((cur) => (cur ? { ...cur, typed: e.target.value } : cur))}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setRemove(null)} sx={{ textTransform: "none", color: MUTED }}>Cancel</Button>
+          <Button
+            variant="contained" color="error" sx={{ textTransform: "none" }}
+            disabled={!remove || remove.typed.trim() !== remove.person.username || !!saving}
+            onClick={async () => {
+              if (!remove) return;
+              setSaving(`${remove.person.id}:role`);
+              setError(null);
+              try {
+                const r = await fetch(`/api/admin/users/${remove.person.id}`, { method: "DELETE" });
+                const text = await r.text();
+                const j = text ? JSON.parse(text) : null;
+                if (!r.ok || !j?.ok) {
+                  setError(`${j?.error ?? "That account could not be deleted."} (HTTP ${r.status})`);
+                  return;
+                }
+                setRemove(null);
+                setSelected(null);
+                setNote("Account deleted.");
+                load();
+              } catch (e) {
+                setError(String(e));
+              } finally {
+                setSaving(null);
+              }
+            }}
+          >
+            Delete for good
+          </Button>
         </DialogActions>
       </Dialog>
 

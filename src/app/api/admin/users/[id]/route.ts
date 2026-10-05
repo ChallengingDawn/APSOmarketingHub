@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '@/lib/db/client';
 import { requireAdmin } from '@/lib/auth/guard';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
+import { whyNotDelete } from './delete';
 
 export const runtime = 'nodejs';
 
@@ -98,9 +99,24 @@ export async function DELETE(
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   }
-  if (userId === me.id) {
-    return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
-  }
-  await query(`DELETE FROM apsomh_users WHERE id = $1`, [userId]);
-  return NextResponse.json({ ok: true });
+  // The one admin action with no undo, so it has the most refusals: not
+  // yourself, not the last admin, and never as a way to end somebody's session
+  // — suspending does that and keeps the audit trail attached to a name.
+  const no = await whyNotDelete(me.id, userId);
+  if (no) return NextResponse.json({ ok: false, error: no.error }, { status: no.status });
+
+  const gone = await query<{ username: string; role: string }>(
+    `DELETE FROM apsomh_users WHERE id = $1 RETURNING username, role`,
+    [userId],
+  );
+  if (!gone.rows[0]) return NextResponse.json({ ok: false, error: 'That account does not exist.' }, { status: 404 });
+
+  // Their grants and sessions go with the row (ON DELETE CASCADE); the audit
+  // entry does not, because what they did stays on the record.
+  await query(
+    `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
+    [me.username, 'user.delete', JSON.stringify({ userId, username: gone.rows[0].username, role: gone.rows[0].role })],
+  ).catch(() => {});
+
+  return NextResponse.json({ ok: true, deleted: gone.rows[0].username });
 }

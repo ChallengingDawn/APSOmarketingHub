@@ -2,8 +2,9 @@
 // PREFERENCES — what you can change about your own hub.
 //
 // Everything on this page is real and saved against the account rather than the
-// browser, so it follows you between machines: your quick links, your home
-// screen, and the one thing the hub will write to you about.
+// browser, so it follows you between machines: your quick links and your home
+// screen. Mail has its own page — it is the one thing that reaches you when you
+// are not looking at the hub, which is not a card at the bottom of something.
 //
 // The list of gaps that used to sit at the bottom is gone, and so are the gaps
 // — except light and dark, which SARCLA does not want, so it is not named as a
@@ -15,7 +16,6 @@ import LinkIcon from "@mui/icons-material/Link";
 
 import QuickLinks from "@/app/QuickLinks";
 import HomeScreen from "./HomeScreen";
-import Notifications from "./Notifications";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -49,8 +49,6 @@ export default function Preferences() {
       </Box>
 
       <HomeScreen glass={glass} />
-
-      <Notifications glass={glass} />
 
     </Box>
   );
