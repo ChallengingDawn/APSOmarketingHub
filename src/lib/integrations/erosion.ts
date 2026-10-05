@@ -32,7 +32,8 @@ type SearchPage = {
   paging?: { next?: { after?: string } };
 };
 
-async function ticketStages(signal?: AbortSignal): Promise<Map<string, StageInfo>> {
+/** Stage id -> label, pipeline and closed flag, for every ticket pipeline (price checks read it too). */
+export async function ticketStages(signal?: AbortSignal): Promise<Map<string, StageInfo>> {
   const res = await hubspotFetchJson<{
     results?: { label?: string; stages?: { id: string; label?: string; metadata?: { isClosed?: unknown } }[] }[];
   }>({ path: "/crm/v3/pipelines/tickets", useTicketsToken: true, signal });

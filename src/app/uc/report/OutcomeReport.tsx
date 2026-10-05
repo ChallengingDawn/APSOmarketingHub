@@ -215,12 +215,14 @@ function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; re
 
 /* ── the report ───────────────────────────────────────────────────────── */
 
-export function OutcomeReport({ tickets, period, stale }: {
+export function OutcomeReport({ tickets, period, stale, amountMeans = "of last year's revenue" }: {
   /** The tickets RAISED in the period - already filtered by the page's picker. */
   tickets: ErosionTicket[];
   /** "Last 28 days", "1 Sep – 30 Sep 2026" … as the picker states it. */
   period: string;
   stale: boolean;
+  /** What a ticket's amount is, after "N EUR": Erosion's is last year's revenue, a price check's the value priced. */
+  amountMeans?: string;
 }) {
   const [reason, setReason] = useState<string | null>(null);
   const [view, setView] = useState<"chart" | "table">("chart");
@@ -242,7 +244,7 @@ export function OutcomeReport({ tickets, period, stale }: {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 4 }}>
           <KpiTile icon={<EmojiEventsOutlinedIcon />} tint="green" label="Won back" value={full(won)}
-            note={`${eur(wonEur)} EUR of last year's revenue · ${period}`} />
+            note={`${eur(wonEur)} EUR ${amountMeans} · ${period}`} />
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
           <KpiTile icon={<PercentIcon />} tint="blue" label="Win rate" value={closed ? percent(won / closed, 0) : "—"}
