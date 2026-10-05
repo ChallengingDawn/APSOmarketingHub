@@ -238,7 +238,11 @@ async function runBuild(trigger: string): Promise<void> {
   const client = await getPool().connect();
   try {
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
-    if (!got.rows[0]?.ok) return; // the other copy is building
+    if (!got.rows[0]?.ok) {
+      // another job holds the lock (the other copy building, or a job sharing the id) - never in silence
+      console.log(`[articles] build (${trigger}) not started: the lock is held elsewhere - the next tick tries again`);
+      return;
+    }
     try {
       const started = new Date().toISOString();
       await kvSet(KV.status, { ...IDLE, status: "running", step: "starting", started, trigger, heartbeat: started });
