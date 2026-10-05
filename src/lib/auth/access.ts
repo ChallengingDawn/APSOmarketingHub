@@ -153,13 +153,14 @@ const ROUTES: [string, AppKey][] = [
   ["/datatracker", "datatracker"],
 
   ["/website", "website"],
+  ["/live", "website"],
+  ["/analytics/tracking", "website"],
+  ["/analytics/consent", "website"],
+  ["/analytics/web-orders", "website"],
 
-  // Advanced reporting: the measurement behind the website rather than the
-  // website's own numbers. Live is its first sub-app.
-  ["/live", "reporting"],
-  ["/analytics/tracking", "reporting"],
-  ["/analytics/consent", "reporting"],
-  ["/analytics/web-orders", "reporting"],
+  // Advanced reporting has one page so far, and that page says so. It is an
+  // app key with nothing behind it yet rather than a reshuffle of Website's.
+  ["/reporting", "reporting"],
 
   // It is named after the hub, but what it draws is the content calendar and
   // the library — the Marketing app's own data. It belongs where its data does.

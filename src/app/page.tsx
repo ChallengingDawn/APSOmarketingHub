@@ -431,6 +431,14 @@ export default function FrontPage() {
                     </Box>
                   ))}
 
+                  {/* An app can be empty on purpose. Saying so beats a card
+                      that trails off into white space. */}
+                  {a.subs.length === 0 && (
+                    <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, py: 0.5 }}>
+                      Nothing in it yet — open it to see what it is for.
+                    </Typography>
+                  )}
+
                   {a.subs.length > 3 && (
                     <Box
                       component="button"

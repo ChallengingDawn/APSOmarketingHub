@@ -135,6 +135,12 @@ const navSections: NavSection[] = [
       { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
       { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
       { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
+      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
+      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
+      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
+      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
+      // with Tracking health rather than among the use cases.
+      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
     ],
   },
   {
@@ -178,20 +184,15 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // What the site did is one question; whether we can believe the numbers, and
-    // what is happening this minute, is another. Live comes first because it is
-    // the one people open without a reason.
+    // One entry, which is the whole app: a section with nothing in it would not
+    // be drawn at all, and then the tile on the front page would open a page
+    // with no way back out of it.
     title: "Advanced reporting",
-    home: "/live",
+    home: "/reporting",
     icon: <InsightsIcon />,
     color: "#1f6fa8",
     items: [
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
-      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
-      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
-      // with Tracking health rather than among the use cases.
-      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
+      { label: "Advanced reporting", href: "/reporting", icon: <InsightsIcon fontSize="small" /> },
     ],
   },
   {
