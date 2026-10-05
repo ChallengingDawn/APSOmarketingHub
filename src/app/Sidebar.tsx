@@ -28,6 +28,7 @@ import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import CampaignOutlinedIcon from "@mui/icons-material/CampaignOutlined";
 import PhoneCallbackOutlinedIcon from "@mui/icons-material/PhoneCallbackOutlined";
+import DonutSmallIcon from "@mui/icons-material/DonutSmall";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -198,6 +199,7 @@ const navSections: NavSection[] = [
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "Reports & data", label: "Articles CY/LY", href: "/uc/articles", icon: <QueryStatsIcon fontSize="small" /> },
+      { group: "Reports & data", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
     ],
   },
   {

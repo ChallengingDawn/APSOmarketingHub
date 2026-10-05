@@ -14,5 +14,8 @@ export async function register() {
     // Articles CY/LY, rebuilt once a day after the same chain (read-only)
     const { startArticlesScheduler } = await import("./lib/articles/scheduler");
     startArticlesScheduler();
+    // Smart Segmentation's watcher and nightly sweep, once the hub owns the engine (SEGMENTATION_ENGINE=live)
+    const { startSegmentationScheduler } = await import("./lib/segmentation/scheduler");
+    startSegmentationScheduler();
   }
 }

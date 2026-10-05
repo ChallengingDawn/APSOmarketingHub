@@ -125,6 +125,7 @@ export const APPS: HubApp[] = [
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
       { name: "Articles CY/LY", note: "Every article, this year against last", href: "/uc/articles", icon: "bar", ...BLUE },
+      { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
     ],
   },
 ];
