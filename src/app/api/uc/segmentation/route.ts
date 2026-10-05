@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       bdCache = { at: Date.now(), p };
       p.catch(() => { if (bdCache?.p === p) bdCache = null; });
     }
-    const acts: Action[] = ["run-new", "sweep", "potential", "web", "watch", "recheck"];
+    const acts: Action[] = ["run-new", "sweep", "potential", "web", "watch", "recheck", "yearly"];
     const [st, bd, ...last] = await Promise.all([cache.p, bdCache.p, ...acts.map((a) => lastResult(a))]);
     return NextResponse.json({
       configured: true, ok: true,

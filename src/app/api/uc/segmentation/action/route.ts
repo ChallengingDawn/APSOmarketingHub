@@ -9,7 +9,7 @@ import { startAction, type Action } from "@/lib/integrations/segmentation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ACTIONS: Action[] = ["run-new", "sweep", "potential", "web", "watch", "recheck"];
+const ACTIONS: Action[] = ["run-new", "sweep", "potential", "web", "watch", "recheck", "yearly"];
 
 export async function POST(req: NextRequest) {
   const user = await getOptionalUser();

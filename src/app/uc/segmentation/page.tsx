@@ -34,6 +34,8 @@ import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import LanguageOutlinedIcon from "@mui/icons-material/LanguageOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
+import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -47,10 +49,15 @@ import { HowItWorks } from "./HowItWorks";
 import { PriorityMix, SegmentMix } from "./PortfolioCharts";
 
 type Run = Record<string, unknown> | null;
+type YearlySummary = {
+  at: string; dry: boolean; year: number; scanned: number; changes: number; written: number; rowCount: number;
+  transitions: Record<string, number>; before: Record<string, number>; after: Record<string, number>;
+};
 type Status = {
   total: number; empty: number; prio_1?: number; prio_2?: number; prio_3?: number; prio_4?: number;
   no_prio_share_pct: number | null; web_new_enabled: boolean; web_candidates: number;
   last_run_new: Run; last_sweep: Run; last_potential: Run; last_web: Run; watcher_last: Run;
+  last_yearly: Run; yearly_done: number | null; year: number; yearly_summary: YearlySummary | null;
   running: { what: string; started: string; by: string } | null;
   engine: "hub" | "connector"; state_imported: string | null; own_app: string | null;
 };
@@ -64,15 +71,17 @@ type TabId = "overview" | "changes" | "runs" | "properties";
 const TAB_HASH: Record<TabId, string> = { overview: "#overview", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
-  ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep",
-    "MAX(yearly potential, best revenue year) → P1 ≥ 25'000 € · P2 ≥ 2'500 € · P3 ≥ 500 €. The sweep never downgrades; when a rep changes a potential, the priority follows it up or down."],
+  ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep · the yearly reclassification",
+    "MAX(yearly potential, best revenue year) → P1 ≥ 25'000 € · P2 ≥ 2'500 € · P3 ≥ 500 €. The nightly sweep never lowers it; when a rep changes a potential, the priority follows it up or down; once a year every priority is set exactly to the rule, up or down."],
   ["yearly_customer_potential", "Watcher seeds a starter value ONLY when empty · nightly recalculation of machine-written values",
     "300 € micro · 500–800 € by APIC product fit · revenue × multiplier when revenue exists. A person's value is never overwritten; values > 1 M € without matching revenue are ignored in the maths."],
   ["max_pot_or_turnover", "Wherever the priority is computed", "= MAX(yearly potential, best revenue year) - the basis behind the priority."],
   ["max_revenue_2015_2026", "Wherever the priority is computed", "Best Performis revenue year since 2015."],
   ["max_revenue_bucket", "Wherever the priority is computed", "Fine 0–8 revenue scale (0 = no turnover … 8 = ≥ 100 k€)."],
-  ["apso_customer", "HubSpot creation workflow · lost-recovery here", "Read for the micro default; APSOlost that bought this year becomes APSOcore (≥ 500 €) or APSOprospect."],
-  ["apic_ap / industry / hs_keywords", "Watcher and full runs, when empty", "From the industry mapping or DE/FR/IT/EN keywords in the name and description - only valid portal values, never overwritten."],
+  ["apso_customer", "HubSpot creation workflow · nightly lost-recovery · the yearly reclassification",
+    "At creation APSOmicro (free mail domain or 1–5 employees) or APSOprospect; APSOlost that bought this year becomes APSOcore (≥ 500 €) or APSOprospect; once a year the 14-rule waterfall decides every segment again - ERP segments (ESO, DS, Growth Engine) never."],
+  ["apic_ap / industry / hs_keywords", "Watcher and full runs, when empty · the yearly reclassification",
+    "From the industry mapping or DE/FR/IT/EN keywords in the name, description and website - only valid portal values. Once a year a generic 1.1 APIC is corrected or cleared from the industry; resellers (3.x) never change."],
   ["description / employees / address / website", "Website enrichment, when empty", "Read from the company's own site (meta description, schema.org); country falls back to the domain (.ch → Switzerland). Each site at most once per 30 days."],
   ["revenue_2015 … revenue_<this year>", "Compass daily sync", "Input only - segmentation never writes revenue."],
 ];
@@ -86,6 +95,7 @@ const LEGEND: Record<string, string> = {
   "Full sweep": "Upgrade: the priority went up because potential or revenue grew · facts only: the priority stayed, its helper fields were refreshed · unlost: an APSOlost customer bought again and became Core or Prospect · fill empty: had no priority yet.",
   "Website enrichment": "Attempted: websites tried · site ok: the site answered and something was learned · then which fields it filled.",
   "Potential recalculation": "Manual kept: a person's value - never touched · kept higher: the engine's value is already above the formula, it is not lowered · unchanged: less than 10 % away · no revenue: nothing to calculate from · filled: was empty · machine recalc: the engine's value raised to the formula.",
+  "Yearly reclassification": "Segment changed: a new APSO segment from the 14 rules · prio up / prio down: the priority set exactly to the rule · APIC corrected / set / cleared and industry filled / corrected: made to agree · facts only: nothing decided changed, helper fields refreshed · ERP left alone: ESO, DS, Growth Engine - never touched.",
 };
 
 function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRun, live }: {
@@ -130,6 +140,43 @@ function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRu
         </Box>
       )}
     </GlassCard>
+  );
+}
+
+/** The yearly card's own part: is it due, the biggest moves of the last preview or run, the Excel files. */
+function YearlyExtra({ st }: { st: Status }) {
+  const ys = st.yearly_summary;
+  const moves = ys ? Object.entries(ys.transitions).sort((a, b) => b[1] - a[1]) : [];
+  return (
+    <Box sx={{ display: "grid", gap: 1.25, mb: 0.5 }}>
+      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+        <Chip size="small" label={st.yearly_done === st.year ? `Done for ${st.year}` : `Not run for ${st.year} yet`}
+          sx={{ height: 22, fontSize: "0.72rem", fontWeight: 700, bgcolor: st.yearly_done === st.year ? TINT.green.bg : TINT.amber.bg, color: st.yearly_done === st.year ? TINT.green.fg : TINT.amber.fg }} />
+        {ys && (
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+            {ys.dry ? "Last preview" : "Last run"} {when(ys as unknown as Run)}: {full(ys.rowCount)} companies with a new segment, priority, APIC or industry
+          </Typography>
+        )}
+      </Box>
+      {moves.length > 0 && (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 0.75 }}>
+          {moves.slice(0, 9).map(([t, n]) => (
+            <Box key={t} sx={{ display: "flex", justifyContent: "space-between", gap: 1, px: 1.25, py: 0.6, borderRadius: "10px", bgcolor: "rgba(255,255,255,.7)", border: "1px solid rgba(21,34,58,.08)" }}>
+              <Typography sx={{ fontSize: "0.8rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t}</Typography>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{full(n)}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+        {ys?.dry && (
+          <Button size="small" variant="text" startIcon={<FileDownloadOutlinedIcon />} href="/api/uc/segmentation/yearly-export?which=preview">Excel of the preview</Button>
+        )}
+        {st.yearly_done !== null && (
+          <Button size="small" variant="text" startIcon={<FileDownloadOutlinedIcon />} href="/api/uc/segmentation/yearly-export?which=applied">Excel of the last run - the before values</Button>
+        )}
+      </Box>
+    </Box>
   );
 }
 
@@ -299,6 +346,13 @@ export default function SmartSegmentation() {
             <RunCard title="Potential recalculation" icon={<ScheduleOutlinedIcon />} note="Recalculates the potentials the engine set itself (revenue × product fit) - never one a person entered, never lower"
               last={st.last_potential} busy={running} canRun={admin} live={live}
               onPreview={() => act("potential", true)} onRun={() => act("potential", false)} />
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <RunCard title="Yearly reclassification" icon={<EventRepeatOutlinedIcon />}
+              note="Once a year, in January: every company's APSO segment decided again from scratch, and every priority set exactly to the rule - up or down. Preview, check the Excel, then run"
+              last={st.last_yearly} busy={running} canRun={admin} live={live}
+              onPreview={() => act("yearly", true)} onRun={() => act("yearly", false)}
+              extra={<YearlyExtra st={st} />} />
           </Grid>
           <Grid size={{ xs: 12 }}>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>

@@ -8,6 +8,8 @@
 //   potential - machine-written or empty yearly potentials recomputed, raise-only
 //   watcher   - every two minutes: new companies seeded, reps' potential edits followed
 //   web       - company websites read once per 30 days for description, size, address
+//   yearly    - January, by hand after a preview: every APSO segment decided again
+//               (the May 2026 waterfall), the priority set to the formula up OR down
 // Writes go out with the hub's own HubSpot app (the tickets app has no company
 // write scope). Its app id is learned from the first value it writes, so the
 // potential rules recognise the hub's own writes as a machine's, not a person's.
@@ -24,9 +26,13 @@ import {
   pyStr, recalcDecision, revProps, unlost, webUpdates,
   type Enums, type HistoryEntry, type PotentialEdit, type Props, type Visit,
 } from "../segmentation/engine";
+import { reclassify, yearlyReadProps } from "../segmentation/yearly";
 
 const LOCK = 4_107_204;
-const KV = { state: "segmentation:state", ownApp: "segmentation:own-app-id", run: "segmentation:run", edits: "segmentation:potential-edits" } as const;
+const KV = {
+  state: "segmentation:state", ownApp: "segmentation:own-app-id", run: "segmentation:run", edits: "segmentation:potential-edits",
+  yearlyPlan: "segmentation:yearly-plan", yearlyApplied: "segmentation:yearly-applied", yearlySummary: "segmentation:yearly-summary",
+} as const;
 const STALE_MS = 3 * 60 * 60_000;
 
 const curYear = () => new Date().getUTCFullYear();
@@ -47,6 +53,9 @@ export type SegState = {
   last_sweep?: unknown;
   last_potential?: unknown;
   last_web?: unknown;
+  last_yearly?: unknown;
+  /** The calendar year the yearly reclassification last really ran for. */
+  yearly_done?: number;
   watcher_last?: unknown;
   nightly_day?: string;
   imported_at?: string;
@@ -261,6 +270,8 @@ export async function status() {
     ]),
     last_run_new: st.last_run_new ?? null, last_sweep: st.last_sweep ?? null, last_potential: st.last_potential ?? null,
     last_web: st.last_web ?? null, watcher_last: st.watcher_last ?? null,
+    last_yearly: st.last_yearly ?? null, yearly_done: st.yearly_done ?? null, year: curYear(),
+    yearly_summary: (await kvGet<Omit<YearlyPlan, "rows"> & { rowCount: number }>(KV.yearlySummary)) ?? null,
     running: await currentRun(),
     engine: process.env.SEGMENTATION_ENGINE === "live" ? "hub" : "connector",
     state_imported: st.imported_at ?? null,
@@ -399,6 +410,145 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
   await patchState({ last_potential: res });
   await saveEdits({ scannedAt: res.at, scanned, setters }, edits, true);
   return { ...res, log };
+}
+
+/* ── the yearly reclassification (January) ────────────────────────────── */
+
+export type YearlyRow = {
+  id: string; name: string; rule: string; reason: string;
+  segFrom: string; segTo: string; prioFrom: string; prioTo: string;
+  apicFrom: string; apicTo: string; indFrom: string; indTo: string;
+};
+
+export type YearlyPlan = {
+  at: string; dry: boolean; year: number; scanned: number; changes: number; written: number;
+  stats: Record<string, number>;
+  /** "APSOprospect → APSOcore": companies. */
+  transitions: Record<string, number>;
+  before: Record<string, number>;
+  after: Record<string, number>;
+  byRule: Record<string, number>;
+  rows: YearlyRow[];
+};
+
+/** The portal's company property names - the yearly run reads only those that exist. */
+async function companyPropNames(): Promise<Set<string>> {
+  const r = await hubspotFetchJson<{ results?: { name: string }[] }>({ path: "/crm/v3/properties/companies?archived=false" });
+  return new Set((r.results ?? []).map((x) => x.name));
+}
+
+/** Which of these companies have any ticket (the tickets app reads associations). Null = could not read. */
+async function withTickets(ids: string[]): Promise<Set<string> | null> {
+  try {
+    const r = await hubspotFetchJson<{ results?: { from?: { id?: string | number }; to?: unknown[] }[] }>({
+      path: "/crm/v4/associations/companies/tickets/batch/read", method: "POST", useTicketsToken: true,
+      body: { inputs: ids.map((id) => ({ id })) },
+    });
+    return new Set((r.results ?? []).filter((x) => (x.to ?? []).length > 0).map((x) => String(x.from?.id)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The January run: every company's APSO segment decided again from scratch (the May
+ * waterfall), APIC and industry made to agree, and the priority set exactly to the
+ * formula - up OR down. ERP segments and the potential are never written.
+ */
+async function yearlyInner(dry: boolean, beat: () => Promise<void>, maxPages = 0) {
+  const en = await enums();
+  const rev = REV();
+  const year = curYear();
+  const now = Date.now();
+  const names = await companyPropNames();
+  const segDef = await hubspotFetchJson<{ options?: { value: string }[] }>({ path: "/crm/v3/properties/companies/apso_customer" });
+  const segOptions = new Set((segDef.options ?? []).map((o) => o.value));
+  const props = [...new Set([...READ_PROPS(), ...yearlyReadProps(names, year)])];
+  const stats: Record<string, number> = {
+    segment_changed: 0, prio_up: 0, prio_down: 0, prio_filled: 0, apic_corrected: 0, apic_set: 0, apic_cleared: 0,
+    industry_filled: 0, industry_corrected: 0, facts_only: 0, erp_left_alone: 0, segment_not_in_portal: 0, tickets_unread: 0,
+  };
+  const transitions: Record<string, number> = {};
+  const before: Record<string, number> = {};
+  const after: Record<string, number> = {};
+  const byRule: Record<string, number> = {};
+  const rows: YearlyRow[] = [];
+  const changes: [string, Props][] = [];
+  const prioName = (v: string) => (v ? `P${v[0]}`.replace("P4", "No priority") : "-");
+  let scanned = 0, pages = 0;
+  for await (const page of allCompanies(props)) {
+    const tickets = await withTickets(page.map((x) => x.id));
+    if (!tickets) stats.tickets_unread += page.length;
+    for (const res of page) {
+      scanned += 1;
+      const p = res.properties ?? {};
+      const r = reclassify(p, en, { year, now, tickets: tickets?.has(res.id) ? 1 : 0 });
+      byRule[r.rule] = (byRule[r.rule] ?? 0) + 1;
+      const segFrom = (p.apso_customer ?? "").trim();
+      before[segFrom || "(empty)"] = (before[segFrom || "(empty)"] ?? 0) + 1;
+      const upd: Props = {};
+      let segTo = segFrom;
+      if (r.segment === null) stats.erp_left_alone += 1;
+      else if (r.segment !== segFrom) {
+        if (segOptions.has(r.segment)) {
+          upd.apso_customer = r.segment;
+          segTo = r.segment;
+          stats.segment_changed += 1;
+          const t = `${segFrom || "(empty)"} → ${r.segment}`;
+          transitions[t] = (transitions[t] ?? 0) + 1;
+        } else stats.segment_not_in_portal += 1;
+      }
+      after[segTo || "(empty)"] = (after[segTo || "(empty)"] ?? 0) + 1;
+      const apicFrom = (p.apic_ap ?? "").trim();
+      if (r.apic !== undefined && r.apic !== apicFrom) {
+        upd.apic_ap = r.apic;
+        stats[r.apic === "" ? "apic_cleared" : apicFrom ? "apic_corrected" : "apic_set"] += 1;
+      }
+      const indFrom = (p.industry ?? "").trim();
+      if (r.industry !== undefined && r.industry !== indFrom) {
+        upd.industry = r.industry;
+        stats[indFrom ? "industry_corrected" : "industry_filled"] += 1;
+      }
+      // the priority, exactly to the formula - from the potential as it stands
+      const c = compute(p, en, rev);
+      const cur = p.sales_priority ?? "";
+      const prioTo = en.prio[c.prefix];
+      if (prioTo && (!cur || c.prefix !== cur[0])) {
+        upd.sales_priority = prioTo;
+        stats[!cur ? "prio_filled" : c.prefix < cur[0] ? "prio_up" : "prio_down"] += 1;
+      }
+      const decided = Object.keys(upd).length > 0;
+      Object.assign(upd, c.upd);
+      if (!decided && Object.keys(upd).length) stats.facts_only += 1;
+      if (Object.keys(upd).length) changes.push([res.id, upd]);
+      if (decided) {
+        rows.push({
+          id: res.id, name: p.name ?? "", rule: r.rule, reason: r.reason,
+          segFrom, segTo, prioFrom: prioName(cur), prioTo: prioName(upd.sales_priority ?? cur),
+          apicFrom, apicTo: upd.apic_ap ?? apicFrom, indFrom, indTo: upd.industry ?? indFrom,
+        });
+      }
+    }
+    pages += 1;
+    if (pages % 50 === 0) await beat();
+    if (maxPages && pages >= maxPages) break;
+  }
+  const log: string[] = [];
+  const written = dry ? 0 : await batchUpdate(changes, log);
+  const plan: YearlyPlan = { at: nowIso(), dry, year, scanned, changes: changes.length, written, stats, transitions, before, after, byRule, rows };
+  await kvSet(dry ? KV.yearlyPlan : KV.yearlyApplied, plan);
+  // the page shows the moves without loading every row
+  await kvSet(KV.yearlySummary, { ...plan, rows: undefined, rowCount: rows.length });
+  await patchState({
+    last_yearly: { at: plan.at, scanned, changes: changes.length, written, stats, dry, year },
+    ...(dry ? {} : { yearly_done: year }),
+  });
+  return { scanned, planned_changes: changes.length, written, stats, dry, log };
+}
+
+/** The last preview, or the last real run - for the page and the Excel. */
+export async function yearlyPlan(which: "preview" | "applied"): Promise<YearlyPlan | null> {
+  return (await kvGet<YearlyPlan>(which === "preview" ? KV.yearlyPlan : KV.yearlyApplied)) ?? null;
 }
 
 /* ── the sales side of the potential ──────────────────────────────────── */
@@ -717,7 +867,7 @@ async function watchInner() {
 
 /* ── what the routes and the scheduler call ───────────────────────────── */
 
-export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "recheck";
+export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "recheck" | "yearly";
 
 /** Start an action in the background; false when another one is running. */
 export async function startAction(action: Action, opts: { dry?: boolean; limit?: number; windowMin?: number; by: string }): Promise<{ started: boolean; note: string }> {
@@ -731,6 +881,7 @@ export async function startAction(action: Action, opts: { dry?: boolean; limit?:
         : action === "potential" ? await potentialInner(dry, beat)
         : action === "web" ? await webInner(Math.max(1, Math.min(opts.limit ?? 200, 1000)), dry)
         : action === "watch" ? await watchInner()
+        : action === "yearly" ? await yearlyInner(dry, beat)
         : await recheckInner(Math.max(1, opts.windowMin ?? 60), dry, 2000);
       const { log, changes, ...rest } = r as Record<string, unknown>;
       void changes;
