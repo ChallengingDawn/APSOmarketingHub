@@ -11,5 +11,8 @@ export async function register() {
     // erosion tickets, once a day after the connector's nightly chain (EROSION_DETECTOR=live)
     const { startErosionScheduler } = await import("./lib/erosion/scheduler");
     startErosionScheduler();
+    // Articles CY/LY, rebuilt once a day after the same chain (read-only)
+    const { startArticlesScheduler } = await import("./lib/articles/scheduler");
+    startArticlesScheduler();
   }
 }

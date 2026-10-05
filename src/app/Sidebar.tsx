@@ -197,6 +197,7 @@ const navSections: NavSection[] = [
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+      { group: "Reports & data", label: "Articles CY/LY", href: "/uc/articles", icon: <QueryStatsIcon fontSize="small" /> },
     ],
   },
   {
