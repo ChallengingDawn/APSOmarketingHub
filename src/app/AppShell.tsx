@@ -19,7 +19,6 @@ const PADDED_PATHS = [
   "/templates",
   "/settings",
   "/admin",
-  "/logs",
   "/library",
   "/create",
   "/editor",

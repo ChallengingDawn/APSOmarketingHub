@@ -150,23 +150,25 @@ const navSections: NavSection[] = [
     icon: <AutoAwesomeIcon />,
     color: RED,
     items: [
-      { label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
-      { label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
-      { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
-      // The brain feeds every generator in this app, so it sits with them.
-      { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
-      { label: "Logs", href: "/logs", icon: <HistoryIcon fontSize="small" /> },
-      { label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
-      { label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
-      { label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
-      { label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
-      { label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
-      { label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
-      { label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
-      { label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
-      { label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
-      { label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
-      { label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
+      // CONTENT COMES FIRST, in SARCLA's order: the brain before the studio that
+      // reads it, then what has been written, then the shapes to start from.
+      // Personality leads because nothing the studio produces is right until it
+      // is.
+      { group: "Content", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+      { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
+      { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
+      { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+      { group: "SEO", label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
+      { group: "SEO", label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
+      { group: "SEO", label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
+      { group: "SEO", label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
+      { group: "SEO", label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+      { group: "GEO", label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
+      { group: "GEO", label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
+      { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
+      { group: "GEO", label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
+      { group: "GEO", label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+      { group: "Targets", label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
     ],
   },
   {

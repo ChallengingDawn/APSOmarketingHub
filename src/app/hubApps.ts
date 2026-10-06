@@ -82,14 +82,15 @@ export const APPS: HubApp[] = [
     line: "Create, manage and optimise our marketing content.",
     from: "#ef5fa0", to: "#c22c6e", wash: "rgba(239,95,160,.10)", icon: "campaign",
     subs: [
-      { name: "Create Studio", note: "Design and create campaigns", href: "/create", icon: "edit", ...AMBER },
-      { name: "Library", note: "Everything already written", href: "/library", icon: "photo", ...PURPLE },
-      { name: "SEO", note: "Optimise and track performance", href: "/seo", icon: "search", ...TEAL },
-      { name: "Templates", note: "Start from a known shape", href: "/templates", icon: "template", ...BLUE },
+      // Content first, in the order somebody works in: the brain, the studio
+      // that reads it, what came out, and the shapes to start from.
       { name: "Personality", note: "The brain every generator reads", href: "/personality", icon: "brain", ...PINK },
-      { name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN },
+      { name: "Create Studio", note: "Design and create campaigns", href: "/create", icon: "edit", ...AMBER },
+      { name: "Content Library", note: "Everything already written", href: "/library", icon: "photo", ...PURPLE },
+      { name: "Templates", note: "Start from a known shape", href: "/templates", icon: "template", ...BLUE },
+      { name: "SEO", note: "Optimise and track performance", href: "/seo", icon: "search", ...TEAL },
       { name: "Quick wins", note: "Pages one step from ranking", href: "/seo/quick-wins", icon: "bolt", ...AMBER },
-      { name: "Logs", note: "What the generators did", href: "/logs", icon: "description", ...PURPLE },
+      { name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN },
     ],
   },
   {

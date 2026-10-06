@@ -43,6 +43,9 @@ const nextConfig: NextConfig = {
       { source: "/analytics/acquisition", destination: "/website/acquisition", permanent: false },
       { source: "/analytics/audience", destination: "/website/audience", permanent: false },
       { source: "/analytics/signals", destination: "/analytics/buyers", permanent: false },
+      // The generator log lives on the main platform now, so the page here went.
+      // Anyone with it bookmarked lands in the studio it belonged to.
+      { source: "/logs", destination: "/create", permanent: false },
     ];
   },
   async headers() {
