@@ -533,7 +533,7 @@ export default function Sidebar() {
             // a third version here: stretched, red, with the letters cycling
             // through colours on a nine-second loop.
             <Box component={Link} href="/" sx={{ display: "block", textDecoration: "none", px: 1.25, pb: 2.25 }}>
-              <Wordmark size={24} subtitle={null} />
+              <Wordmark size={26} subtitle={null} />
             </Box>
           )}
 

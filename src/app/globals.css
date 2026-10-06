@@ -4,6 +4,22 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * THE WHOLE HUB READS ONE STEP LARGER.
+   *
+   * The scale was built against a 16px root: body text at 0.84rem is 13.4px and
+   * a caption is 11.8px. That is small for a screen somebody works in all day,
+   * and SARCLA has called it small more than once — it was never the wordmark.
+   *
+   * One lever rather than several hundred: almost every size in this app is in
+   * rem, so moving the root moves the lot and keeps every proportion the design
+   * already has. 17px puts body text at 14.3px and captions at 12.6px. Anything
+   * set in px — the sidebar's width, icon sizes — deliberately stays where it is.
+   */
+  html {
+    font-size: 17px;
+  }
+
   body {
     font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
     color: #3c4043;
