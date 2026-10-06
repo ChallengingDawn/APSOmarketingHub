@@ -19,7 +19,7 @@ export type Role = "admin" | "user" | "viewer";
 /** What a person may do in an app they have been granted. */
 export type Level = "none" | "read" | "write";
 
-export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc"] as const;
+export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc", "connectors"] as const;
 export type AppKey = (typeof APP_KEYS)[number];
 
 /** What each role is called on screen. `user` has always meant editor. */
@@ -189,6 +189,11 @@ const ROUTES: [string, AppKey][] = [
   ["/analytics", "journey"],
 
   ["/uc", "uc"],
+
+  // Where the data comes from - the Compass connector's chain while it moves
+  // into the hub, and what every connection writes. Configuration, so nobody
+  // has it until an admin grants it.
+  ["/connectors", "connectors"],
 ];
 
 /**

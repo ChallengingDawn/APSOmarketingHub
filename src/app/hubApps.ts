@@ -32,7 +32,7 @@ export type HubApp = {
   from: string;
   to: string;
   wash: string;
-  icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart";
+  icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart" | "cable";
   subs: SubApp[];
 };
 
@@ -139,6 +139,19 @@ export const APPS: HubApp[] = [
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
       { name: "Articles CY/LY", note: "Every article, this year against last", href: "/uc/articles", icon: "bar", ...BLUE },
       { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
+    ],
+  },
+  {
+    key: "connectors",
+    href: "/connectors",
+    name: "Connectors & Integration",
+    line: "Where the data comes from, and what each connection writes.",
+    from: "#2fb3a5", to: "#13866a", wash: "rgba(47,179,165,.10)", icon: "cable",
+    subs: [
+      { name: "Overview", note: "Is the data flowing", href: "/connectors", icon: "health", ...TEAL },
+      { name: "Compass chain", note: "The ERP files, step by step", href: "/connectors/compass", icon: "sync", ...BLUE },
+      { name: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
+      { name: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
     ],
   },
 ];

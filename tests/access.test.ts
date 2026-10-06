@@ -99,6 +99,9 @@ test("appForPath puts every app route under its own app", () => {
   assert.equal(appForPath("/uc/erosion"), "uc");
   // Advanced reporting holds one page so far, and that page is its own.
   assert.equal(appForPath("/reporting"), "reporting");
+  assert.equal(appForPath("/connectors"), "connectors");
+  assert.equal(appForPath("/connectors/compass"), "connectors");
+  assert.equal(appForPath("/connectors/writes"), "connectors");
 });
 
 test("analytics splits by subject, longest prefix winning", () => {

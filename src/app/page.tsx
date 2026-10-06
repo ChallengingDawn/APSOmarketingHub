@@ -22,6 +22,7 @@ import CampaignIcon from "@mui/icons-material/Campaign";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
+import CableIcon from "@mui/icons-material/Cable";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import HomeIcon from "@mui/icons-material/Home";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
@@ -35,6 +36,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
+import ConnectorsPanel from "./ConnectorsPanel";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
@@ -49,16 +51,8 @@ const ACCENT = "#3b7df6";
 
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
-  trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />,
+  trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />, cable: <CableIcon />,
 };
-
-/** Real changes, on the dates they shipped. */
-const NEWS = [
-  { text: "Price checks, MOQ and availability in Datatracker", when: "4 Oct", dot: "#5b8def" },
-  { text: "The hub became five apps with one front page", when: "4 Oct", dot: "#ef5fa0" },
-  { text: "GEO readiness and the fix queue", when: "1 Oct", dot: "#2ec29a" },
-  { text: "Erosion tickets merge per customer per month", when: "28 Sep", dot: "#9a7bf0" },
-];
 
 const glass = {
   bgcolor: "rgba(255,255,255,.60)",
@@ -349,8 +343,14 @@ export default function FrontPage() {
             sm: `repeat(${Math.min(visibleApps.length, 2)}, ${wide})`,
             md: `repeat(${Math.min(visibleApps.length, 3)}, ${wide})`,
           },
+          // Up to six apps share one row. Past six, two even rows (seven = 4 + 3)
+          // rather than a full row and one card left alone under it; a very wide
+          // screen takes all seven in one.
           "@media (min-width:1280px)": {
-            gridTemplateColumns: `repeat(${Math.min(visibleApps.length, 6)}, ${wide})`,
+            gridTemplateColumns: `repeat(${visibleApps.length <= 6 ? visibleApps.length : Math.ceil(visibleApps.length / 2)}, ${wide})`,
+          },
+          "@media (min-width:1800px)": {
+            gridTemplateColumns: `repeat(${Math.min(visibleApps.length, 7)}, ${wide})`,
           },
         }}>
           {visibleApps.map((a, i) => {
@@ -472,22 +472,7 @@ export default function FrontPage() {
         }}>
           {panel("quickLinks") && <QuickLinks glass={glass} mayOpen={mayOpen} />}
 
-          {panel("whatsNew") && (
-          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 } }}>
-            <Typography sx={{ fontSize: "1.02rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", mb: 1.75 }}>
-              What&rsquo;s new
-            </Typography>
-            <Box sx={{ display: "grid", gap: 1.15 }}>
-              {NEWS.map((n) => (
-                <Box key={n.text} sx={{ display: "flex", alignItems: "flex-start", gap: 1.25 }}>
-                  <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: n.dot, mt: 0.65, flexShrink: 0 }} />
-                  <Typography sx={{ fontSize: "0.85rem", color: INK, flex: 1, lineHeight: 1.4 }}>{n.text}</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", color: FAINT, whiteSpace: "nowrap", mt: 0.1 }}>{n.when}</Typography>
-                </Box>
-              ))}
-            </Box>
-          </Box>
-          )}
+          {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
 
           {openFor("marketing") && panel("missionControl") && (
           <Box component={Link} href="/mission-control" sx={{

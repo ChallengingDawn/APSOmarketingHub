@@ -32,7 +32,7 @@ const HAIRLINE = "rgba(21,34,58,.10)";
 export const HOME_PANELS = [
   { id: "search", name: "Search", note: "The box that finds an app or a page by name" },
   { id: "quickLinks", name: "Quick links", note: "The shop, HubSpot, and anything you add" },
-  { id: "whatsNew", name: "What's new", note: "The short list of recent changes" },
+  { id: "connectors", name: "Connectors", note: "Is the data flowing - shown to those with Connectors & Integration" },
   { id: "missionControl", name: "Mission Control card", note: "The panel that leads to the content calendar" },
 ] as const;
 
