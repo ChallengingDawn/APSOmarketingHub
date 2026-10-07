@@ -14,6 +14,7 @@ import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import InsightsIcon from "@mui/icons-material/Insights";
+import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
@@ -197,6 +198,21 @@ const navSections: NavSection[] = [
     color: "#1f6fa8",
     items: [
       { label: "Advanced reporting", href: "/reporting", icon: <InsightsIcon fontSize="small" /> },
+    ],
+  },
+  {
+    // Where the data comes from, and what each connection writes to HubSpot.
+    // The title matches the tile in hubApps.ts exactly, which is how the panel
+    // inherits the app's colour once you are inside it.
+    title: "Connectors & Integration",
+    home: "/connectors",
+    icon: <SettingsInputComponentIcon />,
+    color: "#13866a",
+    items: [
+      { label: "Overview", href: "/connectors", icon: <MonitorHeartIcon fontSize="small" /> },
+      { label: "Compass chain", href: "/connectors/compass", icon: <SyncAltIcon fontSize="small" /> },
+      { label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
+      { label: "Review queue", href: "/connectors/review", icon: <GroupsIcon fontSize="small" /> },
     ],
   },
   {
