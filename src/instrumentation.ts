@@ -25,5 +25,8 @@ export async function register() {
     // 50-line window overwrites it (read-only on HubSpot; SHOP_LOOKS=off stops it)
     const { startShopLooksScheduler } = await import("./lib/shopLooks/scheduler");
     startShopLooksScheduler();
+    // Connectors & Integration: each Compass step's latest result, remembered (read-only)
+    const { startConnectorsWatch } = await import("./lib/connectors/scheduler");
+    startConnectorsWatch();
   }
 }

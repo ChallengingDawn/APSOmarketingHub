@@ -9,11 +9,12 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
+import TablePagination from "@mui/material/TablePagination";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { MUTED, TINT, type Tint } from "@/app/uc/report/ui";
+import { HAIRLINE, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
 import type { Snapshot } from "@/lib/connectors/snapshot";
 import type { Phase } from "@/lib/connectors/compass";
 
@@ -89,4 +90,38 @@ export function ConnectorsPage({ title, subtitle, children }: {
 
 export function Muted({ children }: { children: React.ReactNode }) {
   return <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 }}>{children}</Typography>;
+}
+
+/** A page of rows, and the pager under the table - one size everywhere in this app. */
+export function usePaged<T>(rows: T[], perPage = 10): { page: number; setPage: (p: number) => void; slice: T[]; pager: React.ReactNode } {
+  const [page, setPage] = useState(0);
+  const last = Math.max(0, Math.ceil(rows.length / perPage) - 1);
+  const p = Math.min(page, last);
+  const slice = rows.slice(p * perPage, p * perPage + perPage);
+  const pager = rows.length > perPage ? (
+    <TablePagination component="div" count={rows.length} page={p} onPageChange={(_, n) => setPage(n)}
+      rowsPerPage={perPage} rowsPerPageOptions={[perPage]} labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count}`}
+      sx={{ borderTop: `1px solid ${HAIRLINE}` }} />
+  ) : null;
+  return { page: p, setPage, slice, pager };
+}
+
+/** Filter chips: one choice at a time, with a count each. */
+export function Choice<K extends string>({ value, onChange, options }: {
+  value: K; onChange: (k: K) => void; options: { key: K; label: string; count?: number }[];
+}) {
+  return (
+    <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+      {options.map((o) => (
+        <Box key={o.key} component="button" type="button" onClick={() => onChange(o.key)} sx={{
+          all: "unset", cursor: "pointer", px: 1.25, py: 0.5, borderRadius: "999px", fontSize: "0.8rem", fontWeight: 600,
+          border: `1px solid ${value === o.key ? "#2459d1" : HAIRLINE}`, color: value === o.key ? "#2459d1" : MUTED,
+          bgcolor: value === o.key ? "rgba(36,89,209,.08)" : "rgba(255,255,255,.7)",
+          "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 2 },
+        }}>
+          {o.label}{o.count !== undefined ? ` · ${o.count}` : ""}
+        </Box>
+      ))}
+    </Box>
+  );
 }

@@ -146,7 +146,8 @@ export default function FrontPage() {
   const role = viewed?.role ?? myRole;
   // No count of what is missing. Telling somebody there are four apps they
   // cannot have is a locked door described in words — SARCLA: take it out.
-  const allowedApps = APPS.filter((a) => openFor(a.key));
+  // Connectors & Integration has its own square under the tiles instead of a tile.
+  const allowedApps = APPS.filter((a) => !a.square && openFor(a.key));
   // Their order first, then anything that has appeared since — a new app turns
   // up at the end rather than disappearing because it is not in a saved list.
   const visibleApps = [

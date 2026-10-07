@@ -34,6 +34,8 @@ export type HubApp = {
   wash: string;
   icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart" | "cable";
   subs: SubApp[];
+  /** Reached from its own square under the tiles, not a tile of its own (Connectors - SARCLA, 07.10.2026). */
+  square?: boolean;
 };
 
 const BLUE = { tint: "#e6edfd", fg: "#3461c9" };
@@ -147,9 +149,11 @@ export const APPS: HubApp[] = [
     name: "Connectors & Integration",
     line: "Where the data comes from, and what each connection writes.",
     from: "#2fb3a5", to: "#13866a", wash: "rgba(47,179,165,.10)", icon: "cable",
+    square: true,
     subs: [
       { name: "Overview", note: "Is the data flowing", href: "/connectors", icon: "health", ...TEAL },
-      { name: "Compass chain", note: "The ERP files, step by step", href: "/connectors/compass", icon: "sync", ...BLUE },
+      { name: "The chain", note: "The Compass connector, step by step", href: "/connectors/compass", icon: "sync", ...BLUE },
+      { name: "Files & runs", note: "What the ERP delivered", href: "/connectors/files", icon: "description", ...GREEN },
       { name: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
       { name: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
     ],

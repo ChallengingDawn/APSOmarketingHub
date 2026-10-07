@@ -82,7 +82,7 @@ export default function HomeScreen({ glass }: { glass: Record<string, unknown> }
 
   // Their order first, then anything new that has appeared since — a sixth app
   // should turn up at the end rather than vanish because it is not in the list.
-  const mine = APPS.filter((a) => !open || open[a.key]);
+  const mine = APPS.filter((a) => !a.square && (!open || open[a.key]));
   const ordered = [
     ...home.appOrder.map((k) => mine.find((a) => a.key === k)).filter(Boolean),
     ...mine.filter((a) => !home.appOrder.includes(a.key)),

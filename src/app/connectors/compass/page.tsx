@@ -1,159 +1,124 @@
 "use client";
 
-// THE COMPASS CHAIN - every step of the connector in the order it runs: what it
-// does, when, what it reads and writes, how it went last time, and where it is
-// on its way into the hub. Then the files the ERP delivered, and the run history.
+// THE CHAIN - the Compass connector's steps in the order they run. One line per
+// step: what it is, its group, where it runs, how it went last time. Click a
+// step for the detail - what it reads and writes, and what the move must fix.
 
+import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import Collapse from "@mui/material/Collapse";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import SyncAltOutlinedIcon from "@mui/icons-material/SyncAltOutlined";
-import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { STEPS, type Step } from "@/lib/connectors/compass";
-import type { StepResult } from "@/lib/connectors/snapshot";
-import { Chip, ConnectorsPage, Muted, PHASE, when, type Snapshot } from "../parts";
+import { GlassCard, HAIRLINE, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
+import { GROUPS, STEPS, type Group, type Step } from "@/lib/connectors/compass";
+import { stepResults, type StepMemo } from "@/lib/connectors/snapshot";
+import { Chip, Choice, ConnectorsPage, PHASE, usePaged, when, type Snapshot } from "../parts";
 
-type TabId = "chain" | "files" | "history";
-const TAB_HASH: Record<TabId, string> = { chain: "#chain", files: "#files", history: "#history" };
+const GROUP_NAME = Object.fromEntries(GROUPS.map((g) => [g.key, g.name])) as Record<Group, string>;
 
-function StepRow({ n, step, last }: { n: number; step: Step; last: StepResult | undefined }) {
-  const nums = last?.result ? Object.entries(last.result).filter(([, v]) => typeof v === "number" && v) .slice(0, 5) : [];
+/** The one number that says what a step did - the first non-zero count it reported. */
+function headline(r: StepMemo | undefined): string {
+  if (!r) return "not seen yet";
+  if (r.error) return `Failed · ${when(r.at)}`;
+  const n = Object.entries(r.result ?? {}).find(([, v]) => typeof v === "number" && v);
+  return `${n ? `${n[0].replace(/_/g, " ")} ${full(n[1] as number)}` : "Done"} · ${when(r.at)}`;
+}
+
+function Detail({ step, last }: { step: Step; last: StepMemo | undefined }) {
+  const line = (label: string, text: React.ReactNode) => (
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "110px minmax(0,1fr)" }, gap: { xs: 0, md: 1.5 }, py: 0.4 }}>
+      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED }}>{label}</Typography>
+      <Typography component="div" sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.5 }}>{text}</Typography>
+    </Box>
+  );
   return (
-    <Box sx={{ py: 1.5, borderTop: n > 1 ? `1px solid ${HAIRLINE}` : "none" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.5 }}>
-        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, width: 22 }}>{n}</Typography>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{step.name}</Typography>
-        <Chip tint={PHASE[step.phase].tint}>{PHASE[step.phase].label}</Chip>
-        {last && (last.error ? <Chip tint="pink">Failed last time</Chip> : <Chip tint="green">Done last time</Chip>)}
-      </Box>
-      <Box sx={{ pl: "30px", display: "grid", gap: 0.4 }}>
-        <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.5 }}>{step.what}</Typography>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}><b>When</b> {step.when} · <b>Reads</b> {step.reads}</Typography>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-          <b>Writes</b> {step.writes.map((w) => `${w.object}: ${w.props.length} propert${w.props.length === 1 ? "y" : "ies"}`).join(" · ")}
-          {step.associations?.length ? ` · ${step.associations.length} kind${step.associations.length > 1 ? "s" : ""} of association` : ""}
-        </Typography>
-        {last?.error && <Typography sx={{ fontSize: "0.78rem", color: "#c5221f" }}>Last error: {last.error}</Typography>}
-        {nums.length > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Last time: {nums.map(([k, v]) => `${k.replace(/_/g, " ")} ${full(v as number)}`).join(" · ")}</Typography>}
-        {step.fix?.length ? (
-          <Typography sx={{ fontSize: "0.78rem", color: "#a96a12" }}>To fix on the move: {step.fix.join(" · ")}</Typography>
-        ) : null}
-      </Box>
+    <Box sx={{ px: { xs: 1, md: 2 }, py: 1.5, bgcolor: "rgba(36,89,209,.03)" }}>
+      {line("What it does", step.what)}
+      {line("When", step.when)}
+      {line("Reads", step.reads)}
+      {step.writes.map((w) => line(`Writes`, <><b>{w.object}</b>{w.how ? ` (${w.how})` : ""}: {w.props.join(", ")}</>))}
+      {step.associations?.length ? line("Links", step.associations.join(" · ")) : null}
+      {last?.error ? line("Last error", <span style={{ color: "#c5221f" }}>{last.error}</span>) : null}
+      {step.fix?.length ? line("Fix on the move", <span style={{ color: "#a96a12" }}>{step.fix.join(" · ")}</span>) : null}
     </Box>
   );
 }
 
-function Compass({ s }: { s: Snapshot }) {
-  const [tab, selectTab] = useHashTab<TabId>(TAB_HASH, "chain");
-  const proc = s.state?.sftp?.last_processing;
-  const lastBy = new Map((proc?.processing ?? []).map((x) => [x.step, x]));
-  const history = [...(s.state?.sftp?.history ?? [])].reverse();
+function Chain({ s }: { s: Snapshot }) {
+  const lastBy = stepResults(s);
+  const [group, setGroup] = useState<"all" | Group>("all");
+  const [open, setOpen] = useState<string | null>(null);
+  const rows = STEPS.map((x, i) => ({ step: x, n: i + 1 })).filter((r) => group === "all" || r.step.group === group);
+  const { slice, pager, setPage } = usePaged(rows, 10);
+  const pick = (g: "all" | Group) => { setGroup(g); setPage(0); setOpen(null); };
   return (
     <>
-      {s.stateError && <Notice tone="warn">{s.stateError}. The steps below come from the connector's code; their last results appear once it is readable.</Notice>}
-      <Box>
-        <ReportTabs name="compass" tab={tab} onSelect={selectTab} tabs={[
-          { id: "chain", label: "The chain", count: String(STEPS.length) },
-          { id: "files", label: "Files", count: proc?.pulled?.length ? String(proc.pulled.length) : null },
-          { id: "history", label: "History", count: null },
-        ]} />
-      </Box>
-
-      {tab === "chain" && (
-        <GlassCard>
-          <CardTitle icon={<SyncAltOutlinedIcon />} title="Every step, in the order it runs"
-            note={`The connector checks the SFTP folder every 30 minutes and runs the steps whose file changed. Last run with new files: ${when(proc?.ts ?? null)}`} />
-          {STEPS.map((x, i) => <StepRow key={x.key} n={i + 1} step={x} last={lastBy.get(x.key)} />)}
-        </GlassCard>
-      )}
-
-      {tab === "files" && (
-        <>
-          <GlassCard>
-            <CardTitle icon={<FolderOpenOutlinedIcon />} title="The last delivery" note={proc?.ts ? `Pulled from ${s.state?.sftp?.host ?? "the SFTP server"}${s.state?.sftp?.dir ?? ""} at ${when(proc.ts)}` : "No delivery recorded"} />
-            {proc?.pulled?.length ? (
-              <Box sx={{ overflowX: "auto" }}>
-                <Table size="small" sx={{ minWidth: 520 }}>
-                  <TableHead><TableRow>
-                    <TableCell sx={headCell}>File on the server</TableCell><TableCell sx={headCell}>Saved as</TableCell><TableCell sx={headCell} align="right">MB</TableCell>
-                  </TableRow></TableHead>
-                  <TableBody>
-                    {proc.pulled.map((f) => (
-                      <TableRow key={f.remote}>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{f.remote}</TableCell>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", fontFamily: "monospace" }}>{f.as}</TableCell>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }} align="right">{f.mb}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            ) : <Muted>Nothing pulled in the last run with files.</Muted>}
-          </GlassCard>
-          <GlassCard>
-            <CardTitle icon={<FolderOpenOutlinedIcon />} tint="slate" title="Files the connector holds" note="What the steps read - the SFTP folder only keeps the latest delivery" />
-            {s.files?.length ? (
-              <Box sx={{ overflowX: "auto" }}>
-                <Table size="small" sx={{ minWidth: 520 }}>
-                  <TableHead><TableRow>
-                    <TableCell sx={headCell}>File</TableCell><TableCell sx={headCell} align="right">MB</TableCell><TableCell sx={headCell}>Received</TableCell>
-                  </TableRow></TableHead>
-                  <TableBody>
-                    {s.files.filter((f) => !f.name.endsWith(".part")).map((f) => (
-                      <TableRow key={f.name}>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", fontFamily: "monospace" }}>{f.name}</TableCell>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }} align="right">{(f.size / 1048576).toFixed(1)}</TableCell>
-                        <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{f.uploaded}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            ) : <Muted>{s.files ? "No files." : "Not readable yet."}</Muted>}
-          </GlassCard>
-        </>
-      )}
-
-      {tab === "history" && (
-        <GlassCard>
-          <CardTitle icon={<HistoryOutlinedIcon />} title="The last checks of the SFTP folder" note="Every 30 minutes; a check that finds nothing new runs only the company and ticket sweeps" />
-          {history.length ? (
-            <Box sx={{ overflowX: "auto" }}>
-              <Table size="small" sx={{ minWidth: 480 }}>
-                <TableHead><TableRow>
-                  <TableCell sx={headCell}>When</TableCell><TableCell sx={headCell} align="right">Files pulled</TableCell><TableCell sx={headCell} align="right">Steps run</TableCell><TableCell sx={headCell}>Error</TableCell>
-                </TableRow></TableHead>
-                <TableBody>
-                  {history.map((h) => (
-                    <TableRow key={h.ts}>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{when(h.ts)}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }} align="right">{h.pulled}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }} align="right">{h.steps}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: h.error ? "#c5221f" : MUTED }}>{h.error ?? "—"}</TableCell>
+      {s.stateError && <Notice tone="warn">{s.stateError} - last results appear once it is readable.</Notice>}
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5, display: "grid", gap: 1 }}>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+            The connector checks the ERP's SFTP folder every 30 minutes and runs the steps whose file changed. Click a step for what it reads and writes.
+          </Typography>
+          <Choice value={group} onChange={pick} options={[
+            { key: "all", label: "All", count: STEPS.length },
+            ...GROUPS.sort((a, b) => (a.order || 9) - (b.order || 9)).map((g) => ({ key: g.key, label: g.name, count: STEPS.filter((x) => x.group === g.key).length })),
+          ]} />
+        </Box>
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 640 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ ...headCell, width: 36 }}>#</TableCell>
+                <TableCell sx={headCell}>Step</TableCell>
+                <TableCell sx={headCell}>Group</TableCell>
+                <TableCell sx={headCell}>Runs</TableCell>
+                <TableCell sx={headCell}>Last time</TableCell>
+                <TableCell sx={{ ...headCell, width: 36 }} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {slice.map(({ step, n }) => {
+                const last = lastBy.get(step.key);
+                const isOpen = open === step.key;
+                return (
+                  <Fragment key={step.key}>
+                    <TableRow hover onClick={() => setOpen(isOpen ? null : step.key)} sx={{ cursor: "pointer", "& td": { borderBottom: isOpen ? "none" : undefined } }}>
+                      <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.8rem" }}>{n}</TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.86rem", fontWeight: 600, color: INK }}>{step.name}</TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{GROUP_NAME[step.group]}</TableCell>
+                      <TableCell sx={bodyCell}><Chip tint={PHASE[step.phase].tint}>{PHASE[step.phase].label}</Chip></TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: last?.error && step.phase !== "hub" ? "#c5221f" : MUTED, whiteSpace: "nowrap" }}>{step.phase === "hub" ? "Runs in the hub - see its page" : headline(last)}</TableCell>
+                      <TableCell sx={bodyCell}>
+                        <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transition: "transform .2s", transform: isOpen ? "rotate(180deg)" : "none" }} />
+                      </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Box>
-          ) : <Muted>{s.stateError ? "Not readable yet." : "No checks recorded - the connector keeps only the latest one (a known fault, fixed on the move)."}</Muted>}
-        </GlassCard>
-      )}
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ p: 0, borderColor: HAIRLINE, borderBottom: isOpen ? undefined : "none" }}>
+                        <Collapse in={isOpen} unmountOnExit><Detail step={step} last={last} /></Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Box>
+        {pager}
+      </GlassCard>
     </>
   );
 }
 
 export default function CompassChain() {
   return (
-    <ConnectorsPage title="Compass chain" subtitle="The ERP's files, step by step: what each part of the connector reads, writes, and how it went">
-      {(s) => <Compass s={s} />}
+    <ConnectorsPage title="The chain" subtitle="The Compass connector's steps, in the order they run - click one for what it reads and writes">
+      {(s) => <Chain s={s} />}
     </ConnectorsPage>
   );
 }

@@ -64,6 +64,7 @@ import ProductionQuantityLimitsIcon from "@mui/icons-material/ProductionQuantity
 import RemoveShoppingCartOutlinedIcon from "@mui/icons-material/RemoveShoppingCartOutlined";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Link from "next/link";
@@ -210,9 +211,11 @@ const navSections: NavSection[] = [
     color: "#13866a",
     items: [
       { label: "Overview", href: "/connectors", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Compass chain", href: "/connectors/compass", icon: <SyncAltIcon fontSize="small" /> },
-      { label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
-      { label: "Review queue", href: "/connectors/review", icon: <GroupsIcon fontSize="small" /> },
+      // One sub-section per connector; the Compass connector is the first (SARCLA, 07.10.2026)
+      { group: "Compass connector", label: "The chain", href: "/connectors/compass", icon: <SyncAltIcon fontSize="small" /> },
+      { group: "Compass connector", label: "Files & runs", href: "/connectors/files", icon: <FolderOpenIcon fontSize="small" /> },
+      { group: "Compass connector", label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
+      { group: "Compass connector", label: "Review queue", href: "/connectors/review", icon: <GroupsIcon fontSize="small" /> },
     ],
   },
   {

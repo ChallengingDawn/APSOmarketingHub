@@ -8,14 +8,17 @@
 // reported as such rather than failing the page.
 
 import { connect } from "node:net";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
 import { IntegrationError } from "./status";
 
-import type { ChainStatus, IncomingFile, RawState, Snapshot } from "@/lib/connectors/snapshot";
+import type { ChainStatus, IncomingFile, RawState, Snapshot, StepMemo } from "@/lib/connectors/snapshot";
 
 export type { Snapshot };
 
 const TTL_MS = 30_000;
+/** Each step's latest result, kept here because the connector's own record holds only the last check. */
+const KV_STEPS = "connectors:compass:steps";
 let cache: { at: number; p: Promise<Snapshot> } | null = null;
 
 const why = (e: unknown) =>
@@ -72,6 +75,23 @@ async function read(): Promise<Snapshot> {
       items: [...q].sort((a, b) => (b.revenue_eur ?? 0) - (a.revenue_eur ?? 0)).slice(0, 1000),
     };
   }
+  // remember every step the latest check reported - newer wins
+  let stepsLast: Record<string, StepMemo> = {};
+  try {
+    stepsLast = (await kvGet<Record<string, StepMemo>>(KV_STEPS)) ?? {};
+    const proc = st?.sftp?.last_processing;
+    let changed = false;
+    for (const x of proc?.processing ?? []) {
+      const at = proc?.ts ?? 0;
+      if (!stepsLast[x.step] || stepsLast[x.step].at < at) {
+        stepsLast[x.step] = { at, ...(x.error ? { error: x.error } : { result: x.result ?? null }) };
+        changed = true;
+      }
+    }
+    if (changed) await kvSet(KV_STEPS, stepsLast);
+  } catch (e) {
+    console.warn(`[connectors] step memory: ${(e as Error).message}`);
+  }
   return {
     at: new Date().toISOString(),
     chain: chain.status === "fulfilled" ? chain.value : null,
@@ -81,6 +101,7 @@ async function read(): Promise<Snapshot> {
     review,
     files: files.status === "fulfilled" ? files.value.files ?? [] : null,
     sftpFromHub: sftp.status === "fulfilled" ? sftp.value : { ok: false, error: String(sftp.reason).slice(0, 120), ms: 0 },
+    stepsLast,
   };
 }
 
