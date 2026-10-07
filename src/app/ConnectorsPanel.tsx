@@ -78,7 +78,7 @@ export default function ConnectorsPanel({ glass }: { glass: object }) {
       </Box>
 
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: "auto" }}>
-        {(APP?.subs ?? []).filter((x) => x.href !== "/connectors").map((x) => (
+        {(APP?.subs ?? []).map((x) => (
           <Box key={x.href} component={Link} href={x.href} sx={{
             px: 1.25, py: 0.5, borderRadius: "999px", fontSize: "0.8rem", fontWeight: 600, textDecoration: "none",
             color: APP?.to ?? "#13866a", bgcolor: "rgba(255,255,255,.8)", border: "1px solid rgba(19,134,106,.18)",

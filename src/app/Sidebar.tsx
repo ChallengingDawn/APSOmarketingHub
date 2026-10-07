@@ -210,8 +210,9 @@ const navSections: NavSection[] = [
     icon: <SettingsInputComponentIcon />,
     color: "#13866a",
     items: [
-      { label: "Overview", href: "/connectors", icon: <MonitorHeartIcon fontSize="small" /> },
-      // One sub-section per connector; the Compass connector is the first (SARCLA, 07.10.2026)
+      // One sub-section per connector; the Compass connector is the first, and
+      // its overview sits inside it with its other pages (SARCLA, 07.10.2026)
+      { group: "Compass connector", label: "Overview", href: "/connectors", icon: <MonitorHeartIcon fontSize="small" /> },
       { group: "Compass connector", label: "The chain", href: "/connectors/compass", icon: <SyncAltIcon fontSize="small" /> },
       { group: "Compass connector", label: "Files & runs", href: "/connectors/files", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Compass connector", label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
