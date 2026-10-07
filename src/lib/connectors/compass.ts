@@ -168,7 +168,7 @@ export const STEPS: Step[] = [
     writes: [{ object: OBJECTS.kpi, props: ["revenue_year", "revenue_pc_year", "revenue_geo_pc_yearly", "newcust_revenue_monthly", "newcust_monthly", "reactivated_monthly"] }],
   },
   {
-    key: "mandant_sweep", name: "Mandant from the customer key", group: "company", phase: "railway",
+    key: "mandant_sweep", name: "Mandant from the customer key", group: "company", phase: "preview",
     what: "Sets each company's mandant (M100 / M110) from the first part of its customer key.",
     when: "On EVERY 30-minute poll, files or not",
     reads: "Every company with a company_unique_number",
@@ -219,14 +219,14 @@ export const STEPS: Step[] = [
     fix: ["A title not starting with the A-number loses its company part"],
   },
   {
-    key: "company_stats", name: "Order facts on the company", group: "company", phase: "railway",
+    key: "company_stats", name: "Order facts on the company", group: "company", phase: "preview",
     what: "Each company's first and last order, last shipment, number of orders and average days between orders - recomputed from all its orders.",
     when: "After the title step",
     reads: "Orders changed since the last run, their companies, and those companies' orders · the pre-2020 baseline",
     writes: [{ object: OBJECTS.company, props: ["order_first_order_date", "order_last_order_date", "order_last_shipment_date", "order_total_orders", "order_avg_days_between_orders"] }],
   },
   {
-    key: "contact_shipment", name: "Last shipment date on the contact", group: "company", phase: "railway",
+    key: "contact_shipment", name: "Last shipment date on the contact", group: "company", phase: "preview",
     what: "The latest shipment date of the orders each contact is linked to - only ever moved later.",
     when: "After the company facts",
     reads: "Orders shipped per month since the watermark · their contacts",
@@ -277,7 +277,12 @@ export function writesByObject(): { object: string; prop: string; step: Step }[]
   return STEPS.flatMap((s) => s.writes.flatMap((w) => w.props.map((prop) => ({ object: w.object, prop, step: s }))));
 }
 
-/** How far the move is: steps in the hub over all steps. */
-export function progress(): { hub: number; total: number } {
-  return { hub: STEPS.filter((s) => s.phase === "hub").length, total: STEPS.length };
+/** How far the move is: steps in the hub over all steps (`live` = steps switched on in the hub since). */
+export function progress(live: Set<string> = new Set()): { hub: number; total: number } {
+  return { hub: STEPS.filter((s) => s.phase === "hub" || live.has(s.key)).length, total: STEPS.length };
+}
+
+/** A step's phase now: the code's own, or "hub" once it is switched on there. */
+export function phaseOf(step: Step, live: Set<string>): Phase {
+  return live.has(step.key) ? "hub" : step.phase;
 }
