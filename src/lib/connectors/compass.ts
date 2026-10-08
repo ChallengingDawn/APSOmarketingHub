@@ -70,7 +70,7 @@ const MONTHS = "jan … dec";
 /** The chain, in the order it runs (sftp_pull._pull_and_process_inner), then the loops beside it. */
 export const STEPS: Step[] = [
   {
-    key: "magento_stamp", name: "Web orders get their A-number", group: "orders", phase: "railway",
+    key: "magento_stamp", name: "Web orders get their A-number", group: "orders", phase: "preview",
     what: "Shop orders that the ERP has taken over are stamped with their A-number, linked to the person who ordered, and that person's company is corrected when the email domain proves it wrong.",
     when: "When a new Magento export (export.xml) arrives",
     reads: "export.xml (Magento order grid: ID, Status, A+P order and customer number, email) · orders in state web_provisional",
@@ -86,7 +86,7 @@ export const STEPS: Step[] = [
     ],
   },
   {
-    key: "articles", name: "Article master into Products & Pricing", group: "orders", phase: "railway",
+    key: "articles", name: "Article master into Products & Pricing", group: "orders", phase: "preview",
     what: "Updates every article that already exists in HubSpot with the ERP's description, material, groups, units, origin and profit centre. Never creates articles on its own.",
     when: "When a new dim_article.csv arrives",
     reads: "dim_article.csv (best row per article: active, then newest) · every Products & Pricing record's article_number",
@@ -103,7 +103,7 @@ export const STEPS: Step[] = [
     fix: ["The change cache is saved before the write succeeds, so a failed batch is never retried", "No retry on HubSpot 5xx"],
   },
   {
-    key: "stages", name: "Order stage from the ERP status", group: "orders", phase: "railway",
+    key: "stages", name: "Order stage from the ERP status", group: "orders", phase: "preview",
     what: "Moves every order to the PERFORMIS stage its ERP status says - forwards or backwards. Deleted or inactive orders go to Cancelled.",
     when: "When a new dim_order.csv arrives (a full ~480 MB snapshot every day)",
     reads: "dim_order.csv (current rows, mandant 100/110) · a snapshot of ~800,000 orders' stages",
@@ -115,7 +115,7 @@ export const STEPS: Step[] = [
     ],
   },
   {
-    key: "revenue", name: "Revenue per company per month", group: "revenue", phase: "railway",
+    key: "revenue", name: "Revenue per company per month", group: "revenue", phase: "preview",
     what: "Writes each company's revenue by month, quarter and profit centre from the ERP rollup. Customers it cannot match go to the review queue - it never creates a company.",
     when: "When a new revenue_oi_rollup.csv arrives",
     reads: "revenue_oi_rollup.csv (mandant 100/110) · the customer-number → company map",
@@ -130,7 +130,7 @@ export const STEPS: Step[] = [
     ],
   },
   {
-    key: "customer_agents", name: "Sales agent from the ERP", group: "company", phase: "railway",
+    key: "customer_agents", name: "Sales agent from the ERP", group: "company", phase: "preview",
     what: "Sets each company's sales agent (and the SAE) from the ERP customer file, choosing only from the dropdown's existing names.",
     when: "When a new dim_customer.csv arrives",
     reads: "dim_customer.csv (CustomerNumberUnique, SA, SAE) · the sa__sales_agent options",
@@ -142,7 +142,7 @@ export const STEPS: Step[] = [
     when: "Daily, after the chain", reads: "Orders since 2025", writes: [{ object: OBJECTS.ticket, props: ["erosion_*", "subject", "owner", "pipeline"] }],
   },
   {
-    key: "revenue_kpi", name: "Monthly revenue KPIs", group: "revenue", phase: "railway",
+    key: "revenue_kpi", name: "Monthly revenue KPIs", group: "revenue", phase: "preview",
     what: "Builds the monthly revenue, order-intake, country and year-on-year series from the companies' monthly revenue.",
     when: "After any file was processed",
     reads: "Every company's rev_<year>_pc_monthly (~60,000) · the ERP order-intake rows",
@@ -150,7 +150,7 @@ export const STEPS: Step[] = [
     fix: ["Years 2025/2026 are written into the code", "In January it archives every revenue_delta_monthly row (no complete month yet)"],
   },
   {
-    key: "erp_revenue", name: "The ERP morning workbook", group: "revenue", phase: "railway",
+    key: "erp_revenue", name: "The ERP morning workbook", group: "revenue", phase: "preview",
     what: "Reads the ERP revenue workbook: month and year to date against last year per customer, order intake, forecast, profit centre, country and priority series. Runs after the KPI step so its figures win.",
     when: "When revenue_profit_center.xlsx arrives or changes (about 11 minutes)",
     reads: "revenue_profit_center.xlsx - sheets FIGURES (3) and (4)",
@@ -161,7 +161,7 @@ export const STEPS: Step[] = [
     fix: ["Companies that drop out of the file keep yesterday's figures", "KPI rows are never archived"],
   },
   {
-    key: "revenue_history", name: "12-year revenue and customer cohorts", group: "revenue", phase: "railway",
+    key: "revenue_history", name: "12-year revenue and customer cohorts", group: "revenue", phase: "preview",
     what: "Full years since 2015, this year to date, profit centre and country by year, and new and reactivated customers by month.",
     when: "After any file was processed (about 6 minutes)",
     reads: "Every company's yearly revenue blobs · this year's realigned monthly rows",
@@ -176,7 +176,7 @@ export const STEPS: Step[] = [
     fix: ["The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
   },
   {
-    key: "wrong_owners", name: "Tickets with the wrong owner", group: "tickets", phase: "railway",
+    key: "wrong_owners", name: "Tickets with the wrong owner", group: "tickets", phase: "preview",
     what: "A ticket in Back Office owned by an ESO or TSA person moves to that person's pipeline (and the other way round); a Back Office owner in ESO/TSA goes back to Back Office. The subject is flagged until someone corrects it.",
     when: "On EVERY 30-minute poll",
     reads: "Owners and their teams · every ticket in BO, ESO and TSA",
@@ -189,7 +189,7 @@ export const STEPS: Step[] = [
     when: "Watcher every 2 minutes, nightly after the chain", reads: "Companies", writes: [{ object: OBJECTS.company, props: ["sales_priority", "yearly_customer_potential", "apso_customer", "…"] }],
   },
   {
-    key: "orders_daily", name: "New ERP orders", group: "orders", phase: "railway",
+    key: "orders_daily", name: "New ERP orders", group: "orders", phase: "preview",
     what: "Creates the orders that are new in the ERP file, fills web orders that have no lines yet, and removes an order entry (.000) once its deliveries carry the same amount.",
     when: "When a new fct_orderlinehist.csv arrives",
     reads: "fct_orderlinehist.csv (mandant 100/110, latest row per line) · dim_article.csv · the customer-number → company map",
@@ -206,12 +206,12 @@ export const STEPS: Step[] = [
     fix: ["The customer map is not refreshed here - a company created after it gets no link", "The delivery search stops at 50 results"],
   },
   {
-    key: "stages_new_orders", name: "Stages for the orders just created", group: "orders", phase: "railway",
+    key: "stages_new_orders", name: "Stages for the orders just created", group: "orders", phase: "preview",
     what: "A second stage pass right after new orders are created, so they do not wait a day for their stage.",
     when: "After new orders", reads: "dim_order.csv", writes: [{ object: OBJECTS.order, props: ["hs_pipeline_stage"] }],
   },
   {
-    key: "order_sync", name: "Order title, shipment date and ERP status", group: "orders", phase: "railway",
+    key: "order_sync", name: "Order title, shipment date and ERP status", group: "orders", phase: "preview",
     what: "Titles every order \"A# | Person | Company\", and fills its shipment date and ERP status. Never blanks a value.",
     when: "When dim_order.csv or fct_orderlinehist.csv arrives (first run about an hour)",
     reads: "dim_order.csv (YourReference, ShipmentDate, OrderStatus) · a snapshot of ~800,000 orders",
@@ -234,7 +234,7 @@ export const STEPS: Step[] = [
     fix: ["A month with more than 10,000 shipments would stop the run (search cap)"],
   },
   {
-    key: "deputy_sweep", name: "Holiday redirection", group: "tickets", phase: "railway",
+    key: "deputy_sweep", name: "Holiday redirection", group: "tickets", phase: "preview",
     what: "An ESO ticket whose owner is out of office goes to the first deputy who is in, with a note on the ticket. Campaign tickets stay.",
     when: "Every 15 minutes (DEPUTY_SWEEP=1), beside the chain",
     reads: "ESO tickets in New, Redirected and Customer replied · owners' out-of-office and deputies",
@@ -242,7 +242,7 @@ export const STEPS: Step[] = [
     fix: ["Out of office with no hours window moves every ticket in those stages, not only the new ones"],
   },
   {
-    key: "ticket_assoc", name: "Ticket ↔ order and article links", group: "tickets", phase: "railway",
+    key: "ticket_assoc", name: "Ticket ↔ order and article links", group: "tickets", phase: "preview",
     what: "Finds order and article numbers in a ticket's text and emails and links them; flags cut-to-size tickets. The live path is a HubSpot workflow action - this one only runs by hand.",
     when: "By hand (and a webhook that may no longer be used - to check in the portal)",
     reads: "Ticket text and up to 5 emails · orders and articles by number",

@@ -26,8 +26,8 @@ import { Chip, Choice, ConnectorsPage, PHASE, usePaged, when, type Snapshot } fr
 
 const GROUP_NAME = Object.fromEntries(GROUPS.map((g) => [g.key, g.name])) as Record<Group, string>;
 
-type HubStepInfo = { key: string; live: boolean; connectorSkips: boolean | null; preview: HubRun | null; run: HubRun | null };
-type StepsData = { steps: HubStepInfo[]; running: { key: string; mode: string; started: string } | null; connectorReachable: boolean };
+type HubStepInfo = { key: string; live: boolean; connectorSkips: boolean | null; file: string | null; cadence: string | null; preview: HubRun | null; run: HubRun | null };
+type StepsData = { steps: HubStepInfo[]; running: { key: string; mode: string; started: string } | null; connectorReachable: boolean; sftpConfigured: boolean };
 
 /** The one number that says what a step did - the first non-zero count it reported. */
 function headline(r: StepMemo | undefined): string {
@@ -46,14 +46,15 @@ function runLine(r: HubRun | null | undefined): string {
   return `${when(r.finished)} - ${nums.join(" · ")}`;
 }
 
-function HubPanel({ info, admin, busy, act }: { info: HubStepInfo; admin: boolean; busy: boolean; act: (key: string, action: string, fullRun?: boolean) => void }) {
+function HubPanel({ info, admin, busy, act, sftp }: { info: HubStepInfo; admin: boolean; busy: boolean; act: (key: string, action: string, fullRun?: boolean) => void; sftp: boolean }) {
+  const noFiles = !!info.file && !sftp;
   const status = info.live
     ? { tint: "green" as const, chip: "Live", text: "Runs in the hub, once a day - the connector no longer does" }
     : info.connectorSkips
       ? { tint: "amber" as const, chip: "Waiting for the switch", text: "The connector has let it go - switch it on here, or nobody runs it" }
       : { tint: "slate" as const, chip: "Preview", text: "Ported - preview only; the connector still runs it" };
   const examples = (info.preview?.result?.examples as unknown[] | undefined) ?? [];
-  const canFull = info.key !== "mandant_sweep";
+  const canFull = info.key === "company_stats" || info.key === "contact_shipment";
   return (
     <Box sx={{ mt: 1.25, p: 1.5, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.8)", display: "grid", gap: 0.75 }}>
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
@@ -61,6 +62,7 @@ function HubPanel({ info, admin, busy, act }: { info: HubStepInfo; admin: boolea
         <Chip tint={status.tint}>{status.chip}</Chip>
         <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{status.text}</Typography>
       </Box>
+      {noFiles && <Typography sx={{ fontSize: "0.8rem", color: "#a96a12" }}>Reads the ERP&apos;s {info.file} - the preview needs the SFTP key in the hub (apso-dev/SFTP_KEY).</Typography>}
       <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Last preview</b> (writes nothing): {runLine(info.preview)}</Typography>
       {examples.length > 0 && (
         <Typography component="div" sx={{ fontSize: "0.76rem", color: MUTED, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 140, overflow: "auto" }}>
@@ -70,10 +72,10 @@ function HubPanel({ info, admin, busy, act }: { info: HubStepInfo; admin: boolea
       <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Last live run</b>: {runLine(info.run)}</Typography>
       {admin && (
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
-          <Button size="small" variant="outlined" disabled={busy} onClick={() => act(info.key, "preview")}>Preview in the hub</Button>
+          <Button size="small" variant="outlined" disabled={busy || noFiles} onClick={() => act(info.key, "preview")}>Preview in the hub</Button>
           {canFull && <Button size="small" variant="outlined" disabled={busy} onClick={() => act(info.key, "preview", true)}>Full preview</Button>}
           {!info.live && (
-            <Button size="small" variant="contained" disableElevation disabled={busy || !info.connectorSkips}
+            <Button size="small" variant="contained" disableElevation disabled={busy || noFiles || (!info.connectorSkips && info.cadence !== "manual")}
               onClick={() => { if (confirm("Switch this step on in the hub? It then writes to HubSpot every day.")) act(info.key, "live-on"); }}>
               Switch on in the hub
             </Button>
@@ -85,9 +87,9 @@ function HubPanel({ info, admin, busy, act }: { info: HubStepInfo; admin: boolea
   );
 }
 
-function Detail({ step, last, hub, admin, busy, act }: {
+function Detail({ step, last, hub, admin, busy, act, sftp }: {
   step: Step; last: StepMemo | undefined; hub: HubStepInfo | undefined; admin: boolean; busy: boolean;
-  act: (key: string, action: string, fullRun?: boolean) => void;
+  act: (key: string, action: string, fullRun?: boolean) => void; sftp: boolean;
 }) {
   const line = (label: string, text: React.ReactNode) => (
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "110px minmax(0,1fr)" }, gap: { xs: 0, md: 1.5 }, py: 0.4 }}>
@@ -104,7 +106,7 @@ function Detail({ step, last, hub, admin, busy, act }: {
       {step.associations?.length ? line("Links", step.associations.join(" · ")) : null}
       {last?.error ? line("Last error", <span style={{ color: "#c5221f" }}>{last.error}</span>) : null}
       {step.fix?.length ? line("Fix on the move", <span style={{ color: "#a96a12" }}>{step.fix.join(" · ")}</span>) : null}
-      {hub && <HubPanel info={hub} admin={admin} busy={busy} act={act} />}
+      {hub && <HubPanel info={hub} admin={admin} busy={busy} act={act} sftp={sftp} />}
     </Box>
   );
 }
@@ -191,7 +193,7 @@ function Chain({ s }: { s: Snapshot }) {
                     <TableRow>
                       <TableCell colSpan={6} sx={{ p: 0, borderColor: HAIRLINE, borderBottom: isOpen ? undefined : "none" }}>
                         <Collapse in={isOpen} unmountOnExit>
-                          <Detail step={step} last={last} hub={hubBy.get(step.key)} admin={admin} busy={!!running} act={act} />
+                          <Detail step={step} last={last} hub={hubBy.get(step.key)} admin={admin} busy={!!running} act={act} sftp={!!hubData?.sftpConfigured} />
                         </Collapse>
                       </TableCell>
                     </TableRow>

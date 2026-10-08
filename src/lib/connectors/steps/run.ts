@@ -6,16 +6,30 @@
 // it skips that step (its HUB_STEPS setting). Turning a step live here without
 // that is refused; a step the connector skips but the hub does not run is shown
 // as a gap on the page.
+//
+// A file step reads the ERP's files: the hub's chain passes the folder it has just
+// pulled into; a preview fetches the latest files into a folder of its own (the
+// download record is left alone, so a preview never makes the chain skip a file).
 
+import { stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
-import { companyStats, contactShipment, mandantSweep, type StepResult } from "./companyFacts";
+import { fetchLatest } from "../sftp";
+import type { StepResult } from "./companyFacts";
+import { REGISTRY, STEP_KEYS, stepDef } from "./registry";
 
-export const HUB_STEPS = ["mandant_sweep", "company_stats", "contact_shipment"] as const;
-export type HubStep = (typeof HUB_STEPS)[number];
+export const HUB_STEPS = STEP_KEYS;
+export type HubStep = string;
 export type Mode = "preview" | "live";
 export type HubRun = { key: HubStep; mode: Mode; by: string; started: string; finished?: string; result?: StepResult; error?: string };
+
+/** Where the hub's chain keeps the ERP files it pulled, and where previews fetch theirs. */
+export const INCOMING = path.join(os.tmpdir(), "compass-incoming");
+export const PREVIEW_DIR = path.join(os.tmpdir(), "compass-preview");
+const PREVIEW_FRESH_MS = 6 * 3_600_000;
 
 const LOCK = 4_107_207;
 const KV = {
@@ -24,18 +38,13 @@ const KV = {
   busy: "connectors:hub:busy",
 };
 
-const STEP_FN: Record<HubStep, (live: boolean, beat: () => Promise<void>, full?: boolean) => Promise<StepResult>> = {
-  mandant_sweep: (live, beat) => mandantSweep(live, beat),
-  company_stats: (live, beat, full) => companyStats(live, beat, full),
-  contact_shipment: (live, beat, full) => contactShipment(live, beat, full),
-};
-
-export const isHubStep = (k: string): k is HubStep => (HUB_STEPS as readonly string[]).includes(k);
+export const isHubStep = (k: string): boolean => STEP_KEYS.includes(k);
+export const sftpConfigured = () => !!process.env.SFTP_KEY;
 
 /** Steps the hub runs live. */
 export async function liveSteps(): Promise<Set<HubStep>> {
   const m = (await kvGet<Record<string, boolean>>(KV.live)) ?? {};
-  return new Set(HUB_STEPS.filter((k) => m[k]));
+  return new Set(STEP_KEYS.filter((k) => m[k]));
 }
 
 /** Steps the Compass connector says it leaves to the hub (its HUB_STEPS setting). */
@@ -50,10 +59,13 @@ export async function connectorSkips(): Promise<Set<string> | null> {
 
 /** Turn a step live in the hub - only when the connector already skips it. */
 export async function setLive(key: HubStep, on: boolean): Promise<{ ok: boolean; note: string }> {
+  const def = stepDef(key);
+  if (!def) return { ok: false, note: `unknown step ${key}` };
   if (on) {
+    if (def.file && !sftpConfigured()) return { ok: false, note: `${key} reads the ERP's files - the hub has no SFTP key yet` };
     const skips = await connectorSkips();
     if (!skips) return { ok: false, note: "The connector cannot be asked - not switching" };
-    if (!skips.has(key)) return { ok: false, note: `The connector still runs ${key} - set it in its HUB_STEPS first, or both would write` };
+    if (!skips.has(key) && def.cadence !== "manual") return { ok: false, note: `The connector still runs ${key} - set it in its HUB_STEPS first, or both would write` };
   }
   const m = (await kvGet<Record<string, boolean>>(KV.live)) ?? {};
   m[key] = on;
@@ -71,46 +83,78 @@ export async function busy(): Promise<{ key: string; mode: Mode; started: string
   return b;
 }
 
-/** Run a step under the lock and record it; null when another step holds the lock. */
-async function locked(key: HubStep, mode: Mode, by: string, full: boolean): Promise<HubRun | null> {
+/** Under the step lock, across both copies of the hub; null when another run holds it. */
+export async function withLock<T>(label: string, mode: Mode, fn: (beat: () => Promise<void>) => Promise<T>): Promise<T | null> {
   const client = await getPool().connect();
   try {
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return null;
     const started = new Date().toISOString();
-    const beat = () => kvSet(KV.busy, { key, mode, started, heartbeat: new Date().toISOString() });
-    const run: HubRun = { key, mode, by, started };
+    const beat = () => kvSet(KV.busy, { key: label, mode, started, heartbeat: new Date().toISOString() });
     try {
       await beat();
-      // a live run re-checks the switch at the last moment: never write while the connector does
-      if (mode === "live") {
-        const skips = await connectorSkips();
-        if (!skips?.has(key)) throw new Error("the connector does not skip this step (HUB_STEPS) - live run refused");
-      }
-      run.result = await STEP_FN[key](mode === "live", beat, full);
-    } catch (e) {
-      run.error = (e as Error).message.slice(0, 400);
+      return await fn(beat);
     } finally {
-      run.finished = new Date().toISOString();
-      await kvSet(KV.run(mode, key), run).catch(() => {});
       await kvSet(KV.busy, null).catch(() => {});
       await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
     }
-    console.log(`[connectors] ${key} ${mode} by ${by}: ${run.error ? `FAILED ${run.error}` : JSON.stringify({ ...run.result, examples: undefined }).slice(0, 400)}`);
-    return run;
   } finally {
     client.release();
   }
 }
 
+/** The latest ERP files for a preview - fetched at most every 6 hours. */
+async function previewFiles(file: string): Promise<string> {
+  const p = path.join(PREVIEW_DIR, file);
+  const fresh = await stat(p).then((s) => Date.now() - s.mtimeMs < PREVIEW_FRESH_MS, () => false);
+  if (!fresh) {
+    const r = await fetchLatest(PREVIEW_DIR);
+    if (r.error) throw new Error(`fetching the ERP files for the preview: ${r.error}`);
+  }
+  return PREVIEW_DIR;
+}
+
+/** One step, inside a lock the caller holds; recorded for the page. */
+export async function runStepInside(key: HubStep, mode: Mode, by: string, beat: () => Promise<void>, opts: { full?: boolean; dir?: string | null } = {}): Promise<HubRun> {
+  const def = stepDef(key);
+  const run: HubRun = { key, mode, by, started: new Date().toISOString() };
+  try {
+    if (!def) throw new Error(`unknown step ${key}`);
+    // a live run re-checks the switch at the last moment: never write while the connector does
+    if (mode === "live" && def.cadence !== "manual") {
+      const skips = await connectorSkips();
+      if (!skips?.has(key)) throw new Error("the connector does not skip this step (HUB_STEPS) - live run refused");
+    }
+    let dir = opts.dir ?? null;
+    if (def.file && !dir) {
+      if (!sftpConfigured()) throw new Error("this step reads the ERP's files - the hub has no SFTP key yet");
+      dir = mode === "preview" ? await previewFiles(def.file) : INCOMING;
+    }
+    run.result = await def.run({ live: mode === "live", beat, full: opts.full, dir });
+  } catch (e) {
+    run.error = (e as Error).message.slice(0, 400);
+  }
+  run.finished = new Date().toISOString();
+  await kvSet(KV.run(mode, key), run).catch(() => {});
+  console.log(`[connectors] ${key} ${mode} by ${by}: ${run.error ? `FAILED ${run.error}` : JSON.stringify({ ...run.result, examples: undefined }).slice(0, 400)}`);
+  return run;
+}
+
+/** Run a step under the lock and record it; null when another step holds the lock. */
+function locked(key: HubStep, mode: Mode, by: string, opts: { full?: boolean; dir?: string | null }): Promise<HubRun | null> {
+  return withLock(key, mode, (beat) => runStepInside(key, mode, by, beat, opts));
+}
+
 /** Start a step in the background; false when one is already running. */
 export async function startStep(key: HubStep, mode: Mode, by: string, full = false): Promise<{ started: boolean; note: string }> {
   if (await busy()) return { started: false, note: "another step is running - try again when it has finished" };
-  void locked(key, mode, by, full);
+  void locked(key, mode, by, { full });
   return { started: true, note: `${key} ${mode === "preview" ? "preview" : "run"} started` };
 }
 
 /** For the scheduler: run and wait. */
 export function runNow(key: HubStep, mode: Mode, by: string, full = false): Promise<HubRun | null> {
-  return locked(key, mode, by, full);
+  return locked(key, mode, by, { full });
 }
+
+export { REGISTRY };

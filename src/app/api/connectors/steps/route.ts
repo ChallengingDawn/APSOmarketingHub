@@ -4,7 +4,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
-import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive, startStep } from "@/lib/connectors/steps/run";
+import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive, sftpConfigured, startStep } from "@/lib/connectors/steps/run";
+import { stepDef } from "@/lib/connectors/steps/registry";
+import { hubChain } from "@/lib/connectors/chainStatus";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -18,9 +20,13 @@ export async function GET() {
     const [live, skips, running] = await Promise.all([liveSteps(), connectorSkips(), busy()]);
     const steps = await Promise.all(HUB_STEPS.map(async (k) => ({
       key: k, live: live.has(k), connectorSkips: skips ? skips.has(k) : null,
+      file: stepDef(k)?.file ?? null, cadence: stepDef(k)?.cadence ?? null,
       preview: await lastRun("preview", k), run: await lastRun("live", k),
     })));
-    return NextResponse.json({ configured: true, ok: true, data: { steps, running, connectorReachable: skips !== null } });
+    return NextResponse.json({ configured: true, ok: true, data: {
+      steps, running, connectorReachable: skips !== null, sftpConfigured: sftpConfigured(),
+      connectorPulls: skips ? !skips.has("sftp_pull") : null, chain: await hubChain(),
+    } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }

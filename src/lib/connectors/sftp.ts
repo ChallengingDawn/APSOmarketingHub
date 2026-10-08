@@ -147,14 +147,25 @@ export function pullDelta(opts: { dest: string; dry?: boolean }): Promise<PullRe
   return run;
 }
 
-async function pullOnce({ dest, dry = false }: { dest: string; dry?: boolean }): Promise<PullReport> {
+/**
+ * The latest files, whatever the manifest says, into `dest` - for a PREVIEW of the file
+ * steps. The manifest and the last-pull record are left alone, so a preview can never
+ * make the real chain skip a delivery.
+ */
+export function fetchLatest(dest: string): Promise<PullReport> {
+  const run = chain.then(() => pullOnce({ dest, ignoreManifest: true }));
+  chain = run.catch(() => {});
+  return run;
+}
+
+async function pullOnce({ dest, dry = false, ignoreManifest = false }: { dest: string; dry?: boolean; ignoreManifest?: boolean }): Promise<PullReport> {
   const rep: PullReport = { pulled: [], skipped: 0, renamed: {}, ts: Math.floor(Date.now() / 1000), ...(dry ? { dry: true } : {}) };
   const c = config();
   if ("error" in c) return { ...rep, error: c.error };
   const cfg = c.cfg;
   let client: SftpClient | null = null;
   try {
-    const manifest: Manifest = (await kvGet<Manifest>(KV_MANIFEST)) ?? {};
+    const manifest: Manifest = ignoreManifest ? {} : (await kvGet<Manifest>(KV_MANIFEST)) ?? {};
     if (!dry) await mkdir(dest, { recursive: true });
     client = await connect(cfg);
     const plan = planPull((await client.list(cfg.remoteDir)).map(entry), manifest);
@@ -174,13 +185,13 @@ async function pullOnce({ dest, dry = false }: { dest: string; dry?: boolean }):
       rep.pulled.push({ remote: f.remote, as: f.as, mb: megabytes(f.size) });
       if (f.as !== f.remote) rep.renamed[f.remote] = f.as;
     }
-    if (!dry) await kvSet(KV_MANIFEST, manifest);
+    if (!dry && !ignoreManifest) await kvSet(KV_MANIFEST, manifest);
   } catch (e) {
     rep.error = String((e as Error).message ?? e).slice(0, 300);
   } finally {
     await client?.end().catch(() => {});
   }
-  await kvSet(KV_LAST, { last: rep, host: cfg.host, dir: cfg.remoteDir }).catch(() => {});
+  if (!ignoreManifest) await kvSet(KV_LAST, { last: rep, host: cfg.host, dir: cfg.remoteDir }).catch(() => {});
   return rep;
 }
 

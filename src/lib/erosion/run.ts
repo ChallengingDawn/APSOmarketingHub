@@ -12,6 +12,7 @@ import { IntegrationError, connectorReadKey, connectorUrl } from "@/lib/integrat
 import { previewDetector } from "@/lib/integrations/erosionDetector";
 import { erosionTagExists, writeErosionTicket, type WriteResult } from "@/lib/integrations/erosionWriter";
 import { WATERMARK } from "./detector";
+import { hubChain, hubRunsChainSteps } from "@/lib/connectors/chainStatus";
 
 export const KV = {
   imported: "erosion:imported-keys",
@@ -45,12 +46,31 @@ export async function importConnectorKeys(): Promise<number> {
   return keys.length;
 }
 
-/** Has the connector's nightly chain finished today? The hub runs erosion after it, never before. */
+/**
+ * Is tonight's data loaded? Erosion, articles and segmentation run after it, never before.
+ * While the Compass connector moves into the hub, the night's steps can run in either:
+ * the connector's chain has to be done today unless it no longer pulls the files
+ * ("sftp_pull" in its HUB_STEPS), and the hub's own chain has to be done today as soon
+ * as the hub runs any chain step.
+ */
 export async function chainDoneToday(today: string): Promise<{ done: boolean; at: string | null }> {
-  const s = await connectorGet<{ delta_run?: { status?: string; ts?: number } | null }>("/chain/status");
-  const dr = s.delta_run;
-  const at = dr?.ts ? new Date(dr.ts * 1000).toISOString() : null;
-  return { done: dr?.status === "done" && !!at && at.slice(0, 10) === today, at };
+  const s = await connectorGet<{ delta_run?: { status?: string; ts?: number } | null; hub_steps?: string[] }>("/chain/status").catch(() => null);
+  const hubPulls = !!s?.hub_steps?.includes("sftp_pull");
+  let done = true;
+  let at: string | null = null;
+  if (!hubPulls) {
+    if (!s) throw new IntegrationError("The Compass connector cannot be asked whether tonight's chain is done.");
+    const dr = s.delta_run;
+    at = dr?.ts ? new Date(dr.ts * 1000).toISOString() : null;
+    done = dr?.status === "done" && !!at && at.slice(0, 10) === today;
+  }
+  if (await hubRunsChainSteps()) {
+    const h = await hubChain();
+    const hat = h?.ts ? new Date(h.ts * 1000).toISOString() : null;
+    done = done && h?.status === "done" && h.day === today;
+    if (hat && (!at || hat > at)) at = hat;
+  }
+  return { done, at };
 }
 
 export type HubRun = {

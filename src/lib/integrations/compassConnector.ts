@@ -75,6 +75,21 @@ async function read(): Promise<Snapshot> {
       items: [...q].sort((a, b) => (b.revenue_eur ?? 0) - (a.revenue_eur ?? 0)).slice(0, 1000),
     };
   }
+  // once the revenue step runs in the hub, its review queue is the hub's own
+  try {
+    const live = (await kvGet<Record<string, boolean>>("connectors:hub:live")) ?? {};
+    if (live.revenue) {
+      const q = (await kvGet<NonNullable<RawState["review_queue"]>>("connectors:hub:review-queue")) ?? [];
+      review = {
+        pending: q.filter((i) => (i.status ?? "pending") !== "resolved").length,
+        resolved: q.filter((i) => i.status === "resolved").length,
+        total: q.length,
+        items: [...q].sort((a, b) => (b.revenue_eur ?? 0) - (a.revenue_eur ?? 0)).slice(0, 1000),
+      };
+    }
+  } catch (e) {
+    console.warn(`[connectors] hub review queue: ${(e as Error).message}`);
+  }
   // remember every step the latest check reported - newer wins
   let stepsLast: Record<string, StepMemo> = {};
   try {
