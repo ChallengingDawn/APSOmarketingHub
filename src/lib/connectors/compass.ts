@@ -1,16 +1,16 @@
-// THE COMPASS CONNECTOR, STEP BY STEP - what each part reads, what it writes,
-// where it runs today, and what has to be fixed when it moves.
+// THE COMPASS STEPS - what each one reads, what it writes, and who runs it:
+// the hub, or (until it is switched over) the old Compass connector on Railway.
 //
 // Read from the connector's code on 06.10.2026 (service/*.py, every write and
 // every association traced), not from its mappings.py, which describes the old
 // PC scripts and no longer matches what runs. The Connectors & Integration app
-// draws its pages from this list, and the migration moves one group at a time:
-// a step's `runs` changes only after a preview has matched the connector row for
-// row and SARCLA has said go - never both writers on, never both off.
+// draws its pages from this list. A step moves only after the hub's test run has
+// matched the connector row for row and SARCLA has said go - never both writers
+// on, never both off; the switch itself is kept in the hub (steps/run.ts).
 
 export type Runs = "railway" | "hub";
 
-/** Where a step is on its way to the hub. */
+/** Where a step is on its way to the hub: "preview" = the connector still runs it, the hub's copy is ready to test. */
 export type Phase = "railway" | "porting" | "preview" | "hub";
 
 export type Group = "company" | "tickets" | "revenue" | "orders" | "engines";
@@ -29,7 +29,7 @@ export type Step = {
   writes: Write[];
   associations?: string[];
   phase: Phase;
-  /** What the move has to fix - found in the code, not guessed. */
+  /** Weak spots of the connector's code - found in the code, not guessed. */
   fix?: string[];
 };
 
@@ -139,7 +139,7 @@ export const STEPS: Step[] = [
   {
     key: "erosion", name: "Erosion tickets", group: "engines", phase: "hub",
     what: "Lapsed reorders become one ticket per customer per month. Runs in the hub since 05.10 (EROSION_ENABLED=0 on the connector).",
-    when: "Daily, after the chain", reads: "Orders since 2025", writes: [{ object: OBJECTS.ticket, props: ["erosion_*", "subject", "owner", "pipeline"] }],
+    when: "Daily, after the chain", reads: "Orders since 2025", writes: [{ object: OBJECTS.ticket, props: ["erosion_*", "subject", "hubspot_owner_id", "hs_pipeline", "hs_pipeline_stage"] }],
   },
   {
     key: "revenue_kpi", name: "Monthly revenue KPIs", group: "revenue", phase: "preview",
@@ -186,7 +186,7 @@ export const STEPS: Step[] = [
   {
     key: "segmentation", name: "Smart Segmentation", group: "engines", phase: "hub",
     what: "Sales priority, potential and classification. Runs in the hub since 05.10 (SEGMENTATION_ENABLED=0 on the connector).",
-    when: "Watcher every 2 minutes, nightly after the chain", reads: "Companies", writes: [{ object: OBJECTS.company, props: ["sales_priority", "yearly_customer_potential", "apso_customer", "…"] }],
+    when: "Watcher every 2 minutes, nightly after the chain", reads: "Companies", writes: [{ object: OBJECTS.company, props: ["sales_priority", "yearly_customer_potential", "apso_customer"], how: "and more - see Smart Segmentation" }],
   },
   {
     key: "orders_daily", name: "New ERP orders", group: "orders", phase: "preview",
@@ -198,7 +198,8 @@ export const STEPS: Step[] = [
       props: [
         "order_order_number", "hs_order_name", "order_mandant", "hs_pipeline", "hs_pipeline_stage (→ Entered)", "order_order_type", "order_customer_number",
         "order_total_qty", "order_total_net_revenue", "hs_total_price", "order_avg_gm_pct", "order_margin_eur", "order_line_count", "order_order_date",
-        "order_profit_center", "order_positions_json", "order_line_01…80_{article,qty,revenue,pc,gm}", "order_web_order_number / order_doc_request / order_doc_status (copied to deliveries)",
+        "order_profit_center", "order_positions_json", "order_line_01…80_{article,qty,revenue,pc,gm}",
+        "order_web_order_number (copied to deliveries)", "order_doc_request (copied to deliveries)", "order_doc_status (copied to deliveries)",
       ],
       how: "creates new orders; enriches line-less web orders; ARCHIVES a .000 entry its deliveries fully cover",
     }],
@@ -238,7 +239,7 @@ export const STEPS: Step[] = [
     what: "An ESO ticket whose owner is out of office goes to the first deputy who is in, with a note on the ticket. Campaign tickets stay.",
     when: "Every 15 minutes (DEPUTY_SWEEP=1), beside the chain",
     reads: "ESO tickets in New, Redirected and Customer replied · owners' out-of-office and deputies",
-    writes: [{ object: OBJECTS.ticket, props: ["hubspot_owner_id", "hs_pipeline_stage (Customer replied → New)", "a note \"DEPUTY REASSIGNMENT\""] }],
+    writes: [{ object: OBJECTS.ticket, props: ["hubspot_owner_id", "hs_pipeline_stage (Customer replied → New)", "note (\"DEPUTY REASSIGNMENT\", on the ticket)"] }],
     fix: ["Out of office with no hours window moves every ticket in those stages, not only the new ones"],
   },
   {
@@ -272,14 +273,96 @@ export const ASSOCIATIONS: { from: string; to: string; type: string; by: string 
   { from: "Products & Pricing", to: "Company", type: "114 \"companies who bought this article\"", by: "Only the old PC scripts - nothing in the connector keeps it up" },
 ];
 
-/** Every (object, property) the connector writes, flattened for the "What it writes" table. */
-export function writesByObject(): { object: string; prop: string; step: Step }[] {
-  return STEPS.flatMap((s) => s.writes.flatMap((w) => w.props.map((prop) => ({ object: w.object, prop, step: s }))));
+/** The HubSpot object type behind each object, for reading the properties' own labels. */
+export const OBJECT_TYPE: Record<string, string> = {
+  [OBJECTS.company]: "companies",
+  [OBJECTS.contact]: "contacts",
+  [OBJECTS.order]: "orders",
+  [OBJECTS.ticket]: "tickets",
+  [OBJECTS.pp]: "2-200042439",
+};
+
+/**
+ * Plain names for what HubSpot cannot label: the name patterns (one line stands for
+ * many properties), the KPI series (records of the KPI object, not properties), and
+ * the note on a ticket.
+ */
+export const PROP_LABEL: Record<string, string> = {
+  "rev_<year>_<jan … dec>": "Revenue per month",
+  "rev_<year>_<month>_pc_<at|dt|ft|kt|st|other>": "Revenue per month and profit centre",
+  "rev_<year>_q1 … q4": "Revenue per quarter",
+  "rev_<year>_pc_monthly": "Monthly revenue by profit centre, one field per year",
+  "revenue_<year>": "Revenue per year",
+  "oi_<year>_<month>, oi_<year>": "Order intake per month and per year",
+  "erp_rev_{mtd,ytd}_{cy,py,delta,delta_pct}": "ERP revenue: month and year to date, against last year",
+  "erp_oi_{mtd,ytd}_{cy,py,delta,delta_pct}": "ERP order intake: month and year to date, against last year",
+  "erp_rev_rank_{ytd,growth,decline}": "Rank by revenue, by growth and by decline",
+  "order_line_01…80_{article,qty,revenue,pc,gm}": "Order lines 1-80: article, quantity, revenue, profit centre, margin",
+  "erosion_*": "The erosion fields: customer, article, last order …",
+  note: "A note on the ticket (not a property)",
+  revenue_monthly: "Series: revenue by month",
+  oi_monthly: "Series: order intake by month",
+  revenue_geo_monthly: "Series: revenue by country by month",
+  revenue_delta_monthly: "Series: revenue against last year, by month",
+  revenue_delta_country: "Series: revenue against last year, by country",
+  forecast_monthly: "Series: forecast by month",
+  oi_erp_monthly: "Series: order intake by month (ERP workbook)",
+  revenue_pc_monthly: "Series: revenue by profit centre by month",
+  revenue_geo_erp_monthly: "Series: revenue by country by month (ERP workbook)",
+  oi_geo_monthly: "Series: order intake by country by month",
+  revenue_prio_monthly: "Series: revenue by sales priority by month",
+  oi_prio_monthly: "Series: order intake by sales priority by month",
+  revenue_year: "Series: revenue by year",
+  revenue_pc_year: "Series: revenue by profit centre by year",
+  revenue_geo_pc_yearly: "Series: revenue by country and profit centre by year",
+  newcust_revenue_monthly: "Series: revenue from new customers by month",
+  newcust_monthly: "Series: new customers by month",
+  reactivated_monthly: "Series: reactivated customers by month",
+};
+
+/** "hs_pipeline_stage (→ Entered)" -> name and note; the name is what HubSpot calls it. */
+export function splitProp(raw: string): { name: string; note: string } {
+  const cut = [raw.indexOf(" ("), raw.indexOf(" - ")].filter((i) => i > 0);
+  if (!cut.length) return { name: raw, note: "" };
+  const i = Math.min(...cut);
+  let note = raw.slice(i).trim().replace(/^- /, "");
+  if (note.startsWith("(") && note.endsWith(")")) note = note.slice(1, -1);
+  return { name: raw.slice(0, i), note };
 }
 
-/** How far the move is: steps in the hub over all steps (`live` = steps switched on in the hub since). */
-export function progress(live: Set<string> = new Set()): { hub: number; total: number } {
-  return { hub: STEPS.filter((s) => s.phase === "hub" || live.has(s.key)).length, total: STEPS.length };
+export type PropRow = { object: string; name: string; by: { step: Step; note: string }[] };
+
+/** One row per object and property, with every step that writes it - "What it writes". */
+export function writesByProperty(): PropRow[] {
+  const rows = new Map<string, PropRow>();
+  for (const step of STEPS) {
+    for (const w of step.writes) {
+      for (const raw of w.props) {
+        const { name, note } = splitProp(raw);
+        const k = `${w.object}|${name}`;
+        const row = rows.get(k) ?? { object: w.object, name, by: [] };
+        if (!row.by.some((b) => b.step.key === step.key)) row.by.push({ step, note });
+        rows.set(k, row);
+      }
+    }
+  }
+  return [...rows.values()];
+}
+
+/** The plain name of a step, for notices - the registry's keys are the connector's. */
+export function stepName(key: string): string {
+  if (key === "articles_create_missing") return "Create the missing articles";
+  return STEPS.find((s) => s.key === key)?.name ?? key.replace(/_/g, " ");
+}
+
+/**
+ * How far the move is (`live` = steps switched on in the hub): run by the hub, ready
+ * in the hub while the connector still runs them, and on the connector alone.
+ */
+export function progress(live: Set<string> = new Set()): { hub: number; ready: number; connector: number; total: number } {
+  const hub = STEPS.filter((s) => s.phase === "hub" || live.has(s.key)).length;
+  const ready = STEPS.filter((s) => s.phase === "preview" && !live.has(s.key)).length;
+  return { hub, ready, connector: STEPS.length - hub - ready, total: STEPS.length };
 }
 
 /** A step's phase now: the code's own, or "hub" once it is switched on there. */

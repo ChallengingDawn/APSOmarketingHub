@@ -43,15 +43,21 @@ function Line({ dot, text, when }: { dot: string; text: string; when?: string })
 export default function ConnectorsPanel({ glass }: { glass: object }) {
   const [s, setS] = useState<Snapshot | null>(null);
   const [failed, setFailed] = useState(false);
+  const [live, setLive] = useState<Set<string>>(new Set());
   useEffect(() => {
     const ctrl = new AbortController();
     fetch("/api/connectors", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => (j?.ok ? setS(j.data as Snapshot) : setFailed(true)))
       .catch(() => { if (!ctrl.signal.aborted) setFailed(true); });
+    // which steps the hub runs itself - the count stays right as steps are switched over
+    fetch("/api/connectors/steps", { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) setLive(new Set((j.data.steps as { key: string; live: boolean }[]).filter((x) => x.live).map((x) => x.key))); })
+      .catch(() => {});
     return () => ctrl.abort();
   }, []);
-  const moved = progress();
+  const moved = progress(live);
   const v = s ? chainVerdict(s) : null;
   const d = s ? lastDelivery(s) : null;
   return (
@@ -73,7 +79,7 @@ export default function ConnectorsPanel({ glass }: { glass: object }) {
         {failed && <Line dot={DOT.unknown} text="The Compass connector did not answer" />}
         {s && v && <Line dot={DOT[v.tone]} text={`Compass chain: ${v.label.toLowerCase()}`} when={ago(v.at)} />}
         {s && d && <Line dot={d.at ? DOT.good : DOT.unknown} text={d.at ? `${d.files} ERP files in the last delivery` : "No ERP files received yet"} when={ago(d.at)} />}
-        <Line dot="#9a7bf0" text={`${moved.hub} of ${moved.total} connector steps run in the hub`} />
+        <Line dot="#9a7bf0" text={`The hub runs ${moved.hub} of ${moved.total} Compass steps${moved.ready ? ` · ${moved.ready} ready to switch` : ""}`} />
         {s?.review && s.review.pending > 0 && <Line dot={DOT.warn} text={`${s.review.pending} ERP customers wait for a company`} />}
       </Box>
 

@@ -20,6 +20,7 @@ import { connectorGet } from "@/lib/erosion/run";
 import { fetchLatest } from "../sftp";
 import type { StepResult } from "./companyFacts";
 import { REGISTRY, STEP_KEYS, stepDef } from "./registry";
+import { stepName } from "../compass";
 
 export const HUB_STEPS = STEP_KEYS;
 export type HubStep = string;
@@ -62,15 +63,15 @@ export async function setLive(key: HubStep, on: boolean): Promise<{ ok: boolean;
   const def = stepDef(key);
   if (!def) return { ok: false, note: `unknown step ${key}` };
   if (on) {
-    if (def.file && !sftpConfigured()) return { ok: false, note: `${key} reads the ERP's files - the hub has no SFTP key yet` };
+    if (def.file && !sftpConfigured()) return { ok: false, note: `${stepName(key)} reads the ERP's files - the hub has no SFTP key yet` };
     const skips = await connectorSkips();
     if (!skips) return { ok: false, note: "The connector cannot be asked - not switching" };
-    if (!skips.has(key) && def.cadence !== "manual") return { ok: false, note: `The connector still runs ${key} - set it in its HUB_STEPS first, or both would write` };
+    if (!skips.has(key) && def.cadence !== "manual") return { ok: false, note: `The connector still runs "${stepName(key)}" - hand it over in the connector's HUB_STEPS first, or both would write` };
   }
   const m = (await kvGet<Record<string, boolean>>(KV.live)) ?? {};
   m[key] = on;
   await kvSet(KV.live, m);
-  return { ok: true, note: `${key} ${on ? "runs in the hub now" : "no longer runs in the hub"}` };
+  return { ok: true, note: `${stepName(key)} ${on ? "runs in the hub now" : "no longer runs in the hub"}` };
 }
 
 export async function lastRun(mode: Mode, key: HubStep): Promise<HubRun | null> {
@@ -149,7 +150,7 @@ function locked(key: HubStep, mode: Mode, by: string, opts: { full?: boolean; di
 export async function startStep(key: HubStep, mode: Mode, by: string, full = false): Promise<{ started: boolean; note: string }> {
   if (await busy()) return { started: false, note: "another step is running - try again when it has finished" };
   void locked(key, mode, by, { full });
-  return { started: true, note: `${key} ${mode === "preview" ? "preview" : "run"} started` };
+  return { started: true, note: `${stepName(key)}: ${mode === "preview" ? "test run started - it writes nothing" : "live run started"}` };
 }
 
 /** For the scheduler: run and wait. */

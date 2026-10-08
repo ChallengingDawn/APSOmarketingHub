@@ -1,7 +1,8 @@
 "use client";
 
 // Shared by the Connectors & Integration pages: the status fetch, the frame
-// every page sits in, and the chips that say where a step runs and how it went.
+// every page sits in, the chips that say who runs a step, and the hub's own
+// record of the steps it runs and tests.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -14,11 +15,30 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { HAIRLINE, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
+import { glass, HAIRLINE, INK, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
 import type { Snapshot } from "@/lib/connectors/snapshot";
 import type { Phase } from "@/lib/connectors/compass";
+import type { HubRun } from "@/lib/connectors/steps/run";
+import type { HubChain } from "@/lib/connectors/chainStatus";
 
 export type { Snapshot };
+
+/** The hub's side of one step (GET /api/connectors/steps). */
+export type HubStepInfo = {
+  key: string; live: boolean; connectorSkips: boolean | null; file: string | null; cadence: string | null;
+  preview: HubRun | null; run: HubRun | null;
+};
+export type StepsData = {
+  steps: HubStepInfo[]; running: { key: string; mode: string; started: string } | null;
+  connectorReachable: boolean; sftpConfigured: boolean; connectorPulls: boolean | null; chain: HubChain | null;
+};
+
+/** What the hub runs and has tested - `tick` asks again. */
+export function useHubSteps(tick = 0): StepsData | null {
+  const url = `/api/connectors/steps?n=${tick}`;
+  const held = useHeld<StepsData>(url, [url]);
+  return held.result?.state === "ok" ? held.result.data : null;
+}
 
 /** "06.10 08:31" from epoch seconds or an ISO string, in local time. */
 export function when(t: number | string | null | undefined): string {
@@ -39,12 +59,22 @@ export function ago(t: number | null | undefined, now = Date.now()): string {
   return `${Math.round(s / 86400)} days ago`;
 }
 
-export const PHASE: Record<Phase, { label: string; tint: Tint }> = {
-  railway: { label: "On the connector", tint: "slate" },
-  porting: { label: "Being ported", tint: "amber" },
-  preview: { label: "Preview in the hub", tint: "purple" },
-  hub: { label: "In the hub", tint: "green" },
+/** Who runs a step today. "Connector" = the old Compass connector on Railway. */
+export const PHASE: Record<Phase, { label: string; tint: Tint; note: string }> = {
+  railway: { label: "Connector", tint: "slate", note: "Runs on the old connector only" },
+  porting: { label: "Being moved", tint: "amber", note: "Being rebuilt in the hub" },
+  preview: { label: "Connector · hub ready", tint: "purple", note: "The connector still runs it; the hub's copy is ready to test and switch on" },
+  hub: { label: "Hub", tint: "green", note: "Runs in the hub" },
 };
+
+/** A calm line for news that is not a warning - a test run going on, say. */
+export function Info({ children }: { children: React.ReactNode }) {
+  return (
+    <Box sx={{ ...glass, p: 1.5, borderRadius: "16px", borderLeft: "3px solid #2459d1" }}>
+      <Typography sx={{ fontSize: "0.84rem", color: INK }}>{children}</Typography>
+    </Box>
+  );
+}
 
 export function Chip({ tint, children }: { tint: Tint; children: React.ReactNode }) {
   const t = TINT[tint];
