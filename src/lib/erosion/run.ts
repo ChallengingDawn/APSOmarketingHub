@@ -46,6 +46,8 @@ export async function importConnectorKeys(): Promise<number> {
   return keys.length;
 }
 
+let lastWaitLog = 0;
+
 /**
  * Is tonight's data loaded? Erosion, articles and segmentation run after it, never before.
  * While the Compass connector moves into the hub, the night's steps can run in either:
@@ -67,7 +69,13 @@ export async function chainDoneToday(today: string): Promise<{ done: boolean; at
   if (await hubRunsChainSteps()) {
     const h = await hubChain();
     const hat = h?.ts ? new Date(h.ts * 1000).toISOString() : null;
-    done = done && h?.status === "done" && h.day === today;
+    const hubDone = h?.status === "done" && h.day === today;
+    // the decision, not just the action: a gate that holds erosion back says why
+    if (done && !hubDone && Date.now() - lastWaitLog > 3_600_000) {
+      lastWaitLog = Date.now();
+      console.log(`[chain] waiting: the hub's chain is not done today (status ${h?.status ?? "none"}, day ${h?.day ?? "-"}, step ${h?.step ?? "-"})`);
+    }
+    done = done && hubDone;
     if (hat && (!at || hat > at)) at = hat;
   }
   return { done, at };
