@@ -286,7 +286,7 @@ test("title: 'A# | Person | Company', the company from the current title, stubs 
   assert.equal(wantedTitle("A26.1.000", "A26.1.000 | Firma AG", ""), "A26.1.000 | Firma AG");
   assert.equal(wantedTitle("A26.1.000", "Magento order (3000123) - to be overwritten", "Hans Muster"), "A26.1.000 | Hans Muster");
   // the connector's own quirk, kept for parity: a title without a company reads its person as the company next time
-  assert.equal(wantedTitle("A26.1.000", "A26.1.000 | Hans Muster", "Hans Muster"), "A26.1.000 | Hans Muster | Hans Muster");
+  assert.equal(wantedTitle("A26.1.000", "A26.1.000 | Hans Muster", "Hans Muster"), "A26.1.000 | Hans Muster"); // fixed 08.10.2026 - the connector doubled the person
   const row = { num: "A26.1.000", title: "A26.1.000 | Firma", ship: "2026-01-01", status: "entered" };
   assert.deepEqual(detailUpdate(row, { person: "Hans Muster", ship: "2026-02-01", status: "invoiced" }),
     { hs_order_name: "A26.1.000 | Hans Muster | Firma", order_shipment_date: "2026-02-01", order_order_status: "invoiced" });
@@ -339,4 +339,19 @@ test("files: fact, articles and dim_order read as the connector reads them", asy
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("titles: the person is never read back as the company, and doubled titles are repaired (fix 08.10.2026)", () => {
+  // the connector's bug: "A# | Person" became "A# | Person | Person"
+  assert.equal(wantedTitle("A26.1", "A26.1 | Hans Muster", "Hans Muster"), "A26.1 | Hans Muster");
+  // already damaged -> repaired
+  assert.equal(wantedTitle("A26.1", "A26.1 | Hans Muster | Hans Muster", "Hans Muster"), "A26.1 | Hans Muster");
+  // a real company stays, with or without a person
+  assert.equal(wantedTitle("A26.1", "A26.1 | Metallbau AG", "Hans Muster"), "A26.1 | Hans Muster | Metallbau AG");
+  assert.equal(wantedTitle("A26.1", "A26.1 | Hans Muster | Metallbau AG", "Hans Muster"), "A26.1 | Hans Muster | Metallbau AG");
+  assert.equal(wantedTitle("A26.1", "A26.1 | Metallbau AG", ""), "A26.1 | Metallbau AG");
+  // a new person on an order whose old title held another person: the old one was the company slot
+  assert.equal(wantedTitle("A26.1", "A26.1 | Anna Keller | Metallbau AG", "Hans Muster"), "A26.1 | Hans Muster | Metallbau AG");
+  // titles not starting with the order number give no company, as before
+  assert.equal(wantedTitle("A26.1", "Magento order (123) - to be overwritten", "Hans Muster"), "A26.1 | Hans Muster");
 });

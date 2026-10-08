@@ -572,7 +572,13 @@ export function hsDate(v: string | null | undefined): string | null {
  */
 export function wantedTitle(aNumber: string, current: string | null | undefined, person: string): string {
   const parts = (current ?? "").split(" | ").map(pyStrip);
-  const company = parts.length >= 2 && parts[0] === aNumber ? parts[parts.length - 1] : "";
+  let company = parts.length >= 2 && parts[0] === aNumber ? parts[parts.length - 1] : "";
+  // FIX (SARCLA 08.10.2026: fix + repair). The connector read the last segment as the
+  // company even when it was the person: "A# | Hans Muster" (an order created without a
+  // company name) became "A# | Hans Muster | Hans Muster" on the next run. A second
+  // segment that is the person we are writing is not a company; and a title already
+  // doubled that way ("A# | X | X", X the person) is repaired to "A# | X" by this same run.
+  if (person && company === person && (parts.length === 2 || (parts.length === 3 && parts[1] === parts[2]))) company = "";
   return [aNumber, person, company].filter((x) => x).join(" | ");
 }
 
