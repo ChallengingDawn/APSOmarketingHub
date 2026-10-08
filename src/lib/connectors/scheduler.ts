@@ -12,7 +12,10 @@
 //   contact_shipment              (order_sync not in the hub): once a day after
 //                                 its chain is done, or after 09:00 UTC
 // and one PREVIEW of each step that has never been previewed (reads only), after
-// 10:00 UTC, one per tick - the comparison with the connector without a click.
+// 10:00 UTC, one per tick - the comparison with the connector without a click. Not
+// the file steps: the hub runs on 1 GB (SARCLA kept the size, 08.10.2026) and the
+// big ERP files (dim_order.csv ~480 MB) are not yet proven to fit - a copy that runs
+// out of memory restarts. They are tested by hand, one at a time, in the evening.
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
@@ -20,7 +23,7 @@ import { connectorReadKey } from "@/lib/integrations/status";
 import { compassSnapshot } from "@/lib/integrations/compassConnector";
 import { runHubChain } from "./chain";
 import { REGISTRY } from "./steps/registry";
-import { lastRun, liveSteps, runNow, sftpConfigured, type HubStep } from "./steps/run";
+import { lastRun, liveSteps, runNow, type HubStep } from "./steps/run";
 
 const TICK_MS = 15 * 60_000;
 const MAX_TRIES = 3;
@@ -52,7 +55,7 @@ async function dailyAfterChain(k: HubStep, today: string) {
 async function firstPreviews(live: Set<string>) {
   if (new Date().getUTCHours() < 10) return;
   for (const def of REGISTRY) {
-    if (live.has(def.key) || (def.file && !sftpConfigured())) continue;
+    if (live.has(def.key) || def.file) continue;
     if (await lastRun("preview", def.key)) continue;
     await runNow(def.key, "preview", "first preview", true);
     return; // one per tick

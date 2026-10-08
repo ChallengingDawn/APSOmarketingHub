@@ -123,7 +123,10 @@ function HubPanel({ info, admin, busy, act, sftp }: { info: HubStepInfo; admin: 
       {(info.live || run) && <Typography sx={{ fontSize: "0.8rem", color: run?.bad ? RED : INK }}><b>Last live run</b>: {run?.text ?? "none yet"}</Typography>}
       {admin && (
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
-          <Button size="small" variant="outlined" disabled={busy || noFiles} onClick={() => act(info.key, "preview")}>Test run</Button>
+          <Button size="small" variant="outlined" disabled={busy || noFiles}
+            onClick={() => { if (!info.file || confirm(`This test run reads the ERP's ${info.file}. The hub's servers have 1 GB of memory and the big files are not yet proven to fit - start it in the evening, when nobody works in the hub. Start now?`)) act(info.key, "preview"); }}>
+            Test run
+          </Button>
           {canFull && <Button size="small" variant="outlined" disabled={busy} onClick={() => act(info.key, "preview", true)}>Full test run</Button>}
           {!info.live && (
             <Button size="small" variant="contained" disableElevation disabled={busy || noFiles || (!info.connectorSkips && info.cadence !== "manual")}
