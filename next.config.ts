@@ -31,6 +31,10 @@ const nextConfig: NextConfig = {
   // Produce a lean, self-contained server bundle for the container image
   // (.next/standalone/server.js) — required for the AWS Fargate Dockerfile.
   output: "standalone",
+  // The Compass connector's file steps (SFTP, the ERP workbook, the Magento XML)
+  // run in the server: these stay plain node_modules instead of being bundled -
+  // ssh2 carries optional native code a bundler cannot follow.
+  serverExternalPackages: ["ssh2", "ssh2-sftp-client", "cpu-features", "exceljs"],
   // Guarantee runtime-read JSON data (brain seed, template specs) ships in
   // the standalone bundle — fs.readFile paths aren't always traced.
   outputFileTracingIncludes: {

@@ -173,7 +173,7 @@ export const STEPS: Step[] = [
     when: "On EVERY 30-minute poll, files or not",
     reads: "Every company with a company_unique_number",
     writes: [{ object: OBJECTS.company, props: ["mandant"] }],
-    fix: ["Scans ~60,000 companies 48 times a day - once a day is enough", "The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
+    fix: ["The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
   },
   {
     key: "wrong_owners", name: "Tickets with the wrong owner", group: "tickets", phase: "railway",

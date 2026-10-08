@@ -4,7 +4,7 @@
 // run once a day. Off without the read key.
 //
 // The same tick runs the steps that are LIVE in the hub, once a day each:
-//   mandant_sweep     from 05:00 UTC (the connector ran it every 30 minutes)
+//   mandant_sweep     every 30 minutes, as the connector ran it (SARCLA, 08.10.2026)
 //   company_stats,    once the night's chain is done (the orders and their
 //   contact_shipment  shipment dates are loaded), or after 09:00 UTC if the
 //                     chain cannot be asked
@@ -24,6 +24,7 @@ let ticking = false;
 
 type Day = { day: string; done: boolean; tries: number };
 const dayKey = (k: HubStep) => `connectors:hub:day:${k}`;
+const KV_MANDANT = "connectors:hub:mandant-last";
 
 async function due(k: HubStep, today: string): Promise<boolean> {
   const d = await kvGet<Day>(dayKey(k));
@@ -59,7 +60,13 @@ async function stepsTick() {
   if (!live.size) return;
   const today = utcToday();
   const hour = new Date().getUTCHours();
-  if (live.has("mandant_sweep") && hour >= 5 && (await due("mandant_sweep", today))) await runDaily("mandant_sweep", today);
+  if (live.has("mandant_sweep")) {
+    const last = await kvGet<{ at: number }>(KV_MANDANT);
+    if (!last || Date.now() - last.at >= 30 * 60_000) {
+      const r = await runNow("mandant_sweep", "live", "schedule");
+      if (r) await kvSet(KV_MANDANT, { at: Date.now() });
+    }
+  }
   const after = (["company_stats", "contact_shipment"] as HubStep[]).filter((k) => live.has(k));
   if (!after.length) return;
   let ready = hour >= 9;
