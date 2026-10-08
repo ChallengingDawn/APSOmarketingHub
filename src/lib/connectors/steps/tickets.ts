@@ -10,7 +10,7 @@
 // service/wrong_owners.py, deputy_sweep.py and ticket_assoc.py.
 
 import { kvGet, kvSet } from "@/lib/db/init";
-import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { hubspotRetry as hubspotFetchJson } from "./hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import type { StepResult } from "./companyFacts";
 import {

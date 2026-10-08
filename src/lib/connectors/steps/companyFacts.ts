@@ -7,7 +7,7 @@
 // ported from service/mandant_sweep.py, company_stats.py, contact_shipment.py.
 
 import { kvGet, kvSet } from "@/lib/db/init";
-import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { hubspotRetry as hubspotFetchJson } from "./hs";
 import { FACTS, ORDER_PIPELINE, companyFacts, factsDiff, latestShipment, monthsFrom, wantMandant, type Baseline, type OrderLite } from "./rules";
 
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
