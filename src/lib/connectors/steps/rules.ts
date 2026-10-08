@@ -3,7 +3,7 @@
 // contact_shipment.py, 07.10.2026) so the hub decides every record the same
 // way. tests/connectors-steps.test.ts holds them to it; the I/O is beside this.
 
-import { pyRound } from "../../segmentation/engine";
+import { pyRound } from "./revenueRules";
 
 /* ── mandant from the customer key ─────────────────────────────────────── */
 
