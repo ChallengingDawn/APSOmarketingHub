@@ -60,6 +60,8 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     const due: Record<string, boolean> = {
       magento_stamp: got.has("export.xml"),
       articles: got.has("dim_article.csv"),
+      // the ERP stock fact (hub only); it needs dim_article on this copy's disk for its keys
+      stock_load: got.has("fct_article_quantity_and_consumption.csv"),
       stages: got.has("dim_order.csv"),
       revenue: got.has("revenue_oi_rollup.csv"),
       customer_agents: got.has("dim_customer.csv"),

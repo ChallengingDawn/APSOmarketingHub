@@ -103,6 +103,24 @@ export const STEPS: Step[] = [
     fix: ["The change cache is saved before the write succeeds, so a failed batch is never retried", "No retry on HubSpot 5xx"],
   },
   {
+    key: "stock_load", name: "ERP stock into Products & Pricing", group: "orders", phase: "hub",
+    what: "Puts the ERP's stock on every article: its stock value, unit cost, consumption and movement - and, for articles held in one unit and sold in another (PTFE plate: kg held, sold by the piece), the stock in KILOGRAMS. The piece count for those comes from the shop's own availability, written by the APSOAssistant gateway into Stock Sales. New in the hub - the connector never loaded this file on a schedule.",
+    when: "When a new fct_article_quantity_and_consumption.csv arrives (it needs dim_article.csv on disk for its keys)",
+    reads: "fct_article_quantity_and_consumption.csv (a rolling refresh: the newest snapshot per article and warehouse is kept between deliveries, the warehouses summed) · dim_article.csv (key → article number) · every Products & Pricing record's article_number, stock_unit and sales_unit",
+    writes: [
+      {
+        object: OBJECTS.pp,
+        props: ["stock_value_chf", "stock_value_eur", "unit_cost_chf", "consumption", "stock_movement"],
+        how: "every article in the file; only what differs from HubSpot is sent",
+      },
+      {
+        object: OBJECTS.pp,
+        props: ["stock_quantity"],
+        how: "kilograms (the stock unit) - ONLY where stock_unit and sales_unit differ; everywhere else the gateway owns it",
+      },
+    ],
+  },
+  {
     key: "stages", name: "Order stage from the ERP status", group: "orders", phase: "preview",
     what: "Moves every order to the PERFORMIS stage its ERP status says - forwards or backwards. Deleted or inactive orders go to Cancelled.",
     when: "When a new dim_order.csv arrives (a full ~480 MB snapshot every day)",

@@ -64,7 +64,8 @@ export async function setLive(key: HubStep, on: boolean): Promise<{ ok: boolean;
   if (!def) return { ok: false, note: `unknown step ${key}` };
   if (on) {
     if (def.file && !sftpConfigured()) return { ok: false, note: `${stepName(key)} reads the ERP's files - the hub has no SFTP key yet` };
-    const skips = await connectorSkips();
+    // a step the connector never had (hubOnly) has nothing to hand over - nothing to ask it
+    const skips = def.hubOnly ? new Set<string>([key]) : await connectorSkips();
     if (!skips) return { ok: false, note: "The connector cannot be asked - not switching" };
     if (!skips.has(key) && def.cadence !== "manual") return { ok: false, note: `The connector still runs "${stepName(key)}" - hand it over in the connector's HUB_STEPS first, or both would write` };
   }
@@ -122,7 +123,7 @@ export async function runStepInside(key: HubStep, mode: Mode, by: string, beat: 
   try {
     if (!def) throw new Error(`unknown step ${key}`);
     // a live run re-checks the switch at the last moment: never write while the connector does
-    if (mode === "live" && def.cadence !== "manual") {
+    if (mode === "live" && def.cadence !== "manual" && !def.hubOnly) {
       const skips = await connectorSkips();
       if (!skips?.has(key)) throw new Error("the connector does not skip this step (HUB_STEPS) - live run refused");
     }

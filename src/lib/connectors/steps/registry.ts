@@ -16,6 +16,8 @@ import { revenueHistory, revenueKpi, revenueLoad } from "./revenue";
 import { erpRevenue } from "./erpRevenue";
 import { orderSync, ordersDaily, stageLoad } from "./orders";
 import { deputySweep, ticketAssoc, wrongOwners } from "./tickets";
+import { stockLoad } from "./stock";
+import { FCT_FILE } from "./stockRules";
 
 export type Beat = () => Promise<void>;
 export type StepCtx = { live: boolean; beat: Beat; full?: boolean; dir: string | null };
@@ -26,6 +28,12 @@ export type StepDef = {
   /** The ERP file it reads (canonical name, as the pull saves it). */
   file?: string;
   run: (c: StepCtx) => Promise<StepResult>;
+  /**
+   * A step the Compass connector never had - there is nothing to hand over, so the switch
+   * does not wait for the connector's HUB_STEPS. "Never both writing" still holds: nothing
+   * else writes what it writes.
+   */
+  hubOnly?: boolean;
 };
 
 /** The files whose steps make the downstream steps run (the connector's `touched`). */
@@ -40,6 +48,10 @@ export const REGISTRY: StepDef[] = [
   { key: "magento_stamp", cadence: "chain", file: "export.xml", run: (c) => magentoStamp(c.live, c.beat, { file: at(c, "export.xml") }) },
   // compare: the first live run reads what HubSpot holds and writes only real differences
   { key: "articles", cadence: "chain", file: "dim_article.csv", run: (c) => articleLoad(c.live, c.beat, { file: at(c, "dim_article.csv"), compare: true }) },
+  // HUB ONLY: the ERP stock fact, which the connector never loaded on a schedule. Kilograms into
+  // stock_quantity for cross-unit articles, the stock values for all - after "articles", so the
+  // units it routes on are the ones the article master has just written
+  { key: "stock_load", cadence: "chain", file: FCT_FILE, hubOnly: true, run: (c) => stockLoad(c.live, c.beat, { file: at(c, FCT_FILE), articleFile: at(c, "dim_article.csv") }) },
   { key: "stages", cadence: "chain", file: "dim_order.csv", run: (c) => stageLoad(c.live, c.beat, { file: at(c, "dim_order.csv") }) },
   { key: "revenue", cadence: "chain", file: "revenue_oi_rollup.csv", run: (c) => revenueLoad(c.live, c.beat, { file: at(c, "revenue_oi_rollup.csv") }) },
   { key: "customer_agents", cadence: "chain", file: "dim_customer.csv", run: (c) => customerAgents(c.live, c.beat, { file: at(c, "dim_customer.csv") }) },
