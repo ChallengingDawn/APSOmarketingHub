@@ -534,6 +534,12 @@ export default function IntegrationsSettingsPage() {
         </Box>
       )}
 
+      {/* Directly above the cards, because the card that goes red is the reason
+          anyone wants this. It used to sit at the bottom of the setup guide, so
+          you read a 403 at the top of the page and never found the one control
+          that answers it. */}
+      <GoogleAccount />
+
       {readiness && (
         <Grid container spacing={2.5} sx={{ mb: 4 }}>
           {DEFINITIONS.map((definition) => (
@@ -704,8 +710,6 @@ export default function IntegrationsSettingsPage() {
 
           <Grid size={{ xs: 12, md: 6 }}>
             <Typography sx={{ ...LABEL_SX, mb: 2 }}>Per-source prerequisites</Typography>
-
-            <GoogleAccount />
 
             <Box sx={{ mb: 3 }}>
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mb: 1 }}>
