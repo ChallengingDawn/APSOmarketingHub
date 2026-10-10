@@ -26,6 +26,7 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, bodyCell, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { HubRun } from "@/lib/connectors/steps/run";
+import People from "./People";
 
 type Move = { ticket: string; from?: string; to?: string; reason?: string; subject?: string };
 type Data = {
@@ -133,6 +134,8 @@ function Board({ d, act, note }: { d: Data; act: (action: string) => void; note:
           <KpiTile icon={<CampaignOutlinedIcon />} tint="purple" label="Campaign tickets" value={show(num(r, "system_kept"))} note="left alone" />
         </Grid>
       </Grid>
+
+      <People />
 
       <Box sx={{ display: "grid", gap: 1.25 }}>
         <Choice value={view} onChange={setView} options={[{ key: "run", label: "Last run" }, { key: "preview", label: "Last test run" }]} />

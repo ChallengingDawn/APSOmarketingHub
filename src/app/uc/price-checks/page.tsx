@@ -59,7 +59,8 @@ const cell = { fontSize: "0.8rem", py: 0.9, borderColor: HAIRLINE };
 const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, maxWidth: 260 };
 const POLL_MS = 5 * 60_000;
 /** The shop signals are read day by day; past three months the read gets slow and the rule stale. */
-const SIGNAL_DAYS = 90;
+/** The shop has reported price checks since this day; an earlier period start finds nothing before it. */
+const SIGNALS_SINCE = "2026-10-02";
 const PAGE = 15;
 
 type TabId = "signals" | "results" | "people" | "tickets";
@@ -132,8 +133,8 @@ function Articles({ r }: { r: PriceCheckRow }) {
 }
 
 /** Today's signals, the rule's verdict on each, and the preview/create run - unchanged from the page before the tabs. */
-function SignalsPanel({ signals, error, from, to, clipped }: {
-  signals: ShopSignals | null; error: string | null; from: string; to: string; clipped: boolean;
+function SignalsPanel({ signals, error, from, to }: {
+  signals: ShopSignals | null; error: string | null; from: string; to: string;
 }) {
   const [onlyQualifying, setOnlyQualifying] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
@@ -176,7 +177,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
     <GlassCard sx={{ p: 0, overflow: "hidden" }}>
       <Box sx={{ px: { xs: 2, md: 2.75 }, pt: { xs: 2, md: 2.75 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} title="Priced in the shop, not ordered"
-          note={`Customer-days ${from} to ${to}${clipped ? ` - the last ${SIGNAL_DAYS} days of the period at most` : ""}; click a row for the articles`} />
+          note={`Customer-days ${from} to ${to}${from < SIGNALS_SINCE ? ` (the shop reports them since ${SIGNALS_SINCE})` : ""}; click a row for the articles`} />
       </Box>
       <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
         <Chip size="small" label={`${full(qualifying.length)} qualify`} sx={{ bgcolor: "#e6f4ec", color: "#0f7b4f", fontWeight: 700 }} />
@@ -394,7 +395,9 @@ export default function PriceCheckTickets() {
   // The hub-wide period, the one every report uses. Tickets are picked by the day
   // they were RAISED; the shop signals are read for at most the last 90 days of it.
   const { window: win, label: periodLabel } = useReportingWindow();
-  const sigFrom = win.from > shiftDay(win.to, -(SIGNAL_DAYS - 1)) ? win.from : shiftDay(win.to, -(SIGNAL_DAYS - 1));
+  // The same period as everything else on the page (SARCLA 10.10: "all the sub-apps should work with the
+  // top time lapse") - no 90-day cut: the shop reports since 02.10, and the scan costs the same either way.
+  const sigFrom = win.from;
 
   const [signals, setSignals] = useState<ShopSignals | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -479,7 +482,7 @@ export default function PriceCheckTickets() {
 
       {tab === "signals" && (
         <Box id="price-checks-panel-signals" role="tabpanel" sx={{ minWidth: 0 }}>
-          <SignalsPanel signals={signals} error={error} from={sigFrom} to={win.to} clipped={sigFrom !== win.from} />
+          <SignalsPanel signals={signals} error={error} from={sigFrom} to={win.to} />
         </Box>
       )}
       {tab !== "signals" && tr === null && <LoadingPanel label="Reading the price-check tickets from HubSpot…" />}
