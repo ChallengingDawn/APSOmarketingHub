@@ -9,6 +9,7 @@ import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive
 import { stepDef } from "@/lib/connectors/steps/registry";
 import { STEPS } from "@/lib/connectors/compass";
 import { hubChain } from "@/lib/connectors/chainStatus";
+import { lastPull } from "@/lib/connectors/sftp";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -28,6 +29,7 @@ export async function GET() {
     return NextResponse.json({ configured: true, ok: true, data: {
       steps, running, connectorReachable: skips !== null, sftpConfigured: sftpConfigured(),
       connectorPulls: skips ? !skips.has("sftp_pull") : null, chain: await hubChain(),
+      pull: (await lastPull().catch(() => null))?.last ?? null,
     } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });

@@ -31,6 +31,8 @@ export type HubStepInfo = {
 export type StepsData = {
   steps: HubStepInfo[]; running: { key: string; mode: string; started: string } | null;
   connectorReachable: boolean; sftpConfigured: boolean; connectorPulls: boolean | null; chain: HubChain | null;
+  /** The hub's last download from the ERP's folder. */
+  pull: { pulled: { remote: string; as: string; mb: number }[]; ts: number; seconds?: number; error?: string; incomplete?: string[] } | null;
 };
 
 /** What the hub runs and has tested - `tick` asks again. */

@@ -29,6 +29,9 @@ export type HubChain = {
   /** UTC day of the last run that had files. */
   day: string;
   pulled: number;
+  /** The delivery this run processed: the files and how long they took to come down. */
+  files?: { name: string; mb: number }[];
+  pullSeconds?: number;
   steps: HubChainStep[];
   error?: string;
 };

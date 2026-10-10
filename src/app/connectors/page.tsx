@@ -1,9 +1,9 @@
 "use client";
 
-// CONNECTORS & INTEGRATION - the overview. Four answers at a glance: did the
-// night's chain run (the hub's own once it reads the ERP's files, the connector's
-// until then), did the ERP's files arrive, how much the hub runs itself, and is
-// anybody waiting in the review queue. Detail lives on the Compass pages.
+// CONNECTORS & INTEGRATION - the overview. Four answers at a glance: did the last
+// ERP delivery run through, what came in, did any step fail, and is anybody waiting
+// in the review queue. The Compass sync runs in the hub since 10.10.2026; the old
+// connector on Railway is a backup that writes nothing. Detail lives on the Compass pages.
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -11,13 +11,13 @@ import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import SyncAltOutlinedIcon from "@mui/icons-material/SyncAltOutlined";
 import CloudDownloadOutlinedIcon from "@mui/icons-material/CloudDownloadOutlined";
-import MoveUpOutlinedIcon from "@mui/icons-material/MoveUpOutlined";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import CableOutlinedIcon from "@mui/icons-material/CableOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, Notice, TRACK } from "@/app/uc/report/ui";
-import { GROUPS, IN_HUB, STEPS, phaseOf, progress, stepName } from "@/lib/connectors/compass";
+import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
+import { stepName } from "@/lib/connectors/compass";
 import { chainVerdict, lastDelivery } from "@/lib/connectors/snapshot";
 import type { HubChain } from "@/lib/connectors/chainStatus";
 import { Chip, ConnectorsPage, TONE, ago, useHubSteps, when, type Snapshot } from "./parts";
@@ -52,26 +52,29 @@ function Row({ name, status, note, href, link }: { name: string; status: React.R
 
 function Overview({ s }: { s: Snapshot }) {
   const hub = useHubSteps();
-  const live = new Set((hub?.steps ?? []).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key));
   const hubPulls = hub?.connectorPulls === false;
-  const v = hubPulls && hub?.chain ? hubVerdict(hub.chain) : chainVerdict(s);
-  const delivery = lastDelivery(s);
-  const moved = progress(live);
+  const c = hubPulls ? hub?.chain ?? null : null;
+  const v = c ? hubVerdict(c) : chainVerdict(s);
+  const connectorDelivery = lastDelivery(s);
+  const mb = (c?.files ?? []).reduce((t, f) => t + f.mb, 0);
+  const files = c ? { n: c.pulled, at: c.ts || null, note: `${Math.round(mb).toLocaleString("en-US")} MB${c.pullSeconds !== undefined ? ` in ${c.pullSeconds} s` : ""}` }
+    : { n: connectorDelivery.files, at: connectorDelivery.at, note: "" };
+  const failed = c ? c.steps.filter((x) => !x.ok).map((x) => x.step) : v.failed;
   return (
     <>
-      {s.stateError && <Notice tone="warn">Only the chain status can be read for now: {s.stateError}.</Notice>}
+      {s.stateError && !hubPulls && <Notice tone="warn">Only the chain status can be read for now: {s.stateError}.</Notice>}
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<SyncAltOutlinedIcon />} tint={TONE[v.tone]} label={hubPulls ? "The chain (hub)" : "The chain (connector)"} value={v.label}
+          <KpiTile icon={<SyncAltOutlinedIcon />} tint={TONE[v.tone]} label="Compass sync" value={v.label}
             note={v.at ? `${when(v.at)} · ${ago(v.at)}` : "no run reported"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<CloudDownloadOutlinedIcon />} tint="blue" label="ERP files" value={delivery.at ? `${delivery.files} files` : "—"}
-            note={delivery.at ? `last delivery ${when(delivery.at)} · ${ago(delivery.at)}` : "none received yet"} />
+          <KpiTile icon={<CloudDownloadOutlinedIcon />} tint="blue" label="Last ERP delivery" value={files.at ? `${files.n} files` : "—"}
+            note={files.at ? [files.note, ago(files.at)].filter(Boolean).join(" · ") : "none received yet"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<MoveUpOutlinedIcon />} tint="green" label="Run by the hub" value={`${moved.hub} of ${moved.total}`}
-            note={moved.ready ? `steps · ${moved.ready} more ready to switch` : "steps"} />
+          <KpiTile icon={<ErrorOutlineIcon />} tint={failed.length ? "pink" : "green"} label="Steps failed" value={String(failed.length)}
+            note={failed.length ? failed.map(stepName).join(", ") : c ? `of ${c.steps.length} in the last run` : "in the last run"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<FactCheckOutlinedIcon />} tint={s.review?.pending ? "amber" : "green"} label="Review queue" value={s.review ? full(s.review.pending) : "—"}
@@ -82,40 +85,13 @@ function Overview({ s }: { s: Snapshot }) {
       <GlassCard>
         <CardTitle icon={<CableOutlinedIcon />} tint="green" title="Connections" />
         <Row name="Compass (ERP)" status={<Chip tint={TONE[v.tone]}>{v.label}</Chip>}
-          note={v.failed.length ? `Failed: ${v.failed.map(stepName).join(", ")}` : `ERP files → SFTP → ${hubPulls ? "the hub" : "the Compass connector"} → HubSpot`}
+          note={failed.length ? `Failed: ${failed.map(stepName).join(", ")}` : `ERP files → SFTP → ${hubPulls ? "the hub" : "the old connector"} → HubSpot`}
           href="/connectors/compass" link="The chain" />
-        <Row name="SFTP from the hub" status={<Chip tint={s.sftpFromHub?.ok ? "green" : "amber"}>{s.sftpFromHub?.ok ? "Reachable" : "Not reachable"}</Chip>}
-          note={s.sftpFromHub?.ok ? "The hub reaches the ERP's file server itself - the file steps can move here" : `Blocked from AWS (${s.sftpFromHub?.error ?? "not checked"}) - IT has to allow 35.156.30.228`}
+        <Row name="Old connector (Railway)" status={<Chip tint={hubPulls ? "slate" : "amber"}>{hubPulls ? "Backup" : "Running"}</Chip>}
+          note={hubPulls ? "Writes nothing since 10.10 - kept as a backup until it is switched off" : "Reads the ERP's files at the moment - the hub's ERP steps wait"}
           href="/connectors/files" link="Files & runs" />
         <Row name="Shop orders" status={<Chip tint="slate">Magento</Chip>} note="apsoparts.com → the Magento connector → HubSpot orders" href="/analytics/web-orders" link="Web order sync" />
         <Row name="HubSpot, GA4, GSC" status={<Chip tint="slate">Tokens</Chip>} note="The hub's own reads" href="/settings/integrations" link="Integrations" />
-      </GlassCard>
-
-      <GlassCard>
-        <CardTitle icon={<MoveUpOutlinedIcon />} tint="purple" title="The move into the hub" note="One group at a time - each step is test-run against the connector before it switches. Green: run by the hub · purple: ready to switch"
-          right={<Go href="/connectors/compass">Every step</Go>} />
-        <Box sx={{ display: "grid", gap: 1.5 }}>
-          {GROUPS.filter((g) => g.key !== "engines").sort((a, b) => a.order - b.order).map((g) => {
-            const mine = STEPS.filter((x) => x.group === g.key);
-            const done = mine.filter((x) => phaseOf(x, live) === "hub").length;
-            const ready = mine.filter((x) => phaseOf(x, live) === "preview").length;
-            return (
-              <Box key={g.key} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "220px minmax(0,1fr) 60px" }, gap: 1.5, alignItems: "center" }}>
-                <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{g.order} · {g.name}</Typography>
-                <Box sx={{ height: 8, borderRadius: 99, bgcolor: TRACK, overflow: "hidden", display: "flex", gridRow: { xs: 2, md: "auto" }, gridColumn: { xs: "1 / -1", md: "auto" } }}>
-                  <Box sx={{ width: `${(100 * done) / Math.max(1, mine.length)}%`, minWidth: done ? 4 : 0, height: "100%", bgcolor: "#1b7a55" }} />
-                  <Box sx={{ width: `${(100 * ready) / Math.max(1, mine.length)}%`, minWidth: ready ? 4 : 0, height: "100%", bgcolor: "#b9a5f2" }} />
-                </Box>
-                <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, textAlign: "right" }}>{done} / {mine.length}</Typography>
-              </Box>
-            );
-          })}
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            Already in the hub: {IN_HUB.map((x, i) => (
-              <span key={x.name}>{i ? " · " : ""}<Link href={x.href} style={{ color: "#2459d1", textDecoration: "none" }}>{x.name}</Link></span>
-            ))}
-          </Typography>
-        </Box>
       </GlassCard>
     </>
   );

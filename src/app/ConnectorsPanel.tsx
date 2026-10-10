@@ -12,7 +12,7 @@ import Typography from "@mui/material/Typography";
 import CableIcon from "@mui/icons-material/Cable";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { chainVerdict, lastDelivery, type Snapshot } from "@/lib/connectors/snapshot";
-import { progress } from "@/lib/connectors/compass";
+import type { HubChain } from "@/lib/connectors/chainStatus";
 import { APPS } from "./hubApps";
 
 const INK = "#15223a";
@@ -43,23 +43,26 @@ function Line({ dot, text, when }: { dot: string; text: string; when?: string })
 export default function ConnectorsPanel({ glass }: { glass: object }) {
   const [s, setS] = useState<Snapshot | null>(null);
   const [failed, setFailed] = useState(false);
-  const [live, setLive] = useState<Set<string>>(new Set());
+  // the hub's own last run, once it reads the ERP's files (the connector's until then)
+  const [hub, setHub] = useState<{ pulls: boolean; chain: HubChain | null } | null>(null);
   useEffect(() => {
     const ctrl = new AbortController();
     fetch("/api/connectors", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => (j?.ok ? setS(j.data as Snapshot) : setFailed(true)))
       .catch(() => { if (!ctrl.signal.aborted) setFailed(true); });
-    // which steps the hub runs itself - the count stays right as steps are switched over
     fetch("/api/connectors/steps", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j?.ok) setLive(new Set((j.data.steps as { key: string; live: boolean; connectorSkips: boolean | null }[]).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key))); })
+      .then((j) => { if (j?.ok) setHub({ pulls: j.data.connectorPulls === false, chain: j.data.chain ?? null }); })
       .catch(() => {});
     return () => ctrl.abort();
   }, []);
-  const moved = progress(live);
-  const v = s ? chainVerdict(s) : null;
-  const d = s ? lastDelivery(s) : null;
+  const c = hub?.pulls ? hub.chain : null;
+  const cFailed = c ? c.steps.filter((x) => !x.ok).length : 0;
+  const v = c
+    ? { tone: (c.status === "failed" || cFailed ? "bad" : c.status === "running" ? "warn" : "good") as keyof typeof DOT, label: c.status === "running" ? "running" : c.status === "failed" ? "failed" : cFailed ? `done, ${cFailed} failed` : "done", at: c.ts || null }
+    : s ? chainVerdict(s) : null;
+  const d = c ? { at: c.ts || null, files: c.pulled } : s ? lastDelivery(s) : null;
   return (
     <Box sx={{
       ...glass, borderRadius: "22px", p: { xs: 2, md: 2.25 }, display: "flex", flexDirection: "column", gap: 1.5,
@@ -75,11 +78,10 @@ export default function ConnectorsPanel({ glass }: { glass: object }) {
       </Box>
 
       <Box sx={{ display: "grid", gap: 1 }}>
-        {!s && !failed && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Asking the Compass connector…</Typography>}
-        {failed && <Line dot={DOT.unknown} text="The Compass connector did not answer" />}
-        {s && v && <Line dot={DOT[v.tone]} text={`Compass chain: ${v.label.toLowerCase()}`} when={ago(v.at)} />}
-        {s && d && <Line dot={d.at ? DOT.good : DOT.unknown} text={d.at ? `${d.files} ERP files in the last delivery` : "No ERP files received yet"} when={ago(d.at)} />}
-        <Line dot="#9a7bf0" text={`The hub runs ${moved.hub} of ${moved.total} Compass steps${moved.ready ? ` · ${moved.ready} ready to switch` : ""}`} />
+        {!v && !failed && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Reading the Compass sync…</Typography>}
+        {!v && failed && <Line dot={DOT.unknown} text="The Compass sync could not be read" />}
+        {v && <Line dot={DOT[v.tone]} text={`Compass sync: ${v.label.toLowerCase()}`} when={ago(v.at)} />}
+        {d && <Line dot={d.at ? DOT.good : DOT.unknown} text={d.at ? `${d.files} ERP files in the last delivery` : "No ERP files received yet"} when={ago(d.at)} />}
         {s?.review && s.review.pending > 0 && <Line dot={DOT.warn} text={`${s.review.pending} ERP customers wait for a company`} />}
       </Box>
 

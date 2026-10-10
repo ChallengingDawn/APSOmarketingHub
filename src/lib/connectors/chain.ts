@@ -64,6 +64,8 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     }
     const got = new Set(rep.pulled.map((p) => p.as));
     chain.pulled = got.size;
+    chain.files = rep.pulled.map((p) => ({ name: p.as, mb: p.mb }));
+    chain.pullSeconds = rep.seconds;
     if (!got.size) {
       if (rep.manifest) await commitManifest(rep.manifest);
       return chain; // nothing new: the last run's status stands

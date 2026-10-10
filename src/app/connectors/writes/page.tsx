@@ -1,8 +1,7 @@
 "use client";
 
-// WHAT IT WRITES - every HubSpot property and association the Compass steps
-// touch, whoever runs them: one row per property, with every step that writes
-// it and who runs that step today. Three tabs: properties (filter by object,
+// WHAT IT WRITES - every HubSpot property and association the Compass sync
+// touches: one row per property, with every step that writes it. Three tabs: properties (filter by object,
 // search, 15 a page), associations, order stages. Drawn from the step list,
 // which was read from the connector's code; the labels are HubSpot's own.
 
@@ -21,8 +20,8 @@ import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { GlassCard, HAIRLINE, INK, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { ASSOCIATIONS, ORDER_PIPELINE, ORDER_STAGES, PROP_LABEL, phaseOf, writesByProperty } from "@/lib/connectors/compass";
-import { Chip, Choice, PHASE, usePaged, useHubSteps } from "../parts";
+import { ASSOCIATIONS, ORDER_PIPELINE, ORDER_STAGES, PROP_LABEL, writesByProperty } from "@/lib/connectors/compass";
+import { Choice, usePaged } from "../parts";
 
 type TabId = "properties" | "associations" | "stages";
 const TAB_HASH: Record<TabId, string> = { properties: "#properties", associations: "#associations", stages: "#stages" };
@@ -40,8 +39,6 @@ function useLabels(): Record<string, Record<string, string>> {
 function Properties() {
   const all = useMemo(() => writesByProperty(), []);
   const labels = useLabels();
-  const hub = useHubSteps();
-  const live = new Set((hub?.steps ?? []).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key));
   const label = (object: string, name: string) => PROP_LABEL[name] ?? labels[object]?.[name] ?? "";
   const objects = useMemo(() => [...new Set(all.map((w) => w.object))], [all]);
   const [obj, setObj] = useState<string>("all");
@@ -62,33 +59,28 @@ function Properties() {
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> } }} />
       </Box>
       <Box sx={{ overflowX: "auto" }}>
-        <Table size="small" sx={{ minWidth: 680 }}>
+        <Table size="small" sx={{ minWidth: 680, tableLayout: "fixed" }}>
           <TableHead><TableRow>
-            <TableCell sx={headCell}>Property</TableCell><TableCell sx={headCell}>Object</TableCell><TableCell sx={headCell}>Written by</TableCell>
+            <TableCell sx={{ ...headCell, width: "40%" }}>Property</TableCell>
+            <TableCell sx={{ ...headCell, width: 170 }}>Object</TableCell>
+            <TableCell sx={headCell}>Written by</TableCell>
           </TableRow></TableHead>
           <TableBody>
             {slice.map((w) => {
               const l = label(w.object, w.name);
               return (
-                <TableRow key={`${w.object}|${w.name}`} hover sx={{ verticalAlign: "top" }}>
-                  <TableCell sx={{ ...bodyCell, maxWidth: 360 }}>
+                <TableRow key={`${w.object}|${w.name}`} hover sx={{ verticalAlign: "top", "& td": { py: 0.9 } }}>
+                  <TableCell sx={bodyCell}>
                     {l && <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{l}</Typography>}
                     <Typography sx={{ fontSize: l ? "0.74rem" : "0.8rem", fontFamily: "monospace", color: l ? MUTED : INK, overflowWrap: "anywhere" }}>{w.name}</Typography>
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{short(w.object)}</TableCell>
                   <TableCell sx={bodyCell}>
-                    <Box sx={{ display: "grid", gap: 0.5 }}>
-                      {w.by.map(({ step, note }) => {
-                        const ph = PHASE[phaseOf(step, live)];
-                        return (
-                          <Box key={step.key} sx={{ display: "flex", gap: 1, alignItems: "baseline", flexWrap: "wrap" }}>
-                            <Typography sx={{ fontSize: "0.82rem", color: INK }}>{step.name}</Typography>
-                            {note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{note}</Typography>}
-                            <span title={ph.note}><Chip tint={ph.tint}>{ph.label}</Chip></span>
-                          </Box>
-                        );
-                      })}
-                    </Box>
+                    {w.by.map(({ step, note }) => (
+                      <Typography key={step.key} sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.6 }}>
+                        {step.name}{note ? <Box component="span" sx={{ color: MUTED, fontSize: "0.76rem" }}> · {note}</Box> : null}
+                      </Typography>
+                    ))}
                   </TableCell>
                 </TableRow>
               );
@@ -107,7 +99,7 @@ function Properties() {
 function Associations() {
   return (
     <GlassCard>
-      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1 }}>Every kind of link between records the Compass steps create - and two that nothing keeps up any more.</Typography>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1 }}>Every kind of link between records the Compass sync creates - and two that nothing keeps up any more.</Typography>
       {ASSOCIATIONS.map((a) => (
         <Box key={`${a.from}-${a.to}-${a.type}`} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "250px 260px minmax(0,1fr)" }, gap: { xs: 0.25, md: 1.5 }, py: 1, borderTop: `1px solid ${HAIRLINE}`, "&:first-of-type": { borderTop: "none" } }}>
           <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{a.from} → {a.to}</Typography>
@@ -140,7 +132,7 @@ export default function WhatItWrites() {
   const count = useMemo(() => writesByProperty().length, []);
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="What it writes" subtitle="Every HubSpot property and association the Compass steps touch - one line each, with every step that writes it" />
+      <PageHeader title="What it writes" subtitle="Every HubSpot property and link the Compass sync writes - one line each, with the steps that write it" />
       <Box>
         <ReportTabs name="writes" tab={tab} onSelect={selectTab} tabs={[
           { id: "properties", label: "Properties", count: String(count) },

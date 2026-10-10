@@ -35,10 +35,8 @@ export type Step = {
 
 export const GROUPS: { key: Group; name: string; order: number; note: string }[] = [
   { key: "company", name: "Company facts", order: 1, note: "Small, company-level, easy to check - moves first" },
-  { key: "tickets", name: "Tickets", order: 2, note: "Holiday redirection and the ticket links" },
   { key: "revenue", name: "Revenue and KPIs", order: 3, note: "The revenue stack on companies and the monthly KPI series" },
   { key: "orders", name: "Orders and articles", order: 4, note: "The biggest files and the most sensitive writes - moves last" },
-  { key: "engines", name: "Already in the hub", order: 0, note: "Moved before this app existed" },
 ];
 
 export const OBJECTS = {
@@ -101,24 +99,6 @@ export const STEPS: Step[] = [
       how: "update only; empty source values never clear a field; missing dropdown options are added",
     }],
     fix: ["The change cache is saved before the write succeeds, so a failed batch is never retried", "No retry on HubSpot 5xx"],
-  },
-  {
-    key: "stock_load", name: "ERP stock into Products & Pricing", group: "orders", phase: "hub",
-    what: "Puts the ERP's stock on every article: its stock value, unit cost, consumption and movement - and, for articles held in one unit and sold in another (PTFE plate: kg held, sold by the piece), the stock in KILOGRAMS. The piece count for those comes from the shop's own availability, written by the APSOAssistant gateway into Stock Sales. New in the hub - the connector never loaded this file on a schedule.",
-    when: "When a new fct_article_quantity_and_consumption.csv arrives (it needs dim_article.csv on disk for its keys)",
-    reads: "fct_article_quantity_and_consumption.csv (a rolling refresh: the newest snapshot per article and warehouse is kept between deliveries, the warehouses summed) · dim_article.csv (key → article number) · every Products & Pricing record's article_number, stock_unit and sales_unit",
-    writes: [
-      {
-        object: OBJECTS.pp,
-        props: ["stock_value_chf", "stock_value_eur", "unit_cost_chf", "consumption", "stock_movement"],
-        how: "every article in the file; only what differs from HubSpot is sent",
-      },
-      {
-        object: OBJECTS.pp,
-        props: ["stock_quantity"],
-        how: "kilograms (the stock unit) - ONLY where stock_unit and sales_unit differ; everywhere else the gateway owns it",
-      },
-    ],
   },
   {
     key: "stages", name: "Order stage from the ERP status", group: "orders", phase: "preview",
@@ -189,11 +169,6 @@ export const STEPS: Step[] = [
     fix: ["The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
   },
   {
-    key: "segmentation", name: "Smart Segmentation", group: "engines", phase: "hub",
-    what: "Sales priority, potential and classification. Runs in the hub since 05.10 (SEGMENTATION_ENABLED=0 on the connector).",
-    when: "Watcher every 2 minutes, nightly after the chain", reads: "Companies", writes: [{ object: OBJECTS.company, props: ["sales_priority", "yearly_customer_potential", "apso_customer"], how: "and more - see Smart Segmentation" }],
-  },
-  {
     key: "orders_daily", name: "New ERP orders", group: "orders", phase: "preview",
     what: "Creates the orders that are new in the ERP file, fills web orders that have no lines yet, and removes an order entry (.000) once its deliveries carry the same amount.",
     when: "When a new fct_orderlinehist.csv arrives",
@@ -239,6 +214,40 @@ export const STEPS: Step[] = [
     writes: [{ object: OBJECTS.contact, props: ["last_shipment_date (the property is created if missing)"] }],
     fix: ["A month with more than 10,000 shipments would stop the run (search cap)"],
   },
+];
+
+/**
+ * Steps that run on the hub's schedule but are NOT the Compass sync - HubSpot apps and
+ * engines with their own pages (SARCLA, 10.10.2026: "on Compass we should only have what
+ * is relevant for the Compass itself"). Kept for their descriptions and names; the Compass
+ * pages do not show them. Holiday redirection: /uc/holiday-redirection. Smart Segmentation:
+ * /uc/segmentation. The ERP stock (stock_load, built by another session and OFF) and the
+ * ticket links (by hand only) have no page yet.
+ */
+export const OTHER_STEPS: Step[] = [
+  {
+    key: "stock_load", name: "ERP stock into Products & Pricing", group: "orders", phase: "hub",
+    what: "Puts the ERP's stock on every article: its stock value, unit cost, consumption and movement - and, for articles held in one unit and sold in another (PTFE plate: kg held, sold by the piece), the stock in KILOGRAMS. The piece count for those comes from the shop's own availability, written by the APSOAssistant gateway into Stock Sales. New in the hub - the connector never loaded this file on a schedule.",
+    when: "When a new fct_article_quantity_and_consumption.csv arrives (it needs dim_article.csv on disk for its keys)",
+    reads: "fct_article_quantity_and_consumption.csv (a rolling refresh: the newest snapshot per article and warehouse is kept between deliveries, the warehouses summed) · dim_article.csv (key → article number) · every Products & Pricing record's article_number, stock_unit and sales_unit",
+    writes: [
+      {
+        object: OBJECTS.pp,
+        props: ["stock_value_chf", "stock_value_eur", "unit_cost_chf", "consumption", "stock_movement"],
+        how: "every article in the file; only what differs from HubSpot is sent",
+      },
+      {
+        object: OBJECTS.pp,
+        props: ["stock_quantity"],
+        how: "kilograms (the stock unit) - ONLY where stock_unit and sales_unit differ; everywhere else the gateway owns it",
+      },
+    ],
+  },
+  {
+    key: "segmentation", name: "Smart Segmentation", group: "engines", phase: "hub",
+    what: "Sales priority, potential and classification. Runs in the hub since 05.10 (SEGMENTATION_ENABLED=0 on the connector).",
+    when: "Watcher every 2 minutes, nightly after the chain", reads: "Companies", writes: [{ object: OBJECTS.company, props: ["sales_priority", "yearly_customer_potential", "apso_customer"], how: "and more - see Smart Segmentation" }],
+  },
   {
     key: "deputy_sweep", name: "Holiday redirection", group: "tickets", phase: "preview",
     what: "An ESO ticket whose owner is out of office goes to the first deputy who is in, with a note on the ticket. Campaign tickets stay.",
@@ -270,8 +279,6 @@ export const ASSOCIATIONS: { from: string; to: string; type: string; by: string 
   { from: "Order", to: "Company", type: "509 (HubSpot-defined)", by: "New ERP orders" },
   { from: "Order", to: "Contact", type: "default", by: "Web orders get their A-number · New ERP orders (copied to deliveries)" },
   { from: "Contact", to: "Company", type: "279 + Primary 1 (old links deleted first)", by: "Web orders get their A-number" },
-  { from: "Ticket", to: "Order", type: "default", by: "Ticket ↔ order and article links" },
-  { from: "Ticket", to: "Products & Pricing", type: "154 \"Referenced article\"", by: "Ticket ↔ order and article links" },
   { from: "Order", to: "Products & Pricing", type: "119 (user-defined)", by: "Only the old PC scripts - nothing in the connector keeps it up" },
   { from: "Products & Pricing", to: "Company", type: "114 \"companies who bought this article\"", by: "Only the old PC scripts - nothing in the connector keeps it up" },
 ];
@@ -354,6 +361,8 @@ export function writesByProperty(): PropRow[] {
 /** The plain name of a step, for notices - the registry's keys are the connector's. */
 export function stepName(key: string): string {
   if (key === "articles_create_missing") return "Create the missing articles";
+  const other = OTHER_STEPS.find((s) => s.key === key);
+  if (other) return other.name;
   // runs on the hub's schedule, but it is a HubSpot app (UC & HubSpot Apps), not a Compass step
   if (key === "wrong_owners") return "Wrong owners";
   return STEPS.find((s) => s.key === key)?.name ?? key.replace(/_/g, " ");

@@ -138,6 +138,7 @@ export const APPS: HubApp[] = [
       { name: "Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
       { name: "DoC", note: "Declarations of Conformity, emailed", href: "/uc/doc", icon: "verified", ...GREEN },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
+      { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
       { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
@@ -154,7 +155,7 @@ export const APPS: HubApp[] = [
     square: true,
     subs: [
       { name: "Overview", note: "Is the data flowing", href: "/connectors", icon: "health", ...TEAL },
-      { name: "The chain", note: "The Compass connector, step by step", href: "/connectors/compass", icon: "sync", ...BLUE },
+      { name: "The chain", note: "What the hub does with each ERP delivery", href: "/connectors/compass", icon: "sync", ...BLUE },
       { name: "Files & runs", note: "What the ERP delivered", href: "/connectors/files", icon: "description", ...GREEN },
       { name: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
       { name: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
