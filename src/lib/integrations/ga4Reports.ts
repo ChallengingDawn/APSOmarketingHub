@@ -40,7 +40,8 @@ export type Ga4ReportName =
   | "itemActivity"
   | "eventTotals"
   | "sessionTotals"
-  | "landingSessions";
+  | "landingSessions"
+  | "organicValue";
 
 type ReportSpec = {
   dimensions: string[];
@@ -201,6 +202,16 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["sessions"],
     orderBy: { metric: "sessions", desc: true },
     limit: 300,
+  },
+  // What one organic visit is worth: the shop's own revenue over the shop's own
+  // organic sessions. Dimensionless, filtered to organic search, because SEO
+  // work should be valued by what organic traffic earns and not by a sitewide
+  // average that paid and direct traffic inflate.
+  organicValue: {
+    dimensions: [],
+    metrics: ["sessions", "totalRevenue", "transactions"],
+    filter: { field: "sessionDefaultChannelGroup", value: "Organic Search" },
+    limit: 1,
   },
   seaMonthly: {
     // Revenue and orders per month for whichever channel the request filters to.

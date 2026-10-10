@@ -28,6 +28,7 @@ import { fetchGsc, fetchGscPairs } from "./gscClient";
 import {
   SeoDataProvider,
   queueFrom,
+  useOrganicValue,
   reduceResponses,
   type SeoContextValue,
   type SeoState,
@@ -83,11 +84,18 @@ export default function SeoShell({ children }: { children: ReactNode }) {
   const loading = state.status === "loading";
   const data = state.status === "ready" ? state.data : null;
 
-  const queue = useMemo(() => (data ? queueFrom(data, windowDays) : null), [data, windowDays]);
+  // What an organic visit earns, so the queue can rank on money rather than on
+  // three scales that cannot be compared. Null is a normal answer and the queue
+  // falls back to its old ranking; nothing is invented to fill the column.
+  const organic = useOrganicValue(windowDays);
+  const queue = useMemo(
+    () => (data ? queueFrom(data, windowDays, organic.valuePerClick) : null),
+    [data, windowDays, organic.valuePerClick],
+  );
 
   const value = useMemo<SeoContextValue>(
-    () => ({ windowDays, setWindowDays, state, loading, data, queue, retry }),
-    [windowDays, state, loading, data, queue, retry],
+    () => ({ windowDays, setWindowDays, state, loading, data, queue, retry, organic }),
+    [windowDays, state, loading, data, queue, retry, organic],
   );
 
   /**

@@ -17,7 +17,7 @@
  * states; a call that failed is carried as a failure, never as an empty list.
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 import type { GscApiResponse, GscPairApiResponse, GscPairRow, GscRow } from "./gscClient";
 import {
@@ -29,6 +29,7 @@ import {
   type QuickWin,
 } from "./analysis";
 import { buildWorkQueue, type SourceInput, type WorkQueueResult } from "./queue";
+import { valuePerClickFrom } from "./worth";
 
 /** Inclusive length of the shared reporting window, in days. */
 export type WindowDays = number;
@@ -118,7 +119,12 @@ export function reduceResponses(
  * could not run is passed through as `ok: false` with its reason, so the queue
  * says so instead of reporting a smaller list as if it were complete.
  */
-export function queueFrom(data: Loaded, windowDays: number): WorkQueueResult {
+export function queueFrom(
+  data: Loaded,
+  windowDays: number,
+  /** Euros an organic visit earns, from GA4. Absent, the queue is not priced. */
+  valuePerClick?: number | null,
+): WorkQueueResult {
   const quickWins: SourceInput<QuickWin> = { ok: true, rows: quickWinsOf(data.queries) };
 
   const cannibalisation: SourceInput<CannibalGroup> =
@@ -136,7 +142,71 @@ export function queueFrom(data: Loaded, windowDays: number): WorkQueueResult {
     ? { ok: false, reason: `the ${windowDays * 2}-day comparison window failed (${data.extendedError})` }
     : { ok: true, rows: decayOf(data.pages, data.pagesExtended).rows };
 
-  return buildWorkQueue(quickWins, cannibalisation, decay);
+  return buildWorkQueue(
+    quickWins,
+    cannibalisation,
+    decay,
+    valuePerClick ? { valuePerClick, windowDays } : undefined,
+  );
+}
+
+/**
+ * WHAT ONE ORGANIC VISIT EARNS.
+ *
+ * GA4's own revenue over GA4's own organic sessions, for the same window the
+ * findings cover. Organic rather than sitewide: paid and direct traffic buy
+ * differently, and valuing SEO work at the blended rate flatters it.
+ *
+ * Returns null on anything missing or unconfigured — no default, ever. A euro
+ * column built on a constant somebody typed once looks exactly like a
+ * measurement, and is the fastest way to lose a reader's trust in the rest of
+ * the page.
+ */
+export function useOrganicValue(windowDays: number): {
+  valuePerClick: number | null;
+  sessions: number | null;
+  revenue: number | null;
+  reason: string | null;
+} {
+  const [state, setState] = useState<{
+    valuePerClick: number | null; sessions: number | null; revenue: number | null; reason: string | null;
+  }>({ valuePerClick: null, sessions: null, revenue: null, reason: "reading GA4…" });
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/integrations/ga4?report=organicValue&days=${windowDays}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!alive) return;
+        if (!j || j.configured === false) {
+          setState({ valuePerClick: null, sessions: null, revenue: null, reason: "GA4 is not connected" });
+          return;
+        }
+        if (j.ok === false) {
+          setState({ valuePerClick: null, sessions: null, revenue: null, reason: String(j.error ?? "GA4 refused the report") });
+          return;
+        }
+        const row = j.rows?.[0] ?? j.data?.rows?.[0] ?? null;
+        const sessions = Number(row?.sessions ?? row?.metrics?.sessions ?? NaN);
+        const revenue = Number(row?.totalRevenue ?? row?.metrics?.totalRevenue ?? NaN);
+        const value = valuePerClickFrom(
+          Number.isFinite(revenue) ? revenue : null,
+          Number.isFinite(sessions) ? sessions : null,
+        );
+        setState({
+          valuePerClick: value,
+          sessions: Number.isFinite(sessions) ? sessions : null,
+          revenue: Number.isFinite(revenue) ? revenue : null,
+          reason: value === null ? "GA4 returned no organic revenue for this window" : null,
+        });
+      })
+      .catch((e) => {
+        if (alive) setState({ valuePerClick: null, sessions: null, revenue: null, reason: String(e) });
+      });
+    return () => { alive = false; };
+  }, [windowDays]);
+
+  return state;
 }
 
 /* ── context ───────────────────────────────────────────────────────────── */
@@ -151,6 +221,17 @@ export type SeoContextValue = {
   data: Loaded | null;
   /** The merged queue for the current window — derived once, shared by all sub-apps. */
   queue: WorkQueueResult | null;
+  /**
+   * What an organic visit earns, and why it could not be worked out when it
+   * could not. The queue page states this rather than quietly showing or
+   * hiding a euro column.
+   */
+  organic: {
+    valuePerClick: number | null;
+    sessions: number | null;
+    revenue: number | null;
+    reason: string | null;
+  };
   retry: () => void;
 };
 

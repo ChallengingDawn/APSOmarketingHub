@@ -33,6 +33,7 @@
  * reported — and then by id, so the order is stable across renders.
  */
 
+import { worthOf, type Worth } from "./worth";
 import {
   isDecayed,
   type CannibalGroup,
@@ -146,6 +147,12 @@ export type WorkItem = {
   /** Prefilled Create Studio topic. */
   topic: string;
   detail: WorkDetail;
+  /**
+   * What it is worth in euros a year, and what that costs to get — present only
+   * when the shop could price a visit. Absent, the queue falls back to the old
+   * per-analysis normalisation and says so, rather than inventing a number.
+   */
+  worth?: Worth;
 };
 
 export type WorkQueueResult = {
@@ -226,6 +233,13 @@ export function buildWorkQueue(
   quickWins: SourceInput<QuickWin>,
   cannibalisation: SourceInput<CannibalGroup>,
   decay: SourceInput<DecayRow>,
+  /**
+   * Euros a visit from search, and the window those findings cover. Given both,
+   * every finding is priced and the queue ranks on that one scale — which is
+   * the whole point: three analyses on three scales could never say what to do
+   * first. Without them nothing is invented; the old ranking stands.
+   */
+  value?: { valuePerClick: number; windowDays: number },
 ): WorkQueueResult {
   const drafts: Draft[] = [];
   const coverage = {} as Record<WorkSource, SourceCoverage>;
@@ -258,10 +272,19 @@ export function buildWorkQueue(
       // A leader of 0 means every finding of that kind scored 0 — there is no
       // share to take, so priority is 0 rather than a division by zero.
       priority: leader > 0 ? (d.nativeScore / leader) * 100 : 0,
+      worth: value ? worthOf(d.detail, value) : undefined,
     };
   });
 
-  scored.sort((a, b) => b.priority - a.priority || b.impressions - a.impressions || a.id.localeCompare(b.id));
+  // Priced, the queue sorts on value for effort and the comparison between
+  // analyses is finally honest. Unpriced, it sorts as it always did and the
+  // page says that a 70 from decay does not outrank a 60 from quick wins.
+  scored.sort((a, b) =>
+    (a.worth && b.worth
+      ? b.worth.score - a.worth.score
+      : b.priority - a.priority) ||
+    b.impressions - a.impressions ||
+    a.id.localeCompare(b.id));
 
   return {
     items: scored.map((item, i) => ({ ...item, rank: i + 1 })),

@@ -160,11 +160,13 @@ const navSections: NavSection[] = [
       { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
-      { group: "SEO", label: "SEO performance", href: "/seo", icon: <QueryStatsIcon fontSize="small" /> },
+      // The queue first: it is what the area is for. The numbers are a page
+      // inside it now, not the thing you land on.
+      { group: "SEO", label: "What to do next", href: "/seo", icon: <PlaylistAddCheckIcon fontSize="small" /> },
+      { group: "SEO", label: "Search performance", href: "/seo/performance", icon: <QueryStatsIcon fontSize="small" /> },
       { group: "SEO", label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
       { group: "SEO", label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
       { group: "SEO", label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
-      { group: "SEO", label: "SEO work queue", href: "/seo/work-queue", icon: <PlaylistAddCheckIcon fontSize="small" /> },
       { group: "GEO", label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
       { group: "GEO", label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
       { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },

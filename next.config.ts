@@ -50,6 +50,8 @@ const nextConfig: NextConfig = {
       // The generator log lives on the main platform now, so the page here went.
       // Anyone with it bookmarked lands in the studio it belonged to.
       { source: "/logs", destination: "/create", permanent: false },
+      // The work queue IS /seo now; its old address keeps working.
+      { source: "/seo/work-queue", destination: "/seo", permanent: false },
     ];
   },
   async headers() {
