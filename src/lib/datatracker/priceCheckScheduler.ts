@@ -16,8 +16,8 @@ import { getPool } from "@/lib/db/client";
 import { kvSet } from "@/lib/db/init";
 import { runPriceCheckTickets } from "@/lib/integrations/priceCheckTickets";
 
-/** 4107201 DoC, 4107202 Erosion, 4107203 Articles, 4107204 Segmentation, 4107205 shop looks, 4107206 notify. */
-const PRICE_CHECK_LOCK = 4_107_207;
+/** 4107201 DoC, 4107202 Erosion, 4107203 Articles, 4107204 Segmentation, 4107205 shop looks, 4107206 notify, 4107207 connector steps. */
+const PRICE_CHECK_LOCK = 4_107_208;
 const TICK_MS = 15 * 60_000;
 export const KV_AUTO = "pricecheck:auto:last";
 
