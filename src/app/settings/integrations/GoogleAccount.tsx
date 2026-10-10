@@ -88,7 +88,11 @@ export default function GoogleAccount() {
       {conn ? (
         <>
           <Typography sx={{ fontSize: "0.84rem", color: OK, fontWeight: 600 }}>
-            Reading Google as {conn.email}
+            {/* Connections made before the hub asked for the email scope have no
+                name to show. Say who set it up instead of printing "unknown". */}
+            {conn.email && conn.email !== "unknown"
+              ? `Reading Google as ${conn.email}`
+              : `Reading Google as the account ${conn.connectedBy} signed in with`}
           </Typography>
           <Typography sx={{ fontSize: "0.78rem", color: FAINT, mt: 0.25, mb: 1.5 }}>
             Connected by {conn.connectedBy} on{" "}

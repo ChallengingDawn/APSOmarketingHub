@@ -62,12 +62,20 @@ export function redirectUri(origin: string): string {
   return `${origin.replace(/\/+$/, "")}/api/integrations/google/callback`;
 }
 
+/**
+ * Asked for alongside whatever the caller needs, purely so the hub can say
+ * WHOSE account it is borrowing. Without them Google refuses the userinfo
+ * endpoint and the panel has to say "Reading Google as unknown", which is the
+ * one thing this panel exists to make visible.
+ */
+const IDENTITY_SCOPES = "openid email";
+
 export function consentUrl(origin: string, scope: string, state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? "",
     redirect_uri: redirectUri(origin),
     response_type: "code",
-    scope,
+    scope: `${scope} ${IDENTITY_SCOPES}`,
     // Without both of these Google returns an access token and no refresh
     // token, and the connection dies in an hour with no way to renew it.
     access_type: "offline",
