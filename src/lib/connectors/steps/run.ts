@@ -122,6 +122,7 @@ async function previewFiles(file: string): Promise<string> {
   const fresh = await stat(p).then((s) => Date.now() - s.mtimeMs < PREVIEW_FRESH_MS, () => false);
   if (!fresh) {
     const r = await fetchLatest(PREVIEW_DIR);
+    console.log(`[connectors] preview files: ${r.pulled.length} files, ${Math.round(r.pulled.reduce((t, x) => t + x.mb, 0))} MB in ${r.seconds ?? "?"} s${r.error ? ` - FAILED ${r.error}` : ""}`);
     if (r.error) throw new Error(`fetching the ERP files for the preview: ${r.error}`);
   }
   return PREVIEW_DIR;
