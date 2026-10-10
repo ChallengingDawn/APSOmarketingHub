@@ -24,6 +24,8 @@ export const ESO_OWNERS: Record<string, string> = {
   "1255191254": "Simone Vitale",
   "32968527": "Yani Alioua",
   "817647087": "Bernd Rausmann",
+  // SARCLA 10.10 - found by name on the first run: "[rosters] Jan Kalt is owner 37053854 -> ESO"
+  "37053854": "Jan Kalt",
 };
 
 export const TSA_OWNERS: Record<string, string> = {
@@ -52,7 +54,7 @@ export const PIPE_STAGE: Record<"ESO" | "TSA", { pipeline: string; stage: string
  * it can be written into ESO_OWNERS and this list emptied.
  * (1694460619, added first on a guess, is NOT him - his rows stayed off roster.)
  */
-export const ESO_BY_NAME = ["Jan Kalt"];
+export const ESO_BY_NAME: string[] = [];
 export const TSA_BY_NAME: string[] = [];
 
 const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
