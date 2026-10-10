@@ -32,12 +32,23 @@ export const INCOMING = path.join(os.tmpdir(), "compass-incoming");
 export const PREVIEW_DIR = path.join(os.tmpdir(), "compass-preview");
 const PREVIEW_FRESH_MS = 6 * 3_600_000;
 
-const LOCK = 4_107_207;
+// Two lanes, one run at a time in each across both copies of the hub. The ERP lane takes the
+// chain, the file steps and the hand-started steps - a chain can take an hour. The sweeps
+// (mandant, wrong owners, holiday redirection: every 15/30 minutes, HubSpot only) have their
+// own, so they keep their rhythm beside it, as on the connector (10.10.2026).
+export type Lane = "erp" | "sweep";
+const LOCK: Record<Lane, number> = { erp: 4_107_207, sweep: 4_107_209 };
 const KV = {
   live: "connectors:hub:live",
   run: (mode: Mode, key: HubStep) => `connectors:hub:${mode}:${key}`,
-  busy: "connectors:hub:busy",
+  busy: { erp: "connectors:hub:busy", sweep: "connectors:hub:busy-sweep" } as Record<Lane, string>,
 };
+
+/** The lane a step runs in: the 15/30-minute sweeps have their own. */
+export function laneOf(key: HubStep): Lane {
+  const c = stepDef(key)?.cadence;
+  return c === "30min" || c === "15min" ? "sweep" : "erp";
+}
 
 export const isHubStep = (k: string): boolean => STEP_KEYS.includes(k);
 export const sftpConfigured = () => !!process.env.SFTP_KEY;
@@ -79,26 +90,26 @@ export async function lastRun(mode: Mode, key: HubStep): Promise<HubRun | null> 
   return (await kvGet<HubRun>(KV.run(mode, key))) ?? null;
 }
 
-export async function busy(): Promise<{ key: string; mode: Mode; started: string; heartbeat: string } | null> {
-  const b = await kvGet<{ key: string; mode: Mode; started: string; heartbeat: string }>(KV.busy);
+export async function busy(lane: Lane = "erp"): Promise<{ key: string; mode: Mode; started: string; heartbeat: string } | null> {
+  const b = await kvGet<{ key: string; mode: Mode; started: string; heartbeat: string }>(KV.busy[lane]);
   if (!b || Date.now() - Date.parse(b.heartbeat) > 2 * 3_600_000) return null;
   return b;
 }
 
 /** Under the step lock, across both copies of the hub; null when another run holds it. */
-export async function withLock<T>(label: string, mode: Mode, fn: (beat: () => Promise<void>) => Promise<T>): Promise<T | null> {
+export async function withLock<T>(label: string, mode: Mode, fn: (beat: () => Promise<void>) => Promise<T>, lane: Lane = "erp"): Promise<T | null> {
   const client = await getPool().connect();
   try {
-    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
+    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK[lane]]);
     if (!got.rows[0]?.ok) return null;
     const started = new Date().toISOString();
-    const beat = () => kvSet(KV.busy, { key: label, mode, started, heartbeat: new Date().toISOString() });
+    const beat = () => kvSet(KV.busy[lane], { key: label, mode, started, heartbeat: new Date().toISOString() });
     try {
       await beat();
       return await fn(beat);
     } finally {
-      await kvSet(KV.busy, null).catch(() => {});
-      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+      await kvSet(KV.busy[lane], null).catch(() => {});
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK[lane]]).catch(() => {});
     }
   } finally {
     client.release();
@@ -144,12 +155,12 @@ export async function runStepInside(key: HubStep, mode: Mode, by: string, beat: 
 
 /** Run a step under the lock and record it; null when another step holds the lock. */
 function locked(key: HubStep, mode: Mode, by: string, opts: { full?: boolean; dir?: string | null }): Promise<HubRun | null> {
-  return withLock(key, mode, (beat) => runStepInside(key, mode, by, beat, opts));
+  return withLock(key, mode, (beat) => runStepInside(key, mode, by, beat, opts), laneOf(key));
 }
 
 /** Start a step in the background; false when one is already running. */
 export async function startStep(key: HubStep, mode: Mode, by: string, full = false): Promise<{ started: boolean; note: string }> {
-  if (await busy()) return { started: false, note: "another step is running - try again when it has finished" };
+  if (await busy(laneOf(key))) return { started: false, note: "another step is running - try again when it has finished" };
   void locked(key, mode, by, { full });
   return { started: true, note: `${stepName(key)}: ${mode === "preview" ? "test run started - it writes nothing" : "live run started"}` };
 }

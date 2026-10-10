@@ -19,7 +19,7 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [live, run, preview, b] = await Promise.all([liveSteps(), lastRun("live", KEY), lastRun("preview", KEY), busy()]);
+    const [live, run, preview, b] = await Promise.all([liveSteps(), lastRun("live", KEY), lastRun("preview", KEY), busy("sweep")]);
     return NextResponse.json({ configured: true, ok: true, data: {
       live: live.has(KEY), run, preview, running: b?.key === KEY ? b : null, otherRunning: !!b && b.key !== KEY, admin: access.role === "admin",
     } });

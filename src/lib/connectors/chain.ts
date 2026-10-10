@@ -55,7 +55,7 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     const rep = await pullDelta({ dest: INCOMING, defer: true });
     if (rep.error || rep.pulled.length) {
       const mb = rep.pulled.reduce((a, p) => a + p.mb, 0);
-      console.log(`[connectors] chain pull: ${rep.pulled.length} files, ${Math.round(mb)} MB${rep.incomplete?.length ? `, still being written: ${rep.incomplete.join(", ")}` : ""}${rep.error ? ` - FAILED ${rep.error}` : ""}`);
+      console.log(`[connectors] chain pull: ${rep.pulled.length} files, ${Math.round(mb)} MB in ${rep.seconds ?? "?"} s${rep.incomplete?.length ? `, still being written: ${rep.incomplete.join(", ")}` : ""}${rep.error ? ` - FAILED ${rep.error}` : ""}`);
     }
     if (rep.error) {
       Object.assign(chain, { status: "failed", error: `pull: ${rep.error}`, ts: now() });

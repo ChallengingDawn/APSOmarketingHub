@@ -41,6 +41,8 @@ export type PullReport = {
   incomplete?: string[];
   /** With `defer`: the manifest to save once the files are processed (commitManifest). */
   manifest?: Manifest;
+  /** How long the pull took. */
+  seconds?: number;
 };
 
 type Cfg = { host: string; port: number; username: string; remoteDir: string; pin: string; key: string; passphrase?: string };
@@ -129,9 +131,41 @@ async function endQuietly(client: SftpClient | null): Promise<void> {
 }
 
 const STALL_MS = 120_000;
+// 32 reads of 32 KB in flight: the server is ~90 ms away from AWS, so one read at a time
+// (client.get) crawled at ~345 KB/s - 52 minutes for a 1,051 MB delivery on 10.10.2026.
+// 32 x 32 KB per round trip is ~11 MB/s in theory; kept moderate, since a server that cannot
+// take many requests stalls rather than refuses.
+const CONCURRENCY = 32;
+const CHUNK = 32_768;
 
-/** One file to dest/<name>.part; true when the bytes on disk match the listed size. A file that sends nothing for 2 minutes is given up. */
+/** One file to dest/<name>.part with parallel reads; true when the bytes on disk match the listed size. A file that sends nothing for 2 minutes is given up. */
 async function download(client: SftpClient, remote: string, tmp: string, size: number): Promise<boolean> {
+  let since = Date.now();
+  let stalled = false;
+  const watch = setInterval(() => {
+    if (Date.now() - since <= STALL_MS) return;
+    stalled = true;
+    void endQuietly(client); // fastGet has no cancel - closing the connection ends it
+  }, 15_000);
+  watch.unref?.();
+  try {
+    await client.fastGet(remote, tmp, { concurrency: CONCURRENCY, chunkSize: CHUNK, step: () => { since = Date.now(); } });
+  } catch (e) {
+    await unlink(tmp).catch(() => {});
+    if (stalled) throw new Error(`${remote}: no data for 2 minutes - download given up`);
+    // some servers do not take parallel reads: the file comes once more, one read at a time
+    console.warn(`[sftp] ${remote}: parallel download failed (${String((e as Error).message ?? e).slice(0, 160)}) - one read at a time`);
+    return downloadSerial(client, remote, tmp, size);
+  } finally {
+    clearInterval(watch);
+  }
+  if ((await stat(tmp)).size === size) return true;
+  await unlink(tmp).catch(() => {});
+  return false;
+}
+
+/** The old way, one read in flight - only when parallel reads fail. */
+async function downloadSerial(client: SftpClient, remote: string, tmp: string, size: number): Promise<boolean> {
   const out = createWriteStream(tmp);
   const closed = once(out, "close");
   let last = -1;
@@ -197,6 +231,7 @@ export async function commitManifest(m: Manifest): Promise<void> {
 }
 
 async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = false }: { dest: string; dry?: boolean; ignoreManifest?: boolean; defer?: boolean }): Promise<PullReport> {
+  const t0 = Date.now();
   const rep: PullReport = { pulled: [], skipped: 0, renamed: {}, ts: Math.floor(Date.now() / 1000), ...(dry ? { dry: true } : {}) };
   const c = config();
   if ("error" in c) return { ...rep, error: c.error };
@@ -232,6 +267,7 @@ async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = fal
   } finally {
     await endQuietly(client);
   }
+  rep.seconds = Math.round((Date.now() - t0) / 1000);
   if (!ignoreManifest) await kvSet(KV_LAST, { last: rep, host: cfg.host, dir: cfg.remoteDir }).catch(() => {});
   return rep;
 }

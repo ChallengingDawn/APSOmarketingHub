@@ -30,6 +30,10 @@ declare module "ssh2-sftp-client" {
     connect(options: ConnectOptions): Promise<unknown>;
     list(remotePath: string): Promise<FileInfo[]>;
     get(remotePath: string, dst: NodeJS.WritableStream): Promise<unknown>;
+    /** Parallel reads into a local file (ssh2's fastGet): `concurrency` reads of `chunkSize` bytes in flight. */
+    fastGet(remotePath: string, localPath: string, options?: {
+      concurrency?: number; chunkSize?: number; step?: (transferred: number, chunk: number, total: number) => void;
+    }): Promise<string>;
     end(): Promise<boolean>;
   }
 }

@@ -29,6 +29,7 @@ const TICK_MS = 15 * 60_000;
 const MAX_TRIES = 3;
 let started = false;
 let ticking = false;
+let chainRunning = false;
 
 type Day = { day: string; done: boolean; tries: number };
 const dayKey = (k: HubStep) => `connectors:hub:day:${k}`;
@@ -69,7 +70,14 @@ async function stepsTick() {
   await every("mandant_sweep", live, 30 * 60_000);
   await every("wrong_owners", live, 30 * 60_000);
   await every("deputy_sweep", live, 15 * 60_000);
-  await runHubChain("schedule");
+  // the chain can take an hour: it runs beside the ticks, so the sweeps above keep their
+  // rhythm on their own lane (one chain per copy; the lock keeps it to one across both)
+  if (!chainRunning) {
+    chainRunning = true;
+    void runHubChain("schedule")
+      .catch((e) => console.warn(`[connectors] chain: ${(e as Error).message}`))
+      .finally(() => { chainRunning = false; });
+  }
   if (!live.has("order_sync")) {
     const after = (["company_stats", "contact_shipment"] as HubStep[]).filter((k) => live.has(k));
     if (after.length) {
