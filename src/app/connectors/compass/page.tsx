@@ -66,11 +66,11 @@ function WhoRuns({ live, hub, admin, busy, act }: {
 }) {
   const p = progress(live);
   // handed over by the connector (its HUB_STEPS) and not yet switched on here: nobody runs them
-  const waiting = (hub?.steps ?? []).filter((x) => x.connectorSkips && !x.live);
+  const waiting = (hub?.steps ?? []).filter((x) => x.connectorSkips && !x.live && STEPS.some((s) => s.key === x.key));
   const puller = hub?.connectorPulls === false ? "The hub" : "The connector";
   const c = hub?.chain;
   const stats: { n: number; tint: Tint; label: string; note: string }[] = [
-    { n: p.hub, tint: "green", label: "Run by the hub", note: "Erosion and Smart Segmentation, and every step switched over" },
+    { n: p.hub, tint: "green", label: "Run by the hub", note: "Smart Segmentation, and every step switched over" },
     { n: p.ready, tint: "purple", label: "Ready in the hub", note: "The connector still runs them - each moves after a matching test run and your go" },
     { n: p.connector, tint: "slate", label: "Connector only", note: "Not rebuilt in the hub yet" },
   ];

@@ -35,7 +35,7 @@ export type Step = {
 
 export const GROUPS: { key: Group; name: string; order: number; note: string }[] = [
   { key: "company", name: "Company facts", order: 1, note: "Small, company-level, easy to check - moves first" },
-  { key: "tickets", name: "Ticket owners", order: 2, note: "Owner and pipeline fixes on support tickets" },
+  { key: "tickets", name: "Tickets", order: 2, note: "Holiday redirection and the ticket links" },
   { key: "revenue", name: "Revenue and KPIs", order: 3, note: "The revenue stack on companies and the monthly KPI series" },
   { key: "orders", name: "Orders and articles", order: 4, note: "The biggest files and the most sensitive writes - moves last" },
   { key: "engines", name: "Already in the hub", order: 0, note: "Moved before this app existed" },
@@ -155,11 +155,6 @@ export const STEPS: Step[] = [
     writes: [{ object: OBJECTS.company, props: ["sa__sales_agent", "sae_performis"], how: "never clears an agent, never invents a name" }],
   },
   {
-    key: "erosion", name: "Erosion tickets", group: "engines", phase: "hub",
-    what: "Lapsed reorders become one ticket per customer per month. Runs in the hub since 05.10 (EROSION_ENABLED=0 on the connector).",
-    when: "Daily, after the chain", reads: "Orders since 2025", writes: [{ object: OBJECTS.ticket, props: ["erosion_*", "subject", "hubspot_owner_id", "hs_pipeline", "hs_pipeline_stage"] }],
-  },
-  {
     key: "revenue_kpi", name: "Monthly revenue KPIs", group: "revenue", phase: "preview",
     what: "Builds the monthly revenue, order-intake, country and year-on-year series from the companies' monthly revenue.",
     when: "After any file was processed",
@@ -192,14 +187,6 @@ export const STEPS: Step[] = [
     reads: "Every company with a company_unique_number",
     writes: [{ object: OBJECTS.company, props: ["mandant"] }],
     fix: ["The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
-  },
-  {
-    key: "wrong_owners", name: "Tickets with the wrong owner", group: "tickets", phase: "preview",
-    what: "A ticket in Back Office owned by an ESO or TSA person moves to that person's pipeline (and the other way round); a Back Office owner in ESO/TSA goes back to Back Office. The subject is flagged until someone corrects it.",
-    when: "On EVERY 30-minute poll",
-    reads: "Owners and their teams · every ticket in BO, ESO and TSA",
-    writes: [{ object: OBJECTS.ticket, props: ["subject (\"WRONG OWNER PLEASE CORRECT IT - …\")", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "wrong_owner_original_subject", "wrong_owner_flagged_at", "wrong_owner_reason", "wrong_owner_owner_at_flag"] }],
-    fix: ["Runs every 30 minutes, though its own comment says nightly"],
   },
   {
     key: "segmentation", name: "Smart Segmentation", group: "engines", phase: "hub",
@@ -272,7 +259,6 @@ export const STEPS: Step[] = [
 
 /** Already moved, for the overview - each runs and is shown in its own hub page. */
 export const IN_HUB: { name: string; href: string; note: string }[] = [
-  { name: "Erosion tickets", href: "/uc/erosion", note: "since 05.10" },
   { name: "Smart Segmentation", href: "/uc/segmentation", note: "since 05.10" },
   { name: "Articles CY/LY", href: "/uc/articles", note: "since 05.10" },
   { name: "Price-check tickets", href: "/uc/price-checks", note: "created by the hub" },
@@ -284,9 +270,8 @@ export const ASSOCIATIONS: { from: string; to: string; type: string; by: string 
   { from: "Order", to: "Company", type: "509 (HubSpot-defined)", by: "New ERP orders" },
   { from: "Order", to: "Contact", type: "default", by: "Web orders get their A-number · New ERP orders (copied to deliveries)" },
   { from: "Contact", to: "Company", type: "279 + Primary 1 (old links deleted first)", by: "Web orders get their A-number" },
-  { from: "Ticket", to: "Order", type: "default", by: "Ticket ↔ order and article links · Erosion (hub)" },
+  { from: "Ticket", to: "Order", type: "default", by: "Ticket ↔ order and article links" },
   { from: "Ticket", to: "Products & Pricing", type: "154 \"Referenced article\"", by: "Ticket ↔ order and article links" },
-  { from: "Ticket", to: "Products & Pricing", type: "152 \"Erosion article\"", by: "Erosion (hub)" },
   { from: "Order", to: "Products & Pricing", type: "119 (user-defined)", by: "Only the old PC scripts - nothing in the connector keeps it up" },
   { from: "Products & Pricing", to: "Company", type: "114 \"companies who bought this article\"", by: "Only the old PC scripts - nothing in the connector keeps it up" },
 ];
@@ -316,7 +301,6 @@ export const PROP_LABEL: Record<string, string> = {
   "erp_oi_{mtd,ytd}_{cy,py,delta,delta_pct}": "ERP order intake: month and year to date, against last year",
   "erp_rev_rank_{ytd,growth,decline}": "Rank by revenue, by growth and by decline",
   "order_line_01…80_{article,qty,revenue,pc,gm}": "Order lines 1-80: article, quantity, revenue, profit centre, margin",
-  "erosion_*": "The erosion fields: customer, article, last order …",
   note: "A note on the ticket (not a property)",
   revenue_monthly: "Series: revenue by month",
   oi_monthly: "Series: order intake by month",
@@ -370,6 +354,8 @@ export function writesByProperty(): PropRow[] {
 /** The plain name of a step, for notices - the registry's keys are the connector's. */
 export function stepName(key: string): string {
   if (key === "articles_create_missing") return "Create the missing articles";
+  // runs on the hub's schedule, but it is a HubSpot app (UC & HubSpot Apps), not a Compass step
+  if (key === "wrong_owners") return "Wrong owners";
   return STEPS.find((s) => s.key === key)?.name ?? key.replace(/_/g, " ");
 }
 

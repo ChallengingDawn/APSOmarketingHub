@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive, sftpConfigured, startStep } from "@/lib/connectors/steps/run";
 import { stepDef } from "@/lib/connectors/steps/registry";
+import { STEPS } from "@/lib/connectors/compass";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
@@ -45,7 +46,8 @@ export async function POST(req: NextRequest) {
     const on: string[] = [];
     const refused: string[] = [];
     for (const k of HUB_STEPS) {
-      if (live.has(k) || !skips.has(k)) continue;
+      // Compass steps only: wrong owners has its own page in UC & HubSpot Apps
+      if (live.has(k) || !skips.has(k) || !STEPS.some((s) => s.key === k)) continue;
       const r = await setLive(k, true);
       if (r.ok) on.push(k);
       else refused.push(r.note);
