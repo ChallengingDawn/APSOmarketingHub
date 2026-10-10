@@ -114,22 +114,50 @@ export async function listRemote(dir?: string): Promise<{ dir: string; entries?:
   } catch (e) {
     return { dir: d, error: String((e as Error).message ?? e).slice(0, 300) };
   } finally {
-    await client?.end().catch(() => {});
+    await endQuietly(client);
   }
 }
 
-/** One file to dest/<name>.part; true when the bytes on disk match the listed size. */
+/**
+ * Close the connection, but never wait on it for more than 15 s: on 10.10.2026 the hub's
+ * first real pull downloaded all 1,051 MB and then sat silent, holding the step lock, so
+ * no step ran after it. A connection that will not close is left to the server.
+ */
+async function endQuietly(client: SftpClient | null): Promise<void> {
+  if (!client) return;
+  await Promise.race([client.end().catch(() => {}), new Promise((r) => setTimeout(r, 15_000).unref?.())]);
+}
+
+const STALL_MS = 120_000;
+
+/** One file to dest/<name>.part; true when the bytes on disk match the listed size. A file that sends nothing for 2 minutes is given up. */
 async function download(client: SftpClient, remote: string, tmp: string, size: number): Promise<boolean> {
   const out = createWriteStream(tmp);
   const closed = once(out, "close");
+  let last = -1;
+  let since = Date.now();
+  let stalled = false;
+  const watch = setInterval(() => {
+    if (out.bytesWritten !== last) { last = out.bytesWritten; since = Date.now(); return; }
+    if (Date.now() - since > STALL_MS) {
+      stalled = true;
+      out.destroy(new Error(`${remote}: no data for 2 minutes - download given up`));
+    }
+  }, 15_000);
+  watch.unref?.();
   try {
-    await client.get(remote, out);
-    await closed;
+    // the stall watch can only end the file; the race makes sure the pull is not left waiting on it
+    await Promise.race([
+      (async () => { await client.get(remote, out); await closed; })(),
+      closed.then(() => { if (stalled) throw new Error(`${remote}: no data for 2 minutes - download given up`); }),
+    ]);
   } catch (e) {
     out.destroy();
     await closed.catch(() => {});
     await unlink(tmp).catch(() => {});
     throw e;
+  } finally {
+    clearInterval(watch);
   }
   if ((await stat(tmp)).size === size) return true;
   await unlink(tmp).catch(() => {});
@@ -202,7 +230,7 @@ async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = fal
   } catch (e) {
     rep.error = String((e as Error).message ?? e).slice(0, 300);
   } finally {
-    await client?.end().catch(() => {});
+    await endQuietly(client);
   }
   if (!ignoreManifest) await kvSet(KV_LAST, { last: rep, host: cfg.host, dir: cfg.remoteDir }).catch(() => {});
   return rep;

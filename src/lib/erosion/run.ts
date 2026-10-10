@@ -52,8 +52,8 @@ let lastWaitLog = 0;
  * Is tonight's data loaded? Erosion, articles and segmentation run after it, never before.
  * While the Compass connector moves into the hub, the night's steps can run in either:
  * the connector's chain has to be done today unless it no longer pulls the files
- * ("sftp_pull" in its HUB_STEPS), and the hub's own chain has to be done today as soon
- * as the hub runs any chain step.
+ * ("sftp_pull" in its HUB_STEPS), and the hub's own chain - which runs only once the
+ * hub reads the files - has to be done today as soon as it runs any chain step.
  */
 export async function chainDoneToday(today: string): Promise<{ done: boolean; at: string | null }> {
   const s = await connectorGet<{ delta_run?: { status?: string; ts?: number } | null; hub_steps?: string[] }>("/chain/status").catch(() => null);
@@ -66,7 +66,8 @@ export async function chainDoneToday(today: string): Promise<{ done: boolean; at
     at = dr?.ts ? new Date(dr.ts * 1000).toISOString() : null;
     done = dr?.status === "done" && !!at && at.slice(0, 10) === today;
   }
-  if (await hubRunsChainSteps()) {
+  // the hub's own chain runs only while it reads the files (connector/chain.ts)
+  if (hubPulls && await hubRunsChainSteps()) {
     const h = await hubChain();
     const hat = h?.ts ? new Date(h.ts * 1000).toISOString() : null;
     const hubDone = h?.status === "done" && h.day === today;

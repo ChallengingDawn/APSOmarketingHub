@@ -24,7 +24,7 @@ import { commitManifest, pullDelta } from "./sftp";
 import { deliverySig, nextTry, type ChainTry } from "./chainTry";
 import { setHubChain, type HubChain } from "./chainStatus";
 import { STEP_FILES, REGISTRY } from "./steps/registry";
-import { INCOMING, liveSteps, runStepInside, sftpConfigured, withLock } from "./steps/run";
+import { INCOMING, connectorSkips, liveSteps, runStepInside, sftpConfigured, withLock } from "./steps/run";
 
 const utcToday = () => new Date().toISOString().slice(0, 10);
 const KV_TRY = "connectors:hub:chain-try";
@@ -40,6 +40,9 @@ export async function liveChainSteps(): Promise<string[]> {
 export async function runHubChain(by: string): Promise<HubChain | null> {
   const keys = await liveChainSteps();
   if (!keys.length) return null;
+  // the hub reads the ERP's files only once the connector has handed the pull over: while it
+  // still pulls, it runs the chain itself, and every live step here would be refused anyway
+  if (!(await connectorSkips())?.has("sftp_pull")) return null;
   const live = new Set(keys);
   const now = () => Math.floor(Date.now() / 1000);
   if (!sftpConfigured()) {
@@ -50,6 +53,10 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
   return withLock("chain", "live", async (beat) => {
     const chain: HubChain = { status: "running", step: "pull", ts: now(), day: utcToday(), pulled: 0, steps: [] };
     const rep = await pullDelta({ dest: INCOMING, defer: true });
+    if (rep.error || rep.pulled.length) {
+      const mb = rep.pulled.reduce((a, p) => a + p.mb, 0);
+      console.log(`[connectors] chain pull: ${rep.pulled.length} files, ${Math.round(mb)} MB${rep.incomplete?.length ? `, still being written: ${rep.incomplete.join(", ")}` : ""}${rep.error ? ` - FAILED ${rep.error}` : ""}`);
+    }
     if (rep.error) {
       Object.assign(chain, { status: "failed", error: `pull: ${rep.error}`, ts: now() });
       await setHubChain(chain);
