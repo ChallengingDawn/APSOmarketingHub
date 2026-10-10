@@ -4,7 +4,7 @@
 
 import { createSign } from "node:crypto";
 import { IntegrationError, parseServiceAccount } from "./status";
-import { userAccessToken } from "./googleUser";
+import { oauthConfigured, userAccessToken, userConnection } from "./googleUser";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -129,6 +129,28 @@ export async function getGoogleAccessToken(scope: string, signal?: AbortSignal):
   const fresh = await requestAccessToken(scope, signal);
   tokenCache.set(scope, fresh);
   return fresh.token;
+}
+
+/**
+ * WHICH Google identity a call for this scope will go out as.
+ *
+ * Worth surfacing because the two identities fail the same way: Search Console
+ * answers 403 whether it is the service account or a person who lacks the
+ * property. Reading a service-account diagnosis while the hub was borrowing an
+ * account — or the reverse — sends you after the wrong fix. Asked BEFORE the
+ * call rather than recorded during it, so a failure can still be labelled.
+ */
+export async function googleIdentity(
+  scope: string,
+): Promise<{ kind: "user" | "service-account" | "none"; email: string | null }> {
+  if (oauthConfigured()) {
+    const conn = await userConnection();
+    if (conn && (conn.scopes.length === 0 || conn.scopes.includes(scope))) {
+      return { kind: "user", email: conn.email === "unknown" ? null : conn.email };
+    }
+  }
+  const sa = parseServiceAccount();
+  return sa ? { kind: "service-account", email: sa.clientEmail } : { kind: "none", email: null };
 }
 
 export type GoogleRequest = {

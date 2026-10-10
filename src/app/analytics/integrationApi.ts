@@ -10,12 +10,21 @@
 // Nothing here invents values: a metric the API did not return stays `null` and
 // the UI renders it as "not reported", never as 0.
 
+/** Which Google identity the call went out as — the service account, or a
+ * person whose account the hub is borrowing. A 403 means different work
+ * depending on which, so it travels with the error rather than being inferred. */
+export type GoogleIdentity = { kind: "user" | "service-account" | "none"; email: string | null };
+
 export type IntegrationResult<T> =
   | { state: "not-configured"; missing: string[]; detail: string | null }
   // `sites` rides along on Search Console failures: when a query is refused,
   // the list of properties the service account can actually see is the fastest
   // diagnosis — an empty list means it was never granted access to any.
-  | { state: "error"; error: string; status: number | null; sites?: { siteUrl: string; permissionLevel: string | null }[] }
+  | {
+      state: "error"; error: string; status: number | null;
+      sites?: { siteUrl: string; permissionLevel: string | null }[];
+      identity?: GoogleIdentity;
+    }
   | { state: "ok"; data: T };
 
 /* ── GA4 (mirrors src/lib/integrations/ga4.ts) ── */
@@ -83,6 +92,7 @@ export type GscPayload = {
   range: { startDate: string; endDate: string };
   rows: GscRow[];
   sites?: { siteUrl: string; permissionLevel: string | null }[];
+  identity?: GoogleIdentity;
 };
 
 /* ── Readiness (mirrors src/lib/integrations/status.ts) ── */
@@ -183,7 +193,13 @@ export async function fetchIntegration<T>(
         return [{ siteUrl, permissionLevel: optionalString(row.permissionLevel) }];
       })
     : undefined;
-  return { state: "error", error, status, sites };
+  const rawIdent = payload.identity as Record<string, unknown> | undefined;
+  const kind = optionalString(rawIdent?.kind);
+  const identity: GoogleIdentity | undefined =
+    kind === "user" || kind === "service-account" || kind === "none"
+      ? { kind, email: optionalString(rawIdent?.email) }
+      : undefined;
+  return { state: "error", error, status, sites, identity };
 }
 
 /** /api/integrations/status has its own shape: { integrations: {...} }. */

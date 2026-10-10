@@ -442,6 +442,20 @@ export default function Sidebar() {
     return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
   })();
 
+  // An address that belongs to NOWHERE in the hub — a typo, a dead link, a raw
+  // /api path pasted into the bar — gets no panel at all. Without this the
+  // fallback below treats "unknown" as "show everything", so a 404 answers a
+  // wrong URL with the entire app catalogue laid open. Matched on the first
+  // segment only, so a real page deeper inside an app keeps its menu.
+  const topSegment = (href: string) => href.split("?")[0].split("/")[1] ?? "";
+  const knownTop = new Set(
+    navSections
+      .flatMap((s) => [...(s.home ? [s.home] : []), ...s.items.flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])])])
+      .map(topSegment)
+      .filter(Boolean),
+  );
+  const nowhere = !!pathname && pathname !== "/" && !knownTop.has(topSegment(pathname));
+
   const activeSection = navSections.find((s) =>
     s.home === activeHref ||
     s.items.some((i) => i.href === activeHref || i.children?.some((c) => c.href === activeHref)),
@@ -520,6 +534,8 @@ export default function Sidebar() {
       </Fragment>
     );
   };
+
+  if (nowhere) return null;
 
   return (
     <Drawer

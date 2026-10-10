@@ -25,6 +25,7 @@ import {
   type HubspotPayload,
   type IntegrationKey,
   type IntegrationReadiness,
+  type GoogleIdentity,
   type IntegrationResult,
   type IntegrationStatusPayload,
 } from "@/app/analytics/integrationApi";
@@ -51,7 +52,11 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 type TestOutcome =
   | { kind: "pending" }
   | { kind: "not-configured"; missing: string[] }
-  | { kind: "failed"; error: string; status: number | null; sites?: { siteUrl: string; permissionLevel: string | null }[] }
+  | {
+      kind: "failed"; error: string; status: number | null;
+      sites?: { siteUrl: string; permissionLevel: string | null }[];
+      identity?: GoogleIdentity;
+    }
   | { kind: "passed"; proof: string };
 
 type Definition = {
@@ -100,7 +105,12 @@ function proofFromHubspot(data: HubspotPayload): string {
 async function runTest<T>(url: string, proof: (data: T) => string): Promise<TestOutcome> {
   const result: IntegrationResult<T> = await fetchIntegration<T>(url);
   if (result.state === "not-configured") return { kind: "not-configured", missing: result.missing };
-  if (result.state === "error") return { kind: "failed", error: result.error, status: result.status, sites: result.sites };
+  if (result.state === "error") {
+    return {
+      kind: "failed", error: result.error, status: result.status,
+      sites: result.sites, identity: result.identity,
+    };
+  }
   return { kind: "passed", proof: proof(result.data) };
 }
 
@@ -381,17 +391,48 @@ function IntegrationCard({
                   mt: 1,
                 }}
               >
-                {outcome.sites.length === 0
-                  ? "Search Console lists NO properties for this service account. It has not been added as a user on any property yet — that is the whole problem, not the site string. An existing owner of the apsoparts.com property has to add the service-account email under Settings → Users and permissions. If no one holds that property, it has to be created and verified first."
-                  : `Properties this service account can actually see: ${outcome.sites
-                      .map((s) => `${s.siteUrl}${s.permissionLevel ? ` (${s.permissionLevel})` : ""}`)
-                      .join(", ")}. If the one you expect is missing, it has not been shared with the service account; if it is present but spelled differently, set GSC_SITE_URL to match it exactly.`}
+                {gscVerdict(outcome.sites, outcome.identity)}
               </Typography>
             )}
           </Box>
         )}
       </Box>
     </Box>
+  );
+}
+
+/**
+ * What the property list means, said about WHOEVER made the call.
+ *
+ * This used to be written as if the service account were always the caller.
+ * Once the hub could borrow a person’s Google account, that turned into a
+ * lie that pointed at the wrong fix: it told you to grant the service account
+ * access while the 403 belonged to the person who had just signed in.
+ */
+function gscVerdict(
+  sites: { siteUrl: string; permissionLevel: string | null }[],
+  identity?: GoogleIdentity,
+): string {
+  const who =
+    identity?.kind === "user"
+      ? identity.email ?? "the connected Google account"
+      : identity?.email ?? "this service account";
+  const borrowed = identity?.kind === "user";
+
+  if (sites.length === 0) {
+    const nextStep = borrowed
+      ? `That account is not a user on any Search Console property, so borrowing it cannot help. Either sign in with one that holds apsoparts.com, or verify the domain yourself with a DNS TXT record — whoever verifies becomes an owner, and can then add the service account for good.`
+      : `It has not been added as a user on any property yet — that is the whole problem, not the site string. An owner of the apsoparts.com property has to add it under Settings → Users and permissions. If nobody holds that property, it has to be created and verified first.`;
+    return `Search Console lists NO properties for ${who}. ${nextStep}`;
+  }
+
+  const list = sites
+    .map((s) => `${s.siteUrl}${s.permissionLevel ? ` (${s.permissionLevel})` : ""}`)
+    .join(", ");
+  return (
+    `Properties ${who} can actually see: ${list}. ` +
+    `If the one you expect is missing, it has not been shared with ${borrowed ? "that account" : "the service account"}; ` +
+    `if it is present but spelled differently, set GSC_SITE_URL to match it exactly.`
   );
 }
 

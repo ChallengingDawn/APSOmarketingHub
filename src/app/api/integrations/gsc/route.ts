@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { fetchGscQueries, fetchGscQueryPagePairs, fetchGscSites, isGscDimension } from "@/lib/integrations/gsc";
+import { googleIdentity } from "@/lib/integrations/google";
+import { GSC_SCOPE } from "@/lib/integrations/gsc";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 import { rangeParams } from "@/lib/integrations/dateRange";
 
@@ -40,7 +42,10 @@ export async function GET(req: NextRequest) {
     const report = await fetchGscQueries({ days, from, to, dimension, signal: controller.signal });
     // The verified-property list is what tells a user their site string is wrong.
     const sites = wantSites ? await fetchGscSites(controller.signal) : undefined;
-    return NextResponse.json({ configured: true, ok: true, data: { ...report, sites } });
+    return NextResponse.json({
+      configured: true, ok: true, identity: await googleIdentity(GSC_SCOPE),
+      data: { ...report, sites },
+    });
   } catch (err) {
     const { error, status: upstreamStatus } = describeIntegrationError(err);
     // A failed query is usually an access problem, and the single most useful
@@ -54,7 +59,12 @@ export async function GET(req: NextRequest) {
         sites = undefined;
       }
     }
-    return NextResponse.json({ configured: true, ok: false, error, status: upstreamStatus, sites });
+    // The identity goes out with the failure too: a 403 means different work
+    // depending on whose permissions were just refused.
+    return NextResponse.json({
+      configured: true, ok: false, error, status: upstreamStatus, sites,
+      identity: await googleIdentity(GSC_SCOPE),
+    });
   } finally {
     clearTimeout(timer);
   }
