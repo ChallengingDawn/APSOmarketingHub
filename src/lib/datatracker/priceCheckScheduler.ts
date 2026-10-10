@@ -7,9 +7,8 @@
 //
 // So every quarter of an hour the hub runs EXACTLY what the button runs -
 // runPriceCheckTickets({ dry: false }): the same rule, the working-day wait, the
-// order check, the dedup on price_check_key and the refusal when the `tags`
-// option is missing. A day is ticketed on the first tick after its wait has
-// passed. Both copies of the hub tick; an advisory lock keeps it to one.
+// order check and the dedup on price_check_key. A day is ticketed on the first
+// tick after its wait has passed. Both copies of the hub tick; an advisory lock keeps it to one.
 // PRICE_CHECK_TICKETS=off stops it; the button stays for a manual run.
 
 import { getPool } from "@/lib/db/client";

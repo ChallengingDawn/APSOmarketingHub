@@ -28,7 +28,6 @@ const PP_OBJ = "2-200042439";
  * run cannot empty the whole backlog onto the team at once.
  */
 const LOOKBACK_DAYS = 3;
-const TAG = "price_check";
 
 export type TicketOutcome = {
   key: string;
@@ -79,20 +78,6 @@ async function ticketsRequest<T>(path: string, method: "GET" | "POST" | "PUT", b
   const text = await res.text();
   if (!res.ok) throw new IntegrationError(`HubSpot tickets: ${res.status} ${text.slice(0, 300)}`, res.status);
   return (text ? JSON.parse(text) : {}) as T;
-}
-
-/**
- * The `tags` dropdown must carry `price_check`.
- *
- * It is what keeps the ESO rename workflow off these tickets - that workflow
- * rewrites the subject to "Direct ESO request |  |" within seconds of birth and
- * excludes on this dropdown, which is present at creation and therefore
- * race-free. Without the option the tag does not stick and every ticket loses
- * its subject, so a run refuses rather than produce forty ruined tickets.
- */
-async function tagOptionExists(): Promise<boolean> {
-  const p = await ticketsRequest<{ options?: { value?: string }[] }>("/crm/v3/properties/tickets/tags", "GET");
-  return (p.options ?? []).some((o) => o.value === TAG);
 }
 
 /** Which of these keys already have a ticket. Dedup without a state file. */
@@ -167,12 +152,10 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
   const today = opts.today ?? iso(new Date());
   const from = iso(new Date(Date.parse(`${today}T00:00:00Z`) - LOOKBACK_DAYS * 86_400_000));
 
-  if (!dry && !(await tagOptionExists())) {
-    throw new IntegrationError(
-      "The `tags` dropdown has no `price_check` option. The ESO rename workflow would wipe every subject, " +
-      "so nothing was created. Add the option to the dropdown first.",
-    );
-  }
+  // No `tags` precondition any more. It refused every run since the start: the
+  // dropdown has no `price_check` option, and it is not needed - SARCLA, 10.10:
+  // the ESO naming workflow already leaves these tickets out, and the tag is
+  // given later, not by the hub.
 
   const signals = await fetchShopSignals({ from, to: today, today });
   const candidates = signals.priceChecks;
@@ -250,7 +233,6 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
       subject, content,
       hs_pipeline: pipeline, hs_pipeline_stage: stage,
       hubspot_owner_id: r.ownerId ?? "",
-      tags: TAG,
       price_check_key: key,
       price_check_date: r.day,
       price_check_articles: lines.join("; ").slice(0, 1000),
