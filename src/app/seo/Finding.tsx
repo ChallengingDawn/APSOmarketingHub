@@ -48,6 +48,8 @@ export type Finding = {
   /** Exactly one line. Anything longer belongs in `details`. */
   reason: ReactNode;
   action: { href: string; label: string };
+  /** An optional second control beside the link — "Start", and nothing else so far. */
+  secondary?: ReactNode;
   details: ReactNode;
   /** Text the list's search box matches against. */
   searchText: string;
@@ -168,6 +170,7 @@ function FindingRow({ finding }: { finding: Finding }) {
           >
             {finding.action.label}
           </Button>
+          {finding.secondary}
           <Button
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}

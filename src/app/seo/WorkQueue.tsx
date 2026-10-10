@@ -9,9 +9,11 @@
  * the analysis that produced it, and the normalisation rule is stated in full.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+
+import Button from "@mui/material/Button";
 
 import { GSC_PAIR_ROW_LIMIT, GSC_ROW_LIMIT } from "./gscClient";
 import FindingList, { DetailGrid, DetailNote, type Finding } from "./Finding";
@@ -122,7 +124,34 @@ function evidenceLine(detail: WorkDetail): string {
   return `${fmtInt(r.previousClicks)} → ${fmtInt(r.currentClicks)} clicks${pct} · impressions ${fmtInt(r.previousImpressions)} → ${fmtInt(r.currentImpressions)}`;
 }
 
-function findingOf(item: WorkItem): Finding {
+/**
+ * The numbers the item has RIGHT NOW, kept with the action so the comparison
+ * later has something real to compare against. Read from the finding's own
+ * evidence, not from a second lookup, so the baseline is exactly what the
+ * person saw when they decided.
+ */
+function baselineOf(item: WorkItem): {
+  clicks: number | null; impressions: number | null; position: number | null;
+} {
+  const d = item.detail;
+  if (d.source === "quick-win") {
+    return { clicks: d.win.clicks, impressions: d.win.impressions, position: d.win.position };
+  }
+  if (d.source === "decay") {
+    return {
+      clicks: d.row.currentClicks,
+      impressions: d.row.currentImpressions,
+      position: d.row.currentPosition,
+    };
+  }
+  return {
+    clicks: d.group.totalClicks,
+    impressions: d.group.totalImpressions,
+    position: d.group.bestPosition,
+  };
+}
+
+function findingOf(item: WorkItem, start?: (item: WorkItem) => void, started?: boolean): Finding {
   const meta = SOURCE_META[item.source];
   const tone = SOURCE_TONE[item.source];
 
@@ -136,6 +165,21 @@ function findingOf(item: WorkItem): Finding {
     tag: <Tag label={meta.label} color={tone.color} bg={tone.bg} />,
     reason: item.action,
     action: { href: createHref(item.topic), label: "Open in Create" },
+    // Pressing this writes down what the page looks like today. Twenty-eight
+    // days later "Did it work" reads the same page again and compares.
+    secondary: start ? (
+      <Button
+        onClick={() => start(item)}
+        disabled={started}
+        variant="outlined"
+        sx={{
+          textTransform: "none", fontSize: "0.83rem", fontWeight: 600,
+          whiteSpace: "nowrap", px: 2, py: 0.9, borderRadius: "10px",
+        }}
+      >
+        {started ? "Started" : "Start"}
+      </Button>
+    ) : undefined,
     searchText: `${item.subject} ${item.action} ${meta.label}`,
     details: (
       <>
@@ -281,7 +325,66 @@ export default function WorkQueue() {
     [items, filter],
   );
 
-  const findings = useMemo(() => rows.map(findingOf), [rows]);
+  // Which items already have an action open, so a row cannot be started twice
+  // and the button can say so. A failure to read them costs the button, not
+  // the page.
+  const [startedIds, setStartedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/seo/actions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!alive || !j?.ok) return;
+        setStartedIds(new Set((j.actions as { itemId: string; measuredAt: string | null; droppedAt: string | null }[])
+          .filter((a) => !a.measuredAt && !a.droppedAt)
+          .map((a) => a.itemId)));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const start = useCallback(async (item: WorkItem) => {
+    setStartError(null);
+    const base = baselineOf(item);
+    // Optimistic: the button says "Started" at once, and goes back if the
+    // server refuses. Waiting on a round trip to acknowledge a click makes the
+    // page feel broken.
+    setStartedIds((cur) => new Set(cur).add(item.id));
+    try {
+      const r = await fetch("/api/seo/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "start",
+          itemId: item.id,
+          source: item.source,
+          subject: item.subject,
+          action: item.action,
+          eurosEstimated: item.worth ? Math.round(item.worth.eurosPerYear) : null,
+          baselineClicks: base.clicks === null ? null : Math.round(base.clicks),
+          baselineImpressions: base.impressions === null ? null : Math.round(base.impressions),
+          baselinePosition: base.position,
+          windowDays,
+        }),
+      });
+      const text = await r.text();
+      const j = text ? JSON.parse(text) : null;
+      if (!j?.ok) {
+        setStartError(j?.error ?? `That could not be recorded (HTTP ${r.status}).`);
+        setStartedIds((cur) => { const next = new Set(cur); next.delete(item.id); return next; });
+      }
+    } catch (e) {
+      setStartError(String(e));
+      setStartedIds((cur) => { const next = new Set(cur); next.delete(item.id); return next; });
+    }
+  }, [windowDays]);
+
+  const findings = useMemo(
+    () => rows.map((item) => findingOf(item, start, startedIds.has(item.id))),
+    [rows, start, startedIds],
+  );
 
   const emptyFor = useCallback(
     (result: WorkQueueResult): ReactNode => {
@@ -320,13 +423,23 @@ export default function WorkQueue() {
       purpose="Every actionable finding from the other sub-apps, merged and ranked into one list to work top-down. No new analysis — the diagnostic half, sorted by what to do first."
       willShow={WILL_SHOW}
     >
+      {startError && (
+        <Box sx={{
+          p: 1.6, mb: 2, borderRadius: "14px",
+          border: "1px solid rgba(21,34,58,.10)", borderLeft: "3px solid #9e1b18",
+        }}>
+          <Typography sx={{ fontSize: "0.86rem", color: "#9e1b18" }}>{startError}</Typography>
+        </Box>
+      )}
       <HeroStat
         label={`Findings waiting · last ${windowDays} days`}
         value={loading ? "—" : fmtInt(items.length)}
         note={
           <>
-            Merged from Quick wins, Cannibalisation and Decay. Priority is a share-of-leader within each analysis, so the
-            order is honest inside an analysis and deliberately makes no cross-analysis revenue claim.
+            Merged from Quick wins, Cannibalisation and Decay.{" "}
+            {items[0]?.worth
+              ? "Ranked by what each is worth a year against the work it costs, so the top of the list is the best use of a day. The euro figures are estimates: the click-through curve behind them is an industry average, the only number here that is not ours."
+              : "Priority is a share-of-leader within each analysis, so the order is honest inside an analysis and deliberately makes no cross-analysis claim — GA4 could not price an organic visit for this window."}
           </>
         }
         supporting={[

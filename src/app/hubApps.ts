@@ -92,6 +92,7 @@ export const APPS: HubApp[] = [
       { name: "Templates", note: "Start from a known shape", href: "/templates", icon: "template", ...BLUE },
       { name: "SEO", note: "What to work on next, worth most first", href: "/seo", icon: "search", ...TEAL },
       { name: "Quick wins", note: "Pages one step from ranking", href: "/seo/quick-wins", icon: "bolt", ...AMBER },
+      { name: "Did it work", note: "What happened after the work was done", href: "/seo/impact", icon: "health", ...GREEN },
       { name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN },
     ],
   },

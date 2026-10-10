@@ -121,6 +121,44 @@ export function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_apsomh_sessions_user ON apsomh_sessions(user_id)`
     );
 
+    // DID THE WORK ACTUALLY WORK.
+    //
+    // The SEO queue says what to do and estimates what it is worth. Nothing
+    // ever checked afterwards, so nobody could tell which advice was good —
+    // and advice nobody can grade is advice people stop following.
+    //
+    // One row per action somebody starts, holding the page's numbers AT THAT
+    // MOMENT. The comparison later is against these, not against whatever the
+    // dashboard happens to show, because the window moves and a baseline read
+    // afterwards is not a baseline.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_seo_actions (
+        id SERIAL PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        source VARCHAR(32) NOT NULL,
+        subject TEXT NOT NULL,
+        action TEXT NOT NULL,
+        euros_estimated NUMERIC,
+        baseline_clicks INTEGER,
+        baseline_impressions INTEGER,
+        baseline_position NUMERIC,
+        window_days INTEGER NOT NULL,
+        started_by VARCHAR(255) NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- Filled by whoever opens the page after the waiting period; the
+        -- measurement is a read of Search Console, never a human's opinion.
+        measured_at TIMESTAMPTZ,
+        after_clicks INTEGER,
+        after_impressions INTEGER,
+        after_position NUMERIC,
+        dropped_at TIMESTAMPTZ,
+        dropped_reason TEXT
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_seo_actions_started ON apsomh_seo_actions(started_at DESC)`
+    );
+
     // NOBODY LOSES LIVE WHEN IT CHANGES APPS.
     //
     // Live, Tracking health, Cookie consent and Web order sync moved out of

@@ -164,6 +164,7 @@ const navSections: NavSection[] = [
       // inside it now, not the thing you land on.
       { group: "SEO", label: "What to do next", href: "/seo", icon: <PlaylistAddCheckIcon fontSize="small" /> },
       { group: "SEO", label: "Search performance", href: "/seo/performance", icon: <QueryStatsIcon fontSize="small" /> },
+      { group: "SEO", label: "Did it work", href: "/seo/impact", icon: <FactCheckIcon fontSize="small" /> },
       { group: "SEO", label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
       { group: "SEO", label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
       { group: "SEO", label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
