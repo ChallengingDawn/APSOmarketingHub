@@ -39,6 +39,8 @@ export type PullReport = {
   folders?: number;
   /** Downloaded with a size other than the listing's - still being written; left for the next pull. */
   incomplete?: string[];
+  /** With `defer`: the manifest to save once the files are processed (commitManifest). */
+  manifest?: Manifest;
 };
 
 type Cfg = { host: string; port: number; username: string; remoteDir: string; pin: string; key: string; passphrase?: string };
@@ -140,8 +142,11 @@ let chain: Promise<unknown> = Promise.resolve();
  * Download what is new or changed in SFTP_REMOTE_DIR into `dest`. One pull at a time in
  * this process. The manifest ({remote: [size, mtime]}) is saved only when the whole
  * listing went through; a file that fails stops the pull and is fetched again next time.
+ * `defer`: the manifest is NOT saved but returned, for the caller to commit once the files
+ * are processed - the files sit on this copy's temporary disk, and a copy that restarts
+ * mid-run (out of memory) loses them; a saved manifest would then skip the delivery.
  */
-export function pullDelta(opts: { dest: string; dry?: boolean }): Promise<PullReport> {
+export function pullDelta(opts: { dest: string; dry?: boolean; defer?: boolean }): Promise<PullReport> {
   const run = chain.then(() => pullOnce(opts));
   chain = run.catch(() => {});
   return run;
@@ -158,7 +163,12 @@ export function fetchLatest(dest: string): Promise<PullReport> {
   return run;
 }
 
-async function pullOnce({ dest, dry = false, ignoreManifest = false }: { dest: string; dry?: boolean; ignoreManifest?: boolean }): Promise<PullReport> {
+/** Save the manifest a deferred pull returned - after its files were processed. */
+export async function commitManifest(m: Manifest): Promise<void> {
+  await kvSet(KV_MANIFEST, m);
+}
+
+async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = false }: { dest: string; dry?: boolean; ignoreManifest?: boolean; defer?: boolean }): Promise<PullReport> {
   const rep: PullReport = { pulled: [], skipped: 0, renamed: {}, ts: Math.floor(Date.now() / 1000), ...(dry ? { dry: true } : {}) };
   const c = config();
   if ("error" in c) return { ...rep, error: c.error };
@@ -185,7 +195,10 @@ async function pullOnce({ dest, dry = false, ignoreManifest = false }: { dest: s
       rep.pulled.push({ remote: f.remote, as: f.as, mb: megabytes(f.size) });
       if (f.as !== f.remote) rep.renamed[f.remote] = f.as;
     }
-    if (!dry && !ignoreManifest) await kvSet(KV_MANIFEST, manifest);
+    if (!dry && !ignoreManifest) {
+      if (defer) rep.manifest = manifest;
+      else await kvSet(KV_MANIFEST, manifest);
+    }
   } catch (e) {
     rep.error = String((e as Error).message ?? e).slice(0, 300);
   } finally {

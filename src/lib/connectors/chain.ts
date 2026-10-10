@@ -12,16 +12,22 @@
 //   company_stats,     after order_sync - here only when order_sync runs in the hub too;
 //   contact_shipment   otherwise the scheduler runs them after the connector's chain
 // One run at a time across both copies of the hub (the step lock); pull and process
-// in the same run, since the files sit on this copy's disk.
+// in the same run, since the files sit on this copy's disk. The download record is
+// saved only when the run is over: a copy that restarts mid-run loses the files with
+// its disk, and the next tick fetches and runs the delivery again - twice at most
+// (chainTry.ts), then it is given up on, loudly.
 
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { pullDelta } from "./sftp";
+import { kvGet, kvSet } from "@/lib/db/init";
+import { commitManifest, pullDelta } from "./sftp";
+import { deliverySig, nextTry, type ChainTry } from "./chainTry";
 import { setHubChain, type HubChain } from "./chainStatus";
 import { STEP_FILES, REGISTRY } from "./steps/registry";
 import { INCOMING, liveSteps, runStepInside, sftpConfigured, withLock } from "./steps/run";
 
 const utcToday = () => new Date().toISOString().slice(0, 10);
+const KV_TRY = "connectors:hub:chain-try";
 const onDisk = (f: string) => stat(path.join(INCOMING, f)).then(() => true, () => false);
 
 /** The chain steps that are live in the hub. */
@@ -43,7 +49,7 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
   }
   return withLock("chain", "live", async (beat) => {
     const chain: HubChain = { status: "running", step: "pull", ts: now(), day: utcToday(), pulled: 0, steps: [] };
-    const rep = await pullDelta({ dest: INCOMING });
+    const rep = await pullDelta({ dest: INCOMING, defer: true });
     if (rep.error) {
       Object.assign(chain, { status: "failed", error: `pull: ${rep.error}`, ts: now() });
       await setHubChain(chain);
@@ -51,7 +57,25 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     }
     const got = new Set(rep.pulled.map((p) => p.as));
     chain.pulled = got.size;
-    if (!got.size) return chain; // nothing new: the last run's status stands
+    if (!got.size) {
+      if (rep.manifest) await commitManifest(rep.manifest);
+      return chain; // nothing new: the last run's status stands
+    }
+    // a delivery whose run was cut short (the copy restarted) comes back here - twice at most
+    const m = rep.manifest ?? {};
+    const sig = deliverySig(rep.pulled.map((p) => ({ remote: p.remote, size: m[p.remote]?.[0] ?? 0, mtime: m[p.remote]?.[1] ?? 0 })));
+    const t = nextTry((await kvGet<ChainTry>(KV_TRY)) ?? null, sig, now());
+    await kvSet(KV_TRY, t.save);
+    if (t.giveUp) {
+      if (rep.manifest) await commitManifest(rep.manifest);
+      Object.assign(chain, {
+        status: "failed", step: "pull", ts: now(),
+        error: `gave up on this delivery: its run was cut short ${t.save.n} times - a hub server restarted mid-run (out of memory?). Hand the steps back to the connector (remove them from its HUB_STEPS) and it processes these files itself.`,
+      });
+      await setHubChain(chain);
+      console.error(`[connectors] chain GAVE UP on a delivery of ${got.size} files after ${t.save.n} cut-short runs`);
+      return chain;
+    }
     await setHubChain(chain);
     const touched = STEP_FILES.some((f) => got.has(f));
     const dimOrder = await onDisk("dim_order.csv");
@@ -84,6 +108,7 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     }
     Object.assign(chain, { status: "done", step: undefined, ts: now(), day: utcToday() });
     await setHubChain(chain);
+    if (rep.manifest) await commitManifest(rep.manifest);
     console.log(`[connectors] chain by ${by}: pulled ${chain.pulled}, ${chain.steps.length} steps, ${chain.steps.filter((s) => !s.ok).length} failed`);
     return chain;
   });

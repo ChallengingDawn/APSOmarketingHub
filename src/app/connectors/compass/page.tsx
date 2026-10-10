@@ -60,9 +60,13 @@ function Cell({ line, empty }: { line: { text: string; bad?: boolean } | null; e
   );
 }
 
-/** Who runs the steps today - the three counts, and who reads the ERP's files. */
-function WhoRuns({ live, hub }: { live: Set<string>; hub: StepsData | null }) {
+/** Who runs the steps today - the three counts, who reads the ERP's files, and the switch-over. */
+function WhoRuns({ live, hub, admin, busy, act }: {
+  live: Set<string>; hub: StepsData | null; admin: boolean; busy: boolean; act: (key: string, action: string) => void;
+}) {
   const p = progress(live);
+  // handed over by the connector (its HUB_STEPS) and not yet switched on here: nobody runs them
+  const waiting = (hub?.steps ?? []).filter((x) => x.connectorSkips && !x.live);
   const puller = hub?.connectorPulls === false ? "The hub" : "The connector";
   const c = hub?.chain;
   const stats: { n: number; tint: Tint; label: string; note: string }[] = [
@@ -87,6 +91,20 @@ function WhoRuns({ live, hub }: { live: Set<string>; hub: StepsData | null }) {
         {puller} checks the ERP&apos;s SFTP folder every 30 minutes; a step that reads a file runs when its file changed.
         {c ? ` The hub's own chain: ${c.status === "done" ? "done" : c.status === "running" ? `running${c.step ? ` (${stepName(c.step)})` : ""}` : "failed"} · ${when(c.ts)}.` : ""}
       </Typography>
+      {c?.status === "failed" && c.error && <Typography sx={{ fontSize: "0.8rem", color: RED, mt: 0.5 }}>{c.error}</Typography>}
+      {waiting.length > 0 && (
+        <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", bgcolor: TINT.amber.bg, display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.84rem", color: INK, flex: 1, minWidth: 240 }}>
+            The connector has handed over <b>{waiting.length}</b> step{waiting.length === 1 ? "" : "s"} that nobody runs until {waiting.length === 1 ? "it is" : "they are"} switched on here: {waiting.map((x) => stepName(x.key)).join(", ")}.
+          </Typography>
+          {admin && (
+            <Button size="small" variant="contained" disableElevation disabled={busy}
+              onClick={() => { if (confirm(`Switch on ${waiting.length} steps in the hub? From now on the hub writes them to HubSpot - the connector no longer does.`)) act("", "live-on-all"); }}>
+              Switch them all on
+            </Button>
+          )}
+        </Box>
+      )}
     </GlassCard>
   );
 }
@@ -204,7 +222,7 @@ function Chain({ s }: { s: Snapshot }) {
           <b>{stepName(running.key)}</b>: {running.mode === "preview" ? "a test run in the hub (writes nothing)" : "a live run in the hub"}, started {when(running.started)}.
         </Info>
       )}
-      <WhoRuns live={live} hub={hubData} />
+      <WhoRuns live={live} hub={hubData} admin={admin} busy={!!running} act={act} />
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5 }}>
           <Choice value={group} onChange={pick} options={[
