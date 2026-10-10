@@ -21,6 +21,7 @@ import { fetchLatest } from "../sftp";
 import type { StepResult } from "./companyFacts";
 import { REGISTRY, STEP_KEYS, stepDef } from "./registry";
 import { stepName } from "../compass";
+import { CONNECTOR_RETIRED } from "../retired";
 
 export const HUB_STEPS = STEP_KEYS;
 export type HubStep = string;
@@ -61,6 +62,8 @@ export async function liveSteps(): Promise<Set<HubStep>> {
 
 /** Steps the Compass connector says it leaves to the hub (its HUB_STEPS setting). */
 export async function connectorSkips(): Promise<Set<string> | null> {
+  // the connector is switched off: every step - and the pull - is the hub's
+  if (CONNECTOR_RETIRED) return new Set([...STEP_KEYS, "sftp_pull"]);
   try {
     const s = await connectorGet<{ hub_steps?: string[] }>("/chain/status");
     return new Set(s.hub_steps ?? []);

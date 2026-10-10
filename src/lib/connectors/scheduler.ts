@@ -1,26 +1,21 @@
-// The hub looks at the Compass connector every 15 minutes, read-only, so that
-// each step's latest result is remembered even when nobody opens the pages: the
-// connector's own record keeps only its last 30-minute check, and most steps
-// run once a day. Off without the read key.
-//
-// The same tick runs the steps that are LIVE in the hub:
-//   mandant_sweep, wrong_owners   every 30 minutes, as the connector ran them
-//   deputy_sweep                  every 15 minutes
-//   the chain steps               in the hub's chain (chain.ts): pull, then the
-//                                 steps whose files arrived
-//   company_stats,                when the connector still titles the orders
-//   contact_shipment              (order_sync not in the hub): once a day after
-//                                 its chain is done, or after 09:00 UTC
+// THE COMPASS SYNC'S CLOCK - every 15 minutes, in the hub (the connector on Railway is
+// retired since 10.10.2026, retired.ts):
+//   mandant_sweep, wrong_owners   every 30 minutes  } the sweeps' own lane, beside the chain
+//   deputy_sweep                  every 15 minutes  }
+//   the chain steps               in the hub's chain (chain.ts): pull the ERP's new files,
+//                                 then the steps whose files arrived - started beside the
+//                                 ticks, since a chain can take an hour
+//   the review queue's check      every 30 minutes, in the background (reviewCheck.ts)
 // and one PREVIEW of each step that has never been previewed (reads only), after
-// 10:00 UTC, one per tick - the comparison with the connector without a click. Not
-// the file steps: the hub runs on 1 GB (SARCLA kept the size, 08.10.2026) and the
-// big ERP files (dim_order.csv ~480 MB) are not yet proven to fit - a copy that runs
-// out of memory restarts. They are tested by hand, one at a time, in the evening.
+// 10:00 UTC, one per tick. Not the file steps: their test runs download the ERP's
+// files and are started by hand.
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
 import { connectorReadKey } from "@/lib/integrations/status";
 import { compassSnapshot } from "@/lib/integrations/compassConnector";
+import { CONNECTOR_RETIRED } from "./retired";
+import { checkRunning, heldCheck, refreshCheck } from "./reviewCheck";
 import { runHubChain } from "./chain";
 import { REGISTRY } from "./steps/registry";
 import { lastRun, liveSteps, runNow, type HubStep } from "./steps/run";
@@ -95,15 +90,25 @@ async function tick() {
   if (ticking) return;
   ticking = true;
   try {
-    await compassSnapshot(true).catch((e) => console.warn(`[connectors] watch: ${(e as Error).message}`));
+    if (!CONNECTOR_RETIRED) await compassSnapshot(true).catch((e) => console.warn(`[connectors] watch: ${(e as Error).message}`));
     await stepsTick().catch((e) => console.warn(`[connectors] steps: ${(e as Error).message}`));
+    await reviewTick().catch((e) => console.warn(`[connectors] review check: ${(e as Error).message}`));
   } finally {
     ticking = false;
   }
 }
 
+/** The review queue's check, kept fresh without anybody opening the page: every 30 minutes. */
+async function reviewTick() {
+  const h = await heldCheck();
+  if (checkRunning(h) || (h?.at && Date.now() - Date.parse(h.at) < 30 * 60_000)) return;
+  const s = await compassSnapshot();
+  const uns = (s.review?.items ?? []).filter((i) => i.status !== "resolved" && i.un).map((i) => i.un as string);
+  if (uns.length) refreshCheck(uns);
+}
+
 export function startConnectorsWatch() {
-  if (started || !connectorReadKey()) return;
+  if (started || (!CONNECTOR_RETIRED && !connectorReadKey())) return;
   started = true;
   setTimeout(() => void tick(), 90_000).unref?.();
   setInterval(() => void tick(), TICK_MS).unref?.();

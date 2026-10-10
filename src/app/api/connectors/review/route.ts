@@ -1,18 +1,19 @@
-// The review queue's automatic check (GET, read-only, held 10 minutes) and its
-// link (POST, writes company_unique_number - only for someone who may change
-// things in Connectors & Integration).
+// The review queue's automatic check (GET, read-only) and its link (POST, writes
+// company_unique_number - only for someone who may change things in Connectors &
+// Integration). The check runs in the background and is kept (reviewCheck.ts): GET
+// answers at once with the last result, and starts a new check when it is older than
+// 10 minutes, the queue changed, or the page asks ("Check again").
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { compassSnapshot } from "@/lib/integrations/compassConnector";
-import { checkAll, linkAll, type CheckRow } from "@/lib/connectors/reviewCheck";
+import { checkRunning, heldCheck, linkAll, refreshCheck } from "@/lib/connectors/reviewCheck";
 import { describeIntegrationError, hubspotToken } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TTL_MS = 10 * 60_000;
-let cache: { at: number; key: string; p: Promise<CheckRow[]> } | null = null;
+const STALE_MS = 10 * 60_000;
 
 async function waiting(): Promise<string[]> {
   const s = await compassSnapshot();
@@ -26,14 +27,16 @@ export async function GET(req: NextRequest) {
   if (!hubspotToken()) return NextResponse.json({ configured: false, missing: ["HUBSPOT_TOKEN"] });
   try {
     const uns = await waiting();
-    const key = uns.join(",");
-    const fresh = req.nextUrl.searchParams.get("refresh") === "1";
-    if (!cache || fresh || cache.key !== key || Date.now() - cache.at > TTL_MS) {
-      const p = checkAll(uns);
-      cache = { at: Date.now(), key, p };
-      p.catch(() => { if (cache?.p === p) cache = null; });
+    let h = await heldCheck();
+    const changed = !h || h.uns.join(",") !== uns.join(",");
+    const old = !h?.at || Date.now() - Date.parse(h.at) > STALE_MS;
+    if (!checkRunning(h) && (req.nextUrl.searchParams.get("refresh") === "1" || changed || old)) {
+      refreshCheck(uns);
+      h = await heldCheck();
     }
-    return NextResponse.json({ configured: true, ok: true, data: { at: new Date(cache.at).toISOString(), rows: await cache.p } });
+    return NextResponse.json({ configured: true, ok: true, data: {
+      at: h?.at || null, rows: h?.rows ?? [], checking: checkRunning(h), error: h?.error ?? null,
+    } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }
@@ -49,7 +52,7 @@ export async function POST(req: NextRequest) {
   if (!uns.length) return NextResponse.json({ ok: false, error: "Nothing to link" }, { status: 400 });
   try {
     const r = await linkAll(uns);
-    cache = null;
+    refreshCheck(await waiting());
     console.log(`[connectors] review link by ${access.userId}: linked ${r.linked.length}, skipped ${r.skipped.length}`);
     return NextResponse.json({ ok: true, data: r });
   } catch (err) {

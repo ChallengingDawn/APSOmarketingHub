@@ -9,6 +9,7 @@
 // connector's own flag: a key that now matches is linked, whatever it says.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { kvGet, kvSet } from "@/lib/db/init";
 
 import { verdictFrom, type CheckRow, type Co } from "./reviewRule";
 
@@ -65,4 +66,38 @@ export async function linkAll(uns: string[]): Promise<{ linked: string[]; skippe
     linked.push(un);
   }
   return { linked, skipped };
+}
+
+/* ── the check, kept: run in the background, read at once ──────────────── */
+
+// The check takes a few searches per customer - with HubSpot's search limit and the hub's
+// other jobs, more than a page request may wait (it then failed silently and the page said
+// "checking..." for ever, 10.10.2026). So it runs in the background, its result is kept, and
+// the page shows the last result straight away and follows a running check.
+const KV_CHECK = "connectors:hub:review-check";
+export type HeldCheck = { at: string; rows: CheckRow[]; uns: string[]; running?: string; error?: string };
+let running: Promise<void> | null = null;
+
+export async function heldCheck(): Promise<HeldCheck | null> {
+  return (await kvGet<HeldCheck>(KV_CHECK).catch(() => null)) ?? null;
+}
+
+/** Is a check going on - here, or on the other copy of the hub (marked within 5 minutes)? */
+export function checkRunning(h: HeldCheck | null): boolean {
+  return !!running || (!!h?.running && Date.now() - Date.parse(h.running) < 5 * 60_000);
+}
+
+/** Start a check of these customers in the background; a running one is not started twice. */
+export function refreshCheck(uns: string[]): void {
+  if (running) return;
+  running = (async () => {
+    const before = await heldCheck();
+    await kvSet(KV_CHECK, { ...(before ?? { at: "", rows: [], uns: [] }), running: new Date().toISOString() });
+    try {
+      const rows = await checkAll(uns);
+      await kvSet(KV_CHECK, { at: new Date().toISOString(), rows, uns });
+    } catch (e) {
+      await kvSet(KV_CHECK, { ...(before ?? { at: "", rows: [], uns: [] }), error: String((e as Error).message ?? e).slice(0, 200) });
+    }
+  })().catch(() => {}).finally(() => { running = null; });
 }

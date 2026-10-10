@@ -101,16 +101,16 @@ export function ConnectorsPage({ title, subtitle, children }: {
     <PageHeader title={title} subtitle={subtitle} rightSlot={
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-        <Tooltip title="Ask the connector again">
+        <Tooltip title="Read again">
           <IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
         </Tooltip>
       </Box>
     } />
   );
   let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel label="Asking the Compass connector…" />;
-  else if (r.state === "not-configured") body = <NotConnectedPanel source="Compass connector" missing={r.missing} />;
-  else if (r.state === "error") body = <UpstreamPanel source="Compass connector" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
+  if (r === null) body = <LoadingPanel label="Reading the Compass sync…" />;
+  else if (r.state === "not-configured") body = <NotConnectedPanel source="Compass sync" missing={r.missing} />;
+  else if (r.state === "error") body = <UpstreamPanel source="Compass sync" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
   else body = children(r.data);
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>

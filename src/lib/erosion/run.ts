@@ -13,6 +13,7 @@ import { previewDetector } from "@/lib/integrations/erosionDetector";
 import { erosionTagExists, writeErosionTicket, type WriteResult } from "@/lib/integrations/erosionWriter";
 import { WATERMARK } from "./detector";
 import { hubChain, hubRunsChainSteps } from "@/lib/connectors/chainStatus";
+import { CONNECTOR_RETIRED } from "@/lib/connectors/retired";
 
 export const KV = {
   imported: "erosion:imported-keys",
@@ -56,7 +57,10 @@ let lastWaitLog = 0;
  * hub reads the files - has to be done today as soon as it runs any chain step.
  */
 export async function chainDoneToday(today: string): Promise<{ done: boolean; at: string | null }> {
-  const s = await connectorGet<{ delta_run?: { status?: string; ts?: number } | null; hub_steps?: string[] }>("/chain/status").catch(() => null);
+  // the connector is switched off: the hub pulls the files, its own chain is the only one
+  const s = CONNECTOR_RETIRED
+    ? { hub_steps: ["sftp_pull"] } as { delta_run?: { status?: string; ts?: number } | null; hub_steps?: string[] }
+    : await connectorGet<{ delta_run?: { status?: string; ts?: number } | null; hub_steps?: string[] }>("/chain/status").catch(() => null);
   const hubPulls = !!s?.hub_steps?.includes("sftp_pull");
   let done = true;
   let at: string | null = null;

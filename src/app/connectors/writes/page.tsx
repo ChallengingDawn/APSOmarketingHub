@@ -8,20 +8,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
 import SearchIcon from "@mui/icons-material/Search";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
-import { GlassCard, HAIRLINE, INK, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
+import { GlassCard, HAIRLINE, INK, MUTED, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { ASSOCIATIONS, ORDER_PIPELINE, ORDER_STAGES, PROP_LABEL, writesByProperty } from "@/lib/connectors/compass";
-import { Choice, usePaged } from "../parts";
+import { ASSOCIATIONS, OBJECTS, ORDER_PIPELINE, ORDER_STAGES, PROP_LABEL, writesByProperty } from "@/lib/connectors/compass";
+import { Choice } from "../parts";
 
 type TabId = "properties" | "associations" | "stages";
 const TAB_HASH: Record<TabId, string> = { properties: "#properties", associations: "#associations", stages: "#stages" };
@@ -46,53 +41,53 @@ function Properties() {
   const needle = q.trim().toLowerCase();
   const rows = all.filter((w) => (obj === "all" || w.object === obj)
     && (!needle || `${w.name} ${label(w.object, w.name)} ${w.by.map((b) => b.step.name).join(" ")}`.toLowerCase().includes(needle)));
-  const { slice, pager, setPage } = usePaged(rows, 15);
+  const shown = objects.filter((o) => rows.some((w) => w.object === o));
   return (
-    <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
-      <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5, display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
-        <Choice value={obj} onChange={(k) => { setObj(k); setPage(0); }} options={[
+    <>
+      <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+        <Choice value={obj} onChange={setObj} options={[
           { key: "all", label: "All", count: all.length },
           ...objects.map((o) => ({ key: o, label: short(o), count: all.filter((w) => w.object === o).length })),
         ]} />
-        <TextField size="small" placeholder="Find a property or step" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }}
+        <TextField size="small" placeholder="Find a property or step" value={q} onChange={(e) => setQ(e.target.value)}
           sx={{ ml: { md: "auto" }, minWidth: 220 }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> } }} />
       </Box>
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small" sx={{ minWidth: 680, tableLayout: "fixed" }}>
-          <TableHead><TableRow>
-            <TableCell sx={{ ...headCell, width: "40%" }}>Property</TableCell>
-            <TableCell sx={{ ...headCell, width: 170 }}>Object</TableCell>
-            <TableCell sx={headCell}>Written by</TableCell>
-          </TableRow></TableHead>
-          <TableBody>
-            {slice.map((w) => {
+      {!shown.length && <GlassCard><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No property matches.</Typography></GlassCard>}
+      {shown.map((o) => {
+        const mine = rows.filter((w) => w.object === o);
+        return (
+          <GlassCard key={o} sx={{ p: { xs: 2, md: 2.5 } }}>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 1 }}>
+              <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{short(o)}</Typography>
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{mine.length} {o === OBJECTS.kpi ? "series" : `propert${mine.length === 1 ? "y" : "ies"}`}</Typography>
+            </Box>
+            <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 2, pb: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>
+              <Typography sx={{ ...headCell, p: 0, border: "none" }}>{o === OBJECTS.kpi ? "Series" : "Property"}</Typography>
+              <Typography sx={{ ...headCell, p: 0, border: "none" }}>Written by</Typography>
+            </Box>
+            {mine.map((w) => {
               const l = label(w.object, w.name);
               return (
-                <TableRow key={`${w.object}|${w.name}`} hover sx={{ verticalAlign: "top", "& td": { py: 0.9 } }}>
-                  <TableCell sx={bodyCell}>
-                    {l && <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{l}</Typography>}
-                    <Typography sx={{ fontSize: l ? "0.74rem" : "0.8rem", fontFamily: "monospace", color: l ? MUTED : INK, overflowWrap: "anywhere" }}>{w.name}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{short(w.object)}</TableCell>
-                  <TableCell sx={bodyCell}>
+                <Box key={w.name} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: { xs: 0.5, md: 2 }, py: 1, borderBottom: `1px solid ${HAIRLINE}`, "&:last-of-type": { borderBottom: "none" } }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{l || w.name}</Typography>
+                    {l && <Typography sx={{ fontSize: "0.74rem", fontFamily: "monospace", color: MUTED, overflowWrap: "anywhere" }}>{w.name}</Typography>}
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
                     {w.by.map(({ step, note }) => (
                       <Typography key={step.key} sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.6 }}>
                         {step.name}{note ? <Box component="span" sx={{ color: MUTED, fontSize: "0.76rem" }}> · {note}</Box> : null}
                       </Typography>
                     ))}
-                  </TableCell>
-                </TableRow>
+                  </Box>
+                </Box>
               );
             })}
-            {!slice.length && (
-              <TableRow><TableCell colSpan={3} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem", py: 3, textAlign: "center" }}>No property matches.</TableCell></TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Box>
-      {pager}
-    </GlassCard>
+          </GlassCard>
+        );
+      })}
+    </>
   );
 }
 

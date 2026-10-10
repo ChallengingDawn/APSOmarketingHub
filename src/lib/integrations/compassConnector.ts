@@ -11,6 +11,7 @@ import { connect } from "node:net";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
 import { IntegrationError } from "./status";
+import { CONNECTOR_RETIRED } from "@/lib/connectors/retired";
 
 import type { ChainStatus, IncomingFile, RawState, Snapshot, StepMemo } from "@/lib/connectors/snapshot";
 
@@ -51,7 +52,26 @@ export function sftpReachable(host = SFTP_HOST, port = 22, timeoutMs = 6000): Pr
   });
 }
 
+/** The hub's own records only - the connector is switched off (retired.ts). */
+async function readHub(): Promise<Snapshot> {
+  const q = (await kvGet<NonNullable<RawState["review_queue"]>>("connectors:hub:review-queue").catch(() => null)) ?? [];
+  return {
+    at: new Date().toISOString(),
+    chain: null, chainError: null, state: null, stateError: null,
+    review: {
+      pending: q.filter((i) => (i.status ?? "pending") !== "resolved").length,
+      resolved: q.filter((i) => i.status === "resolved").length,
+      total: q.length,
+      items: [...q].sort((a, b) => (b.revenue_eur ?? 0) - (a.revenue_eur ?? 0)).slice(0, 1000),
+    },
+    files: null,
+    sftpFromHub: undefined,
+    stepsLast: (await kvGet<Record<string, StepMemo>>(KV_STEPS).catch(() => null)) ?? {},
+  };
+}
+
 async function read(): Promise<Snapshot> {
+  if (CONNECTOR_RETIRED) return readHub();
   const [chain, state, files, sftp] = await Promise.allSettled([
     connectorGet<ChainStatus>("/chain/status"),
     connectorGet<RawState>("/state"),
