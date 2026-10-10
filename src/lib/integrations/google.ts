@@ -4,6 +4,7 @@
 
 import { createSign } from "node:crypto";
 import { IntegrationError, parseServiceAccount } from "./status";
+import { userAccessToken } from "./googleUser";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -114,6 +115,14 @@ async function requestAccessToken(scope: string, signal?: AbortSignal): Promise<
 }
 
 export async function getGoogleAccessToken(scope: string, signal?: AbortSignal): Promise<string> {
+  // A person's own Google account wins when one is connected. That is only
+  // ever a stopgap — see googleUser.ts — but while the service account cannot
+  // reach a property, borrowing somebody's access is the difference between a
+  // working page and a 403. Nobody connected, nothing configured: this costs a
+  // single null check and the service account answers as before.
+  const borrowed = await userAccessToken(scope);
+  if (borrowed) return borrowed;
+
   const cached = tokenCache.get(scope);
   if (cached && cached.expiresAt > Date.now()) return cached.token;
 

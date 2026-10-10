@@ -28,6 +28,7 @@ import {
   type IntegrationResult,
   type IntegrationStatusPayload,
 } from "@/app/analytics/integrationApi";
+import GoogleAccount from "./GoogleAccount";
 
 const NAVY = "#274e64";
 const RED = "#ed1b2f";
@@ -703,6 +704,8 @@ export default function IntegrationsSettingsPage() {
 
           <Grid size={{ xs: 12, md: 6 }}>
             <Typography sx={{ ...LABEL_SX, mb: 2 }}>Per-source prerequisites</Typography>
+
+            <GoogleAccount />
 
             <Box sx={{ mb: 3 }}>
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mb: 1 }}>
