@@ -52,7 +52,7 @@ function Row({ name, status, note, href, link }: { name: string; status: React.R
 
 function Overview({ s }: { s: Snapshot }) {
   const hub = useHubSteps();
-  const live = new Set((hub?.steps ?? []).filter((x) => x.live).map((x) => x.key));
+  const live = new Set((hub?.steps ?? []).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key));
   const hubPulls = hub?.connectorPulls === false;
   const v = hubPulls && hub?.chain ? hubVerdict(hub.chain) : chainVerdict(s);
   const delivery = lastDelivery(s);

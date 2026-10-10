@@ -112,8 +112,10 @@ function WhoRuns({ live, hub, admin, busy, act }: {
 function HubPanel({ info, admin, busy, act, sftp }: { info: HubStepInfo; admin: boolean; busy: boolean; act: (key: string, action: string, fullRun?: boolean) => void; sftp: boolean }) {
   const noFiles = !!info.file && !sftp;
   const rhythm = RHYTHM[info.cadence ?? ""] ?? "";
-  const status = info.live
+  const status = info.live && info.connectorSkips !== false
     ? { tint: "green" as const, chip: "Live", text: `Runs in the hub ${rhythm} - the connector no longer does` }
+    : info.live
+      ? { tint: "amber" as const, chip: "On, but the connector runs it", text: "Switched on here, but the connector has taken it back - the hub writes nothing until the connector lets it go again" }
     : info.connectorSkips
       ? { tint: "amber" as const, chip: "Waiting for the switch", text: "The connector has let it go - switch it on here, or nobody runs it" }
       : { tint: "purple" as const, chip: "Ready", text: "The connector still runs it. A test run here reads the same data and says what it would change - it writes nothing." };
@@ -195,7 +197,8 @@ function Chain({ s }: { s: Snapshot }) {
   }, []);
   const hubData = useHubSteps(tick);
   const hubBy = new Map((hubData?.steps ?? []).map((x) => [x.key, x]));
-  const live = new Set((hubData?.steps ?? []).filter((x) => x.live).map((x) => x.key));
+  // the hub runs a step only while the connector has let it go - a switch left on is not enough
+  const live = new Set((hubData?.steps ?? []).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key));
   const running = hubData?.running ?? null;
   useEffect(() => {
     if (!running) return;

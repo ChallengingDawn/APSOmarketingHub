@@ -53,7 +53,7 @@ export default function ConnectorsPanel({ glass }: { glass: object }) {
     // which steps the hub runs itself - the count stays right as steps are switched over
     fetch("/api/connectors/steps", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j?.ok) setLive(new Set((j.data.steps as { key: string; live: boolean }[]).filter((x) => x.live).map((x) => x.key))); })
+      .then((j) => { if (j?.ok) setLive(new Set((j.data.steps as { key: string; live: boolean; connectorSkips: boolean | null }[]).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key))); })
       .catch(() => {});
     return () => ctrl.abort();
   }, []);

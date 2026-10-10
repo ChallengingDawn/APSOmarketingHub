@@ -41,7 +41,7 @@ function Properties() {
   const all = useMemo(() => writesByProperty(), []);
   const labels = useLabels();
   const hub = useHubSteps();
-  const live = new Set((hub?.steps ?? []).filter((x) => x.live).map((x) => x.key));
+  const live = new Set((hub?.steps ?? []).filter((x) => x.live && x.connectorSkips !== false).map((x) => x.key));
   const label = (object: string, name: string) => PROP_LABEL[name] ?? labels[object]?.[name] ?? "";
   const objects = useMemo(() => [...new Set(all.map((w) => w.object))], [all]);
   const [obj, setObj] = useState<string>("all");
