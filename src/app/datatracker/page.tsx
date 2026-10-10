@@ -882,7 +882,7 @@ function EshopActivityPage() {
     && (!profitCentre || r.profitCentre === profitCentre);
   const moqRows = (signals?.moq ?? []).filter(lookPasses);
   const availabilityRows = (signals?.availability ?? []).filter(lookPasses);
-  const qualifying = pcRows.filter((r) => r.qualifies && !r.excluded);
+  const qualifying = pcRows.filter((r) => r.qualifies && !r.excluded && !r.expired);
   const pcVisible = pcOnlyQualifying ? qualifying : pcRows;
 
   // Which filters a tab shows. Articles are totals over every customer, so only
@@ -1146,7 +1146,7 @@ function EshopActivityPage() {
       }];
     } else if (tab === "priceCheck") {
       const verdict = (r: (typeof pcVisible)[number]) =>
-        r.excluded ? r.excluded : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting") : priceCheckShortfall(r);
+        r.excluded ? r.excluded : r.expired ? "Too old for a ticket" : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting") : priceCheckShortfall(r);
       sheets = [{
         name: "Price checks", preamble: head("Price checks", pcVisible.length),
         columns: [
@@ -1809,10 +1809,11 @@ function EshopActivityPage() {
                           edge of is a rule nobody trusts. */}
                       <Typography component="span" sx={{
                         fontSize: "0.72rem", fontWeight: 700, px: 0.9, py: 0.3, borderRadius: 1,
-                        bgcolor: r.excluded ? "#f3f0ff" : r.qualifies ? "#e6f4ec" : "#eef1f5",
-                        color: r.excluded ? "#5a3fa0" : r.qualifies ? "#0f7b4f" : MUTED,
+                        bgcolor: r.excluded ? "#f3f0ff" : r.qualifies && !r.expired ? "#e6f4ec" : "#eef1f5",
+                        color: r.excluded ? "#5a3fa0" : r.qualifies && !r.expired ? "#0f7b4f" : MUTED,
                       }}>
                         {r.excluded ? r.excluded
+                          : r.expired ? "Too old for a ticket"
                           : r.qualifies ? (r.gateOpen ? "Qualifies" : "Qualifies · waiting")
                           : priceCheckShortfall(r)}
                       </Typography>
@@ -1825,7 +1826,7 @@ function EshopActivityPage() {
                         ? <Link href={hsTicketUrl(r.ticketId)} target="_blank" rel="noopener"
                             onClick={(e) => e.stopPropagation()} underline="hover"
                             sx={{ fontSize: "0.76rem", fontWeight: 600 }}>raised ↗</Link>
-                        : r.qualifies && !r.excluded && r.gateOpen
+                        : r.qualifies && !r.excluded && r.gateOpen && !r.expired
                           ? <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>next run</Typography>
                           : <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>—</Typography>}
                     </TableCell>

@@ -19,7 +19,7 @@ import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError, hubspotToken, ticketsToken } from "./status";
 import { fetchShopSignals, type PriceCheckRow } from "./shopSignals";
 import { PIPE_STAGE, ownerName, teamOf } from "../datatracker/rosters";
-import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE } from "../datatracker/rules";
+import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE, pricedArticleOrdered, ticketWindowStart } from "../datatracker/rules";
 
 const PP_OBJ = "2-200042439";
 /**
@@ -27,7 +27,6 @@ const PP_OBJ = "2-200042439";
  * day the rule waits anyway, so nothing is lost if a run is missed, and a first
  * run cannot empty the whole backlog onto the team at once.
  */
-const LOOKBACK_DAYS = 3;
 
 export type TicketOutcome = {
   key: string;
@@ -110,7 +109,7 @@ async function existingKeys(keys: string[]): Promise<Set<string>> {
  * called. `null` means the question could not be answered, and unknown is not
  * the same as no.
  */
-async function orderedSince(companyId: string, day: string): Promise<boolean | null> {
+async function orderedSince(companyId: string, day: string, priced: string[]): Promise<boolean | null> {
   try {
     const ms = Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)));
     const res = await hubspotFetchJson<{ results?: unknown[] }>({
@@ -121,11 +120,12 @@ async function orderedSince(companyId: string, day: string): Promise<boolean | n
           { propertyName: "order_order_date", operator: "GTE", value: String(ms) },
           { propertyName: "associations.company", operator: "EQ", value: companyId },
         ] }],
-        properties: ["order_order_date"],
-        limit: 1,
+        // the articles on each order, so only an order of a PRICED article counts
+        properties: Array.from({ length: 80 }, (_, i) => `order_line_${String(i + 1).padStart(2, "0")}_article`),
+        limit: 100,
       },
     });
-    return (res.results ?? []).length > 0;
+    return pricedArticleOrdered((res.results ?? []).map((o) => (o as { properties?: Record<string, string | null> }).properties ?? {}), priced);
   } catch {
     return null;
   }
@@ -150,7 +150,7 @@ function describe(r: PriceCheckRow): { lines: string[]; centres: string[]; unpri
 export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string } = {}): Promise<RunReport> {
   const dry = opts.dry ?? true;
   const today = opts.today ?? iso(new Date());
-  const from = iso(new Date(Date.parse(`${today}T00:00:00Z`) - LOOKBACK_DAYS * 86_400_000));
+  const from = ticketWindowStart(today);
 
   // No `tags` precondition any more. It refused every run since the start: the
   // dropdown has no `price_check` option, and it is not needed - SARCLA, 10.10:
@@ -196,8 +196,8 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
       continue;
     }
 
-    const ordered = await orderedSince(r.companyId, r.day);
-    if (ordered !== false) { rows.push({ ...base, outcome: ordered ? "ordered since" : "order check failed" }); continue; }
+    const ordered = await orderedSince(r.companyId, r.day, r.articles.map((a) => a.article));
+    if (ordered !== false) { rows.push({ ...base, outcome: ordered ? "ordered a priced article since" : "order check failed" }); continue; }
 
     if (!team) { rows.push({ ...base, outcome: "owner off roster" }); continue; }
     if (dry) { rows.push({ ...base, outcome: "would create" }); continue; }

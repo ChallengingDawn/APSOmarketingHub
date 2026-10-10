@@ -93,6 +93,39 @@ export function isInternalCompany(name: string | null | undefined): boolean {
   return /^\s*(apso\s*parts|angst\s*\+?\s*pfister)\b/i.test(String(name ?? ""));
 }
 
+/**
+ * How far back a ticket run reaches. A qualifying day older than this is never
+ * ticketed - so a first run cannot empty a backlog onto the team. SARCLA, 10.10,
+ * on the 2-6 October days that missed their tickets while the tag check blocked
+ * every run: no catch-up, and "delete from log" - such a day leaves the list.
+ */
+export const TICKET_REACH_BACK_DAYS = 3;
+
+export function ticketWindowStart(today: string): string {
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - TICKET_REACH_BACK_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Did one of these orders buy one of the priced articles? Only that answers the
+ * price check. SARCLA, 10.10: ANY later order used to cancel the ticket, so big
+ * regular buyers (Rubix, Sati) almost never got one even when they never bought
+ * what they priced.
+ */
+export function pricedArticleOrdered(
+  orders: Record<string, string | null | undefined>[], priced: string[],
+): boolean {
+  const want = new Set(priced.map((a) => a.trim()).filter(Boolean));
+  if (!want.size) return false;
+  for (const p of orders) {
+    for (const [k, v] of Object.entries(p)) {
+      if (/^order_line_\d{2}_article$/.test(k) && v && want.has(String(v).trim())) return true;
+    }
+  }
+  return false;
+}
+
 /** Excluded from the price-check rule: C2S and special articles. */
 export const isSpecialArticle = (a: string): boolean => /^[38]/.test(a);
 

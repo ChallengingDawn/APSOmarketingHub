@@ -405,7 +405,8 @@ export default function PriceCheckTickets() {
     fetch(`/api/datatracker/signals?from=${sigFrom}&to=${win.to}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok && j.data) setSignals(j.data as ShopSignals);
+        // Days too old to be ticketed leave the log (SARCLA 10.10: "delete from log").
+        if (j?.ok && j.data) setSignals({ ...(j.data as ShopSignals), priceChecks: (j.data as ShopSignals).priceChecks.filter((r) => !r.expired) });
         else setError(j?.error ?? j?.detail ?? "HubSpot did not answer for the shop signals.");
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setError(String(e)); });

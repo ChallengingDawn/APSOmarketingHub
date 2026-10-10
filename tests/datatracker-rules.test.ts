@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   isoDay, periodWindow, nextWorkingDay, shortPriority,
   isArticle, isProduct, isSpecialArticle, priceCheckQualifies, priceCheckShortfall, VALUE_FLOOR_ACTIVE, companyPasses,
-  knownMinimum, isInternalCompany,
+  knownMinimum, isInternalCompany, pricedArticleOrdered, ticketWindowStart,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 import { teamOf, ownerName, adoptNamedOwners, ESO_BY_NAME } from "../src/lib/datatracker/rosters";
@@ -270,4 +270,16 @@ test("adoptNamedOwners: a listed name joins its roster under the real id; a shar
   adoptNamedOwners(new Map([["32968527", "Test Person"]]));
   ESO_BY_NAME.pop();
   assert.equal(teamOf("32968527"), "ESO");
+});
+
+test("price-check window and order check: only a PRICED article ordered cancels the ticket", () => {
+  assert.equal(ticketWindowStart("2026-10-10"), "2026-10-07");
+  const orders = [
+    { order_line_01_article: "1150040052", order_line_02_article: null },
+    { order_line_01_article: "0910170145" },
+  ];
+  assert.equal(pricedArticleOrdered(orders, ["1120072140", "1221415103"]), false, "an order of something else is not an answer");
+  assert.equal(pricedArticleOrdered(orders, ["1120072140", "0910170145"]), true);
+  assert.equal(pricedArticleOrdered([], ["0910170145"]), false);
+  assert.equal(pricedArticleOrdered(orders, []), false);
 });

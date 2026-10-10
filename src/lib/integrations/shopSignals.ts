@@ -15,7 +15,7 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
-import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority, ticketWindowStart } from "../datatracker/rules";
 import { adoptNamedOwners, ownerName, teamOf } from "../datatracker/rosters";
 import { owners } from "./eshopActivity";
 
@@ -77,6 +77,8 @@ export type PriceCheckRow = {
   /** The team the company owner routes to, or null when they are on neither roster. */
   team: "ESO" | "TSA" | null;
   owner: string;
+  /** Qualified, no ticket, and older than a run reaches back: it will never get one. */
+  expired: boolean;
 };
 
 /** One customer, one article, one day - for the MOQ and Availability records. */
@@ -362,6 +364,7 @@ async function scan(
         dueOn,
         gateOpen: dueOn <= today,
         excluded: excludedBecause(d.company.apsoCustomer, d.company.salesPriority),
+        expired: false,
       });
     }
 
@@ -430,6 +433,11 @@ async function scan(
       break;
     }
   }
+
+  // A qualifying day the runs can no longer reach will never get a ticket - say
+  // so, instead of promising "next run" forever (SARCLA 10.10: no catch-up).
+  const windowStart = ticketWindowStart(today);
+  for (const r of priceChecks) r.expired = r.qualifies && !r.excluded && r.gateOpen && !r.ticketId && r.day < windowStart;
 
   // Biggest first - by value once it means something, by articles until then.
   priceChecks.sort((a, b) => (VALUE_FLOOR_ACTIVE ? b.value - a.value : b.counted - a.counted) || b.day.localeCompare(a.day));
