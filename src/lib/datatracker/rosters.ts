@@ -24,8 +24,6 @@ export const ESO_OWNERS: Record<string, string> = {
   "1255191254": "Simone Vitale",
   "32968527": "Yani Alioua",
   "817647087": "Bernd Rausmann",
-  // SARCLA, 10.10: owner 1694460619 showed "off roster"; Jan Klat, ESO.
-  "1694460619": "Jan Klat",
 };
 
 export const TSA_OWNERS: Record<string, string> = {
@@ -44,6 +42,51 @@ export const PIPE_STAGE: Record<"ESO" | "TSA", { pipeline: string; stage: string
   ESO: { pipeline: "1726599376", stage: "2338232556" },
   TSA: { pipeline: "1726599377", stage: "2338232560" },
 };
+
+/**
+ * Owners we know by NAME but not yet by id - matched against HubSpot's owners
+ * when a run reads them, exactly and whole-name only, and from then on routed
+ * like everyone else. SARCLA, 10.10: "Jan Kalt · off roster ... look for the
+ * off roster, my guess is that is Jan Kalt" - he is ESO (Performis "ESO CH
+ * GER", same team as Claudio, Yani and Jeremy). The id is logged when found, so
+ * it can be written into ESO_OWNERS and this list emptied.
+ * (1694460619, added first on a guess, is NOT him - his rows stayed off roster.)
+ */
+export const ESO_BY_NAME = ["Jan Kalt"];
+export const TSA_BY_NAME: string[] = [];
+
+const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+const adopted = new Set<string>();
+
+/** Put the named owners on their roster under the id HubSpot gives them. */
+export function adoptNamedOwners(owners: Map<string, string>): void {
+  const want = new Map<string, Record<string, string>>([
+    ...ESO_BY_NAME.map((n) => [norm(n), ESO_OWNERS] as [string, Record<string, string>]),
+    ...TSA_BY_NAME.map((n) => [norm(n), TSA_OWNERS] as [string, Record<string, string>]),
+  ]);
+  if (!want.size) return;
+  const hits = new Map<string, string[]>();
+  for (const [id, name] of owners) {
+    const k = norm(name ?? "");
+    if (want.has(k)) hits.set(k, [...(hits.get(k) ?? []), id]);
+  }
+  for (const [k, ids] of hits) {
+    // two owners with the same name: route neither - a guess is what the
+    // roster exists to prevent
+    if (ids.length !== 1) {
+      if (!adopted.has(`dup:${k}`)) { adopted.add(`dup:${k}`); console.warn(`[rosters] "${k}" matches ${ids.length} owners (${ids.join(", ")}) - not routed`); }
+      continue;
+    }
+    const [id] = ids;
+    if (ESO_OWNERS[id] || TSA_OWNERS[id]) continue;
+    const roster = want.get(k)!;
+    roster[id] = owners.get(id) ?? k;
+    if (!adopted.has(id)) {
+      adopted.add(id);
+      console.log(`[rosters] ${roster[id]} is owner ${id} -> ${roster === ESO_OWNERS ? "ESO" : "TSA"}`);
+    }
+  }
+}
 
 export function teamOf(ownerId: string | null | undefined): "ESO" | "TSA" | null {
   const id = (ownerId ?? "").trim();

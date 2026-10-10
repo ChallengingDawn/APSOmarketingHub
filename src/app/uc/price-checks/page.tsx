@@ -142,7 +142,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
   const [runError, setRunError] = useState<string | null>(null);
   // The automatic run (every 15 min since 10.10) - said on the page, so nobody
   // presses Create wondering whether it already happened.
-  const [auto, setAuto] = useState<{ automatic: boolean; last: { at: string; ok: boolean; created: number; considered: number; error: string | null } | null } | null>(null);
+  const [auto, setAuto] = useState<{ automatic: boolean; last: { at: string; ok: boolean; created: number; considered: number; error: string | null; outcomes?: Record<string, number>; failures?: string[] } | null } | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/datatracker/price-checks/run").then((r) => r.json())
@@ -203,7 +203,7 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
             : !auto.last
               ? "Tickets are raised automatically as soon as a day qualifies (every 15 minutes); no automatic run yet."
               : auto.last.ok
-                ? `Tickets are raised automatically as soon as a day qualifies. Last run ${new Date(auto.last.at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}: ${auto.last.created} created.`
+                ? `Tickets are raised automatically as soon as a day qualifies. Last run ${new Date(auto.last.at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}: ${auto.last.created} created${auto.last.outcomes ? " · " + Object.entries(auto.last.outcomes).filter(([k]) => k !== "created").sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(" · ") : ""}.${auto.last.failures?.length ? " Failed: " + auto.last.failures.join("; ") : ""}`
                 : `The last automatic run failed (${new Date(auto.last.at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}): ${auto.last.error}`}
         </Typography>
       )}

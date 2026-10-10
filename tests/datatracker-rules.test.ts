@@ -6,7 +6,7 @@ import {
   knownMinimum, isInternalCompany,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
-import { teamOf, ownerName } from "../src/lib/datatracker/rosters";
+import { teamOf, ownerName, adoptNamedOwners } from "../src/lib/datatracker/rosters";
 import { governingSize, rankAlternatives } from "../src/lib/datatracker/similar";
 
 test("isoDay uses the LOCAL day, not UTC", () => {
@@ -253,7 +253,14 @@ test("isInternalCompany: APSOparts and Angst + Pfister entities, nobody else", (
   }
 });
 
-test("Jan Klat (1694460619) is on the ESO roster (SARCLA 10.10)", () => {
-  assert.equal(teamOf("1694460619"), "ESO");
-  assert.equal(ownerName("1694460619"), "Jan Klat");
+test("Jan Kalt is routed to ESO by his HubSpot name; a guessed id is not, a shared name never is", () => {
+  assert.equal(teamOf("1694460619"), null, "the first guess was not him");
+  assert.equal(teamOf("777000111"), null);
+  adoptNamedOwners(new Map([["777000111", "Jan Kalt"], ["1", "Someone Else"]]));
+  assert.equal(teamOf("777000111"), "ESO");
+  assert.equal(ownerName("777000111"), "Jan Kalt");
+  assert.equal(teamOf("1"), null);
+  // an owner already on a roster keeps their team
+  adoptNamedOwners(new Map([["32968527", "Jan Kalt"]]));
+  assert.equal(teamOf("32968527"), "ESO");
 });

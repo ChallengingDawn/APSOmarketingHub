@@ -16,7 +16,7 @@
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
 import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
-import { ownerName, teamOf } from "../datatracker/rosters";
+import { adoptNamedOwners, ownerName, teamOf } from "../datatracker/rosters";
 import { owners } from "./eshopActivity";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
@@ -287,6 +287,8 @@ async function scan(
 
   // Names for the owners, from HubSpot: the roster says which team, not who.
   const ownerIndex = await owners(signal).catch(() => new Map<string, string>());
+  // owners known by name only (Jan Kalt) join their roster under their real id
+  adoptNamedOwners(ownerIndex);
   const nameOf = (id: string | null) => (id && ownerIndex.get(id)) || ownerName(id);
 
   const priceChecks: PriceCheckRow[] = [];
