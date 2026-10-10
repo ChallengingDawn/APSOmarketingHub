@@ -24,6 +24,8 @@ export const ESO_OWNERS: Record<string, string> = {
   "1255191254": "Simone Vitale",
   "32968527": "Yani Alioua",
   "817647087": "Bernd Rausmann",
+  // SARCLA, 10.10: owner 1694460619 showed "off roster"; Jan Klat, ESO.
+  "1694460619": "Jan Klat",
 };
 
 export const TSA_OWNERS: Record<string, string> = {

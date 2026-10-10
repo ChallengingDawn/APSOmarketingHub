@@ -252,3 +252,8 @@ test("isInternalCompany: APSOparts and Angst + Pfister entities, nobody else", (
     assert.equal(isInternalCompany(n), false, String(n));
   }
 });
+
+test("Jan Klat (1694460619) is on the ESO roster (SARCLA 10.10)", () => {
+  assert.equal(teamOf("1694460619"), "ESO");
+  assert.equal(ownerName("1694460619"), "Jan Klat");
+});

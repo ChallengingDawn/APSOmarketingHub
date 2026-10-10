@@ -189,7 +189,7 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
     const base = {
       key, company: r.companyName, day: r.day, value: Math.round(r.value),
       articles: r.articles.filter((a) => a.counted).map((a) => a.article),
-      team, owner: ownerName(r.ownerId),
+      team, owner: r.owner || ownerName(r.ownerId),
     };
 
     if (already.has(key)) { rows.push({ ...base, outcome: "exists" }); continue; }

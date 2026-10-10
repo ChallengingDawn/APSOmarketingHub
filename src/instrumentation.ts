@@ -25,6 +25,10 @@ export async function register() {
     // 50-line window overwrites it (read-only on HubSpot; SHOP_LOOKS=off stops it)
     const { startShopLooksScheduler } = await import("./lib/shopLooks/scheduler");
     startShopLooksScheduler();
+    // Price-check tickets as soon as a day qualifies - the same run as the Create
+    // button, every 15 min (PRICE_CHECK_TICKETS=off stops it)
+    const { startPriceCheckScheduler } = await import("./lib/datatracker/priceCheckScheduler");
+    startPriceCheckScheduler();
     // Connectors & Integration: each Compass step's latest result, remembered (read-only)
     const { startConnectorsWatch } = await import("./lib/connectors/scheduler");
     startConnectorsWatch();

@@ -14,11 +14,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { runPriceCheckTickets } from "@/lib/integrations/priceCheckTickets";
+import { KV_AUTO, type AutoRun } from "@/lib/datatracker/priceCheckScheduler";
+import { kvGet } from "@/lib/db/init";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/** What the automatic run last did - for the line on /uc/price-checks. */
+export async function GET() {
+  if (!(await getOptionalUser())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const off = String(process.env.PRICE_CHECK_TICKETS ?? "").toLowerCase() === "off";
+  const last = await kvGet<AutoRun>(KV_AUTO).catch(() => undefined);
+  return NextResponse.json({ ok: true, automatic: !off, last: last ?? null });
+}
 
 export async function POST(req: NextRequest) {
   const key = process.env.INTERNAL_API_KEY;

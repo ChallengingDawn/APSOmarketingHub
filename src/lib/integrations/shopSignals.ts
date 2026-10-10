@@ -17,6 +17,7 @@ import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
 import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority } from "../datatracker/rules";
 import { ownerName, teamOf } from "../datatracker/rosters";
+import { owners } from "./eshopActivity";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
 const PP_PROPS = [
@@ -284,6 +285,10 @@ async function scan(
     }
   }
 
+  // Names for the owners, from HubSpot: the roster says which team, not who.
+  const ownerIndex = await owners(signal).catch(() => new Map<string, string>());
+  const nameOf = (id: string | null) => (id && ownerIndex.get(id)) || ownerName(id);
+
   const priceChecks: PriceCheckRow[] = [];
   const moq: LookRecord[] = [];
   const availability: LookRecord[] = [];
@@ -344,7 +349,7 @@ async function scan(
         key: `${d.company.customerNumber || d.company.companyId}|${d.day}`,
         ticketId: null,
         team: teamOf(d.company.ownerId),
-        owner: ownerName(d.company.ownerId),
+        owner: nameOf(d.company.ownerId),
         day: d.day,
         contactIds: [...d.contacts],
         articles: list,

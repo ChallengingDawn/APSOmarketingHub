@@ -140,6 +140,16 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
   const [run, setRun] = useState<RunReport | null>(null);
   const [running, setRunning] = useState<"dry" | "live" | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  // The automatic run (every 15 min since 10.10) - said on the page, so nobody
+  // presses Create wondering whether it already happened.
+  const [auto, setAuto] = useState<{ automatic: boolean; last: { at: string; ok: boolean; created: number; considered: number; error: string | null } | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/datatracker/price-checks/run").then((r) => r.json())
+      .then((j) => { if (alive && j?.ok) setAuto({ automatic: !!j.automatic, last: j.last ?? null }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [run]);
 
   // The preview and the real run are the SAME call with one flag, so what you
   // were shown cannot differ from what gets written.
@@ -186,6 +196,17 @@ function SignalsPanel({ signals, error, from, to, clipped }: {
           {running === "live" ? "Creating…" : "Create tickets"}
         </Button>
       </Box>
+      {auto && (
+        <Typography sx={{ px: 2.75, pb: 1.5, fontSize: "0.8rem", color: auto.last && !auto.last.ok ? "#9e1b18" : MUTED }}>
+          {!auto.automatic
+            ? "Automatic tickets are switched off - only Create raises them."
+            : !auto.last
+              ? "Tickets are raised automatically as soon as a day qualifies (every 15 minutes); no automatic run yet."
+              : auto.last.ok
+                ? `Tickets are raised automatically as soon as a day qualifies. Last run ${new Date(auto.last.at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}: ${auto.last.created} created.`
+                : `The last automatic run failed (${new Date(auto.last.at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}): ${auto.last.error}`}
+        </Typography>
+      )}
       {error && <Typography sx={{ px: 2.75, pb: 1.5, fontSize: "0.8rem", color: "#9e1b18" }}>{error}</Typography>}
       {runError && <Typography sx={{ px: 2.75, pb: 1.5, fontSize: "0.8rem", color: "#9e1b18" }}>{runError}</Typography>}
       {/* "No ticket was raised" and "we could not look" must never read the same. */}
