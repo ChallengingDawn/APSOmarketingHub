@@ -17,9 +17,12 @@
  * unchanged. Nothing here computes a number.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Button from "@mui/material/Button";
 import Collapse from "@mui/material/Collapse";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -219,6 +222,78 @@ function FindingRow({ finding }: { finding: Finding }) {
  * The list itself: a heading, a search box, the rows, and a footer count. An
  * empty `items` is not an error — the caller supplies the wording that says so.
  */
+/** Rows per page, and the choices offered. 25 fills a screen without filling a day. */
+const PER_PAGE_DEFAULT = 25;
+const PER_PAGE_CHOICES = [10, 25, 50, 100];
+
+/**
+ * The shared footer: which slice you are looking at, and how to move.
+ *
+ * It states the range rather than just the page number, because "1-25 of 187"
+ * tells you how much is left and "page 1 of 8" makes you work it out.
+ */
+export function Pager({
+  total, filteredFrom, noun, page, perPage, onPage, onPerPage,
+}: {
+  total: number;
+  /** Set when a search has narrowed the list, so the footer can say so. */
+  filteredFrom: number | null;
+  noun: string;
+  page: number;
+  perPage: number;
+  onPage: (p: number) => void;
+  onPerPage: (n: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const from = total === 0 ? 0 : page * perPage + 1;
+  const to = Math.min(total, (page + 1) * perPage);
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+        {from}-{to} of {total}
+        {filteredFrom === null ? "" : ` (filtered from ${filteredFrom})`} {noun}
+        {total === 1 ? "" : "s"}
+      </Typography>
+
+      <Box sx={{ flex: 1 }} />
+
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>Per page</Typography>
+        {PER_PAGE_CHOICES.map((n) => (
+          <Box
+            key={n}
+            component="button"
+            type="button"
+            onClick={() => onPerPage(n)}
+            aria-pressed={n === perPage}
+            sx={{
+              border: "none", cursor: "pointer", px: 0.9, py: 0.3, borderRadius: "7px",
+              fontSize: "0.74rem", fontWeight: 600, fontFamily: "inherit",
+              color: n === perPage ? INK : MUTED,
+              bgcolor: n === perPage ? "rgba(21,34,58,.08)" : "transparent",
+            }}
+          >
+            {n}
+          </Box>
+        ))}
+      </Box>
+
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+        <IconButton size="small" disabled={page === 0} onClick={() => onPage(page - 1)} aria-label="Previous page">
+          <ChevronLeftIcon fontSize="small" />
+        </IconButton>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED, minWidth: 74, textAlign: "center" }}>
+          Page {page + 1} of {pages}
+        </Typography>
+        <IconButton size="small" disabled={page >= pages - 1} onClick={() => onPage(page + 1)} aria-label="Next page">
+          <ChevronRightIcon fontSize="small" />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+}
+
 export default function FindingList({
   heading,
   caption,
@@ -241,12 +316,25 @@ export default function FindingList({
   searchPlaceholder?: string;
 }) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(PER_PAGE_DEFAULT);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length === 0) return items;
     return items.filter((i) => i.searchText.toLowerCase().includes(q));
   }, [items, query]);
+
+  // Searching or reloading must not leave you on page 9 of a 2-page result,
+  // which looks exactly like "no findings".
+  const pageCount = Math.max(1, Math.ceil(visible.length / perPage));
+  const current = Math.min(page, pageCount - 1);
+  useEffect(() => { setPage(0); }, [query, items]);
+
+  const shown = useMemo(
+    () => visible.slice(current * perPage, current * perPage + perPage),
+    [visible, current, perPage],
+  );
 
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: 2.5, bgcolor: "#fff", overflow: "hidden" }}>
@@ -334,7 +422,7 @@ export default function FindingList({
 
       {!loading && visible.length > 0 && (
         <Box sx={{ maxHeight, overflowY: "auto" }}>
-          {visible.map((finding) => (
+          {shown.map((finding) => (
             <FindingRow key={finding.id} finding={finding} />
           ))}
         </Box>
@@ -356,11 +444,15 @@ export default function FindingList({
 
       {!loading && visible.length > 0 && (
         <Box sx={{ px: { xs: 2, md: 3 }, py: 1.75, borderTop: `1px solid ${HAIRLINE}`, bgcolor: SURFACE }}>
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-            {visible.length === items.length
-              ? `${items.length} finding${items.length === 1 ? "" : "s"}`
-              : `${visible.length} of ${items.length} findings`}
-          </Typography>
+          <Pager
+            total={visible.length}
+            filteredFrom={visible.length === items.length ? null : items.length}
+            noun="finding"
+            page={current}
+            perPage={perPage}
+            onPage={setPage}
+            onPerPage={(n) => { setPerPage(n); setPage(0); }}
+          />
         </Box>
       )}
     </Box>

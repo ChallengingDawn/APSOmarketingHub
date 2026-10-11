@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -15,6 +15,7 @@ import Skeleton from "@mui/material/Skeleton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import Search from "@mui/icons-material/Search";
+import { Pager } from "./Finding";
 import { EmptyState, HAIRLINE, INK, MUTED, NUMERIC, SURFACE } from "./ui";
 
 export type SortValue = number | string | null;
@@ -74,6 +75,8 @@ export default function DataTable<T>({
 }: Props<T>) {
   const [sort, setSort] = useState(initialSort);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(25);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,6 +87,17 @@ export default function DataTable<T>({
     const sign = sort.dir === "asc" ? 1 : -1;
     return [...filtered].sort((a, b) => sign * compare(getter(a), getter(b)));
   }, [rows, query, sort, columns, searchText]);
+
+  // Same rule as the finding lists: a search that shortens the result must not
+  // leave you parked on a page that no longer exists.
+  const pageCount = Math.max(1, Math.ceil(visible.length / perPage));
+  const current = Math.min(page, pageCount - 1);
+  useEffect(() => { setPage(0); }, [query, rows]);
+
+  const shown = useMemo(
+    () => visible.slice(current * perPage, current * perPage + perPage),
+    [visible, current, perPage],
+  );
 
   const onSort = (id: string) => {
     setSort((prev) => (prev.id === id ? { id, dir: prev.dir === "asc" ? "desc" : "asc" } : { id, dir: "desc" }));
@@ -200,7 +214,7 @@ export default function DataTable<T>({
                     ))}
                   </TableRow>
                 ))
-              : visible.map((row) => (
+              : shown.map((row) => (
                   <TableRow key={rowKey(row)} sx={{ "&:hover": { bgcolor: "#fafbfc" } }}>
                     {columns.map((col) => (
                       <TableCell
@@ -226,11 +240,15 @@ export default function DataTable<T>({
 
       {!loading && visible.length > 0 && (
         <Box sx={{ px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>
-            {visible.length === rows.length
-              ? `${rows.length} row${rows.length === 1 ? "" : "s"}`
-              : `${visible.length} of ${rows.length} rows`}
-          </Typography>
+          <Pager
+            total={visible.length}
+            filteredFrom={visible.length === rows.length ? null : rows.length}
+            noun="row"
+            page={current}
+            perPage={perPage}
+            onPage={setPage}
+            onPerPage={(n) => { setPerPage(n); setPage(0); }}
+          />
         </Box>
       )}
     </Box>
