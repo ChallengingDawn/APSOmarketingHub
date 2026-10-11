@@ -17,7 +17,7 @@
  * explicit empty state.
  */
 
-export type GscDimension = "query" | "page";
+export type GscDimension = "query" | "page" | "country";
 
 export type GscRow = {
   key: string;
@@ -175,7 +175,8 @@ function parseResponse(payload: unknown): GscApiResponse {
 
   if (payload.ok === true && isRecord(payload.data)) {
     const d = payload.data;
-    const dimension: GscDimension = d.dimension === "page" ? "page" : "query";
+    const dimension: GscDimension =
+      d.dimension === "page" ? "page" : d.dimension === "country" ? "country" : "query";
     return {
       configured: true,
       ok: true,

@@ -45,6 +45,7 @@ import {
   CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, Kicker, MUTED, type Tint,
 } from "@/app/uc/report/ui";
 
+import ByCountry from "./ByCountry";
 import CountryLabels from "./CountryLabels";
 import { useSeoData } from "./SeoData";
 import { SEO_BY_ID } from "./nav";
@@ -247,8 +248,14 @@ export default function Overview() {
       {/* Above the queue deliberately. It is one fault, not 187, and it is
           worth more than most of them: it decides which of our own homepages
           Google shows in which country. */}
-      <Kicker>Country labels</Kicker>
-      <Box sx={{ mt: 0.5, mb: 4 }}>
+      {/* The two halves of one question. Which homepages Google cannot place,
+          and what that is costing — Italy outearning Switzerland and Germany
+          on a fraction of the spend is the label problem, priced. */}
+      <Kicker>By country</Kicker>
+      <Box sx={{ mt: 0.5, mb: 2 }}>
+        <ByCountry />
+      </Box>
+      <Box sx={{ mb: 4 }}>
         <CountryLabels />
       </Box>
 

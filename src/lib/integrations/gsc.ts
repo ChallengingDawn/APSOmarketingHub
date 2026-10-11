@@ -15,7 +15,7 @@ const PAIR_ROW_LIMIT = 500;
 const MAX_ROW_LIMIT = 500;
 const MAX_DAYS = 490;
 
-export type GscDimension = "query" | "page";
+export type GscDimension = "query" | "page" | "country";
 
 export type GscRow = {
   key: string;
@@ -58,7 +58,7 @@ function num(value: unknown): number | null {
 }
 
 export function isGscDimension(value: unknown): value is GscDimension {
-  return value === "query" || value === "page";
+  return value === "query" || value === "page" || value === "country";
 }
 
 export async function fetchGscQueries(params: {

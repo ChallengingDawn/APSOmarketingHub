@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
+import { fetchPageHtml } from "@/lib/geo/fetchPage";
 import {
   LOCALE_HOMEPAGES, checkLocale, homepageUrl, verdictOf, type LocaleCheck,
 } from "@/lib/seo/hreflang";
@@ -36,27 +37,24 @@ async function writeCache(value: Cached): Promise<void> {
   );
 }
 
+/**
+ * One homepage, read through the GEO auditor's fetcher rather than a fetch of
+ * our own.
+ *
+ * The first version here did hand-roll it, and all fourteen pages came back
+ * "terminated" — because apsoparts.com serves a malformed chunked body that
+ * Node's strict HTTP parser refuses, and because an unread redirect body
+ * poisons the next request to the same origin. fetchPageHtml already solves
+ * both, having met them on this same site.
+ *
+ * A page we could not read is reported as unreadable, never as a fault. "The
+ * shop was restarting" and "this page is missing from the cluster" lead to
+ * completely different afternoons.
+ */
 async function readPage(locale: string): Promise<LocaleCheck> {
   const url = homepageUrl(ORIGIN, locale);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PER_PAGE_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "APSOmarketingHub/1.0 (+hreflang self-check)" },
-    });
-    if (!res.ok) return checkLocale(locale, url, null, `HTTP ${res.status}`);
-    return checkLocale(locale, url, await res.text(), null);
-  } catch (e) {
-    // A page we could not read is reported as unreadable, never as a fault.
-    // "The shop was restarting" and "this page is missing from the cluster"
-    // lead to completely different afternoons.
-    const why = e instanceof Error && e.name === "AbortError" ? "Timed out" : e instanceof Error ? e.message : "Failed";
-    return checkLocale(locale, url, null, why);
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetchPageHtml(url, { scope: "own-sites" }, PER_PAGE_TIMEOUT_MS);
+  return res.ok ? checkLocale(locale, url, res.html, null) : checkLocale(locale, url, null, res.error);
 }
 
 export async function GET(req: NextRequest) {
@@ -72,7 +70,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const checks = await Promise.all(LOCALE_HOMEPAGES.map(readPage));
+  // Sequential, not Promise.all. Fourteen at once is a burst at our own shop
+  // from one IP, which is the shape a WAF is built to stop, and the hop-to-hop
+  // connection reuse these fetches depend on does not survive it.
+  const checks: LocaleCheck[] = [];
+  for (const locale of LOCALE_HOMEPAGES) checks.push(await readPage(locale));
   const at = new Date().toISOString();
   await writeCache({ at, checks }).catch(() => {});
 
