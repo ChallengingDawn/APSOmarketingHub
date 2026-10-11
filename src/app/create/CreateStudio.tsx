@@ -245,6 +245,7 @@ export default function CreateStudio({
   initialBrief,
   projectId,
   projectTitle,
+  initialType,
 }: {
   initialChannel?: string;
   /** Prefilled from a SEO quick win or a decayed page worth refreshing. */
@@ -254,6 +255,8 @@ export default function CreateStudio({
   /** Set when the studio was opened from a project board. */
   projectId?: number;
   projectTitle?: string;
+  /** Chosen on the home screen, so the studio opens on the right shape. */
+  initialType?: string;
 }) {
   const [brain, setBrain] = useState<Brain | null>(null);
 
@@ -263,6 +266,10 @@ export default function CreateStudio({
   // it is now derived from the type rather than chosen separately, so the two
   // cannot contradict each other.
   const [contentType, setContentType] = useState(() => {
+    // What the home screen chose wins: somebody pressed a tile saying "SEO
+    // landing page" and the studio opening on a LinkedIn post would be the
+    // tool forgetting the only thing they told it.
+    if (initialType && CONTENT_BY_KEY[initialType]) return initialType;
     const byChannel = CONTENT_TYPES.find((t) => t.channel === initialChannel);
     return byChannel?.key ?? "linkedin-post";
   });

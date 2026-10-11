@@ -14,13 +14,15 @@ export default async function Page({
     topic?: string;
     /** Arrived from a project board: work saves back there, brief comes from it. */
     project?: string;
+    /** A content type chosen on the home screen, before the studio opened. */
+    type?: string;
     geoPieceId?: string;
     geoScore?: string;
     geoChecks?: string;
     geoFixes?: string;
   }>;
 }) {
-  const { channel, topic, project, geoScore, geoChecks, geoFixes } = await searchParams;
+  const { channel, topic, project, type, geoScore, geoChecks, geoFixes } = await searchParams;
 
   // The project's own brief, fetched server-side so the studio opens with the
   // box already filled. Retyping a brief that is on the screen next door is
@@ -54,6 +56,7 @@ export default async function Page({
       initialBrief={geoBrief}
       projectId={Number.isFinite(projectId) && projectId > 0 ? projectId : undefined}
       projectTitle={projectTitle ?? undefined}
+      initialType={type}
     />
   );
 }
