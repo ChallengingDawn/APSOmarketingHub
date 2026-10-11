@@ -3,11 +3,12 @@
 // CONNECTORS & INTEGRATION - the overview of the Compass sync, and only of it (SARCLA,
 // 10.10.2026: other connectors are not considered here). Four answers at a glance: did
 // the last ERP delivery run through, what came in, did any step fail, and is anybody
-// waiting in the review queue. Then three pictures: the new ERP orders reaching HubSpot
-// each day (is it flowing?), what the sync wrote per run since the hub took over, and
-// what the last run wrote, step by step. Detail lives on the Compass pages.
+// waiting in the review queue. Then four pictures: the new ERP orders reaching HubSpot
+// each day (is it flowing?), the ERP customers waiting for a company and what holds each
+// back, what the sync wrote per run since the hub took over, and what the last run
+// wrote, step by step. Detail lives on the Compass pages.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Grid from "@mui/material/Grid";
 import SyncAltOutlinedIcon from "@mui/icons-material/SyncAltOutlined";
 import CloudDownloadOutlinedIcon from "@mui/icons-material/CloudDownloadOutlined";
@@ -21,6 +22,8 @@ import { GlassCard, KpiTile, Notice } from "@/app/uc/report/ui";
 import { GROUPS, STEPS, stepName, type Group } from "@/lib/connectors/compass";
 import { chainVerdict, lastDelivery } from "@/lib/connectors/snapshot";
 import type { HubChain } from "@/lib/connectors/chainStatus";
+import { useHeld } from "@/app/analytics/AnalyticsData";
+import type { CheckRow, CheckVerdict } from "@/lib/connectors/reviewRule";
 import { ConnectorsPage, TONE, ago, useHubSteps, when, type Snapshot } from "./parts";
 
 /** The hub's own chain, in the connector verdict's shape. */
@@ -34,6 +37,49 @@ function hubVerdict(c: HubChain): ReturnType<typeof chainVerdict> {
 
 /** "2026-10-10" -> "10.10" */
 const dd = (day: string) => `${day.slice(8, 10)}.${day.slice(5, 7)}`;
+
+/** What holds a waiting customer back, in a word or two. */
+function blocker(v: CheckVerdict | undefined): string {
+  if (!v) return "not checked yet";
+  switch (v.kind) {
+    case "linked": return "linked - matches next run";
+    case "can_link": return "found - link it";
+    case "conflict": return "company has another key";
+    case "several": return `${v.ids.length} companies`;
+    case "missing": return "not in HubSpot";
+    default: return "not a customer key";
+  }
+}
+
+/** The ERP customers with revenue but no HubSpot company, the biggest first, and what holds each back. */
+function Waiting({ s }: { s: Snapshot }) {
+  const check = useHeld<{ rows: CheckRow[]; checking: boolean; at: string | null }>("/api/connectors/review", ["overview"]);
+  const verdicts = useMemo(() => {
+    const m = new Map<string, CheckVerdict>();
+    if (check.result?.state === "ok") for (const r of check.result.data.rows) m.set(r.un, r.verdict);
+    return m;
+  }, [check.result]);
+  const waiting = (s.review?.items ?? []).filter((i) => i.status !== "resolved" && i.un)
+    .sort((a, b) => (b.revenue_eur ?? 0) - (a.revenue_eur ?? 0));
+  const found = waiting.filter((i) => verdicts.get(i.un as string)?.kind === "can_link").length;
+  const missing = waiting.filter((i) => verdicts.get(i.un as string)?.kind === "missing").length;
+  const total = waiting.reduce((a, i) => a + (i.revenue_eur ?? 0), 0);
+  const rows = waiting.slice(0, 10).map((i) => ({
+    label: i.un as string, value: Math.round(i.revenue_eur ?? 0), secondary: blocker(verdicts.get(i.un as string)), href: "/connectors/review",
+  }));
+  return (
+    <ChartFrame
+      title="Companies waiting"
+      caption={waiting.length
+        ? `${waiting.length} ERP customers with € ${full(total)} revenue have no HubSpot company yet${found ? ` - ${found} can be linked in one click` : ""}${missing ? `, ${missing} are not in HubSpot` : ""}. The ten biggest, in euros; click one for the review queue.`
+        : undefined}
+      empty={!waiting.length ? "Nobody is waiting." : null}
+      table={{ columns: ["Customer", "Revenue €", "What holds it back"], rows: waiting.map((i) => [i.un as string, Math.round(i.revenue_eur ?? 0), blocker(verdicts.get(i.un as string))]), numeric: [1] }}
+    >
+      <BarList rows={rows} format={(n) => full(n)} labelWidth={110} />
+    </ChartFrame>
+  );
+}
 
 /** The Compass groups, in the chain page's order - one colour each, never cycled. */
 const AREAS = [...GROUPS].sort((a, b) => a.order - b.order).filter((g) => STEPS.some((x) => x.group === g.key));
@@ -99,18 +145,27 @@ function Overview({ s }: { s: Snapshot }) {
         </Grid>
       </Grid>
 
-      <GlassCard>
-        <ChartFrame
-          title="New ERP orders reaching HubSpot, per day"
-          caption={`The last 30 days, counted in HubSpot: orders created that day that did not come from the shop. A day at zero is a day without an ERP delivery - weekends usually are.${hub?.flow?.at ? ` Counted ${when(hub.flow.at)}.` : ""}`}
-          stale={counting && flow.length > 0}
-          empty={!flow.length ? (hub?.flow?.error ? `Could not count: ${hub.flow.error}` : "Counting in HubSpot…") : null}
-          table={{ columns: ["Day", "New ERP orders"], rows: flow.map((d) => [dd(d.day), d.orders]), numeric: [1] }}
-        >
-          <StackedColumns data={flow.map((d) => ({ x: d.day, orders: d.orders }))} parts={[{ key: "orders", label: "New ERP orders" }]}
-            height={220} format={(n) => full(n)} xFormat={dd} />
-        </ChartFrame>
-      </GlassCard>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, lg: 7 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <ChartFrame
+              title="New ERP orders reaching HubSpot, per day"
+              caption={`The last 30 days, counted in HubSpot: orders created that day that did not come from the shop. A day at zero is a day without an ERP delivery - weekends usually are.${hub?.flow?.at ? ` Counted ${when(hub.flow.at)}.` : ""}`}
+              stale={counting && flow.length > 0}
+              empty={!flow.length ? (hub?.flow?.error ? `Could not count: ${hub.flow.error}` : "Counting in HubSpot…") : null}
+              table={{ columns: ["Day", "New ERP orders"], rows: flow.map((d) => [dd(d.day), d.orders]), numeric: [1] }}
+            >
+              <StackedColumns data={flow.map((d) => ({ x: d.day, orders: d.orders }))} parts={[{ key: "orders", label: "New ERP orders" }]}
+                height={220} format={(n) => full(n)} xFormat={dd} />
+            </ChartFrame>
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 5 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <Waiting s={s} />
+          </GlassCard>
+        </Grid>
+      </Grid>
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 7 }}>
