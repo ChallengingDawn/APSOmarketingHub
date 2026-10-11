@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   benchmarkWindow, windowDates, inWindow, parsePcMonthly, sumMonths, monthTotal, monthsLoaded,
   customerStatus, median, hoursBetween, prioOf, mainAssortment, change, ORDERED_RESOLUTIONS, sturdyMedians,
+  prioBand, categoryBand, visitKind, months12,
 } from "../src/lib/reporting/esoRules";
 
 // Like-for-like: the months of this year that are over, against the same months last year.
@@ -95,4 +96,19 @@ test("a median on too few tickets is left empty", () => {
   assert.deepEqual(sturdyMedians({ cy: many, py: many.slice(0, 19) }).py, null);
   assert.equal(sturdyMedians({ cy: many, py: many.slice(0, 40) }).py, 19.5);
   assert.deepEqual(sturdyMedians({ cy: [], py: [] }), { cy: null, py: null });
+});
+
+test("visits fold into the bands a chart can tell apart", () => {
+  assert.equal(prioBand("Prio 1"), "Prio 1");
+  assert.equal(prioBand("No priority"), "No priority");
+  assert.equal(prioBand("Not set"), "No priority");
+  assert.equal(prioBand(undefined), "No priority");
+  assert.equal(categoryBand("APSOcore"), "APSOcore");
+  assert.equal(categoryBand("APSOlost"), "Other");
+  assert.equal(categoryBand(null), "Other");
+  assert.equal(visitKind("SCHEDULED VISIT"), "Agreed");
+  assert.equal(visitKind("COLD VISIT"), "Cold");
+  assert.equal(visitKind("EVENT VISIT"), "Event");
+  assert.equal(visitKind(""), "Not recorded");
+  assert.equal(months12().length, 12);
 });

@@ -50,8 +50,15 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "eso", name: "ESO Reports", line: "The optimal ESO benchmark - per sales rep, this year against last",
     // The benchmark from SARCLA's CrystalESO deck (src/lib/reporting/esoBenchmark.ts).
+    // Sub-apps in the deck's order, Visits first (SARCLA 12.10); one read, one rep selection.
     reports: [
-      { name: "ESO benchmark", href: "/reporting/eso-benchmark", note: "Per sales rep, this year against last", icon: "bar" },
+      { name: "Visits", href: "/reporting/eso-benchmark/visits", note: "Completed visits per rep and month", icon: "route" },
+      { name: "Customer development", href: "/reporting/eso-benchmark/customers", note: "Active, new, reactivated, lost", icon: "groups" },
+      { name: "New customers", href: "/reporting/eso-benchmark/new-customers", note: "First orders, by type and potential", icon: "target" },
+      { name: "Registrations", href: "/reporting/eso-benchmark/registrations", note: "Shop accounts and what came of them", icon: "verified" },
+      { name: "Revenue & order intake", href: "/reporting/eso-benchmark/revenue", note: "Per rep and month, to last year", icon: "bar" },
+      { name: "Tickets", href: "/reporting/eso-benchmark/tickets", note: "Success, speed and open potential", icon: "description" },
+      { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", note: "Logins, views and orders", icon: "inventory" },
     ],
   },
   {

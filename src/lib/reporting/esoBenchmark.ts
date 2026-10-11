@@ -23,12 +23,16 @@ import { ESO_OWNERS } from "@/lib/datatracker/rosters";
 import {
   MONTHS, MONTH_LABEL, ORDERED_RESOLUTIONS, benchmarkWindow, bump, customerStatus, hoursBetween, inWindow, mainAssortment,
   median, monthTotal, monthsLoaded, pair, parsePcMonthly, prioOf, sturdyMedians, sumMonths, windowDates, type Pair, type Window,
+  categoryBand, months12, prioBand, visitKind,
 } from "./esoRules";
 
-const KEY = "esoBenchmark:v1";
+const KEY = "esoBenchmark:v2";
 const TTL_MS = 12 * 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 const ESO_PIPELINE = "1726599376";
+const VISIT_PIPELINE = "2904105208";
+/** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
+const VISIT_DONE = "3972587738";
 /** The stage a ticket enters when work starts or an offer goes out. */
 const OFFER_STAGE = "3865966812";
 
@@ -62,12 +66,24 @@ export type RepBenchmark = {
     bySource: Record<string, Pair>; byResolution: Record<string, Pair>;
     openByStage: Record<string, { count: number; potential: number }>;
   };
+  /** Completed visits only, by month (index 0 = January), this year against last. */
   visits: {
-    total: Pair; months: number[]; byType: Record<string, number>; byPrio: Record<string, number>; byCategory: Record<string, number>;
-    /** the typical visit: a few visits carry potentials in the millions, which an average would follow */
-    potentialMedian: number | null; companies: number; newAfter: number; boughtAfter: number; registeredAfter: number;
-    revenuePerCompany: number | null;
+    months: Pair[];
+    byPrio: Record<string, Pair[]>;
+    byCategory: Record<string, Pair[]>;
+    /** Agreed (scheduled), cold, event */
+    byKind: Record<string, Pair[]>;
+    /** Sums and counts, so an average holds for any selection of reps. */
+    potential: { visitSum: Pair; visitN: Pair; companySum: Pair; companyN: Pair };
+    companies: Pair;
+    revenueOfVisited: Pair;
+    /** Visits to companies that had never ordered by that day, and what came of them. */
+    newCustomers: { visits: Pair; companies: Pair; registeredAfter: Pair; boughtAfter: Pair; byWay: Record<string, Pair> };
+    /** This year's visits that do not count yet, by stage. */
+    notCompleted: Record<string, number>;
   };
+  /** Raw durations, rounded, so medians can be taken over any selection of reps. */
+  lists: { firstReplyH: { cy: number[]; py: number[] }; offerH: { cy: number[]; py: number[] }; closeD: { cy: number[]; py: number[] }; regDays: { cy: number[]; py: number[] } };
   shop: {
     loggedIn: number; logins: number; views: number; loggedNoView: number; loggedBought: number;
     loggedInPyFull: number; loginsPyFull: number; viewsPyFull: number;
@@ -86,7 +102,7 @@ export type EsoBenchmark = {
   monthLabels: string[];
   team: RepBenchmark;
   reps: RepBenchmark[];
-  coverage: { visitsTotal: number; visitsRoster: number; visitsWithCompany: number; ticketsOffRoster: Pair; registrationsElsewhere: Pair };
+  coverage: { visitsTotal: number; visitsCompleted: number; visitsRoster: number; visitsWithCompany: number; ticketsOffRoster: Pair; registrationsElsewhere: Pair };
   gaps: string[];
 };
 
@@ -140,7 +156,14 @@ function emptyRep(ownerId: string, name: string, months: number): RepBenchmark {
       firstReplyH: { cy: null, py: null }, offerH: { cy: null, py: null }, closeD: { cy: null, py: null },
       bySource: {}, byResolution: {}, openByStage: {},
     },
-    visits: { total: pair(), months: Array(12).fill(0), byType: {}, byPrio: {}, byCategory: {}, potentialMedian: null, companies: 0, newAfter: 0, boughtAfter: 0, registeredAfter: 0, revenuePerCompany: null },
+    visits: {
+      months: months12(), byPrio: {}, byCategory: {}, byKind: {},
+      potential: { visitSum: pair(), visitN: pair(), companySum: pair(), companyN: pair() },
+      companies: pair(), revenueOfVisited: pair(),
+      newCustomers: { visits: pair(), companies: pair(), registeredAfter: pair(), boughtAfter: pair(), byWay: {} },
+      notCompleted: {},
+    },
+    lists: { firstReplyH: { cy: [], py: [] }, offerH: { cy: [], py: [] }, closeD: { cy: [], py: [] }, regDays: { cy: [], py: [] } },
     shop: { loggedIn: 0, logins: 0, views: 0, loggedNoView: 0, loggedBought: 0, loggedInPyFull: 0, loginsPyFull: 0, viewsPyFull: 0, byCategory: {}, orderHistory: { one: 0, two: 0, more: 0 } },
   };
 }
@@ -151,6 +174,8 @@ type Co = {
   owner: string; prio: string; category: string; type: string; potential: number; regWay: string;
   firstOrder: string | null; lastOrder: string | null; totalOrders: number;
   revCy: number; byPcCy: Record<string, number>;
+  /** last year, the same months */
+  revPy: number;
 };
 
 /* ── the build ─────────────────────────────────────────────────────────── */
@@ -219,7 +244,7 @@ async function build(): Promise<EsoBenchmark> {
       owner, prio: prioOf(p.sales_priority), category: p.apso_customer || "Not set", type: p.customer_type || "Not set",
       potential: num(p.yearly_customer_potential), regWay: p.registration_details_eso__company || "",
       firstOrder: p.order_first_order_date ?? null, lastOrder: p.order_last_order_date ?? null, totalOrders: num(p.order_total_orders),
-      revCy: cySum.total, byPcCy: cySum.byPc,
+      revCy: cySum.total, byPcCy: cySum.byPc, revPy: pySame.total,
     };
     companies.set(r.id, co);
     const st = customerStatus({ cy: cySum.total, pySame: pySame.total, pyFull, py2Same, py2Full, firstOrder: co.firstOrder }, w);
@@ -354,10 +379,12 @@ async function build(): Promise<EsoBenchmark> {
     }
   }
 
-  // 4. Customer visits, by the visit's owner.
+  // 4. Customer visits, by the visit's owner. Only a visit whose report is in -
+  // the pipeline's "Visit and Report complete" stage - counts (SARCLA 12.10);
+  // this year's others are named by their stage, not counted.
   const visits: Row[] = [];
   let after: string | undefined;
-  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "annual_need_in__"];
+  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "annual_need_in__", "hs_pipeline_stage"];
   for (let page = 0; page < 500; page++) {
     const r = await hubspotFetchJson<{ results?: Row[]; paging?: { next?: { after?: string } } }>({
       path: `/crm/v3/objects/${VISIT_OBJ}?limit=100&properties=${vProps.join(",")}${after ? `&after=${after}` : ""}`, useTicketsToken: true,
@@ -367,28 +394,33 @@ async function build(): Promise<EsoBenchmark> {
     after = r.paging?.next?.after;
     if (!after) break;
   }
+  const visitStages = await hubspotFetchJson<{ stages?: { id: string; label: string }[] }>({
+    path: `/crm/v3/pipelines/${VISIT_OBJ}/${VISIT_PIPELINE}`, useTicketsToken: true,
+  }).catch(() => ({ stages: [] as { id: string; label: string }[] }));
+  const visitStageLabel = new Map((visitStages.stages ?? []).map((s) => [s.id, s.label.trim()]));
   const inScope = visits.filter((v) => {
     const d = v.properties?.meeting_date_with_time ?? null;
     return inWindow(d, cyWin) || inWindow(d, pyWin);
   });
+  const completed = inScope.filter((v) => v.properties?.hs_pipeline_stage === VISIT_DONE);
   const visitCompany = new Map<string, string>();
-  for (let i = 0; i < inScope.length; i += 100) {
+  for (let i = 0; i < completed.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[] }>({
       path: `/crm/v4/associations/${VISIT_OBJ}/companies/batch/read`, method: "POST", useTicketsToken: true,
-      body: { inputs: inScope.slice(i, i + 100).map((v) => ({ id: v.id })) },
+      body: { inputs: completed.slice(i, i + 100).map((v) => ({ id: v.id })) },
     });
     for (const row of r.results ?? []) {
       const to = row.to?.[0]?.toObjectId;
       if (row.from?.id && to != null) visitCompany.set(String(row.from.id), String(to));
     }
-    reportProgress(KEY, `linking visits to companies · ${Math.min(i + 100, inScope.length).toLocaleString("en")}`);
+    reportProgress(KEY, `linking visits to companies · ${Math.min(i + 100, completed.length).toLocaleString("en")}`);
   }
   // Visited companies an ESO rep does not own still need their facts.
   const missing = [...new Set(visitCompany.values())].filter((id) => !companies.has(id));
   for (let i = 0; i < missing.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/companies/batch/read", method: "POST",
-      body: { inputs: missing.slice(i, i + 100).map((id) => ({ id })), properties: [...BASE, `rev_${year}_pc_monthly`] },
+      body: { inputs: missing.slice(i, i + 100).map((id) => ({ id })), properties: [...BASE, `rev_${year}_pc_monthly`, `rev_${py}_pc_monthly`] },
     });
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
@@ -397,62 +429,75 @@ async function build(): Promise<EsoBenchmark> {
         owner: p.hubspot_owner_id ?? "", prio: prioOf(p.sales_priority), category: p.apso_customer || "Not set", type: p.customer_type || "Not set",
         potential: num(p.yearly_customer_potential), regWay: p.registration_details_eso__company || "",
         firstOrder: p.order_first_order_date ?? null, lastOrder: p.order_last_order_date ?? null, totalOrders: num(p.order_total_orders),
-        revCy: cySum.total, byPcCy: cySum.byPc,
+        revCy: cySum.total, byPcCy: cySum.byPc, revPy: sumMonths(parsePcMonthly(p[`rev_${py}_pc_monthly`]), w.months).total,
       });
     }
     reportProgress(KEY, `reading visited companies · ${Math.min(i + 100, missing.length).toLocaleString("en")}`);
   }
   let visitsRoster = 0;
-  const firstVisit = new Map<string, Map<string, string>>(); // rep -> company -> first visit this year
-  const visitPotential = new Map<string, number[]>();
+  const firstVisit = new Map<string, Map<string, string>>(); // "rep|side" -> company -> first visit in that window
   for (const v of inScope) {
     const p = v.properties ?? {};
     const owner = p.hubspot_owner_id ?? "";
     if (!reps.has(owner)) continue;
-    visitsRoster++;
     const when = p.meeting_date_with_time ?? "";
     const side: "cy" | "py" = inWindow(when, cyWin) ? "cy" : "py";
+    if (p.hs_pipeline_stage !== VISIT_DONE) {
+      if (side === "cy") for (const a of both(owner)) add(a.visits.notCompleted, visitStageLabel.get(p.hs_pipeline_stage ?? "") ?? "No stage");
+      continue;
+    }
+    visitsRoster++;
+    const m = Number(when.slice(5, 7)) - 1;
+    const d = when.slice(0, 10);
     const cid = visitCompany.get(v.id);
     const co = cid ? companies.get(cid) : undefined;
+    const prio = prioBand(co?.prio), cat = categoryBand(co?.category), kind = visitKind(p.type_of_visit);
+    const need = num(p.annual_need_in__);
+    const first = co?.firstOrder?.slice(0, 10) ?? null;
     for (const a of both(owner)) {
-      a.visits.total[side]++;
-      if (side !== "cy") continue;
-      a.visits.months[Number(when.slice(5, 7)) - 1]++;
-      add(a.visits.byType, p.type_of_visit || "Not recorded");
-      add(a.visits.byPrio, co?.prio ?? "No company linked");
-      add(a.visits.byCategory, co?.category ?? "No company linked");
-      const need = num(p.annual_need_in__);
-      if (need > 0) (visitPotential.get(a.ownerId) ?? visitPotential.set(a.ownerId, []).get(a.ownerId)!).push(need);
+      const vv = a.visits;
+      vv.months[m][side]++;
+      (vv.byPrio[prio] ??= months12())[m][side]++;
+      (vv.byCategory[cat] ??= months12())[m][side]++;
+      (vv.byKind[kind] ??= months12())[m][side]++;
+      if (need > 0) { vv.potential.visitSum[side] += need; vv.potential.visitN[side]++; }
+      if (co && co.potential > 0) { vv.potential.companySum[side] += co.potential; vv.potential.companyN[side]++; }
       if (cid && co) {
-        const m = firstVisit.get(a.ownerId) ?? firstVisit.set(a.ownerId, new Map()).get(a.ownerId)!;
-        const d = when.slice(0, 10);
-        if (!m.has(cid) || d < m.get(cid)!) m.set(cid, d);
+        if (!first || first > d) vv.newCustomers.visits[side]++;
+        const key = `${a.ownerId}|${side}`;
+        const fm = firstVisit.get(key) ?? firstVisit.set(key, new Map()).get(key)!;
+        if (!fm.has(cid) || d < fm.get(cid)!) fm.set(cid, d);
       }
     }
   }
+  const WAY: Record<string, string> = {
+    "Meeting before registration": "Registered after the visit",
+    "Registered before meeting": "Registered on their own, before the visit",
+  };
   for (const a of [team, ...reps.values()]) {
-    const pots = visitPotential.get(a.ownerId) ?? [];
-    a.visits.potentialMedian = median(pots);
-    const m = firstVisit.get(a.ownerId) ?? new Map<string, string>();
-    let revenue = 0;
-    for (const [cid, d] of m) {
-      const co = companies.get(cid)!;
-      a.visits.companies++;
-      revenue += co.revCy;
-      const first = co.firstOrder?.slice(0, 10) ?? null;
-      if (first && first > d) a.visits.newAfter++;
-      if (co.lastOrder && co.lastOrder.slice(0, 10) > d) a.visits.boughtAfter++;
-      if (co.regWay === "Meeting before registration") a.visits.registeredAfter++;
+    for (const side of ["cy", "py"] as const) {
+      const win = side === "cy" ? cyWin : pyWin;
+      for (const [cid, d] of firstVisit.get(`${a.ownerId}|${side}`) ?? new Map<string, string>()) {
+        const co = companies.get(cid)!;
+        a.visits.companies[side]++;
+        a.visits.revenueOfVisited[side] += side === "cy" ? co.revCy : co.revPy;
+        const first = co.firstOrder?.slice(0, 10) ?? null;
+        if (first && first <= d) continue; // already a customer when visited
+        const nc = a.visits.newCustomers;
+        nc.companies[side]++;
+        bump(nc.byWay, WAY[co.regWay] ?? "Not registered", side);
+        if (co.regWay === "Meeting before registration") nc.registeredAfter[side]++;
+        if (first && first > d && first < win.to) nc.boughtAfter[side]++;
+      }
     }
-    a.visits.revenuePerCompany = m.size ? revenue / m.size : null;
   }
   // This year's new customers who were visited before their first order.
   for (const [cid, co] of companies) {
     const first = co.firstOrder?.slice(0, 10) ?? null;
-    if (!first || !inWindow(first, cyWin)) continue;
+    if (!first || !inWindow(first, cyWin) || !reps.has(co.owner)) continue;
     for (const a of both(co.owner)) {
-      const d = firstVisit.get(a.ownerId)?.get(cid);
-      if (d && d < first && reps.has(co.owner)) a.newCustomers.visitedBefore++;
+      const d = firstVisit.get(`${a.ownerId}|cy`)?.get(cid);
+      if (d && d < first) a.newCustomers.visitedBefore++;
     }
   }
 
@@ -465,11 +510,19 @@ async function build(): Promise<EsoBenchmark> {
     a.tickets.offerH = sturdyMedians(l.offer);
     a.tickets.closeD = sturdyMedians(l.close);
     a.registrations.daysToOrder = sturdyMedians(l.regDays);
+    // The team's medians are above; a rep's raw durations go out too, so the
+    // page can take a median over any selection of reps.
+    if (a.ownerId !== "all") {
+      const r1 = (xs: number[]) => xs.map((x) => Math.round(x * 10) / 10);
+      const both2 = (x: { cy: number[]; py: number[] }) => ({ cy: r1(x.cy), py: r1(x.py) });
+      a.lists = { firstReplyH: both2(l.firstReply), offerH: both2(l.offer), closeD: both2(l.close), regDays: both2(l.regDays) };
+    }
   }
 
   const last = MONTH_LABEL[w.months - 1];
   const gaps = [
-    `Visits have no comparison with last year: HubSpot holds customer visits from 2026 on (${inScope.filter((v) => inWindow(v.properties?.meeting_date_with_time, pyWin)).length} in last year's window).`,
+    `Visits count only when the report is complete (stage "Visit and Report complete"). HubSpot holds visits from 2026 on (${completed.filter((v) => inWindow(v.properties?.meeting_date_with_time, pyWin)).length} completed in last year's window), so last year is near empty.`,
+    "How a customer registered: HubSpot records whether it was before or after the visit; whether the ESO registered them on their behalf is not recorded.",
     "Revenue against forecast: there is no forecast per sales rep, so it is not shown.",
     oiMonths < w.months
       ? `Order intake per company is loaded through ${oiMonths ? MONTH_LABEL[oiMonths - 1] : "no month yet"}; it is compared Jan-${oiMonths ? MONTH_LABEL[oiMonths - 1] : "-"} only, revenue Jan-${last}.`
@@ -488,7 +541,7 @@ async function build(): Promise<EsoBenchmark> {
     generatedAt: new Date().toISOString(),
     window: w0, revenueMonths, oiMonths, monthLabels: MONTH_LABEL,
     team, reps: order,
-    coverage: { visitsTotal: inScope.length, visitsRoster, visitsWithCompany: inScope.filter((v) => visitCompany.has(v.id)).length, ticketsOffRoster, registrationsElsewhere },
+    coverage: { visitsTotal: inScope.length, visitsCompleted: completed.length, visitsRoster, visitsWithCompany: completed.filter((v) => visitCompany.has(v.id)).length, ticketsOffRoster, registrationsElsewhere },
     gaps,
   };
 }

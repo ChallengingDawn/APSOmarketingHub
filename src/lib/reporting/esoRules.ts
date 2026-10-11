@@ -188,3 +188,24 @@ export function sturdyMedians(l: { cy: number[]; py: number[] }): { cy: number |
   const ok = (a: number[], b: number[]) => a.length >= 20 && a.length >= 0.1 * b.length;
   return { cy: ok(l.cy, l.py) ? median(l.cy) : null, py: ok(l.py, l.cy) ? median(l.py) : null };
 }
+
+/** The four priority bands a chart can tell apart: Prio 1-3, everything else together. */
+export function prioBand(prio: string | null | undefined): string {
+  return prio === "Prio 1" || prio === "Prio 2" || prio === "Prio 3" ? prio : "No priority";
+}
+export const PRIO_BANDS = ["Prio 1", "Prio 2", "Prio 3", "No priority"] as const;
+
+/** The customer categories that carry the ESO's work; the rest together as "Other". */
+export function categoryBand(category: string | null | undefined): string {
+  return category === "APSOcore" || category === "APSOgrowth" || category === "APSOprospect" ? category : "Other";
+}
+export const CATEGORY_BANDS = ["APSOcore", "APSOgrowth", "APSOprospect", "Other"] as const;
+
+/** Agreed (scheduled) or cold - the deck's question - from the visit's type. */
+export function visitKind(type: string | null | undefined): string {
+  return type === "SCHEDULED VISIT" ? "Agreed" : type === "COLD VISIT" ? "Cold" : type === "EVENT VISIT" ? "Event" : "Not recorded";
+}
+export const VISIT_KINDS = ["Agreed", "Cold", "Event", "Not recorded"] as const;
+
+/** Twelve months of this-year-against-last. */
+export const months12 = (): Pair[] => Array.from({ length: 12 }, pair);
