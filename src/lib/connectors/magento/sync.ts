@@ -30,9 +30,13 @@ const PP = "2-200042439";
 const WINDOW_DAYS = 30;
 /** The very first sweep reads one day back: 30 days of full orders in one go timed out (11.10.2026). */
 const FIRST_DAYS = 1;
-/** Full orders are big: 20 a page, and up to 90 s for a page. */
-const PAGE_SIZE = 20;
-const MAX_PAGES = 250;
+/**
+ * Full orders are big (~12 KB each): 5 a page, and up to 90 s for a page. From the hub a page of
+ * 20 never came back (read backs of 11.10, 14:02 and 16:08 UTC) while pages of 1-5 always did -
+ * the same page of 20 reaches a laptop in under a second, so it is the path, not the shop.
+ */
+const PAGE_SIZE = 5;
+const MAX_PAGES = 1000;
 const PAGE_TIMEOUT_MS = 90_000;
 /** After a failed sweep, the next one waits this long - a failing request is not repeated every minute. */
 const BACKOFF_MS = 10 * 60_000;
@@ -395,7 +399,7 @@ export async function readBack(days: number): Promise<{ staged: number } | null>
         onPage: async (items, page, total) => {
           await stage(items);
           staged += items.length;
-          if (page === 1 || page % 10 === 0) console.log(`[magento] read back ${days} days: ${staged} of ${total} orders staged`);
+          if (page === 1 || page % 20 === 0) console.log(`[magento] read back ${days} days: ${staged} of ${total} orders staged, ${Math.round((Date.now() - started.getTime()) / 1000)} s`);
         },
       });
       await record(staged, null);
@@ -427,6 +431,7 @@ export type Run = {
   id: string; started_at: string; finished_at: string | null; window_from: string | null; mode: string;
   orders_found: number; orders_written: number; errors: number; ok: boolean; error: string | null; skus: string | null;
 };
+// id as text for the page - ORDER BY must name apsomh_mg_runs.id, or it sorts the text ("999" above "1000")
 const RUN_COLS = "id::text, started_at, finished_at, window_from, mode, orders_found, orders_written, errors, ok, error, skus";
 /** Midnight in Zurich, as the database's instant. */
 const TODAY = "(date_trunc('day', now() AT TIME ZONE 'Europe/Zurich') AT TIME ZONE 'Europe/Zurich')";
@@ -437,7 +442,7 @@ export async function status() {
     getMode(),
     q<{ sync_status: string; n: string }>("SELECT sync_status, count(*)::text AS n FROM apsomh_mg_stage GROUP BY 1"),
     q<{ assoc_status: string; n: string }>("SELECT assoc_status, count(*)::text AS n FROM apsomh_mg_stage WHERE assoc_status IS NOT NULL GROUP BY 1"),
-    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE mode <> 'readback' ORDER BY id DESC LIMIT 1`),
+    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE mode <> 'readback' ORDER BY apsomh_mg_runs.id DESC LIMIT 1`),
     q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE sync_status='ok' AND processed_at >= ${TODAY} AND error_msg IS DISTINCT FROM 'written by the old connector'`),
     q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE (payload->>'hs_external_created_date')::bigint >= extract(epoch FROM ${TODAY}) * 1000`),
   ]);
@@ -490,7 +495,7 @@ export async function sweeps(filter: SweepFilter, page = 0, size = 25) {
   await ensureTables();
   const where = filter === "failed" ? "NOT ok" : filter === "busy" ? "(orders_found > 0 OR orders_written > 0 OR errors > 0 OR NOT ok)" : "true";
   const [list, total, today] = await Promise.all([
-    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE ${where} ORDER BY id DESC LIMIT ${size} OFFSET ${page * size}`),
+    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE ${where} ORDER BY apsomh_mg_runs.id DESC LIMIT ${size} OFFSET ${page * size}`),
     q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_runs WHERE ${where}`),
     q<{ sweeps: number; failed: number; found: number; written: number }>(`SELECT count(*)::int AS sweeps, (count(*) FILTER (WHERE NOT ok))::int AS failed,
        COALESCE(sum(orders_found), 0)::int AS found, COALESCE(sum(orders_written), 0)::int AS written
