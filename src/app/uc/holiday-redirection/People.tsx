@@ -42,8 +42,8 @@ function Status({ p }: { p: Person }) {
   );
 }
 
-function DeputyCell({ p, slot, byId, options, canEdit, busy, onChange }: {
-  p: Person; slot: 1 | 2; byId: Map<string, Person>; options: Person[]; canEdit: boolean; busy: boolean;
+function DeputyCell({ p, slot, byId, options, allowed, canEdit, busy, onChange }: {
+  p: Person; slot: 1 | 2; byId: Map<string, Person>; options: Person[]; allowed: Set<string> | null; canEdit: boolean; busy: boolean;
   onChange: (deputy: string | null) => void;
 }) {
   const current = slot === 1 ? p.deputy1 : p.deputy2;
@@ -68,9 +68,16 @@ function DeputyCell({ p, slot, byId, options, canEdit, busy, onChange }: {
         <MenuItem value=""><em>none</em></MenuItem>
         {/* a deputy who is no longer in these teams still shows, so the cell never lies */}
         {current && !d && <MenuItem value={current}>owner {current}</MenuItem>}
-        {options.filter((o) => o.ownerId !== p.ownerId).map((o) => (
-          <MenuItem key={o.ownerId} value={o.ownerId}>{o.name} · {TEAM_LABEL[o.team]}{o.away ? " · away" : ""}</MenuItem>
-        ))}
+        {/* HubSpot's deputy fields only take the owners on their option list; anyone
+            else shows, greyed, with where to add them */}
+        {options.filter((o) => o.ownerId !== p.ownerId).map((o) => {
+          const blocked = !!allowed && !allowed.has(o.ownerId);
+          return (
+            <MenuItem key={o.ownerId} value={o.ownerId} disabled={blocked}>
+              {o.name} · {TEAM_LABEL[o.team]}{o.away ? " · away" : ""}{blocked ? " · not in HubSpot's deputy list" : ""}
+            </MenuItem>
+          );
+        })}
       </Select>
       {state}
     </Box>
@@ -78,7 +85,7 @@ function DeputyCell({ p, slot, byId, options, canEdit, busy, onChange }: {
 }
 
 export default function People() {
-  const [data, setData] = useState<{ people: Person[]; canEdit: boolean } | null>(null);
+  const [data, setData] = useState<{ people: Person[]; canEdit: boolean; allowed: { d1: string[]; d2: string[] } | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -170,6 +177,7 @@ export default function People() {
                   {([1, 2] as const).map((slot) => (
                     <TableCell key={slot} sx={bodyCell}>
                       <DeputyCell p={p} slot={slot} byId={byId} options={people} canEdit={!!data?.canEdit}
+                        allowed={data?.allowed ? new Set(slot === 1 ? data.allowed.d1 : data.allowed.d2) : null}
                         busy={busy === `${p.ownerId}:${slot}`} onChange={(d) => void change(p, slot, d)} />
                     </TableCell>
                   ))}
@@ -184,6 +192,7 @@ export default function People() {
       )}
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 1.25 }}>
         Out of office and absence hours are set by each person in HubSpot (Profile → Working hours). Tickets are moved for ESO only.
+        A deputy has to be on HubSpot&apos;s option list of the deputy field (Settings → Properties → User properties); people who are not show greyed.
       </Typography>
     </GlassCard>
   );

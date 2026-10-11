@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
-import { readPeople, setDeputy } from "@/lib/holiday/people";
+import { readDeputyOptions, readPeople, setDeputy } from "@/lib/holiday/people";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -16,8 +16,8 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const people = await readPeople();
-    return NextResponse.json({ ok: true, data: { people, canEdit: access.role === "admin" || access.canWrite("uc") } });
+    const [people, allowed] = await Promise.all([readPeople(), readDeputyOptions()]);
+    return NextResponse.json({ ok: true, data: { people, allowed, canEdit: access.role === "admin" || access.canWrite("uc") } });
   } catch (err) {
     return NextResponse.json({ ok: false, ...describeIntegrationError(err) });
   }
@@ -48,7 +48,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "The deputy must be someone in ESO, TSA or Back Office." }, { status: 400 });
     }
     const before = slot === 1 ? person.deputy1 : person.deputy2;
-    await setDeputy(person.userObjectId, slot, deputy);
+    try {
+      await setDeputy(person.userObjectId, slot, deputy);
+    } catch (e) {
+      // name the person, not just the owner id, in the "add it in HubSpot" message
+      const who = deputy ? people.find((p) => p.ownerId === deputy)?.name : null;
+      throw who ? new Error(String((e as Error).message).replace(`${deputy} is not`, `${who} (${deputy}) is not`)) : e;
+    }
     await query(
       `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
       [String(access.userId), "holiday.deputy", JSON.stringify({ ownerId, name: person.name, slot, from: before, to: deputy })],

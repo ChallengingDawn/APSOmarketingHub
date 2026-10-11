@@ -65,6 +65,26 @@ function primaryTeam(o: OwnerRow): string | null {
   return (teams.find((t) => t.primary)?.name ?? teams[0]?.name ?? null) || null;
 }
 
+/**
+ * The owners HubSpot allows in each deputy dropdown. ap_deputy_owner_id and
+ * ap_deputy_2_owner_id are dropdown properties with a fixed option list, and a
+ * value outside it is refused (SARCLA 11.10: Jan Kalt, 37053854, "was not one of
+ * the allowed options"). The hub's app cannot change that list - HubSpot offers
+ * no user-schema scope to project apps - so the screen offers only the allowed
+ * owners and says who has to be added in HubSpot. Null when it cannot be read.
+ */
+export async function readDeputyOptions(): Promise<{ d1: string[]; d2: string[] } | null> {
+  try {
+    const [a, b] = await Promise.all(["ap_deputy_owner_id", "ap_deputy_2_owner_id"].map((p) =>
+      hubspotFetchJson<{ options?: { value?: string; hidden?: boolean }[] }>({ path: `/crm/v3/properties/users/${p}` })));
+    const vals = (r: { options?: { value?: string; hidden?: boolean }[] }) =>
+      (r.options ?? []).filter((o) => o.value && !o.hidden).map((o) => String(o.value));
+    return { d1: vals(a), d2: vals(b) };
+  } catch {
+    return null;
+  }
+}
+
 export async function readPeople(nowMs = Date.now()): Promise<Person[]> {
   const owners: OwnerRow[] = [];
   let after: string | undefined;
@@ -148,6 +168,10 @@ export async function setDeputy(userObjectId: string, slot: 1 | 2, deputyOwnerId
     await hubspotFetchJson({ path, method: "PATCH", body });
   } catch (first) {
     const status = (first as { status?: number })?.status;
+    if (/INVALID_OPTION|not one of the allowed options/.test(String((first as Error)?.message ?? ""))) {
+      throw new Error(`${deputyOwnerId} is not in HubSpot's list of allowed deputies for "${property}". Add it in HubSpot - ` +
+        `Settings > Properties > User properties > ${property} > add an option with internal value ${deputyOwnerId} - and pick the person again.`);
+    }
     if (status !== 401 && status !== 403) throw first;
     try {
       await hubspotFetchJson({ path, method: "PATCH", body, useTicketsToken: true });
