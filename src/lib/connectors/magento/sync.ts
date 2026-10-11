@@ -26,8 +26,14 @@ const LOCK = 4_107_210;
 const PIPE = { pipelineId: process.env.MAGENTO_HUBSPOT_PIPELINE ?? "3687945443", pipelineStage: process.env.MAGENTO_HUBSPOT_STAGE ?? "5093087452" };
 const PP = "2-200042439";
 const WINDOW_DAYS = 30;
-const PAGE_SIZE = 100;
-const MAX_PAGES = 50;
+/** The very first sweep reads one day back: 30 days of full orders in one go timed out (11.10.2026). */
+const FIRST_DAYS = 1;
+/** Full orders are big: 20 a page, and up to 90 s for a page. */
+const PAGE_SIZE = 20;
+const MAX_PAGES = 250;
+const PAGE_TIMEOUT_MS = 90_000;
+/** After a failed sweep, the next one waits this long - a failing request is not repeated every minute. */
+const BACKOFF_MS = 10 * 60_000;
 const RETENTION_DAYS = 30;
 const GIVE_UP_HOURS = 24;
 
@@ -120,7 +126,7 @@ async function ordersChangedSince(sinceIso: string): Promise<MagentoOrder[]> {
       `searchCriteria[pageSize]=${PAGE_SIZE}`,
       `searchCriteria[currentPage]=${page}`,
     ].join("&");
-    const r = await magentoGet(`/rest/V1/orders?${qs}`);
+    const r = await magentoGet(`/rest/V1/orders?${qs}`, PAGE_TIMEOUT_MS);
     if (r.status !== 200) throw new Error(`the shop answered ${r.status || "nothing"} to the orders request`);
     const j = (r.json ?? {}) as { items?: MagentoOrder[]; total_count?: number };
     const items = Array.isArray(j.items) ? j.items : [];
@@ -202,13 +208,16 @@ async function sweep(mode: Mode): Promise<SweepResult> {
   await ensureTables();
   const started = new Date();
   const floor = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
+  const out: SweepResult = { mode, found: 0, written: 0, errors: 0 };
+  // a sweep that just failed is not repeated every minute - it waits 10 minutes
+  const prev = (await q<{ ok: boolean; started_at: Date }>("SELECT ok, started_at FROM apsomh_mg_runs ORDER BY id DESC LIMIT 1"))[0];
+  if (prev && !prev.ok && Date.now() - new Date(prev.started_at).getTime() < BACKOFF_MS) return out;
   const last = (await q<{ started_at: Date }>("SELECT started_at FROM apsomh_mg_runs WHERE ok ORDER BY id DESC LIMIT 1"))[0];
-  let since = floor;
+  let since = new Date(Date.now() - FIRST_DAYS * 86_400_000);
   if (last?.started_at) {
     since = new Date(new Date(last.started_at).getTime() - 5 * 60_000);
     if (since < floor) since = floor;
   }
-  const out: SweepResult = { mode, found: 0, written: 0, errors: 0 };
   let skus = "";
   try {
     // STAGE - always

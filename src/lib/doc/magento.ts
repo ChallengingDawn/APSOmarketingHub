@@ -34,7 +34,7 @@ function authHeader(method: string, url: string): string {
   return "OAuth " + Object.keys(oauth).map((key) => pct(key) + '="' + pct(oauth[key]) + '"').join(", ");
 }
 
-function getJsonOnce(url: string): Promise<{ status: number; json: unknown }> {
+function getJsonOnce(url: string, timeoutMs = 25_000): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve) => {
     let u: URL;
     try {
@@ -55,7 +55,7 @@ function getJsonOnce(url: string): Promise<{ status: number; json: unknown }> {
           "Accept-Encoding": "identity",
           Connection: "close",
         },
-        timeout: 25_000,
+        timeout: timeoutMs,
         insecureHTTPParser: true,
       },
       (resp) => {
@@ -92,13 +92,14 @@ async function getJson(url: string): Promise<unknown> {
 /**
  * A GET on the shop's REST API with its HTTP status - for a caller that must tell "nothing
  * new" from "the shop did not answer" (the shop-order sync, connectors/magento/sync.ts).
- * `path` starts with /rest/. 401 is retried twice, like getJson.
+ * `path` starts with /rest/. 401 is retried twice, like getJson. A page of full orders can
+ * take longer than the 25 s the DoC's small reads allow: `timeoutMs` says how long to wait.
  */
-export async function magentoGet(path: string): Promise<{ status: number; json: unknown }> {
+export async function magentoGet(path: string, timeoutMs = 25_000): Promise<{ status: number; json: unknown }> {
   const url = `${magentoKeys().base}${path}`;
   let r: { status: number; json: unknown } = { status: 0, json: null };
   for (let i = 0; i < 3; i++) {
-    r = await getJsonOnce(url);
+    r = await getJsonOnce(url, timeoutMs);
     if (r.status !== 401) return r;
     await new Promise((res) => setTimeout(res, 150 + i * 200));
   }
