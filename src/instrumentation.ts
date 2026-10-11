@@ -32,5 +32,9 @@ export async function register() {
     // Connectors & Integration: each Compass step's latest result, remembered (read-only)
     const { startConnectorsWatch } = await import("./lib/connectors/scheduler");
     startConnectorsWatch();
+    // The shop's web orders into HubSpot every minute - the Magento connector, moved from
+    // APSOAssistant (11.10.2026). Starts in "stage" (reads only) until switched Active.
+    const { startMagentoSync } = await import("./lib/connectors/magento/sync");
+    startMagentoSync();
   }
 }

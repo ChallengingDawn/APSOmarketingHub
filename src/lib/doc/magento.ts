@@ -89,6 +89,22 @@ async function getJson(url: string): Promise<unknown> {
   return null;
 }
 
+/**
+ * A GET on the shop's REST API with its HTTP status - for a caller that must tell "nothing
+ * new" from "the shop did not answer" (the shop-order sync, connectors/magento/sync.ts).
+ * `path` starts with /rest/. 401 is retried twice, like getJson.
+ */
+export async function magentoGet(path: string): Promise<{ status: number; json: unknown }> {
+  const url = `${magentoKeys().base}${path}`;
+  let r: { status: number; json: unknown } = { status: 0, json: null };
+  for (let i = 0; i < 3; i++) {
+    r = await getJsonOnce(url);
+    if (r.status !== 401) return r;
+    await new Promise((res) => setTimeout(res, 150 + i * 200));
+  }
+  return r;
+}
+
 type RawOrder = {
   increment_id: string;
   entity_id?: number;

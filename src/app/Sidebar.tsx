@@ -32,6 +32,7 @@ import PhoneCallbackOutlinedIcon from "@mui/icons-material/PhoneCallbackOutlined
 import DonutSmallIcon from "@mui/icons-material/DonutSmall";
 import ManageAccountsOutlinedIcon from "@mui/icons-material/ManageAccountsOutlined";
 import BeachAccessOutlinedIcon from "@mui/icons-material/BeachAccessOutlined";
+import ShoppingBagOutlinedIcon from "@mui/icons-material/ShoppingBagOutlined";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -222,6 +223,8 @@ const navSections: NavSection[] = [
       { group: "Compass connector", label: "Files & runs", href: "/connectors/files", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Compass connector", label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
       { group: "Compass connector", label: "Review queue", href: "/connectors/review", icon: <GroupsIcon fontSize="small" /> },
+      // the shop's web orders into HubSpot - moved from APSOAssistant (SARCLA, 11.10.2026)
+      { group: "Magento connector", label: "Shop orders", href: "/connectors/magento", icon: <ShoppingBagOutlinedIcon fontSize="small" /> },
     ],
   },
   {

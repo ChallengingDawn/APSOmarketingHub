@@ -159,6 +159,7 @@ export const APPS: HubApp[] = [
       { name: "Files & runs", note: "What the ERP delivered", href: "/connectors/files", icon: "description", ...GREEN },
       { name: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
       { name: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
+      { name: "Shop orders", note: "Web orders from the shop into HubSpot", href: "/connectors/magento", icon: "tag", ...PINK },
     ],
   },
 ];
