@@ -10,6 +10,7 @@
 // same user property the sweep reads, so it takes effect on its next run.
 
 import { hubspotFetchJson } from "../integrations/hubspot";
+import { hubspotToken, ticketsToken } from "../integrations/status";
 
 /** The HubSpot primary teams shown, in this order. */
 export const TEAMS = ["ESO", "TSA", "Backoffice Team"] as const;
@@ -111,9 +112,33 @@ export async function readPeople(nowMs = Date.now()): Promise<Person[]> {
 }
 
 /**
+ * The scopes a token really carries, asked of HubSpot itself (the token-info
+ * endpoint returns the list, never the secret). Null when it cannot be told.
+ */
+async function scopesOf(useTicketsToken: boolean): Promise<string[] | null> {
+  const token = useTicketsToken ? ticketsToken() : hubspotToken();
+  if (!token) return null;
+  try {
+    const r = await hubspotFetchJson<{ scopes?: string[] }>({
+      path: "/oauth/v2/private-apps/get/access-token-info", method: "POST", body: { tokenKey: token },
+    });
+    return Array.isArray(r.scopes) ? r.scopes : null;
+  } catch {
+    return null;
+  }
+}
+
+const said = (e: unknown) => {
+  const st = (e as { status?: number })?.status;
+  return `${st ?? "?"} ${String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 220)}`;
+};
+
+/**
  * Set deputy 1 or 2 of one person (null clears it). Written with the hub's own
- * token; if HubSpot refuses that, with the tickets token. A refusal on both is a
- * missing scope (crm.objects.users.write), and says so.
+ * token; if HubSpot refuses that, with the tickets token. When both refuse, the
+ * error carries what HubSpot said to each AND whether each token holds
+ * crm.objects.users.write - SARCLA re-authorized the app (11.10) and still got
+ * "refused", and a guessed reason was no help.
  */
 export async function setDeputy(userObjectId: string, slot: 1 | 2, deputyOwnerId: string | null): Promise<void> {
   const property = slot === 1 ? "ap_deputy_owner_id" : "ap_deputy_2_owner_id";
@@ -128,11 +153,14 @@ export async function setDeputy(userObjectId: string, slot: 1 | 2, deputyOwnerId
       await hubspotFetchJson({ path, method: "PATCH", body, useTicketsToken: true });
     } catch (second) {
       const st = (second as { status?: number })?.status;
-      if (st === 401 || st === 403) {
-        throw new Error("HubSpot refused the change: the hub's app needs the crm.objects.users.write scope " +
-          "(app-hsmeta.json in hubspot-apsomarketinghub, then hs project upload).");
-      }
-      throw second;
+      if (st !== 401 && st !== 403) throw second;
+      const [hub, tix] = await Promise.all([scopesOf(false), scopesOf(true)]);
+      const has = (s: string[] | null) => (s === null ? "scopes unknown" : s.includes("crm.objects.users.write") ? "HAS crm.objects.users.write" : "does NOT have crm.objects.users.write");
+      const detail = `hub app: ${said(first)} [${has(hub)}]; tickets app: ${said(second)} [${has(tix)}]`;
+      console.warn(`[holiday] deputy write refused - ${detail}`);
+      throw new Error(hub && !hub.includes("crm.objects.users.write")
+        ? `HubSpot refused the change: the hub's token still does not carry crm.objects.users.write - the upload with that scope has not reached it (hs project upload in hubspot-apsomarketinghub, then approve). Details: ${detail}`
+        : `HubSpot refused the change. Details: ${detail}`);
     }
   }
 }

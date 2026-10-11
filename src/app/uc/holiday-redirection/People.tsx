@@ -98,7 +98,11 @@ export default function People() {
   const byId = useMemo(() => new Map(people.map((p) => [p.ownerId, p])), [people]);
   const shown = filter === "all" ? people : people.filter((p) => p.team === filter);
   const count = (t: Team) => people.filter((p) => p.team === t).length;
-  const awayNoCover = people.filter((p) => p.away && ![p.deputy1, p.deputy2].some((d) => d && byId.get(d) && !byId.get(d)!.away));
+  // Only ESO: the sweep moves ESO tickets alone. Back Office and TSA cover is the
+  // workflow's job (SARCLA 11.10: "this is false - Back Office deputies are done by
+  // nature in the workflow"), so warning about them would be wrong.
+  const awayNoCover = people.filter((p) => p.team === "ESO" && p.away
+    && ![p.deputy1, p.deputy2].some((d) => d && byId.get(d) && !byId.get(d)!.away));
 
   const change = async (p: Person, slot: 1 | 2, deputy: string | null) => {
     setBusy(`${p.ownerId}:${slot}`);
@@ -133,7 +137,7 @@ export default function People() {
           ]} />
           {awayNoCover.length > 0 && (
             <Typography sx={{ fontSize: "0.8rem", color: "#a96a12", fontWeight: 600 }}>
-              Away with no deputy who is in: {awayNoCover.map((p) => p.name).join(", ")}
+              ESO away with no deputy who is in - their tickets stay: {awayNoCover.map((p) => p.name).join(", ")}
             </Typography>
           )}
         </Box>
