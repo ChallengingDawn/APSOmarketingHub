@@ -39,6 +39,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
+import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 import {
@@ -46,7 +47,7 @@ import {
 } from "@/app/uc/report/ui";
 
 import ByCountry from "./ByCountry";
-import CountryLabels from "./CountryLabels";
+import CountryLabels, { useHreflang } from "./CountryLabels";
 import { useSeoData } from "./SeoData";
 import { SEO_BY_ID } from "./nav";
 import { actionFor, type SourceCoverage, type WorkSource } from "./queue";
@@ -149,6 +150,8 @@ function CoverageCard({
 
 export default function Overview() {
   const { state, data, queue, retry } = useSeoData();
+  // Owned here so the card below and the work row above read one answer.
+  const labels = useHreflang();
 
   // Search Console being down hides the Search Console half of this page, and
   // nothing else. The country-labels check reads our own live HTML and is
@@ -186,8 +189,8 @@ export default function Overview() {
         ) : null}
 
         <Kicker>Country labels</Kicker>
-        <Box sx={{ mt: 0.5 }}>
-          <CountryLabels />
+        <Box id="country-labels" sx={{ mt: 0.5 }}>
+          <CountryLabels state={labels} />
         </Box>
       </Box>
     );
@@ -235,7 +238,7 @@ export default function Overview() {
         {SOURCE_CARDS.map((card) => {
           const entry = SEO_BY_ID[card.navId];
           return (
-            <Grid key={card.source} size={{ xs: 12, md: 4 }}>
+            <Grid key={card.source} size={{ xs: 12, md: 3 }}>
               <CoverageCard
                 icon={card.icon} tint={card.tint} label={entry.label} blurb={entry.blurb} href={entry.href}
                 coverage={queue ? queue.coverage[card.source] : null}
@@ -243,6 +246,26 @@ export default function Overview() {
             </Grid>
           );
         })}
+
+        {/* The fourth kind of work, and not a keyword one. Four homepages
+            missing from their own hreflang set decide which page Google shows
+            a whole country — which outranks most of what is in the queue. */}
+        <Grid size={{ xs: 12, md: 3 }}>
+          <CoverageCard
+            icon={<TravelExploreIcon />}
+            tint="green"
+            label="Country labels"
+            blurb="Homepages Google cannot place, because they are missing from their own hreflang set."
+            href="#country-labels"
+            coverage={
+              labels.v
+                ? { status: "available", found: labels.v.orphans.length }
+                : labels.failed
+                  ? { status: "unavailable", reason: labels.failed }
+                  : null
+            }
+          />
+        </Grid>
       </Grid>
 
       {/* Above the queue deliberately. It is one fault, not 187, and it is
@@ -255,8 +278,8 @@ export default function Overview() {
       <Box sx={{ mt: 0.5, mb: 2 }}>
         <ByCountry />
       </Box>
-      <Box sx={{ mb: 4 }}>
-        <CountryLabels />
+      <Box id="country-labels" sx={{ mb: 4, scrollMarginTop: 16 }}>
+        <CountryLabels state={labels} />
       </Box>
 
       <Kicker>What to do first</Kicker>

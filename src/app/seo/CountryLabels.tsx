@@ -36,7 +36,12 @@ type Verdict = {
   checked: number; okCount?: number; orphans: Check[]; unreadable: Check[];
 };
 
-export default function CountryLabels() {
+/**
+ * One fetch, two readers: the card below, and the "where the work is" row on
+ * the overview that counts label faults alongside the three analyses. Lifted
+ * into a hook so the overview owns the call and nothing asks twice.
+ */
+export function useHreflang() {
   const [v, setV] = useState<Verdict | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -53,6 +58,11 @@ export default function CountryLabels() {
 
   useEffect(() => { load(false); }, [load]);
 
+  return { v, busy, failed, load };
+}
+
+export default function CountryLabels({ state }: { state: ReturnType<typeof useHreflang> }) {
+  const { v, busy, failed, load } = state;
   const orphans = v?.orphans ?? [];
   const unreadable = v?.unreadable ?? [];
 

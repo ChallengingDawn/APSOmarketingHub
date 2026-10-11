@@ -67,7 +67,14 @@ export default function ByCountry() {
         if (!res.ok) return setError(res.error);
         setRows(res.data.rows);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "The country call failed."));
+      .catch((e: unknown) => {
+        // Changing the window aborts the call in flight. That is the component
+        // working, not failing, and "signal is aborted without reason" printed
+        // above a perfectly good table is pure noise.
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (e instanceof Error && /abort/i.test(e.message)) return;
+        setError(e instanceof Error ? e.message : "The country call failed.");
+      });
     return () => controller.abort();
   }, [win.from, win.to]);
 
