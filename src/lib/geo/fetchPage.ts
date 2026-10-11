@@ -164,7 +164,7 @@ function readBodyLeniently(
  * reported all fourteen homepages as "terminated".
  */
 export type PageHtmlOutcome =
-  | { ok: true; html: string; finalUrl: string; status: number }
+  | { ok: true; html: string; requestedUrl: string; finalUrl: string; status: number }
   | { ok: false; error: string; status?: number };
 
 export async function fetchPageHtml(
@@ -263,7 +263,13 @@ export async function fetchPageHtml(
       html = lenient.html;
     }
 
-    return { ok: true, html, finalUrl: response.url || current.toString(), status: response.status };
+    return {
+      ok: true,
+      html,
+      requestedUrl: checked.url.toString(),
+      finalUrl: response.url || current.toString(),
+      status: response.status,
+    };
   } catch (err) {
     const message =
       err instanceof Error
@@ -277,140 +283,45 @@ export async function fetchPageHtml(
   }
 }
 
+/**
+ * Fetches a page and scores it. The fetching is fetchPageHtml's job - same
+ * guards, same lenient re-read, one implementation - and everything here is
+ * the scoring that makes this an audit rather than a download.
+ */
 export async function auditPageByUrl(
   rawUrl: string,
   policy: UrlPolicy = { scope: "own-sites" }
 ): Promise<PageAuditOutcome> {
-  const checked = validateAuditUrl(rawUrl.slice(0, 2048), policy);
-  if (!checked.ok) return { ok: false, error: checked.error };
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
-
-  try {
-    let current = checked.url;
-    let response: Response | null = null;
-
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const host = await assertPublicHost(current.hostname);
-      if (!host.ok) return { ok: false, error: host.error };
-
-      const res = await fetch(current.toString(), {
-        signal: controller.signal,
-        redirect: "manual",
-        headers: {
-          // Identify the crawler honestly; some edges reject an empty UA.
-          "user-agent": USER_AGENT,
-          accept: "text/html,application/xhtml+xml",
-        },
-      });
-
-      if (!REDIRECT_STATUSES.has(res.status)) {
-        response = res;
-        break;
-      }
-
-      // A redirect's body is never read, and an abandoned body leaves the
-      // connection half-consumed — the next request to that same origin then
-      // fails with "terminated". Cancel it explicitly before the next hop.
-      try {
-        await res.body?.cancel();
-      } catch {
-        /* the body may already be closed; nothing to release */
-      }
-
-      const location = res.headers.get("location");
-      if (!location) {
-        return { ok: false, error: `The page answered ${res.status} with no redirect target.`, status: res.status };
-      }
-      let next: URL;
-      try {
-        next = new URL(location, current);
-      } catch {
-        return { ok: false, error: `The page redirected to "${location}", which is not a valid URL.` };
-      }
-      // The redirect target is judged by the same policy as the typed URL —
-      // scheme, credentials, port, host scope — and its host is resolved and
-      // classified on the next pass of this loop.
-      const revalidated = validateAuditUrl(next.toString(), policy);
-      if (!revalidated.ok) {
-        return { ok: false, error: `Redirect refused: ${revalidated.error}` };
-      }
-      current = revalidated.url;
-
-      if (hop === MAX_REDIRECTS) {
-        return { ok: false, error: `The page redirected more than ${MAX_REDIRECTS} times.` };
-      }
-    }
-
-    if (!response) return { ok: false, error: "The page could not be fetched." };
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: `The page responded ${response.status} ${response.statusText}. Nothing was audited.`,
-        status: response.status,
-      };
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType && !/text\/html|application\/xhtml/i.test(contentType)) {
-      return {
-        ok: false,
-        error: `That URL returned "${contentType.split(";")[0]}" — only HTML pages can be audited.`,
-      };
-    }
-
-    let html: string;
-    try {
-      html = await readCapped(response);
-    } catch (err) {
-      // The headers arrived fine and the body framing is what broke. Read it
-      // once more with the lenient parser rather than reporting "terminated"
-      // for a page every browser renders.
-      if (!isHttpParserError(err)) throw err;
-      const lenient = await readBodyLeniently(current, PAGE_FETCH_TIMEOUT_MS);
-      if (!lenient.ok) {
-        return {
-          ok: false,
-          error: `${lenient.error} (the page's HTTP chunked encoding is malformed, which the strict parser refuses)`,
-        };
-      }
-      html = lenient.html;
-    }
-    const text = htmlToAuditText(html);
-    const audit = auditGeoReadiness(text, { html });
-    const schemaTypes = detectSchemaTypes(html);
-    const dates = extractPageDates(html, text);
-
-    return {
-      ok: true,
-      data: {
-        url: checked.url.toString(),
-        finalUrl: response.url || current.toString(),
-        status: response.status,
-        title: extractTitle(html),
-        words: audit.stats.words,
-        audit,
-        page: {
-          schemaTypes,
-          hasFaqPageSchema: hasFaqPageSchema(schemaTypes),
-          hasArticleSchema: hasArticleSchema(schemaTypes),
-          hasJsonLdBlock: /application\/ld\+json/i.test(html),
-          machineDates: dates.machineDates,
-          visibleDate: dates.visibleDate,
-        },
-      },
-    };
-  } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.name === "AbortError" || err.name === "TimeoutError"
-          ? `The page did not respond within ${PAGE_FETCH_TIMEOUT_MS / 1000} s.`
-          : err.message
-        : "The page could not be fetched.";
-    return { ok: false, error: message };
-  } finally {
-    clearTimeout(timer);
+  const fetched = await fetchPageHtml(rawUrl, policy);
+  if (!fetched.ok) {
+    return fetched.status === undefined
+      ? { ok: false, error: fetched.error }
+      : { ok: false, error: `${fetched.error} Nothing was audited.`, status: fetched.status };
   }
+
+  const { html } = fetched;
+  const text = htmlToAuditText(html);
+  const audit = auditGeoReadiness(text, { html });
+  const schemaTypes = detectSchemaTypes(html);
+  const dates = extractPageDates(html, text);
+
+  return {
+    ok: true,
+    data: {
+      url: fetched.requestedUrl,
+      finalUrl: fetched.finalUrl,
+      status: fetched.status,
+      title: extractTitle(html),
+      words: audit.stats.words,
+      audit,
+      page: {
+        schemaTypes,
+        hasFaqPageSchema: hasFaqPageSchema(schemaTypes),
+        hasArticleSchema: hasArticleSchema(schemaTypes),
+        hasJsonLdBlock: /application\/ld\+json/i.test(html),
+        machineDates: dates.machineDates,
+        visibleDate: dates.visibleDate,
+      },
+    },
+  };
 }
