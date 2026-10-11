@@ -24,11 +24,13 @@ import Divider from "@mui/material/Divider";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import FirstPageIcon from "@mui/icons-material/FirstPage";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Switch from "@mui/material/Switch";
-import TablePagination from "@mui/material/TablePagination";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import Tabs from "@mui/material/Tabs";
 import Link from "@mui/material/Link";
@@ -284,6 +286,42 @@ type OrderedState = OrderedPayload | "loading" | "error" | undefined;
  * views. The order lines know the article, the quantity and the value, and
  * they also cover an order placed by phone.
  */
+/**
+ * The one pager both tables use: where you are, of how many, rows per page, and
+ * first / previous / next. "Next" past what is loaded fetches the next slice
+ * itself - there is no separate "load more" button to find (SARCLA 11.10).
+ */
+function Pager({ page, perPage, shown, total, hasMore, busy, noun, onPage, onPerPage }: {
+  page: number; perPage: number; shown: number; total: number | null; hasMore: boolean; busy: boolean; noun: string;
+  onPage: (p: number) => void; onPerPage: (n: number) => void;
+}) {
+  const count = Math.max(total ?? 0, shown);
+  const from = shown ? page * perPage + 1 : 0;
+  const to = Math.min((page + 1) * perPage, shown);
+  const pages = Math.max(1, Math.ceil(count / perPage));
+  const canNext = (page + 1) * perPage < shown || hasMore;
+  const icon = { fontSize: 20 };
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", px: 2, py: 0.75, borderTop: `1px solid ${HAIRLINE}` }}>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+        <Box component="span" sx={{ color: INK, fontWeight: 700 }}>{full(from)}–{full(to)}</Box>
+        {" "}of {full(count)}{total == null && hasMore ? "+" : ""} {noun}{busy ? " · loading…" : ""}
+      </Typography>
+      <Box sx={{ flex: 1 }} />
+      <Select size="small" value={perPage} onChange={(e) => onPerPage(Number(e.target.value))}
+        sx={{ fontSize: "0.8rem", "& .MuiSelect-select": { py: 0.4 } }} inputProps={{ "aria-label": "Rows per page" }}>
+        {[25, 50, 100].map((n) => <MenuItem key={n} value={n} sx={{ fontSize: "0.82rem" }}>{n} rows</MenuItem>)}
+      </Select>
+      <IconButton size="small" disabled={page === 0} onClick={() => onPage(0)} aria-label="First page"><FirstPageIcon sx={icon} /></IconButton>
+      <IconButton size="small" disabled={page === 0} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeftIcon sx={icon} /></IconButton>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, minWidth: 96, textAlign: "center", whiteSpace: "nowrap" }}>
+        Page {full(page + 1)} of {full(pages)}
+      </Typography>
+      <IconButton size="small" disabled={!canNext || busy} onClick={() => onPage(page + 1)} aria-label="Next page"><ChevronRightIcon sx={icon} /></IconButton>
+    </Box>
+  );
+}
+
 function RecentLines({ lines, ordered }: { lines: ActivityLine[]; ordered: OrderedState }) {
   // Names for everything on this panel, articles and product pages alike. One
   // call when the row opens; a failure costs the names and nothing else.
@@ -1668,19 +1706,8 @@ function EshopActivityPage() {
             </TableBody>
           </Table>
         </Box>
-        <TablePagination
-          component="div"
-          count={visible.length}
-          page={page}
-          onPageChange={(_, p) => setPage(p)}
-          rowsPerPage={perPage}
-          rowsPerPageOptions={[25, 50, 100]}
-          onRowsPerPageChange={(e) => { setPerPage(Number(e.target.value)); setPage(0); }}
-          labelRowsPerPage="Customers per page"
-          labelDisplayedRows={({ from, to, count }) =>
-            `${from}-${to} of ${full(count)}${cursor ? "+" : ""}${loadingMore ? " - loading more" : ""}`}
-          sx={{ borderTop: `1px solid ${HAIRLINE}` }}
-        />
+        <Pager page={page} perPage={perPage} shown={visible.length} total={null} hasMore={!!cursor} busy={loadingMore}
+          noun="customers" onPage={setPage} onPerPage={(n) => { setPerPage(n); setPage(0); }} />
       </GlassCard>
 
       </>
@@ -1766,26 +1793,15 @@ function EshopActivityPage() {
               </TableBody>
             </Table>
           </Box>
-          <TablePagination
-            component="div"
-            count={articleRows.length}
-            page={articlePage}
-            onPageChange={(_, p) => setArticlePage(p)}
-            rowsPerPage={articlePerPage}
-            rowsPerPageOptions={[25, 50, 100]}
-            onRowsPerPageChange={(e) => { setArticlePerPage(Number(e.target.value)); setArticlePage(0); }}
-            labelRowsPerPage="Rows"
-            sx={{ borderTop: `1px solid ${HAIRLINE}` }}
-          />
-          {/* Loading the next page from HubSpot, not just turning a page of what
-              is already here - 128,000 articles do not arrive in one read. */}
-          {articles?.after && (
-            <Box sx={{ px: 2, pb: 2 }}>
-              <Button size="small" variant="outlined" onClick={loadMoreArticles} disabled={articlesLoadingMore}>
-                {articlesLoadingMore ? "Reading…" : `Load the next ${full(200)} articles`}
-              </Button>
-            </Box>
-          )}
+          {/* 128,000 articles do not arrive in one read: the total is HubSpot's,
+              and "next" past what is loaded reads the next 200 itself. */}
+          <Pager page={articlePage} perPage={articlePerPage} shown={articleRows.length}
+            total={articles?.total ?? null} hasMore={!!articles?.after} busy={articlesLoadingMore} noun="articles"
+            onPage={(p) => {
+              if (p * articlePerPage >= articleRows.length && articles?.after) void loadMoreArticles().then(() => setArticlePage(p));
+              else setArticlePage(p);
+            }}
+            onPerPage={(n) => { setArticlePerPage(n); setArticlePage(0); }} />
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 2, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
             Hover a column name to see what it counts.
             {articles?.viewsError ? ` The shop figures could not be read: ${articles.viewsError}` : ""}
