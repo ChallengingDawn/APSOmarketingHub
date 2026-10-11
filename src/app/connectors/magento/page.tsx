@@ -73,7 +73,7 @@ function SideBySide({ admin, post }: { admin: boolean; post: ShopCtx["post"] }) 
   return (
     <GlassCard>
       <CardTitle icon={<CompareArrowsIcon />} tint="purple" title="Side-by-side test"
-        note="The newest 200 orders the hub read, against what the old connector wrote into HubSpot - field by field. Read back 7 days first for a full week."
+        note="Every order the hub has read (up to 1,500), against what the old connector wrote into HubSpot - field by field. Read back 7 days first for a full week: it takes a few minutes, and the Sweeps page shows it when done."
         right={
           <Box sx={{ display: "flex", gap: 1 }}>
             {admin && <Button size="small" onClick={() => void post({ action: "readback" })}>Read back 7 days</Button>}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ERP_OWNED_AFTER_LINK, erpLinked, orderSkus, provisionalProps, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
+import { ERP_OWNED_AFTER_LINK, erpLinked, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
 import { erpOwned, fieldNames } from "../src/lib/connectors/magento/fields";
 import { provisionalProps as legacy } from "./fixtures/magentoLegacy";
 
@@ -103,4 +103,11 @@ test("What it writes lists every property the sync can set, and nothing it does 
   for (const k of listed) assert.ok(seen.has(k), `${k} is on the page but never written`);
   for (const k of ERP_OWNED_AFTER_LINK) assert.ok(erpOwned(k), `${k} should show as ERP-owned`);
   assert.ok(erpOwned("order_line_NN_article") && !erpOwned("hs_total_price"));
+});
+
+test("an order HubSpot holds with the shop's latest change counts as written - epoch ms against HubSpot's datetime", () => {
+  assert.ok(same("1791725969000", "2026-10-11T13:39:29Z"), "HubSpot drops the milliseconds of a whole second");
+  assert.ok(same("1791725969000", "2026-10-11T13:39:29.000Z"));
+  assert.ok(!same("1791725970000", "2026-10-11T13:39:29Z"), "a later change in the shop is not written yet");
+  assert.ok(!same("1791725969000", null));
 });

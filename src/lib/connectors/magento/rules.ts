@@ -151,3 +151,14 @@ export function writableProps(props: Props, existing: Parameters<typeof erpLinke
 
 /** "2026-10-11T09:00:00.000Z" -> "2026-10-11 09:00:00" (Magento's filter format). */
 export const magentoTs = (iso: string) => iso.slice(0, 19).replace("T", " ");
+
+/** Two values the same, as HubSpot stores them: numbers as numbers, dates and datetimes as instants. */
+export function same(ours: string, theirs: string | null | undefined): boolean {
+  if (theirs === null || theirs === undefined) return false;
+  if (ours === theirs) return true;
+  const a = Number(ours), b = Number(theirs);
+  if (Number.isFinite(a) && Number.isFinite(b)) return a === b;
+  // ours: epoch ms; HubSpot: "2026-10-10T14:28:03Z" (datetime) or "2026-10-10" (date)
+  if (/^\d{10,}$/.test(ours) && /^\d{4}-\d{2}-\d{2}/.test(theirs)) return Number(ours) === Date.parse(theirs.length === 10 ? `${theirs}T00:00:00Z` : theirs);
+  return ours.trim() === theirs.trim();
+}

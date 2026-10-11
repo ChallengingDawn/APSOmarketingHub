@@ -18,11 +18,13 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { magentoConfigured } from "@/lib/doc/config";
 import { magentoGet } from "@/lib/doc/magento";
-import { magentoTs, orderSkus, provisionalProps, validate, writableProps, type MagentoOrder, type Props } from "./rules";
+import { magentoTs, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
 
 export type Mode = "off" | "stage" | "active";
 const KV_MODE = "connectors:magento:mode";
 const LOCK = 4_107_210;
+/** The read back's own lock: the minute sweeps carry on while it reads a week. */
+const READBACK_LOCK = 4_107_211;
 const PIPE = { pipelineId: process.env.MAGENTO_HUBSPOT_PIPELINE ?? "3687945443", pipelineStage: process.env.MAGENTO_HUBSPOT_STAGE ?? "5093087452" };
 const PP = "2-200042439";
 const WINDOW_DAYS = 30;
@@ -34,6 +36,8 @@ const MAX_PAGES = 250;
 const PAGE_TIMEOUT_MS = 90_000;
 /** After a failed sweep, the next one waits this long - a failing request is not repeated every minute. */
 const BACKOFF_MS = 10 * 60_000;
+/** A page the shop does not answer is asked again after these pauses, before the sweep counts as failed. */
+const PAGE_RETRY_MS = [5_000, 15_000];
 const RETENTION_DAYS = 30;
 const GIVE_UP_HOURS = 24;
 
@@ -96,27 +100,68 @@ export async function getMode(): Promise<Mode> {
 }
 
 /**
- * Switch. Going Active marks what was staged more than 10 minutes ago as handled: the old
- * connector wrote those, and re-writing 30 days of orders would only cost HubSpot calls.
+ * Switch. Going Active marks as handled every staged order HubSpot already holds with the
+ * shop's latest change (hs_external_modified_date): the old connector wrote those, and
+ * writing them again would only cost HubSpot calls. Everything else - an order it never
+ * wrote, or wrote before its last change - stays to be written by the hub. (Until 11.10 this
+ * was "staged more than 10 minutes ago", which would have let a fresh read back rewrite a week.)
+ * If HubSpot cannot be asked, the mode does not change.
  */
-export async function setMode(m: Mode): Promise<{ marked: number }> {
-  let marked = 0;
+export async function setMode(m: Mode): Promise<{ marked: number; toWrite: number }> {
+  let marked = 0, toWrite = 0;
   if (m === "active" && (await getMode()) !== "active") {
     await ensureTables();
-    const r = await getPool().query(
-      `UPDATE apsomh_mg_stage SET sync_status='ok', error_msg='written by the old connector', processed_at=now()
-        WHERE sync_status='pending' AND last_seen < now() - interval '10 minutes'`);
-    marked = r.rowCount ?? 0;
+    const pending = await q<{ entity_id: string; increment_id: string; mod: string | null }>(
+      `SELECT entity_id::text, increment_id, payload->>'hs_external_modified_date' AS mod FROM apsomh_mg_stage
+        WHERE sync_status='pending' AND increment_id IS NOT NULL`);
+    const done: string[] = [];
+    for (let i = 0; i < pending.length; i += 100) {
+      const chunk = pending.slice(i, i + 100);
+      const found = await hubspotFetchJson<{ results?: Found[] }>({
+        path: "/crm/v3/objects/orders/search", method: "POST",
+        body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: chunk.map((r) => r.increment_id) }] }],
+          properties: ["hs_external_order_id", "hs_external_modified_date"], limit: 100 },
+      });
+      const mod = new Map((found.results ?? []).map((o) => [o.properties?.hs_external_order_id ?? "", o.properties?.hs_external_modified_date ?? null]));
+      for (const r of chunk) if (mod.has(r.increment_id) && (!r.mod || same(r.mod, mod.get(r.increment_id)))) done.push(r.entity_id);
+    }
+    if (done.length) {
+      const r = await getPool().query(
+        `UPDATE apsomh_mg_stage SET sync_status='ok', error_msg='written by the old connector', processed_at=now()
+          WHERE sync_status='pending' AND entity_id = ANY($1::bigint[])`, [done]);
+      marked = r.rowCount ?? 0;
+    }
+    toWrite = pending.length - marked;
   }
   await kvSet(KV_MODE, m);
-  return { marked };
+  return { marked, toWrite };
 }
 
 /* ── the shop ──────────────────────────────────────────────────────────── */
 
-async function ordersChangedSince(sinceIso: string): Promise<MagentoOrder[]> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** One page of orders; a page the shop does not answer is asked again (5 s, then 15 s) before it counts as failed. */
+async function ordersPage(path: string): Promise<{ items?: MagentoOrder[]; total_count?: number }> {
+  let r = await magentoGet(path, PAGE_TIMEOUT_MS);
+  for (const wait of PAGE_RETRY_MS) {
+    if (r.status === 200) break;
+    await sleep(wait);
+    r = await magentoGet(path, PAGE_TIMEOUT_MS);
+  }
+  if (r.status !== 200) throw new Error(`the shop answered ${r.status || "nothing"} to the orders request`);
+  return (r.json ?? {}) as { items?: MagentoOrder[]; total_count?: number };
+}
+
+/**
+ * The orders the shop changed since `sinceIso`, oldest first. `onPage` gets each page as it
+ * comes (the read back stages it at once, so a late failure keeps what was read); `pauseMs`
+ * spaces the requests out (the read back's 50-odd pages are not fired back to back).
+ */
+async function ordersChangedSince(sinceIso: string, opts: { onPage?: (items: MagentoOrder[], page: number, total: number) => Promise<void>; pauseMs?: number } = {}): Promise<MagentoOrder[]> {
   const all: MagentoOrder[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
+    if (page > 1 && opts.pauseMs) await sleep(opts.pauseMs);
     const qs = [
       "searchCriteria[filterGroups][0][filters][0][field]=updated_at",
       `searchCriteria[filterGroups][0][filters][0][value]=${encodeURIComponent(sinceIso)}`,
@@ -126,11 +171,10 @@ async function ordersChangedSince(sinceIso: string): Promise<MagentoOrder[]> {
       `searchCriteria[pageSize]=${PAGE_SIZE}`,
       `searchCriteria[currentPage]=${page}`,
     ].join("&");
-    const r = await magentoGet(`/rest/V1/orders?${qs}`, PAGE_TIMEOUT_MS);
-    if (r.status !== 200) throw new Error(`the shop answered ${r.status || "nothing"} to the orders request`);
-    const j = (r.json ?? {}) as { items?: MagentoOrder[]; total_count?: number };
+    const j = await ordersPage(`/rest/V1/orders?${qs}`);
     const items = Array.isArray(j.items) ? j.items : [];
     all.push(...items);
+    if (opts.onPage) await opts.onPage(items, page, j.total_count ?? 0);
     if (items.length < PAGE_SIZE || all.length >= (j.total_count ?? 0)) break;
   }
   return all;
@@ -334,25 +378,35 @@ export async function readBack(days: number): Promise<{ staged: number } | null>
   await ensureTables();
   const client = await getPool().connect();
   try {
-    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
+    // its own lock: one read back at a time, while the minute sweeps go on
+    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [READBACK_LOCK]);
     if (!got.rows[0]?.ok) return null;
     const started = new Date();
+    let staged = 0;
     const since = new Date(Date.now() - Math.min(30, Math.max(1, days)) * 86_400_000);
     // recorded as a run of its own (mode "readback") - the sweeps list shows it, the sweeps' window ignores it
     const record = (found: number, error: string | null) => q(
       `INSERT INTO apsomh_mg_runs (started_at, finished_at, window_from, mode, orders_found, ok, error) VALUES ($1, now(), $2, 'readback', $3, $4, $5)`,
       [started, since, found, !error, error]);
     try {
-      const orders = await ordersChangedSince(magentoTs(since.toISOString()));
-      await stage(orders);
-      await record(orders.length, null);
-      console.log(`[magento] read back ${days} days: ${orders.length} orders staged (nothing written to HubSpot)`);
-      return { staged: orders.length };
+      // each page staged as it comes, so a failure late in the week keeps what was read
+      await ordersChangedSince(magentoTs(since.toISOString()), {
+        pauseMs: 500,
+        onPage: async (items, page, total) => {
+          await stage(items);
+          staged += items.length;
+          if (page === 1 || page % 10 === 0) console.log(`[magento] read back ${days} days: ${staged} of ${total} orders staged`);
+        },
+      });
+      await record(staged, null);
+      console.log(`[magento] read back ${days} days: ${staged} orders staged (nothing written to HubSpot)`);
+      return { staged };
     } catch (e) {
-      await record(0, (e as Error).message.slice(0, 300)).catch(() => {});
+      await record(staged, `${(e as Error).message.slice(0, 250)} - ${staged} orders staged before`).catch(() => {});
+      console.warn(`[magento] read back ${days} days: stopped after ${staged} orders - ${(e as Error).message}`);
       throw e;
     } finally {
-      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+      await client.query("SELECT pg_advisory_unlock($1)", [READBACK_LOCK]).catch(() => {});
     }
   } finally {
     client.release();
@@ -476,28 +530,17 @@ export async function act(entityId: string, action: "retry" | "cancel" | "relink
 
 /* ── the side-by-side test ─────────────────────────────────────────────── */
 
-/** Two values the same, as HubSpot stores them: numbers as numbers, dates and datetimes as instants. */
-function same(ours: string, theirs: string | null | undefined): boolean {
-  if (theirs === null || theirs === undefined) return false;
-  if (ours === theirs) return true;
-  const a = Number(ours), b = Number(theirs);
-  if (Number.isFinite(a) && Number.isFinite(b)) return a === b;
-  // ours: epoch ms; HubSpot: "2026-10-10T14:28:03Z" (datetime) or "2026-10-10" (date)
-  if (/^\d{10,}$/.test(ours) && /^\d{4}-\d{2}-\d{2}/.test(theirs)) return Number(ours) === Date.parse(theirs.length === 10 ? `${theirs}T00:00:00Z` : theirs);
-  return ours.trim() === theirs.trim();
-}
-
 export type Comparison = {
   checked: number; notInHubSpot: number; identical: number; differing: number;
   fields: Record<string, number>; examples: { order: string; field: string; hub: string; hubspot: string | null }[];
 };
 
 /**
- * The newest staged orders against HubSpot: every field the hub would write, compared with
+ * The staged orders (newest first, up to 1,500 - a week read back) against HubSpot: every field the hub would write, compared with
  * what HubSpot holds now - written by the old connector while the hub only reads. An order
  * the ERP has linked is compared on the shop's fields only (rules.ts writableProps).
  */
-export async function compareWithHubSpot(limit = 200): Promise<Comparison> {
+export async function compareWithHubSpot(limit = 1500): Promise<Comparison> {
   await ensureTables();
   const staged = await q<{ increment_id: string; payload: Props }>(
     "SELECT increment_id, payload FROM apsomh_mg_stage WHERE increment_id IS NOT NULL AND payload IS NOT NULL ORDER BY last_seen DESC LIMIT $1", [limit]);
