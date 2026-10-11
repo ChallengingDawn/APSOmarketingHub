@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, Suspense, useEffect, useState } from "react";
 import { SEO_NAV, type SeoRouteId } from "@/app/seo/nav";
+import { REPORT_CATEGORIES } from "@/lib/reporting/categories";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import { usePathname, useSearchParams } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
@@ -151,10 +152,6 @@ const navSections: NavSection[] = [
     icon: <PublicIcon />,
     color: "#2d6fa8",
     items: [
-      { label: "Site overview", href: "/website/overview", icon: <BarChartIcon fontSize="small" /> },
-      { label: "Acquisition", href: "/website/acquisition", icon: <AdsClickIcon fontSize="small" /> },
-      { label: "Audience", href: "/website/audience", icon: <GroupsIcon fontSize="small" /> },
-      { label: "Pages", href: "/website/pages", icon: <LayersIcon fontSize="small" /> },
       { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
       { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
       { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
@@ -190,36 +187,31 @@ const navSections: NavSection[] = [
       { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
       { group: "GEO", label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
       { group: "GEO", label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
-      { group: "Targets", label: "SMEC targets", href: "/analytics/smec", icon: <TrackChangesIcon fontSize="small" /> },
     ],
   },
   {
-    title: "Customer Journey & KPIs",
+    title: "Customer Journey",
     icon: <RouteIcon />,
     color: "#1baf7a",
     items: [
       { label: "The journey", href: "/journey", icon: <RouteIcon fontSize="small" /> },
       { label: "Lifecycle funnels", href: "/journey/funnels", icon: <FilterAltIcon fontSize="small" /> },
-      { label: "KPIs", href: "/journey/kpis", icon: <AccountTreeIcon fontSize="small" /> },
       { label: "Customers", href: "/customers", icon: <HandshakeIcon fontSize="small" /> },
       { label: "Visitors", href: "/customers/visitors", icon: <GroupsIcon fontSize="small" /> },
       { label: "Journeys", href: "/customers/journeys", icon: <RouteIcon fontSize="small" /> },
-      { label: "New customers", href: "/analytics/new-customers", icon: <PersonAddAlt1Icon fontSize="small" /> },
-      { label: "Buying companies", href: "/analytics/buyers", icon: <StorefrontIcon fontSize="small" /> },
-      { label: "Contact requests", href: "/analytics/contact-requests", icon: <ContactMailIcon fontSize="small" /> },
     ],
   },
   {
-    // One entry, which is the whole app: a section with nothing in it would not
-    // be drawn at all, and then the tile on the front page would open a page
-    // with no way back out of it.
+    // Every report in the hub, by team (SARCLA, 11.10.2026): one group per
+    // category from src/lib/reporting/categories.ts - its reports, or its own
+    // page while it has none, so every category page keeps a sidebar.
     title: "Advanced reporting",
     home: "/reporting",
     icon: <InsightsIcon />,
     color: "#1f6fa8",
-    items: [
-      { label: "Advanced reporting", href: "/reporting", icon: <InsightsIcon fontSize="small" /> },
-    ],
+    items: REPORT_CATEGORIES.flatMap((c) => (c.reports.length
+      ? c.reports.map((r) => ({ group: c.name, label: r.name, href: r.href, icon: <InsightsIcon fontSize="small" /> }))
+      : [{ group: c.name, label: "Overview", href: `/reporting/${c.slug}`, icon: <InsightsIcon fontSize="small" /> }])),
   },
   {
     // Where the data comes from, and what each connection writes to HubSpot.

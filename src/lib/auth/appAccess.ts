@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { getOptionalUser } from "./guard";
-import { APP_KEYS, STARTER_GRANTS, canOpen, canWrite, type AppKey, type Level, type Role } from "./access";
+import { APP_KEYS, STARTER_GRANTS, canWrite, opensApp, type AppKey, type Level, type Role } from "./access";
 
 export type MyAccess = {
   userId: number;
@@ -38,7 +38,7 @@ export async function myAccess(): Promise<MyAccess | null> {
     userId: u.id,
     role,
     grants,
-    canOpen: (app) => canOpen(role, grants[app]),
+    canOpen: (app) => opensApp(role, grants, app),
     canWrite: (app) => canWrite(role, grants[app]),
   };
 }

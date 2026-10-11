@@ -62,15 +62,11 @@ export const APPS: HubApp[] = [
   },
   {
     key: "website",
-    href: "/website/overview",
+    href: "/live",
     name: "Website",
-    line: "What the site does: visits, pages, and who is on it now.",
+    line: "Who is on the site now, and whether we measure it right. Its reports are in Advanced reporting.",
     from: "#2ec29a", to: "#13866a", wash: "rgba(46,194,154,.10)", icon: "globe",
     subs: [
-      { name: "Site overview", note: "Visits, engagement and revenue", href: "/website/overview", icon: "bar", ...BLUE },
-      { name: "Acquisition", note: "Where the visits come from", href: "/website/acquisition", icon: "ads", ...AMBER },
-      { name: "Audience", note: "Who comes, and from where", href: "/website/audience", icon: "groups", ...PINK },
-      { name: "Pages", note: "Which pages carry the traffic", href: "/website/pages", icon: "layers", ...PURPLE },
       { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
       { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
       { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
@@ -99,30 +95,34 @@ export const APPS: HubApp[] = [
   {
     key: "journey",
     href: "/journey",
-    name: "Customer Journey & KPIs",
+    name: "Customer Journey",
     line: "Understand the customer journey and drive performance.",
     from: "#9a7bf0", to: "#6a46c9", wash: "rgba(154,123,240,.10)", icon: "trend",
     subs: [
       { name: "Funnels", note: "Track conversion stages", href: "/journey/funnels", icon: "filter", ...PINK },
-      { name: "KPIs", note: "Measure what matters", href: "/journey/kpis", icon: "bar", ...BLUE },
       { name: "Customers", note: "Journey insights and behaviour", href: "/customers", icon: "groups", ...GREEN },
       { name: "The journey", note: "The whole path, end to end", href: "/journey", icon: "route", ...PURPLE },
       { name: "Visitors", note: "Traffic beside the companies we know", href: "/customers/visitors", icon: "groups", ...TEAL },
-      { name: "SMEC targets", note: "Where the targets stand", href: "/analytics/smec", icon: "target", ...AMBER },
-      { name: "New customers", note: "Who arrived this period", href: "/analytics/new-customers", icon: "groups", ...PINK },
     ],
   },
   {
-    // An app with nothing in it yet, said out loud rather than hidden. The
-    // reports that belong here do not exist, and the four pages that briefly
-    // lived here were Website's all along — so it holds one page, and that page
-    // says what it is waiting for.
+    // Every report in the hub, by team (SARCLA, 11.10.2026) - the categories
+    // come from src/lib/reporting/categories.ts, the one list.
     key: "reporting",
     href: "/reporting",
     name: "Advanced reporting",
-    line: "Reports that cut across the apps. Nothing in it yet.",
+    line: "Every report in the hub, by team.",
     from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
-    subs: [],
+    subs: [
+      { name: "Website Reports", note: "How the site is found and used", href: "/reporting/website", icon: "globe", ...BLUE },
+      { name: "Marketing Reports", note: "Targets and where they stand", href: "/reporting/marketing", icon: "target", ...AMBER },
+      { name: "Customer Reports", note: "KPIs, new and buying customers", href: "/reporting/customers", icon: "groups", ...GREEN },
+      { name: "ESO Reports", note: "The ESO benchmark per sales rep", href: "/reporting/eso", icon: "bar", ...PURPLE },
+      { name: "TSA Reports", note: "Tickets, calls, response times", href: "/reporting/tsa", icon: "route", ...TEAL },
+      { name: "Back-Office Reports", note: "What comes in, how fast it goes", href: "/reporting/back-office", icon: "layers", ...PINK },
+      { name: "OTD Reports", note: "On-time delivery", href: "/reporting/otd", icon: "sync", ...BLUE },
+      { name: "Satisfaction Reports", note: "What customers say", href: "/reporting/satisfaction", icon: "health", ...GREEN },
+    ],
   },
   {
     key: "uc",

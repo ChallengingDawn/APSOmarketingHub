@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
   maySelfRegister, SELF_SIGNUP_ROLE, STARTER_GRANTS, appForPath, adminOnlyPath,
+  opensApp, REPORT_APPS,
 } from "../src/lib/auth/access";
 
 // The two halves must stay apart: the role caps, the grant chooses.
@@ -155,4 +156,30 @@ test("the governance pages are an admin's, app or no app", () => {
   assert.equal(adminOnlyPath("/docs"), false);
   // A near-miss must not match.
   assert.equal(adminOnlyPath("/settings/people-ish"), false);
+});
+
+// Advanced reporting gathers other apps' reports (SARCLA, 11.10.2026): moving
+// a report in must not take it away from the people who had it.
+test("the reports in Advanced reporting keep their own apps", () => {
+  assert.ok(REPORT_APPS.includes("website"));
+  assert.ok(REPORT_APPS.includes("journey"));
+  assert.ok(!REPORT_APPS.includes("reporting"));
+  assert.equal(appForPath("/website/overview"), "website");
+  assert.equal(appForPath("/journey/kpis"), "journey");
+  assert.equal(appForPath("/reporting/eso"), "reporting");
+});
+
+test("Advanced reporting opens for anyone who may open one of its reports", () => {
+  assert.equal(opensApp("viewer", { website: "read" }, "reporting"), true);
+  assert.equal(opensApp("user", { journey: "write" }, "reporting"), true);
+  assert.equal(opensApp("viewer", { reporting: "read" }, "reporting"), true);
+  // ...and only the reporting app widens: Website does not open Customer Journey.
+  assert.equal(opensApp("viewer", { website: "read" }, "journey"), false);
+});
+
+test("Advanced reporting stays shut to a starter account", () => {
+  assert.equal(opensApp("viewer", { ...STARTER_GRANTS }, "reporting"), false);
+  assert.equal(opensApp("viewer", { website: "none", journey: "none" }, "reporting"), false);
+  assert.equal(opensApp("viewer", {}, "reporting"), false);
+  assert.equal(opensApp("admin", {}, "reporting"), true);
 });

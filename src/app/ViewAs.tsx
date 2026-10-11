@@ -19,7 +19,7 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 
-import { effectiveLevel, type Level, type Role } from "@/lib/auth/access";
+import { opensApp, type Level, type Role } from "@/lib/auth/access";
 
 const KEY = "apsohub:view-as";
 
@@ -63,7 +63,7 @@ export function ViewAsProvider({ children }: { children: React.ReactNode }) {
     viewed,
     roleInView: viewed?.role ?? null,
     canOpen: (appKey: string) =>
-      !viewed || effectiveLevel(viewed.role, viewed.access[appKey]) !== "none",
+      !viewed || opensApp(viewed.role, viewed.access, appKey),
     setViewed,
   }), [viewed, setViewed]);
 

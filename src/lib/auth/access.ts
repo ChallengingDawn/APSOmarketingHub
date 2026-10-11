@@ -13,6 +13,8 @@
 // Pure functions, no database — so the rule can be tested, and so the screen
 // that draws it and the guard that enforces it cannot disagree.
 
+import { REPORT_CATEGORIES } from "../reporting/categories";
+
 /** The role as stored. `user` is the editor tier; it predates the name. */
 export type Role = "admin" | "user" | "viewer";
 
@@ -158,8 +160,8 @@ const ROUTES: [string, AppKey][] = [
   ["/analytics/consent", "website"],
   ["/analytics/web-orders", "website"],
 
-  // Advanced reporting has one page so far, and that page says so. It is an
-  // app key with nothing behind it yet rather than a reshuffle of Website's.
+  // Advanced reporting's own pages: the landing and one page per category. The
+  // reports it lists keep their addresses, and so their apps - see opensApp.
   ["/reporting", "reporting"],
 
   // It is named after the hub, but what it draws is the content calendar and
@@ -228,4 +230,33 @@ export function appForPath(pathname: string): AppKey | null {
     }
   }
   return best?.[1] ?? null;
+}
+
+/**
+ * The apps Advanced reporting's reports live in.
+ *
+ * SARCLA, 11.10.2026: Advanced reporting gathers reports that belong to other
+ * apps - Website's report pages, SMEC targets, the customer KPIs. Each keeps
+ * its address, so each keeps its own app and its own guard.
+ */
+export const REPORT_APPS: AppKey[] = [
+  ...new Set(
+    REPORT_CATEGORIES.flatMap((c) => c.reports.map((r) => appForPath(r.href)))
+      .filter((a): a is AppKey => !!a && a !== "reporting"),
+  ),
+];
+
+/**
+ * May this person open this app - the one rule the guard, the front page, the
+ * side panel and "view as" all read.
+ *
+ * It is canOpen on the app's own grant, with one widening: Advanced reporting
+ * also opens for anyone who may open one of the apps its reports live in.
+ * Moving a report in must not take it away from the people who had it, and
+ * almost nobody was ever granted the reporting app while it stood empty. What
+ * they find inside is still only what their grants allow.
+ */
+export function opensApp(role: Role, grants: Partial<Record<string, Level>>, app: string): boolean {
+  if (canOpen(role, grants[app])) return true;
+  return app === "reporting" && REPORT_APPS.some((a) => canOpen(role, grants[a]));
 }
