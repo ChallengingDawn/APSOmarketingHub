@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ERP_OWNED_AFTER_LINK, erpLinked, orderSkus, provisionalProps, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
+import { erpOwned, fieldNames } from "../src/lib/connectors/magento/fields";
 import { provisionalProps as legacy } from "./fixtures/magentoLegacy";
 
 const PIPE = { pipelineId: "3687945443", pipelineStage: "5093087452" };
@@ -91,4 +92,15 @@ test("once the ERP linked an order, its ERP fields are never written again (the 
     assert.equal(w.hs_external_order_id, "20000063963");
   }
   assert.equal(erpLinked({ order_order_number: "web 123" }), false);
+});
+
+test("What it writes lists every property the sync can set, and nothing it does not", () => {
+  const listed = new Set(fieldNames());
+  const r = rng(11102026);
+  const seen = new Set<string>();
+  for (let i = 0; i < 2000; i++) for (const k of Object.keys(provisionalProps(order(r, i), PIPE))) seen.add(k.replace(/^order_line_\d{2}_/, "order_line_NN_"));
+  for (const k of seen) assert.ok(listed.has(k), `${k} is written but not on the page`);
+  for (const k of listed) assert.ok(seen.has(k), `${k} is on the page but never written`);
+  for (const k of ERP_OWNED_AFTER_LINK) assert.ok(erpOwned(k), `${k} should show as ERP-owned`);
+  assert.ok(erpOwned("order_line_NN_article") && !erpOwned("hs_total_price"));
 });

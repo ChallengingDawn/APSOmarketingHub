@@ -196,6 +196,29 @@ async function link(row: { entity_id: string; hs_order_id: string; customer_emai
   return "pending";
 }
 
+/** Put the shop's orders into the staging table - a changed order goes back to "to write". */
+async function stage(orders: MagentoOrder[]): Promise<void> {
+  for (const o of orders) {
+    const props = provisionalProps(o, PIPE);
+    const updated = o.updated_at ? new Date(`${String(o.updated_at).replace(" ", "T")}Z`) : null;
+    await q(
+      `INSERT INTO apsomh_mg_stage
+         (entity_id, increment_id, magento_updated_at, magento_status, currency, grand_total,
+          customer_email, customer_name, mandant, skus, payload, sync_status, last_seen)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'pending',now())
+       ON CONFLICT (entity_id) DO UPDATE SET
+         increment_id=EXCLUDED.increment_id, magento_updated_at=EXCLUDED.magento_updated_at,
+         magento_status=EXCLUDED.magento_status, currency=EXCLUDED.currency, grand_total=EXCLUDED.grand_total,
+         customer_email=EXCLUDED.customer_email, customer_name=EXCLUDED.customer_name, mandant=EXCLUDED.mandant,
+         skus=EXCLUDED.skus, payload=EXCLUDED.payload, last_seen=now(),
+         sync_status = CASE WHEN apsomh_mg_stage.magento_updated_at IS DISTINCT FROM EXCLUDED.magento_updated_at
+                            THEN 'pending' ELSE apsomh_mg_stage.sync_status END`,
+      [o.entity_id, o.increment_id === undefined || o.increment_id === null ? null : String(o.increment_id), updated,
+        o.status ?? null, props.hs_currency_code ?? null, o.grand_total ?? null, o.customer_email ?? null,
+        props.order_customer_name ?? null, props.order_mandant ?? null, orderSkus(o), JSON.stringify(props)]);
+    }
+}
+
 /* ── one sweep ─────────────────────────────────────────────────────────── */
 
 const cetHour = () => (new Date().getUTCHours() + 2) % 24;
@@ -210,9 +233,9 @@ async function sweep(mode: Mode): Promise<SweepResult> {
   const floor = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
   const out: SweepResult = { mode, found: 0, written: 0, errors: 0 };
   // a sweep that just failed is not repeated every minute - it waits 10 minutes
-  const prev = (await q<{ ok: boolean; started_at: Date }>("SELECT ok, started_at FROM apsomh_mg_runs ORDER BY id DESC LIMIT 1"))[0];
+  const prev = (await q<{ ok: boolean; started_at: Date }>("SELECT ok, started_at FROM apsomh_mg_runs WHERE mode <> 'readback' ORDER BY id DESC LIMIT 1"))[0];
   if (prev && !prev.ok && Date.now() - new Date(prev.started_at).getTime() < BACKOFF_MS) return out;
-  const last = (await q<{ started_at: Date }>("SELECT started_at FROM apsomh_mg_runs WHERE ok ORDER BY id DESC LIMIT 1"))[0];
+  const last = (await q<{ started_at: Date }>("SELECT started_at FROM apsomh_mg_runs WHERE ok AND mode <> 'readback' ORDER BY id DESC LIMIT 1"))[0];
   let since = new Date(Date.now() - FIRST_DAYS * 86_400_000);
   if (last?.started_at) {
     since = new Date(new Date(last.started_at).getTime() - 5 * 60_000);
@@ -223,25 +246,7 @@ async function sweep(mode: Mode): Promise<SweepResult> {
     // STAGE - always
     const orders = await ordersChangedSince(magentoTs(since.toISOString()));
     out.found = orders.length;
-    for (const o of orders) {
-      const props = provisionalProps(o, PIPE);
-      const updated = o.updated_at ? new Date(`${String(o.updated_at).replace(" ", "T")}Z`) : null;
-      await q(
-        `INSERT INTO apsomh_mg_stage
-           (entity_id, increment_id, magento_updated_at, magento_status, currency, grand_total,
-            customer_email, customer_name, mandant, skus, payload, sync_status, last_seen)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'pending',now())
-         ON CONFLICT (entity_id) DO UPDATE SET
-           increment_id=EXCLUDED.increment_id, magento_updated_at=EXCLUDED.magento_updated_at,
-           magento_status=EXCLUDED.magento_status, currency=EXCLUDED.currency, grand_total=EXCLUDED.grand_total,
-           customer_email=EXCLUDED.customer_email, customer_name=EXCLUDED.customer_name, mandant=EXCLUDED.mandant,
-           skus=EXCLUDED.skus, payload=EXCLUDED.payload, last_seen=now(),
-           sync_status = CASE WHEN apsomh_mg_stage.magento_updated_at IS DISTINCT FROM EXCLUDED.magento_updated_at
-                              THEN 'pending' ELSE apsomh_mg_stage.sync_status END`,
-        [o.entity_id, o.increment_id === undefined || o.increment_id === null ? null : String(o.increment_id), updated,
-          o.status ?? null, props.hs_currency_code ?? null, o.grand_total ?? null, o.customer_email ?? null,
-          props.order_customer_name ?? null, props.order_mandant ?? null, orderSkus(o), JSON.stringify(props)]);
-    }
+    await stage(orders);
     // PROCESS - Active only
     if (mode === "active") {
       const cap = caps();
@@ -319,38 +324,142 @@ export function startMagentoSync() {
   setInterval(tick, 60_000).unref?.();
 }
 
+/**
+ * Read the shop's orders of the last `days` into the staging table - nothing is written to
+ * HubSpot. For the side-by-side test before a switch: a few hundred orders to compare the
+ * same day instead of waiting for them to come in (SARCLA, 11.10.2026). Under the sync's lock.
+ */
+export async function readBack(days: number): Promise<{ staged: number } | null> {
+  if (!magentoConfigured()) throw new Error("the shop's login (MAGENTO_*) is not set in the hub");
+  await ensureTables();
+  const client = await getPool().connect();
+  try {
+    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
+    if (!got.rows[0]?.ok) return null;
+    const started = new Date();
+    const since = new Date(Date.now() - Math.min(30, Math.max(1, days)) * 86_400_000);
+    // recorded as a run of its own (mode "readback") - the sweeps list shows it, the sweeps' window ignores it
+    const record = (found: number, error: string | null) => q(
+      `INSERT INTO apsomh_mg_runs (started_at, finished_at, window_from, mode, orders_found, ok, error) VALUES ($1, now(), $2, 'readback', $3, $4, $5)`,
+      [started, since, found, !error, error]);
+    try {
+      const orders = await ordersChangedSince(magentoTs(since.toISOString()));
+      await stage(orders);
+      await record(orders.length, null);
+      console.log(`[magento] read back ${days} days: ${orders.length} orders staged (nothing written to HubSpot)`);
+      return { staged: orders.length };
+    } catch (e) {
+      await record(0, (e as Error).message.slice(0, 300)).catch(() => {});
+      throw e;
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+    }
+  } finally {
+    client.release();
+  }
+}
+
 /* ── for the page ──────────────────────────────────────────────────────── */
 
 export type StageRow = {
   entity_id: string; increment_id: string | null; magento_status: string | null; currency: string | null; grand_total: string | null;
   customer_name: string | null; sync_status: string; error_msg: string | null; last_seen: string; processed_at: string | null;
   hs_order_id: string | null; assoc_status: string | null; assoc_retries: number;
+  /** When the order was placed in the shop (epoch ms, as text), and its distinct articles. */
+  placed: string | null; lines: number;
 };
+
+export type Run = {
+  id: string; started_at: string; finished_at: string | null; window_from: string | null; mode: string;
+  orders_found: number; orders_written: number; errors: number; ok: boolean; error: string | null; skus: string | null;
+};
+const RUN_COLS = "id::text, started_at, finished_at, window_from, mode, orders_found, orders_written, errors, ok, error, skus";
+/** Midnight in Zurich, as the database's instant. */
+const TODAY = "(date_trunc('day', now() AT TIME ZONE 'Europe/Zurich') AT TIME ZONE 'Europe/Zurich')";
 
 export async function status() {
   await ensureTables();
-  const [mode, counts, assoc, runs, today] = await Promise.all([
+  const [mode, counts, assoc, runs, today, placed] = await Promise.all([
     getMode(),
     q<{ sync_status: string; n: string }>("SELECT sync_status, count(*)::text AS n FROM apsomh_mg_stage GROUP BY 1"),
     q<{ assoc_status: string; n: string }>("SELECT assoc_status, count(*)::text AS n FROM apsomh_mg_stage WHERE assoc_status IS NOT NULL GROUP BY 1"),
-    q("SELECT id, started_at, finished_at, mode, orders_found, orders_written, errors, ok, error, skus FROM apsomh_mg_runs ORDER BY id DESC LIMIT 20"),
-    q<{ n: string }>("SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE sync_status='ok' AND processed_at >= date_trunc('day', now())"),
+    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE mode <> 'readback' ORDER BY id DESC LIMIT 1`),
+    q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE sync_status='ok' AND processed_at >= ${TODAY} AND error_msg IS DISTINCT FROM 'written by the old connector'`),
+    q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE (payload->>'hs_external_created_date')::bigint >= extract(epoch FROM ${TODAY}) * 1000`),
   ]);
   return {
     mode, configured: magentoConfigured(),
     counts: Object.fromEntries(counts.map((r) => [r.sync_status, Number(r.n)])),
     assoc: Object.fromEntries(assoc.map((r) => [r.assoc_status, Number(r.n)])),
-    runs, writtenToday: Number(today[0]?.n ?? 0),
+    runs, writtenToday: Number(today[0]?.n ?? 0), placedToday: Number(placed[0]?.n ?? 0),
   };
 }
 
-export async function rows(kind: "orders" | "held" | "contacts", page = 0, size = 25): Promise<{ rows: StageRow[]; total: number }> {
+export type Overview = {
+  /** The orders the hub read (last 30 days), by their status in the shop. */
+  shop: { status: string; n: number }[];
+  /** The last 24 hours, hour by hour: orders changed in the shop, written, sweeps that failed. */
+  hours: { hour: string; found: number; written: number; failed: number }[];
+  /** What needs a look: held orders by reason, contacts still missing. */
+  look: { kind: "held" | "contact"; why: string; n: number }[];
+};
+
+export async function overview(): Promise<Overview> {
   await ensureTables();
-  const where = kind === "held" ? "sync_status='error'" : kind === "contacts" ? "assoc_status IN ('pending','failed')" : "true";
-  const cols = "entity_id::text, increment_id, magento_status, currency, grand_total::text, customer_name, sync_status, error_msg, last_seen, processed_at, hs_order_id, assoc_status, assoc_retries";
+  const [shop, hours, look] = await Promise.all([
+    q<{ status: string; n: number }>(`SELECT COALESCE(magento_status, '(none)') AS status, count(*)::int AS n FROM apsomh_mg_stage
+       WHERE last_seen >= now() - interval '30 days' GROUP BY 1 ORDER BY count(*) DESC`),
+    q<{ hour: Date; found: number; written: number; failed: number }>(`SELECT date_trunc('hour', started_at) AS hour, sum(orders_found)::int AS found,
+       sum(orders_written)::int AS written, (count(*) FILTER (WHERE NOT ok))::int AS failed
+       FROM apsomh_mg_runs WHERE started_at >= now() - interval '24 hours' AND mode <> 'readback' GROUP BY 1`),
+    q<{ kind: "held" | "contact"; why: string; n: number }>(`
+       SELECT 'held' AS kind, COALESCE(left(error_msg, 60), 'no reason given') AS why, count(*)::int AS n FROM apsomh_mg_stage WHERE sync_status='error' GROUP BY 2
+       UNION ALL
+       SELECT 'contact', CASE WHEN assoc_status='failed' THEN 'no contact after 24 h' ELSE 'waiting for the contact' END, count(*)::int
+         FROM apsomh_mg_stage WHERE assoc_status IN ('pending','failed') GROUP BY 2`),
+  ]);
+  // every hour of the last 24, the quiet ones too
+  const byHour = new Map(hours.map((h) => [new Date(h.hour).toISOString(), h]));
+  const now = new Date(); now.setUTCMinutes(0, 0, 0);
+  const all = Array.from({ length: 24 }, (_, i) => {
+    const hour = new Date(now.getTime() - (23 - i) * 3_600_000).toISOString();
+    const h = byHour.get(hour);
+    return { hour, found: h?.found ?? 0, written: h?.written ?? 0, failed: h?.failed ?? 0 };
+  });
+  return { shop, hours: all, look: look.sort((a, b) => b.n - a.n) };
+}
+
+export type SweepFilter = "busy" | "failed" | "all";
+
+/** The sweeps, newest first: those that found or wrote something (the minute-by-minute quiet ones hidden), the failed, or all. */
+export async function sweeps(filter: SweepFilter, page = 0, size = 25) {
+  await ensureTables();
+  const where = filter === "failed" ? "NOT ok" : filter === "busy" ? "(orders_found > 0 OR orders_written > 0 OR errors > 0 OR NOT ok)" : "true";
+  const [list, total, today] = await Promise.all([
+    q<Run>(`SELECT ${RUN_COLS} FROM apsomh_mg_runs WHERE ${where} ORDER BY id DESC LIMIT ${size} OFFSET ${page * size}`),
+    q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_runs WHERE ${where}`),
+    q<{ sweeps: number; failed: number; found: number; written: number }>(`SELECT count(*)::int AS sweeps, (count(*) FILTER (WHERE NOT ok))::int AS failed,
+       COALESCE(sum(orders_found), 0)::int AS found, COALESCE(sum(orders_written), 0)::int AS written
+       FROM apsomh_mg_runs WHERE started_at >= ${TODAY} AND mode <> 'readback'`),
+  ]);
+  return { rows: list, total: Number(total[0]?.n ?? 0), today: today[0] ?? { sweeps: 0, failed: 0, found: 0, written: 0 } };
+}
+
+const SYNC_STATES = ["pending", "ok", "error", "cancelled"];
+
+export async function rows(kind: "orders" | "held" | "contacts", page = 0, opts: { state?: string; find?: string } = {}, size = 25): Promise<{ rows: StageRow[]; total: number }> {
+  await ensureTables();
+  const conds = [kind === "held" ? "sync_status='error'" : kind === "contacts" ? "assoc_status IN ('pending','failed')" : "true"];
+  const args: unknown[] = [];
+  if (opts.state && SYNC_STATES.includes(opts.state)) { args.push(opts.state); conds.push(`sync_status=$${args.length}`); }
+  const find = opts.find?.trim();
+  if (find) { args.push(`%${find}%`); conds.push(`(increment_id ILIKE $${args.length} OR customer_name ILIKE $${args.length} OR customer_email ILIKE $${args.length})`); }
+  const where = conds.join(" AND ");
+  const cols = `entity_id::text, increment_id, magento_status, currency, grand_total::text, customer_name, sync_status, error_msg, last_seen, processed_at,
+    hs_order_id, assoc_status, assoc_retries, payload->>'hs_external_created_date' AS placed, COALESCE(array_length(skus, 1), 0) AS lines`;
   const [list, total] = await Promise.all([
-    q<StageRow>(`SELECT ${cols} FROM apsomh_mg_stage WHERE ${where} ORDER BY last_seen DESC LIMIT ${size} OFFSET ${page * size}`),
-    q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE ${where}`),
+    q<StageRow>(`SELECT ${cols} FROM apsomh_mg_stage WHERE ${where} ORDER BY last_seen DESC LIMIT ${size} OFFSET ${page * size}`, args),
+    q<{ n: string }>(`SELECT count(*)::text AS n FROM apsomh_mg_stage WHERE ${where}`, args),
   ]);
   return { rows: list, total: Number(total[0]?.n ?? 0) };
 }

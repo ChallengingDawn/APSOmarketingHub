@@ -237,8 +237,13 @@ const navSections: NavSection[] = [
       { group: "Compass connector", label: "Files & runs", href: "/connectors/files", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Compass connector", label: "What it writes", href: "/connectors/writes", icon: <LayersIcon fontSize="small" /> },
       { group: "Compass connector", label: "Review queue", href: "/connectors/review", icon: <GroupsIcon fontSize="small" /> },
-      // the shop's web orders into HubSpot - moved from APSOAssistant (SARCLA, 11.10.2026)
-      { group: "Magento connector", label: "Shop orders", href: "/connectors/magento", icon: <ShoppingBagOutlinedIcon fontSize="small" /> },
+      // the shop's web orders into HubSpot - moved from APSOAssistant (SARCLA, 11.10.2026),
+      // with the same pages as the Compass connector ("more views like the Compass")
+      { group: "Magento connector", label: "Overview", href: "/connectors/magento", icon: <MonitorHeartIcon fontSize="small" /> },
+      { group: "Magento connector", label: "Orders", href: "/connectors/magento/orders", icon: <ShoppingBagOutlinedIcon fontSize="small" /> },
+      { group: "Magento connector", label: "Sweeps", href: "/connectors/magento/sweeps", icon: <SyncAltIcon fontSize="small" /> },
+      { group: "Magento connector", label: "What it writes", href: "/connectors/magento/writes", icon: <LayersIcon fontSize="small" /> },
+      { group: "Magento connector", label: "Review queue", href: "/connectors/magento/review", icon: <GroupsIcon fontSize="small" /> },
     ],
   },
   {
