@@ -1,10 +1,10 @@
 "use client";
 // May the person (or the person being previewed) open this report's page?
 //
-// Advanced reporting opens for anyone who may open one of its reports (see
-// opensApp), so its pages list only the reports their grants reach - the same
-// rule the side panel draws with. While the answer is loading everything shows:
-// each report's own guard is what refuses, this only stops advertising it.
+// Advanced reporting lists reports that belong to other apps, so its pages show
+// only the ones this person's grants reach - the same rule the side panel draws
+// with. While the answer is loading everything shows: each report's own guard
+// is what refuses, this only stops advertising it.
 
 import { useEffect, useState } from "react";
 import { appForPath } from "@/lib/auth/access";

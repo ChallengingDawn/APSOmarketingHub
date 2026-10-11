@@ -499,7 +499,7 @@ export default function Sidebar() {
   }, []);
 
   const role = viewed?.role ?? acc?.role;
-  const allowed = (item: Item) => {
+  const allowed = (item: Pick<Item, "href" | "adminOnly">) => {
     // The flag says so, or the path does. Two ways to spell the same rule, so a
     // governance page added later is covered without anyone remembering to.
     if ((item.adminOnly || adminOnlyPath(item.href)) && role !== "admin") return false;
@@ -585,7 +585,9 @@ export default function Sidebar() {
                   panel is the app's, and nothing else says there are others. */}
               <Row href="/" icon={<ChevronLeftIcon />} label="All apps" />
               <Box sx={{ mt: 1.25, mb: 2.25 }}>
-                <Row href={activeSection!.home ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong tone={tone} />
+                {/* The app's own page only for those who may open it: Website's
+                    reports sit under Advanced reporting, which is granted apart. */}
+                <Row href={(activeSection!.home && allowed({ href: activeSection!.home }) ? activeSection!.home : visibleItems(activeSection!)[0]?.href) ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong tone={tone} />
               </Box>
             </>
           ) : (
