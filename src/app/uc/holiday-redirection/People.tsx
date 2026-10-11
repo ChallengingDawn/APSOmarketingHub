@@ -20,7 +20,7 @@ import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import { CardTitle, GlassCard, INK, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { LoadingPanel } from "@/app/analytics/Shell";
-import type { Person, Team } from "@/lib/holiday/people";
+import type { DeputyOption, Person, Team } from "@/lib/holiday/people";
 
 const TEAM_LABEL: Record<Team, string> = { ESO: "ESO", TSA: "TSA", "Backoffice Team": "Back Office" };
 type Filter = "all" | Team;
@@ -42,39 +42,44 @@ function Status({ p }: { p: Person }) {
   );
 }
 
-function DeputyCell({ p, slot, byId, options, allowed, canEdit, busy, onChange }: {
-  p: Person; slot: 1 | 2; byId: Map<string, Person>; options: Person[]; allowed: Set<string> | null; canEdit: boolean; busy: boolean;
+function DeputyCell({ p, slot, byId, options, choices, canEdit, busy, onChange }: {
+  p: Person; slot: 1 | 2; byId: Map<string, Person>; options: Person[]; choices: DeputyOption[] | null; canEdit: boolean; busy: boolean;
   onChange: (deputy: string | null) => void;
 }) {
   const current = slot === 1 ? p.deputy1 : p.deputy2;
   const d = current ? byId.get(current) : undefined;
+  // HubSpot's label first ("TSA Team (helpline)"), else the person's name
+  const labelOf = (id: string) => choices?.find((o) => o.value === id)?.label ?? byId.get(id)?.name ?? `owner ${id}`;
   const state = d ? (d.away ? <Chip tint="amber">away</Chip> : <Chip tint="green">in</Chip>) : null;
   if (!canEdit || !p.userObjectId) {
     return (
       <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.84rem", color: current ? INK : MUTED }}>
-          {current ? (d?.name ?? `owner ${current}`) : "none"}
+          {current ? labelOf(current) : "none"}
         </Typography>
         {state}
       </Box>
     );
   }
+  // Exactly HubSpot's choices for this field, in HubSpot's order (SARCLA 11.10:
+  // the hub had offered its own people list, so it disagreed with HubSpot).
+  const list: { value: string; label: string }[] = choices
+    ? choices.filter((o) => o.value !== p.ownerId)
+    : options.filter((o) => o.ownerId !== p.ownerId).map((o) => ({ value: o.ownerId, label: o.name }));
   return (
     <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
       <Select size="small" value={current ?? ""} displayEmpty disabled={busy} onChange={(e) => onChange(e.target.value ? String(e.target.value) : null)}
         sx={{ minWidth: 190, fontSize: "0.84rem", "& .MuiSelect-select": { py: 0.6 } }}
         inputProps={{ "aria-label": `Deputy ${slot} of ${p.name}` }}
-        renderValue={(v) => (v ? byId.get(String(v))?.name ?? `owner ${v}` : <em>none</em>)}>
+        renderValue={(v) => (v ? labelOf(String(v)) : <em>none</em>)}>
         <MenuItem value=""><em>none</em></MenuItem>
-        {/* a deputy who is no longer in these teams still shows, so the cell never lies */}
-        {current && !d && <MenuItem value={current}>owner {current}</MenuItem>}
-        {/* HubSpot's deputy fields only take the owners on their option list; anyone
-            else shows, greyed, with where to add them */}
-        {options.filter((o) => o.ownerId !== p.ownerId).map((o) => {
-          const blocked = !!allowed && !allowed.has(o.ownerId);
+        {/* a value no longer on the list still shows, so the cell never lies */}
+        {current && !list.some((o) => o.value === current) && <MenuItem value={current}>{labelOf(current)}</MenuItem>}
+        {list.map((o) => {
+          const who = byId.get(o.value);
           return (
-            <MenuItem key={o.ownerId} value={o.ownerId} disabled={blocked}>
-              {o.name} · {TEAM_LABEL[o.team]}{o.away ? " · away" : ""}{blocked ? " · not in HubSpot's deputy list" : ""}
+            <MenuItem key={o.value} value={o.value}>
+              {o.label}{who ? ` · ${TEAM_LABEL[who.team]}` : ""}{who?.away ? " · away" : ""}
             </MenuItem>
           );
         })}
@@ -85,7 +90,7 @@ function DeputyCell({ p, slot, byId, options, allowed, canEdit, busy, onChange }
 }
 
 export default function People() {
-  const [data, setData] = useState<{ people: Person[]; canEdit: boolean; allowed: { d1: string[]; d2: string[] } | null } | null>(null);
+  const [data, setData] = useState<{ people: Person[]; canEdit: boolean; allowed: { d1: DeputyOption[]; d2: DeputyOption[] } | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -120,7 +125,7 @@ export default function People() {
         body: JSON.stringify({ ownerId: p.ownerId, slot, deputy }),
       }).then((r) => r.json());
       if (j?.ok) {
-        setNote(`${p.name}: deputy ${slot} is now ${deputy ? byId.get(deputy)?.name ?? deputy : "nobody"}.`);
+        setNote(`${p.name}: deputy ${slot} is now ${deputy ? (data?.allowed ? (slot === 1 ? data.allowed.d1 : data.allowed.d2).find((o) => o.value === deputy)?.label : null) ?? byId.get(deputy)?.name ?? deputy : "nobody"}.`);
         await load();
       } else setNote(j?.error ?? j?.detail ?? "The change was not saved.");
     } catch (e) {
@@ -177,7 +182,7 @@ export default function People() {
                   {([1, 2] as const).map((slot) => (
                     <TableCell key={slot} sx={bodyCell}>
                       <DeputyCell p={p} slot={slot} byId={byId} options={people} canEdit={!!data?.canEdit}
-                        allowed={data?.allowed ? new Set(slot === 1 ? data.allowed.d1 : data.allowed.d2) : null}
+                        choices={data?.allowed ? (slot === 1 ? data.allowed.d1 : data.allowed.d2) : null}
                         busy={busy === `${p.ownerId}:${slot}`} onChange={(d) => void change(p, slot, d)} />
                     </TableCell>
                   ))}
@@ -192,7 +197,7 @@ export default function People() {
       )}
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 1.25 }}>
         Out of office and absence hours are set by each person in HubSpot (Profile → Working hours). Tickets are moved for ESO only.
-        A deputy has to be on HubSpot&apos;s option list of the deputy field (Settings → Properties → User properties); people who are not show greyed.
+        The choices are HubSpot&apos;s own deputy lists (Settings → Properties → User properties); to offer someone else, add them there.
       </Typography>
     </GlassCard>
   );

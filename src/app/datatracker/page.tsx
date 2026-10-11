@@ -104,6 +104,79 @@ const ARTICLE_GROUP: Partial<Record<string, ArticleGroup>> = {
   orders: "erp", companies: "erp", stock: "erp",
 };
 const GROUP_EDGE = { borderLeft: "2px solid #d5deea" };
+
+/**
+ * The Articles table's figure columns. Headers are one short word or two - the
+ * band above says which source they belong to, the hover says how each is
+ * counted (SARCLA 11.10: "a lot of headers, too big").
+ */
+type ArticleCol = { k: ArticleSortKey; h: string; tip: string; g: ArticleGroup; w: number };
+const ARTICLE_COLS: ArticleCol[] = [
+  { k: "views", h: "Looks", g: "shop", w: 76, tip: "How often signed-in customers opened or priced it - \"10 by 9\" is 10 looks by 9 different customers" },
+  { k: "carts", h: "Carted", g: "shop", w: 66, tip: "How many of those looks went into the cart" },
+  { k: "topQty", h: "Max asked", g: "shop", w: 92, tip: "The largest quantity anyone priced it at" },
+  { k: "lastLooked", h: "Last look", g: "shop", w: 112, tip: "When it was last looked at" },
+  { k: "buyersYtd", h: "Buyers", g: "bought", w: 70, tip: "How many different customers ordered it this year" },
+  { k: "qtyYtd", h: "Qty", g: "bought", w: 92, tip: "Total quantity ordered this year, each order counted once" },
+  { k: "qtyPerBuyer", h: "Per buyer", g: "bought", w: 92, tip: "Qty divided by buyers: high = one big buyer, low = many small ones" },
+  { k: "orders", h: "Orders", g: "erp", w: 76, tip: "Orders that ever carried it (ERP, all years)" },
+  { k: "companies", h: "Customers", g: "erp", w: 86, tip: "Customers that ever ordered it (ERP, all years)" },
+  { k: "stock", h: "Stock", g: "erp", w: 96, tip: "What is on the shelf now" },
+];
+/** A folded group shows one column: its label, sorted by its key figure. */
+const ARTICLE_GROUPS: { g: ArticleGroup; band: (asOf: string | null) => string; tip: string; folded: { k: ArticleSortKey; h: string; w: number } }[] = [
+  { g: "shop", band: () => "In the shop · since 2 Oct", tip: "What signed-in customers did in the shop, counted since the capture started on 2 October",
+    folded: { k: "views", h: "Looks", w: 96 } },
+  { g: "bought", band: (asOf) => `Bought this year${asOf ? ` · to ${asOf.slice(8, 10)}.${asOf.slice(5, 7)}.` : ""}`, tip: "From the Articles CY/LY report: each order counted once, this year to date",
+    folded: { k: "qtyPerBuyer", h: "Buyers × qty", w: 120 } },
+  { g: "erp", band: () => "ERP · all time", tip: "Products & Pricing, written from the ERP every night, all years",
+    folded: { k: "orders", h: "Orders", w: 86 } },
+];
+
+/** One figure cell of the Articles table. */
+function articleFigure(a: ArticleRow, k: ArticleSortKey): { text: string; strong: boolean; muted: boolean } {
+  const num = (v: number | null | undefined, unit?: string | null) =>
+    v == null ? "—" : withUnit(v < 10 && !Number.isInteger(v) ? decimal(v, 1) : full(v), unit ?? null);
+  switch (k) {
+    case "views": return { text: a.views ? `${full(a.views)}${a.lookedBy ? ` by ${full(a.lookedBy)}` : ""}` : "—", strong: !!a.views, muted: !a.views };
+    case "lookedBy": return { text: num(a.lookedBy), strong: false, muted: !a.lookedBy };
+    case "carts": return { text: a.carts ? full(a.carts) : "—", strong: !!a.carts, muted: !a.carts };
+    case "topQty": return { text: num(a.topQty, a.salesUnit), strong: false, muted: true };
+    case "lastLooked": return { text: a.lastLooked ? `${a.lastLooked.slice(8, 10)}.${a.lastLooked.slice(5, 7)}. ${a.lastLooked.slice(11, 16)}` : "—", strong: false, muted: true };
+    case "buyersYtd": return { text: num(a.buyersYtd), strong: !!a.buyersYtd, muted: !a.buyersYtd };
+    case "qtyYtd": return { text: a.qtyYtd ? num(a.qtyYtd, a.salesUnit) : a.qtyYtd == null ? "—" : "0", strong: false, muted: !a.qtyYtd };
+    case "qtyPerBuyer": return { text: num(a.qtyPerBuyer, a.salesUnit), strong: !!a.qtyPerBuyer, muted: !a.qtyPerBuyer };
+    case "orders": return { text: full(a.orders), strong: true, muted: false };
+    case "companies": return { text: full(a.companies), strong: false, muted: false };
+    case "stock": return { text: a.stock == null ? "—" : withUnit(full(a.stock), a.stockUnit), strong: false, muted: true };
+    default: return { text: "", strong: false, muted: true };
+  }
+}
+
+/** The folded summary of a group, in one cell. */
+function articleFolded(a: ArticleRow, g: ArticleGroup): string {
+  if (g === "shop") return a.views ? `${full(a.views)}${a.lookedBy ? ` by ${full(a.lookedBy)}` : ""}` : "—";
+  if (g === "bought") return a.buyersYtd ? `${full(a.buyersYtd)} × ${articleFigure(a, "qtyPerBuyer").text}` : a.buyersYtd == null ? "—" : "none";
+  return `${full(a.orders)}`;
+}
+
+/** Which Articles groups are folded - remembered in this browser only. */
+function useFoldedGroups(): [Record<ArticleGroup, boolean>, (g: ArticleGroup) => void] {
+  // ERP starts folded to Orders, so the table fits a laptop screen; a click opens it
+  const [folded, setFolded] = useState<Record<ArticleGroup, boolean>>({ shop: false, bought: false, erp: true });
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("dt:articles:folded") ?? "null");
+      if (v && typeof v === "object") setFolded((cur) => ({ ...cur, ...v }));
+    } catch { /* storage off: everything open */ }
+  }, []);
+  const toggle = (g: ArticleGroup) => setFolded((cur) => {
+    const next = { ...cur, [g]: !cur[g] };
+    try { localStorage.setItem("dt:articles:folded", JSON.stringify(next)); } catch { /* not remembered */ }
+    return next;
+  });
+  return [folded, toggle];
+}
 /** A unit after a number - only the one P&P stores, never one we assume. */
 const withUnit = (text: string, unit: string | null | undefined) => (unit ? `${text} ${unit}` : text);
 
@@ -678,6 +751,7 @@ function EshopActivityPage() {
   const [articleSortDir, setArticleSortDir] = useState<"asc" | "desc">("desc");
   const [articlePage, setArticlePage] = useState(0);
   const [articlePerPage, setArticlePerPage] = useState(25);
+  const [folded, toggleFold] = useFoldedGroups();
   const [articlesLoadingMore, setArticlesLoadingMore] = useState(false);
   // One read behind three tabs: price checks, MOQ and availability all come
   // out of the same shop lines, so asking three times would be three waits for
@@ -1616,103 +1690,78 @@ function EshopActivityPage() {
         <GlassCard sx={{ p: 0, overflow: "hidden" }}>
           {/* Its sort, search and match count sit in the filter bar above. */}
           <Box sx={{ overflowX: "auto" }}>
-            <Table size="small" sx={{ "& td, & th": cell }}>
+            <Table size="small" sx={{ "& td, & th": { ...cell, py: 0.75 } }}>
               <TableHead>
-                {/* "Ordered by" counted customers and so did "Customers", two
-                    columns apart and differently named. They are the same unit -
-                    customers - so they carry the same word, and the band above
-                    says which half of the screen each belongs to. */}
+                {/* The band names the source; click it to fold the group into one column. */}
                 <TableRow>
-                  <TableCell colSpan={4} sx={{ borderBottom: "none" }} />
-                  {([
-                     ["shop", 5, "In the shop · since 2 Oct", "What signed-in customers did in the shop, counted since the capture started on 2 October"],
-                     ["bought", 3, `Bought this year${articles?.boughtAsOf ? ` · to ${articles.boughtAsOf}` : ""}`, "From the Articles CY/LY report: each order counted once, this year to date"],
-                     ["erp", 3, "ERP · all time", "Products & Pricing, written from the ERP every night, all years"],
-                   ] as [ArticleGroup, number, string, string][]).map(([g, span, label, tip]) => (
-                    <TableCell key={g} colSpan={span} align="center" title={tip}
-                      sx={{ ...GROUP_EDGE, bgcolor: GROUP_TONE[g].bg, color: GROUP_TONE[g].ink, borderTop: `3px solid ${GROUP_TONE[g].ink}`,
-                        borderBottom: "none", fontWeight: 800, fontSize: "0.7rem", letterSpacing: "0.06em", textTransform: "uppercase", py: 0.9 }}>
-                      {label}
-                    </TableCell>
-                  ))}
+                  <TableCell sx={{ borderBottom: "none", position: "sticky", left: 0, zIndex: 2, bgcolor: "#fff" }} />
+                  {ARTICLE_GROUPS.map(({ g, band, tip }) => {
+                    const span = folded[g] ? 1 : ARTICLE_COLS.filter((c) => c.g === g).length;
+                    return (
+                      <TableCell key={g} colSpan={span} align="center" title={`${tip} - click to ${folded[g] ? "unfold" : "fold"}`}
+                        onClick={() => toggleFold(g)}
+                        sx={{ ...GROUP_EDGE, cursor: "pointer", userSelect: "none", bgcolor: GROUP_TONE[g].bg, color: GROUP_TONE[g].ink,
+                          borderTop: `3px solid ${GROUP_TONE[g].ink}`, borderBottom: "none", fontWeight: 800, fontSize: "0.68rem",
+                          letterSpacing: "0.05em", textTransform: "uppercase", py: 0.7, whiteSpace: "nowrap" }}>
+                        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.4 }}>
+                          <ExpandMoreIcon sx={{ fontSize: 16, transition: "transform .15s", transform: folded[g] ? "rotate(-90deg)" : "none" }} />
+                          {folded[g] ? band(articles?.boughtAsOf ?? null).split(" · ")[0] : band(articles?.boughtAsOf ?? null)}
+                        </Box>
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
                 <TableRow>
-                  {([["articleNumber", "Article no.", 108], ["description", "Description", 0],
-                     ["mainGroup", "Main group", 152], ["articleType", "Type", 88]] as [ArticleSortKey, string, number][]).map(([k, h, w]) => (
-                    <TableCell key={k} sx={{ ...HEAD, whiteSpace: "nowrap", ...(w ? { width: w } : {}) }}
-                      sortDirection={articleSortKey === k ? articleSortDir : false}>
-                      <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
-                        onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
-                    </TableCell>
-                  ))}
-                  {/* SARCLA 05.10: "Customers" three times was confusing - each header
-                      now says what it counts, and the hover says how. */}
-                  {([
-                     ["views", "Times looked at", 92, "How often signed-in customers opened or priced it in the shop"],
-                     ["lookedBy", "Customers looking", 100, "How many different customers looked at it"],
-                     ["carts", "Put in cart", 82, "How many of those looks went into the cart"],
-                     ["topQty", "Biggest qty asked", 96, "The largest quantity anyone priced it at"],
-                     ["lastLooked", "Last looked at", 124, "When it was last looked at"],
-                     ["buyersYtd", "Customers buying", 100, "How many different customers ordered it this year"],
-                     ["qtyYtd", "Qty bought", 92, "Total quantity ordered this year, each order counted once"],
-                     ["qtyPerBuyer", "Qty per customer", 100, "Qty bought divided by customers buying: high = one big buyer, low = many small ones"],
-                     ["orders", "Orders ever", 86, "Orders that ever carried it (ERP, all years)"],
-                     ["companies", "Customers ever", 96, "Customers that ever ordered it (ERP, all years)"],
-                     ["stock", "Stock now", 110, "What is on the shelf now"],
-                   ] as [ArticleSortKey, string, number, string][]).map(([k, h, w, tip], i) => (
-                    <TableCell key={`${k}-${i}`} align="right" title={tip}
-                      sx={{ ...HEAD, whiteSpace: "normal", lineHeight: 1.25, width: w,
-                        bgcolor: GROUP_TONE[ARTICLE_GROUP[k] ?? "erp"].bg, color: GROUP_TONE[ARTICLE_GROUP[k] ?? "erp"].ink,
-                        ...(k === "views" || k === "buyersYtd" || k === "orders" ? GROUP_EDGE : {}) }}
-                      sortDirection={articleSortKey === k ? articleSortDir : false}>
-                      <TableSortLabel active={articleSortKey === k} direction={articleSortKey === k ? articleSortDir : "asc"}
-                        onClick={() => onArticleSort(k)}>{h}</TableSortLabel>
-                    </TableCell>
-                  ))}
+                  <TableCell sx={{ ...HEAD, whiteSpace: "nowrap", minWidth: 260, position: "sticky", left: 0, zIndex: 2, bgcolor: "#fff", boxShadow: "1px 0 0 #e3e8ef" }}
+                    sortDirection={articleSortKey === "description" ? articleSortDir : false}>
+                    <TableSortLabel active={articleSortKey === "description"} direction={articleSortKey === "description" ? articleSortDir : "asc"}
+                      onClick={() => onArticleSort("description")}>Article</TableSortLabel>
+                  </TableCell>
+                  {ARTICLE_GROUPS.flatMap(({ g, folded: f }) => {
+                    const cols = folded[g] ? [{ ...f, tip: "", g }] : ARTICLE_COLS.filter((c) => c.g === g);
+                    return cols.map((c, i) => (
+                      <TableCell key={`${g}-${c.k}`} align="right" title={c.tip || undefined}
+                        sx={{ ...HEAD, whiteSpace: "nowrap", width: c.w, bgcolor: GROUP_TONE[g].bg, color: GROUP_TONE[g].ink, ...(i === 0 ? GROUP_EDGE : {}) }}
+                        sortDirection={articleSortKey === c.k ? articleSortDir : false}>
+                        <TableSortLabel active={articleSortKey === c.k} direction={articleSortKey === c.k ? articleSortDir : "asc"}
+                          onClick={() => onArticleSort(c.k)} sx={{ "& .MuiTableSortLabel-icon": { fontSize: 14, mx: 0.25 } }}>{c.h}</TableSortLabel>
+                      </TableCell>
+                    ));
+                  })}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {articlePageRows.map((a) => (
                   <TableRow key={a.id} hover>
-                    <TableCell sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.articleNumber ?? "—"}</TableCell>
-                    <TableCell sx={{ color: INK }}>{a.description ?? "—"}</TableCell>
-                    <TableCell sx={{ color: MUTED }}>{a.mainGroup ?? "—"}</TableCell>
-                    <TableCell sx={{ color: MUTED }}>{a.articleType ?? "—"}</TableCell>
-                    {/* What the shop reported, first: it is the live half of this screen. */}
-                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: a.views ? INK : MUTED, fontWeight: a.views ? 700 : 400 }}>
-                      {a.views == null ? "—" : full(a.views)}
+                    {/* the article, read as one thing: what it is, then its number and family */}
+                    <TableCell sx={{ minWidth: 260, maxWidth: 400, position: "sticky", left: 0, zIndex: 1, bgcolor: "#fff", boxShadow: "1px 0 0 #e3e8ef" }}>
+                      <Typography title={a.description ?? ""} sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, lineHeight: 1.3,
+                        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                        {a.description ?? "—"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {[a.articleNumber, a.mainGroup, a.articleType, a.profitCentre].filter(Boolean).join(" · ")}
+                      </Typography>
                     </TableCell>
-                    <TableCell align="right" sx={{ color: a.lookedBy ? INK : MUTED }}>
-                      {a.lookedBy == null ? "—" : full(a.lookedBy)}
-                    </TableCell>
-                    <TableCell align="right" sx={{ color: a.carts ? INK : MUTED, fontWeight: a.carts ? 600 : 400 }}>
-                      {a.carts ? full(a.carts) : "—"}
-                    </TableCell>
-                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>{a.topQty == null ? "—" : withUnit(full(a.topQty), a.salesUnit)}</TableCell>
-                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
-                      {a.lastLooked ? a.lastLooked.replace("T", " ") : "—"}
-                    </TableCell>
-                    {/* This year's buying: one customer taking a lot, or many taking a little. */}
-                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: a.buyersYtd ? INK : MUTED, fontWeight: a.buyersYtd ? 600 : 400 }}>
-                      {a.buyersYtd == null ? "—" : full(a.buyersYtd)}
-                    </TableCell>
-                    <TableCell align="right" sx={{ color: a.qtyYtd ? INK : MUTED, whiteSpace: "nowrap" }}>{a.qtyYtd == null ? "—" : withUnit(full(a.qtyYtd), a.qtyYtd ? a.salesUnit : null)}</TableCell>
-                    <TableCell align="right" sx={{ color: a.qtyPerBuyer ? INK : MUTED, fontWeight: a.qtyPerBuyer ? 700 : 400, whiteSpace: "nowrap" }}>
-                      {a.qtyPerBuyer == null ? "—" : withUnit(a.qtyPerBuyer < 10 ? decimal(a.qtyPerBuyer, 1) : full(a.qtyPerBuyer), a.salesUnit)}
-                    </TableCell>
-                    {/* then the ERP counts, which are all-time */}
-                    <TableCell align="right" sx={{ ...GROUP_EDGE, color: INK, fontWeight: 700 }}>{full(a.orders)}</TableCell>
-                    <TableCell align="right" sx={{ color: INK }}>{full(a.companies)}</TableCell>
-                    <TableCell align="right" sx={{ color: MUTED, whiteSpace: "nowrap" }}>
-                      {a.stock == null ? "—" : `${full(a.stock)}${a.stockUnit ? ` ${a.stockUnit}` : ""}`}
-                    </TableCell>
+                    {ARTICLE_GROUPS.flatMap(({ g }) => {
+                      if (folded[g]) {
+                        return [<TableCell key={g} align="right" sx={{ ...GROUP_EDGE, color: INK, fontWeight: 600, whiteSpace: "nowrap" }}>{articleFolded(a, g)}</TableCell>];
+                      }
+                      return ARTICLE_COLS.filter((c) => c.g === g).map((c, i) => {
+                        const v = articleFigure(a, c.k);
+                        return (
+                          <TableCell key={c.k} align="right" sx={{ ...(i === 0 ? GROUP_EDGE : {}), whiteSpace: "nowrap",
+                            color: v.muted ? MUTED : INK, fontWeight: v.strong ? 700 : 400 }}>{v.text}</TableCell>
+                        );
+                      });
+                    })}
                   </TableRow>
                 ))}
                 {articles && articleRows.length === 0 && (
-                  <TableRow><TableCell colSpan={15} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={16} sx={{ color: MUTED, py: 3, textAlign: "center" }}>No article matches.</TableCell></TableRow>
                 )}
                 {!articles && !articlesError && (
-                  <TableRow><TableCell colSpan={12} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={16} sx={{ color: MUTED, py: 3, textAlign: "center" }}>Reading the articles…</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

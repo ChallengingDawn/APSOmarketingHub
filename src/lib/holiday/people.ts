@@ -73,13 +73,19 @@ function primaryTeam(o: OwnerRow): string | null {
  * no user-schema scope to project apps - so the screen offers only the allowed
  * owners and says who has to be added in HubSpot. Null when it cannot be read.
  */
-export async function readDeputyOptions(): Promise<{ d1: string[]; d2: string[] } | null> {
+export type DeputyOption = { value: string; label: string };
+export async function readDeputyOptions(): Promise<{ d1: DeputyOption[]; d2: DeputyOption[] } | null> {
   try {
+    type Opt = { value?: string; label?: string; hidden?: boolean; displayOrder?: number };
     const [a, b] = await Promise.all(["ap_deputy_owner_id", "ap_deputy_2_owner_id"].map((p) =>
-      hubspotFetchJson<{ options?: { value?: string; hidden?: boolean }[] }>({ path: `/crm/v3/properties/users/${p}` })));
-    const vals = (r: { options?: { value?: string; hidden?: boolean }[] }) =>
-      (r.options ?? []).filter((o) => o.value && !o.hidden).map((o) => String(o.value));
-    return { d1: vals(a), d2: vals(b) };
+      hubspotFetchJson<{ options?: Opt[] }>({ path: `/crm/v3/properties/users/${p}` })));
+    // HubSpot's own choices, in HubSpot's order and with HubSpot's labels - what
+    // the user sees in HubSpot is what the hub offers
+    const opts = (r: { options?: Opt[] }) => (r.options ?? [])
+      .filter((o) => o.value && !o.hidden)
+      .sort((x, y) => (x.displayOrder ?? 0) - (y.displayOrder ?? 0))
+      .map((o) => ({ value: String(o.value), label: String(o.label || o.value) }));
+    return { d1: opts(a), d2: opts(b) };
   } catch {
     return null;
   }

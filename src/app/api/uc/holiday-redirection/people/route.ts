@@ -40,11 +40,17 @@ export async function POST(req: NextRequest) {
   try {
     // Re-read rather than trust the page: the user record is what gets written, and both
     // ids must still be people the screen lists.
-    const people = await readPeople();
+    const [people, allowed] = await Promise.all([readPeople(), readDeputyOptions()]);
     const person = people.find((p) => p.ownerId === ownerId);
     if (!person) return NextResponse.json({ ok: false, error: "That person is not in ESO, TSA or Back Office." }, { status: 404 });
     if (!person.userObjectId) return NextResponse.json({ ok: false, error: `${person.name} has no HubSpot user record, so there is nowhere to store a deputy.` }, { status: 409 });
-    if (deputy && !people.some((p) => p.ownerId === deputy)) {
+    // The deputy must be one of HubSpot's own choices for that field (when they can
+    // be read) - anything else HubSpot refuses anyway.
+    const choices = allowed ? (slot === 1 ? allowed.d1 : allowed.d2) : null;
+    if (deputy && choices && !choices.some((o) => o.value === deputy)) {
+      return NextResponse.json({ ok: false, error: "That deputy is not one of HubSpot's choices for this field." }, { status: 400 });
+    }
+    if (deputy && !choices && !people.some((p) => p.ownerId === deputy)) {
       return NextResponse.json({ ok: false, error: "The deputy must be someone in ESO, TSA or Back Office." }, { status: 400 });
     }
     const before = slot === 1 ? person.deputy1 : person.deputy2;
