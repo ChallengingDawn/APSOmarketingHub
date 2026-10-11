@@ -173,9 +173,11 @@ const navSections: NavSection[] = [
       // reads it, then what has been written, then the shapes to start from.
       // Personality leads because nothing the studio produces is right until it
       // is.
+      // Projects first: it is the door, and the studio is where you go FROM a
+      // project rather than the place work begins.
+      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Content", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
-      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       // Generated from SEO_NAV rather than typed out again. The two lists

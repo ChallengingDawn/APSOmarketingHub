@@ -79,13 +79,16 @@ export const APPS: HubApp[] = [
   },
   {
     key: "marketing",
-    href: "/create",
+    // Projects is the door. Work here starts as "we need a landing page for
+    // DirectCut in Italian", not as an empty studio with a blinking cursor.
+    href: "/projects",
     name: "Marketing & Content",
     line: "Create, manage and optimise our marketing content.",
     from: "#ef5fa0", to: "#c22c6e", wash: "rgba(239,95,160,.10)", icon: "campaign",
     subs: [
       // Content first, in the order somebody works in: the brain, the studio
       // that reads it, what came out, and the shapes to start from.
+      { name: "Projects", note: "What we are working on, and every version of it", href: "/projects", icon: "template", ...PINK },
       { name: "Personality", note: "The brain every generator reads", href: "/personality", icon: "brain", ...PINK },
       { name: "Create Studio", note: "Design and create campaigns", href: "/create", icon: "edit", ...AMBER },
       { name: "Content Library", note: "Everything already written", href: "/library", icon: "photo", ...PURPLE },

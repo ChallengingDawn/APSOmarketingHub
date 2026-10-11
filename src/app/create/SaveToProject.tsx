@@ -31,11 +31,14 @@ const FAINT = "#8b97ac";
 const HAIRLINE = "rgba(21,34,58,.10)";
 
 export default function SaveToProject({
-  draftId, defaultLabel,
+  draftId, defaultLabel, projectId, projectTitle,
 }: {
   /** The content row the studio already wrote. Null while nothing is drafted. */
   draftId: number | null;
   defaultLabel: string;
+  /** Set when the studio was opened from a project: save goes straight back. */
+  projectId?: number;
+  projectTitle?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -88,13 +91,16 @@ export default function SaveToProject({
 
   return (
     <>
+      {/* Opened from a project, saving is one press: the question "which
+          project" has an answer already and asking it again is a form in the
+          way. The dialog is still there for saving somewhere else. */}
       <Button
-        onClick={() => setOpen(true)}
-        disabled={draftId === null}
+        onClick={() => (projectId ? attach(projectId) : setOpen(true))}
+        disabled={draftId === null || busy}
         startIcon={<FolderOpenIcon />}
         sx={{ textTransform: "none", fontWeight: 700, flexShrink: 0 }}
       >
-        Save to project
+        {projectId ? (done ? "Saved" : `Save to ${projectTitle ?? "project"}`) : "Save to project"}
       </Button>
 
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth

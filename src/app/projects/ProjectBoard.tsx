@@ -23,6 +23,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
+import AddIcon from "@mui/icons-material/Add";
+import Link from "next/link";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app/uc/report/ui";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
@@ -166,6 +168,24 @@ export default function ProjectBoard({ id }: { id: number }) {
           <Typography sx={{ mt: 1.25, fontSize: "0.8rem", color: MUTED }}>
             You can read and comment on this project. Saving or choosing a variation is for its editors.
           </Typography>
+        )}
+
+        {/* The loop this was missing. A project could receive a draft somebody
+            had already made in the studio, but it could not start one — so the
+            brief sat here and got retyped into an empty box next door.
+            Hidden from a commenter: it leads to a studio that cannot save back
+            here, and a button that goes somewhere useless is worse than none. */}
+        {access?.canEdit !== false && (
+          <Button
+            component={Link}
+            href={`/create?project=${project.id}`}
+            variant="contained"
+            disableElevation
+            startIcon={<AddIcon />}
+            sx={{ mt: 2, textTransform: "none", fontWeight: 600, borderRadius: "10px" }}
+          >
+            New variation
+          </Button>
         )}
       </GlassCard>
       <ShareDialog projectId={id} title={project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={me} />

@@ -12,13 +12,30 @@ export default async function Page({
   searchParams: Promise<{
     channel?: string;
     topic?: string;
+    /** Arrived from a project board: work saves back there, brief comes from it. */
+    project?: string;
     geoPieceId?: string;
     geoScore?: string;
     geoChecks?: string;
     geoFixes?: string;
   }>;
 }) {
-  const { channel, topic, geoScore, geoChecks, geoFixes } = await searchParams;
+  const { channel, topic, project, geoScore, geoChecks, geoFixes } = await searchParams;
+
+  // The project's own brief, fetched server-side so the studio opens with the
+  // box already filled. Retyping a brief that is on the screen next door is
+  // exactly the friction that kept work out of projects.
+  const projectId = project ? Number.parseInt(project, 10) : NaN;
+  let projectTitle: string | null = null;
+  let projectBrief: string | null = null;
+  if (Number.isFinite(projectId) && projectId > 0) {
+    const { getProject } = await import("@/lib/content/projects");
+    const found = await getProject(projectId);
+    if (found) {
+      projectTitle = found.project.title;
+      projectBrief = found.project.brief;
+    }
+  }
 
   const geoBrief = geoFixes
     ? [
@@ -30,5 +47,13 @@ export default async function Page({
         .join("\n\n")
     : undefined;
 
-  return <CreateStudio initialChannel={channel} initialTopic={topic} initialBrief={geoBrief} />;
+  return (
+    <CreateStudio
+      initialChannel={channel}
+      initialTopic={topic ?? projectBrief ?? undefined}
+      initialBrief={geoBrief}
+      projectId={Number.isFinite(projectId) && projectId > 0 ? projectId : undefined}
+      projectTitle={projectTitle ?? undefined}
+    />
+  );
 }

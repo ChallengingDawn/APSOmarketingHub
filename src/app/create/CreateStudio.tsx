@@ -243,12 +243,17 @@ export default function CreateStudio({
   initialChannel,
   initialTopic,
   initialBrief,
+  projectId,
+  projectTitle,
 }: {
   initialChannel?: string;
   /** Prefilled from a SEO quick win or a decayed page worth refreshing. */
   initialTopic?: string;
   /** Prefilled from a GEO audit: the checks that failed and how to fix them. */
   initialBrief?: string;
+  /** Set when the studio was opened from a project board. */
+  projectId?: number;
+  projectTitle?: string;
 }) {
   const [brain, setBrain] = useState<Brain | null>(null);
 
@@ -680,6 +685,8 @@ export default function CreateStudio({
             </Tooltip>
             <SaveToProject
               draftId={draft?.draftId ?? null}
+              projectId={projectId}
+              projectTitle={projectTitle}
               defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
             />
             <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>

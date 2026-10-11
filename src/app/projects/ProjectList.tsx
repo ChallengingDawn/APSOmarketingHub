@@ -11,7 +11,7 @@
  * arguing about.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -23,6 +23,9 @@ import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
+import InputAdornment from "@mui/material/InputAdornment";
+import SearchIcon from "@mui/icons-material/Search";
+import { Pager } from "@/app/seo/Finding";
 import { Face } from "./ShareDialog";
 
 type Project = {
@@ -32,6 +35,9 @@ type Project = {
   myRole: "owner" | "editor" | "commenter" | "admin"; members: { username: string; name: string }[];
 };
 type Scope = "mine" | "shared" | "all";
+
+/** Twelve cards fill a wide screen twice over without becoming a scroll. */
+const PER_PAGE = 12;
 
 const ROLE = { owner: "Owner", editor: "Can edit", commenter: "Can comment", admin: "Admin view" } as const;
 const ago = (iso: string) => {
@@ -48,6 +54,8 @@ export default function ProjectList() {
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
+  const [queryText, setQueryText] = useState("");
+  const [page, setPage] = useState(0);
 
   const load = useCallback(() => {
     setProjects(null);
@@ -74,6 +82,21 @@ export default function ProjectList() {
     }
   };
 
+  // Search and paging sit over whatever the scope tab returned, so "Shared
+  // with you, Italian, page 2" is one thought rather than three.
+  const visible = useMemo(() => {
+    const q = queryText.trim().toLowerCase();
+    if (!q) return projects ?? [];
+    return (projects ?? []).filter((p) =>
+      `${p.title} ${p.brief ?? ""} ${p.ownerName ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [projects, queryText]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PER_PAGE));
+  const current = Math.min(page, pageCount - 1);
+  useEffect(() => { setPage(0); }, [queryText, scope]);
+  const shown = visible.slice(current * PER_PAGE, current * PER_PAGE + PER_PAGE);
+
   const tabs: { key: Scope; label: string }[] = [
     { key: "mine", label: "Your projects" },
     { key: "shared", label: "Shared with you" },
@@ -92,6 +115,12 @@ export default function ProjectList() {
             }}>{t.label}</Box>
           ))}
         </Box>
+        <TextField
+          size="small" placeholder="Search projects"
+          value={queryText} onChange={(e) => setQueryText(e.target.value)}
+          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18 }} /></InputAdornment> } }}
+          sx={{ width: 240, "& .MuiOutlinedInput-root": { borderRadius: "10px", fontSize: 13.5, bgcolor: "#fff" } }}
+        />
         <Box sx={{ flex: 1 }} />
         <Button onClick={() => setCreating(true)} variant="contained" disableElevation startIcon={<AddIcon />}
           sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>
@@ -141,7 +170,7 @@ export default function ProjectList() {
       )}
 
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr", xl: "1fr 1fr 1fr" } }}>
-        {projects?.map((p) => {
+        {shown.map((p) => {
           const people = [{ username: p.createdBy ?? "", name: p.ownerName ?? p.createdBy ?? "?" }, ...p.members];
           const tint = p.myRole === "owner" ? TINT.purple : p.myRole === "editor" ? TINT.blue : p.myRole === "commenter" ? TINT.amber : TINT.slate;
           return (
@@ -183,6 +212,20 @@ export default function ProjectList() {
           );
         })}
       </Box>
+
+      {visible.length > PER_PAGE && (
+        <Box sx={{ mt: 2 }}>
+          <Pager
+            total={visible.length}
+            filteredFrom={visible.length === (projects?.length ?? 0) ? null : (projects?.length ?? 0)}
+            noun="project"
+            page={current}
+            perPage={PER_PAGE}
+            onPage={setPage}
+            onPerPage={() => { /* a project card is a fixed size; twelve is the page */ }}
+          />
+        </Box>
+      )}
     </Box>
   );
 }
