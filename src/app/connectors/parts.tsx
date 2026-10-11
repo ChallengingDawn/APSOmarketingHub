@@ -31,6 +31,10 @@ export type HubStepInfo = {
 export type StepsData = {
   steps: HubStepInfo[]; running: { key: string; mode: string; started: string } | null;
   connectorReachable: boolean; sftpConfigured: boolean; connectorPulls: boolean | null; chain: HubChain | null;
+  /** One line per ERP run the hub made, for the overview's charts. */
+  history: { day: string; ts: number; files: number; mb: number; seconds?: number; failed: number; written: Record<string, number> }[];
+  /** New ERP orders that reached HubSpot per day, last 30 days. */
+  flow: { days: { day: string; orders: number }[]; at: string | null; counting: boolean; error: string | null };
   /** The hub's last download from the ERP's folder. */
   pull: { pulled: { remote: string; as: string; mb: number }[]; ts: number; seconds?: number; error?: string; incomplete?: string[] } | null;
 };

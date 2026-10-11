@@ -95,14 +95,15 @@ export function StackedColumns({
           </BarChart>
         </ResponsiveContainer>
       </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, flexWrap: "wrap" }}>
+      {/* one series needs no legend - the chart's title names it */}
+      {shown.length > 1 && <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, flexWrap: "wrap" }}>
         {[...shown].reverse().map((part) => (
           <Box key={part.key} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
             <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: SERIES[shown.indexOf(part)] }} />
             <Typography sx={{ fontSize: "0.76rem", color: CHROME.muted }}>{part.label}</Typography>
           </Box>
         ))}
-      </Box>
+      </Box>}
     </Box>
   );
 }

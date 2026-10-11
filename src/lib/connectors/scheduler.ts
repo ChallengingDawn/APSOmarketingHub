@@ -16,6 +16,7 @@ import { connectorReadKey } from "@/lib/integrations/status";
 import { compassSnapshot } from "@/lib/integrations/compassConnector";
 import { CONNECTOR_RETIRED } from "./retired";
 import { checkRunning, heldCheck, refreshCheck } from "./reviewCheck";
+import { flowRunning, flowStale, heldFlow, refreshFlow } from "./flow";
 import { runHubChain } from "./chain";
 import { REGISTRY } from "./steps/registry";
 import { lastRun, liveSteps, runNow, type HubStep } from "./steps/run";
@@ -93,6 +94,9 @@ async function tick() {
     if (!CONNECTOR_RETIRED) await compassSnapshot(true).catch((e) => console.warn(`[connectors] watch: ${(e as Error).message}`));
     await stepsTick().catch((e) => console.warn(`[connectors] steps: ${(e as Error).message}`));
     await reviewTick().catch((e) => console.warn(`[connectors] review check: ${(e as Error).message}`));
+    // the overview's "new ERP orders per day", counted again every hour in the background
+    const f = await heldFlow().catch(() => null);
+    if (flowStale(f) && !flowRunning(f)) refreshFlow();
   } finally {
     ticking = false;
   }

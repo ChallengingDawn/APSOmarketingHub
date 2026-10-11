@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { exampleLine, summarize } from "../src/lib/connectors/summary";
+import { exampleLine, summarize, writtenCount } from "../src/lib/connectors/summary";
 import { STEPS, splitProp, stepName, writesByProperty } from "../src/lib/connectors/compass";
 
 // "seconds 276" was what the chain page said about a mandant sweep that changed nothing.
@@ -51,4 +51,13 @@ test("splitProp keeps the property name and moves the remark aside", () => {
 test("every step has a plain name for the notices", () => {
   for (const s of STEPS) assert.equal(stepName(s.key), s.name);
   assert.equal(stepName("articles_create_missing"), "Create the missing articles");
+});
+
+test("records written count a repeated figure once", () => {
+  assert.equal(writtenCount({ rows: 10, companies_changed: 8666, updated: 8666 }), 8666);
+  assert.equal(writtenCount({ to_update: 1397, titles: 1396, updated: 1397 }), 1397);
+  assert.equal(writtenCount({ created: 2, enriched: 0, errors: 0 }), 2);
+  assert.equal(writtenCount({ revenue_monthly: { created: 4, updated: 20 }, oi_monthly: { updated: 24 } }), 48);
+  assert.equal(writtenCount({ to_fix: 0, companies_with_a_key: 56093 }), 0);
+  assert.equal(writtenCount(null), 0);
 });

@@ -22,7 +22,8 @@ import path from "node:path";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { commitManifest, pullDelta } from "./sftp";
 import { deliverySig, nextTry, type ChainTry } from "./chainTry";
-import { setHubChain, type HubChain } from "./chainStatus";
+import { addChainDay, setHubChain, type HubChain } from "./chainStatus";
+import { writtenCount } from "./summary";
 import { STEP_FILES, REGISTRY } from "./steps/registry";
 import { INCOMING, connectorSkips, liveSteps, runStepInside, sftpConfigured, withLock } from "./steps/run";
 
@@ -86,6 +87,7 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
       return chain;
     }
     await setHubChain(chain);
+    const written: Record<string, number> = {};
     const touched = STEP_FILES.some((f) => got.has(f));
     const dimOrder = await onDisk("dim_order.csv");
     const erpOnDisk = await onDisk("revenue_profit_center.xlsx");
@@ -114,9 +116,14 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
       await setHubChain(chain);
       const r = await runStepInside(def.key, "live", by, beat, { dir: INCOMING });
       chain.steps.push({ step: def.key, ok: !r.error, ...(r.error ? { error: r.error } : {}) });
+      if (!r.error) written[def.key] = writtenCount(r.result);
     }
     Object.assign(chain, { status: "done", step: undefined, ts: now(), day: utcToday() });
     await setHubChain(chain);
+    await addChainDay({
+      day: chain.day, ts: chain.ts, files: chain.pulled, mb: Math.round(rep.pulled.reduce((a, p) => a + p.mb, 0)),
+      seconds: rep.seconds, failed: chain.steps.filter((x) => !x.ok).length, written,
+    }).catch((e) => console.warn(`[connectors] chain history: ${(e as Error).message}`));
     if (rep.manifest) await commitManifest(rep.manifest);
     console.log(`[connectors] chain by ${by}: pulled ${chain.pulled}, ${chain.steps.length} steps, ${chain.steps.filter((s) => !s.ok).length} failed`);
     return chain;

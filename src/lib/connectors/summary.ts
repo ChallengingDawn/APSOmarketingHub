@@ -104,6 +104,20 @@ export function summarize(r: Obj | null | undefined, live: boolean): string {
   return parts.join(" · ");
 }
 
+/**
+ * How many records a live run wrote - for the overview's charts. The same reading as
+ * the summary line: a specific count ("companies changed") stands for the generic
+ * "updated" that repeats it, so nothing is counted twice; KPI steps add up per series.
+ */
+export function writtenCount(r: Obj | null | undefined): number {
+  if (!r) return 0;
+  const done = totals(r, DONE);
+  const specific = [...done].some(([l, n]) => n > 0 && !GENERIC.has(l) && l !== "created" && l !== "archived");
+  let n = 0;
+  for (const [l, v] of done) if (v > 0 && !(specific && GENERIC.has(l))) n += v;
+  return n;
+}
+
 /** "orders_in_snapshot" -> "orders in snapshot", for counters no list above names. */
 export const humanize = (k: string) => k.replace(/_/g, " ").replace(/\bpp\b/g, "Products & Pricing").replace(/\bhs\b/g, "HubSpot");
 

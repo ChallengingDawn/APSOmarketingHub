@@ -8,12 +8,25 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive, sftpConfigured, startStep } from "@/lib/connectors/steps/run";
 import { stepDef } from "@/lib/connectors/steps/registry";
 import { STEPS } from "@/lib/connectors/compass";
-import { hubChain } from "@/lib/connectors/chainStatus";
+import { addChainDay, chainHistory, hubChain, type ChainDay, type HubChain } from "@/lib/connectors/chainStatus";
+import { flowRunning, flowStale, heldFlow, refreshFlow } from "@/lib/connectors/flow";
+import { writtenCount } from "@/lib/connectors/summary";
+import { REGISTRY } from "@/lib/connectors/steps/registry";
 import { lastPull } from "@/lib/connectors/sftp";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** The first history entry, from each chain step's last live run - the run before the history began. */
+async function seed(c: HubChain): Promise<ChainDay> {
+  const written: Record<string, number> = {};
+  for (const def of REGISTRY.filter((d) => d.cadence === "chain")) {
+    const r = await lastRun("live", def.key);
+    if (r?.finished && !r.error && r.finished.slice(0, 10) === c.day) written[def.key] = writtenCount(r.result);
+  }
+  return { day: c.day, ts: c.ts, files: c.pulled, mb: Math.round((c.files ?? []).reduce((a, f) => a + f.mb, 0)), seconds: c.pullSeconds, failed: c.steps.filter((x) => !x.ok).length, written };
+}
 
 export async function GET() {
   const access = await myAccess();
@@ -30,10 +43,29 @@ export async function GET() {
       steps, running, connectorReachable: skips !== null, sftpConfigured: sftpConfigured(),
       connectorPulls: skips ? !skips.has("sftp_pull") : null, chain: await hubChain(),
       pull: (await lastPull().catch(() => null))?.last ?? null,
+      history: await history(),
+      flow: await flow(),
     } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }
+}
+
+async function history(): Promise<ChainDay[]> {
+  let h = await chainHistory().catch(() => [] as ChainDay[]);
+  const c = await hubChain();
+  if (!h.length && c?.status === "done") {
+    const first = await seed(c);
+    await addChainDay(first).catch(() => {});
+    h = [first];
+  }
+  return h;
+}
+
+async function flow() {
+  const f = await heldFlow();
+  if (flowStale(f) && !flowRunning(f)) refreshFlow();
+  return { days: f?.days ?? [], at: f?.at || null, counting: flowRunning(f) || flowStale(f), error: f?.error ?? null };
 }
 
 export async function POST(req: NextRequest) {
