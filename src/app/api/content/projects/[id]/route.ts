@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { addComment, addVariant, attachVariant, chooseVariant, getProject } from "@/lib/content/projects";
+import { accessFor, membersOf } from "@/lib/content/sharing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,13 +19,16 @@ function idOf(raw: string): number | null {
 }
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const me = await requireUser();
   const id = idOf((await ctx.params).id);
   if (id === null) return NextResponse.json({ ok: false, error: "Bad id" }, { status: 400 });
 
-  const found = await getProject(id);
-  if (!found) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
-  return NextResponse.json({ ok: true, ...found });
+  // A project is its owner's and the people it was shared with - for anyone
+  // else it does not exist, rather than existing behind a refusal.
+  const access = await accessFor(id, me);
+  const found = access ? await getProject(id) : null;
+  if (!access || !found) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
+  return NextResponse.json({ ok: true, ...found, access, members: await membersOf(id), me: me.username });
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -32,9 +36,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const id = idOf((await ctx.params).id);
   if (id === null) return NextResponse.json({ ok: false, error: "Bad id" }, { status: 400 });
 
+  const access = await accessFor(id, me);
+  if (!access) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = typeof body.action === "string" ? body.action : "";
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : null);
+
+  // Commenters read and comment; saving, attaching and choosing are editing.
+  if (action !== "comment" && !access.canEdit) {
+    return NextResponse.json({ ok: false, error: "You can comment on this project, not change it." }, { status: 403 });
+  }
 
   if (action === "variant") {
     const text = str("body");

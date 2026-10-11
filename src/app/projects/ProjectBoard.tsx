@@ -22,9 +22,11 @@ import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app/uc/report/ui";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
+import ShareDialog, { Face } from "./ShareDialog";
 
 type Variant = {
   id: number; contentType: string | null; channel: string; language: string | null;
@@ -36,6 +38,8 @@ type Project = {
   id: number; title: string; brief: string | null; status: string;
   chosenVariantId: number | null; createdBy: string | null; createdAt: string;
 };
+type Access = { role: string; canEdit: boolean; canComment: boolean; canShare: boolean };
+type Member = { username: string; name: string; role: "owner" | "editor" | "commenter" };
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -91,6 +95,10 @@ export default function ProjectBoard({ id }: { id: number }) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [access, setAccess] = useState<Access | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [me, setMe] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(() => {
     fetch(`/api/content/projects/${id}`)
@@ -100,6 +108,9 @@ export default function ProjectBoard({ id }: { id: number }) {
         setProject(j.project);
         setVariants(j.variants);
         setComments(j.comments);
+        setAccess(j.access ?? null);
+        setMembers(j.members ?? []);
+        setMe(j.me ?? null);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the project."));
   }, [id]);
@@ -123,11 +134,26 @@ export default function ProjectBoard({ id }: { id: number }) {
   return (
     <Box>
       <GlassCard sx={{ mb: 3 }}>
-        <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em" }}>
-          {project.title}
-        </Typography>
+        {/* Who is in it and the way to bring someone in, top right - where
+            Adobe Express and every shared-document tool keeps it. */}
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, flexWrap: "wrap" }}>
+          <Typography sx={{ flex: 1, minWidth: 220, fontSize: "1.3rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em" }}>
+            {project.title}
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+            <Box component="button" onClick={() => setSharing(true)} aria-label="People in this project"
+              sx={{ display: "flex", border: 0, background: "none", p: 0, cursor: "pointer", "& > *:not(:first-of-type)": { ml: "-8px" } }}>
+              {members.slice(0, 5).map((m) => <Face key={m.username} name={m.name} />)}
+              {members.length > 5 && <Face name={`+ ${members.length - 5}`} />}
+            </Box>
+            <Button variant={access?.canShare ? "contained" : "outlined"} disableElevation startIcon={<PersonAddAlt1Icon />}
+              onClick={() => setSharing(true)} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>
+              {access?.canShare ? "Share" : "People"}
+            </Button>
+          </Box>
+        </Box>
         <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.25 }}>
-          Started by {project.createdBy ?? "somebody"} on {when(project.createdAt)} ·{" "}
+          Owner {members.find((m) => m.role === "owner")?.name ?? project.createdBy ?? "somebody"} · started {when(project.createdAt)} ·{" "}
           {variants.length} variation{variants.length === 1 ? "" : "s"}
           {project.chosenVariantId ? " · one chosen" : ""}
         </Typography>
@@ -136,7 +162,13 @@ export default function ProjectBoard({ id }: { id: number }) {
             {project.brief}
           </Typography>
         )}
+        {access && !access.canEdit && (
+          <Typography sx={{ mt: 1.25, fontSize: "0.8rem", color: MUTED }}>
+            You can read and comment on this project. Saving or choosing a variation is for its editors.
+          </Typography>
+        )}
       </GlassCard>
+      <ShareDialog projectId={id} title={project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={me} />
 
       <Kicker>Variations</Kicker>
       {variants.length === 0 ? (
@@ -167,7 +199,7 @@ export default function ProjectBoard({ id }: { id: number }) {
                   tint={chosen ? "green" : "slate"}
                   title={v.label || type?.label || v.channel}
                   note={`${v.createdBy ?? "somebody"} · ${when(v.createdAt)}${v.language ? ` · ${v.language}` : ""}`}
-                  right={
+                  right={access?.canEdit && (
                     <Button
                       size="small"
                       onClick={() => post({ action: "choose", variantId: chosen ? null : v.id })}
@@ -175,7 +207,7 @@ export default function ProjectBoard({ id }: { id: number }) {
                     >
                       {chosen ? "Unchoose" : "Choose this"}
                     </Button>
-                  }
+                  )}
                 />
 
                 <Box

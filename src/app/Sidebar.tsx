@@ -52,6 +52,7 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import TuneIcon from "@mui/icons-material/Tune";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
+import ForwardToInboxIcon from "@mui/icons-material/ForwardToInbox";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
@@ -301,6 +302,7 @@ const navSections: NavSection[] = [
       { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" />, adminOnly: true },
+      { group: "Workspace", label: "Mail", href: "/settings/mail", icon: <ForwardToInboxIcon fontSize="small" /> },
       { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Docs", href: "/docs", icon: <DescriptionIcon fontSize="small" /> },
     ],

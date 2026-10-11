@@ -12,6 +12,8 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { FROM, REPLY_TO, smtp, smtpConfigured } from "@/lib/doc/config";
 
+export { FROM, REPLY_TO, smtp };
+
 let transport: Transporter | null = null;
 
 export function mailConfigured(): boolean {
@@ -22,11 +24,18 @@ export function mailConfigured(): boolean {
 /** The DoC's own readiness also needs its backend key; mail alone does not. */
 export { smtpConfigured };
 
+/** The address part of a sender like "APSOparts® <info@news.apsoparts.com>". */
+export const addressOf = (from: string) => /<([^>]+)>/.exec(from)?.[1] ?? from.trim();
+
 export async function sendHubMail(m: {
   to: string;
   subject: string;
   html: string;
   text: string;
+  /** A display name in front of the hub's own address - "Anna Muster via APSOhub". The address never changes: the relay only sends as its own domain. */
+  fromName?: string;
+  /** Where a reply goes, when it should reach a person rather than support. */
+  replyTo?: string;
 }): Promise<void> {
   const s = smtp();
   if (!s.user || !s.pass) throw new Error("No SMTP credentials: DOC_SMTP_USER / DOC_SMTP_PASS are unset.");
@@ -38,7 +47,8 @@ export async function sendHubMail(m: {
     auth: { user: s.user, pass: s.pass },
   });
   const info = await transport.sendMail({
-    from: FROM, replyTo: REPLY_TO, to: m.to, subject: m.subject, html: m.html, text: m.text,
+    from: m.fromName ? `"${m.fromName.replace(/["<>]/g, "")}" <${addressOf(FROM)}>` : FROM,
+    replyTo: m.replyTo || REPLY_TO, to: m.to, subject: m.subject, html: m.html, text: m.text,
   });
   if (!info.accepted?.length) {
     throw new Error(`SMTP refused ${m.to}: ${JSON.stringify(info.rejected ?? [])}`);
@@ -59,6 +69,8 @@ export function wrap(opts: {
   rows: string;
   cta?: { label: string; href: string };
   hubUrl: string;
+  /** The last line, when "you switched it on" is not why this mail came. */
+  footer?: string;
 }): string {
   const button = opts.cta
     ? `<p style="margin:26px 0 0"><a href="${esc(opts.cta.href)}" style="background:#2459d1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:600;display:inline-block">${esc(opts.cta.label)}</a></p>`
@@ -73,8 +85,8 @@ export function wrap(opts: {
       ${button}
     </div>
     <p style="margin:18px 0 0;font-size:12px;color:#8b97ac;line-height:1.5">
-      You are getting this because you switched it on in the hub.
-      <a href="${esc(opts.hubUrl)}/settings/preferences" style="color:#5d6b85">Turn it off</a>.
+      ${opts.footer !== undefined ? esc(opts.footer) : `You are getting this because you switched it on in the hub.
+      <a href="${esc(opts.hubUrl)}/settings/preferences" style="color:#5d6b85">Turn it off</a>.`}
     </p>
   </div></body></html>`;
 }

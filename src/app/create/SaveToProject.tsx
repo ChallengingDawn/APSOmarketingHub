@@ -45,7 +45,7 @@ export default function SaveToProject({
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    fetch("/api/content/projects")
+    fetch("/api/content/projects?scope=editable")
       .then((r) => r.json())
       .then((j) => setProjects(j.ok ? j.projects : []))
       .catch(() => setProjects([]));

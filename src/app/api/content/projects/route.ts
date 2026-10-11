@@ -1,15 +1,20 @@
-// The project list, and making a new one.
+// The project list, and making a new one. The list is the projects this person
+// may open (src/lib/content/sharing.ts): ?scope=mine (default) they own,
+// shared were shared with them, editable can take a draft, all is admins'.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
-import { createProject, listProjects } from "@/lib/content/projects";
+import { createProject } from "@/lib/content/projects";
+import { listProjectsFor } from "@/lib/content/sharing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  await requireUser();
-  return NextResponse.json({ ok: true, projects: await listProjects() });
+export async function GET(req: NextRequest) {
+  const me = await requireUser();
+  const raw = req.nextUrl.searchParams.get("scope");
+  const scope = raw === "shared" || raw === "all" || raw === "editable" ? raw : "mine";
+  return NextResponse.json({ ok: true, projects: await listProjectsFor(me, scope), me: me.username, isAdmin: me.role === "admin" });
 }
 
 export async function POST(req: NextRequest) {
