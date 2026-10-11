@@ -9,7 +9,9 @@
 // Pages keep their addresses: a move is a move in the menu, so every link and
 // bookmark still works, and each page keeps the access rule it already had.
 
-export type Report = { name: string; href: string; note: string };
+import type { IconKey } from "@/app/hubApps";
+
+export type Report = { name: string; href: string; note: string; icon: IconKey };
 export type ReportCategory = {
   slug: string;
   name: string;
@@ -24,25 +26,25 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "website", name: "Website Reports", line: "How the site is found and used",
     reports: [
-      { name: "Site overview", href: "/website/overview", note: "Visits, engagement and revenue" },
-      { name: "Acquisition", href: "/website/acquisition", note: "Where the visits come from" },
-      { name: "Audience", href: "/website/audience", note: "Who comes, and from where" },
-      { name: "Pages", href: "/website/pages", note: "Which pages carry the traffic" },
+      { name: "Site overview", href: "/website/overview", note: "Visits, engagement and revenue", icon: "bar" },
+      { name: "Acquisition", href: "/website/acquisition", note: "Where the visits come from", icon: "ads" },
+      { name: "Audience", href: "/website/audience", note: "Who comes, and from where", icon: "groups" },
+      { name: "Pages", href: "/website/pages", note: "Which pages carry the traffic", icon: "layers" },
     ],
   },
   {
     slug: "marketing", name: "Marketing Reports", line: "What marketing set out to do, and where it stands",
     reports: [
-      { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand" },
+      { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
     ],
   },
   {
     slug: "customers", name: "Customer Reports", line: "Where customers arrive, where we lose them, what came of it",
     reports: [
-      { name: "KPIs", href: "/journey/kpis", note: "Conversion, losses and what is working" },
-      { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period" },
-      { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often" },
-      { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted" },
+      { name: "KPIs", href: "/journey/kpis", note: "Conversion, losses and what is working", icon: "bar" },
+      { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period", icon: "groups" },
+      { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often", icon: "tag" },
+      { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted", icon: "description" },
     ],
   },
   {

@@ -74,7 +74,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Quiet here: an app screen is mostly empty below its content, so the
           wash would be the whole lower half of the window at full strength. */}
       <MeshBackground strength="quiet" />
-      <Sidebar />
+      {/* Advanced reporting's front page is a door like the launch pad: no
+          panel until you are in a category or a report (SARCLA, 11.10.2026). */}
+      {pathname !== "/reporting" && <Sidebar />}
       <Box
         component="main"
         sx={{

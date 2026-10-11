@@ -2,6 +2,8 @@
 import { Fragment, Suspense, useEffect, useState } from "react";
 import { SEO_NAV, type SeoRouteId } from "@/app/seo/nav";
 import { REPORT_CATEGORIES } from "@/lib/reporting/categories";
+import HubIconGlyph from "@/app/HubIcon";
+import { toneOf } from "@/app/reporting/ui";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import { usePathname, useSearchParams } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
@@ -210,8 +212,8 @@ const navSections: NavSection[] = [
     icon: <InsightsIcon />,
     color: "#1f6fa8",
     items: REPORT_CATEGORIES.flatMap((c) => (c.reports.length
-      ? c.reports.map((r) => ({ group: c.name, label: r.name, href: r.href, icon: <InsightsIcon fontSize="small" /> }))
-      : [{ group: c.name, label: "Overview", href: `/reporting/${c.slug}`, icon: <InsightsIcon fontSize="small" /> }])),
+      ? c.reports.map((r) => ({ group: c.name, label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> }))
+      : [{ group: c.name, label: "Overview", href: `/reporting/${c.slug}`, icon: <HubIconGlyph name={toneOf(c.slug).icon} fontSize={20} /> }])),
   },
   {
     // Where the data comes from, and what each connection writes to HubSpot.
