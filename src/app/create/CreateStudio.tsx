@@ -49,6 +49,8 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import GroupsIcon from "@mui/icons-material/Groups";
 import TitleIcon from "@mui/icons-material/Title";
 import type { SeedText } from "../editor/EditorCanvas";
+import TypePicker from "./TypePicker";
+import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
 const EditorCanvas = dynamic(() => import("../editor/EditorCanvas"), { ssr: false });
@@ -250,9 +252,15 @@ export default function CreateStudio({
   const [brain, setBrain] = useState<Brain | null>(null);
 
   /* setup state */
-  const [channel, setChannel] = useState(
-    initialChannel && VALID_CHANNELS.has(initialChannel) ? initialChannel : "linkedin"
-  );
+  // The TYPE is what is being made and owns the structure. The channel still
+  // exists because tone, length budget and the output validators key on it —
+  // it is now derived from the type rather than chosen separately, so the two
+  // cannot contradict each other.
+  const [contentType, setContentType] = useState(() => {
+    const byChannel = CONTENT_TYPES.find((t) => t.channel === initialChannel);
+    return byChannel?.key ?? "linkedin-post";
+  });
+  const channel = CONTENT_BY_KEY[contentType]?.channel ?? "linkedin";
   const [personaIds, setPersonaIds] = useState<string[]>([]);
   const [framework, setFramework] = useState("auto");
   const [tones, setTones] = useState<string[]>([]);
@@ -320,7 +328,7 @@ export default function CreateStudio({
     fetch("/api/logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: kind, channel, prompt: topic.slice(0, 500), ...payload }),
+      body: JSON.stringify({ type: kind, channel, contentType, prompt: topic.slice(0, 500), ...payload }),
     }).catch(() => {});
     done?.();
   };
@@ -390,7 +398,7 @@ export default function CreateStudio({
       const res = await fetch("/api/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, topic: topic.trim(), personaIds: personaIds.length ? personaIds : undefined, filters }),
+        body: JSON.stringify({ channel, contentType, topic: topic.trim(), personaIds: personaIds.length ? personaIds : undefined, filters }),
       });
       const data = await res.json();
       if (res.ok && data.brief) setTopic(data.brief);
@@ -437,7 +445,7 @@ export default function CreateStudio({
         const res = await fetch("/api/propose", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channel, topic: topic.trim(), filters, personaIds: personaIds.length ? personaIds : undefined }),
+          body: JSON.stringify({ channel, contentType, topic: topic.trim(), filters, personaIds: personaIds.length ? personaIds : undefined }),
         });
         const data = await res.json();
         if (!res.ok) setError(data.error ?? "Generation failed");
@@ -641,22 +649,7 @@ export default function CreateStudio({
       <Card sx={{ mb: 2 }}>
         <CardContent sx={{ p: 2, "&:last-child": { pb: 1.5 } }}>
           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, flexWrap: "wrap" }}>
-            <TextField
-              select
-              size="small"
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-              sx={{ width: 160, flexShrink: 0 }}
-            >
-              {CHANNELS.map((c) => (
-                <MenuItem key={c.key} value={c.key}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                    {c.icon}
-                    {c.label}
-                  </Box>
-                </MenuItem>
-              ))}
-            </TextField>
+            <TypePicker value={contentType} onChange={setContentType} />
             <TextField
               multiline
               minRows={1}

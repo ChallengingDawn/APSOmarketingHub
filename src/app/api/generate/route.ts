@@ -11,6 +11,7 @@ import {
   type GenerationFilters,
 } from "@/lib/filters";
 import { getAnthropic, CLAUDE_MODEL, channelBudget, claudeText } from "@/lib/ai/claude";
+import { CONTENT_BY_KEY, structurePrompt } from "@/lib/content/contentTypes";
 import { validateChannelOutput } from "@/lib/ai/validate";
 import { saveContent } from "@/lib/content";
 import { getOptionalUser } from "@/lib/auth/guard";
@@ -52,6 +53,8 @@ export const maxDuration = 180;
 
 type GenerateBody = {
   channel: "linkedin" | "newsletter" | "blog" | "ad" | "product" | "seo" | "studio" | "freeform";
+  /** A key from CONTENT_TYPES. Carries the section structure; channel carries tone. */
+  contentType?: string;
   prompt: string;
   model?: "claude" | "gemini";
   context?: Record<string, unknown>;
@@ -163,8 +166,14 @@ export async function POST(req: NextRequest) {
     buildFeedbackBlock(logs.userDefaults, likes, dislikes);
 
   const briefRequested = withImage || wantBrief;
+  // The shape comes from the content type when the studio named one. Without
+  // it the only guidance on structure was "follow the product content page
+  // structure", which named a structure that was written down nowhere — so
+  // every type came back as the same essay at a different length.
+  const type = typeof body.contentType === "string" ? CONTENT_BY_KEY[body.contentType] : undefined;
+
   const userMessage = [
-    `Channel: ${channel}`,
+    type ? structurePrompt(type) : `Channel: ${channel}`,
     ``,
     `Request: ${prompt}`,
     ``,
