@@ -18,7 +18,6 @@ import AppsIcon from "@mui/icons-material/Apps";
 import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
-import InsightsIcon from "@mui/icons-material/Insights";
 import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
@@ -89,6 +88,8 @@ interface NavSection {
   title: string;
   /** Where the app row at the top of the panel leads. Default: the first entry. */
   home?: string;
+  /** The way out at the top of the panel. Default: back to all apps. */
+  back?: { href: string; label: string };
   icon: React.ReactNode;
   color: string;
   items: {
@@ -203,18 +204,20 @@ const navSections: NavSection[] = [
       { label: "Journeys", href: "/customers/journeys", icon: <RouteIcon fontSize="small" /> },
     ],
   },
-  {
-    // Every report in the hub, by team (SARCLA, 11.10.2026): one group per
-    // category from src/lib/reporting/categories.ts - its reports, or its own
-    // page while it has none, so every category page keeps a sidebar.
-    title: "Advanced reporting",
-    home: "/reporting",
-    icon: <InsightsIcon />,
-    color: "#1f6fa8",
-    items: REPORT_CATEGORIES.flatMap((c) => (c.reports.length
-      ? c.reports.map((r) => ({ group: c.name, label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> }))
-      : [{ group: c.name, label: "Overview", href: `/reporting/${c.slug}`, icon: <HubIconGlyph name={toneOf(c.slug).icon} fontSize={20} /> }])),
-  },
+  // Every report in the hub, by team (SARCLA, 11.10.2026), from
+  // src/lib/reporting/categories.ts. Each category is a section of its own:
+  // inside one, the panel shows only ITS reports, the way every app shows only
+  // its own pages (SARCLA: "each advanced report should only show on side bar
+  // their reports as the rest of applications"), and the way out leads back to
+  // Advanced reporting. A category with no report yet is its heading alone.
+  ...REPORT_CATEGORIES.map((c): NavSection => ({
+    title: c.name,
+    home: `/reporting/${c.slug}`,
+    back: { href: "/reporting", label: "Advanced reporting" },
+    icon: <HubIconGlyph name={toneOf(c.slug).icon} fontSize={22} />,
+    color: toneOf(c.slug).fg,
+    items: c.reports.map((r) => ({ label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> })),
+  })),
   {
     // Where the data comes from, and what each connection writes to HubSpot.
     // The title matches the tile in hubApps.ts exactly, which is how the panel
@@ -585,7 +588,7 @@ export default function Sidebar() {
             <>
               {/* The way out. Without it entering an app is a trapdoor: the
                   panel is the app's, and nothing else says there are others. */}
-              <Row href="/" icon={<ChevronLeftIcon />} label="All apps" />
+              <Row href={activeSection!.back?.href ?? "/"} icon={<ChevronLeftIcon />} label={activeSection!.back?.label ?? "All apps"} />
               <Box sx={{ mt: 1.25, mb: 2.25 }}>
                 {/* The app's own page only for those who may open it: Website's
                     reports sit under Advanced reporting, which is granted apart. */}

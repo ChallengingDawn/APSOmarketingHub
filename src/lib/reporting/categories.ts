@@ -49,9 +49,10 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   },
   {
     slug: "eso", name: "ESO Reports", line: "The optimal ESO benchmark - per sales rep, this year against last",
-    // The benchmark from SARCLA's CrystalESO deck is being built; it is listed
-    // here the day its first section has real numbers, never as an empty page.
-    reports: [], next: "Being built: the ESO benchmark per sales rep - revenue & order intake, customer development, tickets, visits and shop behaviour, this year against last.",
+    // The benchmark from SARCLA's CrystalESO deck (src/lib/reporting/esoBenchmark.ts).
+    reports: [
+      { name: "ESO benchmark", href: "/reporting/eso-benchmark", note: "Per sales rep, this year against last", icon: "bar" },
+    ],
   },
   {
     slug: "tsa", name: "TSA Reports", line: "The TSA team's tickets, calls and response times",
