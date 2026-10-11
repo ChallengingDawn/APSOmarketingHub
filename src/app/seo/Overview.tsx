@@ -149,19 +149,10 @@ function CoverageCard({
 export default function Overview() {
   const { state, data, queue, retry } = useSeoData();
 
-  if (state.status === "not-configured") {
-    return (
-      <NotConnected
-        source="Google Search Console"
-        missing={state.missing}
-        detail={state.detail}
-        willShow="Clicks, impressions and average position for the property, and the three analyses that feed the work queue."
-      />
-    );
-  }
-  if (state.status === "error") {
-    return <UpstreamError error={state.error} status={state.httpStatus} onRetry={retry} />;
-  }
+  // Search Console being down hides the Search Console half of this page, and
+  // nothing else. The country-labels check reads our own live HTML and is
+  // perfectly capable of answering while Google is not.
+  const gscDown = state.status === "not-configured" || state.status === "error";
 
   const now = data ? totalsOf(data.pages) : null;
   // The wide call spans the current window AND the one before it, so the
@@ -178,6 +169,28 @@ export default function Overview() {
   const versus = "the previous equivalent window";
 
   const top = queue ? queue.items.slice(0, PREVIEW) : [];
+
+  if (gscDown) {
+    return (
+      <Box>
+        {state.status === "not-configured" ? (
+          <NotConnected
+            source="Google Search Console"
+            missing={state.missing}
+            detail={state.detail}
+            willShow="Clicks, impressions and average position for the property, and the three analyses that feed the work queue."
+          />
+        ) : state.status === "error" ? (
+          <UpstreamError error={state.error} status={state.httpStatus} onRetry={retry} />
+        ) : null}
+
+        <Kicker>Country labels</Kicker>
+        <Box sx={{ mt: 0.5 }}>
+          <CountryLabels />
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box>
