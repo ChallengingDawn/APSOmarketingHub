@@ -270,8 +270,8 @@ async function sweep(mode: Mode): Promise<SweepResult> {
     [started, since, mode, out.found, out.written, out.errors, !out.error, out.error ?? null, skus || null]);
   await q(`DELETE FROM apsomh_mg_stage WHERE sync_status IN ('ok','cancelled') AND processed_at < now() - interval '${RETENTION_DAYS} days'`);
   if (Math.random() < 0.03) await q("DELETE FROM apsomh_mg_runs WHERE id < (SELECT min(id) FROM (SELECT id FROM apsomh_mg_runs ORDER BY id DESC LIMIT 5000) t)");
-  // quiet when nothing happened - a line a minute would drown the log
-  if (out.error || out.written || out.errors) console.log(`[magento] sweep (${mode}): ${out.found} changed in the shop, ${out.written} written, ${out.errors} failed${out.error ? ` - FAILED ${out.error}` : ""}`);
+  // a line whenever the shop changed something (quiet otherwise - a line a minute would drown the log)
+  if (out.error || out.found || out.written || out.errors) console.log(`[magento] sweep (${mode}): ${out.found} changed in the shop, ${out.written} written, ${out.errors} failed${out.error ? ` - FAILED ${out.error}` : ""}`);
   return out;
 }
 
