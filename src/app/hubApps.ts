@@ -16,6 +16,10 @@ export type SubApp = {
   icon: IconKey;
   tint: string;
   fg: string;
+  /** A part of the app the entry belongs to (Connectors & Integration: one per connector). */
+  group?: string;
+  /** The label on a chip, when the name is spelled out for the search. */
+  short?: string;
 };
 
 export type IconKey =
@@ -154,12 +158,17 @@ export const APPS: HubApp[] = [
     from: "#2fb3a5", to: "#13866a", wash: "rgba(47,179,165,.10)", icon: "cable",
     square: true,
     subs: [
-      { name: "Overview", note: "Is the data flowing", href: "/connectors", icon: "health", ...TEAL },
-      { name: "The chain", note: "What the hub does with each ERP delivery", href: "/connectors/compass", icon: "sync", ...BLUE },
-      { name: "Files & runs", note: "What the ERP delivered", href: "/connectors/files", icon: "description", ...GREEN },
-      { name: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
-      { name: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
-      { name: "Shop orders", note: "Web orders from the shop into HubSpot", href: "/connectors/magento", icon: "tag", ...PINK },
+      // one group per connector, the same five pages each (SARCLA, 11.10.2026)
+      { group: "Compass connector", name: "Compass sync", short: "Overview", note: "Is the ERP's data flowing", href: "/connectors", icon: "health", ...TEAL },
+      { group: "Compass connector", name: "The chain", note: "What the hub does with each ERP delivery", href: "/connectors/compass", icon: "sync", ...BLUE },
+      { group: "Compass connector", name: "Files & runs", note: "What the ERP delivered", href: "/connectors/files", icon: "description", ...GREEN },
+      { group: "Compass connector", name: "What the Compass sync writes", short: "What it writes", note: "Every property and association", href: "/connectors/writes", icon: "layers", ...PURPLE },
+      { group: "Compass connector", name: "ERP review queue", short: "Review queue", note: "ERP customers with no company", href: "/connectors/review", icon: "groups", ...AMBER },
+      { group: "Magento connector", name: "Shop orders", short: "Overview", note: "Are the shop's web orders flowing into HubSpot", href: "/connectors/magento", icon: "health", ...PINK },
+      { group: "Magento connector", name: "Shop order list", short: "Orders", note: "Every web order the hub has read", href: "/connectors/magento/orders", icon: "tag", ...PINK },
+      { group: "Magento connector", name: "Shop sweeps", short: "Sweeps", note: "The minute-by-minute look at the shop", href: "/connectors/magento/sweeps", icon: "sync", ...BLUE },
+      { group: "Magento connector", name: "What the shop sync writes", short: "What it writes", note: "Every order property and link, and its shop field", href: "/connectors/magento/writes", icon: "layers", ...PURPLE },
+      { group: "Magento connector", name: "Shop review queue", short: "Review queue", note: "Orders held back or missing their contact", href: "/connectors/magento/review", icon: "groups", ...AMBER },
     ],
   },
 ];

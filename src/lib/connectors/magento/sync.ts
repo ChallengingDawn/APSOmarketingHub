@@ -122,14 +122,11 @@ export async function setMode(m: Mode): Promise<{ marked: number; toWrite: numbe
     const left: { id: string; why: string }[] = [];
     for (let i = 0; i < pending.length; i += 100) {
       const chunk = pending.slice(i, i + 100);
-      const found = await hubspotFetchJson<{ results?: Found[] }>({
-        path: "/crm/v3/objects/orders/search", method: "POST",
-        body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: chunk.map((r) => r.increment_id) }] }],
-          properties: ["hs_external_order_id", "hs_external_modified_date"], limit: 100 },
-      });
-      const mod = new Map((found.results ?? []).map((o) => [o.properties?.hs_external_order_id ?? "", o.properties?.hs_external_modified_date ?? null]));
+      const held = byWebNumber(await ordersByWebNumber(chunk.map((r) => r.increment_id), ["hs_external_modified_date"]));
       for (const r of chunk) {
-        if (mod.has(r.increment_id)) { if (!r.mod || same(r.mod, mod.get(r.increment_id))) done.push(r.entity_id); continue; }
+        const hs = held.get(r.increment_id) ?? [];
+        if (hs.length > 1) { left.push({ id: r.entity_id, why: split(hs.length) }); continue; }
+        if (hs.length === 1) { if (!r.mod || same(r.mod, hs[0].properties?.hs_external_modified_date)) done.push(r.entity_id); continue; }
         const why = mayNotCreate(r.payload);
         if (why) left.push({ id: r.entity_id, why });
       }
@@ -196,6 +193,33 @@ async function ordersChangedSince(sinceIso: string, opts: { onPage?: (items: Mag
 /* ── HubSpot ───────────────────────────────────────────────────────────── */
 
 type Found = { id: string; properties?: Record<string, string | null> };
+
+/** Every HubSpot order carrying one of these web order numbers (at most 100 numbers), all pages. */
+async function ordersByWebNumber(numbers: string[], properties: string[]): Promise<Found[]> {
+  const out: Found[] = [];
+  let after: string | undefined;
+  do {
+    const r = await hubspotFetchJson<{ results?: Found[]; paging?: { next?: { after?: string } } }>({
+      path: "/crm/v3/objects/orders/search", method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: numbers }] }],
+        properties: [...new Set(["hs_external_order_id", ...properties])], limit: 100, ...(after ? { after } : {}) },
+    });
+    out.push(...(r.results ?? []));
+    after = r.paging?.next?.after;
+  } while (after);
+  return out;
+}
+
+/** The HubSpot orders per web order number - more than one means the ERP split it into deliveries. */
+function byWebNumber(found: Found[]): Map<string, Found[]> {
+  const m = new Map<string, Found[]>();
+  for (const o of found) {
+    const k = o.properties?.hs_external_order_id ?? "";
+    m.set(k, [...(m.get(k) ?? []), o]);
+  }
+  return m;
+}
+const split = (n: number) => `left to the ERP: ${n} HubSpot orders carry this web number (the ERP's deliveries) - the shop's fields are not written onto one of them`;
 const search = (obj: string, filters: object[], properties: string[], limit = 1) =>
   hubspotFetchJson<{ results?: Found[] }>({ path: `/crm/v3/objects/${obj}/search`, method: "POST", body: { filterGroups: [{ filters }], properties, limit } });
 
@@ -205,8 +229,13 @@ const search = (obj: string, filters: object[], properties: string[], limit = 1)
  * mayNotCreate): an order the ERP has is the Compass sync's, and creating it makes a twin.
  */
 async function upsertOrder(props: Props): Promise<{ id: string } | { skipped: string }> {
-  const found = (await search("orders", [{ propertyName: "hs_external_order_id", operator: "EQ", value: props.hs_external_order_id }],
-    ["order_order_number", "order_reconcile_state"])).results?.[0];
+  const all = (await search("orders", [{ propertyName: "hs_external_order_id", operator: "EQ", value: props.hs_external_order_id }],
+    ["order_order_number", "order_reconcile_state"], 10)).results ?? [];
+  // the ERP split it: its deliveries carry the web number (an older load stamped them) - which
+  // one would get the whole order's addresses and amounts is chance (11.10.2026: the old
+  // connector wrote 10000057611's onto its .002), so none does
+  if (all.length > 1) return { skipped: split(all.length) };
+  const found = all[0];
   if (found) {
     const write = writableProps(props, found.properties ?? null);
     await hubspotFetchJson({ path: `/crm/v3/objects/orders/${found.id}`, method: "PATCH", body: { properties: write } });
@@ -573,14 +602,13 @@ export async function compareWithHubSpot(limit = 1500): Promise<Comparison> {
     const chunk = staged.slice(i, i + 100);
     // the A-number and the state too: whether the ERP linked an order decides what the hub may write
     const keys = [...new Set([...chunk.flatMap((r) => Object.keys(r.payload)), "order_order_number", "order_reconcile_state"])];
-    const found = await hubspotFetchJson<{ results?: Found[] }>({
-      path: "/crm/v3/objects/orders/search", method: "POST",
-      body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: chunk.map((r) => r.increment_id) }] }], properties: keys, limit: 100 },
-    });
-    const byInc = new Map((found.results ?? []).map((o) => [o.properties?.hs_external_order_id ?? "", o.properties ?? {}]));
+    const held = byWebNumber(await ordersByWebNumber(chunk.map((r) => r.increment_id), keys));
     for (const r of chunk) {
       out.checked += 1;
-      const hs = byInc.get(r.increment_id);
+      const all = held.get(r.increment_id) ?? [];
+      // split into deliveries: the hub leaves it to the ERP, as it would when writing
+      if (all.length > 1) { out.leftToErp += 1; continue; }
+      const hs = all[0]?.properties;
       if (!hs) { if (mayNotCreate(r.payload)) out.leftToErp += 1; else out.notInHubSpot += 1; continue; }
       let diff = false;
       for (const [k, v] of Object.entries(writableProps(r.payload, hs))) {
