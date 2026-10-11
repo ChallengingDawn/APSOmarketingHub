@@ -82,6 +82,8 @@ function Properties() {
         </GlassCard>
       ))}
       <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+        A new HubSpot order is created only while the shop still has the order (pending, processing, payment review, on hold) and it was placed
+        in the last 30 days; once the shop has transferred it, the ERP&apos;s orders are the record and the hub never makes a twin.
         An empty field in the shop is never written - it would wipe what the Compass sync set. &quot;Compass sync takes over&quot;: once the order carries its
         A-number, the shop sync no longer writes these; the ERP&apos;s values stand.
       </Typography>

@@ -15,7 +15,7 @@ import { GlassCard, MUTED, Notice } from "@/app/uc/report/ui";
 import { Choice } from "../../parts";
 import { OrderTable, Pager, SYNC, ShopPage, useOrders, type ShopCtx, type Status } from "../parts";
 
-type State = "all" | "pending" | "ok" | "error" | "cancelled";
+type State = "all" | "pending" | "ok" | "error" | "cancelled" | "skipped";
 
 function Orders({ s, ctx }: { s: Status; ctx: ShopCtx }) {
   const [state, setState] = useState<State>("all");
@@ -35,7 +35,7 @@ function Orders({ s, ctx }: { s: Status; ctx: ShopCtx }) {
       <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
         <Choice value={state} onChange={setState} options={[
           { key: "all", label: "All", count: all },
-          ...(["pending", "ok", "error", "cancelled"] as const).map((k) => ({ key: k, label: SYNC[k].label, count: s.counts[k] ?? 0 })),
+          ...(["pending", "ok", "error", "cancelled", "skipped"] as const).map((k) => ({ key: k, label: SYNC[k].label, count: s.counts[k] ?? 0 })),
         ]} />
         <TextField size="small" placeholder="Web order, customer or email" value={typed} onChange={(e) => setTyped(e.target.value)}
           sx={{ ml: { md: "auto" }, minWidth: 240 }}

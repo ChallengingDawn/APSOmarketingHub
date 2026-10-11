@@ -22,6 +22,9 @@ export const ERP_OWNED_AFTER_LINK = [
   "hs_order_name", "order_reconcile_state", "order_order_number",
   "hs_pipeline", "hs_pipeline_stage",
   "order_order_date", "order_total_net_revenue", "order_mandant", "order_total_qty",
+  // the Compass sync writes the ERP's net total here (11.10.2026: 58 linked orders showed the
+  // shop's gross against the ERP's net - the old connector overwrote it on every shop change)
+  "hs_total_price",
 ] as const;
 const LINE = /^order_line_\d{2}_/;
 
@@ -121,6 +124,25 @@ export function provisionalProps(o: MagentoOrder, pipe: { pipelineId: string; pi
   // never write a blank - it would wipe a value the Compass sync set
   for (const k of Object.keys(props)) if (props[k] === "") delete props[k];
   return props;
+}
+
+/**
+ * The shop statuses of an order the ERP does not have yet. Once the shop has transferred an
+ * order, the Compass sync holds it: its .000 entry is archived when the deliveries arrive, and
+ * no active HubSpot order keeps the web order number (11.10.2026: 645 of the week's 1,034
+ * shop orders, all "transferred"). Creating one then makes a twin of the ERP's order.
+ */
+export const SHOP_SIDE = new Set(["pending", "pending_payment", "payment_review", "processing", "holded", "new"]);
+/** An order placed longer ago than this is never created - it reached the ERP, or the old connector, long ago. */
+export const CREATE_WITHIN_DAYS = 30;
+
+/** Why an order HubSpot does not hold must NOT be created, or null when it may be. */
+export function mayNotCreate(props: Props, now = Date.now()): string | null {
+  const status = props.hs_external_order_status ?? "";
+  if (!SHOP_SIDE.has(status)) return `left to the ERP: the shop says "${status || "no status"}", and HubSpot holds no order with this web number`;
+  const placed = Number(props.hs_external_created_date);
+  if (Number.isFinite(placed) && now - placed > CREATE_WITHIN_DAYS * 86_400_000) return `left to the ERP: placed more than ${CREATE_WITHIN_DAYS} days ago`;
+  return null;
 }
 
 /** Why an order cannot be written, or null. */

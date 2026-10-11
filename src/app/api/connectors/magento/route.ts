@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
   try {
     if (b.action === "mode" && (b.mode === "off" || b.mode === "stage" || b.mode === "active")) {
       const r = await setMode(b.mode as Mode);
-      console.log(`[magento] mode -> ${b.mode} by user ${access.userId}${b.mode === "active" ? ` (${r.marked} staged orders already in HubSpot, ${r.toWrite} to write)` : ""}`);
-      return NextResponse.json({ ok: true, data: { note: `Shop orders: ${b.mode === "active" ? "the hub writes them now" : b.mode === "stage" ? "the hub reads only" : "switched off"}${b.mode === "active" ? ` - ${r.marked} orders HubSpot already holds are marked as done, ${r.toWrite} the hub writes now` : ""}` } });
+      console.log(`[magento] mode -> ${b.mode} by user ${access.userId}${b.mode === "active" ? ` (${r.marked} staged orders already in HubSpot, ${r.leftToErp} left to the ERP, ${r.toWrite} to write)` : ""}`);
+      return NextResponse.json({ ok: true, data: { note: `Shop orders: ${b.mode === "active" ? "the hub writes them now" : b.mode === "stage" ? "the hub reads only" : "switched off"}${b.mode === "active" ? ` - ${r.marked} orders HubSpot already holds are marked as done, ${r.leftToErp} the ERP has are left to it (no twins), ${r.toWrite} the hub writes now` : ""}` } });
     }
     if (b.action === "readback") {
       // a few minutes for a week of orders - longer than a request may wait, so in the background

@@ -84,7 +84,7 @@ function SideBySide({ admin, post }: { admin: boolean; post: ShopCtx["post"] }) 
       {c && (
         <Box sx={{ display: "grid", gap: 1 }}>
           <Typography sx={{ fontSize: "0.88rem", color: INK }}>
-            <b>{c.identical}</b> of {c.checked} orders identical · <b>{c.differing}</b> with a difference · {c.notInHubSpot} not in HubSpot yet
+            <b>{c.identical}</b> of {c.checked} orders identical · <b>{c.differing}</b> with a difference · {c.notInHubSpot} the hub would create · {c.leftToErp} left to the ERP (already transferred, cancelled or old - the hub makes no twin)
           </Typography>
           {fields.length > 0 && (
             <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Fields that differ: {fields.map(([k, n]) => `${k} (${n})`).join(", ")}</Typography>

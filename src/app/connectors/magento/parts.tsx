@@ -45,6 +45,7 @@ export const SYNC: Record<string, { label: string; tint: "green" | "amber" | "pi
   ok: { label: "Written", tint: "green" },
   error: { label: "Held", tint: "pink" },
   cancelled: { label: "Set aside", tint: "slate" },
+  skipped: { label: "Left to the ERP", tint: "slate" },
 };
 
 /** An ISO time as epoch seconds, for when()/ago(). */

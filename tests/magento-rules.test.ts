@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ERP_OWNED_AFTER_LINK, erpLinked, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
+import { ERP_OWNED_AFTER_LINK, erpLinked, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
 import { erpOwned, fieldNames } from "../src/lib/connectors/magento/fields";
 import { provisionalProps as legacy } from "./fixtures/magentoLegacy";
 
@@ -88,7 +88,8 @@ test("once the ERP linked an order, its ERP fields are never written again (the 
     assert.equal(Object.keys(w).some((k) => k.startsWith("order_line_")), false);
     // the shop's own fields still go: status, totals, addresses, payment
     assert.equal(w.hs_external_order_status, "complete");
-    assert.equal(w.hs_total_price, "119");
+    assert.equal("hs_total_price" in w, false, "the ERP's net total stays");
+    assert.equal(w.hs_subtotal_price, "100");
     assert.equal(w.hs_external_order_id, "20000063963");
   }
   assert.equal(erpLinked({ order_order_number: "web 123" }), false);
@@ -102,7 +103,7 @@ test("What it writes lists every property the sync can set, and nothing it does 
   for (const k of seen) assert.ok(listed.has(k), `${k} is written but not on the page`);
   for (const k of listed) assert.ok(seen.has(k), `${k} is on the page but never written`);
   for (const k of ERP_OWNED_AFTER_LINK) assert.ok(erpOwned(k), `${k} should show as ERP-owned`);
-  assert.ok(erpOwned("order_line_NN_article") && !erpOwned("hs_total_price"));
+  assert.ok(erpOwned("order_line_NN_article") && erpOwned("hs_total_price") && !erpOwned("hs_subtotal_price"));
 });
 
 test("an order HubSpot holds with the shop's latest change counts as written - epoch ms against HubSpot's datetime", () => {
@@ -110,4 +111,17 @@ test("an order HubSpot holds with the shop's latest change counts as written - e
   assert.ok(same("1791725969000", "2026-10-11T13:39:29.000Z"));
   assert.ok(!same("1791725970000", "2026-10-11T13:39:29Z"), "a later change in the shop is not written yet");
   assert.ok(!same("1791725969000", null));
+});
+
+test("an order the ERP has is never created - only one still on the shop's side, placed lately", () => {
+  const now = Date.parse("2026-10-11T16:00:00Z");
+  const at = (iso: string) => String(Date.parse(iso));
+  const order = (status: string, placed: string) => ({ hs_external_order_id: "20000067216", hs_external_order_status: status, hs_external_created_date: at(placed) });
+  assert.equal(mayNotCreate(order("processing", "2026-10-11T15:59:00Z"), now), null, "a new order: created");
+  assert.equal(mayNotCreate(order("pending", "2026-10-01T00:00:00Z"), now), null);
+  assert.match(mayNotCreate(order("transferred", "2026-10-11T15:00:00Z"), now) ?? "", /left to the ERP/, "transferred: the ERP has it");
+  assert.match(mayNotCreate(order("complete", "2026-10-09T00:00:00Z"), now) ?? "", /left to the ERP/);
+  assert.match(mayNotCreate(order("canceled", "2026-10-11T15:00:00Z"), now) ?? "", /left to the ERP/);
+  assert.match(mayNotCreate(order("processing", "2022-08-01T00:00:00Z"), now) ?? "", /more than 30 days/, "an old order changed in the shop: no twin");
+  assert.match(mayNotCreate({ hs_external_order_id: "1" }, now) ?? "", /no status/);
 });

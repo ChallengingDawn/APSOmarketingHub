@@ -18,7 +18,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { magentoConfigured } from "@/lib/doc/config";
 import { magentoGet } from "@/lib/doc/magento";
-import { magentoTs, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
+import { magentoTs, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
 
 export type Mode = "off" | "stage" | "active";
 const KV_MODE = "connectors:magento:mode";
@@ -111,14 +111,15 @@ export async function getMode(): Promise<Mode> {
  * was "staged more than 10 minutes ago", which would have let a fresh read back rewrite a week.)
  * If HubSpot cannot be asked, the mode does not change.
  */
-export async function setMode(m: Mode): Promise<{ marked: number; toWrite: number }> {
-  let marked = 0, toWrite = 0;
+export async function setMode(m: Mode): Promise<{ marked: number; toWrite: number; leftToErp: number }> {
+  let marked = 0, toWrite = 0, leftToErp = 0;
   if (m === "active" && (await getMode()) !== "active") {
     await ensureTables();
-    const pending = await q<{ entity_id: string; increment_id: string; mod: string | null }>(
-      `SELECT entity_id::text, increment_id, payload->>'hs_external_modified_date' AS mod FROM apsomh_mg_stage
+    const pending = await q<{ entity_id: string; increment_id: string; mod: string | null; payload: Props }>(
+      `SELECT entity_id::text, increment_id, payload->>'hs_external_modified_date' AS mod, payload FROM apsomh_mg_stage
         WHERE sync_status='pending' AND increment_id IS NOT NULL`);
     const done: string[] = [];
+    const left: { id: string; why: string }[] = [];
     for (let i = 0; i < pending.length; i += 100) {
       const chunk = pending.slice(i, i + 100);
       const found = await hubspotFetchJson<{ results?: Found[] }>({
@@ -127,18 +128,26 @@ export async function setMode(m: Mode): Promise<{ marked: number; toWrite: numbe
           properties: ["hs_external_order_id", "hs_external_modified_date"], limit: 100 },
       });
       const mod = new Map((found.results ?? []).map((o) => [o.properties?.hs_external_order_id ?? "", o.properties?.hs_external_modified_date ?? null]));
-      for (const r of chunk) if (mod.has(r.increment_id) && (!r.mod || same(r.mod, mod.get(r.increment_id)))) done.push(r.entity_id);
+      for (const r of chunk) {
+        if (mod.has(r.increment_id)) { if (!r.mod || same(r.mod, mod.get(r.increment_id))) done.push(r.entity_id); continue; }
+        const why = mayNotCreate(r.payload);
+        if (why) left.push({ id: r.entity_id, why });
+      }
     }
+    for (const l of left) {
+      await q("UPDATE apsomh_mg_stage SET sync_status='skipped', error_msg=$2, processed_at=now() WHERE entity_id=$1 AND sync_status='pending'", [l.id, l.why]);
+    }
+    leftToErp = left.length;
     if (done.length) {
       const r = await getPool().query(
         `UPDATE apsomh_mg_stage SET sync_status='ok', error_msg='written by the old connector', processed_at=now()
           WHERE sync_status='pending' AND entity_id = ANY($1::bigint[])`, [done]);
       marked = r.rowCount ?? 0;
     }
-    toWrite = pending.length - marked;
+    toWrite = pending.length - marked - leftToErp;
   }
   await kvSet(KV_MODE, m);
-  return { marked, toWrite };
+  return { marked, toWrite, leftToErp };
 }
 
 /* ── the shop ──────────────────────────────────────────────────────────── */
@@ -190,18 +199,24 @@ type Found = { id: string; properties?: Record<string, string | null> };
 const search = (obj: string, filters: object[], properties: string[], limit = 1) =>
   hubspotFetchJson<{ results?: Found[] }>({ path: `/crm/v3/objects/${obj}/search`, method: "POST", body: { filterGroups: [{ filters }], properties, limit } });
 
-/** Create or update the order by its web order number; an order the ERP linked keeps its ERP fields. */
-async function upsertOrder(props: Props): Promise<string> {
+/**
+ * Update the order HubSpot holds under its web order number (an order the ERP linked keeps its
+ * ERP fields), or create it - but only while it is still on the shop's side (rules.ts
+ * mayNotCreate): an order the ERP has is the Compass sync's, and creating it makes a twin.
+ */
+async function upsertOrder(props: Props): Promise<{ id: string } | { skipped: string }> {
   const found = (await search("orders", [{ propertyName: "hs_external_order_id", operator: "EQ", value: props.hs_external_order_id }],
     ["order_order_number", "order_reconcile_state"])).results?.[0];
   if (found) {
     const write = writableProps(props, found.properties ?? null);
     await hubspotFetchJson({ path: `/crm/v3/objects/orders/${found.id}`, method: "PATCH", body: { properties: write } });
-    return found.id;
+    return { id: found.id };
   }
+  const why = mayNotCreate(props);
+  if (why) return { skipped: why };
   const made = await hubspotFetchJson<{ id?: string }>({ path: "/crm/v3/objects/orders", method: "POST", body: { properties: props } });
   if (!made.id) throw new Error("HubSpot created the order but returned no id");
-  return made.id;
+  return { id: made.id };
 }
 
 /** Link the order to its contact (found by email - never created) and to its articles (by SKU). */
@@ -307,9 +322,12 @@ async function sweep(mode: Mode): Promise<SweepResult> {
         let status = "ok", msg: string | null = bad, hsId: string | null = null;
         if (bad) status = "error";
         else {
-          try { hsId = await upsertOrder({ ...row.payload }); } catch (e) { status = "error"; msg = (e as Error).message.slice(0, 300); }
+          try {
+            const r = await upsertOrder({ ...row.payload });
+            if ("skipped" in r) { status = "skipped"; msg = r.skipped; } else hsId = r.id;
+          } catch (e) { status = "error"; msg = (e as Error).message.slice(0, 300); }
         }
-        if (status === "error") out.errors += 1; else out.written += 1;
+        if (status === "error") out.errors += 1; else if (status === "ok") out.written += 1;
         await q("UPDATE apsomh_mg_stage SET sync_status=$2, error_msg=$3, processed_at=now(), hs_order_id=COALESCE($4, hs_order_id) WHERE entity_id=$1",
           [row.entity_id, status, msg, hsId]);
         if (hsId) {
@@ -330,7 +348,7 @@ async function sweep(mode: Mode): Promise<SweepResult> {
     `INSERT INTO apsomh_mg_runs (started_at, finished_at, window_from, mode, orders_found, orders_written, errors, ok, error, skus)
      VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9)`,
     [started, since, mode, out.found, out.written, out.errors, !out.error, out.error ?? null, skus || null]);
-  await q(`DELETE FROM apsomh_mg_stage WHERE sync_status IN ('ok','cancelled') AND processed_at < now() - interval '${RETENTION_DAYS} days'`);
+  await q(`DELETE FROM apsomh_mg_stage WHERE sync_status IN ('ok','cancelled','skipped') AND processed_at < now() - interval '${RETENTION_DAYS} days'`);
   if (Math.random() < 0.03) await q("DELETE FROM apsomh_mg_runs WHERE id < (SELECT min(id) FROM (SELECT id FROM apsomh_mg_runs ORDER BY id DESC LIMIT 5000) t)");
   // a line whenever the shop changed something (quiet otherwise - a line a minute would drown the log)
   if (out.error || out.found || out.written || out.errors) console.log(`[magento] sweep (${mode}): ${out.found} changed in the shop, ${out.written} written, ${out.errors} failed${out.error ? ` - FAILED ${out.error}` : ""}`);
@@ -504,7 +522,7 @@ export async function sweeps(filter: SweepFilter, page = 0, size = 25) {
   return { rows: list, total: Number(total[0]?.n ?? 0), today: today[0] ?? { sweeps: 0, failed: 0, found: 0, written: 0 } };
 }
 
-const SYNC_STATES = ["pending", "ok", "error", "cancelled"];
+const SYNC_STATES = ["pending", "ok", "error", "cancelled", "skipped"];
 
 export async function rows(kind: "orders" | "held" | "contacts", page = 0, opts: { state?: string; find?: string } = {}, size = 25): Promise<{ rows: StageRow[]; total: number }> {
   await ensureTables();
@@ -536,7 +554,8 @@ export async function act(entityId: string, action: "retry" | "cancel" | "relink
 /* ── the side-by-side test ─────────────────────────────────────────────── */
 
 export type Comparison = {
-  checked: number; notInHubSpot: number; identical: number; differing: number;
+  /** notInHubSpot: the hub would create these; leftToErp: HubSpot does not hold them and the hub would not create them (the ERP has them). */
+  checked: number; notInHubSpot: number; leftToErp: number; identical: number; differing: number;
   fields: Record<string, number>; examples: { order: string; field: string; hub: string; hubspot: string | null }[];
 };
 
@@ -549,10 +568,11 @@ export async function compareWithHubSpot(limit = 1500): Promise<Comparison> {
   await ensureTables();
   const staged = await q<{ increment_id: string; payload: Props }>(
     "SELECT increment_id, payload FROM apsomh_mg_stage WHERE increment_id IS NOT NULL AND payload IS NOT NULL ORDER BY last_seen DESC LIMIT $1", [limit]);
-  const out: Comparison = { checked: 0, notInHubSpot: 0, identical: 0, differing: 0, fields: {}, examples: [] };
+  const out: Comparison = { checked: 0, notInHubSpot: 0, leftToErp: 0, identical: 0, differing: 0, fields: {}, examples: [] };
   for (let i = 0; i < staged.length; i += 100) {
     const chunk = staged.slice(i, i + 100);
-    const keys = [...new Set(chunk.flatMap((r) => Object.keys(r.payload)))];
+    // the A-number and the state too: whether the ERP linked an order decides what the hub may write
+    const keys = [...new Set([...chunk.flatMap((r) => Object.keys(r.payload)), "order_order_number", "order_reconcile_state"])];
     const found = await hubspotFetchJson<{ results?: Found[] }>({
       path: "/crm/v3/objects/orders/search", method: "POST",
       body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: chunk.map((r) => r.increment_id) }] }], properties: keys, limit: 100 },
@@ -561,7 +581,7 @@ export async function compareWithHubSpot(limit = 1500): Promise<Comparison> {
     for (const r of chunk) {
       out.checked += 1;
       const hs = byInc.get(r.increment_id);
-      if (!hs) { out.notInHubSpot += 1; continue; }
+      if (!hs) { if (mayNotCreate(r.payload)) out.leftToErp += 1; else out.notInHubSpot += 1; continue; }
       let diff = false;
       for (const [k, v] of Object.entries(writableProps(r.payload, hs))) {
         if (same(v, hs[k])) continue;
