@@ -9,7 +9,13 @@ import { rangeParams } from "@/lib/integrations/dateRange";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// The plain query and page calls come back in a second or two. The query+page
+// PAIR call is a different animal: it asks Google to fan one row out per
+// combination, and over a year on a busy property that regularly runs past
+// fifteen seconds — which showed up as "Upstream request timed out" on
+// Cannibalisation alone, cured by pressing retry. Pairs get their own budget.
 const TIMEOUT_MS = 15_000;
+const PAIRS_TIMEOUT_MS = 55_000;
 
 export async function GET(req: NextRequest) {
   const user = await getOptionalUser();
@@ -33,7 +39,7 @@ export async function GET(req: NextRequest) {
   const wantPairs = sp.get("pairs") === "1";
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), wantPairs ? PAIRS_TIMEOUT_MS : TIMEOUT_MS);
   try {
     if (wantPairs) {
       const pairs = await fetchGscQueryPagePairs({ days, from, to, signal: controller.signal });

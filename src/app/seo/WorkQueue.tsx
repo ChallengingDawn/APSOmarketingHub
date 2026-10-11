@@ -21,7 +21,7 @@ import {
   SOURCE_META,
   WORK_SOURCES,
   availableSources,
-  createHref,
+  actionFor,
   listPhrase,
   unavailableSources,
   type WorkDetail,
@@ -164,7 +164,9 @@ function findingOf(item: WorkItem, start?: (item: WorkItem) => void, started?: b
     subjectMono: item.source === "decay",
     tag: <Tag label={meta.label} color={tone.color} bg={tone.bg} />,
     reason: item.action,
-    action: { href: createHref(item.topic), label: "Open in Create" },
+    // Not every finding is a writing job — a cannibalised query is made worse
+    // by another page, not better. actionFor says where each one really goes.
+    action: actionFor(item),
     // Pressing this writes down what the page looks like today. Twenty-eight
     // days later "Did it work" reads the same page again and compares.
     secondary: start ? (

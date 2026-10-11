@@ -1,5 +1,7 @@
 "use client";
 import { Fragment, Suspense, useEffect, useState } from "react";
+import { SEO_NAV, type SeoRouteId } from "@/app/seo/nav";
+import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import { usePathname, useSearchParams } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
 import ListItemButton from "@mui/material/ListItemButton";
@@ -123,6 +125,17 @@ interface NavSection {
  * configuration, and a second entry elsewhere only made people wonder which was
  * the real one.
  */
+/** One icon per SEO page, keyed by the nav id so the two cannot fall out of step. */
+const SEO_ICON: Record<SeoRouteId, React.ReactNode> = {
+  overview: <SpaceDashboardIcon fontSize="small" />,
+  "work-queue": <PlaylistAddCheckIcon fontSize="small" />,
+  performance: <QueryStatsIcon fontSize="small" />,
+  "quick-wins": <BoltIcon fontSize="small" />,
+  cannibalisation: <CallSplitIcon fontSize="small" />,
+  decay: <TrendingDownIcon fontSize="small" />,
+  impact: <FactCheckIcon fontSize="small" />,
+};
+
 const navSections: NavSection[] = [
   {
     // The launch pad and the things that belong to no single app.
@@ -163,14 +176,15 @@ const navSections: NavSection[] = [
       { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
       { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
-      // The queue first: it is what the area is for. The numbers are a page
-      // inside it now, not the thing you land on.
-      { group: "SEO", label: "What to do next", href: "/seo", icon: <PlaylistAddCheckIcon fontSize="small" /> },
-      { group: "SEO", label: "Search performance", href: "/seo/performance", icon: <QueryStatsIcon fontSize="small" /> },
-      { group: "SEO", label: "Did it work", href: "/seo/impact", icon: <FactCheckIcon fontSize="small" /> },
-      { group: "SEO", label: "Quick wins", href: "/seo/quick-wins", icon: <BoltIcon fontSize="small" /> },
-      { group: "SEO", label: "Cannibalisation", href: "/seo/cannibalisation", icon: <CallSplitIcon fontSize="small" /> },
-      { group: "SEO", label: "Decay", href: "/seo/decay", icon: <TrendingDownIcon fontSize="small" /> },
+      // Generated from SEO_NAV rather than typed out again. The two lists
+      // used to be written separately and had drifted into disagreeing about
+      // what the pages were even called.
+      ...SEO_NAV.map((e) => ({
+        group: "SEO" as const,
+        label: e.label,
+        href: e.href,
+        icon: SEO_ICON[e.id],
+      })),
       { group: "GEO", label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
       { group: "GEO", label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
       { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },

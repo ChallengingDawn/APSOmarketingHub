@@ -13,12 +13,25 @@ import TaskAlt from "@mui/icons-material/TaskAlt";
 
 /* ── design tokens ─────────────────────────────────────────────────────── */
 
+// The same values as src/app/uc/report/ui.tsx, deliberately. The cockpit had
+// its own ink, its own grey and its own hairline, half a shade off the rest of
+// the hub each time — which is most of why it read as a different product
+// sitting in the same sidebar. One set of tones, one product.
 export const NAVY = "#274e64";
-export const RED = "#ed1b2f";
-export const INK = "#1a1d21";
-export const MUTED = "#5b6470";
-export const HAIRLINE = "#e3e6ea";
-export const SURFACE = "#f5f6f8";
+export const RED = "#c5221f";
+export const INK = "#15223a";
+export const MUTED = "#5d6b85";
+export const FAINT = "#8b97ac";
+export const HAIRLINE = "rgba(21,34,58,.10)";
+export const SURFACE = "#eef1f5";
+
+/** The frosted surface every card in the hub sits on. */
+export const GLASS = {
+  bgcolor: "rgba(255,255,255,.72)",
+  backdropFilter: "blur(18px)",
+  border: "1px solid rgba(255,255,255,.8)",
+  boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)",
+} as const;
 
 export const DISPLAY = "var(--font-outfit), var(--font-inter), sans-serif";
 export const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -95,14 +108,19 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Kept under its old name so every call site stays put, but it is the hub's
+ * frosted card now: 22px radius, blurred white, the soft double shadow. It was
+ * a flat white rectangle with a grey border, which is a perfectly good card and
+ * the wrong one — nothing else in the hub looks like that.
+ */
 export function HairlineCard({ children, sx }: { children: ReactNode; sx?: object }) {
   return (
     <Card
       elevation={0}
       sx={{
-        border: `1px solid ${HAIRLINE}`,
-        borderRadius: 2,
-        bgcolor: "#fff",
+        ...GLASS,
+        borderRadius: "22px",
         overflow: "hidden",
         ...sx,
       }}

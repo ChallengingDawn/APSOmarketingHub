@@ -261,8 +261,26 @@ export async function fetchGsc(
 }
 
 /** Query+page pairs for one window — at most GSC_PAIR_ROW_LIMIT rows. */
+/**
+ * The query+page pairs, with ONE automatic retry on a timeout.
+ *
+ * This is the heaviest call the cockpit makes — Google fans out a row per
+ * query-and-page combination — and on a wide window it sometimes just takes
+ * too long. The symptom was Cannibalisation alone reporting a failure while
+ * the other four analyses sat there fine, and pressing retry fixing it. If
+ * pressing retry fixes it, the page can press retry.
+ *
+ * Only a timeout is retried. A 403 or a 404 will say the same thing twice, so
+ * asking again only makes the reader wait longer to read the same sentence.
+ */
 export async function fetchGscPairs(params: { from: string; to: string }, signal?: AbortSignal): Promise<GscPairApiResponse> {
-  const raw = await requestGsc(`/api/integrations/gsc?pairs=1&from=${params.from}&to=${params.to}`, signal);
+  const url = `/api/integrations/gsc?pairs=1&from=${params.from}&to=${params.to}`;
+
+  let raw = await requestGsc(url, signal);
+  if (raw.kind === "failure" && /timed out|timeout/i.test(raw.error) && !signal?.aborted) {
+    raw = await requestGsc(url, signal);
+  }
+
   if (raw.kind === "failure") {
     return { configured: true, ok: false, error: raw.error, status: raw.status };
   }

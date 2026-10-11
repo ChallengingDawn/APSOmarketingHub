@@ -72,6 +72,39 @@ export function cannibalTopic(group: CannibalGroup): string {
   return `Differentiate two pages competing for the query "${group.query}": ${rec.keep} and ${rec.retarget} rank comparably — retarget one to an adjacent query or merge them into a single stronger page.`;
 }
 
+/**
+ * Where a finding actually sends you — which is NOT always Create.
+ *
+ * Every row used to carry "Open in Create", which quietly said that the answer
+ * to all 187 findings was to write something. For a cannibalised query that is
+ * the opposite of the fix: two of your own URLs already compete for it, and
+ * publishing a third makes it worse. The work there is choosing which page
+ * wins and consolidating onto it — a redirect, a canonical, internal links,
+ * de-optimising the loser. None of that is writing.
+ *
+ * So cannibalisation goes to its own analysis, where the competing URLs and
+ * the recommendation are side by side. Quick wins and decay keep Create,
+ * because deepening a page and refreshing a stale one genuinely are writing.
+ */
+export function actionFor(item: { source: WorkSource; topic: string }): { href: string; label: string } {
+  if (item.source === "cannibalisation") {
+    return { href: "/seo/cannibalisation", label: "Compare the URLs" };
+  }
+  return { href: createHref(item.topic), label: "Open in Create" };
+}
+
+/**
+ * The page that should WIN a cannibalised query — the one to go and look at.
+ *
+ * Every recommendation names a survivor, whatever it calls it: the page kept,
+ * or the transactional one in an intent split. That page is where the work
+ * lands, so it is what the button opens.
+ */
+export function cannibalWinner(group: CannibalGroup): string {
+  const rec = group.recommendation;
+  return rec.kind === "assign-intent" ? rec.product : rec.keep;
+}
+
 /* ── sources ───────────────────────────────────────────────────────────── */
 
 export type WorkSource = "quick-win" | "cannibalisation" | "decay";

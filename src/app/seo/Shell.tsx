@@ -39,29 +39,14 @@ import {
 
 /* ── the five siblings ─────────────────────────────────────────────────── */
 
-export type SeoRouteId = "performance" | "quick-wins" | "cannibalisation" | "decay" | "work-queue";
+// The list itself lives in ./nav, because the hub sidebar reads the same one.
+// Re-exported so every existing import keeps working.
+export { SEO_NAV, isSeoActive as isActive } from "./nav";
+export type { SeoRouteId, NavCounts, SeoNavEntry } from "./nav";
 
-export const SEO_NAV: { id: SeoRouteId; href: string; label: string }[] = [
-  { id: "performance", href: "/seo", label: "Performance" },
-  { id: "quick-wins", href: "/seo/quick-wins", label: "Quick wins" },
-  { id: "cannibalisation", href: "/seo/cannibalisation", label: "Cannibalisation" },
-  { id: "decay", href: "/seo/decay", label: "Decay" },
-  { id: "work-queue", href: "/seo/work-queue", label: "Work queue" },
-];
+import { SEO_NAV as NAV, isSeoActive, type NavCounts as Counts } from "./nav";
 
-/**
- * A count next to an entry means "this many findings are waiting there". `null`
- * means the number is not known yet or the analysis behind it could not run —
- * shown as nothing rather than as a zero, because a zero would be a claim.
- */
-export type NavCounts = Partial<Record<SeoRouteId, number | null>>;
-
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/seo") return pathname === "/seo" || pathname === "/seo/";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-export function SubNav({ counts }: { counts: NavCounts }) {
+export function SubNav({ counts }: { counts: Counts }) {
   const pathname = usePathname() ?? "/seo";
 
   return (
@@ -79,8 +64,8 @@ export function SubNav({ counts }: { counts: NavCounts }) {
         border: `1px solid ${HAIRLINE}`,
       }}
     >
-      {SEO_NAV.map((entry) => {
-        const active = isActive(pathname, entry.href);
+      {NAV.map((entry) => {
+        const active = isSeoActive(pathname, entry.href);
         const count = counts[entry.id];
         return (
           <Box

@@ -47,7 +47,12 @@ export type Finding = {
   tag?: ReactNode;
   /** Exactly one line. Anything longer belongs in `details`. */
   reason: ReactNode;
-  action: { href: string; label: string };
+  /**
+   * One primary button. `external: true` means the href leaves the hub — a live
+   * page on the shop, not a route — so it opens in a new tab and does not go
+   * through next/link, which would try to client-navigate to another origin.
+   */
+  action: { href: string; label: string; external?: boolean };
   /** An optional second control beside the link — "Start", and nothing else so far. */
   secondary?: ReactNode;
   details: ReactNode;
@@ -153,8 +158,9 @@ function FindingRow({ finding }: { finding: Finding }) {
           }}
         >
           <Button
-            component={Link}
-            href={finding.action.href}
+            {...(finding.action.external
+              ? { component: "a" as const, href: finding.action.href, target: "_blank", rel: "noopener noreferrer" }
+              : { component: Link, href: finding.action.href })}
             variant="contained"
             disableElevation
             sx={{

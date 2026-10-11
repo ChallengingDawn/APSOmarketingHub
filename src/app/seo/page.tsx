@@ -1,19 +1,15 @@
 "use client";
 
 /**
- * /seo — THE WORK QUEUE, and nothing else.
+ * /seo — the overview.
  *
- * It used to open on Search performance: a page of numbers, with the list of
- * things to actually do three clicks away behind its own tab. Five sub-apps,
- * five scores in five units, and the reader left to reconcile them.
- *
- * Now the front door answers the only question somebody opens this area to ask
- * — what should I do first — and the analyses behind it are detail you click
- * into when you want to know why. The numbers moved to /seo/performance.
+ * The queue moved to /seo/work-queue, which is the address its own tab had
+ * been pointing at all along. This is the front door the tab bar and the
+ * sidebar both called it.
  */
 
-import WorkQueue from "./WorkQueue";
+import Overview from "./Overview";
 
 export default function SeoPage() {
-  return <WorkQueue />;
+  return <Overview />;
 }

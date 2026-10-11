@@ -33,7 +33,7 @@ import {
   type CompetingPage,
 } from "./analysis";
 import FindingList, { DetailNote, type Finding } from "./Finding";
-import { cannibalTopic, createHref } from "./queue";
+import { cannibalWinner } from "./queue";
 import { PAIRS_PENDING, useSeoData } from "./SeoData";
 import { Caveat, Disclosure, HeroStat, SubAppFrame } from "./Shell";
 import {
@@ -224,7 +224,10 @@ function findingOf(group: CannibalGroup): Finding {
     subject: group.query,
     tag: <Tag label={badge.label} color={badge.color} bg={badge.bg} />,
     reason: `${fmtInt(group.pageCount)} of your URLs · ${fmtInt(group.totalImpressions)} impressions split · best position ${fmtPosition(group.bestPosition)} · spread ${fmtSpread(group.positionSpread)}`,
-    action: { href: createHref(cannibalTopic(group)), label: "Brief the fix" },
+    // NOT Create. Two of your own pages already compete for this query;
+    // writing a third is how the problem got here. The fix is to pick the
+    // winner and consolidate onto it, so the button opens that page.
+    action: { href: cannibalWinner(group), label: "Open the page to keep", external: true },
     searchText: `${group.query} ${group.pages.map((p) => p.page).join(" ")}`,
     details: (
       <>
