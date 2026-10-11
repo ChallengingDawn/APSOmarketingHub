@@ -50,6 +50,7 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import TitleIcon from "@mui/icons-material/Title";
 import type { SeedText } from "../editor/EditorCanvas";
 import TypePicker from "./TypePicker";
+import SaveToProject from "./SaveToProject";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
@@ -677,6 +678,10 @@ export default function CreateStudio({
                 </Button>
               </span>
             </Tooltip>
+            <SaveToProject
+              draftId={draft?.draftId ?? null}
+              defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
+            />
             <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
               <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
               <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>

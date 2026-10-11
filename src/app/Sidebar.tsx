@@ -174,6 +174,7 @@ const navSections: NavSection[] = [
       // is.
       { group: "Content", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
       { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
+      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
       { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
       // Generated from SEO_NAV rather than typed out again. The two lists

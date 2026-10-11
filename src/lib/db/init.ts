@@ -159,6 +159,62 @@ export function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_apsomh_seo_actions_started ON apsomh_seo_actions(started_at DESC)`
     );
 
+    // CONTENT PROJECTS.
+    //
+    // A draft used to live in one person's browser until they copied it out,
+    // so a second opinion meant pasting into Teams and a second language meant
+    // starting again. A project is the shared thing: one brief, every
+    // variation under it, and a conversation beside them.
+    //
+    // Variants are rows of apsomh_content with a project_id, not a new table.
+    // The library already lists, renders and edits those rows; giving them a
+    // parent should not fork the model that works.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_content_projects (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        brief TEXT,
+        -- open while people are still making variations, decided when one has
+        -- been chosen. Never deleted: what was rejected is half the record.
+        status VARCHAR(24) NOT NULL DEFAULT 'open',
+        chosen_variant_id INTEGER,
+        created_by VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    for (const col of [
+      "project_id INTEGER",
+      "content_type VARCHAR(48)",
+      "language VARCHAR(8)",
+      // "Variation B", "Shorter hero", "Marc's version" - what a person calls
+      // it, so a column of six drafts is readable without opening them.
+      "label TEXT",
+      "updated_by VARCHAR(255)",
+    ]) {
+      await query(`ALTER TABLE apsomh_content ADD COLUMN IF NOT EXISTS ${col}`);
+    }
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_project ON apsomh_content(project_id, created_at DESC)`
+    );
+
+    // The collaboration. Attached to a variant when the remark is about one,
+    // to the project when it is about the whole thing.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_content_comments (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        variant_id INTEGER,
+        author VARCHAR(255) NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_comments_project ON apsomh_content_comments(project_id, created_at)`
+    );
+
     // NOBODY LOSES LIVE WHEN IT CHANGES APPS.
     //
     // Live, Tracking health, Cookie consent and Web order sync moved out of
