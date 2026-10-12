@@ -68,8 +68,8 @@ test("priceCheckQualifies with the 500 EUR floor ON: a floor, specials and off-f
   const on = { valueFloor: true };
   // two KT/DT catalogue articles worth 10'406 at list price -> a ticket
   const sati = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: 9909.6 },
-    { article: "0110150035", profitCentre: "KT", value: 496.7 },
+    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 1 },
+    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 1 },
   ], on);
   assert.equal(sati.qualifies, true);
   assert.equal(sati.counted, 2);
@@ -77,11 +77,11 @@ test("priceCheckQualifies with the 500 EUR floor ON: a floor, specials and off-f
 
   // Berset: four 8xxx specials plus one KT at 208 -> NO ticket
   const berset = priceCheckQualifies([
-    { article: "8001227954", profitCentre: "KT", value: 207.75 },
-    { article: "8000959148", profitCentre: null, value: null },
-    { article: "8001263296", profitCentre: null, value: null },
-    { article: "8001262716", profitCentre: null, value: null },
-    { article: "8001262721", profitCentre: null, value: null },
+    { article: "8001227954", profitCentre: "KT", value: 207.75, qty: 1 },
+    { article: "8000959148", profitCentre: null, value: null, qty: 1 },
+    { article: "8001263296", profitCentre: null, value: null, qty: 1 },
+    { article: "8001262716", profitCentre: null, value: null, qty: 1 },
+    { article: "8001262721", profitCentre: null, value: null, qty: 1 },
   ], on);
   assert.equal(berset.qualifies, false, "specials are excluded, so this is below the floor");
   assert.equal(berset.counted, 0);
@@ -90,14 +90,14 @@ test("priceCheckQualifies with the 500 EUR floor ON: a floor, specials and off-f
   // Apr: five DT articles but only 158 EUR -> below the floor, no ticket
   const apr = priceCheckQualifies(
     ["1141600190", "1120030008", "1141600194", "1120030142", "1141600198"]
-      .map((a) => ({ article: a, profitCentre: "DT", value: 31.6 })),
+      .map((a) => ({ article: a, profitCentre: "DT", value: 31.6, qty: 1 })),
     on,
   );
   assert.equal(apr.counted, 5);
   assert.equal(apr.qualifies, false, "three or more articles still has to clear 500 EUR");
 
   // an off-focus profit centre never counts
-  const ft = priceCheckQualifies([{ article: "1120072140", profitCentre: "FT", value: 9000 }], on);
+  const ft = priceCheckQualifies([{ article: "1120072140", profitCentre: "FT", value: 9000, qty: 1 }], on);
   assert.equal(ft.qualifies, false);
   assert.equal(ft.skipped, 1);
 });
@@ -106,24 +106,43 @@ test("priceCheckQualifies while the floor is PAUSED (default): three KT/DT artic
   assert.equal(VALUE_FLOOR_ACTIVE, false, "the floor stays paused until the ERP price unit is in P&P");
   // Sati's two articles: 9,910 EUR was 20 O-rings priced per 100 - not a ticket on value any more
   const sati = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: 9909.6 },
-    { article: "0110150035", profitCentre: "KT", value: 496.7 },
+    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 1 },
+    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 1 },
   ]);
   assert.equal(sati.qualifies, false);
   assert.equal(priceCheckShortfall(sati), "2 of 3 articles");
   // three KT/DT articles qualify whatever the (unknown-unit) value says
   const three = priceCheckQualifies(["1141600190", "1120030008", "0110150035"]
-    .map((a) => ({ article: a, profitCentre: a.startsWith("011") ? "KT" : "DT", value: 1 })));
+    .map((a) => ({ article: a, profitCentre: a.startsWith("011") ? "KT" : "DT", value: 1, qty: 1 })));
   assert.equal(three.qualifies, true);
   // specials still do not count towards the three
   const withSpecials = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: null },
-    { article: "8001227954", profitCentre: "KT", value: null },
-    { article: "3000000001", profitCentre: "DT", value: null },
+    { article: "1120072140", profitCentre: "DT", value: null, qty: 1 },
+    { article: "8001227954", profitCentre: "KT", value: null, qty: 1 },
+    { article: "3000000001", profitCentre: "DT", value: null, qty: 1 },
   ]);
   assert.equal(withSpecials.counted, 1);
   assert.equal(withSpecials.qualifies, false);
-  assert.equal(priceCheckShortfall({ counted: 0, value: 0 }), "No KT/DT article");
+  assert.equal(priceCheckShortfall({ counted: 0, value: 0 }), "No KT/DT article priced");
+});
+
+test("priceCheckQualifies counts only PRICED articles - an article opened without a quantity typed is skipped", () => {
+  // JB TEC, 09.10.2026: four DT articles opened, no quantity on any -> no ticket
+  const jbTec = priceCheckQualifies(["1034130745", "1034140961", "1144210129", "1144300129"]
+    .map((a) => ({ article: a, profitCentre: "DT", value: null, qty: null })));
+  assert.equal(jbTec.counted, 0);
+  assert.equal(jbTec.skipped, 4);
+  assert.equal(jbTec.qualifies, false);
+  assert.equal(priceCheckShortfall(jbTec), "No KT/DT article priced");
+  // three priced plus one only opened -> the three still qualify
+  const mixed = priceCheckQualifies([
+    { article: "1120072140", profitCentre: "DT", value: null, qty: 20 },
+    { article: "0110150035", profitCentre: "KT", value: null, qty: 5 },
+    { article: "1141600190", profitCentre: "DT", value: null, qty: 100 },
+    { article: "1144300129", profitCentre: "DT", value: null, qty: null },
+  ]);
+  assert.equal(mixed.counted, 3);
+  assert.equal(mixed.qualifies, true);
 });
 
 test("sumRange totals only the days inside the window", () => {

@@ -154,16 +154,18 @@ export const MIN_ARTICLES = 3;
  * can't"), so three cheap articles do not qualify. While it is paused: three or
  * more articles. Only KT and DT count, and an article whose profit centre cannot
  * be determined is SKIPPED rather than assumed - a special has no P&P record at all.
+ * Only a PRICED article counts: one with a quantity typed (SARCLA, 12.10.2026 - 11
+ * of the first 18 tickets had no quantity on any article: opened, never priced).
  */
 export function priceCheckQualifies(
-  articles: { article: string; profitCentre: string | null; value: number | null }[],
+  articles: { article: string; profitCentre: string | null; value: number | null; qty: number | null }[],
   opts: { valueFloor?: boolean } = {},
 ): { qualifies: boolean; counted: number; value: number; skipped: number } {
   const valueFloor = opts.valueFloor ?? VALUE_FLOOR_ACTIVE;
   const FOCUS = new Set(["KT", "DT"]);
   let counted = 0, value = 0, skipped = 0;
   for (const a of articles) {
-    if (isSpecialArticle(a.article) || !a.profitCentre || !FOCUS.has(a.profitCentre)) { skipped++; continue; }
+    if (a.qty == null || isSpecialArticle(a.article) || !a.profitCentre || !FOCUS.has(a.profitCentre)) { skipped++; continue; }
     counted++;
     value += a.value ?? 0;
   }
@@ -173,7 +175,7 @@ export function priceCheckQualifies(
 
 /** The reason a day does not qualify, in the words the screens use. */
 export function priceCheckShortfall(r: { counted: number; value: number }, valueFloor = VALUE_FLOOR_ACTIVE): string {
-  if (r.counted === 0) return "No KT/DT article";
+  if (r.counted === 0) return "No KT/DT article priced";
   return valueFloor ? "Under €500" : `${r.counted} of ${MIN_ARTICLES} articles`;
 }
 

@@ -219,13 +219,11 @@ export async function runPriceCheckTickets(opts: { dry?: boolean; today?: string
       ...lines,
       "",
       VALUE_FLOOR_ACTIVE ? `Value at list price: ${total.toLocaleString("de-CH")} EUR` : "",
-      r.skipped ? `Articles skipped (special, or not KT/DT): ${r.skipped}` : "",
+      r.skipped ? `Articles skipped (no quantity typed, special, or not KT/DT): ${r.skipped}` : "",
       `Company:  ${r.companyName ?? ""} (${r.customerNumber ?? r.companyId})`,
       `Team:     ${team} (${ownerName(r.ownerId)})`,
       "",
-      "Action: ask what the quote was for. A price checked and left is a question we can still answer - " +
-      "on price, on quantity, or with an alternative.",
-      "Source: Price-check detector (APSOmarketingHub, webshop quantity lookup)",
+      "Source: Price-check detector (APSOHub)",
     ].filter(Boolean).join("\n");
 
     const { pipeline, stage } = PIPE_STAGE[team];

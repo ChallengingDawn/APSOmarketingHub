@@ -340,11 +340,11 @@ async function scan(
         moq: x.pp?.moq ?? null,
         moqMinimum: x.moqMinimum,
         special: x.special,
-        counted: !x.special && (x.profitCentre === "KT" || x.profitCentre === "DT"),
+        counted: x.qty != null && !x.special && (x.profitCentre === "KT" || x.profitCentre === "DT"),
       })).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 
       const verdict = priceCheckQualifies(list.map((a) => ({
-        article: a.article, profitCentre: a.profitCentre, value: a.value,
+        article: a.article, profitCentre: a.profitCentre, value: a.value, qty: a.qty,
       })));
       const dueOn = nextWorkingDay(d.day);
 
