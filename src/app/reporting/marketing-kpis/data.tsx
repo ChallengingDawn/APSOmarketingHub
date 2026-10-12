@@ -277,3 +277,32 @@ export function LiveNote({ state }: { state: MkState }) {
 }
 
 export { STAGES, KPIS, HAIRLINE };
+
+/**
+ * A KPI's twelve months as a real chart, small enough for the macro page: this
+ * year's bars over last year's (grey, behind), the running month faded, month
+ * initials under, the exact value on hover.
+ */
+export function MiniBars({ v, height = 92 }: { v: KpiView; height?: number }) {
+  const cy = v.series.months, py = v.series.py;
+  const max = Math.max(0, ...cy.map((x) => x ?? 0), ...py.map((x) => x ?? 0));
+  if (!max) return null;
+  const h = (x: number | null) => (x == null ? 0 : Math.max(3, (x / max) * 100));
+  return (
+    <Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: "4px", alignItems: "end", height }} role="img"
+        aria-label={`${nameOf(v.id)} by month: ${cy.map((x, i) => (x == null ? null : `${MONTHS[i]} ${fmtValue(v.measure.fmt, x)}`)).filter(Boolean).join(", ")}`}>
+        {MONTHS.map((m, i) => (
+          <Box key={m} title={`${m}: ${fmtValue(v.measure.fmt, cy[i])}${py[i] != null ? ` · last year ${fmtValue(v.measure.fmt, py[i])}` : ""}`}
+            sx={{ position: "relative", height: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            {py[i] != null && <Box sx={{ position: "absolute", bottom: 0, left: "8%", right: "8%", height: `${h(py[i])}%`, bgcolor: "#dfe3ea", borderRadius: "3px 3px 0 0" }} />}
+            {cy[i] != null && <Box sx={{ position: "relative", width: "62%", height: `${h(cy[i])}%`, bgcolor: v.partial === i ? "rgba(45,111,168,.4)" : "#2d6fa8", borderRadius: "3px 3px 0 0" }} />}
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: "4px", mt: 0.4 }}>
+        {MONTHS.map((m) => <Typography key={m} sx={{ fontSize: "0.62rem", color: FAINT, textAlign: "center" }}>{m[0]}</Typography>)}
+      </Box>
+    </Box>
+  );
+}
