@@ -136,11 +136,19 @@ export const SHOP_SIDE = new Set(["pending", "pending_payment", "payment_review"
 /** An order placed longer ago than this is never created - it reached the ERP, or the old connector, long ago. */
 export const CREATE_WITHIN_DAYS = 30;
 
-/** Why an order HubSpot does not hold must NOT be created, or null when it may be. */
-export function mayNotCreate(props: Props, now = Date.now()): string | null {
+/**
+ * Why an order HubSpot does not hold must NOT be created, or null when it may be.
+ * `erpSince` = epoch ms the hub pulled the last ERP delivery. The shop transfers some orders
+ * within a minute, before the first sweep sees them (12.10.2026: 5 of the day's orders, e.g.
+ * 10000156325 placed 09:57 UTC, "transferred" at 09:58) - but an order placed after the last
+ * delivery cannot be in the ERP's files yet, so it is created like any new order and
+ * magento_stamp links it when the next delivery comes.
+ */
+export function mayNotCreate(props: Props, now = Date.now(), erpSince?: number): string | null {
   const status = props.hs_external_order_status ?? "";
-  if (!SHOP_SIDE.has(status)) return `left to the ERP: the shop says "${status || "no status"}", and HubSpot holds no order with this web number`;
   const placed = Number(props.hs_external_created_date);
+  const newerThanErp = status === "transferred" && erpSince !== undefined && Number.isFinite(placed) && placed > erpSince;
+  if (!SHOP_SIDE.has(status) && !newerThanErp) return `left to the ERP: the shop says "${status || "no status"}", and HubSpot holds no order with this web number`;
   if (Number.isFinite(placed) && now - placed > CREATE_WITHIN_DAYS * 86_400_000) return `left to the ERP: placed more than ${CREATE_WITHIN_DAYS} days ago`;
   return null;
 }

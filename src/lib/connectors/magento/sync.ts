@@ -14,6 +14,7 @@
 // a contact that never turns up is given up after 24 hours instead of retried for ever.
 
 import { getPool } from "@/lib/db/client";
+import { hubChain } from "@/lib/connectors/chainStatus";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { magentoConfigured } from "@/lib/doc/config";
@@ -228,7 +229,7 @@ const search = (obj: string, filters: object[], properties: string[], limit = 1)
  * ERP fields), or create it - but only while it is still on the shop's side (rules.ts
  * mayNotCreate): an order the ERP has is the Compass sync's, and creating it makes a twin.
  */
-async function upsertOrder(props: Props): Promise<{ id: string } | { skipped: string }> {
+async function upsertOrder(props: Props, erpSince?: number): Promise<{ id: string } | { skipped: string }> {
   const all = (await search("orders", [{ propertyName: "hs_external_order_id", operator: "EQ", value: props.hs_external_order_id }],
     ["order_order_number", "order_reconcile_state"], 10)).results ?? [];
   // the ERP split it: its deliveries carry the web number (an older load stamped them) - which
@@ -241,7 +242,7 @@ async function upsertOrder(props: Props): Promise<{ id: string } | { skipped: st
     await hubspotFetchJson({ path: `/crm/v3/objects/orders/${found.id}`, method: "PATCH", body: { properties: write } });
     return { id: found.id };
   }
-  const why = mayNotCreate(props);
+  const why = mayNotCreate(props, Date.now(), erpSince);
   if (why) return { skipped: why };
   const made = await hubspotFetchJson<{ id?: string }>({ path: "/crm/v3/objects/orders", method: "POST", body: { properties: props } });
   if (!made.id) throw new Error("HubSpot created the order but returned no id");
@@ -362,6 +363,17 @@ async function sweep(mode: Mode): Promise<SweepResult> {
     if (mode === "active") {
       const cap = caps();
       const seen = new Set<string>();
+      // the last ERP delivery (its pull's start; before pulledAt existed, the end of that run)
+      const chain = await hubChain();
+      const erpSec = chain?.pulledAt ?? (chain?.pulled ? chain.ts : undefined);
+      const erpSince = erpSec ? erpSec * 1000 : undefined;
+      // transferred before the first sweep saw it, yet placed after that delivery: write it now
+      if (erpSince !== undefined) {
+        await q(`UPDATE apsomh_mg_stage SET sync_status='pending' WHERE sync_status='skipped'
+                   AND error_msg LIKE 'left to the ERP: the shop says "transferred"%'
+                   AND CASE WHEN payload->>'hs_external_created_date' ~ '^[0-9]+$'
+                            THEN (payload->>'hs_external_created_date')::bigint > $1 ELSE false END`, [erpSince]);
+      }
       const pending = await q<{ entity_id: string; payload: Props; skus: string[] | null; customer_email: string | null }>(
         `SELECT entity_id, payload, skus, customer_email FROM apsomh_mg_stage WHERE sync_status='pending' ORDER BY last_seen ASC LIMIT ${cap.write}`);
       for (const row of pending) {
@@ -371,7 +383,7 @@ async function sweep(mode: Mode): Promise<SweepResult> {
         if (bad) status = "error";
         else {
           try {
-            const r = await upsertOrder({ ...row.payload });
+            const r = await upsertOrder({ ...row.payload }, erpSince);
             if ("skipped" in r) { status = "skipped"; msg = r.skipped; } else hsId = r.id;
           } catch (e) { status = "error"; msg = (e as Error).message.slice(0, 300); }
         }

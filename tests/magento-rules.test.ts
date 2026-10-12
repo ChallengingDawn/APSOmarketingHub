@@ -125,3 +125,15 @@ test("an order the ERP has is never created - only one still on the shop's side,
   assert.match(mayNotCreate(order("processing", "2022-08-01T00:00:00Z"), now) ?? "", /more than 30 days/, "an old order changed in the shop: no twin");
   assert.match(mayNotCreate({ hs_external_order_id: "1" }, now) ?? "", /no status/);
 });
+
+test("a transferred order placed after the last ERP delivery is created - the ERP's files cannot hold it yet", () => {
+  const now = Date.parse("2026-10-12T10:00:00Z");
+  const erpSince = Date.parse("2026-10-10T13:09:00Z");
+  const at = (iso: string) => String(Date.parse(iso));
+  const order = (status: string, placed: string) => ({ hs_external_order_id: "10000156325", hs_external_order_status: status, hs_external_created_date: at(placed) });
+  assert.equal(mayNotCreate(order("transferred", "2026-10-12T09:57:00Z"), now, erpSince), null, "placed after the delivery: created");
+  assert.match(mayNotCreate(order("transferred", "2026-10-10T12:00:00Z"), now, erpSince) ?? "", /left to the ERP/, "placed before it: the ERP may have it");
+  assert.match(mayNotCreate(order("transferred", "2026-10-12T09:57:00Z"), now) ?? "", /left to the ERP/, "no delivery on record: left to the ERP");
+  assert.match(mayNotCreate(order("canceled", "2026-10-12T09:57:00Z"), now, erpSince) ?? "", /left to the ERP/, "only transferred, never a cancelled order");
+  assert.match(mayNotCreate({ hs_external_order_id: "1", hs_external_order_status: "transferred" }, now, erpSince) ?? "", /left to the ERP/, "no placing date: left to the ERP");
+});

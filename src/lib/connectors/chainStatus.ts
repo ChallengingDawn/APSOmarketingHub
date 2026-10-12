@@ -29,6 +29,8 @@ export type HubChain = {
   /** UTC day of the last run that had files. */
   day: string;
   pulled: number;
+  /** Epoch seconds the newest delivery's pull began - the shop sync creates transferred orders placed after it. */
+  pulledAt?: number;
   /** The delivery this run processed: the files and how long they took to come down. */
   files?: { name: string; mb: number }[];
   pullSeconds?: number;

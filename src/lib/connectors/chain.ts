@@ -22,7 +22,7 @@ import path from "node:path";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { commitManifest, pullDelta } from "./sftp";
 import { deliverySig, nextTry, type ChainTry } from "./chainTry";
-import { addChainDay, setHubChain, type HubChain } from "./chainStatus";
+import { addChainDay, hubChain, setHubChain, type HubChain } from "./chainStatus";
 import { writtenCount } from "./summary";
 import { STEP_FILES, REGISTRY } from "./steps/registry";
 import { INCOMING, connectorSkips, liveSteps, runStepInside, sftpConfigured, withLock } from "./steps/run";
@@ -52,7 +52,8 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     return c;
   }
   return withLock("chain", "live", async (beat) => {
-    const chain: HubChain = { status: "running", step: "pull", ts: now(), day: utcToday(), pulled: 0, steps: [] };
+    const prevPulledAt = (await hubChain())?.pulledAt;
+    const chain: HubChain = { status: "running", step: "pull", ts: now(), day: utcToday(), pulled: 0, steps: [], ...(prevPulledAt ? { pulledAt: prevPulledAt } : {}) };
     const rep = await pullDelta({ dest: INCOMING, defer: true });
     if (rep.error || rep.pulled.length) {
       const mb = rep.pulled.reduce((a, p) => a + p.mb, 0);
@@ -65,6 +66,8 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
     }
     const got = new Set(rep.pulled.map((p) => p.as));
     chain.pulled = got.size;
+    // the ERP exported these files before the pull began (chain.ts was set just before it)
+    if (got.size) chain.pulledAt = chain.ts;
     chain.files = rep.pulled.map((p) => ({ name: p.as, mb: p.mb }));
     chain.pullSeconds = rep.seconds;
     if (!got.size) {
