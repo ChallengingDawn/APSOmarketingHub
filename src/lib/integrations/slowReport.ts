@@ -94,18 +94,20 @@ export function reportProgress(key: string, text: string): void {
 
 /**
  * The state of one report, starting it when nothing fresh exists anywhere.
- * `ttlMs` is how long an answer stays good — these shapes move by the day.
+ * `ttlMs` is how long an answer stays good — these shapes move by the day. It may
+ * depend on the answer: one that holds a failed source is worth asking again sooner.
  */
-export async function slowReport<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<SlowState<T>> {
+export async function slowReport<T>(key: string, ttlMs: number | ((value: T) => number), run: () => Promise<T>): Promise<SlowState<T>> {
+  const ttlOf = (v: unknown) => (typeof ttlMs === "function" ? ttlMs(v as T) : ttlMs);
   const local = store.entries.get(key);
-  const localFresh = local?.value !== undefined && Date.now() - local.at < ttlMs;
+  const localFresh = local?.value !== undefined && Date.now() - local.at < ttlOf(local.value);
   if (localFresh) {
     return { value: local!.value as T, error: local!.error, computing: Boolean(local!.running), progress: store.progress.get(key) };
   }
 
   const saved = await readRow(key);
   const savedAt = saved?.computedAt ? Date.parse(saved.computedAt) : 0;
-  const savedFresh = saved?.value !== undefined && Date.now() - savedAt < ttlMs;
+  const savedFresh = saved?.value !== undefined && Date.now() - savedAt < ttlOf(saved.value);
   if (savedFresh) {
     store.entries.set(key, { at: savedAt, value: saved!.value, running: false });
     return { value: saved!.value as T, computing: false, computedAt: saved!.computedAt };

@@ -43,8 +43,11 @@ export type LiveKpis = {
   errors: Record<string, string>;
 };
 
+/** A read with a failed source is asked again after this, not after 6 hours (12.10.2026: a GA4 403 stayed on the page after its fix). */
+const RETRY_FAILED_MS = 30 * 60 * 1000;
+
 export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
-  return slowReport(KEY, TTL_MS, build);
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
