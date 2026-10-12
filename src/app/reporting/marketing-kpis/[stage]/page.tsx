@@ -1,12 +1,14 @@
 "use client";
 // One stage of the customer journey as a page of its own, reached from the side
-// panel; the nutshell opens the same view in a large window.
+// panel and from its panel on the macro page; the link back leads to "In a
+// nutshell" (SARCLA 13.10), the side panel's name for the macro page.
 
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
+import { GUTTER } from "@/app/analytics/Shell";
 import { MUTED, INK } from "@/app/uc/report/ui";
 import { stageBySlug } from "@/lib/marketingKpis/catalogue";
 import { useMarketingKpis } from "../data";
@@ -18,9 +20,9 @@ export default function StagePage() {
   const [state] = useMarketingKpis();
   if (!s) notFound();
   return (
-    <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gap: 2, maxWidth: 1400 }}>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
       <Box component={Link} href="/reporting/marketing-kpis" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
-        <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to the journey
+        <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to In a nutshell
       </Box>
       <StageView slug={s.slug} state={state} />
     </Box>

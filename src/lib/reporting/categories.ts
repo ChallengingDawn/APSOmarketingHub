@@ -12,7 +12,7 @@
 import type { IconKey } from "@/app/hubApps";
 import { STAGES } from "../marketingKpis/catalogue";
 
-const STAGE_ICON: Record<string, IconKey> = {
+export const STAGE_ICON: Record<string, IconKey> = {
   customers: "groups", reach: "ads", visit: "route", engage: "bolt", lead: "description",
   handover: "sync", cart: "inventory", purchase: "tag", retain: "health", efficiency: "target",
 };

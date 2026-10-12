@@ -16,7 +16,9 @@ import TableRow from "@mui/material/TableRow";
 
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
-import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
+import HubIconGlyph from "@/app/HubIcon";
+import { Badge, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, bodyCell, headCell, type Tint } from "@/app/uc/report/ui";
+import { STAGE_ICON } from "@/lib/reporting/categories";
 import { JOURNEY, KPIS, STAGES, type CatalogueKpi } from "@/lib/marketingKpis/catalogue";
 import { MEASURES, derive, fmtValue, total, type Measure, type Series } from "@/lib/marketingKpis/measures";
 import type { Inputs } from "@/lib/marketingKpis/seed";
@@ -117,7 +119,22 @@ export const journeyAdditionsIn = (stage: string): CatalogueKpi[] =>
 
 /** A KPI's name as SARCLA wrote it on the Journey tab, else the catalogue's. */
 export const nameOf = (id: string) => JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
-const measures = (k: CatalogueKpi) => !!MEASURES[k.id] && !MEASURES[k.id].notCatalogue;
+/**
+ * The customers stage's KPIs measured by the company drill-down (Customers.tsx)
+ * rather than as a monthly series: counts, revenue and share of wallet by
+ * priority, segment, type, country, mandant and potential.
+ */
+export const CUSTOMER_CUBE_KPIS: ReadonlySet<string> = new Set(["C01", "C02", "C03", "C04", "C05", "C07"]);
+export const isMeasured = (id: string) => (!!MEASURES[id] && !MEASURES[id].notCatalogue) || CUSTOMER_CUBE_KPIS.has(id);
+const measures = (k: CatalogueKpi) => isMeasured(k.id);
+
+/** Each stage's glyph (the side panel's) and badge tint. */
+const STAGE_TINT: Record<string, Tint> = {
+  customers: "purple", reach: "blue", visit: "blue", engage: "green", lead: "amber",
+  handover: "amber", cart: "pink", purchase: "green", retain: "purple", efficiency: "slate",
+};
+export const stageTint = (slug: string): Tint => STAGE_TINT[slug] ?? "blue";
+export const StageGlyph = ({ slug, size = 20 }: { slug: string; size?: number }) => <HubIconGlyph name={STAGE_ICON[slug] ?? "bar"} fontSize={size} />;
 export const measuredIn = (stage: string) => KPIS.filter((k) => k.stage === stage && measures(k));
 export const notConnectedIn = (stage: string) => KPIS.filter((k) => k.stage === stage && !measures(k));
 /** Journey KPIs measured under an id the catalogue uses for something else (L02 "Leads to sales"). */
@@ -180,13 +197,14 @@ export function Spark({ v, height = 28 }: { v: KpiView; height?: number }) {
 export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet");
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
-export function KpiCard({ v, kpi }: { v: KpiView; kpi?: CatalogueKpi }) {
+export function KpiCard({ v, kpi, icon, tint = "blue" }: { v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint }) {
   const L = MONTHS;
   const hasMonths = v.series.months.some((x) => x != null);
   const hasPy = v.series.py.some((x) => x != null);
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+        {icon && <Badge icon={icon} tint={tint} />}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>{v.id} · {v.measure.origin === "live" ? "live in the hub" : "monthly input"}</Typography>
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf(v.id)}</Typography>
@@ -194,7 +212,7 @@ export function KpiCard({ v, kpi }: { v: KpiView; kpi?: CatalogueKpi }) {
           {kpi?.question && !v.measure.notCatalogue && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{kpi.question}</Typography>}
         </Box>
         <Box sx={{ textAlign: "right" }}>
-          <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
+          <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)}</Typography>
         </Box>
       </Box>

@@ -1,19 +1,13 @@
 "use client";
-// ONE STAGE OF THE CUSTOMER JOURNEY - drawn on its own page and in the large
-// window the nutshell opens (SARCLA 12.10). Every KPI of it from the catalogue:
-// the measured ones with their year so far, last year or target and the
-// months; the breakdowns the stage needs; and the ones not connected yet,
-// each with what it is waiting for.
+// ONE STAGE OF THE CUSTOMER JOURNEY, on its own page (SARCLA 12.10). Every KPI
+// of it from the catalogue: the measured ones with their year so far, last year
+// or target and the months; the breakdowns the stage needs; and the ones not
+// connected yet, each with what it is waiting for. The customers stage is a
+// drill-down of every company (Customers.tsx).
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
-import GroupsIcon from "@mui/icons-material/Groups";
 import PublicIcon from "@mui/icons-material/Public";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
@@ -23,10 +17,11 @@ import PageHeader from "@/app/PageHeader";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
 import { StackedColumns } from "@/app/charts/StackedColumns";
-import { CardTitle, FAINT, GlassCard, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GlassCard, MUTED, RED } from "@/app/uc/report/ui";
 import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
-import { KpiCard, LiveNote, MONTHS, NotConnected, buildViews, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, type MkState } from "./data";
+import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, stageTint, type MkState } from "./data";
+import { CustomersExplorer } from "./Customers";
 
 const n0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("en"));
 const pct = (a: number | null | undefined, b: number | null | undefined) => (a == null || !b ? "—" : `${((a / b) * 100).toFixed(1)}%`);
@@ -35,32 +30,6 @@ const pct = (a: number | null | undefined, b: number | null | undefined) => (a =
 function Breakdowns({ slug, live }: { slug: string; live?: LiveKpis }) {
   if (!live) return null;
   const b = live.breakdowns;
-  const prio = b.prio.filter((p) => (p.all ?? 0) > 0);
-  if (slug === "customers" && prio.length) {
-    return (
-      <GlassCard>
-        <CardTitle icon={<GroupsIcon />} tint="purple" title="Companies by sales priority" note={`All companies in HubSpot, and those with invoiced revenue in ${live.year} so far`} />
-        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-          <Table size="small">
-            <TableHead><TableRow>{["Priority", "Companies", `Bought in ${live.year}`, "Active rate"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {prio.map((p) => (
-                <TableRow key={p.band}>
-                  <TableCell sx={{ ...bodyCell, fontWeight: 600 }}>{p.band}</TableCell>
-                  <TableCell sx={{ ...bodyCell, textAlign: "right" }}>{n0(p.all)}</TableCell>
-                  <TableCell sx={{ ...bodyCell, textAlign: "right" }}>{n0(p.active)}</TableCell>
-                  <TableCell sx={{ ...bodyCell, textAlign: "right", color: MUTED }}>{pct(p.active, p.all)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <ChartFrame title={`Bought in ${live.year}, by priority`}>
-            <BarList rows={prio.map((p) => ({ label: p.band, value: p.active, secondary: `${pct(p.active, p.all)} of ${n0(p.all)}` }))} />
-          </ChartFrame>
-        </Box>
-      </GlassCard>
-    );
-  }
   if (slug === "visit" && (b.channels.length || b.countries.length)) {
     const sessions = b.channels.reduce((s, c) => s + c.sessions, 0);
     return (
@@ -108,9 +77,11 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   for (const id of journeyExtrasIn(s.id)) if (views?.[id]) measured.push({ k: { ...KPIS[0], id, name: "", question: "", definition: "" }, v: views[id] });
   if (s.id === "7" && views?.X01) measured.push({ k: { ...KPIS[0], id: "X01", name: "SEA cost", question: "What do the ads cost?", definition: "Google Ads + Microsoft Ads spend." }, v: views.X01 });
   const missing = [...notConnectedIn(s.id), ...journeyAdditionsIn(s.id)];
+  const customers = s.slug === "customers";
+  const count = customers ? measuredIn(s.id).length : measured.length;
   return (
-    <Box sx={{ display: "grid", gap: 2.5 }}>
-      {header && <PageHeader title={s.name} subtitle={stageLine(s.id, measured.length, missing.length, year)} />}
+    <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+      {header && <PageHeader title={s.name} subtitle={stageLine(s.id, count, missing.length, year)} />}
       {!views && (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
           {!state?.error && <CircularProgress size={18} />}
@@ -122,11 +93,12 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
           <Typography sx={{ fontSize: "0.86rem", color: MUTED }}><b style={{ color: "#15223a" }}>Note:</b> {s.note}</Typography>
         </GlassCard>
       )}
-      {views && state && (
+      {customers && <CustomersExplorer />}
+      {views && state && !customers && (
         <>
           {measured.length > 0 && (
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} />)}
+              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} />)}
             </Box>
           )}
           <Breakdowns slug={s.slug} live={state.live?.value} />
@@ -135,6 +107,7 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
           <LiveNote state={state} />
         </>
       )}
+      {customers && <NotConnected list={missing} />}
     </Box>
   );
 }
