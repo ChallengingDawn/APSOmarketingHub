@@ -1,0 +1,73 @@
+{
+  "_comment": "Owner redirection: the same cases are run against src/lib/ownerRules/rules.ts (tests/owner-rules.test.ts) and against the HubSpot app function's port (hubspot-apsomarketinghub, ownerRedirection.js _engine) - the two must agree to the letter. JB = Jeremy Borey 29117550, TSA = TSA Team 1202569408.",
+  "rulesets": {
+    "france": [
+      { "id": "france", "kind": "country", "countries": ["France", "FR"], "customCountries": ["France"], "toOwner": "29117550", "cascade": { "contacts": true, "tickets": true, "tasks": true } }
+    ],
+    "france_then_left": [
+      { "id": "france", "kind": "country", "countries": ["France", "FR"], "customCountries": ["France"], "toOwner": "29117550", "cascade": { "contacts": true, "tickets": true, "tasks": true } },
+      { "id": "r-left", "kind": "owner", "fromOwner": "111", "toOwner": "222", "cascade": { "contacts": true, "tickets": true, "tasks": false } }
+    ],
+    "chain": [
+      { "id": "r-ab", "kind": "owner", "fromOwner": "111", "toOwner": "222", "cascade": { "contacts": true, "tickets": true, "tasks": true } },
+      { "id": "r-bc", "kind": "owner", "fromOwner": "222", "toOwner": "333", "cascade": { "contacts": false, "tickets": true, "tasks": true } }
+    ],
+    "cycle": [
+      { "id": "r-ab", "kind": "owner", "fromOwner": "111", "toOwner": "222", "cascade": { "contacts": true, "tickets": true, "tasks": true } },
+      { "id": "r-ba", "kind": "owner", "fromOwner": "222", "toOwner": "111", "cascade": { "contacts": true, "tickets": true, "tasks": true } }
+    ],
+    "owner_then_country": [
+      { "id": "r-ab", "kind": "owner", "fromOwner": "111", "toOwner": "222", "cascade": { "contacts": true, "tickets": false, "tasks": false } },
+      { "id": "fr-b", "kind": "country", "countries": ["France"], "customCountries": [], "toOwner": "222", "cascade": { "contacts": true, "tickets": true, "tasks": true } }
+    ],
+    "country_owner_loop": [
+      { "id": "r-bc", "kind": "owner", "fromOwner": "222", "toOwner": "333", "cascade": { "contacts": true, "tickets": true, "tasks": true } },
+      { "id": "fr-b", "kind": "country", "countries": ["France"], "customCountries": [], "toOwner": "222", "cascade": { "contacts": true, "tickets": true, "tasks": true } }
+    ]
+  },
+  "cases": [
+    { "name": "French by country, owned by TSA: both fields to Jeremy, full cascade, company first",
+      "rules": "france", "company": { "country": "France", "hubspot_owner_id": "1202569408", "region_responsibility": "1202569408" },
+      "expect": { "kind": "apply", "to": "29117550", "rule": "france", "chain": ["france"], "changes": { "hubspot_owner_id": "29117550", "region_responsibility": "29117550" }, "filters": { "contacts": "all", "tickets": "all", "tasks": "all" }, "companyFirst": true } },
+    { "name": "FR, any case and spaces", "rules": "france", "company": { "country": "  fr ", "hubspot_owner_id": "", "region_responsibility": null },
+      "expect": { "kind": "apply", "to": "29117550", "changes": { "hubspot_owner_id": "29117550", "region_responsibility": "29117550" } } },
+    { "name": "FRANCE upper case", "rules": "france", "company": { "country": "FRANCE", "hubspot_owner_id": "29117550", "region_responsibility": "1202569408" },
+      "expect": { "kind": "apply", "to": "29117550", "changes": { "region_responsibility": "29117550" } } },
+    { "name": "country_custom France, country elsewhere", "rules": "france", "company": { "country": "Germany", "country_custom": "France", "hubspot_owner_id": "5" },
+      "expect": { "kind": "apply", "to": "29117550", "changes": { "hubspot_owner_id": "29117550", "region_responsibility": "29117550" } } },
+    { "name": "country_custom FR is NOT French (the France app matched only France there)", "rules": "france", "company": { "country": "Germany", "country_custom": "FR", "hubspot_owner_id": "5" },
+      "expect": { "kind": "none" } },
+    { "name": "already right: nothing to write, the cascade still runs (second webhook event)", "rules": "france", "company": { "country": "France", "hubspot_owner_id": "29117550", "region_responsibility": "29117550" },
+      "expect": { "kind": "apply", "to": "29117550", "changes": {}, "filters": { "contacts": "all", "tickets": "all", "tasks": "all" }, "companyFirst": true } },
+    { "name": "not French: left alone, even when Jeremy owns it (leaving France does not hand back)", "rules": "france", "company": { "country": "Italy", "hubspot_owner_id": "29117550" },
+      "expect": { "kind": "none" } },
+    { "name": "Frankreich is not on the list", "rules": "france", "company": { "country": "Frankreich", "hubspot_owner_id": "5" }, "expect": { "kind": "none" } },
+    { "name": "empty country never matches", "rules": "france", "company": { "country": "", "country_custom": "", "hubspot_owner_id": "5" }, "expect": { "kind": "none" } },
+    { "name": "person left: their company goes on, children of that person only, children first", "rules": "france_then_left", "company": { "country": "Italy", "hubspot_owner_id": "111", "region_responsibility": "111" },
+      "expect": { "kind": "apply", "to": "222", "rule": "r-left", "chain": ["r-left"], "changes": { "hubspot_owner_id": "222", "region_responsibility": "222" }, "filters": { "contacts": ["111"], "tickets": ["111"], "tasks": "none" }, "companyFirst": false } },
+    { "name": "French company of the person who left: France comes first", "rules": "france_then_left", "company": { "country": "France", "hubspot_owner_id": "111" },
+      "expect": { "kind": "apply", "to": "29117550", "rule": "france", "filters": { "contacts": "all", "tickets": "all", "tasks": "all" }, "companyFirst": true } },
+    { "name": "second event after an owner hand-over: no rule matches, nothing happens", "rules": "france_then_left", "company": { "country": "Italy", "hubspot_owner_id": "222", "region_responsibility": "222" },
+      "expect": { "kind": "none" } },
+    { "name": "chain A -> B -> C in one go, children of A and B", "rules": "chain", "company": { "hubspot_owner_id": "111", "region_responsibility": "111" },
+      "expect": { "kind": "apply", "to": "333", "rule": "r-ab", "chain": ["r-ab", "r-bc"], "changes": { "hubspot_owner_id": "333", "region_responsibility": "333" }, "filters": { "contacts": ["111"], "tickets": ["111", "222"], "tasks": ["111", "222"] }, "companyFirst": false } },
+    { "name": "two owner rules handing back and forth: a loop, nothing done", "rules": "cycle", "company": { "hubspot_owner_id": "111" },
+      "expect": { "kind": "loop" } },
+    { "name": "owner rule then a country rule that keeps the same owner: settles, company first, all children", "rules": "owner_then_country", "company": { "country": "France", "hubspot_owner_id": "111" },
+      "expect": { "kind": "apply", "to": "222", "rule": "r-ab", "chain": ["r-ab", "fr-b"], "filters": { "contacts": "all", "tickets": "all", "tasks": "all" }, "companyFirst": true } },
+    { "name": "country rule gives B, an earlier owner rule takes B's away: a loop for French companies", "rules": "country_owner_loop", "company": { "country": "France", "hubspot_owner_id": "5" },
+      "expect": { "kind": "loop" } },
+    { "name": "the same pair is fine for a non-French company of B", "rules": "country_owner_loop", "company": { "country": "Spain", "hubspot_owner_id": "222" },
+      "expect": { "kind": "apply", "to": "333", "companyFirst": false } }
+  ],
+  "children": [
+    { "owner": "1202569408", "filter": "all", "to": "29117550", "moves": true },
+    { "owner": "", "filter": "all", "to": "29117550", "moves": true },
+    { "owner": null, "filter": "all", "to": "29117550", "moves": true },
+    { "owner": "29117550", "filter": "all", "to": "29117550", "moves": false },
+    { "owner": "111", "filter": ["111"], "to": "222", "moves": true },
+    { "owner": "999", "filter": ["111"], "to": "222", "moves": false },
+    { "owner": "", "filter": ["111"], "to": "222", "moves": false },
+    { "owner": "111", "filter": "none", "to": "222", "moves": false }
+  ]
+}

@@ -18,6 +18,7 @@ import { orderSync, ordersDaily, stageLoad } from "./orders";
 import { deputySweep, ticketAssoc, wrongOwners } from "./tickets";
 import { stockLoad } from "./stock";
 import { FCT_FILE } from "./stockRules";
+import { ownerRulesSweep } from "../../ownerRules/sweep";
 
 export type Beat = () => Promise<void>;
 export type StepCtx = { live: boolean; beat: Beat; full?: boolean; dir: string | null };
@@ -68,6 +69,9 @@ export const REGISTRY: StepDef[] = [
   { key: "company_stats", cadence: "chain", run: (c) => companyStats(c.live, c.beat, c.full) },
   { key: "contact_shipment", cadence: "chain", run: (c) => contactShipment(c.live, c.beat, c.full) },
   { key: "deputy_sweep", cadence: "15min", run: (c) => deputySweep(c.live, c.beat, { tsaFallback: process.env.DEPUTY_TSA_FALLBACK === "1" }) },
+  // HUB ONLY: Owner redirection's safety net (/uc/owner-redirection) - the HubSpot app function
+  // reacts at once; this applies the same published rules to every company every 15 minutes
+  { key: "owner_rules", cadence: "15min", hubOnly: true, run: (c) => ownerRulesSweep(c.live, c.beat) },
   { key: "ticket_assoc", cadence: "manual", run: (c) => ticketAssoc(c.live, c.beat, {}) },
   { key: "articles_create_missing", cadence: "manual", file: "dim_article.csv", run: (c) => articleCreateMissing(c.live, c.beat, { file: at(c, "dim_article.csv") }) },
 ];

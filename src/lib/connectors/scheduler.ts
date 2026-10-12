@@ -1,7 +1,7 @@
 // THE COMPASS SYNC'S CLOCK - every 15 minutes, in the hub (the connector on Railway is
 // retired since 10.10.2026, retired.ts):
 //   mandant_sweep, wrong_owners   every 30 minutes  } the sweeps' own lane, beside the chain
-//   deputy_sweep                  every 15 minutes  }
+//   deputy_sweep, owner_rules     every 15 minutes  }
 //   the chain steps               in the hub's chain (chain.ts): pull the ERP's new files,
 //                                 then the steps whose files arrived - started beside the
 //                                 ticks, since a chain can take an hour
@@ -66,6 +66,7 @@ async function stepsTick() {
   await every("mandant_sweep", live, 30 * 60_000);
   await every("wrong_owners", live, 30 * 60_000);
   await every("deputy_sweep", live, 15 * 60_000);
+  await every("owner_rules", live, 15 * 60_000);
   // the chain can take an hour: it runs beside the ticks, so the sweeps above keep their
   // rhythm on their own lane (one chain per copy; the lock keeps it to one across both)
   if (!chainRunning) {

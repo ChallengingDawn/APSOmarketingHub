@@ -273,6 +273,8 @@ const navSections: NavSection[] = [
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
+      // replaces the HubSpot project sarcla-france-owner, with more than one rule (SARCLA, 12.10.2026)
+      { group: "HubSpot apps", label: "Owner Redirection", href: "/uc/owner-redirection", icon: <CompareArrowsIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
