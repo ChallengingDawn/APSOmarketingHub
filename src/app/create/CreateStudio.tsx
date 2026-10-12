@@ -35,7 +35,8 @@ import ArticleIcon from "@mui/icons-material/Article";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
-import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import ReplayIcon from "@mui/icons-material/Replay";
 import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
@@ -653,12 +654,31 @@ export default function CreateStudio({
     <Box sx={{ p: 1 }}>
       {/* header */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1 }}>
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
+          {/* The way out. A breadcrumb rather than a bare arrow, because
+              "back" only means something if it says where to. */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.25 }}>
+            <Box
+              component={Link}
+              href={projectId ? `/projects/${projectId}` : "/projects"}
+              sx={{
+                display: "inline-flex", alignItems: "center", gap: 0.5,
+                textDecoration: "none", color: "#5b6470", fontSize: 13, fontWeight: 600,
+                px: 0.75, py: 0.25, ml: -0.75, borderRadius: "8px",
+                "&:hover": { bgcolor: "#f0f2f5", color: "#1a1d21" },
+              }}
+            >
+              <ArrowBackIcon sx={{ fontSize: 16 }} />
+              {projectId ? (projectTitle ?? "Back to the project") : "Projects"}
+            </Box>
+          </Box>
           <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: 26, fontWeight: 700, color: "#1a1d21", letterSpacing: "-0.02em" }}>
-            Create Studio
+            {projectTitle ?? "Create Studio"}
           </Typography>
           <Typography sx={{ fontSize: 13, color: "#5b6470" }}>
-            One place for everything — persona, keywords, GEO structure and imagery, powered by the brain.
+            {projectId
+              ? "Everything you make here lands in this project, beside the other versions."
+              : "One place for everything — persona, keywords, GEO structure and imagery, powered by the brain."}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
@@ -667,8 +687,15 @@ export default function CreateStudio({
               Design canvas
             </Button>
           )}
-          <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: NAVY }}>
-            Library
+          {/* Not the library any more: it is not a place in the menu, and what
+              a person wants from here is the project they came from. */}
+          <Button
+            component={Link}
+            href={projectId ? `/projects/${projectId}` : "/projects"}
+            startIcon={<FolderOpenIcon />}
+            sx={{ fontWeight: 600, color: NAVY }}
+          >
+            {projectId ? "Open the project" : "Projects"}
           </Button>
         </Box>
       </Box>
@@ -1303,8 +1330,15 @@ export default function CreateStudio({
                           <Button startIcon={<ContentCopyIcon />} onClick={() => copy(draft.content, "draft")} sx={{ fontWeight: 600 }}>
                             {copied === "draft" ? "Copied!" : "Copy"}
                           </Button>
-                          <Button component={Link} href="/library" startIcon={<LibraryBooksIcon />} sx={{ fontWeight: 600, color: "#5b6470" }}>
-                            Library
+                          {/* Where a finished draft goes is the project, not a
+                              library page that is no longer in the menu. */}
+                          <Button
+                            component={Link}
+                            href={projectId ? `/projects/${projectId}` : "/projects"}
+                            startIcon={<FolderOpenIcon />}
+                            sx={{ fontWeight: 600, color: "#5b6470" }}
+                          >
+                            {projectId ? "The project" : "Projects"}
                           </Button>
                         </Box>
 
