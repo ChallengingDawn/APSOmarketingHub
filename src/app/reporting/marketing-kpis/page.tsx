@@ -3,12 +3,22 @@
 // main category and drill down to sub with more detail, but on the first you
 // have it like in a nutshell"). Four headline figures, then the ten stages of
 // the journey as cards - each with its lead KPIs and how much of it the hub
-// measures - each opening its own page.
+// measures. A tile opens its stage in a large window with a back button
+// (SARCLA 12.10: "like a big modal"); the window has its own address
+// (?stage=reach) so it can be shared, and the browser's back closes it.
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
+import Dialog from "@mui/material/Dialog";
+import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CloseIcon from "@mui/icons-material/Close";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import ShoppingBagIcon from "@mui/icons-material/ShoppingBag";
@@ -20,7 +30,8 @@ import PageHeader from "@/app/PageHeader";
 import { FAINT, GlassCard, INK, MUTED, RED, TINT, KpiTile } from "@/app/uc/report/ui";
 import { ADDITIONAL_TRACKING, JOURNEY, KPIS, PLANNED, STAGES } from "@/lib/marketingKpis/catalogue";
 import { MEASURES, fmtValue } from "@/lib/marketingKpis/measures";
-import { Compare, LiveNote, Spark, buildViews, nameOf, periodOf, stageHref, useMarketingKpis, type KpiView } from "./data";
+import { Compare, LiveNote, Spark, buildViews, nameOf, periodOf, stageHref, useMarketingKpis, type KpiView, type MkState } from "./data";
+import { StageView } from "./StageView";
 
 /** The KPIs each stage leads with on this page. */
 const LEAD: Record<string, string[]> = {
@@ -39,8 +50,54 @@ function Line({ v, label }: { v: KpiView; label: string }) {
   );
 }
 
+/** A stage in a large window: back to the journey, the stages either side, the page of its own. */
+function StageWindow({ slug, state, onBack, onGo }: { slug: string | null; state: MkState | null; onBack: () => void; onGo: (slug: string) => void }) {
+  const i = STAGES.findIndex((s) => s.slug === slug);
+  const s = i >= 0 ? STAGES[i] : null;
+  const prev = i > 0 ? STAGES[i - 1] : null, next = i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1] : null;
+  return (
+    <Dialog open={!!s} onClose={onBack} maxWidth={false} scroll="paper"
+      PaperProps={{ sx: { width: "min(1440px, 96vw)", height: "94vh", m: 1, borderRadius: "22px", bgcolor: "#f4f6fb", overflow: "hidden", display: "flex", flexDirection: "column" } }}>
+      {s && (
+        <>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: { xs: 1.5, md: 2.5 }, py: 1.25, borderBottom: "1px solid rgba(21,34,58,.08)", bgcolor: "rgba(255,255,255,.85)", backdropFilter: "blur(12px)" }}>
+            <Button onClick={onBack} startIcon={<ArrowBackIcon />} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px", color: INK }}>Back to the journey</Button>
+            <Box sx={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.id} · {s.name}</Typography>
+            </Box>
+            <IconButton aria-label={prev ? `Previous stage: ${prev.name}` : "No previous stage"} disabled={!prev} onClick={() => prev && onGo(prev.slug)}><ChevronLeftIcon /></IconButton>
+            <IconButton aria-label={next ? `Next stage: ${next.name}` : "No next stage"} disabled={!next} onClick={() => next && onGo(next.slug)}><ChevronRightIcon /></IconButton>
+            <IconButton component={Link} href={stageHref(s.slug)} aria-label="Open as a page" title="Open as a page"><OpenInNewIcon fontSize="small" /></IconButton>
+            <IconButton aria-label="Close" onClick={onBack}><CloseIcon /></IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: "auto", px: { xs: 1.5, md: 3 }, py: { xs: 2, md: 2.5 } }}>
+            <StageView slug={s.slug} state={state} header={false} />
+          </Box>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
 export default function MarketingKpisNutshell() {
   const [state] = useMarketingKpis();
+  const [open, setOpen] = useState<string | null>(null);
+  // The window follows the address: ?stage=<slug> opens it, the browser's back closes it.
+  useEffect(() => {
+    const read = () => setOpen(new URLSearchParams(window.location.search).get("stage"));
+    read();
+    window.addEventListener("popstate", read);
+    return () => window.removeEventListener("popstate", read);
+  }, []);
+  const go = useCallback((slug: string, replace = false) => {
+    const url = `${window.location.pathname}?stage=${slug}`;
+    if (replace) window.history.replaceState({ stage: slug }, "", url); else window.history.pushState({ stage: slug }, "", url);
+    setOpen(slug);
+  }, []);
+  const back = useCallback(() => {
+    if (window.history.state?.stage) window.history.back();
+    else { window.history.replaceState(null, "", window.location.pathname); setOpen(null); }
+  }, []);
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
   const tile = (id: string) => views?.[id];
@@ -77,7 +134,9 @@ export default function MarketingKpisNutshell() {
                 const measured = all.filter((k) => MEASURES[k.id] && !MEASURES[k.id].notCatalogue).length;
                 const tone = TONES[i];
                 return (
-                  <Box key={s.id} component={Link} href={stageHref(s.slug)} sx={{
+                  <Box key={s.id} component={Link} href={stageHref(s.slug)}
+                    onClick={(e: React.MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); go(s.slug); }}
+                    sx={{
                     textDecoration: "none", display: "flex", flexDirection: "column", gap: 1, p: 1.75, borderRadius: "18px",
                     bgcolor: "rgba(255,255,255,.72)", border: "1px solid rgba(255,255,255,.85)", boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 10px 26px rgba(31,45,78,.07)",
                     background: `linear-gradient(170deg, ${tone.bg}, rgba(255,255,255,.7) 55%)`,
@@ -122,6 +181,7 @@ export default function MarketingKpisNutshell() {
             </GlassCard>
           ))}
           <LiveNote state={state} />
+          <StageWindow slug={open} state={state} onBack={back} onGo={(slug) => go(slug, true)} />
         </>
       )}
     </Box>

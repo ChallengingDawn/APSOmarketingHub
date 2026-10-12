@@ -12,10 +12,17 @@
 import type { IconKey } from "@/app/hubApps";
 import { STAGES } from "../marketingKpis/catalogue";
 
+const STAGE_ICON: Record<string, IconKey> = {
+  customers: "groups", reach: "ads", visit: "route", engage: "bolt", lead: "description",
+  handover: "sync", cart: "inventory", purchase: "tag", retain: "health", efficiency: "target",
+};
+
 export type Report = {
   name: string; href: string; note: string; icon: IconKey;
   /** Pages under this report, listed indented beneath it in the side panel. */
-  children?: { name: string; href: string }[];
+  children?: { name: string; href: string; icon?: IconKey; group?: string }[];
+  /** The side panel's name for the report's own page when it has children ("In a nutshell"). */
+  overview?: string;
 };
 export type ReportCategory = {
   slug: string;
@@ -40,13 +47,15 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "marketing", name: "Marketing Reports", line: "What marketing set out to do, and where it stands",
     reports: [
-      // The customer journey in a nutshell, each stage a page beneath it (SARCLA 12.10).
+      // The customer journey in a nutshell, each stage a page of its own - in the
+      // side panel as the UC app lists its apps: under a heading, each with a
+      // glyph, the name alone (SARCLA 12.10).
       {
-        name: "Marketing KPIs", href: "/reporting/marketing-kpis", note: "The customer journey in a nutshell", icon: "bar",
+        name: "Marketing KPIs", href: "/reporting/marketing-kpis", note: "The customer journey in a nutshell", icon: "bar", overview: "In a nutshell",
         children: [
-          ...STAGES.map((s) => ({ name: `${s.id} · ${s.name}`, href: `/reporting/marketing-kpis/${s.slug}` })),
-          { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader" },
-          { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs" },
+          ...STAGES.map((s) => ({ name: s.name.replace(/\s*\(.*\)\s*$/, ""), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
+          { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader", icon: "verified", group: "Views & inputs" },
+          { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Views & inputs" },
         ],
       },
       { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
