@@ -148,3 +148,17 @@ test("new rule ids are short, lower-case and unique", () => {
   const seq = ["AAAA1111-xx", "aaaa1111-yy", "bbbb2222"];
   assert.equal(newRuleId(["r-aaaa1111"], () => seq[n++]), "r-bbbb2222");
 });
+
+
+test("a publish never takes its own record for a duplicate - ids compared as text", async () => {
+  const { otherRecords, recordIdOf } = await import("../src/lib/ownerRules/rules");
+  // the kv store gave the id back as a number (12.10.2026: the record archived itself)
+  assert.deepEqual(otherRecords(["455649266923"], 455649266923), []);
+  assert.deepEqual(otherRecords(["455649266923", "455649999999"], 455649266923), ["455649999999"]);
+  assert.deepEqual(otherRecords([455649266923], "455649266923"), []);
+  assert.deepEqual(otherRecords(["1", "2"], null), ["1", "2"]);
+  assert.equal(recordIdOf(455649266923), "455649266923");
+  assert.equal(recordIdOf("  12 "), "12");
+  assert.equal(recordIdOf(""), null);
+  assert.equal(recordIdOf(undefined), null);
+});

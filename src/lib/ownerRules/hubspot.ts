@@ -20,7 +20,7 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry as hs } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
-import { DOC_PROPERTY, KPI_OBJECT, RECORD_NAME, buildDoc, parseDoc, type Doc, type PubRule, type Rule } from "./rules";
+import { DOC_PROPERTY, KPI_OBJECT, RECORD_NAME, buildDoc, otherRecords, parseDoc, recordIdOf, type Doc, type PubRule, type Rule } from "./rules";
 
 /** 4107201-4107211 are taken (DoC, erosion, articles, segmentation, looks, notify, steps, price checks, sweeps, Magento x2). */
 const PUBLISH_LOCK = 4_107_212;
@@ -180,7 +180,8 @@ export async function publishRules(rules: Rule[], by: string): Promise<PublishRe
   const json = JSON.stringify(doc);
   try {
     // the record: the one we made (search can lag seconds behind a create), else search
-    let recordId = (await kvGet<string>(KV_RECORD)) ?? null;
+    // as text: the kv store hands a numeric-looking id back as a number (rules.ts recordIdOf)
+    let recordId = recordIdOf(await kvGet<unknown>(KV_RECORD));
     let found: string[] = [];
     try {
       found = await findRecords();
@@ -205,7 +206,7 @@ export async function publishRules(rules: Rule[], by: string): Promise<PublishRe
     if (back.properties?.[DOC_PROPERTY] !== json) throw new Error("HubSpot did not keep the rules as sent (read back differs)");
 
     // a duplicate (two saves racing before this lock existed, a hand-made copy) is archived
-    const extra = found.filter((x) => x !== recordId);
+    const extra = otherRecords(found, recordId);
     if (extra.length) {
       await hs({ path: `/crm/v3/objects/${KPI_OBJECT}/batch/archive`, method: "POST", body: { inputs: extra.map((id) => ({ id })) } })
         .catch((e) => console.warn(`[owner-rules] archiving duplicate rules records ${extra.join(",")}: ${msg(e)}`));
@@ -215,7 +216,7 @@ export async function publishRules(rules: Rule[], by: string): Promise<PublishRe
     let searchable = false;
     for (let i = 0; i < 6 && !searchable; i++) {
       if (i) await new Promise((r) => setTimeout(r, 2500));
-      searchable = await findRecords().then((ids) => ids.includes(recordId!)).catch(() => false);
+      searchable = await findRecords().then((ids) => ids.some((x) => recordIdOf(x) === recordIdOf(recordId))).catch(() => false);
     }
     const state: PublishState = { at: doc.publishedAt, by, hash: doc.hash, rules: doc.rules.length, recordId, searchable };
     await kvSet(KV_PUBLISHED, state);

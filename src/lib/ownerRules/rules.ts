@@ -85,6 +85,21 @@ export type CompanyProps = {
 export const COMPANY_PROPS = ["name", "country", "country_custom", "hubspot_owner_id", "region_responsibility"] as const;
 
 export const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
+
+/**
+ * A HubSpot record id as text. The hub's kv store parses what it holds as JSON, so the
+ * id "455649266923" it was given comes back as the NUMBER 455649266923 - and a number
+ * is never === the same id as text (12.10.2026: the second publish took its own record
+ * for a duplicate and archived it).
+ */
+export const recordIdOf = (id: unknown): string | null =>
+  id === null || id === undefined || String(id).trim() === "" ? null : String(id).trim();
+
+/** The records the search found that are NOT the one just written - duplicates to archive. */
+export function otherRecords(found: unknown[], keep: unknown): string[] {
+  const k = recordIdOf(keep);
+  return found.map(recordIdOf).filter((x): x is string => x !== null && x !== k);
+}
 const own = (s: unknown): string => String(s ?? "").trim();
 const OWNER_ID = /^\d{1,20}$/;
 const RULE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
