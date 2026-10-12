@@ -119,7 +119,17 @@ const geoChannels = new Set(["blog", "seo"]);
 type SectionKey = "setup" | "personas" | "tools" | "intel";
 
 const SIDEBAR_W = 344;
-const SIDEBAR_COLLAPSED_W = 56;
+
+/**
+ * The rail. Every tool the editor has, visible without opening anything, each
+ * with its word underneath — an icon column with no labels is a quiz.
+ */
+const RAIL: { key: SectionKey; label: string; icon: ReactNode }[] = [
+  { key: "setup", label: "Brief", icon: <TuneIcon /> },
+  { key: "personas", label: "Who for", icon: <GroupsIcon /> },
+  { key: "tools", label: "Design", icon: <BrushIcon /> },
+  { key: "intel", label: "Brain", icon: <PsychologyIcon /> },
+];
 
 const MD_FENCE = /```[\s\S]*?```/g;
 const LABEL = /^(subject|preheader|headline|body|cta|h1|meta title|meta description|intro paragraph|title)\s*:\s*/i;
@@ -318,8 +328,15 @@ export default function CreateStudio({
   const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
 
   /* layout: collapsible sidebar, accordion sections, content panel */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({ setup: true, personas: false, tools: true, intel: false });
+  // Exactly one panel, or none. Null is a real state — it gives the canvas
+  // the whole width, which is what you want once the writing is done.
+  const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
+  const openSections: Record<SectionKey, boolean> = {
+    setup: activePanel === "setup",
+    personas: activePanel === "personas",
+    tools: activePanel === "tools",
+    intel: activePanel === "intel",
+  };
   const [contentOpen, setContentOpen] = useState(true);
   /* host element the canvas tools portal renders into (must exist before EditorCanvas mounts) */
   const toolsHostRef = useRef<HTMLDivElement | null>(null);
@@ -328,11 +345,9 @@ export default function CreateStudio({
     setToolsEl(toolsHostRef.current);
   }, []);
 
-  const toggleSection = (key: SectionKey) => setOpenSections((cur) => ({ ...cur, [key]: !cur[key] }));
-  const expandSection = (key: SectionKey) => {
-    setSidebarCollapsed(false);
-    setOpenSections((cur) => ({ ...cur, [key]: true }));
-  };
+  const toggleSection = (key: SectionKey) => setActivePanel((cur) => (cur === key ? null : key));
+  /** Anything that wants a panel open names it; the rail shows which. */
+  const expandSection = (key: SectionKey) => setActivePanel(key);
 
   const mdChannel = channel === "blog" || channel === "product";
 
@@ -747,42 +762,47 @@ export default function CreateStudio({
 
       {/* ── sidebar + stage ── */}
       <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-        {/* ── LEFT: collapsible sidebar ── */}
-        <Box sx={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W, flexShrink: 0, transition: "width 0.2s ease" }}>
-          <Card>
-            <Box sx={{ display: "flex", justifyContent: sidebarCollapsed ? "center" : "flex-end", p: 0.5 }}>
-              <Tooltip title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
-                <IconButton size="small" onClick={() => setSidebarCollapsed((v) => !v)}>
-                  {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-            </Box>
-            {sidebarCollapsed && (
-              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5, pb: 1 }}>
-                <Tooltip title="Generate setup" placement="right">
-                  <IconButton size="small" onClick={() => expandSection("setup")}>
-                    <TuneIcon sx={{ fontSize: 19, color: NAVY }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Personas" placement="right">
-                  <IconButton size="small" onClick={() => expandSection("personas")}>
-                    <GroupsIcon sx={{ fontSize: 19, color: NAVY }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Canvas tools" placement="right">
-                  <IconButton size="small" onClick={() => expandSection("tools")}>
-                    <BrushIcon sx={{ fontSize: 19, color: RED }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Engine intelligence" placement="right">
-                  <IconButton size="small" onClick={() => expandSection("intel")}>
-                    <PsychologyIcon sx={{ fontSize: 19, color: RED }} />
-                  </IconButton>
-                </Tooltip>
+        {/* ── LEFT: the rail, always there ── */}
+        <Box sx={{
+          width: 76, flexShrink: 0, display: "flex", flexDirection: "column", gap: 0.5,
+          p: 0.75, borderRadius: "16px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.10)",
+          position: "sticky", top: 8, alignSelf: "flex-start",
+        }}>
+          {RAIL.map((r) => {
+            const on = activePanel === r.key;
+            return (
+              <Box
+                key={r.key}
+                component="button"
+                type="button"
+                onClick={() => toggleSection(r.key)}
+                aria-pressed={on}
+                sx={{
+                  border: 0, cursor: "pointer", fontFamily: "inherit", width: "100%",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 0.3,
+                  py: 1, borderRadius: "11px",
+                  bgcolor: on ? "#eef3ff" : "transparent",
+                  color: on ? "#2459d1" : "#5b6470",
+                  "&:hover": { bgcolor: on ? "#eef3ff" : "#f5f6f8" },
+                  "& svg": { fontSize: 20 },
+                }}
+              >
+                {r.icon}
+                <Typography sx={{ fontSize: 10.5, fontWeight: on ? 700 : 500, lineHeight: 1.2, color: "inherit" }}>
+                  {r.label}
+                </Typography>
               </Box>
-            )}
-            {/* sections stay mounted while collapsed so the canvas-tools portal target survives */}
-            <Box sx={{ display: sidebarCollapsed ? "none" : "block" }}>
+            );
+          })}
+        </Box>
+
+        {/* ── the one open panel ── */}
+        <Box sx={{ width: activePanel ? SIDEBAR_W : 0, flexShrink: 0, transition: "width 0.2s ease", overflow: "hidden" }}>
+          <Card>
+            {/* Every section stays mounted whatever is showing: the canvas
+                tools portal into this tree, and unmounting the target takes
+                the canvas's own toolbar with it. */}
+            <Box>
               {/* ── section: Generate setup ── */}
               {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.setup}>
