@@ -31,7 +31,7 @@ const FAINT = "#8b97ac";
 const HAIRLINE = "rgba(21,34,58,.10)";
 
 export default function SaveToProject({
-  draftId, defaultLabel, projectId, projectTitle,
+  draftId, defaultLabel, projectId, projectTitle, onSaved,
 }: {
   /** The content row the studio already wrote. Null while nothing is drafted. */
   draftId: number | null;
@@ -39,6 +39,8 @@ export default function SaveToProject({
   /** Set when the studio was opened from a project: save goes straight back. */
   projectId?: number;
   projectTitle?: string;
+  /** Called after a successful save so the versions strip can catch up. */
+  onSaved?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -66,7 +68,8 @@ export default function SaveToProject({
         body: JSON.stringify({ action: "attach", contentId: draftId, label: label.trim() || null }),
       });
       const j = await res.json();
-      setDone(j.ok ? `Saved. Open it at /projects/${projectId}.` : (j.error ?? "That did not save."));
+      setDone(j.ok ? "Saved into the project." : (j.error ?? "That did not save."));
+      if (j.ok) onSaved?.();
     } finally {
       setBusy(false);
     }

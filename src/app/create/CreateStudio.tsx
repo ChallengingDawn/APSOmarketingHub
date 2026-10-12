@@ -52,6 +52,7 @@ import TitleIcon from "@mui/icons-material/Title";
 import type { SeedText } from "../editor/EditorCanvas";
 import TypePicker from "./TypePicker";
 import SaveToProject from "./SaveToProject";
+import VariationStrip, { type StripVariant } from "./VariationStrip";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
@@ -203,6 +204,33 @@ function contentLines(content: string): { text: string; heading: boolean }[] {
     .filter((l) => l.text.length > 0);
 }
 
+/**
+ * The chosen TYPE as blocks, for a canvas nobody has written into yet.
+ *
+ * "Canvas - blank" was the first thing the studio showed, every time. A blank
+ * rectangle is the least useful possible answer to "I want an SEO landing
+ * page": the shape of that page is already decided - hero, what it is, the
+ * options, six proofs, a customer, one ask - and making somebody rebuild it
+ * from an empty page is the tool keeping what it knows to itself.
+ *
+ * So the canvas arrives carrying the structure, each section a block holding
+ * the job it has to do. It is a scaffold to type over, not content: nothing
+ * here pretends to be written, and generating replaces it outright.
+ */
+function seedTypeSkeleton(typeKey: string): SeedText[] {
+  const type = CONTENT_BY_KEY[typeKey];
+  if (!type) return [];
+
+  const seeds: SeedText[] = [{ text: type.label.toUpperCase(), role: "kicker" }];
+  type.sections.forEach((section, i) => {
+    seeds.push({
+      text: i === 0 ? section.heading : section.heading + " - " + section.job,
+      role: i === 0 ? "headline" : i === type.sections.length - 1 ? "cta" : "body",
+    });
+  });
+  return seeds;
+}
+
 /** Seed the canvas with a poster-ready set: kicker, headline, supporting line, CTA. */
 function seedTextsFor(channel: string, content: string): SeedText[] {
   const lines = contentLines(content);
@@ -332,6 +360,8 @@ export default function CreateStudio({
   // Exactly one panel, or none. Null is a real state — it gives the canvas
   // the whole width, which is what you want once the writing is done.
   const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
+  // Bumped when a version is saved, so the strip shows it without a reload.
+  const [stripKey, setStripKey] = useState(0);
   const openSections: Record<SectionKey, boolean> = {
     setup: activePanel === "setup",
     personas: activePanel === "personas",
@@ -409,13 +439,17 @@ export default function CreateStudio({
   /* text the ACTIVE canvas target can seed — drives both the button and initialTexts */
   const activeSeeds = useMemo<SeedText[]>(() => {
     if (!designing) return [];
-    if (designing.target === "draft") return draft ? seedTextsFor(channel, draft.content) : [];
+    // Written content wins. With nothing written the type is still known, and
+    // its shape beats an empty rectangle.
+    if (designing.target === "draft") {
+      return draft ? seedTextsFor(channel, draft.content) : seedTypeSkeleton(contentType);
+    }
     if (designing.target === "concept") {
       const c = concepts[designing.idx];
       return c ? seedTextsFor(channel, conceptContent(c)) : [];
     }
     return [];
-  }, [designing, draft, concepts, channel]);
+  }, [designing, draft, concepts, channel, contentType]);
 
   /* ── actions ── */
 
@@ -736,6 +770,7 @@ export default function CreateStudio({
               draftId={draft?.draftId ?? null}
               projectId={projectId}
               projectTitle={projectTitle}
+              onSaved={() => setStripKey((n) => n + 1)}
               defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
             />
             <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
@@ -1462,6 +1497,21 @@ export default function CreateStudio({
             </Box>
           )}
         </Box>
+
+        {/* ── RIGHT: the project's other versions ── */}
+        {projectId && (
+          <VariationStrip
+            projectId={projectId}
+            activeId={draft?.draftId ?? null}
+            refreshKey={stripKey}
+            onOpen={(v: StripVariant) => {
+              // Opening another version does not lose this one: it is already
+              // saved under the project, which is what saving there is for.
+              setDraft({ content: v.body, draftId: v.id, revision: 1 });
+              setDesigning(null);
+            }}
+          />
+        )}
       </Box>
 
     </Box>
