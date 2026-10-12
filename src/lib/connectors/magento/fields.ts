@@ -82,5 +82,5 @@ export const fieldNames = () => FIELD_GROUPS.flatMap((g) => g.fields.map((f) => 
 export const LINKS: { from: string; to: string; type: string; how: string }[] = [
   { from: "Order", to: "Contact", type: "HubSpot default", how: "Found by the order's email, never created. Tried again every 30 minutes; after 24 hours without a contact the order shows under Review queue." },
   { from: "Order", to: "Products & Pricing", type: "USER_DEFINED 119", how: "Each article, found by its article number (the shop's SKU). Once, when the order is first written; an article not in HubSpot is skipped." },
-  { from: "Order", to: "Company", type: "-", how: "Not by the shop sync: the Compass sync links the company once the ERP has the order (magento_stamp) - no company is guessed from the billing name." },
+  { from: "Order", to: "Company", type: "HubSpot default", how: "The buyer's primary company (or their only one), read from the contact found by email - never guessed from the billing name. A buyer with no company leaves the order without one." },
 ];

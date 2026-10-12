@@ -10,7 +10,7 @@
 // Three modes (kv): off / stage - reads only, the side-by-side test with the old
 // connector - / active. Rules: rules.ts. What changed against the old connector, on
 // purpose: an order the ERP has linked keeps its ERP fields (rules.ts); no company is
-// guessed from the billing name (the Compass sync's magento_stamp sets the right one);
+// guessed from the billing name - the order takes its buyer's primary company (linkCompany);
 // a contact that never turns up is given up after 24 hours instead of retried for ever.
 
 import { getPool } from "@/lib/db/client";
@@ -248,7 +248,25 @@ async function upsertOrder(props: Props): Promise<{ id: string } | { skipped: st
   return { id: made.id };
 }
 
-/** Link the order to its contact (found by email - never created) and to its articles (by SKU). */
+/**
+ * The order's company = the buyer's PRIMARY company (or their only one), never guessed from the
+ * billing name. 12.10.2026: without it every web order the hub wrote had no company, and the
+ * Datatracker, which finds the customer through that link, showed 0 orders - magento_stamp
+ * links the contact, not the order's company. Best effort: a buyer with no company leaves none.
+ */
+async function linkCompany(orderId: string, contactId: string): Promise<void> {
+  try {
+    const res = await hubspotFetchJson<{ results?: { toObjectId: string | number; associationTypes?: { category?: string; typeId?: number }[] }[] }>({
+      path: `/crm/v4/objects/contacts/${contactId}/associations/companies`,
+    });
+    const all = res.results ?? [];
+    const primary = all.find((r) => r.associationTypes?.some((t) => t.category === "HUBSPOT_DEFINED" && t.typeId === 1));
+    const company = primary ?? (all.length === 1 ? all[0] : undefined);
+    if (company) await hubspotFetchJson({ path: `/crm/v4/objects/orders/${orderId}/associations/default/companies/${company.toObjectId}`, method: "PUT" });
+  } catch { /* best effort - the contact link already stands */ }
+}
+
+/** Link the order to its contact (found by email - never created), the contact's company, and its articles (by SKU). */
 async function link(row: { entity_id: string; hs_order_id: string; customer_email: string | null; skus: string[] | null; assoc_retries: number; assoc_first_at: string | null }): Promise<"done" | "pending" | "failed"> {
   let contactId: string | null = null;
   let why = "no email on the order";
@@ -258,6 +276,7 @@ async function link(row: { entity_id: string; hs_order_id: string; customer_emai
       if (c) {
         await hubspotFetchJson({ path: `/crm/v4/objects/orders/${row.hs_order_id}/associations/default/contacts/${c.id}`, method: "PUT" });
         contactId = c.id;
+        await linkCompany(row.hs_order_id, c.id);
       } else why = "no contact with this email yet";
     } catch (e) {
       why = `contact: ${(e as Error).message.slice(0, 120)}`;
