@@ -10,8 +10,13 @@
 // bookmark still works, and each page keeps the access rule it already had.
 
 import type { IconKey } from "@/app/hubApps";
+import { STAGES } from "../marketingKpis/catalogue";
 
-export type Report = { name: string; href: string; note: string; icon: IconKey };
+export type Report = {
+  name: string; href: string; note: string; icon: IconKey;
+  /** Pages under this report, listed indented beneath it in the side panel. */
+  children?: { name: string; href: string }[];
+};
 export type ReportCategory = {
   slug: string;
   name: string;
@@ -35,6 +40,14 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "marketing", name: "Marketing Reports", line: "What marketing set out to do, and where it stands",
     reports: [
+      // The customer journey in a nutshell, each stage a page beneath it (SARCLA 12.10).
+      {
+        name: "Marketing KPIs", href: "/reporting/marketing-kpis", note: "The customer journey in a nutshell", icon: "bar",
+        children: [
+          ...STAGES.map((s) => ({ name: `${s.id} · ${s.name}`, href: `/reporting/marketing-kpis/${s.slug}` })),
+          { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs" },
+        ],
+      },
       { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
     ],
   },

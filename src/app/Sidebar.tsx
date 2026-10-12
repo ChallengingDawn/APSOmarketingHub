@@ -227,7 +227,10 @@ const navSections: NavSection[] = [
     color: toneOf(c.slug).fg,
     // Under a heading, like every app's pages (SARCLA 12.10: "should be a sub
     // app ... it should follow the normal pattern") - not a second app row.
-    items: c.reports.map((r) => ({ group: "Reports", label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> })),
+    items: c.reports.map((r) => ({
+      group: "Reports", label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} />,
+      children: r.children?.map((ch) => ({ label: ch.name, href: ch.href })),
+    })),
   })),
   {
     // Where the data comes from, and what each connection writes to HubSpot.
