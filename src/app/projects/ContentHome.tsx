@@ -136,7 +136,7 @@ export default function ContentHome({ name }: { name: string }) {
       const j = await fetch("/api/content/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.slice(0, 200), brief: said || undefined }),
+        body: JSON.stringify({ title: title.slice(0, 200), brief: said || undefined, contentType: typeKey ?? undefined }),
       }).then((r) => r.json());
       if (!j.ok) { setBusy(null); return; }
       router.push(`/create?project=${j.project.id}${typeKey ? `&type=${typeKey}` : ""}`);

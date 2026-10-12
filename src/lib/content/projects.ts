@@ -24,6 +24,8 @@ export type Project = {
   id: number;
   title: string;
   brief: string | null;
+  /** The content type this project is for, from CONTENT_TYPES. */
+  contentType: string | null;
   status: ProjectStatus;
   chosenVariantId: number | null;
   createdBy: string | null;
@@ -63,7 +65,7 @@ export type Comment = {
 
 type ProjectRow = {
   id: number; title: string; brief: string | null; status: string;
-  chosen_variant_id: number | null; created_by: string | null;
+  chosen_variant_id: number | null; created_by: string | null; content_type: string | null;
   created_at: Date; updated_at: Date;
   variant_count?: string; comment_count?: string; languages?: (string | null)[];
 };
@@ -73,6 +75,7 @@ function toProject(r: ProjectRow): Project {
     id: r.id,
     title: r.title,
     brief: r.brief,
+    contentType: r.content_type ?? null,
     status: (r.status as ProjectStatus) ?? "open",
     chosenVariantId: r.chosen_variant_id,
     createdBy: r.created_by,
@@ -133,12 +136,13 @@ export async function createProject(
   title: string,
   brief: string | null,
   by: string,
+  contentType: string | null = null,
 ): Promise<Project> {
   await ensureSchema();
   const r = await query<ProjectRow>(
-    `INSERT INTO apsomh_content_projects (title, brief, created_by)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [title.slice(0, 200), brief, by],
+    `INSERT INTO apsomh_content_projects (title, brief, created_by, content_type)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [title.slice(0, 200), brief, by, contentType],
   );
   return toProject(r.rows[0]);
 }

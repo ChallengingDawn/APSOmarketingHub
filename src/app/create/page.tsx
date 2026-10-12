@@ -30,12 +30,14 @@ export default async function Page({
   const projectId = project ? Number.parseInt(project, 10) : NaN;
   let projectTitle: string | null = null;
   let projectBrief: string | null = null;
+  let projectType: string | null = null;
   if (Number.isFinite(projectId) && projectId > 0) {
     const { getProject } = await import("@/lib/content/projects");
     const found = await getProject(projectId);
     if (found) {
       projectTitle = found.project.title;
       projectBrief = found.project.brief;
+      projectType = found.project.contentType;
     }
   }
 
@@ -56,7 +58,10 @@ export default async function Page({
       initialBrief={geoBrief}
       projectId={Number.isFinite(projectId) && projectId > 0 ? projectId : undefined}
       projectTitle={projectTitle ?? undefined}
-      initialType={type}
+      // The URL wins only when it says something; otherwise the project does.
+      // A project called "Untitled seo landing page" opening the studio on a
+      // LinkedIn post is the tool forgetting what it was asked for.
+      initialType={type ?? projectType ?? undefined}
     />
   );
 }

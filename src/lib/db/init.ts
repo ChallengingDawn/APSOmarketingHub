@@ -184,6 +184,12 @@ export function ensureSchema(): Promise<void> {
       );
     `);
 
+    // What the project is for. Without it the studio cannot know what a
+    // project called "Untitled seo landing page" is, and opens on its default.
+    await query(
+      `ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS content_type VARCHAR(48)`,
+    );
+
     for (const col of [
       "project_id INTEGER",
       "content_type VARCHAR(48)",

@@ -37,7 +37,7 @@ type Variant = {
 };
 type Comment = { id: number; variantId: number | null; author: string; body: string; createdAt: string };
 type Project = {
-  id: number; title: string; brief: string | null; status: string;
+  id: number; title: string; brief: string | null; status: string; contentType?: string | null;
   chosenVariantId: number | null; createdBy: string | null; createdAt: string;
 };
 type Access = { role: string; canEdit: boolean; canComment: boolean; canShare: boolean };
@@ -178,7 +178,7 @@ export default function ProjectBoard({ id }: { id: number }) {
         {access?.canEdit !== false && (
           <Button
             component={Link}
-            href={`/create?project=${project.id}`}
+            href={`/create?project=${project.id}${project.contentType ? `&type=${project.contentType}` : ""}`}
             variant="contained"
             disableElevation
             startIcon={<AddIcon />}
