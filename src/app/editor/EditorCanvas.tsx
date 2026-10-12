@@ -263,6 +263,7 @@ export default function EditorCanvas({
   painting,
   onExported,
   toolsContainer,
+  toolsContainers,
 }: {
   itemId?: number;
   initialImage?: string | null;
@@ -284,6 +285,16 @@ export default function EditorCanvas({
    * null the tools stay unrendered — never fall back to inline mid-mount.
    */
   toolsContainer?: HTMLElement | null;
+  /**
+   * One host per panel, so the studio rail can open Add, Style and Templates
+   * separately. Any that is given wins over toolsContainer for that panel;
+   * the standalone editor passes none and keeps the single stacked column.
+   */
+  toolsContainers?: {
+    insert?: HTMLElement | null;
+    canvas?: HTMLElement | null;
+    templates?: HTMLElement | null;
+  };
 }) {
   const fonts = useResolvedFonts();
   const fontFamilyOf = useCallback(
@@ -1294,7 +1305,11 @@ export default function EditorCanvas({
   const colorInputStyle = { width: 28, height: 24, border: "1px solid #d5d9df", borderRadius: 4, padding: 0, background: "none", cursor: "pointer" } as const;
 
   /* tools panel — inline card on /editor, portaled into the studio sidebar when a container is provided */
-  const toolsPanel = (
+  /* The tools, in three panels the rail opens one at a time. Rendered as
+     separate fragments so each can portal into its own host; the single
+     toolsContainer still receives all three stacked, which is what the
+     standalone /editor wants. */
+  const insertPanel = (
     <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Insert
@@ -1371,6 +1386,11 @@ export default function EditorCanvas({
         />
       </Button>
 
+    </Box>
+  );
+
+  const canvasPanel = (
+    <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Canvas
       </Typography>
@@ -1487,6 +1507,11 @@ export default function EditorCanvas({
         </>
       )}
 
+    </Box>
+  );
+
+  const templatesPanel = (
+    <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Brand templates
       </Typography>
@@ -1546,10 +1571,26 @@ export default function EditorCanvas({
     </Box>
   );
 
+  const toolsPanel = (
+    <>
+      {insertPanel}
+      {canvasPanel}
+      {templatesPanel}
+    </>
+  );
+
   return (
     <Box sx={{ display: "flex", gap: 2.5, flexDirection: { xs: "column", lg: "row" } }}>
       {/* ── left: tools ── */}
-      {toolsContainer === undefined ? (
+      {toolsContainers ? (
+        // Split: each panel goes to its own host. A host that is not given
+        // simply renders nothing — the rail decides what exists, not this.
+        <>
+          {toolsContainers.insert ? createPortal(insertPanel, toolsContainers.insert) : null}
+          {toolsContainers.canvas ? createPortal(canvasPanel, toolsContainers.canvas) : null}
+          {toolsContainers.templates ? createPortal(templatesPanel, toolsContainers.templates) : null}
+        </>
+      ) : toolsContainer === undefined ? (
         <Card sx={{ width: { lg: 280 }, flexShrink: 0, alignSelf: "flex-start" }}>{toolsPanel}</Card>
       ) : toolsContainer ? (
         createPortal(toolsPanel, toolsContainer)

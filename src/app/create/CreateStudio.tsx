@@ -42,6 +42,9 @@ import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
+import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import PaletteIcon from "@mui/icons-material/Palette";
+import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import MarkdownPreview from "./MarkdownPreview";
 import dynamic from "next/dynamic";
 import BrushIcon from "@mui/icons-material/Brush";
@@ -118,7 +121,7 @@ const RED = "#ed1b2f";
 const geoChannels = new Set(["blog", "seo"]);
 
 /** Sidebar accordion sections. */
-type SectionKey = "setup" | "personas" | "tools" | "intel";
+type SectionKey = "setup" | "personas" | "add" | "style" | "templates" | "intel";
 
 const SIDEBAR_W = 344;
 
@@ -129,7 +132,9 @@ const SIDEBAR_W = 344;
 const RAIL: { key: SectionKey; label: string; icon: ReactNode }[] = [
   { key: "setup", label: "Brief", icon: <TuneIcon /> },
   { key: "personas", label: "Who for", icon: <GroupsIcon /> },
-  { key: "tools", label: "Design", icon: <BrushIcon /> },
+  { key: "add", label: "Add", icon: <AddPhotoAlternateIcon /> },
+  { key: "style", label: "Style", icon: <PaletteIcon /> },
+  { key: "templates", label: "Templates", icon: <DashboardCustomizeIcon /> },
   { key: "intel", label: "Brain", icon: <PsychologyIcon /> },
 ];
 
@@ -365,15 +370,28 @@ export default function CreateStudio({
   const openSections: Record<SectionKey, boolean> = {
     setup: activePanel === "setup",
     personas: activePanel === "personas",
-    tools: activePanel === "tools",
+    add: activePanel === "add",
+    style: activePanel === "style",
+    templates: activePanel === "templates",
     intel: activePanel === "intel",
   };
   const [contentOpen, setContentOpen] = useState(true);
   /* host element the canvas tools portal renders into (must exist before EditorCanvas mounts) */
-  const toolsHostRef = useRef<HTMLDivElement | null>(null);
-  const [toolsEl, setToolsEl] = useState<HTMLElement | null>(null);
+  // One host per panel. They must exist before EditorCanvas mounts, and they
+  // stay mounted whichever panel is showing — the canvas portals into them,
+  // and unmounting a target takes its tools with it.
+  const addHostRef = useRef<HTMLDivElement | null>(null);
+  const styleHostRef = useRef<HTMLDivElement | null>(null);
+  const templatesHostRef = useRef<HTMLDivElement | null>(null);
+  const [toolHosts, setToolHosts] = useState<{
+    insert: HTMLElement | null; canvas: HTMLElement | null; templates: HTMLElement | null;
+  }>({ insert: null, canvas: null, templates: null });
   useEffect(() => {
-    setToolsEl(toolsHostRef.current);
+    setToolHosts({
+      insert: addHostRef.current,
+      canvas: styleHostRef.current,
+      templates: templatesHostRef.current,
+    });
   }, []);
 
   const toggleSection = (key: SectionKey) => setActivePanel((cur) => (cur === key ? null : key));
@@ -1040,15 +1058,29 @@ export default function CreateStudio({
                 </Box>
               </Collapse>
 
-              {sectionHeader("tools", "Canvas tools", <BrushIcon sx={{ fontSize: 18, color: RED }} />)}
-              <Collapse in={openSections.tools}>
+              {sectionHeader("add", "Add to the canvas", <AddPhotoAlternateIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.add}>
                 <Box sx={{ px: 2, pb: 2 }}>
-                  <div ref={toolsHostRef} />
+                  <div ref={addHostRef} />
                   {busy && (
                     <Typography sx={{ fontSize: 12, color: "#5b6470" }}>
                       The canvas tools return here as soon as generation finishes.
                     </Typography>
                   )}
+                </Box>
+              </Collapse>
+
+              {sectionHeader("style", "Size, colour and background", <PaletteIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.style}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={styleHostRef} />
+                </Box>
+              </Collapse>
+
+              {sectionHeader("templates", "Start from a template", <DashboardCustomizeIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.templates}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={templatesHostRef} />
                 </Box>
               </Collapse>
 
@@ -1241,7 +1273,7 @@ export default function CreateStudio({
                     onSaved={(revision, designDocument) => {
                       if (designing.target === "draft") setDraft((d) => d ? { ...d, revision, designDocument } : d);
                     }}
-                    toolsContainer={toolsEl}
+                    toolsContainers={toolHosts}
                     initialImage={
                       designing.target === "draft"
                         ? draft?.imageUrl ?? null
