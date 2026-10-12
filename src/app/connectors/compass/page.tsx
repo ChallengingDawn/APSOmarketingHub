@@ -43,7 +43,7 @@ function result(r: HubRun | null | undefined): { text: string; bad?: boolean } |
 const runsHere = (i: HubStepInfo | undefined) => !!i?.live && i.connectorSkips !== false;
 
 /** The last ERP delivery and what the hub did with it. */
-function Delivery({ d }: { d: StepsData | null }) {
+function Delivery({ d, admin, busy, act }: { d: StepsData | null; admin: boolean; busy: boolean; act: (key: string, action: string) => void }) {
   const c = d?.chain;
   const mb = (c?.files ?? []).reduce((t, f) => t + f.mb, 0);
   const failed = (c?.steps ?? []).filter((x) => !x.ok);
@@ -74,6 +74,12 @@ function Delivery({ d }: { d: StepsData | null }) {
         </Box>
       )}
       {c?.status === "failed" && c.error && <Typography sx={{ fontSize: "0.82rem", color: RED, mt: 1 }}>{c.error}</Typography>}
+      {c?.status === "failed" && admin && (
+        <Button size="small" variant="contained" disableElevation disabled={busy} sx={{ mt: 1.25 }}
+          onClick={() => { if (confirm("Run the ERP folder's delivery again? It takes about 1.5 hours and writes to HubSpot like every run - deploy nothing to the hub until it says Done.")) act("", "chain-rerun"); }}>
+          Run this delivery again
+        </Button>
+      )}
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
         {d?.connectorPulls
           ? "The old connector reads the ERP's files at the moment (the backup) - the hub's ERP steps wait until it lets them go again."
@@ -175,7 +181,7 @@ function Chain({ s }: { s: Snapshot }) {
           )}
         </Box>
       )}
-      <Delivery d={d} />
+      <Delivery d={d} admin={admin} busy={!!running || chainRunning} act={act} />
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5 }}>
           <Choice value={group} onChange={pick} options={[

@@ -225,6 +225,15 @@ export function fetchLatest(dest: string): Promise<PullReport> {
   return run;
 }
 
+/**
+ * Forget what was pulled (13.10.2026): the next pull takes every file in the ERP's folder
+ * again - the current delivery - as if it were new. For "Run this delivery again" after
+ * the chain gave up on a delivery whose runs were cut short (chain.ts rerunDelivery).
+ */
+export async function forgetManifest(): Promise<void> {
+  await kvSet(KV_MANIFEST, {});
+}
+
 /** Save the manifest a deferred pull returned - after its files were processed. */
 export async function commitManifest(m: Manifest): Promise<void> {
   await kvSet(KV_MANIFEST, m);

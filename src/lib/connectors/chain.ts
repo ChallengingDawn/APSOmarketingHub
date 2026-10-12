@@ -20,7 +20,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { commitManifest, pullDelta } from "./sftp";
+import { commitManifest, forgetManifest, pullDelta } from "./sftp";
 import { deliverySig, nextTry, type ChainTry } from "./chainTry";
 import { addChainDay, hubChain, setHubChain, type HubChain } from "./chainStatus";
 import { writtenCount } from "./summary";
@@ -35,6 +35,26 @@ const onDisk = (f: string) => stat(path.join(INCOMING, f)).then(() => true, () =
 export async function liveChainSteps(): Promise<string[]> {
   const live = await liveSteps();
   return REGISTRY.filter((s) => s.cadence === "chain" && live.has(s.key)).map((s) => s.key);
+}
+
+/**
+ * Run the ERP folder's current delivery again (SARCLA 13.10.2026). When a delivery's run is
+ * cut short twice the chain gives up and records its files as processed, so it never comes
+ * back by itself (12.10: three deploys in 15 minutes). This forgets that record and the
+ * give-up count, then starts the chain at once - it pulls the folder's delivery again and
+ * runs the live steps. Refused while a chain run is going.
+ */
+export async function rerunDelivery(by: string): Promise<{ ok: boolean; note: string }> {
+  const c = await hubChain();
+  const now = Math.floor(Date.now() / 1000);
+  if (c?.status === "running" && now - (c.ts ?? 0) < 3 * 3600) {
+    return { ok: false, note: "A chain run is going right now - wait for it to finish." };
+  }
+  await forgetManifest();
+  await kvSet(KV_TRY, null);
+  console.log(`[connectors] chain re-run of the ERP folder's delivery, asked by ${by}`);
+  void runHubChain(by).catch((e) => console.warn(`[connectors] chain re-run: ${(e as Error).message}`));
+  return { ok: true, note: "The ERP folder's delivery runs again now - about 1.5 hours. This page shows each step as it goes. No hub deploy until it says Done." };
 }
 
 /** One pass: pull, then the live steps whose inputs arrived. Null when nothing is live or the lock is held. */
@@ -83,7 +103,7 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
       if (rep.manifest) await commitManifest(rep.manifest);
       Object.assign(chain, {
         status: "failed", step: "pull", ts: now(),
-        error: `gave up on this delivery: its run was cut short ${t.save.n} times - a hub server restarted mid-run (out of memory?). Hand the steps back to the connector (remove them from its HUB_STEPS) and it processes these files itself.`,
+        error: `gave up on this delivery: its run was cut short ${t.save.n} times - a hub server restarted mid-run (a deploy, or out of memory). An admin can run it again on The chain page ("Run this delivery again") - with no hub deploy for the ~1.5 hours it takes.`,
       });
       await setHubChain(chain);
       console.error(`[connectors] chain GAVE UP on a delivery of ${got.size} files after ${t.save.n} cut-short runs`);

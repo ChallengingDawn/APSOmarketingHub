@@ -9,6 +9,7 @@ import { HUB_STEPS, busy, connectorSkips, isHubStep, lastRun, liveSteps, setLive
 import { stepDef } from "@/lib/connectors/steps/registry";
 import { STEPS } from "@/lib/connectors/compass";
 import { addChainDay, chainHistory, hubChain, type ChainDay, type HubChain } from "@/lib/connectors/chainStatus";
+import { rerunDelivery } from "@/lib/connectors/chain";
 import { flowRunning, flowStale, heldFlow, refreshFlow } from "@/lib/connectors/flow";
 import { writtenCount } from "@/lib/connectors/summary";
 import { REGISTRY } from "@/lib/connectors/steps/registry";
@@ -89,6 +90,11 @@ export async function POST(req: NextRequest) {
     console.log(`[connectors] switch-over by user ${access.userId}: ${on.length} steps on in the hub (${on.join(", ")})${refused.length ? `; refused: ${refused.join(" | ")}` : ""}`);
     const note = `${on.length} step${on.length === 1 ? "" : "s"} switched on in the hub${refused.length ? ` - ${refused.length} refused: ${refused.join("; ")}` : ""}`;
     return NextResponse.json({ ok: true, data: { note, on, refused } });
+  }
+  if (b.action === "chain-rerun") {
+    // the delivery the chain gave up on (its runs were cut short), run again from the ERP's folder
+    const r = await rerunDelivery(`user ${access.userId}`);
+    return NextResponse.json({ ok: r.ok, data: { note: r.note }, error: r.ok ? undefined : r.note }, { status: r.ok ? 200 : 409 });
   }
   if (!b.key || !isHubStep(b.key)) return NextResponse.json({ ok: false, error: "Unknown step" }, { status: 400 });
   const by = `user ${access.userId}`;
