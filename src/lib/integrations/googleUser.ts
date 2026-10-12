@@ -171,7 +171,10 @@ export async function completeConnection(
   return safe;
 }
 
-let cached: { token: string; expiresAt: number } | null = null;
+let cached: { token: string; expiresAt: number; scopes: string[] } | null = null;
+
+/** Did the person grant this scope? An empty list is a connection that never said. */
+const grants = (scopes: string[], scope: string) => scopes.length === 0 || scopes.includes(scope);
 
 /**
  * An access token for the connected person, or null when nobody is connected.
@@ -182,11 +185,14 @@ let cached: { token: string; expiresAt: number } | null = null;
  */
 export async function userAccessToken(scope: string): Promise<string | null> {
   if (!oauthConfigured()) return null;
-  if (cached && cached.expiresAt > Date.now()) return cached.token;
+  // the scope before the cache: the borrowed token holds only what the person granted.
+  // 12.10.2026 the cached Search Console token went out for GA4 too, and Google answered
+  // 403 "insufficient authentication scopes" - GA4 belongs to the service account
+  if (cached && cached.expiresAt > Date.now()) return grants(cached.scopes, scope) ? cached.token : null;
 
   const stored = await readStored();
   if (!stored) return null;
-  if (stored.scopes.length > 0 && !stored.scopes.includes(scope)) return null;
+  if (!grants(stored.scopes, scope)) return null;
 
   const res = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
@@ -212,6 +218,7 @@ export async function userAccessToken(scope: string): Promise<string | null> {
   cached = {
     token: body.access_token,
     expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000 - EXPIRY_SKEW_MS,
+    scopes: stored.scopes,
   };
   return cached.token;
 }
