@@ -98,6 +98,23 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
   return out;
 }
 
+/** SARCLA's note on a Journey row ("GEO", "Churn rate - learn from Erosion"). */
+export const journeyNote = (id: string) => JOURNEY.find((j) => j.id === id)?.note ?? "";
+/** Who KPIs are tagged for in the workbook - "Sales leader, Rose". */
+export const LEADER = KPIS.find((k) => k.audience)?.audience ?? "";
+/**
+ * Journey rows that are new KPIs under an id the catalogue uses for something
+ * else: SARCLA added "Average cart value" as K01, the catalogue's K01 being
+ * "Add-to-cart rate". Shown in their stage as not connected, beside the catalogue's.
+ */
+const JOURNEY_ADDITIONS: Record<string, string> = { K01: "6" };
+export const journeyAdditionsIn = (stage: string): CatalogueKpi[] =>
+  Object.entries(JOURNEY_ADDITIONS).filter(([id, st]) => st === stage && !MEASURES[id]).map(([id]) => {
+    const j = JOURNEY.find((r) => r.id === id);
+    return { id, stage, name: j?.name ?? id, question: "", definition: "", unit: j?.unit ?? "", breakdowns: "", source: j?.source || "To decide",
+      inSheet: "No", inHub: "No", where: "Added on the Journey tab", target: "", priority: "", audience: "", audienceAsk: "" };
+  });
+
 /** A KPI's name as SARCLA wrote it on the Journey tab, else the catalogue's. */
 export const nameOf = (id: string) => JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
 const measures = (k: CatalogueKpi) => !!MEASURES[k.id] && !MEASURES[k.id].notCatalogue;
@@ -173,6 +190,7 @@ export function KpiCard({ v, kpi }: { v: KpiView; kpi?: CatalogueKpi }) {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>{v.id} · {v.measure.origin === "live" ? "live in the hub" : "monthly input"}</Typography>
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf(v.id)}</Typography>
+          <Chips note={journeyNote(v.id)} audience={kpi?.audience} />
           {kpi?.question && !v.measure.notCatalogue && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{kpi.question}</Typography>}
         </Box>
         <Box sx={{ textAlign: "right" }}>
@@ -189,9 +207,23 @@ export function KpiCard({ v, kpi }: { v: KpiView; kpi?: CatalogueKpi }) {
         </ChartFrame>
       )}
       <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
-        {v.measure.notCatalogue ? "" : kpi?.definition ?? ""}{v.measure.note ? `${v.measure.notCatalogue ? "" : " · "}${v.measure.note}` : ""}{v.partial != null && v.measure.agg.kind !== "ytd" ? ` · ${MONTHS[v.partial]} is still running and not in the year so far` : ""}
+        {kpi?.audienceAsk ? `${kpi.audienceAsk} · ` : ""}{v.measure.notCatalogue ? "" : kpi?.definition ?? ""}{v.measure.note ? `${v.measure.notCatalogue ? "" : " · "}${v.measure.note}` : ""}{v.partial != null && v.measure.agg.kind !== "ytd" ? ` · ${MONTHS[v.partial]} is still running and not in the year so far` : ""}
       </Typography>
     </GlassCard>
+  );
+}
+
+/** SARCLA's note on the KPI and who it is for, as small tags. */
+export function Chips({ note, audience }: { note?: string; audience?: string }) {
+  if (!note && !audience) return null;
+  const chip = (text: string, tone: { bg: string; fg: string }) => (
+    <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, px: 0.9, py: 0.2, borderRadius: "999px", bgcolor: tone.bg, color: tone.fg, whiteSpace: "nowrap" }}>{text}</Box>
+  );
+  return (
+    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.4 }}>
+      {note && chip(note, TINT.blue)}
+      {audience && chip(`For ${audience}`, TINT.purple)}
+    </Box>
   );
 }
 
@@ -210,10 +242,10 @@ export function NotConnected({ list }: { list: CatalogueKpi[] }) {
           </TableRow></TableHead>
           <TableBody>
             {list.map((k) => (
-              <TableRow key={k.id}>
+              <TableRow key={`${k.id}-${k.name}`}>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: FAINT }}>{k.id}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: 600, color: INK, minWidth: 160 }}>{k.name}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, minWidth: 200 }}>{k.question}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: 600, color: INK, minWidth: 160 }}>{k.name}<Chips note={journeyNote(k.id) && JOURNEY.find((j) => j.id === k.id)?.name === k.name ? journeyNote(k.id) : ""} audience={k.audience} /></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, minWidth: 200 }}>{k.question}{k.audienceAsk ? <><br /><i>{k.audienceAsk}</i></> : null}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, minWidth: 160 }}>{k.source}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, minWidth: 200 }}>{k.inHub}{k.where ? ` - ${k.where}` : ""}</TableCell>
                 <TableCell sx={bodyCell}>

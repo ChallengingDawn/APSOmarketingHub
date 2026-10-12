@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ADDITIONAL_TRACKING, JOURNEY, KPIS, STAGES } from "../src/lib/marketingKpis/catalogue";
+import { ADDITIONAL_TRACKING, JOURNEY, KPIS, PLANNED, STAGES } from "../src/lib/marketingKpis/catalogue";
 import { MEASURES, TYPED, derive, fmtValue, total, type Series } from "../src/lib/marketingKpis/measures";
 import { seedInputs } from "../src/lib/marketingKpis/seed";
 
@@ -42,12 +42,17 @@ test("averages and empty years", () => {
   assert.equal(total("V01", typed("V01"), "py", get, 9), null);  // no last year in the sheet
 });
 
-test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, his extra column", () => {
+test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, tags, notes and planned rows", () => {
   assert.equal(KPIS.length, 74);
   assert.equal(STAGES.length, 10);
   assert.equal(STAGES.find((s) => s.id === "5")?.name, "Hand-over to ESO/TSA");
-  assert.ok(JOURNEY.some((j) => j.id === "L02" && j.name === "Leads to sales"));
-  assert.equal(ADDITIONAL_TRACKING.length, 4);
+  assert.ok(JOURNEY.some((j) => j.id === "L02" && j.name === "Leads to sales/quality"));
+  assert.equal(ADDITIONAL_TRACKING.length, 5);
+  assert.equal(PLANNED.length, 3);
+  assert.equal(KPIS.filter((k) => k.audience === "Sales leader, Rose").length, 28);
+  assert.equal(STAGES.find((s) => s.id === "7")?.note, "Check the split on revenue on different channels");
+  assert.equal(JOURNEY.find((j) => j.id === "R01")?.note, "GEO");
+  assert.ok(KPIS.find((k) => k.id === "G02")?.definition.includes("24 months"));
   assert.equal(new Set(STAGES.map((s) => s.slug)).size, 10);
   for (const k of KPIS) assert.ok(STAGES.some((s) => s.id === k.stage), k.id);
 });

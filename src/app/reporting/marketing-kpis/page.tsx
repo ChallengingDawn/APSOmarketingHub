@@ -18,7 +18,7 @@ import UpcomingIcon from "@mui/icons-material/Upcoming";
 
 import PageHeader from "@/app/PageHeader";
 import { FAINT, GlassCard, INK, MUTED, RED, TINT, KpiTile } from "@/app/uc/report/ui";
-import { ADDITIONAL_TRACKING, KPIS, STAGES } from "@/lib/marketingKpis/catalogue";
+import { ADDITIONAL_TRACKING, JOURNEY, KPIS, PLANNED, STAGES } from "@/lib/marketingKpis/catalogue";
 import { MEASURES, fmtValue } from "@/lib/marketingKpis/measures";
 import { Compare, LiveNote, Spark, buildViews, nameOf, periodOf, stageHref, useMarketingKpis, type KpiView } from "./data";
 
@@ -85,7 +85,10 @@ export default function MarketingKpisNutshell() {
                   }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Box sx={{ width: 26, height: 26, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: tone.fg, color: "#fff", fontSize: "0.8rem", fontWeight: 800 }}>{s.id}</Box>
-                      <Typography sx={{ flex: 1, fontSize: "0.92rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", lineHeight: 1.2 }}>{s.name}</Typography>
+                      <Typography sx={{ flex: 1, fontSize: "0.92rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", lineHeight: 1.2 }}>
+                        {s.name}
+                        {JOURNEY.some((j) => j.note === "GEO" && KPIS.find((k) => k.id === j.id)?.stage === s.id) && <Box component="span" sx={{ ml: 0.75, fontSize: "0.66rem", fontWeight: 700, px: 0.7, py: 0.15, borderRadius: "999px", bgcolor: "rgba(255,255,255,.8)", color: tone.fg, verticalAlign: "middle" }}>+ GEO</Box>}
+                      </Typography>
                       <ChevronRightIcon sx={{ fontSize: 18, color: tone.fg }} />
                     </Box>
                     <Box sx={{ display: "grid", gap: 1, flex: 1 }}>
@@ -105,19 +108,19 @@ export default function MarketingKpisNutshell() {
             </Box>
           </Box>
 
-          {ADDITIONAL_TRACKING.length > 0 && (
-            <GlassCard>
+          {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
+            <GlassCard key={title}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                 <UpcomingIcon sx={{ fontSize: 20, color: MUTED }} />
-                <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>Additional tracking - planned</Typography>
+                <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{title}</Typography>
               </Box>
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                {ADDITIONAL_TRACKING.map((t) => (
+                {list.map((t) => (
                   <Box key={t} sx={{ fontSize: "0.82rem", color: INK, px: 1.4, py: 0.7, borderRadius: "12px", bgcolor: "rgba(255,255,255,.8)", border: "1px dashed rgba(21,34,58,.18)" }}>{t}</Box>
                 ))}
               </Box>
             </GlassCard>
-          )}
+          ))}
           <LiveNote state={state} />
         </>
       )}

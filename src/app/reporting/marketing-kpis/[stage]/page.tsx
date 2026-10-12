@@ -26,7 +26,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, FAINT, GlassCard, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
-import { KpiCard, LiveNote, MONTHS, NotConnected, buildViews, journeyExtrasIn, measuredIn, notConnectedIn, useMarketingKpis } from "../data";
+import { KpiCard, LiveNote, MONTHS, NotConnected, buildViews, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, useMarketingKpis } from "../data";
 
 const n0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("en"));
 const pct = (a: number | null | undefined, b: number | null | undefined) => (a == null || !b ? "—" : `${((a / b) * 100).toFixed(1)}%`);
@@ -109,7 +109,7 @@ export default function StagePage() {
   const measured = measuredIn(s.id).map((k) => ({ k, v: views?.[k.id] }));
   for (const id of journeyExtrasIn(s.id)) if (views?.[id]) measured.push({ k: { ...KPIS[0], id, name: "", question: "", definition: "" }, v: views[id] });
   if (s.id === "7" && views?.X01) measured.push({ k: { ...KPIS[0], id: "X01", name: "SEA cost", question: "What do the ads cost?", definition: "Google Ads + Microsoft Ads spend." }, v: views.X01 });
-  const missing = notConnectedIn(s.id);
+  const missing = [...notConnectedIn(s.id), ...journeyAdditionsIn(s.id)];
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gap: 2.5, maxWidth: 1400 }}>
       <PageHeader title={s.name} subtitle={`Stage ${s.id} of the customer journey · ${measured.length} of ${measured.length + missing.length} KPIs measured · ${year}`} />
@@ -118,6 +118,11 @@ export default function StagePage() {
           {!state?.error && <CircularProgress size={18} />}
           <Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>{state?.error ? `Could not load: ${state.error}` : "Loading…"}</Typography>
         </Box></GlassCard>
+      )}
+      {s.note && (
+        <GlassCard sx={{ py: 1.5 }}>
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED }}><b style={{ color: "#15223a" }}>Note:</b> {s.note}</Typography>
+        </GlassCard>
       )}
       {views && state && (
         <>

@@ -45,6 +45,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         name: "Marketing KPIs", href: "/reporting/marketing-kpis", note: "The customer journey in a nutshell", icon: "bar",
         children: [
           ...STAGES.map((s) => ({ name: `${s.id} · ${s.name}`, href: `/reporting/marketing-kpis/${s.slug}` })),
+          { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader" },
           { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs" },
         ],
       },

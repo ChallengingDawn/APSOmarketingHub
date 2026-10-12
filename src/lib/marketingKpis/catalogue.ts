@@ -1,65 +1,79 @@
 // THE MARKETING KPI CATALOGUE - generated from SARCLA's workbook
 // "Marketing KPIs 2026 - journey & hub plan.xlsx" (KPI catalogue + Journey
-// dashboard tabs, as he edited them on 12.10.2026). Edit the workbook and
-// regenerate rather than drifting here.
+// dashboard tabs, as he edited them on 12.10.2026, evening). Edit the
+// workbook and regenerate rather than drifting here.
 
-export type KpiStage = { id: string; slug: string; name: string };
+export type KpiStage = { id: string; slug: string; name: string; note: string };
 export type CatalogueKpi = {
   id: string; stage: string; name: string; question: string; definition: string; unit: string;
   breakdowns: string; source: string; inSheet: string; inHub: string; where: string; target: string; priority: string;
+  /** who the KPI is for, as tagged in the workbook - "Sales leader, Rose" */
+  audience: string;
+  /** the question that came with the tag, if any */
+  audienceAsk: string;
 };
-export type JourneyRow = { id: string; name: string; unit: string; source: string };
+export type JourneyRow = { id: string; name: string; unit: string; source: string; note: string };
 
 export const STAGES: KpiStage[] = [
   {
     "id": "0",
     "slug": "customers",
-    "name": "Who are our customers"
+    "name": "Who are our customers",
+    "note": ""
   },
   {
     "id": "1",
     "slug": "reach",
-    "name": "Reach"
+    "name": "Reach",
+    "note": ""
   },
   {
     "id": "2",
     "slug": "visit",
-    "name": "Visit & traffic origin"
+    "name": "Visit & traffic origin",
+    "note": ""
   },
   {
     "id": "3",
     "slug": "engage",
-    "name": "Engage"
+    "name": "Engage",
+    "note": ""
   },
   {
     "id": "4",
     "slug": "lead",
-    "name": "Lead"
+    "name": "Lead (by team and country on SL)",
+    "note": ""
   },
   {
     "id": "5",
     "slug": "handover",
-    "name": "Hand-over to ESO/TSA"
+    "name": "Hand-over to ESO/TSA",
+    "note": ""
   },
   {
     "id": "6",
     "slug": "cart",
-    "name": "Cart & check-out"
+    "name": "Cart & check-out",
+    "note": ""
   },
   {
     "id": "7",
     "slug": "purchase",
-    "name": "Purchase"
+    "name": "Purchase",
+    "note": "Check the split on revenue on different channels"
   },
   {
     "id": "8",
     "slug": "retain",
-    "name": "Retain & grow"
+    "name": "Retain & grow",
+    "note": "Compairison on Compass segmentations"
   },
   {
     "id": "9",
     "slug": "efficiency",
-    "name": "Efficiency & targets"
+    "name": "Efficiency & targets",
+    "note": ""
   }
 ];
 
@@ -77,7 +91,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Smart Segmentation (UC) and the ESO dashboard per rep; no all-company view by band",
     "target": "Set per band (e.g. active rate Prio 1)",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C02",
@@ -92,7 +108,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO dashboard shows revenue per rep, not per band",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C03",
@@ -107,7 +125,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO dashboard: active customers by category; no full view",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C04",
@@ -122,7 +142,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO new customers / registrations by type",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C05",
@@ -137,7 +159,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Datatracker filters by country/mandant; no country summary",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C06",
@@ -152,7 +176,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "Set a share target per segment",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C07",
@@ -167,7 +193,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "C08",
@@ -182,7 +210,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Segmentation run history exists; no up/down summary",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "R01",
@@ -197,7 +227,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "No Ads connector in the hub",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R02",
@@ -212,7 +244,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "No Ads connector in the hub",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R03",
@@ -227,7 +261,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R04",
@@ -242,7 +278,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "SEO > Search performance",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R05",
@@ -257,7 +295,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "SEO > Search performance",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R06",
@@ -272,7 +312,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "SEO > Search performance",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R07",
@@ -287,7 +329,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "SEO > Search performance",
     "target": "Lower is better",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R08",
@@ -302,7 +346,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Queries are read; no brand split",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R09",
@@ -317,7 +363,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "SEO overview: clicks by country",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R10",
@@ -332,7 +380,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "GEO audit exists; no AI-referral KPI",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R11",
@@ -347,7 +397,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "R12",
@@ -362,7 +414,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V01",
@@ -377,7 +431,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Website > Site overview",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V02",
@@ -392,7 +448,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Site overview shows users, not the new/returning split",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V03",
@@ -407,7 +465,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Website > Acquisition",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V04",
@@ -422,7 +482,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Website > Audience",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V05",
@@ -437,7 +499,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Website > Pages; no per-store summary",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "V06",
@@ -446,13 +510,15 @@ export const KPIS: CatalogueKpi[] = [
     "question": "How many known customers use the shop?",
     "definition": "Companies and contacts that logged in; logins and article views.",
     "unit": "companies, logins, views",
-    "breakdowns": "Month · priority · category · owner",
+    "breakdowns": "Month · priority · category · owner - country",
     "source": "Datatracker (shop activity)",
     "inSheet": "No",
     "inHub": "Yes",
     "where": "Datatracker; ESO > Shop behaviour",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "V07",
@@ -467,7 +533,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Datatracker filters by priority; no summary",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "V08",
@@ -482,7 +550,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Website > Pages",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E01",
@@ -497,7 +567,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Site overview has engagement; check bounce is shown",
     "target": "Max 50%, lower is better",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E02",
@@ -512,7 +584,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Website > Site overview",
     "target": "60% B2B standard, 75% strong",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E03",
@@ -527,7 +601,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E04",
@@ -542,7 +618,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Datatracker > Articles",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E05",
@@ -557,7 +635,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "In the APSOAssistant dashboard, not in the hub",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E06",
@@ -572,7 +652,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "E07",
@@ -587,7 +669,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Datatracker > Price checks",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "L01",
@@ -602,7 +686,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Customer Reports > Contact requests",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "L02",
@@ -617,7 +703,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "No country split",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "L03",
@@ -632,7 +720,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "No source split",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "L04",
@@ -647,7 +737,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "ESO > Registrations; Customer Reports > KPIs",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "L05",
@@ -662,7 +754,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "L06",
@@ -677,7 +771,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "L07",
@@ -692,7 +788,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO first reply in ESO > Tickets; TSA report planned",
     "target": "Set an SLA",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "L08",
@@ -707,7 +805,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "H01",
@@ -722,7 +822,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO > Tickets shows source for all tickets",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "H02",
@@ -737,7 +839,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Per rep exists; no per-country split",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "H03",
@@ -752,7 +856,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "ESO > Tickets",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "H04",
@@ -767,7 +873,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Success rate exists for all tickets, not by source",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "H05",
@@ -782,7 +890,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "H06",
@@ -797,7 +907,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Open potential by stage, all sources",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "K01",
@@ -812,7 +924,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Datatracker counts carts per company",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "K02",
@@ -827,7 +941,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "Lower is better",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "K03",
@@ -842,7 +958,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "Lower is better",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "K04",
@@ -857,7 +975,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "Datatracker > Articles",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P01",
@@ -872,7 +992,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Web order sync; no monthly KPI tile",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P02",
@@ -887,7 +1009,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Customer Reports > KPIs",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P03",
@@ -902,7 +1026,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P04",
@@ -917,7 +1043,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P05",
@@ -932,7 +1060,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P06",
@@ -947,7 +1077,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "18 (SMEC)",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P07",
@@ -962,7 +1094,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "See 'Dashboard 2026' target",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "P08",
@@ -977,7 +1111,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Customer Reports > New customers",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "P09",
@@ -992,7 +1128,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "P10",
@@ -1007,7 +1145,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "G01",
@@ -1022,14 +1162,16 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "ESO > Customer development; Customer Reports > KPIs",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "G02",
     "stage": "8",
     "name": "Repeat purchase rate",
     "question": "Do first-time buyers come back?",
-    "definition": "Share of buyers with a second order within 12 months.",
+    "definition": "Share of buyers with a second order within 24 months.",
     "unit": "%",
     "breakdowns": "Cohort month · channel",
     "source": "HubSpot orders",
@@ -1037,7 +1179,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "ESO > Shop behaviour: orders ever",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": "What is the reason for not having it back ?"
   },
   {
     "id": "G03",
@@ -1052,7 +1196,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "ESO > Customer development",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "G04",
@@ -1067,7 +1213,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "ESO > Customer development",
     "target": "",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "G05",
@@ -1082,7 +1230,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Yes",
     "where": "UC > Erosion",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "Sales leader, Rose",
+    "audienceAsk": ""
   },
   {
     "id": "G06",
@@ -1097,7 +1247,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "Satisfaction Reports category is empty; visit reports already carry 4 scores",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "G07",
@@ -1112,7 +1264,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "F01",
@@ -1127,7 +1281,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "Advanced reporting > SMEC targets",
     "target": "CHF 4.8M, ROAS 18",
-    "priority": "Must"
+    "priority": "Must",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "F02",
@@ -1142,7 +1298,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "F03",
@@ -1157,7 +1315,9 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "No",
     "where": "",
     "target": "",
-    "priority": "Could"
+    "priority": "Could",
+    "audience": "",
+    "audienceAsk": ""
   },
   {
     "id": "F04",
@@ -1172,237 +1332,286 @@ export const KPIS: CatalogueKpi[] = [
     "inHub": "Partly",
     "where": "SMEC targets page covers the SMEC set",
     "target": "",
-    "priority": "Should"
+    "priority": "Should",
+    "audience": "",
+    "audienceAsk": ""
   }
 ];
 
-/** The Journey dashboard's rows - the KPIs the nutshell and the stage pages lead with. */
+/** The Journey dashboard's rows - the KPIs the nutshell and the stage pages lead with, with SARCLA's notes. */
 export const JOURNEY: JourneyRow[] = [
   {
     "id": "C01",
     "name": "Active companies (bought this year)",
     "unit": "companies",
-    "source": "HubSpot companies (sales_priority, revenue_<year>)"
+    "source": "HubSpot companies (sales_priority, revenue_<year>)",
+    "note": ""
   },
   {
     "id": "C03",
     "name": "Active APSOcore / APSOgrowth companies",
     "unit": "companies",
-    "source": "HubSpot companies (apso_customer)"
+    "source": "HubSpot companies (apso_customer)",
+    "note": ""
   },
   {
     "id": "C06",
     "name": "Online share of revenue",
     "unit": "%",
-    "source": "ERP + HubSpot orders (order_channel) to mesure how many offline orders"
+    "source": "ERP + HubSpot orders (order_channel) to mesure how many offline orders",
+    "note": ""
   },
   {
     "id": "R01",
     "name": "SEA impressions",
     "unit": "impr.",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R02",
     "name": "SEA clicks",
     "unit": "clicks",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R03",
     "name": "SEA CTR",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R04",
     "name": "SEO impressions",
     "unit": "impr.",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R05",
     "name": "SEO clicks",
     "unit": "clicks",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R06",
     "name": "SEO CTR",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R07",
     "name": "SEO average position",
     "unit": "pos.",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": "GEO"
   },
   {
     "id": "R08",
-    "name": "Brand share of SEO clicks",
+    "name": "Brand share of SEO & GEO clicks",
     "unit": "%",
-    "source": "Google Search Console (queries)"
+    "source": "Google Search Console (queries) & inherit from AEO",
+    "note": "GEO"
   },
   {
     "id": "V01",
     "name": "Users (visitors)",
     "unit": "users",
-    "source": "Datatracker"
+    "source": "Datatracker",
+    "note": ""
   },
   {
     "id": "V03",
     "name": "Users from organic / paid / direct / AI (traffic origin)",
     "unit": "users",
-    "source": "GA4 (session default channel group)"
+    "source": "GA4 (session default channel group)",
+    "note": ""
   },
   {
     "id": "V04",
     "name": "Users outside Switzerland",
     "unit": "users",
-    "source": "GA4"
+    "source": "GA4",
+    "note": ""
   },
   {
     "id": "V06",
     "name": "Companies logged in",
     "unit": "companies",
-    "source": "Datatracker"
+    "source": "Datatracker",
+    "note": ""
   },
   {
     "id": "E01",
     "name": "Bounce rate",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "E02",
     "name": "Engagement rate",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "L01",
     "name": "Leads (contact & quote requests)",
     "unit": "leads",
-    "source": "HubSpot forms, chat, tickets"
+    "source": "HubSpot forms, chat, tickets",
+    "note": ""
   },
   {
     "id": "L02",
-    "name": "Leads to sales",
+    "name": "Leads to sales/quality",
     "unit": "leads",
-    "source": "HubSpot"
+    "source": "HubSpot",
+    "note": ""
   },
   {
     "id": "L04",
     "name": "Shop registrations (companies)",
     "unit": "companies",
-    "source": "HubSpot contacts (eyemagine_customer_id)"
+    "source": "HubSpot contacts (eyemagine_customer_id)",
+    "note": ""
   },
   {
     "id": "L07",
     "name": "Lead response time (median)",
     "unit": "hours",
-    "source": "HubSpot tickets"
+    "source": "HubSpot tickets",
+    "note": ""
   },
   {
     "id": "H01",
     "name": "Leads handed to ESO",
     "unit": "tickets",
-    "source": "HubSpot ESO pipeline (source_type)"
+    "source": "HubSpot ESO pipeline (source_type)",
+    "note": ""
   },
   {
     "id": "H03",
     "name": "ESO speed to first reply (median)",
     "unit": "hours",
-    "source": "HubSpot"
+    "source": "HubSpot",
+    "note": ""
   },
   {
     "id": "H04",
     "name": "ESO success on marketing leads",
     "unit": "%",
-    "source": "HubSpot (ticket_resolution_eso)"
+    "source": "HubSpot (ticket_resolution_eso)",
+    "note": ""
   },
   {
     "id": "K02",
     "name": "Cart abandonment rate",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
+  },
+  {
+    "id": "K01",
+    "name": "Average cart value",
+    "unit": "%",
+    "source": "",
+    "note": ""
   },
   {
     "id": "K03",
     "name": "Check-out abandonment rate",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P01",
     "name": "Purchases (online orders)",
     "unit": "orders",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P02",
     "name": "Conversion rate users",
     "unit": "%",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P05",
-    "name": "SEA revenue",
+    "name": "SEA /GEO revenue",
     "unit": "CHF",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "X01",
-    "name": "SEA cost",
+    "name": "SEA /GEO cost",
     "unit": "CHF",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P06",
-    "name": "ROAS (SEA)",
+    "name": "ROAS (SEA/GEO)",
     "unit": "x",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P07",
-    "name": "SEO revenue",
+    "name": "SEO/GEO revenue",
     "unit": "CHF",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   },
   {
     "id": "P08",
     "name": "New online customers",
     "unit": "companies",
-    "source": "HubSpot orders"
+    "source": "HubSpot orders",
+    "note": ""
   },
   {
     "id": "G01",
     "name": "Active customers",
     "unit": "companies",
-    "source": "ERP via Compass"
+    "source": "ERP via Compass",
+    "note": "Churn rate - learn from Erosion"
   },
   {
     "id": "G02",
     "name": "Repeat purchase rate",
     "unit": "%",
-    "source": "HubSpot orders"
+    "source": "HubSpot orders",
+    "note": ""
   },
   {
     "id": "G04",
     "name": "Lost customers",
     "unit": "companies",
-    "source": "ERP via Compass"
+    "source": "ERP via Compass",
+    "note": ""
   },
   {
     "id": "F01",
     "name": "Paid revenue (SEA) vs SMEC target",
     "unit": "CHF",
-    "source": "Dashboard 2026"
+    "source": "Dashboard 2026",
+    "note": ""
   }
 ];
 
-/** "Additional tracking" - the views SARCLA added beside the catalogue, planned next. */
-export const ADDITIONAL_TRACKING: string[] = ["Webyn funnel and Customer Journey on AH", "Mission control of UseCases", "Mission control GEO & AEO", "From Scroll to Sales Pipeline"];
+/** "Additional tracking for TEAM" - the views SARCLA listed beside the catalogue. */
+export const ADDITIONAL_TRACKING: string[] = ["Webyn funnel and Customer Journey on AH", "Mission control of UseCases", "Mission control SEO, SEA, GEO & AEO", "From Scroll to Sales Pipeline", "Average purchase time on abandonned cart"];
+
+/** Rows SARCLA added under the journey's last stage - planned, not yet KPIs. */
+export const PLANNED: string[] = ["NPS Review & NPS New customer + CSAT", "Target table", "GDP drilldown on type of sector, CLIMA index, Inflation/deflation"];
 
 export const stageBySlug = (slug: string) => STAGES.find((s) => s.slug === slug) ?? null;
