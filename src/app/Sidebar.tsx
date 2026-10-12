@@ -175,11 +175,16 @@ const navSections: NavSection[] = [
       // is.
       // Projects first: it is the door, and the studio is where you go FROM a
       // project rather than the place work begins.
-      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
+      // Personality first: it is the brain every generator reads, and reading
+      // it is what you do before making anything.
       { group: "Content", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
-      { group: "Content", label: "Create Studio", href: "/create", icon: <AutoAwesomeIcon fontSize="small" />, badge: "AI" },
-      { group: "Content", label: "Content Library", href: "/library", icon: <MenuBookIcon fontSize="small" /> },
+      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
       { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+      // Create Studio and the Content Library are deliberately NOT here.
+      // The studio is where you arrive after choosing what to make — a link
+      // to it means an empty editor with nothing to edit, which is the state
+      // this whole redesign exists to remove. The library is what a project
+      // holds, so it is reached through the project that holds it.
       // Generated from SEO_NAV rather than typed out again. The two lists
       // used to be written separately and had drifted into disagreeing about
       // what the pages were even called.

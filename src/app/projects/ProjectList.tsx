@@ -45,9 +45,11 @@ const ago = (iso: string) => {
   return d < 1 ? "today" : d < 2 ? "yesterday" : d < 30 ? `${Math.floor(d)} days ago` : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 };
 
-export default function ProjectList() {
+export default function ProjectList({ initialScope = "mine" }: { initialScope?: Scope }) {
   const router = useRouter();
-  const [scope, setScope] = useState<Scope>("mine");
+  // Addressable, so the home screen can link straight at "shared with me"
+  // rather than landing you on your own and making you press a tab.
+  const [scope, setScope] = useState<Scope>(initialScope);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);

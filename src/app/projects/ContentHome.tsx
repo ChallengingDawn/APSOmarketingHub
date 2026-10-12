@@ -29,7 +29,9 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import AddIcon from "@mui/icons-material/Add";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import GroupsIcon from "@mui/icons-material/Groups";
+import SearchIcon from "@mui/icons-material/Search";
 
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { CONTENT_TYPES } from "@/lib/content/contentTypes";
@@ -155,13 +157,33 @@ export default function ContentHome({ name }: { name: string }) {
       </Box>
 
       {/* One box. Say it in your own words; everything else on the page is a
-          shortcut for people who would rather point than type. */}
-      <Box sx={{
-        maxWidth: 680, mx: "auto", mb: 4,
-        bgcolor: "#fff", borderRadius: "16px", border: `1px solid ${HAIRLINE}`,
-        boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)",
-        p: 1.5,
-      }}>
+          shortcut for people who would rather point than type.
+
+          The glow is the one piece of decoration on the screen and it earns
+          its place: it marks the box where you talk to the model, which is
+          otherwise indistinguishable from a search field. It sits BEHIND the
+          card and animates slowly; anybody who has asked their system for
+          less motion gets it still rather than not at all, because the colour
+          is what carries the meaning and the movement is only flourish. */}
+      <Box sx={{ position: "relative", maxWidth: 680, mx: "auto", mb: 4 }}>
+        <Box
+          aria-hidden
+          sx={{
+            position: "absolute", inset: -14, borderRadius: "26px", zIndex: 0,
+            filter: "blur(22px)", opacity: 0.55,
+            background:
+              "conic-gradient(from 0deg, #ef5fa0, #6a46c9, #2459d1, #1b7a55, #ef5fa0)",
+            animation: "aiGlow 14s linear infinite",
+            "@keyframes aiGlow": { to: { transform: "rotate(360deg)" } },
+            "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+          }}
+        />
+        <Box sx={{
+          position: "relative", zIndex: 1,
+          bgcolor: "#fff", borderRadius: "16px", border: `1px solid ${HAIRLINE}`,
+          boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)",
+          p: 1.5,
+        }}>
         <TextField
           fullWidth multiline minRows={2} maxRows={8} variant="standard"
           placeholder="Describe what you need — “a landing page for DirectCut in Italian, aimed at joiners who cut their own panels”"
@@ -182,6 +204,7 @@ export default function ContentHome({ name }: { name: string }) {
           >
             Start
           </Button>
+        </Box>
         </Box>
       </Box>
 
@@ -289,13 +312,41 @@ export default function ContentHome({ name }: { name: string }) {
         ))}
       </Box>
 
-      <Box sx={{ mt: 3, display: "flex", justifyContent: "center" }}>
-        <Button
-          component={Link} href="/projects/all" startIcon={<AddIcon />}
-          sx={{ textTransform: "none", fontWeight: 600, color: MUTED }}
-        >
-          All projects, shared ones, and search
-        </Button>
+      {/* Where the recent strip stops being enough. Named rows rather than one
+          "see everything" link, because "the thing Marc shared with me" and
+          "something of mine from March" are different errands. */}
+      <Box sx={{
+        mt: 4, display: "grid", gap: 1.5,
+        gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
+      }}>
+        {[
+          { href: "/projects/all?scope=mine", label: "My projects", note: "Everything you own", icon: <FolderOpenIcon /> },
+          { href: "/projects/all?scope=shared", label: "Shared with me", note: "Projects other people brought you into", icon: <GroupsIcon /> },
+          { href: "/projects/all", label: "Search all", note: "Find one by name, brief or owner", icon: <SearchIcon /> },
+        ].map((d) => (
+          <Box
+            key={d.href}
+            component={Link}
+            href={d.href}
+            sx={{
+              textDecoration: "none", display: "flex", alignItems: "center", gap: 1.5,
+              p: 1.75, borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff",
+              transition: "box-shadow 120ms, transform 120ms",
+              "&:hover": { boxShadow: "0 8px 24px rgba(31,45,78,.10)", transform: "translateY(-1px)" },
+            }}
+          >
+            <Box sx={{
+              width: 36, height: 36, borderRadius: "11px", display: "grid", placeItems: "center",
+              bgcolor: "#eef3ff", color: "#2459d1", flexShrink: 0, "& svg": { fontSize: 20 },
+            }}>
+              {d.icon}
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{d.label}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{d.note}</Typography>
+            </Box>
+          </Box>
+        ))}
       </Box>
     </Box>
   );
