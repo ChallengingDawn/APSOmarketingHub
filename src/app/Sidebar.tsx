@@ -70,6 +70,15 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import ProductionQuantityLimitsIcon from "@mui/icons-material/ProductionQuantityLimits";
 import RemoveShoppingCartOutlinedIcon from "@mui/icons-material/RemoveShoppingCartOutlined";
+import TimelineIcon from "@mui/icons-material/Timeline";
+import WavingHandOutlinedIcon from "@mui/icons-material/WavingHandOutlined";
+import PersonOffOutlinedIcon from "@mui/icons-material/PersonOffOutlined";
+import ThumbUpOffAltIcon from "@mui/icons-material/ThumbUpOffAlt";
+import RepeatOneIcon from "@mui/icons-material/RepeatOne";
+import LoyaltyOutlinedIcon from "@mui/icons-material/LoyaltyOutlined";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
+import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+import ShowChartIcon from "@mui/icons-material/ShowChart";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -284,6 +293,16 @@ const navSections: NavSection[] = [
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "Reports & data", label: "Articles CY/LY", href: "/uc/articles", icon: <QueryStatsIcon fontSize="small" /> },
       { group: "Reports & data", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
+      // the lifecycle use cases' reports - they run as HubSpot workflows; the hub only reads (SARCLA, 13.10.2026)
+      { group: "Lifecycle", label: "Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC2 Welcome", href: "/uc/lifecycle/welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC15 Lost Leads", href: "/uc/lifecycle/lost-leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC6 Thank You", href: "/uc/lifecycle/thank-you", icon: <ThumbUpOffAltIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC9 Second Purchase", href: "/uc/lifecycle/second-purchase", icon: <RepeatOneIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC10+11 Repeat Purchase", href: "/uc/lifecycle/repeat-purchase", icon: <LoyaltyOutlinedIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC13 Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC4 Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
+      { group: "Lifecycle", label: "UC12 Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
     ],
   },
   {

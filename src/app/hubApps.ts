@@ -152,6 +152,16 @@ export const APPS: HubApp[] = [
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
       { name: "Articles CY/LY", note: "Every article, this year against last", href: "/uc/articles", icon: "bar", ...BLUE },
       { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
+      // the lifecycle use cases, reported (they run as HubSpot workflows)
+      { group: "Lifecycle", name: "Lifecycle overview", short: "Overview", note: "Every company's stage, and the moves each month", href: "/uc/lifecycle", icon: "route", ...PURPLE },
+      { group: "Lifecycle", name: "UC2 Welcome", note: "New registrants, qualified and their first order", href: "/uc/lifecycle/welcome", icon: "groups", ...BLUE },
+      { group: "Lifecycle", name: "UC15 Lost Leads", note: "Lost leads pushed to a first purchase", href: "/uc/lifecycle/lost-leads", icon: "target", ...PINK },
+      { group: "Lifecycle", name: "UC6 Thank You", note: "First purchasers and their ratings", href: "/uc/lifecycle/thank-you", icon: "verified", ...GREEN },
+      { group: "Lifecycle", name: "UC9 Second Purchase", note: "New customers pushed to a second order", href: "/uc/lifecycle/second-purchase", icon: "sync", ...AMBER },
+      { group: "Lifecycle", name: "UC10+11 Repeat Purchase", note: "Grow / Nurture to Loyalty / Retain", href: "/uc/lifecycle/repeat-purchase", icon: "layers", ...TEAL },
+      { group: "Lifecycle", name: "UC13 Reactivation", note: "Churned customers, and who came back", href: "/uc/lifecycle/reactivation", icon: "route", ...PURPLE },
+      { group: "Lifecycle", name: "UC4 Abandoned Cart", note: "Carts left in the shop, and the orders after", href: "/uc/lifecycle/abandoned-cart", icon: "tag", ...BLUE },
+      { group: "Lifecycle", name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
     ],
   },
   {
