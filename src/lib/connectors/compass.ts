@@ -283,7 +283,7 @@ export const IN_HUB: { name: string; href: string; note: string }[] = [
   { name: "Smart Segmentation", href: "/uc/segmentation", note: "since 05.10" },
   { name: "Articles CY/LY", href: "/uc/articles", note: "since 05.10" },
   { name: "Price-check tickets", href: "/uc/price-checks", note: "created by the hub" },
-  { name: "DoC declarations", href: "/uc/doc", note: "emailed by the hub" },
+  { name: "DoC declarations", href: "/website/doc", note: "emailed by the hub" },
   { name: "One-shot boards", href: "/uc/sept-push", note: "September, Marc and Nancy push" },
 ];
 

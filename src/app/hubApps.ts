@@ -75,6 +75,8 @@ export const APPS: HubApp[] = [
       { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
       { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
+      // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
+      { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
     ],
   },
   {
@@ -153,7 +155,6 @@ export const APPS: HubApp[] = [
       { name: "UC13 Reactivation", note: "Churned customers, and who came back", href: "/uc/lifecycle/reactivation", icon: "route", ...PURPLE },
       { name: "UC4 Abandoned Cart", note: "Carts left in the shop, and the orders after", href: "/uc/lifecycle/abandoned-cart", icon: "tag", ...BLUE },
       { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
-      { name: "DoC", note: "Declarations of Conformity, emailed", href: "/uc/doc", icon: "verified", ...GREEN },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
       { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
       { name: "Owner redirection", note: "Companies to the right owner, by country or person", href: "/uc/owner-redirection", icon: "groups", ...GREEN },

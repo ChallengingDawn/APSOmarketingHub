@@ -171,6 +171,8 @@ const navSections: NavSection[] = [
       // A data check (are shop orders reaching HubSpot, against GA4), so it sits
       // with Tracking health rather than among the use cases.
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
+      // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
+      { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
     ],
   },
   {
@@ -272,10 +274,10 @@ const navSections: NavSection[] = [
   },
   {
     // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
-    // still live in their own repos and migrate here over time; Erosion and DoC
-    // came from the APSOAssistant micro apps. DoC is a HubSpot app, not a use
-    // case (SARCLA, 04.10) - it took the place of the "tbd" slot. One-shot
-    // actions are campaigns with a start and a fixed list (05.10, from the micro apps).
+    // still live in their own repos and migrate here over time; Erosion came from
+    // the APSOAssistant micro apps. DoC, from there too, moved on to Website >
+    // Microservices (SARCLA, 13.10). One-shot actions are campaigns with a start
+    // and a fixed list (05.10, from the micro apps).
     title: "UC & HubSpot Apps",
     icon: <HubIcon />,
     color: "#eda100",
@@ -292,7 +294,6 @@ const navSections: NavSection[] = [
       { group: "Use cases", label: "UC13 - Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
       { group: "Use cases", label: "UC4 - Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
       { group: "Use cases", label: "UC12 - Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
