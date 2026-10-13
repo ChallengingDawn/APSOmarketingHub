@@ -25,7 +25,7 @@ export type SubApp = {
 export type IconKey =
   | "groups" | "description" | "inventory" | "bar" | "layers" | "edit" | "photo"
   | "search" | "filter" | "tag" | "sync" | "route" | "health" | "ads" | "target"
-  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified";
+  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload";
 
 export type HubApp = {
   key: string;
@@ -78,6 +78,8 @@ export const APPS: HubApp[] = [
       // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
       { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
       { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
+      // the order tool the shop frames, on its own Railway gateway (SARCLA 13.10.2026)
+      { group: "Microservices", name: "DirectUP", note: "Order files into the cart: usage, lists, log, installation", href: "/website/directup", icon: "upload", ...PINK },
     ],
   },
   {

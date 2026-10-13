@@ -63,6 +63,8 @@ const EXPECTED_ENV = [
   "DOC_CAPTURE_FROM",
   "DOC_SEND_EMAIL",
   "DOC_COPY_TO",
+  // DirectUP - the hub reads the gateway on Railway (src/lib/directup/gateway.ts)
+  "DIRECTUP_ADMIN_KEY",
 ] as const;
 
 function shapeOf(name: string, value: string): string {
@@ -91,6 +93,7 @@ export function envDiagnostics(): EnvDiagnostics {
     COOKIEBOT_DOMAIN: "www.apsoparts.com",
     CONNECTOR_READ_KEY: "unset — the Erosion forecast stays off; its tickets still show",
     CONNECTOR_URL: CONNECTOR_DEFAULT_URL,
+    DIRECTUP_ADMIN_KEY: "unset — the DirectUP page cannot read the gateway; the tool on the shop works regardless",
   };
   const probes: EnvProbe[] = EXPECTED_ENV.map((name) => {
     const value = process.env[name];

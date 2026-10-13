@@ -23,6 +23,7 @@ import PublicIcon from "@mui/icons-material/Public";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CookieIcon from "@mui/icons-material/Cookie";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 
 import type { IconKey } from "./hubApps";
 
@@ -48,6 +49,7 @@ const MAP: Record<IconKey, React.ElementType> = {
   bolt: BoltIcon,
   cookie: CookieIcon,
   verified: VerifiedOutlinedIcon,
+  upload: UploadFileOutlinedIcon,
 };
 
 export default function HubIcon({ name, fontSize = 18 }: { name: IconKey; fontSize?: number }) {

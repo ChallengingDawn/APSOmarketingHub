@@ -82,6 +82,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -175,6 +176,7 @@ const navSections: NavSection[] = [
       // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "DirectUP", href: "/website/directup", icon: <UploadFileOutlinedIcon fontSize="small" /> },
     ],
   },
   {
