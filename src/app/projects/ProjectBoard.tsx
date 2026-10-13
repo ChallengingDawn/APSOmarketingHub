@@ -265,14 +265,12 @@ export default function ProjectBoard({ id }: { id: number }) {
         </Box>
       )}
 
-      <Kicker>The conversation</Kicker>
-      <GlassCard sx={{ mt: 0.5 }}>
-        <Conversation
-          comments={general}
-          placeholder="Anything about the project as a whole…"
-          onSend={(text) => post({ action: "comment", variantId: null, body: text })}
-        />
-      </GlassCard>
+      {/* The project-wide comment box is gone. With the assistant at the top
+          the page had two empty text boxes asking for a sentence, and nothing
+          on screen said which one did what. Comments survive where they are
+          worth something — under the version they are about, where a remark
+          has a subject. Anything already written here is still readable in
+          the record; this only stops the page inviting more of it. */}
     </Box>
   );
 }

@@ -21,7 +21,6 @@ import Alert from "@mui/material/Alert";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
 import Divider from "@mui/material/Divider";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ImageIcon from "@mui/icons-material/Image";
 import TuneIcon from "@mui/icons-material/Tune";
@@ -43,6 +42,7 @@ import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PaletteIcon from "@mui/icons-material/Palette";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import MarkdownPreview from "./MarkdownPreview";
@@ -56,6 +56,7 @@ import type { SeedText } from "../editor/EditorCanvas";
 import TypePicker from "./TypePicker";
 import SaveToProject from "./SaveToProject";
 import VariationStrip, { type StripVariant } from "./VariationStrip";
+import Assistant from "@/app/projects/Assistant";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
@@ -121,7 +122,7 @@ const RED = "#ed1b2f";
 const geoChannels = new Set(["blog", "seo"]);
 
 /** Sidebar accordion sections. */
-type SectionKey = "setup" | "personas" | "add" | "style" | "templates" | "intel";
+type SectionKey = "assistant" | "setup" | "personas" | "add" | "style" | "templates" | "intel";
 
 const SIDEBAR_W = 344;
 
@@ -130,6 +131,9 @@ const SIDEBAR_W = 344;
  * with its word underneath — an icon column with no labels is a quiz.
  */
 const RAIL: { key: SectionKey; label: string; icon: ReactNode }[] = [
+  // First, and deliberately: it is the only thing here that can answer a
+  // question about what is on the screen.
+  { key: "assistant", label: "Assistant", icon: <AutoAwesomeIcon /> },
   { key: "setup", label: "Brief", icon: <TuneIcon /> },
   { key: "personas", label: "Who for", icon: <GroupsIcon /> },
   { key: "add", label: "Add", icon: <AddPhotoAlternateIcon /> },
@@ -377,6 +381,7 @@ export default function CreateStudio({
   // Bumped when a version is saved, so the strip shows it without a reload.
   const [stripKey, setStripKey] = useState(0);
   const openSections: Record<SectionKey, boolean> = {
+    assistant: activePanel === "assistant",
     setup: activePanel === "setup",
     personas: activePanel === "personas",
     add: activePanel === "add",
@@ -894,6 +899,26 @@ export default function CreateStudio({
                 tools portal into this tree, and unmounting the target takes
                 the canvas's own toolbar with it. */}
             <Box>
+              {sectionHeader("assistant", "Assistant", <AutoAwesomeIcon sx={{ fontSize: 18, color: "#6a46c9" }} />)}
+              <Collapse in={openSections.assistant}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  {projectId ? (
+                    // It reads the project, so it needs one. Saving a draft
+                    // here is what gives it something to be specific about.
+                    <Assistant
+                      projectId={projectId}
+                      canEdit
+                      onApplied={() => setStripKey((n) => n + 1)}
+                    />
+                  ) : (
+                    <Typography sx={{ fontSize: 12.5, color: "#5b6470", lineHeight: 1.6 }}>
+                      The assistant works on a project — it reads the brief, every version and what
+                      people said about them. Open the studio from a project and it appears here.
+                    </Typography>
+                  )}
+                </Box>
+              </Collapse>
+
               {/* ── section: Generate setup ── */}
               {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.setup}>
