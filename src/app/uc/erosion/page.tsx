@@ -43,7 +43,7 @@ import {
 } from "@/lib/erosion/model";
 import { OutcomeReport, TeamsReport } from "@/app/uc/report/OutcomeReport";
 import {
-  CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, Kicker, MUTED, Notice, StageChip, TeamChip,
+  CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, Kicker, MUTED, Notice, StageChip, TeamChip, TopFindings,
   clip, eur, glass, headCell,
 } from "@/app/uc/report/ui";
 
@@ -459,12 +459,22 @@ export default function ErosionApp() {
   const items = useMemo(() => forecast?.items ?? [], [forecast]);
 
   const busy = tr === null || fr === null || ticketsHeld.stale || forecastHeld.stale;
+  // what needs saying sits on the header's top line, not in a block of its own (SARCLA 13.10)
+  const lastRun = fr?.state === "ok" ? fr.data.summary?.lastRun ?? null : null;
+  const idle = lastRun ? daysBetween(lastRun, localDay(new Date())) : null;
+  const top = [
+    ...(idle !== null && idle > 1
+      ? [{ tone: "bad" as const, text: `The detector last ran on ${lastRun}, ${idle} days ago - it runs after each Compass chain in the hub; check The chain page (Connectors → Compass).` }]
+      : []),
+    ...(tr?.state === "ok" && tr.data.notesError ? [{ tone: "warn" as const, text: `${tr.data.notesError}. Closed tickets show their resolution field only.` }] : []),
+  ];
   const header = (
     <PageHeader
       title="UC16 Erosion on article level"
       subtitle="Customers whose yearly reorder has lapsed, the tickets raised for them, and what ESO and TSA did"
       rightSlot={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <TopFindings items={top} />
           {busy && <CircularProgress size={14} sx={{ color: MUTED }} />}
           <WindowPicker />
           <Tooltip title="Ask HubSpot and the connector again">
@@ -485,7 +495,6 @@ export default function ErosionApp() {
   const wonCount = inPeriod.filter(isWon).length;
   const atRisk = items.reduce((s, it) => s + it.amount, 0);
   const summary = forecast?.summary ?? null;
-  const idleDays = summary?.lastRun ? daysBetween(summary.lastRun, localDay(new Date())) : null;
 
   const forecastNote =
     fr === null ? (
@@ -504,16 +513,8 @@ export default function ErosionApp() {
       <Box>
         {header}
 
-        {idleDays !== null && idleDays > 1 && (
-          <Notice tone="bad">
-            The detector last ran on {summary?.lastRun}, {idleDays} days ago. It runs once after each Compass chain in the hub; if this
-            persists, check The chain page (Connectors → Compass).
-          </Notice>
-        )}
-
         {tr?.state === "not-configured" && <NotConnectedPanel source="HubSpot" missing={tr.missing} />}
         {tr?.state === "error" && <UpstreamPanel source="HubSpot (erosion tickets)" error={tr.error} status={tr.status} onRetry={refresh} />}
-        {ok && tr.data.notesError && <Notice tone="warn">{tr.data.notesError}. Closed tickets show their resolution field only.</Notice>}
       </Box>
 
       <Grid container spacing={2}>

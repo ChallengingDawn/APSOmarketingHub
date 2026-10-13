@@ -43,7 +43,7 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { OutcomeReport, TeamsReport } from "@/app/uc/report/OutcomeReport";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import {
-  CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, MUTED, Notice, StageChip, TeamChip, bodyCell, clip as clipTo, eur, headCell,
+  CardTitle, GlassCard, HAIRLINE, HsLink, INK, KpiTile, MUTED, StageChip, TeamChip, TopFindings, bodyCell, clip as clipTo, eur, headCell,
 } from "@/app/uc/report/ui";
 import { isClosed, isWon } from "@/lib/erosion/model";
 import { MIN_ARTICLES, VALUE_FLOOR_ACTIVE, priceCheckShortfall, shortPriority } from "@/lib/datatracker/rules";
@@ -434,7 +434,10 @@ export default function PriceCheckTickets() {
           title="UC17 Price check tickets"
           subtitle="Customers who priced articles in the shop and did not order, the tickets raised to call them, and what came of them"
           rightSlot={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <TopFindings items={ok && tickets.some((t) => t.subject.startsWith("Direct ESO request"))
+                ? [{ text: "Some subjects were rewritten to \"Direct ESO request\" by the ESO workflow; their customer is shown from the ticket's company instead." }]
+                : []} />
               {((signals === null && !error) || tr === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
               <WindowPicker />
               <Tooltip title="Ask HubSpot again">
@@ -445,11 +448,6 @@ export default function PriceCheckTickets() {
         />
         {tr?.state === "not-configured" && <NotConnectedPanel source="HubSpot" missing={tr.missing} />}
         {tr?.state === "error" && <UpstreamPanel source="HubSpot (price-check tickets)" error={tr.error} status={tr.status} onRetry={refresh} />}
-        {ok && tickets.some((t) => t.subject.startsWith("Direct ESO request")) && (
-          <Notice tone="warn">
-            Some subjects were rewritten to &quot;Direct ESO request&quot; by the ESO workflow; their customer is shown from the ticket&apos;s company instead.
-          </Notice>
-        )}
       </Box>
 
       <Grid container spacing={2}>

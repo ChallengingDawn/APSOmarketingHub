@@ -5,8 +5,10 @@
 // with a 22px radius, a tinted icon badge beside each card's title, quiet type,
 // one blue accent. Same tokens as Settings, so the two read as one product.
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import Popover from "@mui/material/Popover";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -171,6 +173,46 @@ export function Notice({ tone, children }: { tone: "bad" | "warn"; children: Rea
       <WarningAmberIcon sx={{ fontSize: 18, color: c, mt: "1px" }} />
       <Typography sx={{ fontSize: "0.84rem", color: INK }}>{children}</Typography>
     </Box>
+  );
+}
+
+export type TopItem = { text: string; tone?: "warn" | "bad" };
+
+/**
+ * A page's findings and warnings on the header's top line, beside the period
+ * (SARCLA 13.10.2026: not a block of their own). One reads in full on hover;
+ * several show as "3 findings"; a click lists them all.
+ */
+export function TopFindings({ items }: { items: TopItem[] }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  if (!items.length) return null;
+  const c = items.some((i) => i.tone === "bad") ? RED : AMBER;
+  const one = items.length === 1;
+  return (
+    <>
+      <Tooltip title={one ? items[0].text : "Show them"}>
+        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
+          aria-label={one ? items[0].text : `${items.length} findings`}
+          sx={{
+            ...glass, display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.55, borderRadius: "12px",
+            border: "none", borderLeft: `3px solid ${c}`, cursor: "pointer", font: "inherit", minWidth: 0,
+          }}>
+          <WarningAmberIcon sx={{ fontSize: 16, color: c, flexShrink: 0 }} />
+          <Typography component="span" sx={{ fontSize: "0.8rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: { xs: 200, md: 420 } }}>
+            {one ? items[0].text : `${items.length} findings`}
+          </Typography>
+        </Box>
+      </Tooltip>
+      <Popover open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { ...glass, borderRadius: "16px", p: 1.75, maxWidth: 520, mt: 0.75 } } }}>
+        <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.6 }}>
+          {items.map((i) => (
+            <Typography component="li" key={i.text} sx={{ fontSize: "0.84rem", color: i.tone === "bad" ? RED : INK }}>{i.text}</Typography>
+          ))}
+        </Box>
+      </Popover>
+    </>
   );
 }
 

@@ -51,7 +51,7 @@ import { ChartTip } from "@/app/charts/ChartTip";
 import { CHROME, FONT, SERIES } from "@/app/charts/palette";
 import { compact, full, percent } from "@/app/charts/format";
 import {
-  ACCENT, AMBER, CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, TINT, bodyCell, clip, glass, headCell, hsTicket,
+  ACCENT, AMBER, CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, TINT, TopFindings, bodyCell, clip, glass, headCell, hsTicket,
 } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab, type TabDef } from "@/app/uc/report/Tabs";
 import { HUB_UCS, PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
@@ -374,21 +374,6 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
-function Findings({ items }: { items: string[] }) {
-  if (!items.length) return null;
-  return (
-    <Box sx={{ ...glass, borderRadius: "18px", borderLeft: `3px solid ${AMBER}`, p: { xs: 1.75, md: 2 }, display: "grid", gap: 0.75 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <WarningAmberIcon sx={{ fontSize: 18, color: AMBER }} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{items.length === 1 ? "Finding" : "Findings"}</Typography>
-      </Box>
-      <Box component="ul" sx={{ m: 0, pl: 3.25, display: "grid", gap: 0.4 }}>
-        {items.map((f) => <Typography component="li" key={f} sx={{ fontSize: "0.84rem", color: INK }}>{f}</Typography>)}
-      </Box>
-    </Box>
-  );
-}
-
 /** The UC pages, as cards - on the overview: the lifecycle UCs, then the hub's own. */
 function UcCards() {
   return (
@@ -468,7 +453,8 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
           title={title}
           subtitle={does}
           rightSlot={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <TopFindings items={(v?.findings ?? []).map((text) => ({ text }))} />
               {busy && <CircularProgress size={14} sx={{ color: MUTED }} />}
               <WindowPicker />
             </Box>
@@ -487,7 +473,6 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
 
       {v && (
         <>
-          <Findings items={v.findings} />
           {st?.computing && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Refreshing in the background - showing the last finished read.</Typography>}
           {st?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>The last refresh failed ({st.error}) - showing the read before it.</Typography>}
           <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: `repeat(${Math.min(v.tiles.length, 6) > 4 ? 3 : Math.max(2, v.tiles.length)}, 1fr)` } }}>
