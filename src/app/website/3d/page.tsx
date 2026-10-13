@@ -38,10 +38,13 @@ import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/an
 import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, GREEN, GlassCard, INK, KpiTile, MUTED, Notice, TRACK, bodyCell, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged } from "@/app/connectors/parts";
+import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import type { ThreeD } from "@/lib/threeD/read";
 import SettingsTab from "./SettingsTab";
 
 type View = "overview" | "settings";
+/** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
+const VIEW_HASH: Record<View, string> = { overview: "#overview", settings: "#settings" };
 type PeriodKey = "30" | "90" | "year" | "all";
 const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: "30", label: "30 days" }, { key: "90", label: "90 days" }, { key: "year", label: "This year" }, { key: "all", label: "All" },
@@ -251,17 +254,17 @@ export default function ThreeDFiles() {
   const [forced, setForced] = useState(0);
   const [period, setPeriod] = useState<PeriodKey>("90");
   // Settings: the gateway's address and every place that names it (SARCLA, 13.10.2026)
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const url = forced ? `/api/website/3d?refresh=1&n=${forced}` : "/api/website/3d";
   const held = useHeld<ThreeD>(url, [url]);
   const r = held.result;
 
   let body: React.ReactNode;
-  if (view === "settings") body = <SettingsTab />;
+  if (view === "settings") body = <Box id="threed-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the 3D service and HubSpot…" />;
   else if (r.state === "not-configured") body = <NotConnectedPanel source="HubSpot" missing={r.missing} />;
   else if (r.state === "error") body = <UpstreamPanel source="HubSpot (3D requests)" error={r.error} status={r.status} onRetry={() => setForced((n) => n + 1)} />;
-  else body = <Overview d={r.data} period={period} setPeriod={setPeriod} />;
+  else body = <Box id="threed-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} period={period} setPeriod={setPeriod} /></Box>;
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
@@ -277,7 +280,12 @@ export default function ThreeDFiles() {
           </Box>
         ) : undefined}
       />
-      <Choice value={view} onChange={setView} options={[{ key: "overview", label: "Overview" }, { key: "settings", label: "Settings" }]} />
+      <Box>
+        <ReportTabs name="threed" tab={view} onSelect={setView} tabs={[
+          { id: "overview", label: "Overview", count: null },
+          { id: "settings", label: "Settings", count: null },
+        ]} />
+      </Box>
       {body}
     </Box>
   );

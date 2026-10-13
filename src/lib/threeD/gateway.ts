@@ -89,11 +89,5 @@ export async function checkPlaces(gateway: string): Promise<Place[]> {
     key: "card", group: "HubSpot", label: "AP-Link 3D card", where: "C:\\dev\\AP-Link 3D Files\\hubspot-project (fetch3d.js, Fetch3dCard.jsx, app.json)",
     found: null, state: "manual", note: "Written into the card - change the three files and upload the project after a move.",
   });
-  const docUrl = backend().url;
-  out.push({
-    key: "doc", group: "Hub", label: "DoC lookups", where: "Hub task definition: DOC_BACKEND_URL (unset = the Railway default)",
-    found: originOf(docUrl), state: judge(docUrl, gateway),
-    note: "The DoC app reads the same service for declarations; it follows its own setting.",
-  });
   return out;
 }
