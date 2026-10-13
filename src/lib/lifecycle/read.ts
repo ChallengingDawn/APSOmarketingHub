@@ -10,7 +10,7 @@
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
 
-export type Hist = { value?: string | null; timestamp?: string; sourceType?: string };
+export type Hist = { value?: string | null; timestamp?: string; sourceType?: string; updatedByUserId?: number | string | null };
 export type Rec = { id: string; properties?: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
 export type Filter = { propertyName: string; operator: string; value?: string; values?: string[] };
 
@@ -152,6 +152,48 @@ export async function ticketStages(): Promise<Map<string, { label: string; close
   const out = new Map<string, { label: string; closed: boolean; pipeline: string; pipelineLabel: string }>();
   for (const p of r.results ?? []) {
     for (const s of p.stages ?? []) out.set(s.id, { label: s.label, closed: s.metadata?.ticketState === "CLOSED", pipeline: p.id, pipelineLabel: p.label });
+  }
+  return out;
+}
+
+/**
+ * Every HubSpot owner, active and archived, as "o:<owner id>" and "u:<user id>"
+ * -> name: a property's history names the USER who set it, a record names its
+ * OWNER. Someone who has left still has their name here.
+ */
+export async function people(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const archived of ["false", "true"]) {
+    let after: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const r = await read<{ results?: { id: string; userId?: number | null; firstName?: string; lastName?: string; email?: string }[]; paging?: { next?: { after?: string } } }>({
+        path: `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${encodeURIComponent(after)}` : ""}`,
+      });
+      for (const o of r.results ?? []) {
+        const name = `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email || `Owner ${o.id}`;
+        if (!out[`o:${o.id}`]) out[`o:${o.id}`] = name;
+        if (o.userId && !out[`u:${o.userId}`]) out[`u:${o.userId}`] = name;
+      }
+      after = r.paging?.next?.after;
+      if (!after) break;
+    }
+  }
+  // a user who owns no records is no owner - their name comes from the users list (paged: past 100 users)
+  try {
+    let after: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const r = await read<{ results?: { id: string; email?: string; firstName?: string; lastName?: string }[]; paging?: { next?: { after?: string } } }>({
+        path: `/settings/v3/users/?limit=100${after ? `&after=${encodeURIComponent(after)}` : ""}`,
+      });
+      for (const u of r.results ?? []) {
+        const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || "";
+        if (name && !out[`u:${u.id}`]) out[`u:${u.id}`] = name;
+      }
+      after = r.paging?.next?.after;
+      if (!after) break;
+    }
+  } catch {
+    // the owners above still name almost everyone
   }
   return out;
 }

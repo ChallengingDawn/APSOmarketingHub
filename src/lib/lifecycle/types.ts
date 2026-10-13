@@ -29,6 +29,10 @@ export type Co = {
   segment?: string | null;
   reason?: string | null;
   nps?: number | null;
+  /** UC2: the company's owner (owner id) */
+  owner?: string | null;
+  /** UC2: "Qualified by Company Owner" now, who set it (HubSpot user id) and when */
+  qual?: { v: string; by: string | null; day: string | null } | null;
 };
 
 export type Ticket = {
@@ -72,6 +76,8 @@ export type UcData = {
   webOrders?: Record<string, string[]>;
   /** UC12: companies with an erosion ticket. */
   erosion?: string[];
+  /** HubSpot people by "u:<user id>" and "o:<owner id>" - only those the read met. */
+  people?: Record<string, string>;
   sources: Source[];
 };
 
@@ -115,7 +121,8 @@ export type ChartView =
   | { kind: "lines"; title: string; note: string; parts: { key: string; label: string }[]; rows: Row[]; fmt: Fmt; footnote?: string }
   | { kind: "grouped"; title: string; note: string; current: string; prior: string; rows: { x: string; current: number | null; prior: number | null }[]; fmt: Fmt; footnote?: string }
   | { kind: "trend"; title: string; note: string; label: string; points: { x: string; value: number | null }[]; fmt: Fmt; footnote?: string; extra?: { columns: string[]; rows: (string | number)[][] } }
-  | { kind: "bars"; title: string; note: string; rows: { label: string; value: number; secondary?: string }[]; fmt: Fmt; footnote?: string };
+  | { kind: "bars"; title: string; note: string; rows: { label: string; value: number; secondary?: string }[]; fmt: Fmt; footnote?: string }
+  | { kind: "table"; title: string; note: string; cols: Col[]; rows: Row[]; fmt: Fmt; footnote?: string };
 
 export type Col = { key: string; label: string; fmt: Fmt; hint?: string };
 

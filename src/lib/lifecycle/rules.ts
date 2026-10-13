@@ -64,8 +64,23 @@ export function monthLabel(m: string, mark = true): string {
 }
 export const isRestageMonth = (m: string) => m.slice(0, 7) === FEB_RESTAGE;
 /** The words under any chart that includes February 2026. */
-export const RESTAGE_NOTE = "* February 2026: every stage jumps at once - a mass re-stage, not the normal flow. Shown, not removed.";
+export const RESTAGE_NOTE = "* February 2026: mass re-stage of companies.";
 export const touchesRestage = (months: string[]) => months.some(isRestageMonth);
+
+/** One entry of a property's history, as HubSpot gives it. */
+type Hist = { value?: string | null; timestamp?: string; sourceType?: string; updatedByUserId?: number | string | null };
+
+/**
+ * "Qualified by Company Owner" now, and the person who set that value - the
+ * latest change made by a user; a merge or a workflow copying it names no one.
+ */
+export function qualOf(hist: Hist[]): { v: string; by: string | null; day: string | null } | null {
+  const h = [...hist].sort((a, b) => String(b.timestamp ?? "").localeCompare(String(a.timestamp ?? "")));
+  const v = h[0]?.value?.trim();
+  if (!v) return null;
+  const byUser = h.find((e) => e.value?.trim() === v && e.updatedByUserId !== null && e.updatedByUserId !== undefined && String(e.updatedByUserId) !== "");
+  return { v, by: byUser ? String(byUser.updatedByUserId) : null, day: toDay((byUser ?? h[0]).timestamp) };
+}
 
 /* ── the reporting window ──────────────────────────────────────────────── */
 

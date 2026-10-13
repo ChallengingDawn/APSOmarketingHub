@@ -282,6 +282,16 @@ const navSections: NavSection[] = [
     items: [
       { group: "Use cases", label: "UCX - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { group: "Use cases", label: "UCX - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
+      // the lifecycle use cases' reports - they run as HubSpot workflows; the hub only reads (SARCLA, 13.10.2026)
+      { group: "Use cases", label: "Lifecycle Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC2 - Welcome", href: "/uc/lifecycle/welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC15 - Lost Leads", href: "/uc/lifecycle/lost-leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC6 - Thank You", href: "/uc/lifecycle/thank-you", icon: <ThumbUpOffAltIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC9 - Second Purchase", href: "/uc/lifecycle/second-purchase", icon: <RepeatOneIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC10+11 - Repeat Purchase", href: "/uc/lifecycle/repeat-purchase", icon: <LoyaltyOutlinedIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC13 - Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC4 - Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC12 - Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "DoC Declarations", href: "/uc/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
@@ -293,16 +303,6 @@ const navSections: NavSection[] = [
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "Reports & data", label: "Articles CY/LY", href: "/uc/articles", icon: <QueryStatsIcon fontSize="small" /> },
       { group: "Reports & data", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
-      // the lifecycle use cases' reports - they run as HubSpot workflows; the hub only reads (SARCLA, 13.10.2026)
-      { group: "Lifecycle", label: "Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC2 Welcome", href: "/uc/lifecycle/welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC15 Lost Leads", href: "/uc/lifecycle/lost-leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC6 Thank You", href: "/uc/lifecycle/thank-you", icon: <ThumbUpOffAltIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC9 Second Purchase", href: "/uc/lifecycle/second-purchase", icon: <RepeatOneIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC10+11 Repeat Purchase", href: "/uc/lifecycle/repeat-purchase", icon: <LoyaltyOutlinedIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC13 Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC4 Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
-      { group: "Lifecycle", label: "UC12 Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
     ],
   },
   {

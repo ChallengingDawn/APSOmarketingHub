@@ -162,7 +162,7 @@ function MultiLine({ rows, parts, format }: { rows: Row[]; parts: { key: string;
   );
 }
 
-function twinOf(c: ChartView): TableTwin {
+function twinOf(c: Exclude<ChartView, { kind: "table" }>): TableTwin {
   const f = (v: number | string | null | undefined) => fmtValue(v as number | null, c.fmt);
   if (c.kind === "stack" || c.kind === "lines") {
     const withTotal = c.kind === "stack";
@@ -180,7 +180,42 @@ function twinOf(c: ChartView): TableTwin {
   return { columns: ["", "Count", "Share"], rows: c.rows.map((r) => [r.label, f(r.value), r.secondary ?? ""]), numeric: [1, 2] };
 }
 
-function Chart({ c, stale }: { c: ChartView; stale: boolean }) {
+/** A small table of counts, with a total row - "who qualified". */
+function TableCard({ c }: { c: Extract<ChartView, { kind: "table" }> }) {
+  const numeric = (col: Col) => col.fmt === "n" || col.fmt === "eur" || col.fmt === "pct" || col.fmt === "days";
+  const total: Row = Object.fromEntries(c.cols.map((col, i) => [col.key, i === 0 ? "Total" : numeric(col) ? c.rows.reduce((a, r) => a + (Number(r[col.key]) || 0), 0) : ""]));
+  return (
+    <GlassCard>
+      <CardTitle icon={<ListAltIcon />} tint="slate" title={c.title} note={c.note} />
+      {c.rows.length === 0 ? (
+        <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing to show for this period.</Typography>
+      ) : (
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: Math.min(1000, c.cols.length * 120) }}>
+            <TableHead><TableRow>
+              {c.cols.map((col) => <TableCell key={col.key} sx={{ ...headCell, textAlign: numeric(col) ? "right" : "left" }} title={col.hint}>{col.label}</TableCell>)}
+            </TableRow></TableHead>
+            <TableBody>
+              {[...c.rows, total].map((r, i) => (
+                <TableRow key={i} hover={i < c.rows.length}>
+                  {c.cols.map((col) => (
+                    <TableCell key={col.key}
+                      sx={{ ...bodyCell, fontSize: "0.8rem", textAlign: numeric(col) ? "right" : "left", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", ...(i === c.rows.length ? { fontWeight: 700, color: INK } : {}) }}>
+                      {fmtValue(r[col.key], col.fmt)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+      )}
+      {c.footnote && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 1.25 }}>{c.footnote}</Typography>}
+    </GlassCard>
+  );
+}
+
+function Chart({ c, stale }: { c: Exclude<ChartView, { kind: "table" }>; stale: boolean }) {
   const format = chartFmt(c.fmt);
   const empty =
     (c.kind === "bars" && !c.rows.length) || (c.kind === "grouped" && !c.rows.length) ? "Nothing to show for this period." :
@@ -292,7 +327,7 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
         note={`Sends per email, counted from each contact's "last marketing email" history since ${day(e.horizon)} · ${full(e.contactsRead)} contacts read`} />
       {e.unseen.length > 0 && (
         <Typography sx={{ fontSize: "0.82rem", color: AMBER, mb: 1.25 }}>
-          Never sent: {e.unseen.join(", ")} - no contact&apos;s email history holds {e.unseen.length === 1 ? "it" : "them"}.
+          Never sent: {e.unseen.join(", ")}.
         </Typography>
       )}
       {e.rows.length === 0 ? (
@@ -381,7 +416,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
   const busy = !resp || stale || !!st?.computing || !!resp?.emailState?.computing;
 
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5, maxWidth: 1500 }}>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
       <Box>
         <PageHeader
           title={title}
@@ -430,7 +465,16 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
           </Box>
 
           <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" } }}>
-            {v.charts.map((c) => <Chart key={c.title} c={c} stale={stale} />)}
+            {v.charts.map((c, i) => {
+              // a table takes the whole row; so does the last chart when the rest leave it alone
+              const charts = v.charts.filter((x) => x.kind !== "table");
+              const wide = c.kind === "table" || (charts.length % 2 === 1 && c === charts[charts.length - 1]);
+              return (
+                <Box key={`${c.title}-${i}`} sx={{ minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
+                  {c.kind === "table" ? <TableCard c={c} /> : <Chart c={c} stale={stale} />}
+                </Box>
+              );
+            })}
           </Box>
 
           {v.list && <List v={v.list} />}

@@ -10,12 +10,13 @@
 // order days, ticket answers, email names and days - never contact details.
 
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
-import { HORIZON, PIPELINE, STAGE, STAGES, UC15_BACKFILL_MONTH, ucForEmailNumber, ucOf, type UcKey, type ViewKey } from "./config";
+import { HORIZON, PIPELINE, STAGE, STAGES, UC15_BACKFILL_MONTH, UC2_QUAL, ucForEmailNumber, ucOf, type UcKey, type ViewKey } from "./config";
 import {
   companyOfContact, enrolledOn, monthOf, monthsFrom, parseEmailName, parts, revProp, revenueByMonth, secondOrderDay, sendsOf, shiftMonth, stageEntries,
   tally, toDay, type Entry, type OrderLite, type Send, type Src,
+  qualOf,
 } from "./rules";
-import { associations, batchEach, batchRead, countOf, dayMs, emailStatsToken, newest, readEmailStats, searchAll, ticketStages, type Filter, type Rec } from "./read";
+import { associations, batchEach, batchRead, countOf, dayMs, emailStatsToken, newest, people, readEmailStats, searchAll, ticketStages, type Filter, type Rec } from "./read";
 import type { Co, EmailData, OverviewData, Source, Task, Ticket, UcData } from "./types";
 
 const TTL_MS = 12 * 60 * 60 * 1000;
@@ -147,19 +148,26 @@ async function buildUc2(key: string): Promise<UcData> {
   const today = todayZurich();
   const ids = (await searchAll("companies", [[gte(`hs_v2_date_entered_${STAGE.mql}`, HORIZON)]], ["hs_object_id"],
     (n) => reportProgress(key, `finding the companies that became an MQL · ${n0(n)}`))).map((r) => r.id);
-  const recs = await batchRead("companies", ids, [...BASE, `hs_v2_date_entered_${STAGE.mql}`], ["lifecyclestage"],
+  const recs = await batchRead("companies", ids, [...BASE, "hubspot_owner_id", UC2_QUAL, `hs_v2_date_entered_${STAGE.mql}`], ["lifecyclestage", UC2_QUAL],
     (n) => reportProgress(key, `reading their stage history · ${n0(n)} of ${n0(ids.length)}`));
   const companies = recs.map((r) => coOf(r, {
     entries: only(stageEntries(r.propertiesWithHistory?.lifecyclestage ?? [], HORIZON), [STAGE.mql, STAGE.sql, STAGE.lostLead]),
     enrolled: toDay(r.properties?.[`hs_v2_date_entered_${STAGE.mql}`]),
+    owner: r.properties?.hubspot_owner_id?.trim() || null,
+    qual: qualOf(r.propertiesWithHistory?.[UC2_QUAL] ?? []),
   }));
   const tickets = await readTickets(key, uc.tickets.map((t) => t.name));
   await addMissing(key, companies, tickets.map((t) => t.companyId));
   const tasks = await readTasks(key, uc.tasks.map((t) => t.name), HORIZON);
   const lastTask = await lastTasks(erasOf(uc.tasks));
   const outcome = await outcomeOf(key, "uc2_outcome", "uc2_revenue");
+  // only the names this page shows - who set the qualification, and the owners of the undecided
+  reportProgress(key, "reading who qualified");
+  const all = await people();
+  const used = new Set(companies.flatMap((c) => [c.qual?.by ? `u:${c.qual.by}` : "", c.owner ? `o:${c.owner}` : ""]).filter(Boolean));
+  const names = Object.fromEntries(Object.entries(all).filter(([k]) => used.has(k)));
   return {
-    ...base("uc2", today), companies, tickets, tasks, lastTask, outcomeTally: outcome.tally, outcomeRevenue: outcome.revenue,
+    ...base("uc2", today), companies, tickets, tasks, lastTask, outcomeTally: outcome.tally, outcomeRevenue: outcome.revenue, people: names,
     sources: [
       { label: "companies that became an MQL since January 2025", n: ids.length },
       { label: "UC2 tickets", n: tickets.length },

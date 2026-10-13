@@ -9,7 +9,7 @@
 // order facts; the workflows' own "Bought ..." fields are a side note.
 
 import {
-  CUSTOMER_STAGES, FEB_RESTAGE, STAGE, STAGES, UC12_MONTHS, UC15_BACKFILL_MONTH, UC2_DAYS, UC4_DAYS, UC9_MONTHS, UCS,
+  CUSTOMER_STAGES, FEB_RESTAGE, QUAL_KINDS, qualKind, STAGE, STAGES, UC12_MONTHS, UC15_BACKFILL_MONTH, UC2_DAYS, UC4_DAYS, UC9_MONTHS, UCS,
   ucOf, type UcKey,
 } from "./config";
 import {
@@ -67,7 +67,7 @@ function outcomeNote(d: UcData): string | null {
   if (!d.outcomeTally?.length) return null;
   const parts = d.outcomeTally.map((t) => `${t.label} ${n0(t.n)}`).join(" · ");
   const rev = d.outcomeRevenue && d.outcomeRevenue.n ? `; its revenue field holds ${eur(d.outcomeRevenue.sum)} on ${plural(d.outcomeRevenue.n, "company", "companies")}` : "";
-  return `The workflow says (its own outcome field, every company that carries it): ${parts}${rev}. The figures above use real ERP orders instead.`;
+  return `Workflow outcome field: ${parts}${rev}. The figures above use real ERP orders.`;
 }
 
 /**
@@ -190,18 +190,15 @@ export function overviewView(d: OverviewData, emails: EmailData | null, win: Win
   if (t13) findings.push(t13);
   if (emails) {
     const e6 = emailView(emails, ["6"], win);
-    if (!e6?.rows.some((r) => r.version !== "v1")) findings.push(`UC6: the v2 thank-you / rating email has never been sent - no contact's email history since ${longDay(emails.horizon)} holds one.`);
+    if (!e6?.rows.some((r) => r.version !== "v1")) findings.push("UC6: the v2 thank-you / rating email has never been sent.");
     const e15 = emailView(emails, ["15"], win, ucOf("uc15").expectedSteps);
-    for (const s of e15?.unseen ?? []) findings.push(`UC15: ${s.toLowerCase()} of the flow has never been sent - no contact's email history holds it.`);
-  } else {
-    findings.push("UC6: the v2 thank-you / rating email was never seen in the 13.10.2026 mapping (the email history is still being read).");
-    findings.push("UC15: email 5 of the flow was never seen in the 13.10.2026 mapping (the email history is still being read).");
+    for (const s of e15?.unseen ?? []) findings.push(`UC15: ${s} has never been sent.`);
   }
   const feb = byStage.get(FEB_RESTAGE);
   if (feb) {
     const others = months.filter((m) => m.startsWith(FEB_RESTAGE.slice(0, 4)) && !isRestageMonth(m) && m < d.today.slice(0, 7)).map((m) => byStage.get(m)?.total as number).sort((a, b) => a - b);
     const usual = others.length ? others[Math.floor(others.length / 2)] : null;
-    findings.push(`February 2026: ${n0(feb.total as number)} stage changes${usual !== null ? ` against a usual ${n0(usual)} a month` : ""} - every stage jumps at once, a mass re-stage rather than the normal flow. Shown, and marked, on every chart.`);
+    findings.push(`February 2026: ${n0(feb.total as number)} stage changes${usual !== null ? ` against a usual ${n0(usual)} a month` : ""} - a mass re-stage.`);
   }
 
   return {
@@ -237,6 +234,41 @@ export function overviewView(d: OverviewData, emails: EmailData | null, win: Win
 }
 
 /* ── UC2 Welcome ───────────────────────────────────────────────────────── */
+
+/**
+ * Who qualified the period's new MQLs: the person who set "Qualified by Company
+ * Owner" (task or ticket era alike), its three "Yes" kinds and "No"; a company
+ * with no decision yet counts under its owner.
+ */
+export function whoQualified(cos: Co[], names: Record<string, string>): ChartView {
+  type P = { person: string; own: number; support: number; byEso: number; yes: number; no: number; open: number; total: number };
+  const by = new Map<string, P>();
+  for (const c of cos) {
+    const kind = qualKind(c.qual?.v);
+    const id = kind && c.qual?.by ? `u:${c.qual.by}` : c.owner ? `o:${c.owner}` : "";
+    // owners (archived too) and users both looked up: an id still unnamed is someone removed from HubSpot
+    const person = id ? names[id] ?? `Former user ${id.slice(2)}` : "No owner";
+    const p = by.get(person) ?? { person, own: 0, support: 0, byEso: 0, yes: 0, no: 0, open: 0, total: 0 };
+    if (kind === "no") p.no++;
+    else if (kind) { p[kind]++; p.yes++; }
+    else p.open++;
+    p.total++;
+    by.set(person, p);
+  }
+  return {
+    kind: "table", title: "Who qualified", fmt: "n",
+    note: "The period's new MQLs, by the person who set \"Qualified by Company Owner\"; not decided yet = the company owner",
+    cols: [
+      { key: "person", label: "Person", fmt: "text" },
+      ...QUAL_KINDS.map((k) => ({ key: k.key, label: k.label, fmt: "n" as const })),
+      { key: "yes", label: "Qualified", fmt: "n" },
+      { key: "no", label: "Disqualified", fmt: "n" },
+      { key: "open", label: "Not decided yet", fmt: "n" },
+      { key: "total", label: "Total", fmt: "n" },
+    ],
+    rows: [...by.values()].sort((a, b) => b.yes + b.no - (a.yes + a.no) || b.total - a.total || a.person.localeCompare(b.person)),
+  };
+}
 
 export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
   const months = chartMonths(d.horizon, d.today);
@@ -281,7 +313,7 @@ export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
   return view("uc2", win, d, {
     tiles: [
       { label: "Became an MQL", value: inW.length, fmt: "n", icon: "companies", tint: "blue", note: alreadyW ? `${n0(alreadyW)} more were customers already - left out` : "new companies, by the day they became an MQL" },
-      { label: "Qualified (SQL)", value: sql, fmt: "n", icon: "stage", tint: "purple", note: `${pct(sql, inW.length)} of them` },
+      { label: "Moved to SQL", value: sql, fmt: "n", icon: "stage", tint: "purple", note: `${pct(sql, inW.length)} of them` },
       { label: "First order within 90 days", value: yes, fmt: "n", icon: "order", tint: "green", note: `${rate === null ? "—" : `${Math.round(rate * 100)}%`} of those whose 90 days are over · ${n0(open)} still inside` },
       { label: "Moved to Lost lead", value: lost, fmt: "n", icon: "down", tint: "amber", note: `${pct(lost, inW.length)} of them` },
       ticketTile(tW),
@@ -304,6 +336,7 @@ export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
         })(),
       },
       resolutionBars(tW),
+      whoQualified(inW.map((x) => x.c), d.people ?? {}),
     ],
     list: {
       title: "New MQLs in the period", note: "Their stage today, their latest UC2 ticket and their first real order", link: "company",
@@ -357,7 +390,7 @@ export function uc15View(d: UcData, emails: EmailData | null, win: Win): View {
   });
 
   const e15 = emailView(emails, ["15"], win, ucOf("uc15").expectedSteps);
-  const findings = (e15?.unseen ?? []).map((s) => `${s} of the flow has never been sent - no contact's email history holds it.`);
+  const findings = (e15?.unseen ?? []).map((s) => `${s} has never been sent.`);
 
   return view("uc15", win, d, {
     tiles,
@@ -365,7 +398,7 @@ export function uc15View(d: UcData, emails: EmailData | null, win: Win): View {
       {
         kind: "bars", title: "Which email they bought after", note: `${plural(buyers, "company", "companies")} of the period that bought, by the last UC15 email that reached them before the order`, fmt: "n",
         rows: [...stepRows.entries()].sort((a, b) => a[0].localeCompare(b[0], "en", { numeric: true })).map(([label, value]) => ({ label, value, secondary: pct(value, buyers) })),
-        footnote: emails ? undefined : "The email history is still being read - this fills in when it is done.",
+        footnote: emails ? undefined : "Fills in once the email history is read.",
       },
       {
         kind: "stack", title: "Companies entering the flow each month", note: "By the month they entered, split by whether they have bought since", fmt: "n",
@@ -408,8 +441,7 @@ export function uc6View(d: UcData, emails: EmailData | null, win: Win): View {
 
   const e6 = emailView(emails, ["6"], win);
   const findings: string[] = [];
-  if (e6 && !e6.rows.some((r) => r.version !== "v1")) findings.push(`The v2 thank-you / rating email has never been sent - no contact's email history since ${longDay(e6.horizon)} holds one${e6.rows.length ? "" : " (nor any other UC6 email)"}.`);
-  if (!e6) findings.push("The v2 thank-you / rating email was never seen in the 13.10.2026 mapping; the email history is still being read.");
+  if (e6 && !e6.rows.some((r) => r.version !== "v1")) findings.push("The v2 thank-you / rating email has never been sent.");
 
   const list = [...tW].sort((a, b) => b.created.localeCompare(a.created)).map((t): Row => {
     const c = t.companyId ? cos.get(t.companyId) : undefined;
@@ -639,7 +671,7 @@ export function uc13View(d: UcData, emails: EmailData | null, win: Win): View {
       rows: cap(list), total: list.length, empty: "No company entered Churn / Reactivate in this period.",
     },
     findings,
-    notes: ["Which inactivity counts: the deck says 6 months without an order, the hub's own reactivated-customers KPI uses 12-13 months. This page follows the stage, i.e. the workflow's own rule."],
+    notes: ["Follows the lifecycle stage set by the workflow (the deck: 6 months without an order)."],
   });
 }
 
@@ -705,7 +737,7 @@ export function uc4View(d: UcData, emails: EmailData | null, win: Win): View {
         kind: "lines", title: "Carts, tickets and orders per month", note: "Companies with a cart, tickets raised, and companies that ordered on the web within 30 days of their cart", fmt: "n",
         parts: [{ key: "carts", label: "Companies with a cart" }, { key: "tickets", label: "Tickets" }, { key: "ordered", label: "Ordered within 30 days" }],
         rows: [...rows.values()],
-        footnote: "Web orders reach HubSpot live since 6 July 2026; before that they are the shop connector's backfill, from autumn 2025.",
+        footnote: "Web orders before 6 July 2026 come from the shop connector's backfill.",
       },
       resolutionBars(tW),
     ],
@@ -787,7 +819,7 @@ export function uc12View(d: UcData, emails: EmailData | null, win: Win): View {
       ],
       rows: cap(list), total: list.length, empty: "No company was flagged in this period.",
     },
-    findings: [], notes: ["UC12 is being rebuilt (H2 2026): read these figures as the old flow's record."],
+    findings: [], notes: [],
   });
 }
 

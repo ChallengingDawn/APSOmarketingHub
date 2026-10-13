@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { STAGE, UCS, VIEW_KEYS, isViewKey, ucForEmailNumber } from "../src/lib/lifecycle/config";
+import { STAGE, UCS, VIEW_KEYS, isViewKey, qualKind, ucForEmailNumber } from "../src/lib/lifecycle/config";
 import {
   addDays, addMonths, afterVsYearBefore, cartValue, churnEpisodes, companyOfContact, enrolledOn, inWin, lastStepBefore, monthLabel,
   monthsFrom, nextEntry, orderDays, parseEmailName, parseWin, rateOf, ratingOf, revProp, revenueByMonth, secondOrderDay, sendsOf,
-  shiftMonth, sourceOf, stageEntries, tally, toDay, touchesRestage, within, withinMonths, type Entry,
+  qualOf, shiftMonth, sourceOf, stageEntries, tally, toDay, touchesRestage, within, withinMonths, type Entry,
 } from "../src/lib/lifecycle/rules";
 import {
-  emailView, firstOnOrAfter, overviewView, secondOrderCurve, stepsByCompany, uc10View, uc12View, uc13View, uc15View, uc2View, uc4View, uc6View, uc9View,
+  emailView, firstOnOrAfter, overviewView, whoQualified, secondOrderCurve, stepsByCompany, uc10View, uc12View, uc13View, uc15View, uc2View, uc4View, uc6View, uc9View,
 } from "../src/lib/lifecycle/views";
 import type { Co, EmailData, OverviewData, Ticket, UcData } from "../src/lib/lifecycle/types";
 
@@ -233,7 +233,7 @@ test("UC2: new MQLs of the period, the 90-day first order, and customers already
   });
   const v = uc2View(d, null, SEPT);
   assert.equal(tile(v, "Became an MQL"), 2);
-  assert.equal(tile(v, "Qualified (SQL)"), 1);
+  assert.equal(tile(v, "Moved to SQL"), 1);
   assert.equal(tile(v, "First order within 90 days"), 1);
   assert.equal(tile(v, "Moved to Lost lead"), 1);
   assert.equal(v.list?.rows.length, 2);
@@ -298,7 +298,7 @@ test("UC13: churn entries of the period and what followed; the inactivity rule i
   assert.equal(tile(v, "Still open"), 1);
   assert.equal(tile(v, "Revenue since reactivation"), 400);
   assert.ok(v.findings.some((f) => f.includes("27 Apr 2026")));
-  assert.ok(v.notes.some((n) => n.includes("6 months") && n.includes("12-13 months")));
+  assert.ok(v.notes.some((n) => n.includes("6 months")));
 });
 
 test("UC10+11: overdue against the company's own rhythm, promotions and dormant tasks", () => {
@@ -375,7 +375,7 @@ test("the overview counts stage changes by who made them and marks February 2026
   assert.ok(stack.rows.some((r) => r.x === "Feb 26 *" && r.wf === 40));
   assert.ok(v.findings.some((f) => f.includes("18 Nov 2025")));
   assert.ok(v.findings.some((f) => f.includes("27 Apr 2026")));
-  assert.ok(v.findings.some((f) => f.startsWith("UC15: email 5")));
+  assert.ok(v.findings.some((f) => f === "UC15: Email 5 has never been sent."));
   assert.ok(v.findings.some((f) => f.startsWith("February 2026: 40 stage changes")));
 });
 
@@ -388,4 +388,49 @@ test("the config names every page once, with a plain line and a definition of co
     assert.ok(u.href.startsWith("/uc/lifecycle/"), u.key);
   }
   assert.equal(new Set(UCS.map((u) => u.href)).size, UCS.length);
+});
+
+
+/* ── UC2: who qualified ───────────────────────────────────────────────── */
+
+test("the qualification field's values map to the ticket's three Qualified answers and No", () => {
+  assert.equal(qualKind("Yes"), "own");
+  assert.equal(qualKind("Yes – registered with ESO-Support"), "support");
+  assert.equal(qualKind("Yes - registered by ESO"), "byEso");
+  assert.equal(qualKind("No"), "no");
+  assert.equal(qualKind(""), null);
+  assert.equal(qualKind(null), null);
+});
+
+test("who qualified = the user who last set today's value; a merge names no one", () => {
+  // newest first is not guaranteed - sorted by time
+  const h = [
+    { value: "Yes", timestamp: "2026-05-02T10:00:00Z", sourceType: "MERGE_OBJECTS" },
+    { value: "Yes", timestamp: "2026-04-01T09:00:00Z", sourceType: "CRM_UI", updatedByUserId: 777 },
+    { value: "No", timestamp: "2026-03-01T09:00:00Z", sourceType: "CRM_UI", updatedByUserId: 555 },
+  ];
+  assert.deepEqual(qualOf(h), { v: "Yes", by: "777", day: "2026-04-01" });
+  assert.deepEqual(qualOf([{ value: "No", timestamp: "2026-03-01T09:00:00Z", sourceType: "MERGE_OBJECTS" }]), { v: "No", by: null, day: "2026-03-01" });
+  // cleared: no decision
+  assert.equal(qualOf([{ value: "", timestamp: "2026-06-01T09:00:00Z" }, { value: "Yes", timestamp: "2026-05-01T09:00:00Z", updatedByUserId: 1 }]), null);
+  assert.equal(qualOf([]), null);
+});
+
+test("the who-qualified table counts each person's decisions; the undecided go to the company owner", () => {
+  const co = (id: string, qual: Co["qual"], owner: string | null): Co => ({ id, name: id, stage: null, first: null, last: null, orders: null, qual, owner });
+  const t = whoQualified([
+    co("1", { v: "Yes", by: "10", day: "2026-04-01" }, "o1"),
+    co("2", { v: "Yes – registered with ESO-Support", by: "10", day: "2026-04-01" }, "o1"),
+    co("3", { v: "No", by: "10", day: "2026-04-01" }, "o2"),
+    co("4", { v: "Yes - registered by ESO", by: null, day: "2026-04-01" }, "o2"), // set by a merge: the owner
+    co("5", null, "o2"),
+    co("6", null, null),
+  ], { "u:10": "Ana", "o:o2": "Ben" });
+  assert.equal(t.kind, "table");
+  if (t.kind !== "table") return;
+  const row = (p: string) => t.rows.find((r) => r.person === p);
+  assert.deepEqual(row("Ana"), { person: "Ana", own: 1, support: 1, byEso: 0, yes: 2, no: 1, open: 0, total: 3 });
+  assert.deepEqual(row("Ben"), { person: "Ben", own: 0, support: 0, byEso: 1, yes: 1, no: 0, open: 1, total: 2 });
+  assert.deepEqual(row("No owner"), { person: "No owner", own: 0, support: 0, byEso: 0, yes: 0, no: 0, open: 1, total: 1 });
+  assert.equal(t.rows[0].person, "Ana"); // most decisions first
 });

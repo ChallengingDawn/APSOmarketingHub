@@ -18,6 +18,27 @@ export const HORIZON = "2025-01-01";
 /** Every stage jumps at once in this month - shown, and marked, never removed (SARCLA 13.10). */
 export const FEB_RESTAGE = "2026-02";
 
+/**
+ * UC2's qualification: the company field ESO sets - by hand, from the task until
+ * 1 October 2026 and next to the ticket since. Its "Yes" values are the ticket's
+ * three "Qualified" answers.
+ */
+export const UC2_QUAL = "qualified_by_company_owner";
+export const QUAL_KINDS = [
+  { key: "own", label: "Registered on their own" },
+  { key: "support", label: "Registered with ESO support" },
+  { key: "byEso", label: "Registered by ESO" },
+] as const;
+/** "Yes" / "Yes – registered with ESO-Support" / "Yes - registered by ESO" / "No" -> a column. */
+export function qualKind(v: string | null | undefined): "own" | "support" | "byEso" | "no" | null {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith("no")) return "no";
+  if (s.includes("support")) return "support";
+  if (s.includes("by eso")) return "byEso";
+  return s.startsWith("yes") ? "own" : null;
+}
+
 /** The company lifecycle stages (pipeline companies-lifecycle-pipeline), in the portal's order. */
 export const STAGE = {
   chat: "878465262",
@@ -100,7 +121,7 @@ export const UCS: Uc[] = [
       { name: "UC2_Welcome_New_Registrants_Notification_2402", era: "Tasks" },
     ],
     emailUcs: ["2"],
-    findings: ["UC2 moved from tasks to tickets on 1-2 October 2026 - both eras are counted, side by side."],
+    findings: ["UC2 moved from tasks to tickets on 1-2 October 2026; both are counted."],
   },
   {
     key: "uc15", code: "UC15", title: "Lost Leads", href: "/uc/lifecycle/lost-leads",
@@ -133,7 +154,7 @@ export const UCS: Uc[] = [
   {
     key: "uc10", code: "UC10+11", title: "Repeat Purchase", href: "/uc/lifecycle/repeat-purchase",
     does: "Repeat buyers in Grow / Nurture are reminded to reorder; at 12 orders they move to Loyalty / Retain.",
-    converted: "Converted = promoted to Loyalty / Retain (the workflow's own rule: 12 orders or more).",
+    converted: "Converted = promoted to Loyalty / Retain (12 orders or more).",
     tickets: [],
     tasks: [
       { name: "UC_10_Retention_2023_1_2-3_2404", era: "UC10" },
@@ -151,7 +172,7 @@ export const UCS: Uc[] = [
   {
     key: "uc13", code: "UC13", title: "Reactivation", href: "/uc/lifecycle/reactivation",
     does: "Customers in Churn / Reactivate get a discount code by email; no reaction opens an ESO task.",
-    converted: "Converted = moved from Churn / Reactivate to Reactivated (the stage, i.e. the workflow's own rule).",
+    converted: "Converted = moved from Churn / Reactivate to Reactivated.",
     tickets: [],
     tasks: [
       { name: "UC13_v2_Reactivation_2503", era: "Follow-up" },
@@ -190,7 +211,7 @@ export const UCS: Uc[] = [
       { name: "UC12_Revenue Drop_Batch_4", era: "First version" },
     ],
     emailUcs: ["12"],
-    findings: ["UC12 sends no email - the flag is a task for the company's owner."],
+    findings: [],
   },
 ];
 
