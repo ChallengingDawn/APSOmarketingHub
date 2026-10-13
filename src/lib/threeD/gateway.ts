@@ -1,12 +1,12 @@
 // The 3D gateway's address: one setting, kept in the hub's database (SARCLA, 13.10.2026: "a
 // settings tab"). The hub's 3D page reads the service through it, and the settings tab checks every
 // place on the shop, in the served files and in HubSpot against it. Until somebody sets it, it is
-// the DoC backend's address (DOC_BACKEND_URL, or the Railway default) - the same service today.
+// the 3D Gateway (Railway, APSOAssistant project - SARCLA 14.10.2026: "still the old commerce backend?").
 
 import https from "node:https";
 import zlib from "node:zlib";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { backend } from "@/lib/doc/config";
+import { gatewayAdminUrl } from "./calls";
 import { CAD_LOCALES, apiAddress, cadPageUrl, cadSnippet, headerSnippet, iframeOrigin, judge, originOf, scriptOrigin, type PlaceState } from "./places";
 
 const KV = "threeD:gateway";
@@ -15,7 +15,7 @@ export type GatewaySetting = { url: string; by: string | null; at: string | null
 
 export async function gatewaySetting(): Promise<GatewaySetting> {
   const s = await kvGet<{ url: string; by: string; at: string }>(KV).catch(() => null);
-  return s?.url ? { url: s.url, by: s.by, at: s.at, fromDefault: false } : { url: backend().url, by: null, at: null, fromDefault: true };
+  return s?.url ? { url: s.url, by: s.by, at: s.at, fromDefault: false } : { url: gatewayAdminUrl(), by: null, at: null, fromDefault: true };
 }
 
 export async function gatewayUrl(): Promise<string> {

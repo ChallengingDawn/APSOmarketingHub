@@ -109,7 +109,7 @@ export default function SettingsTab() {
           )}
         </Box>
         <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
-          {setting.fromDefault ? "Not set yet - the DoC backend's address is used." : `Set by ${setting.by ?? "-"} on ${when(setting.at)}.`}
+          {setting.fromDefault ? "Not set yet - the 3D Gateway's address is used (Railway, APSOAssistant)." : `Set by ${setting.by ?? "-"} on ${when(setting.at)}.`}
           {!isAdmin && " Only an admin can change it."}
         </Typography>
         {msg && <Typography sx={{ fontSize: "0.84rem", mt: 1, color: msg.ok ? GREEN : RED }}>{msg.text}</Typography>}
