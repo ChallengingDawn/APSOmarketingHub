@@ -15,7 +15,7 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { DIMS, fold, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v2";
+const KEY = "marketingKpis:customers:v3";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 export function customersCube(): Promise<SlowState<Cube>> {

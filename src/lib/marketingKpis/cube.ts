@@ -1,13 +1,14 @@
 // WHO ARE OUR CUSTOMERS, AS A CUBE - pure, shared by the server that builds it
 // and the page that slices it (SARCLA 13.10: "if click, drill down on
-// potential / APSO customer / country / owner"; "time filters are also needed").
+// potential / APSO customer / country / owner"; "time filters", "a custom time
+// filter").
 //
 // Every company in HubSpot is counted into one cell per combination of its
 // sales priority, APSO segment, potential band, country, owner, customer type
-// and mandant. Beside the cells: revenue per cell month by month, for this year
-// and the two before; and the companies that bought, by the months they bought
-// in - so "who bought between April and June" stays a count of companies, not a
-// sum of months. Counts and sums only - no company, no id.
+// and mandant. Beside the cells: revenue per cell month by month over three
+// years, and the companies that bought, by the months they bought in across all
+// three - so "who bought between October and March" counts each company once,
+// over a year end too. Counts and sums only - no company, no id.
 
 export const DIMS = ["prio", "segment", "potential", "country", "owner", "type", "mandant"] as const;
 export type Dim = (typeof DIMS)[number];
@@ -28,12 +29,20 @@ export type Cube = {
   revenue: number[][];
   /** the same, for the part of the revenue from companies without a usable potential (rare) */
   revenueNoPot: number[][];
-  /** [cell, year index, months bought in as a 12-bit mask (Jan = bit 0), companies] */
+  /**
+   * [cell, months bought in the two earlier years, months bought in this year, companies].
+   * Months are counted from January of the year before last (month 0) to December
+   * of this year (month 35); the first 24 sit in one mask, this year's 12 in the other.
+   */
   buyers: number[][];
 };
 
-/** A time window: a year (0 = this year, 1 = last year) and its months, 0-based, both included. */
-export type Win = { y: number; from: number; to: number };
+/**
+ * A time window: its first and last month, both included, counted from January
+ * of the year before last (0) - so January this year is 24. It is compared with
+ * the same months a year earlier, so it may start no earlier than 12.
+ */
+export type Win = { start: number; end: number };
 export type Filters = Partial<Record<Dim, string>>;
 export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number };
 export type Row = Agg & { label: string };
@@ -61,11 +70,16 @@ export const PRIO_ORDER = ["Prio 1", "Prio 2", "Prio 3", "No priority", "Not set
 /** Dimensions read in their own order, not by size. */
 const FIXED: Partial<Record<Dim, readonly string[]>> = { prio: PRIO_ORDER, potential: POTENTIAL_BANDS };
 
-export const monthMask = (from: number, to: number) => {
-  let m = 0;
-  for (let i = from; i <= to; i++) m |= 1 << i;
-  return m;
-};
+/** The month number of a year index (0 this year, 1 last, 2 the one before) and a month. */
+export const monthOf = (yearIndex: number, month: number) => (2 - yearIndex) * 12 + month;
+/** The two masks (earlier two years, this year) of the months from `a` to `b`. */
+export function masks(a: number, b: number): [number, number] {
+  let lo = 0, hi = 0;
+  for (let k = Math.max(0, a); k <= Math.min(35, b); k++) {
+    if (k < 24) lo |= 1 << k; else hi |= 1 << (k - 24);
+  }
+  return [lo, hi];
+}
 
 /* ── building ─────────────────────────────────────────────────────────── */
 
@@ -90,9 +104,13 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
     cell[CELL.n] += 1;
     const usable = usablePotential(c.potential);
     if (usable) cell[CELL.pot] += c.potential!;
+    let lo = 0, hi = 0;
     c.months.forEach((months, y) => {
-      let mask = 0;
-      months.forEach((x, m) => { if (x > 0) mask |= 1 << m; });
+      months.forEach((x, m) => {
+        if (!(x > 0)) return;
+        const k = monthOf(y, m);
+        if (k < 24) lo |= 1 << k; else hi |= 1 << (k - 24);
+      });
       if (!months.some((x) => x !== 0)) return;
       for (const target of usable ? [rev] : [rev, revNoPot]) {
         const k = `${ci},${y}`;
@@ -100,12 +118,12 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
         if (!r) { r = [ci, y, ...Array(12).fill(0)]; target.set(k, r); }
         months.forEach((x, m) => { r![2 + m] += x; });
       }
-      if (mask) {
-        const k = `${ci},${y},${mask}`;
-        const b = buyers.get(k);
-        if (b) b[3] += 1; else buyers.set(k, [ci, y, mask, 1]);
-      }
     });
+    if (lo || hi) {
+      const k = `${ci},${lo},${hi}`;
+      const b = buyers.get(k);
+      if (b) b[3] += 1; else buyers.set(k, [ci, lo, hi, 1]);
+    }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
   return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()] };
@@ -117,8 +135,8 @@ const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 
 
 /**
  * Everything the filters leave in the window, against the same months a year
- * earlier - grouped by one dimension, or all together. `except` leaves that
- * dimension's own filter out, so a clicked card still shows all its values.
+ * earlier - grouped by one dimension, or all together. Grouping leaves that
+ * dimension's own filter out, so the clicked view still shows all its values.
  */
 function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<number, Agg> {
   const f: [number, number][] = [];
@@ -136,18 +154,30 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
     return a;
   };
   cube.cells.forEach((c, ci) => { if (ok[ci]) { const a = at(ci); a.n += c[CELL.n]; a.pot += c[CELL.pot]; } });
-  const sum = (r: number[]) => { let s = 0; for (let m = win.from; m <= win.to; m++) s += r[2 + m]; return s; };
+  const { start, end } = win, ps = start - 12, pe = end - 12;
   for (const r of cube.revenue) {
     if (!ok[r[0]]) continue;
-    if (r[1] === win.y) { const a = at(r[0]); const s = sum(r); a.rev += s; a.revPot += s; }
-    else if (r[1] === win.y + 1) at(r[0]).revPy += sum(r);
+    const base = monthOf(r[1], 0);
+    let cur = 0, prev = 0;
+    for (let m = 0; m < 12; m++) {
+      const k = base + m;
+      if (k >= start && k <= end) cur += r[2 + m];
+      if (k >= ps && k <= pe) prev += r[2 + m];
+    }
+    if (cur || prev) { const a = at(r[0]); a.rev += cur; a.revPot += cur; a.revPy += prev; }
   }
-  for (const r of cube.revenueNoPot) if (ok[r[0]] && r[1] === win.y) at(r[0]).revPot -= sum(r);
-  const mask = monthMask(win.from, win.to);
+  for (const r of cube.revenueNoPot) {
+    if (!ok[r[0]]) continue;
+    const base = monthOf(r[1], 0);
+    let cur = 0;
+    for (let m = 0; m < 12; m++) { const k = base + m; if (k >= start && k <= end) cur += r[2 + m]; }
+    if (cur) at(r[0]).revPot -= cur;
+  }
+  const [wl, wh] = masks(start, end), [pl, ph] = masks(ps, pe);
   for (const b of cube.buyers) {
-    if (!ok[b[0]] || !(b[2] & mask)) continue;
-    if (b[1] === win.y) at(b[0]).bought += b[3];
-    else if (b[1] === win.y + 1) at(b[0]).boughtPy += b[3];
+    if (!ok[b[0]]) continue;
+    if ((b[1] & wl) || (b[2] & wh)) at(b[0]).bought += b[3];
+    if ((b[1] & pl) || (b[2] & ph)) at(b[0]).boughtPy += b[3];
   }
   return out;
 }
@@ -163,44 +193,72 @@ export function breakdown(cube: Cube, dim: Dim, filters: Filters, win: Win): Row
   return sortRows(rows, "natural", dim);
 }
 
-export type SortKey = "natural" | "n" | "bought" | "rev" | "change" | "name";
+export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow";
 export const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
-export function sortRows(rows: Row[], key: SortKey, dim: Dim): Row[] {
+/** Every sort is largest first except the name; `desc: false` turns it round. */
+export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[] {
   const fixed = FIXED[dim];
-  const by: Record<Exclude<SortKey, "natural">, (a: Row, b: Row) => number> = {
-    n: (a, b) => b.n - a.n,
-    bought: (a, b) => b.bought - a.bought,
-    rev: (a, b) => b.rev - a.rev,
-    change: (a, b) => (change(b.rev, b.revPy) ?? -Infinity) - (change(a.rev, a.revPy) ?? -Infinity),
-    name: (a, b) => a.label.localeCompare(b.label),
+  const val: Partial<Record<SortKey, (r: Row) => number>> = {
+    n: (r) => r.n, bought: (r) => r.bought, boughtPy: (r) => r.boughtPy, rev: (r) => r.rev, revPy: (r) => r.revPy,
+    diff: (r) => r.rev - r.revPy, change: (r) => change(r.rev, r.revPy) ?? -Infinity, share: (r) => r.rev,
+    sow: (r) => (r.pot > 0 ? r.revPot / r.pot : -Infinity),
   };
-  const cmp = key === "natural"
-    ? fixed ? (a: Row, b: Row) => fixed.indexOf(a.label) - fixed.indexOf(b.label) : by.rev
-    : by[key];
+  const dir = desc ? 1 : -1;
+  const cmp = key === "label" ? (a: Row, b: Row) => dir * a.label.localeCompare(b.label)
+    : key === "natural" ? (fixed ? (a: Row, b: Row) => fixed.indexOf(a.label) - fixed.indexOf(b.label) : (a: Row, b: Row) => b.rev - a.rev)
+      : (a: Row, b: Row) => dir * (val[key]!(b) - val[key]!(a));
   return [...rows].sort((a, b) => cmp(a, b) || b.n - a.n || a.label.localeCompare(b.label));
 }
 
 /** Revenue in the window against the yearly potential for as many months. */
 export function shareOfWallet(a: Agg, win: Win): number | null {
-  const months = win.to - win.from + 1;
+  const months = win.end - win.start + 1;
   return a.pot > 0 && months > 0 ? a.revPot / (a.pot * (months / 12)) : null;
 }
 
-/* ── the window in words ──────────────────────────────────────────────── */
+/* ── windows: which, and in words ─────────────────────────────────────── */
 
-export const yearOf = (cube: Cube, win: Win) => cube.years[win.y];
-/** "Jan–Sep 2026", "Sep 2026" */
-export function windowLabel(cube: Cube, win: Win, yearIndex = win.y): string {
-  const y = cube.years[yearIndex] ?? cube.years[0] - yearIndex;
-  return win.from === win.to ? `${MONTH_NAMES[win.from]} ${y}` : `${MONTH_NAMES[win.from]}–${MONTH_NAMES[win.to]} ${y}`;
+export const yearOfMonth = (cube: Cube, k: number) => cube.years[2] + Math.floor(k / 12);
+/** "Sep 2026" */
+export const monthLabel = (cube: Cube, k: number) => `${MONTH_NAMES[((k % 12) + 12) % 12]} ${yearOfMonth(cube, k)}`;
+/** The last month a window may reach: this year's last loaded month. */
+export const lastMonth = (cube: Cube) => monthOf(0, Math.max(0, (cube.loaded[0] || 1) - 1));
+/** The first: January last year, so the comparison stays inside the three years read. */
+export const FIRST_MONTH = 12;
+
+/** "2025", "Jan–Sep 2026", "Mar 2026", "Oct 2025 – Sep 2026"; `yearsBack` 1 = the comparison. */
+export function windowLabel(cube: Cube, win: Win, yearsBack = 0): string {
+  const s = win.start - 12 * yearsBack, e = win.end - 12 * yearsBack;
+  const ys = yearOfMonth(cube, s), ye = yearOfMonth(cube, e);
+  if (s === e) return monthLabel(cube, s);
+  if (ys === ye) return s % 12 === 0 && e % 12 === 11 ? String(ys) : `${MONTH_NAMES[s % 12]}–${MONTH_NAMES[e % 12]} ${ys}`;
+  return `${monthLabel(cube, s)} – ${monthLabel(cube, e)}`;
 }
 /** The last day the window's figures cover: "30 Sep 2026". */
 export function upToDate(cube: Cube, win: Win): string {
-  const y = cube.years[win.y];
-  const last = new Date(Date.UTC(y, win.to + 1, 0));
-  return `${last.getUTCDate()} ${MONTH_NAMES[win.to]} ${y}`;
+  const y = yearOfMonth(cube, win.end), m = win.end % 12;
+  return `${new Date(Date.UTC(y, m + 1, 0)).getUTCDate()} ${MONTH_NAMES[m]} ${y}`;
 }
-/** The window a page opens on: this year, January to the last loaded month. */
-export const defaultWindow = (cube: Cube): Win => ({ y: 0, from: 0, to: Math.max(0, (cube.loaded[0] || 1) - 1) });
-/** The months a window may reach in a year: this year only as far as its revenue is loaded. */
-export const lastMonth = (cube: Cube, y: number) => Math.max(0, (cube.loaded[y] ?? 12) - 1);
+
+/** The ready-made windows; the first is the one a page opens on. */
+export function presets(cube: Cube): { id: string; label: string; win: Win }[] {
+  const last = lastMonth(cube), jan = monthOf(0, 0);
+  const out = [
+    { id: "ytd", label: "This year to date", win: { start: jan, end: last } },
+    { id: "12m", label: "Last 12 months", win: { start: Math.max(FIRST_MONTH, last - 11), end: last } },
+    { id: "ly", label: `Last year (${cube.years[1]})`, win: { start: monthOf(1, 0), end: monthOf(1, 11) } },
+  ];
+  for (let q = 0; q < 4; q++) {
+    const w = { start: jan + q * 3, end: jan + q * 3 + 2 };
+    if (w.end <= last) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${cube.years[0]}`, win: w });
+  }
+  return out;
+}
+export const defaultWindow = (cube: Cube): Win => presets(cube)[0].win;
+/** A window kept inside what was read: from January last year to this year's last loaded month. */
+export function clampWindow(cube: Cube, w: Win): Win {
+  const last = lastMonth(cube);
+  const start = Math.min(Math.max(FIRST_MONTH, Math.round(w.start)), last);
+  const end = Math.min(Math.max(start, Math.round(w.end)), last);
+  return { start, end };
+}
