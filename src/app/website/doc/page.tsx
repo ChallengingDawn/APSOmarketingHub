@@ -30,8 +30,16 @@ import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
-import { GUTTER, HAIRLINE, INK, LoadingPanel, MUTED, NotConnectedPanel, Section, UpstreamPanel } from "@/app/analytics/Shell";
-import { StatTile } from "@/app/charts/StatTile";
+import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, Notice as UcNotice, headCell } from "@/app/uc/report/ui";
+import { Chip as Tag, Choice, Info } from "@/app/connectors/parts";
+import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
+import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
+import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
+import ScheduleSendOutlinedIcon from "@mui/icons-material/ScheduleSendOutlined";
+import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
+import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import { SERIES } from "@/app/charts/palette";
 import { full } from "@/app/charts/format";
 import type { BoardRow, Phase } from "@/lib/doc/board";
@@ -87,12 +95,7 @@ function when(iso: string | null | undefined, time = false): string {
 }
 
 function Notice({ tone, children }: { tone: "info" | "warn" | "bad"; children: React.ReactNode }) {
-  const c = tone === "bad" ? { bg: "#fdf3f2", bd: "#f2c4c0", fg: RED } : tone === "warn" ? { bg: "#fffaf0", bd: "#f0d9a8", fg: "#7a5b00" } : { bg: "#f4f8fc", bd: "#d6e4f2", fg: "#33475b" };
-  return (
-    <Box sx={{ mb: 2.5, px: 2, py: 1.25, borderRadius: 2, border: `1px solid ${c.bd}`, bgcolor: c.bg }}>
-      <Typography sx={{ fontSize: "0.82rem", color: c.fg, lineHeight: 1.5 }}>{children}</Typography>
-    </Box>
-  );
+  return tone === "info" ? <Info>{children}</Info> : <UcNotice tone={tone}>{children}</UcNotice>;
 }
 
 // ordered -> ERP number -> invoiced -> emailed
@@ -278,7 +281,7 @@ export default function DocApp() {
     />
   );
   const shell = (children: React.ReactNode) => (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>{header}{children}</Box>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>{header}{children}</Box>
   );
 
   if (r === null) return shell(<LoadingPanel label="Reading the flagged orders from HubSpot…" />);
@@ -307,12 +310,13 @@ export default function DocApp() {
         <Notice tone="warn">Previews and test sends need {svc.missingForDocuments.join(", ")}, which this deployment does not have.</Notice>
       )}
 
-      <Section sx={{ mb: 2.5 }}>
+      <GlassCard>
+        <CardTitle icon={<VerifiedOutlinedIcon />} tint="green" title="The service"
+          note="Follows each web order with the declaration line, and emails the PDF once the order is invoiced" />
         <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
-          <Chip size="small" label={svc.sendingOn ? "Sending ON" : "Sending OFF"} sx={{ fontWeight: 700, color: "#fff", bgcolor: svc.sendingOn ? GREEN : GREY }} />
-          <Chip size="small" label={svc.captureOn ? "Capture ON" : "Capture OFF"} sx={{ fontWeight: 700, color: "#fff", bgcolor: svc.captureOn ? GREEN : GREY }} />
-          <Chip size="small" variant="outlined" label={svc.smtpConfigured ? "SMTP configured" : "SMTP not configured"}
-            sx={{ borderColor: svc.smtpConfigured ? GREEN : GREY, color: svc.smtpConfigured ? GREEN : MUTED }} />
+          <Tag tint={svc.sendingOn ? "green" : "slate"}>{svc.sendingOn ? "Sending ON" : "Sending OFF"}</Tag>
+          <Tag tint={svc.captureOn ? "green" : "slate"}>{svc.captureOn ? "Capture ON" : "Capture OFF"}</Tag>
+          <Tag tint={svc.smtpConfigured ? "green" : "slate"}>{svc.smtpConfigured ? "SMTP configured" : "SMTP not configured"}</Tag>
           {svc.sendingOn && (
             <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{full(svc.sentToday)} of {full(svc.maxPerDay)} sent today (daily breaker)</Typography>
           )}
@@ -328,31 +332,23 @@ export default function DocApp() {
             {" · "}<RunLine label="sweep" run={svc.lastSweep} every={svc.sweepEveryMin} />
           </Typography>
         )}
-      </Section>
+      </GlassCard>
 
-      <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><StatTile label="Followed" value={full(board.total)} note="web orders with the declaration line" /></Grid>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={<PlaylistAddCheckOutlinedIcon />} tint="blue" label="Followed" value={full(board.total)} note="web orders with the declaration line" /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
-          <StatTile label="Open" value={full(open)} note={`${full(c["awaiting-erp"] ?? 0)} wait for the ERP no. · ${full(c["awaiting-invoice"] ?? 0)} for the invoice`} />
+          <KpiTile icon={<HourglassEmptyOutlinedIcon />} tint="amber" label="Open" value={full(open)} note={`${full(c["awaiting-erp"] ?? 0)} wait for the ERP no. · ${full(c["awaiting-invoice"] ?? 0)} for the invoice`} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><StatTile label="Due" value={full(c.due ?? 0)} note="invoiced, out with the next sweep" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><StatTile label="Sent" value={full(c.sent ?? 0)} note="emailed with the PDF attached" /></Grid>
-        <Grid size={{ xs: 12, sm: 12, lg: 2.4 }}><StatTile label="Needs attention" value={full(attention)} note="Back Office ticket, or a send that was interrupted" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={<ScheduleSendOutlinedIcon />} tint="purple" label="Due" value={full(c.due ?? 0)} note="invoiced, out with the next sweep" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={<MarkEmailReadOutlinedIcon />} tint="green" label="Sent" value={full(c.sent ?? 0)} note="emailed with the PDF attached" /></Grid>
+        <Grid size={{ xs: 12, sm: 12, lg: 2.4 }}><KpiTile icon={<ReportProblemOutlinedIcon />} tint="pink" label="Needs attention" value={full(attention)} note="Back Office ticket, or a send that was interrupted" /></Grid>
       </Grid>
 
-      <Section sx={{ p: 0, opacity: held.stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
-        <Box sx={{ px: 2.5, py: 1.5, borderBottom: `1px solid ${HAIRLINE}`, display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-          <Typography sx={{ fontWeight: 600, fontSize: "0.95rem", color: INK, mr: 1 }}>Orders</Typography>
-          {FILTERS.map((f) => {
-            const n = f.phases.length ? f.phases.reduce((s, p) => s + (c[p] ?? 0), 0) : board.total;
-            const on = filter === f.key;
-            return (
-              <Chip key={f.key} size="small" label={`${f.label} (${full(n)})`} onClick={() => setFilter(f.key)}
-                sx={{ fontSize: "0.72rem", fontWeight: on ? 700 : 500, bgcolor: on ? BLUE : "#f1f3f5", color: on ? "#fff" : "#33475b", "&:hover": { bgcolor: on ? BLUE : "#e6e9ed" } }} />
-            );
-          })}
-          <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: "0.7rem", color: GREY }}>as of {when(board.at, true)}</Typography>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 }, opacity: held.stale ? 0.6 : 1, transition: "opacity 0.2s" }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 2, borderBottom: `1px solid ${HAIRLINE}` }}>
+          <CardTitle icon={<ListAltOutlinedIcon />} tint="blue" title="Orders" note={`Every web order with the declaration line, as of ${when(board.at, true)}`} />
+          <Choice value={filter} onChange={setFilter}
+            options={FILTERS.map((f) => ({ key: f.key, label: f.label, count: f.phases.length ? f.phases.reduce((s, p) => s + (c[p] ?? 0), 0) : board.total }))} />
         </Box>
         {rows.length === 0 ? (
           <Box sx={{ p: 4, textAlign: "center" }}>
@@ -366,7 +362,7 @@ export default function DocApp() {
               <TableHead>
                 <TableRow>
                   {["Ordered", "Shop order", "ERP order", "Customer", "ERP stage", "Process", "Status", ""].map((h) => (
-                    <TableCell key={h} sx={{ fontSize: "0.7rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.03em", whiteSpace: "nowrap" }}>{h}</TableCell>
+                    <TableCell key={h} sx={headCell}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
@@ -415,7 +411,7 @@ export default function DocApp() {
             </Table>
           </Box>
         )}
-      </Section>
+      </GlassCard>
 
       {canTest && (
         <TestSend web={testWeb} setWeb={setTestWeb} open={testOpen} setOpen={setTestOpen} followed={new Set(board.rows.map((row) => row.web))} />
