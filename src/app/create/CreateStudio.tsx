@@ -57,6 +57,7 @@ import TypePicker from "./TypePicker";
 import SaveToProject from "./SaveToProject";
 import VariationStrip, { type StripVariant } from "./VariationStrip";
 import Assistant from "@/app/projects/Assistant";
+import AssistantBar, { type BarTurn } from "./AssistantBar";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
@@ -380,6 +381,9 @@ export default function CreateStudio({
   const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
   // Bumped when a version is saved, so the strip shows it without a reload.
   const [stripKey, setStripKey] = useState(0);
+  // The assistant's latest answer, shown under the box it was asked in.
+  const [barTurn, setBarTurn] = useState<BarTurn | null>(null);
+  const [asking, setAsking] = useState(false);
   const openSections: Record<SectionKey, boolean> = {
     assistant: activePanel === "assistant",
     setup: activePanel === "setup",
@@ -482,6 +486,67 @@ export default function CreateStudio({
     }
     return [];
   }, [designing, draft, concepts, channel, contentType]);
+
+  /**
+   * Ask the assistant, from the same box the brief is typed in.
+   *
+   * It needs a project, because everything it is good for comes from one —
+   * the type's required sections, the versions, the comments. Without one it
+   * would be a worse chatbot than the thing in the sidebar, so it says so
+   * rather than answering thinly.
+   */
+  const askAssistant = async () => {
+    const question = topic.trim();
+    if (!question || asking) return;
+    if (!projectId) {
+      setBarTurn({
+        id: -1,
+        author: "assistant",
+        body: "I work on a project — its brief, its versions and what people said about them. Open the studio from a project and I can be specific.",
+        proposal: null,
+        status: "none",
+      });
+      return;
+    }
+    setAsking(true);
+    setBarTurn(null);
+    try {
+      const j = await fetch(`/api/content/projects/${projectId}/assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ask", body: question }),
+      }).then((r) => r.json());
+      if (j.ok && j.turn) {
+        setBarTurn(j.turn as BarTurn);
+        setTopic("");
+      } else {
+        setBarTurn({ id: -1, author: "assistant", body: j.error ?? "That did not go through.", proposal: null, status: "none" });
+      }
+    } catch (e) {
+      setBarTurn({
+        id: -1, author: "assistant",
+        body: e instanceof Error ? e.message : "That did not go through.",
+        proposal: null, status: "none",
+      });
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const decideProposal = async (turnId: number, action: "accept" | "dismiss") => {
+    if (!projectId) return;
+    const j = await fetch(`/api/content/projects/${projectId}/assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, turnId }),
+    }).then((r) => r.json()).catch(() => ({ ok: false }));
+
+    // An accepted image proposal is a brief, so it lands in the brief box the
+    // generator reads rather than drawing anything on its own.
+    if (j.ok && j.imageBrief) setBriefText(j.imageBrief as string);
+    setBarTurn((t) => (t ? { ...t, status: action === "accept" ? "accepted" : "dismissed" } : t));
+    setStripKey((n) => n + 1);
+  };
 
   /* ── actions ── */
 
@@ -778,7 +843,11 @@ export default function CreateStudio({
               minRows={1}
               maxRows={briefExpanded ? 24 : 3}
               size="small"
-              placeholder={`What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`}
+              placeholder={
+                projectId
+                  ? `Write a brief and press Generate — or ask: "what is missing?", "the hero is too long", "write the six proofs"`
+                  : `What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`
+              }
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               sx={{ flex: 1, minWidth: 260, "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
@@ -807,6 +876,17 @@ export default function CreateStudio({
               onSaved={() => setStripKey((n) => n + 1)}
               defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
             />
+            {/* Two things one box can do. Generate is the pipeline it always
+                was; Ask is the assistant that can see the project. Neither is
+                hidden behind the other. */}
+            <Button
+              onClick={askAssistant}
+              disabled={asking || !topic.trim()}
+              startIcon={asking ? <CircularProgress size={14} /> : <AutoAwesomeIcon />}
+              sx={{ fontWeight: 700, color: "#6a46c9", flexShrink: 0 }}
+            >
+              {asking ? "Asking…" : "Ask"}
+            </Button>
             <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
               <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
               <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
@@ -855,6 +935,13 @@ export default function CreateStudio({
           {error}
         </Alert>
       )}
+
+      <AssistantBar
+        turn={barTurn}
+        busy={asking}
+        onDecide={decideProposal}
+        onDismissView={() => setBarTurn(null)}
+      />
 
       {/* ── sidebar + stage ── */}
       <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
