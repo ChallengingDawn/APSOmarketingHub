@@ -31,6 +31,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
+import ViewInArOutlinedIcon from "@mui/icons-material/ViewInArOutlined";
 import CampaignOutlinedIcon from "@mui/icons-material/CampaignOutlined";
 import PhoneCallbackOutlinedIcon from "@mui/icons-material/PhoneCallbackOutlined";
 import DonutSmallIcon from "@mui/icons-material/DonutSmall";
@@ -173,6 +174,7 @@ const navSections: NavSection[] = [
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
       // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
     ],
   },
   {

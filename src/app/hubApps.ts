@@ -77,6 +77,7 @@ export const APPS: HubApp[] = [
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
       // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
       { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
+      { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
     ],
   },
   {
