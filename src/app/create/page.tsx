@@ -1,4 +1,5 @@
 import CreateStudio from "./CreateStudio";
+import { inferContentType } from "@/lib/content/contentTypes";
 
 /**
  * The SEO and GEO cockpits deep-link into the studio carrying the work they
@@ -37,7 +38,9 @@ export default async function Page({
     if (found) {
       projectTitle = found.project.title;
       projectBrief = found.project.brief;
-      projectType = found.project.contentType;
+      // A project made before content_type existed still says what it is in
+      // its own name, which beats defaulting to a LinkedIn post.
+      projectType = found.project.contentType ?? inferContentType(found.project.title);
     }
   }
 

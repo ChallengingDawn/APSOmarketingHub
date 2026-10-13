@@ -359,7 +359,16 @@ export default function CreateStudio({
   const [briefText, setBriefText] = useState(initialBrief ?? "");
   const [briefExpanded, setBriefExpanded] = useState(false);
   const [seedSignal, setSeedSignal] = useState(0);
-  const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>({ target: "scratch" });
+  // Canvas types open on the artboard because the picture is the work.
+  // Document types do not: the artboard in front of an unwritten landing page
+  // is furniture, and "Canvas - blank" is a worse first screen than the
+  // outline of what you are about to write.
+  const [designing, setDesigning] = useState<null | { target: "scratch" } | { target: "draft" } | { target: "concept"; idx: number }>(
+    () => {
+      const t = initialType && CONTENT_BY_KEY[initialType] ? CONTENT_BY_KEY[initialType] : null;
+      return t?.surface === "canvas" ? { target: "scratch" } : null;
+    },
+  );
 
   /* layout: collapsible sidebar, accordion sections, content panel */
   // Exactly one panel, or none. Null is a real state — it gives the canvas
@@ -518,7 +527,9 @@ export default function CreateStudio({
           setEditMode(false);
           setShowRaw(false);
           setBriefText(data.imageBrief ?? "");
-          setDesigning({ target: "draft" });
+          // Only a canvas type jumps to the artboard once there are words.
+          // A document shows the words.
+          setDesigning(CONTENT_BY_KEY[contentType]?.surface === "canvas" ? { target: "draft" } : null);
           // Adobe-Express-style pipeline: the image paints itself, no extra click
           if (withImage && data.imageBrief) paintDraft(data.imageBrief, { content: data.content, draftId: data.draftId, revision: data.draftRevision });
         }
@@ -1201,6 +1212,63 @@ export default function CreateStudio({
               )}
             </Box>
           )}
+          {/* A document type with nothing written yet shows what it is about
+              to be: the sections, and what each one has to do. The old answer
+              here was an empty artboard, which told you nothing and invited
+              you to design a poster instead of writing a page. */}
+          {!busy && !designing && !draft && concepts.length === 0 && (() => {
+            const t = CONTENT_BY_KEY[contentType];
+            if (!t) return null;
+            return (
+              <Card>
+                <CardContent sx={{ p: 3 }}>
+                  <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#8b97ac", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    {t.label}
+                  </Typography>
+                  <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: 20, fontWeight: 700, color: "#15223a", mt: 0.5, mb: 0.5 }}>
+                    {t.sections.length} sections, about {t.sections.reduce((n, x) => n + x.words, 0)} words
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, color: "#5d6b85", mb: 2.5, maxWidth: 620, lineHeight: 1.6 }}>
+                    {t.blurb} Write a line in the brief above and press Generate, or press a section to start it yourself.
+                  </Typography>
+
+                  {t.sections.map((sec, i) => (
+                    <Box
+                      key={sec.heading}
+                      sx={{
+                        display: "flex", gap: 2, py: 1.5,
+                        borderTop: i === 0 ? "none" : "1px solid rgba(21,34,58,.08)",
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: "#c7ccd2", width: 22, flexShrink: 0 }}>
+                        {i + 1}
+                      </Typography>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#15223a" }}>
+                          {sec.heading}
+                          <Box component="span" sx={{ fontSize: 11.5, fontWeight: 600, color: "#8b97ac", ml: 1 }}>
+                            ~{sec.words} words
+                          </Box>
+                        </Typography>
+                        <Typography sx={{ fontSize: 13, color: "#5d6b85", lineHeight: 1.6 }}>{sec.job}</Typography>
+                      </Box>
+                    </Box>
+                  ))}
+
+                  {t.constraints?.length ? (
+                    <Box sx={{ mt: 2, p: 1.5, borderRadius: "12px", bgcolor: "#fdf0e3" }}>
+                      {t.constraints.map((c) => (
+                        <Typography key={c} sx={{ fontSize: 12.5, color: "#a96a12", lineHeight: 1.6 }}>
+                          {c}
+                        </Typography>
+                      ))}
+                    </Box>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {!busy && designing && (
             <Box className="fade-in-result">
               {/* ── Canvas hero — everything happens here ── */}

@@ -38,9 +38,23 @@ export type SeoNeed =
   /** Nothing from Search Console; the brief stands on its own. */
   | "none";
 
+/**
+ * What the thing physically IS, which decides what the editor should put in
+ * front of you.
+ *
+ * "document" is words — a page, an article, a brief. Its artefact is text and
+ * a canvas is a distraction beside it. "canvas" is a picture with words on it,
+ * where the artboard IS the work. The studio opened every type on a LinkedIn
+ * artboard, so an SEO landing page arrived as a 1200x627 poster.
+ */
+export type Surface = "document" | "canvas";
+
 export type ContentType = {
   key: string;
   label: string;
+  surface: Surface;
+  /** Only for canvas types: which artboard, so none of them defaults to LinkedIn. */
+  canvasPreset?: "linkedin" | "square" | "story" | "wide";
   /** One line, shown on the card. What you get, not what it is called. */
   blurb: string;
   /** Grouping for the picker, Adobe Express style. */
@@ -58,6 +72,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "landing-page",
     label: "SEO landing page",
+    surface: "document",
     blurb: "A page built to own one query — promise, proof, and what we can actually do.",
     group: "Pages",
     channel: "seo",
@@ -79,6 +94,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "product-page",
     label: "Product page copy",
+    surface: "document",
     blurb: "Benefits, specification and applications for one article or family.",
     group: "Pages",
     channel: "product",
@@ -96,6 +112,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "blog-article",
     label: "Blog article",
+    surface: "document",
     blurb: "An explainer that answers one question properly, with a point of view.",
     group: "Posts",
     channel: "blog",
@@ -112,6 +129,8 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "linkedin-post",
     label: "LinkedIn post",
+    surface: "canvas",
+    canvasPreset: "linkedin",
     blurb: "One idea, one hook, no thread.",
     group: "Posts",
     channel: "linkedin",
@@ -127,6 +146,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "newsletter",
     label: "Newsletter",
+    surface: "document",
     blurb: "Subject line, preheader and three items worth opening for.",
     group: "Campaigns",
     channel: "newsletter",
@@ -142,6 +162,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "search-ad",
     label: "Search ad",
+    surface: "document",
     blurb: "Headlines and descriptions inside Google's real character limits.",
     group: "Campaigns",
     channel: "ad",
@@ -159,6 +180,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "page-refresh",
     label: "Page refresh",
+    surface: "document",
     blurb: "What to add to a page that is losing clicks — written as edits, not a rewrite.",
     group: "Fixes",
     channel: "seo",
@@ -175,6 +197,7 @@ export const CONTENT_TYPES: ContentType[] = [
   {
     key: "consolidation-brief",
     label: "Consolidation brief",
+    surface: "document",
     blurb: "Two of our pages compete for one query — which survives, and what moves.",
     group: "Fixes",
     channel: "seo",
@@ -195,6 +218,23 @@ export const CONTENT_TYPES: ContentType[] = [
 export const CONTENT_BY_KEY: Record<string, ContentType> = Object.fromEntries(
   CONTENT_TYPES.map((t) => [t.key, t]),
 );
+
+/**
+ * The type of a project that predates the content_type column.
+ *
+ * Those projects were named after the tile that made them — "Untitled seo
+ * landing page" — so the name carries the answer even though the column was
+ * null. Without this, every project started before today opens the studio on
+ * a LinkedIn post, which is exactly the complaint.
+ *
+ * Longest label first: "product page copy" must not lose to "blog article"
+ * on a title that happens to contain both words.
+ */
+export function inferContentType(title: string): string | null {
+  const t = title.toLowerCase();
+  const byLength = [...CONTENT_TYPES].sort((a, b) => b.label.length - a.label.length);
+  return byLength.find((x) => t.includes(x.label.toLowerCase()))?.key ?? null;
+}
 
 export const CONTENT_GROUPS = ["Pages", "Posts", "Campaigns", "Fixes"] as const;
 
