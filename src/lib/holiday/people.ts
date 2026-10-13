@@ -179,6 +179,8 @@ export async function setDeputy(userObjectId: string, slot: 1 | 2, deputyOwnerId
         `Settings > Properties > User properties > ${property} > add an option with internal value ${deputyOwnerId} - and pick the person again.`);
     }
     if (status !== 401 && status !== 403) throw first;
+    // no separate tickets app any more (13.10.2026): asking again would ask the same app
+    if (!ticketsToken()) throw first;
     try {
       await hubspotFetchJson({ path, method: "PATCH", body, useTicketsToken: true });
     } catch (second) {

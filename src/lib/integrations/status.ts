@@ -199,16 +199,15 @@ export function gscSiteUrl(): string {
 }
 
 /**
- * An OPTIONAL separate token for reading and writing tickets.
- *
- * Normally unset: the hub's own private app carries crm.objects.tickets.read and
- * .write (build #12, 04.10.2026). That app is a CLI project, so a scope is NOT a
- * checkbox in HubSpot's settings - it is a line in app-hsmeta.json
- * (C:\dev\hubspot-apsomarketinghub) and an `hs project upload`. This exists for the case where the reading and writing
- * apps are deliberately kept apart, or the scope has not been uploaded yet.
+ * The separate token for tickets - RETIRED 13.10.2026. Tickets are read and written
+ * with the hub's own app (SARCLA - APSOMarketingHub, 50521064), whose token carries
+ * crm.objects.tickets.read / .write and crm.schemas.tickets.read (checked live
+ * 13.10). TICKETS_TOKEN (still set on the ECS task, the token of "SARCLA - Erosion
+ * tickets", 50017716, which is being deleted) is ignored: null here makes every
+ * ticket call fall back to HUBSPOT_TOKEN. Rolling back = return env("TICKETS_TOKEN").
  */
 export function ticketsToken(): string | null {
-  return env("TICKETS_TOKEN");
+  return null;
 }
 
 /** The Compass connector on Railway, which holds the erosion forecast. */
