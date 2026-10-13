@@ -12,6 +12,8 @@ import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Button from "@mui/material/Button";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
 import TextField from "@mui/material/TextField";
 import CircularProgress from "@mui/material/CircularProgress";
 import Table from "@mui/material/Table";
@@ -28,6 +30,7 @@ import { StatTile } from "@/app/charts/StatTile";
 import { SERIES } from "@/app/charts/palette";
 import { full } from "@/app/charts/format";
 import type { ThreeD } from "@/lib/threeD/read";
+import SettingsTab from "./SettingsTab";
 
 const PORTAL = "26492587";
 const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-5/${id}`;
@@ -140,6 +143,8 @@ function Lookup({ catalogueUrl }: { catalogueUrl: string }) {
 export default function ThreeDFiles() {
   const [forced, setForced] = useState(0);
   const [period, setPeriod] = useState<PeriodKey>("90");
+  // Settings: the gateway's address and every place that names it (SARCLA, 13.10.2026)
+  const [tab, setTab] = useState<"overview" | "settings">("overview");
   const url = forced ? `/api/website/3d?refresh=1&n=${forced}` : "/api/website/3d";
   const held = useHeld<ThreeD>(url, [url]);
   const r = held.result;
@@ -176,8 +181,17 @@ export default function ThreeDFiles() {
     />
   );
   const shell = (children: React.ReactNode) => (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>{header}{children}</Box>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
+      {header}
+      <Tabs value={tab} onChange={(_, t: "overview" | "settings") => setTab(t)} sx={{ mb: 2.5, minHeight: 36, borderBottom: `1px solid ${HAIRLINE}` }}>
+        <Tab value="overview" label="Overview" sx={{ textTransform: "none", fontWeight: 600, minHeight: 36 }} />
+        <Tab value="settings" label="Settings" sx={{ textTransform: "none", fontWeight: 600, minHeight: 36 }} />
+      </Tabs>
+      {children}
+    </Box>
   );
+
+  if (tab === "settings") return shell(<SettingsTab />);
 
   if (r === null) return shell(<LoadingPanel label="Reading the 3D service and HubSpot…" />);
   if (r.state === "not-configured") return shell(<NotConnectedPanel source="HubSpot" missing={r.missing} />);

@@ -8,7 +8,7 @@
 // and the 3D-request tickets. Nothing here writes.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
-import { backend } from "@/lib/doc/config";
+import { gatewayUrl } from "./gateway";
 import { pairTickets, type Submission, type TicketRow } from "./pair";
 
 export type { Submission, TicketRow } from "./pair";
@@ -38,7 +38,7 @@ export type ThreeD = {
 const CHANNEL: Record<string, string> = { FORM: "Form", EMAIL: "Email", CHAT: "Chat" };
 
 async function railway<T>(path: string, timeoutMs: number): Promise<T> {
-  const res = await fetch(`${backend().url}${path}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
+  const res = await fetch(`${await gatewayUrl()}${path}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
   if (!res.ok) throw new Error(`the 3D service answered ${res.status} on ${path.split("?")[0]}`);
   return (await res.json()) as T;
 }
@@ -166,6 +166,6 @@ export async function readThreeD(): Promise<ThreeD> {
     submissions: "s" in subs ? pairTickets(subs.s, tickets.rows, tickets.emailOf) : [],
     ...("error" in subs ? { submissionsError: subs.error } : {}),
     tickets: tickets.rows,
-    catalogueUrl: `${backend().url}/cad`,
+    catalogueUrl: `${await gatewayUrl()}/cad`,
   };
 }
