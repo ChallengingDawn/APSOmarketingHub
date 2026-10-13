@@ -16,7 +16,7 @@ import { chainHistory } from "@/lib/connectors/chainStatus";
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v5";
+const KEY = "marketingKpis:customers:v6";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 export function customersCube(): Promise<SlowState<Cube>> {

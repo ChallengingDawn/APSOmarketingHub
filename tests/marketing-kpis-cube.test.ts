@@ -85,7 +85,7 @@ test("a click filters every other breakdown, and its own dimension still shows a
 });
 
 test("any column sorts, both ways; priority and potential keep their order until asked", () => {
-  assert.deepEqual(breakdown(cube, "potential", {}, ytd).map((r) => r.label), ["€100K and more", "€25K – 100K", "€2.5K – 25K", "€500 – 2.5K"]);
+  assert.deepEqual(breakdown(cube, "potential", {}, ytd).map((r) => r.label), ["€100,000 and more", "€25,000 – 99,999", "€2,500 – 24,999", "€500 – 2,499"]);
   const seg = breakdown(cube, "segment", {}, ytd);
   assert.deepEqual(seg.map((r) => r.label), ["APSOcore", "APSOgrowth", "APSOprospect"]);                 // by revenue
   assert.deepEqual(sortRows(seg, "n", "segment").map((r) => r.label), ["APSOcore", "APSOprospect", "APSOgrowth"]);
@@ -98,9 +98,9 @@ test("any column sorts, both ways; priority and potential keep their order until
 test("potential bands follow the sales-priority thresholds", () => {
   assert.equal(potentialBand(null), "Not set");
   assert.equal(potentialBand(499), "Under €500");
-  assert.equal(potentialBand(500), "€500 – 2.5K");
-  assert.equal(potentialBand(25_000), "€25K – 100K");
-  assert.equal(potentialBand(100_000), "€100K and more");
+  assert.equal(potentialBand(500), "€500 – 2,499");
+  assert.equal(potentialBand(25_000), "€25,000 – 99,999");
+  assert.equal(potentialBand(100_000), "€100,000 and more");
   assert.equal(usablePotential(1_000_001), false);
   assert.equal(usablePotential(0), false);
 });

@@ -55,7 +55,8 @@ export type Row = Agg & { label: string };
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Potential bands, the same thresholds as the sales priority (Smart Segmentation). */
-export const POTENTIAL_BANDS = ["€100K and more", "€25K – 100K", "€2.5K – 25K", "€500 – 2.5K", "Under €500", "Not set"] as const;
+/** In full - no "K" (SARCLA 13.10: "no abbreviation"). */
+export const POTENTIAL_BANDS = ["€100,000 and more", "€25,000 – 99,999", "€2,500 – 24,999", "€500 – 2,499", "Under €500", "Not set"] as const;
 export function potentialBand(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "Not set";
   if (v >= 100_000) return POTENTIAL_BANDS[0];
