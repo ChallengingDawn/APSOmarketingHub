@@ -20,7 +20,10 @@ import { associations, batchEach, batchRead, countOf, dayMs, emailStatsToken, ne
 import type { Co, EmailData, OverviewData, Source, Task, Ticket, UcData } from "./types";
 
 const TTL_MS = 12 * 60 * 60 * 1000;
-export const keyOf = (k: ViewKey | "emails") => `lifecycle:${k}:v1`;
+// a read whose shape changes gets a new version, so an old cached read is never shown in the new page
+// (UC2 v2, 13.10.2026: the qualification field, the company owner and the people's names)
+const VERSION: Partial<Record<ViewKey | "emails", string>> = { uc2: "v2" };
+export const keyOf = (k: ViewKey | "emails") => `lifecycle:${k}:${VERSION[k] ?? "v1"}`;
 
 const todayZurich = () => toDay(Date.now()) as string;
 const n0 = (n: number) => n.toLocaleString("en-US");
