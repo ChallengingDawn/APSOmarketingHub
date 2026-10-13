@@ -221,6 +221,28 @@ export function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_apsomh_content_comments_project ON apsomh_content_comments(project_id, created_at)`
     );
 
+    // The project's assistant conversation. On the PROJECT, not the person:
+    // it is part of the record, like the comments beside each version. A
+    // proposal rides on the turn that offered it and does nothing until
+    // somebody accepts it, so the table stores what was offered, who decided
+    // and what they decided.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_content_chat (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        -- a username, or the literal 'assistant'
+        author VARCHAR(255) NOT NULL,
+        body TEXT NOT NULL,
+        proposal JSONB,
+        status VARCHAR(16) NOT NULL DEFAULT 'none',
+        decided_by VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_chat_project ON apsomh_content_chat(project_id, created_at)`
+    );
+
     // NOBODY LOSES LIVE WHEN IT CHANGES APPS.
     //
     // Live, Tracking health, Cookie consent and Web order sync moved out of

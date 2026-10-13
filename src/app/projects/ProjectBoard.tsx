@@ -24,6 +24,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import AddIcon from "@mui/icons-material/Add";
+import Assistant from "./Assistant";
 import Link from "next/link";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app/uc/report/ui";
@@ -189,6 +190,13 @@ export default function ProjectBoard({ id }: { id: number }) {
         )}
       </GlassCard>
       <ShareDialog projectId={id} title={project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={me} />
+
+      {/* Above the versions: it is the thing that can tell you what is wrong
+          with them, which is more use than scrolling them yourself. */}
+      <Kicker>Assistant</Kicker>
+      <Box sx={{ mt: 0.5, mb: 3 }}>
+        <Assistant projectId={id} canEdit={access?.canEdit !== false} onApplied={load} />
+      </Box>
 
       <Kicker>Variations</Kicker>
       {variants.length === 0 ? (
