@@ -63,7 +63,7 @@ async function readTickets(key: string, workflows: string[]): Promise<Ticket[]> 
   const rows = await searchAll(
     "tickets",
     [[{ propertyName: "hs_object_source_detail_1", operator: "IN", values: workflows }]],
-    ["subject", "createdate", "hs_pipeline", "hs_pipeline_stage", "ticket_resolution_eso", "closed_date", "hs_object_source_detail_1"],
+    ["subject", "createdate", "hs_pipeline", "hs_pipeline_stage", "ticket_resolution_eso", "closed_date", "hs_object_source_detail_1", "hubspot_owner_id"],
     (n) => reportProgress(key, `reading the tickets · ${n0(n)}`),
   );
   reportProgress(key, "linking the tickets to their companies");
@@ -80,6 +80,7 @@ async function readTickets(key: string, workflows: string[]): Promise<Ticket[]> 
       team: p.hs_pipeline === PIPELINE.eso ? "ESO" : p.hs_pipeline === PIPELINE.tsa ? "TSA" : st?.pipelineLabel ?? "Other",
       resolution: p.ticket_resolution_eso?.trim() || null, subject: p.subject ?? "", workflow: p.hs_object_source_detail_1 ?? "",
       companyId: toCo.get(String(r.id))?.[0] ?? null,
+      owner: p.hubspot_owner_id?.trim() || null,
     });
   }
   return out;
@@ -477,9 +478,19 @@ export function overviewState(): Promise<SlowState<OverviewData>> {
   return slowReport(key, TTL_MS, () => buildOverview(key));
 }
 
+/** The ticket owners' names, beside whatever names the page read already. */
+async function withOwnerNames(d: UcData): Promise<UcData> {
+  const ids = new Set(d.tickets.map((t) => (t.owner ? `o:${t.owner}` : "")).filter(Boolean));
+  if (!ids.size) return d;
+  const all = await people();
+  const names: Record<string, string> = { ...(d.people ?? {}) };
+  for (const id of ids) if (all[id]) names[id] = all[id];
+  return { ...d, people: names };
+}
+
 export function ucState(k: UcKey): Promise<SlowState<UcData>> {
   const key = keyOf(k);
-  return slowReport(key, TTL_MS, () => BUILD[k](key));
+  return slowReport(key, TTL_MS, async () => withOwnerNames(await BUILD[k](key)));
 }
 
 export function emailState(): Promise<SlowState<EmailData>> {

@@ -1,6 +1,7 @@
 // What the lifecycle reads keep (one dataset per page, plus the email sends
 // every page shares), and what a page is sent (its view). Pure types.
 
+import type { ErosionTicket } from "../erosion/model";
 import type { UcKey, ViewKey } from "./config";
 import type { Entry, Send, Src, Win } from "./rules";
 
@@ -46,6 +47,8 @@ export type Ticket = {
   subject: string;
   workflow: string;
   companyId: string | null;
+  /** the ticket's owner (owner id) - named through UcData.people */
+  owner?: string | null;
 };
 
 export type Task = { id: string; created: string; done: boolean; workflow: string; companyId: string | null };
@@ -174,6 +177,8 @@ export type View = {
   tiles: Tile[];
   charts: ChartView[];
   list: ListView | null;
+  /** "Win rate & resolution", as on Erosion: the period's tickets in Erosion's shape (UC15, UC6, UC9, UC4). */
+  resolution?: { tickets: ErosionTicket[]; amounts: boolean; amountMeans: string } | null;
   findings: string[];
   notes: string[];
   sources: Source[];

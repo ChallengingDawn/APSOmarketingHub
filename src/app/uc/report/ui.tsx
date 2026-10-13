@@ -16,6 +16,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { full } from "@/app/charts/format";
 import { isClosed, type ErosionTicket, type Team } from "@/lib/erosion/model";
 
@@ -179,9 +180,9 @@ export function Notice({ tone, children }: { tone: "bad" | "warn"; children: Rea
 export type TopItem = { text: string; tone?: "warn" | "bad" };
 
 /**
- * A page's findings and warnings on the header's top line, beside the period
- * (SARCLA 13.10.2026: not a block of their own). One reads in full on hover;
- * several show as "3 findings"; a click lists them all.
+ * A page's findings and warnings on the header's top line, beside the period -
+ * small and grey (SARCLA 13.10.2026: "needs to be discreet in every app"). One
+ * reads in full on hover; several show as "3 findings"; a click lists them all.
  */
 export function TopFindings({ items }: { items: TopItem[] }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -194,11 +195,12 @@ export function TopFindings({ items }: { items: TopItem[] }) {
         <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
           aria-label={one ? items[0].text : `${items.length} findings`}
           sx={{
-            ...glass, display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.55, borderRadius: "12px",
-            border: "none", borderLeft: `3px solid ${c}`, cursor: "pointer", font: "inherit", minWidth: 0,
+            display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.5, py: 0.25, border: "none", bgcolor: "transparent",
+            borderRadius: "8px", cursor: "pointer", font: "inherit", color: MUTED, minWidth: 0,
+            "&:hover": { color: INK, bgcolor: "rgba(255,255,255,.6)" },
           }}>
-          <WarningAmberIcon sx={{ fontSize: 16, color: c, flexShrink: 0 }} />
-          <Typography component="span" sx={{ fontSize: "0.8rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: { xs: 200, md: 420 } }}>
+          <InfoOutlinedIcon sx={{ fontSize: 14, color: c, flexShrink: 0 }} />
+          <Typography component="span" sx={{ fontSize: "0.76rem", color: "inherit", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: { xs: 180, md: 360 } }}>
             {one ? items[0].text : `${items.length} findings`}
           </Typography>
         </Box>

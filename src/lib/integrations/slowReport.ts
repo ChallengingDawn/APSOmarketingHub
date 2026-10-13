@@ -121,7 +121,8 @@ export async function slowReport<T>(key: string, ttlMs: number | ((value: T) => 
 
   if (!local?.running && !someoneElseRunning) {
     store.entries.set(key, { at: Date.now(), value: saved?.value ?? local?.value, running: true });
-    store.progress.set(key, "starting");
+    // shown until the shared queue reaches it - another report may be reading HubSpot first
+    store.progress.set(key, "waiting for another HubSpot read to finish");
     const startedNow = new Date().toISOString();
     void writeRow(key, { running: true, startedAt: startedNow, beatAt: startedNow, value: saved?.value });
     store.queue = store.queue

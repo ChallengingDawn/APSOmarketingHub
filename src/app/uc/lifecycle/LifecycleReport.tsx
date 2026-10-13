@@ -54,6 +54,8 @@ import {
   ACCENT, AMBER, CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, TINT, TopFindings, bodyCell, clip, glass, headCell, hsTicket,
 } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab, type TabDef } from "@/app/uc/report/Tabs";
+import { OutcomeReport } from "@/app/uc/report/OutcomeReport";
+import { isClosed, isWon } from "@/lib/erosion/model";
 import { HUB_UCS, PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
 import type { ChartView, Col, EmailView, Fmt, IconKey, Row, View } from "@/lib/lifecycle/types";
 
@@ -392,8 +394,10 @@ function UcCards() {
   );
 }
 
-type TabId = "cases" | "results" | "follow" | "list" | "emails";
-const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", follow: "#follow-up", list: "#list", emails: "#emails" };
+type TabId = "cases" | "results" | "win" | "follow" | "list" | "emails";
+const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", win: "#win-rate", follow: "#follow-up", list: "#list", emails: "#emails" };
+/** The UCs whose tickets get Erosion's "Win rate & resolution" (views.ts WIN_UCS). */
+const WIN_TAB: ViewKey[] = ["uc15", "uc6", "uc9", "uc4"];
 
 /** What each page's list tab is called. */
 const LIST_TAB: Record<ViewKey, string> = {
@@ -421,7 +425,10 @@ function ChartGrid({ charts, stale }: { charts: ChartView[]; stale: boolean }) {
 
 export default function LifecycleReport({ view: key }: { view: ViewKey }) {
   const { resp, stale } = useLifecycle(key);
+  const { label: periodLabel } = useReportingWindow();
   const v = resp?.view ?? null;
+  const rt = v?.resolution?.tickets ?? [];
+  const rtClosed = rt.filter(isClosed).length;
   const st = resp?.state ?? null;
   const uc = UCS.find((u) => u.key === key);
   const overview = key === "overview";
@@ -439,6 +446,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
       ]
     : [
         { id: "results", label: "Results", count: null },
+        ...(WIN_TAB.includes(key) ? [{ id: "win" as const, label: "Win rate & resolution", count: rtClosed ? `${Math.round((100 * rt.filter(isWon).length) / rtClosed)}%` : null }] : []),
         { id: "follow", label: "Follow-up", count: null },
         { id: "list", label: LIST_TAB[key], count: v?.list ? full(v.list.total) : null },
         ...(key !== "uc12" ? [{ id: "emails" as const, label: "Emails", count: resp?.emails ? String(resp.emails.rows.length) : null }] : []),
@@ -494,13 +502,21 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
             {!st?.error && <CircularProgress size={18} />}
             <Typography sx={{ fontSize: "0.9rem", color: st?.error ? RED : MUTED }}>
-              {st?.error ? `HubSpot could not be read: ${st.error}` : `Reading HubSpot - a few minutes the first time${st?.progress ? ` · ${st.progress}` : ""}.`}
+              {st?.error ? `HubSpot could not be read: ${st.error}` : `Reading HubSpot${st?.progress ? ` · ${st.progress}` : ""}…`}
             </Typography>
           </Box>
         </GlassCard>
       )}
 
       {v && shown === "results" && <Box id="lifecycle-panel-results" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={results} stale={stale} /></Box>}
+      {v && shown === "win" && (
+        <Box id="lifecycle-panel-win" role="tabpanel" sx={{ minWidth: 0 }}>
+          {v.resolution
+            ? <OutcomeReport tickets={v.resolution.tickets} period={periodLabel} stale={stale} amounts={v.resolution.amounts}
+                amountMeans={v.resolution.amountMeans} wonNote="Won = the ticket closed with the answer Ordered." />
+            : <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No tickets in this period.</Typography></GlassCard>}
+        </Box>
+      )}
       {v && shown === "follow" && <Box id="lifecycle-panel-follow" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={follow} stale={stale} /></Box>}
       {v && shown === "list" && (
         <Box id="lifecycle-panel-list" role="tabpanel" sx={{ minWidth: 0 }}>

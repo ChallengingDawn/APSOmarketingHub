@@ -8,6 +8,7 @@
 // handed on (feedback: partial scan reads as data gap).
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { hubChain } from "@/lib/connectors/chainStatus";
 import { IntegrationError } from "@/lib/integrations/status";
 
 export type Hist = { value?: string | null; timestamp?: string; sourceType?: string; updatedByUserId?: number | string | null };
@@ -97,8 +98,8 @@ async function pool<T, R>(items: T[], width: number, fn: (t: T, i: number) => Pr
  * Records by id with their properties - and, when asked, the full history of a
  * few of them - handed over a call's worth at a time so a large read never sits
  * in memory whole. HubSpot takes 100 ids a call, 50 when history is asked for.
- * One call at a time: the token's rate limit is shared with the ERP chain and
- * the hub's other steps, and a report cached for 12 hours has no need to hurry.
+ * Three calls at a time, one while an ERP chain runs (batchWidth) - the token's
+ * rate limit is shared with the chain and the hub's other steps.
  */
 export async function batchEach(object: string, ids: string[], properties: string[], history: string[], each: (recs: Rec[]) => void, onProgress?: (n: number) => void): Promise<void> {
   const size = history.length ? 50 : 100;
@@ -106,7 +107,7 @@ export async function batchEach(object: string, ids: string[], properties: strin
   const unique = [...new Set(ids)];
   for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
   let done = 0;
-  await pool(chunks, 1, async (chunk) => {
+  await pool(chunks, await batchWidth(), async (chunk) => {
     const r = await read<{ results?: Rec[] }>({
       path: `/crm/v3/objects/${object}/batch/read`, method: "POST", useTicketsToken: object === "tickets",
       body: { inputs: chunk.map((id) => ({ id })), properties, ...(history.length ? { propertiesWithHistory: history } : {}) },
@@ -115,6 +116,20 @@ export async function batchEach(object: string, ids: string[], properties: strin
     done += chunk.length;
     onProgress?.(done);
   });
+}
+
+/**
+ * How many batch reads at once: three (SARCLA 13.10.2026: "these loading times are
+ * crazy" - one at a time made the first read of a page take minutes), but one while
+ * an ERP chain runs, whose steps write through the same HubSpot rate limit.
+ */
+async function batchWidth(): Promise<number> {
+  try {
+    const c = await hubChain();
+    return c?.status === "running" && Date.now() / 1000 - (c.ts ?? 0) < 3 * 3600 ? 1 : 3;
+  } catch {
+    return 3; // no database to ask - and then no chain either: it keeps its state there
+  }
 }
 
 /** The same, gathered into one list. */
@@ -161,7 +176,10 @@ export async function ticketStages(): Promise<Map<string, { label: string; close
  * -> name: a property's history names the USER who set it, a record names its
  * OWNER. Someone who has left still has their name here.
  */
+let peopleCache: { at: number; value: Record<string, string> } | null = null;
+
 export async function people(): Promise<Record<string, string>> {
+  if (peopleCache && Date.now() - peopleCache.at < 10 * 60_000) return peopleCache.value;
   const out: Record<string, string> = {};
   for (const archived of ["false", "true"]) {
     let after: string | undefined;
@@ -195,6 +213,7 @@ export async function people(): Promise<Record<string, string>> {
   } catch {
     // the owners above still name almost everyone
   }
+  peopleCache = { at: Date.now(), value: out };
   return out;
 }
 

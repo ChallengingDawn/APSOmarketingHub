@@ -7,7 +7,7 @@ import {
   qualOf, shiftMonth, sourceOf, stageEntries, tally, toDay, touchesRestage, within, withinMonths, type Entry,
 } from "../src/lib/lifecycle/rules";
 import {
-  emailView, firstOnOrAfter, overviewView, whoQualified, secondOrderCurve, stepsByCompany, uc10View, uc12View, uc13View, uc15View, uc2View, uc4View, uc6View, uc9View,
+  emailView, firstOnOrAfter, overviewView, resolutionOf, whoQualified, secondOrderCurve, stepsByCompany, uc10View, uc12View, uc13View, uc15View, uc2View, uc4View, uc6View, uc9View,
 } from "../src/lib/lifecycle/views";
 import type { Co, EmailData, OverviewData, Ticket, UcData } from "../src/lib/lifecycle/types";
 
@@ -433,4 +433,33 @@ test("the who-qualified table counts each person's decisions; the undecided go t
   assert.deepEqual(row("Ben"), { person: "Ben", own: 0, support: 0, byEso: 1, yes: 1, no: 0, open: 1, total: 2 });
   assert.deepEqual(row("No owner"), { person: "No owner", own: 0, support: 0, byEso: 0, yes: 0, no: 0, open: 1, total: 1 });
   assert.equal(t.rows[0].person, "Ana"); // most decisions first
+});
+
+
+/* ── win rate & resolution, as on Erosion ─────────────────────────────── */
+
+test("UC15's tickets of the period go to Erosion's outcome report: closed day, team, owner's name, company", () => {
+  const base = { stage: "Closed", subject: "Lost Lead | Push for First Purchase | x", workflow: "w" };
+  const d = {
+    uc: "uc15", generatedAt: "2026-10-13T00:00:00Z", today: "2026-10-13", horizon: "2025-01-01",
+    companies: [{ id: "c1", name: "Acme", stage: null, first: null, last: null, orders: null }],
+    tickets: [
+      { ...base, id: "t1", created: "2026-09-02", closed: true, closedOn: "2026-09-10", team: "ESO", resolution: "Ordered", companyId: "c1", owner: "o1" },
+      { ...base, id: "t2", created: "2026-09-03", closed: false, closedOn: null, team: "TSA", resolution: null, companyId: null, owner: null },
+      { ...base, id: "t3", created: "2026-07-01", closed: true, closedOn: "2026-07-02", team: "ESO", resolution: "No demand", companyId: "c1", owner: "o1" },
+    ],
+    tasks: [], lastTask: [], sources: [], people: { "o:o1": "Ana" },
+  } as unknown as UcData;
+  const r = resolutionOf("uc15", d, SEPT);
+  assert.ok(r);
+  assert.equal(r!.amounts, false);
+  assert.deepEqual(r!.tickets.map((t) => t.id), ["t1", "t2"]); // the period's only
+  const [a, b] = r!.tickets;
+  assert.equal(a.closed, "2026-09-10");
+  assert.equal(a.team, "ESO");
+  assert.equal(a.owner, "Ana");
+  assert.equal(a.company, "Acme");
+  assert.equal(b.closed, null);
+  assert.equal(b.owner, "No owner");
+  assert.equal(resolutionOf("uc2", d, SEPT), null); // UC2's answers are qualifications, not orders
 });

@@ -20,6 +20,7 @@ import {
 import type {
   ChartView, Co, EmailData, EmailRow, EmailView, OverviewData, Row, Source, Ticket, Tile, UcData, View,
 } from "./types";
+import type { ErosionTicket } from "../erosion/model";
 
 export const LIST_CAP = 300;
 
@@ -90,10 +91,33 @@ function cap(rows: Row[]): Row[] {
   return rows.slice(0, LIST_CAP);
 }
 
+/** The UCs whose tickets get "Win rate & resolution", as on Erosion: won = answered "Ordered". */
+export const WIN_UCS: UcKey[] = ["uc15", "uc6", "uc9", "uc4"];
+
+/** The period's tickets in Erosion's shape, for its outcome report. UC4's carry the cart's value. */
+export function resolutionOf(key: UcKey, d: UcData, win: Win): View["resolution"] {
+  if (!WIN_UCS.includes(key) || !d.tickets.length) return null;
+  const cos = new Map(d.companies.map((c) => [c.id, c]));
+  const amounts = key === "uc4";
+  const tickets = d.tickets.filter((t) => inWin(t.created, win)).map((t): ErosionTicket => ({
+    id: t.id, subject: t.subject, created: t.created,
+    closed: t.closed ? (t.closedOn ?? t.created) : null,
+    stage: t.stage, stageClosed: t.closed, pipeline: t.team,
+    resolution: t.resolution, resolutionDetail: null, closingNote: null,
+    team: t.team === "ESO" || t.team === "TSA" ? t.team : null,
+    owner: t.owner ? d.people?.[`o:${t.owner}`] ?? `Owner ${t.owner}` : "No owner",
+    priority: null, amount: amounts ? cartValue(t.subject) ?? 0 : 0,
+    article: null, articleDescription: null,
+    company: (t.companyId ? cos.get(t.companyId)?.name : null) ?? null, un: null, lastOrder: null,
+  }));
+  return { tickets, amounts, amountMeans: "in the abandoned carts" };
+}
+
 function view(key: UcKey, win: Win, d: UcData, parts: Pick<View, "tiles" | "charts" | "list" | "findings" | "notes">): View {
   const uc = ucOf(key);
   return {
     key, generatedAt: d.generatedAt, code: uc.code, title: uc.title, does: uc.does, converted: uc.converted, window: win, ...parts,
+    resolution: resolutionOf(key, d, win),
     findings: [...parts.findings, ...uc.findings],
     notes: [...parts.notes, PERIOD_NOTE],
     sources: d.sources,

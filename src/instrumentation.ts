@@ -36,5 +36,9 @@ export async function register() {
     // APSOAssistant (11.10.2026). Starts in "stage" (reads only) until switched Active.
     const { startMagentoSync } = await import("./lib/connectors/magento/sync");
     startMagentoSync();
+    // The Use case pages (lifecycle reports) read in the background, so nobody waits
+    // for HubSpot when opening one (read-only; never beside an ERP chain; LIFECYCLE_WARM=off stops it)
+    const { startLifecycleWarm } = await import("./lib/lifecycle/scheduler");
+    startLifecycleWarm();
   }
 }

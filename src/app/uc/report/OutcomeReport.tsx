@@ -154,7 +154,7 @@ function ByPerson({ owners }: { owners: OwnerRow[] }) {
 
 const CLOSED_PAGE = 10;
 
-function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; reason: string | null; onClear: () => void }) {
+function ClosedList({ tickets, reason, onClear, amounts = true }: { tickets: ErosionTicket[]; reason: string | null; onClear: () => void; amounts?: boolean }) {
   const [page, setPage] = useState(0);
   // a new reason, or a new period, is a new list: start it at its first page
   useEffect(() => setPage(0), [reason, tickets]);
@@ -194,7 +194,7 @@ function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; re
                     {won && <Chip size="small" icon={<CheckCircleIcon />} label="Won" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 700, bgcolor: TINT.green.bg, color: TINT.green.fg, "& .MuiChip-icon": { fontSize: 13, color: "inherit" } }} />}
                     <TeamChip team={t.team} />
                     <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{t.owner}</Typography>
-                    <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{eur(t.amount)} EUR</Typography>
+                    {amounts && <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{eur(t.amount)} EUR</Typography>}
                     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>closed {t.closed}{days !== null ? ` · ${days} day${days === 1 ? "" : "s"} after it was raised` : ""}</Typography>
                   </Box>
                   <Typography sx={{ fontSize: "0.84rem", color: res.missing ? AMBER : INK, mt: 0.4 }}>{res.text}</Typography>
@@ -215,7 +215,7 @@ function ClosedList({ tickets, reason, onClear }: { tickets: ErosionTicket[]; re
 
 /* ── the report ───────────────────────────────────────────────────────── */
 
-export function OutcomeReport({ tickets, period, stale, amountMeans = "of last year's revenue" }: {
+export function OutcomeReport({ tickets, period, stale, amountMeans = "of last year's revenue", amounts = true, wonNote }: {
   /** The tickets RAISED in the period - already filtered by the page's picker. */
   tickets: ErosionTicket[];
   /** "Last 28 days", "1 Sep – 30 Sep 2026" … as the picker states it. */
@@ -223,6 +223,10 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
   stale: boolean;
   /** What a ticket's amount is, after "N EUR": Erosion's is last year's revenue, a price check's the value priced. */
   amountMeans?: string;
+  /** False when the tickets carry no amount (most lifecycle UCs): no EUR anywhere. */
+  amounts?: boolean;
+  /** What "won" means here, when it is not Erosion's wording. */
+  wonNote?: string;
 }) {
   const [reason, setReason] = useState<string | null>(null);
   const [view, setView] = useState<"chart" | "table">("chart");
@@ -244,7 +248,7 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 4 }}>
           <KpiTile icon={<EmojiEventsOutlinedIcon />} tint="green" label="Won back" value={full(won)}
-            note={`${eur(wonEur)} EUR ${amountMeans} · ${period}`} />
+            note={amounts ? `${eur(wonEur)} EUR ${amountMeans} · ${period}` : period} />
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
           <KpiTile icon={<PercentIcon />} tint="blue" label="Win rate" value={closed ? percent(won / closed, 0) : "—"}
@@ -256,8 +260,8 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
         </Grid>
       </Grid>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: -1 }}>
-        Won = closed as {[...WON_RESOLUTIONS].join(", ")}. A one-shot order (catalogue or C2S) is a single purchase, not the customer
-        coming back, and “Bought at AP” went to Angst+Pfister: all three count as lost.
+        {wonNote ?? <>Won = closed as {[...WON_RESOLUTIONS].join(", ")}. A one-shot order (catalogue or C2S) is a single purchase, not the customer
+        coming back, and “Bought at AP” went to Angst+Pfister: all three count as lost.</>}
       </Typography>
 
       <GlassCard>
@@ -288,7 +292,7 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small">
               <TableHead><TableRow>
-                {["Reason", "Tickets", "Share of closed", "EUR", "Counts as won"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
+                {["Reason", "Tickets", "Share of closed", ...(amounts ? ["EUR"] : []), "Counts as won"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
               </TableRow></TableHead>
               <TableBody>
                 {tally.map((r) => (
@@ -296,7 +300,7 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: reason === r.label ? 700 : 500 }}>{r.label}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{r.count}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{percent(r.count / closed, 0)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{eur(r.eur)}</TableCell>
+                    {amounts && <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{eur(r.eur)}</TableCell>}
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", color: r.won ? GREEN : FAINT, fontWeight: r.won ? 700 : 400 }}>{r.won ? "yes" : "no"}</TableCell>
                   </TableRow>
                 ))}
@@ -308,7 +312,7 @@ export function OutcomeReport({ tickets, period, stale, amountMeans = "of last y
 
       {/* straight under the chart, and brought into view when a reason is clicked */}
       <Box ref={listRef} sx={{ scrollMarginTop: "16px" }}>
-        <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} />
+        <ClosedList tickets={tickets} reason={reason} onClear={() => setReason(null)} amounts={amounts} />
       </Box>
 
       {tickets.length > 0 && <Kicker>Every figure here counts the tickets raised in the period: {period}</Kicker>}
