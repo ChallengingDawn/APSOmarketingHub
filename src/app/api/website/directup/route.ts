@@ -2,7 +2,7 @@
 // installation snippets - read for the hub's page (Website's grant). Changes - the batch size, a catalogue
 // pull, new snippets, the gateway's address - are admins' only. Same three answers as every integration
 // route: not configured, upstream failed (with the reason), or the data.
-//   GET  ?part=overview&days=30 | log&ev= | jobs | job&id= | snippets
+//   GET  ?part=overview&days=30 | log | jobs | job&id= | snippets
 //   POST { action: "settings", batchSize } | { action: "sync" } | { action: "regenerate" } | { action: "gateway", url }
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,8 +34,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: { setting, status, usage, isAdmin } });
     }
     if (part === "log") {
-      const ev = (q.get("ev") || "").slice(0, 40);
-      const log = await gateway<Log>(`/log?n=300${ev ? `&ev=${encodeURIComponent(ev)}` : ""}`);
+      // the last 1,000 events (the gateway's most): the page sorts them into topics and pages through them
+      const log = await gateway<Log>("/log?n=1000");
       return NextResponse.json({ configured: true, ok: true, data: log });
     }
     if (part === "jobs") return NextResponse.json({ configured: true, ok: true, data: await gateway<{ jobs: JobSummary[] }>("/jobs?n=100") });

@@ -1,20 +1,20 @@
 "use client";
 
 // DIRECTUP - the hub's page on the shop's order tool (SARCLA, 13.10.2026: DirectUP on its own Railway service,
-// "DirectUp Gateway"; "the rest goes to the marketing under Website > Microservices", with usage, the client
-// log, the order lists, status & settings, and the footer, head and page HTML to install it - which can be
-// made again). The tool runs on Railway because the shop frames it; this page reads the gateway's admin API.
+// "DirectUp Gateway"; "the rest goes to the marketing under Website > Microservices", with usage, the activity
+// log, the order lists, status & settings, and the footer, head and page HTML to install it). The tool runs on
+// Railway because the shop frames it; this page reads the gateway's admin API.
+// 14.10.2026: in the UC apps' kit like 3D files and DoC ("learn from UC's and reporting pages"): the UC tab
+// strip with the tab in the #fragment, glass cards with badges, KPI tiles, pill choices, pages of rows, and the
+// activity log in words.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
-import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Button from "@mui/material/Button";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
-import TextField from "@mui/material/TextField";
 import CircularProgress from "@mui/material/CircularProgress";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -23,218 +23,148 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
+import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
+import TimelineOutlinedIcon from "@mui/icons-material/TimelineOutlined";
+import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
+import DnsOutlinedIcon from "@mui/icons-material/DnsOutlined";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
+import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
-import { GUTTER, HAIRLINE, INK, LoadingPanel, MUTED, NotConnectedPanel, Section, UpstreamPanel } from "@/app/analytics/Shell";
-import { StatTile } from "@/app/charts/StatTile";
-import { SERIES } from "@/app/charts/palette";
+import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import type { GatewaySetting, JobDetail, JobSummary, Log, Snippets, Status, Usage } from "@/lib/directup/gateway";
+import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, bodyCell, headCell } from "@/app/uc/report/ui";
+import { Chip, Choice } from "@/app/connectors/parts";
+import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { Bars, CURRENT_BRIDGE, pct, post, when, type Overview } from "./shared";
+import ListsTab from "./ListsTab";
+import LogTab from "./LogTab";
+import SettingsTab from "./SettingsTab";
 
-const BLUE = SERIES[0];
-const GREEN = "#1e7e45";
-const RED = "#c5221f";
-const AMBER = "#b26a00";
-const GREY = "#8a929c";
-/** The bridge every store view should run; anything older has to be replaced in the footer. */
-const CURRENT_BRIDGE = "v9-tools";
+type View = "overview" | "lists" | "activity" | "status" | "settings";
+/** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
+const VIEW_HASH: Record<View, string> = { overview: "#overview", lists: "#lists", activity: "#activity", status: "#status", settings: "#settings" };
+type Days = "30" | "90" | "365";
+const PERIODS: { key: Days; label: string }[] = [{ key: "30", label: "30 days" }, { key: "90", label: "90 days" }, { key: "365", label: "12 months" }];
 
-type Overview = { setting: GatewaySetting; status: Status; usage: Usage; isAdmin: boolean };
-type TabKey = "usage" | "lists" | "log" | "status" | "settings";
+/** A store view whose LATEST visit came through an older bridge - an earlier one does not count once the
+ *  footer was replaced. A visit does not say whether it was ACC or production, so the notice says both. */
+function olderBridges(bridges: Overview["status"]["bridges"]) {
+  const latest = new Map<string, Overview["status"]["bridges"][number]>();
+  for (const b of bridges) {
+    const k = b.locale || "?", had = latest.get(k);
+    if (!had || Date.parse(b.last) > Date.parse(had.last)) latest.set(k, b);
+  }
+  return [...latest.values()].filter((b) => b.bridge && b.bridge !== CURRENT_BRIDGE);
+}
 
-const when = (iso: string | null | undefined) => {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-};
-const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : "–");
-const th = { fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase" as const, letterSpacing: ".04em" };
-const td = { fontSize: "0.8rem" };
-
-function Notice({ tone, children }: { tone: "warn" | "info"; children: React.ReactNode }) {
-  const c = tone === "warn" ? { bg: "#fff7e6", bd: "#f0d199", fg: "#7a4b00" } : { bg: "#eef4fb", bd: "#c9dbef", fg: "#24507c" };
+/** What needs doing, on every tab: a store view on an older bridge, a catalogue copy that failed. */
+function Problems({ o }: { o: Overview }) {
+  const old = olderBridges(o.status.bridges);
   return (
-    <Box sx={{ mb: 2, px: 2, py: 1.25, borderRadius: 2, border: `1px solid ${c.bd}`, bgcolor: c.bg }}>
-      <Typography sx={{ fontSize: "0.82rem", color: c.fg, lineHeight: 1.5 }}>{children}</Typography>
-    </Box>
+    <>
+      {old.length > 0 && (
+        <Notice tone="warn">
+          The last visits from {old.map((b) => b.locale || "?").join(", ")} came through an older shop bridge ({[...new Set(old.map((b) => b.bridge))].join(", ")}), on ACC or production - a visit does not say which. Paste the footer from Settings there.
+        </Notice>
+      )}
+      {o.status.catalogue.error && <Notice tone="bad">The last copy of the catalogue failed: {o.status.catalogue.error}</Notice>}
+    </>
   );
 }
-const Title = ({ children }: { children: React.ReactNode }) => (
-  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mb: 1.25 }}>{children}</Typography>
-);
 
-async function post(body: unknown): Promise<{ ok: boolean; error?: string; data?: unknown }> {
-  const r = await fetch("/api/website/directup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return (await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))) as { ok: boolean; error?: string; data?: unknown };
+/** Every day of the period, or every week over 12 months - a day without lists is a gap, not a missing bar. */
+function buckets(perDay: Overview["usage"]["perDay"], days: number) {
+  const by = new Map(perDay.map((d) => [d.day, d]));
+  const out: { label: string; lists: number; lines: number; notFound: number }[] = [];
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const weekly = days > 90;
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86_400_000);
+    const key = d.toISOString().slice(0, 10);
+    const row = by.get(key);
+    const label = weekly ? `week of ${new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(5, 10).split("-").reverse().join(".")}` : key.slice(5).split("-").reverse().join(".");
+    const last = out[out.length - 1];
+    if (weekly && last && last.label === label) {
+      last.lists += row?.lists ?? 0; last.lines += row?.lines ?? 0; last.notFound += row?.not_found ?? 0;
+    } else out.push({ label, lists: row?.lists ?? 0, lines: row?.lines ?? 0, notFound: row?.not_found ?? 0 });
+  }
+  return out;
 }
 
-// ── Usage ───────────────────────────────────────────────────────────────────
-function UsageTab({ o, days, setDays }: { o: Overview; days: number; setDays: (n: number) => void }) {
+function OverviewTab({ o, days, setDays }: { o: Overview; days: Days; setDays: (d: Days) => void }) {
   const u = o.usage;
   const t = useMemo(() => {
-    const sum = (k: keyof Usage["perDay"][number]) => u.perDay.reduce((a, d) => a + (Number(d[k]) || 0), 0);
+    const sum = (k: keyof Overview["usage"]["perDay"][number]) => u.perDay.reduce((a, d) => a + (Number(d[k]) || 0), 0);
     return {
       lists: sum("lists"), files: sum("files"), claude: sum("read_by_claude"), lines: sum("lines"),
-      byNumber: sum("by_number"), byText: sum("by_text"), notFound: sum("not_found"),
+      byNumber: sum("by_number"), byText: sum("by_text"), notFound: sum("not_found"), added: sum("added"),
       carts: u.carts.reduce((a, c) => a + c.carts, 0), cartLines: u.carts.reduce((a, c) => a + c.cart_lines, 0),
     };
   }, [u]);
-  const max = Math.max(1, ...u.perDay.map((d) => d.lists));
+  const series = useMemo(() => buckets(u.perDay, Number(days)), [u, days]);
+  const max = Math.max(1, ...series.map((s) => s.lists));
+  const opened = o.status.bridges.reduce<Record<string, number>>((m, b) => ({ ...m, [b.locale || "?"]: (m[b.locale || "?"] ?? 0) + b.n }), {});
+
   return (
     <>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 2 }}>
-        {[30, 90, 365].map((n) => (
-          <Chip key={n} label={n === 365 ? "12 months" : `${n} days`} onClick={() => setDays(n)} variant={days === n ? "filled" : "outlined"}
-            sx={{ fontWeight: 600, ...(days === n ? { bgcolor: INK, color: "#fff" } : { color: MUTED, borderColor: HAIRLINE }) }} />
-        ))}
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, gap: 2, mb: 2.5 }}>
-        <StatTile label="Order lists" value={full(t.lists)} note={`${full(t.files)} from a file · ${full(t.lists - t.files)} typed in`} />
-        <StatTile label="Lines read" value={full(t.lines)} note={`${full(t.claude)} lists read by Claude (PDF, photo)`} />
-        <StatTile label="Matched by number" value={pct(t.byNumber, t.lines)} note={`${full(t.byNumber)} lines · ${full(t.byText)} found from the description`} />
-        <StatTile label="Sent to the cart" value={full(t.cartLines)} note={`lines, in ${full(t.carts)} cart${t.carts === 1 ? "" : "s"} · ${full(t.notFound)} lines not found`} />
-      </Box>
-      <Section>
-        <Title>Order lists per day</Title>
-        {u.perDay.length === 0 && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No order lists in this period.</Typography>}
-        <Box sx={{ display: "flex", alignItems: "flex-end", gap: "3px", height: 140, overflowX: "auto" }}>
-          {u.perDay.map((d) => (
-            <Tooltip key={d.day} arrow title={`${d.day}: ${d.lists} list${d.lists === 1 ? "" : "s"}, ${d.lines} lines, ${d.by_number} by number, ${d.not_found} not found`}>
-              <Box sx={{ flex: "1 0 8px", maxWidth: 28, height: `${Math.max(4, (d.lists / max) * 100)}%`, bgcolor: BLUE, borderRadius: "3px 3px 0 0" }} />
-            </Tooltip>
-          ))}
-        </Box>
-        {u.perDay.length > 0 && (
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.75 }}>
-            <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{u.perDay[0].day}</Typography>
-            <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{u.perDay[u.perDay.length - 1].day}</Typography>
-          </Box>
-        )}
-      </Section>
+      <Choice value={days} onChange={setDays} options={PERIODS} />
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<UploadFileOutlinedIcon />} tint="blue" label="Order lists" value={full(t.lists)} note={`${full(t.files)} from a file · ${full(t.lists - t.files)} typed in`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ManageSearchOutlinedIcon />} tint="purple" label="Lines read" value={full(t.lines)} note={`${full(t.claude)} ${t.claude === 1 ? "list" : "lists"} read by Claude from a PDF or a photo`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<FactCheckOutlinedIcon />} tint="green" label="Found by their number" value={pct(t.byNumber, t.lines)} note={`${full(t.byNumber)} lines · ${full(t.byText)} more from the description`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ShoppingCartOutlinedIcon />} tint="amber" label="Lines put in a cart" value={full(t.cartLines)} note={`in ${full(t.carts)} ${t.carts === 1 ? "click" : "clicks"} on "Add to cart"`} /></Grid>
+      </Grid>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 7 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<BarChartOutlinedIcon />} tint="blue" title={days === "365" ? "Order lists per week" : "Order lists per day"} note="Point at a bar for its lines and what was not found" />
+            {t.lists === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No order lists in this period.</Typography>}
+            {t.lists > 0 && (
+              <>
+                <Box sx={{ display: "flex", alignItems: "flex-end", gap: "2px", height: 150 }}>
+                  {series.map((s) => (
+                    <Tooltip key={s.label} arrow title={`${s.label}: ${s.lists} ${s.lists === 1 ? "list" : "lists"}, ${full(s.lines)} lines, ${full(s.notFound)} not found`}>
+                      <Box sx={{ flex: "1 1 0", minWidth: 0, height: s.lists ? `${Math.max(4, (s.lists / max) * 100)}%` : "2px", bgcolor: s.lists ? ACCENT : "rgba(21,34,58,.10)", borderRadius: "4px 4px 0 0" }} />
+                    </Tooltip>
+                  ))}
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.75 }}>
+                  <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{series[0]?.label}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{series[series.length - 1]?.label}</Typography>
+                </Box>
+              </>
+            )}
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 5 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<TimelineOutlinedIcon />} tint="green" title="What became of the lines" note={`${full(t.lines)} lines read in this period`} />
+            <Bars rows={[
+              { label: "Found by their number", n: t.byNumber, note: "our number or the customer's own", colour: GREEN },
+              { label: "Found from the description", n: t.byText, note: "a person checks these", colour: ACCENT },
+              { label: "Not found", n: t.notFound, colour: RED },
+              { label: "Put in a cart", n: t.added, note: "from the lists of this period", colour: "#6a46c9" },
+            ]} />
+          </GlassCard>
+        </Grid>
+      </Grid>
+
+      <GlassCard>
+        <CardTitle icon={<StorefrontOutlinedIcon />} tint="amber" title="Where DirectUP was opened" note="Visits per store view, last 30 days" />
+        <Bars rows={Object.entries(opened).map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n)} />
+      </GlassCard>
     </>
   );
 }
 
-// ── Order lists ─────────────────────────────────────────────────────────────
-function ListsTab() {
-  const [n, setN] = useState(0);
-  const held = useHeld<{ jobs: JobSummary[] }>(`/api/website/directup?part=jobs&n=${n}`, [n]);
-  const [open, setOpen] = useState<string | null>(null);
-  const detail = useHeld<JobDetail>(open ? `/api/website/directup?part=job&id=${open}` : null, [open]);
-  const r = held.result;
-  if (r === null) return <LoadingPanel label="Reading the order lists…" />;
-  if (r.state !== "ok") return <UpstreamPanel source="DirectUp Gateway" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
-  const d = detail.result;
-  return (
-    <>
-      <Section sx={{ mb: 2.5, p: 0, overflow: "hidden" }}>
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, px: 2, pt: 1.75, pb: 1 }}>
-          The latest order lists <span style={{ color: MUTED, fontWeight: 400 }}>· newest first · click one to see its lines</span>
-        </Typography>
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small" sx={{ minWidth: 760 }}>
-            <TableHead><TableRow>{["Made", "Store view", "File", "Lines", "By number", "To check", "Not found", "In the cart"].map((h) => <TableCell key={h} sx={th}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {r.data.jobs.length === 0 && <TableRow><TableCell colSpan={8} sx={{ ...td, color: MUTED }}>No order lists yet.</TableCell></TableRow>}
-              {r.data.jobs.map((j) => (
-                <TableRow key={j.id} hover selected={open === j.id} onClick={() => setOpen(open === j.id ? null : j.id)} sx={{ cursor: "pointer" }}>
-                  <TableCell sx={{ ...td, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{when(j.createdAt)}</TableCell>
-                  <TableCell sx={td}>{j.locale || "–"}</TableCell>
-                  <TableCell sx={{ ...td, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={j.filename || ""}>
-                    {j.filename === "eingabe.csv" ? <span style={{ color: MUTED }}>typed in</span> : j.filename || "–"}{j.method === "vision" ? <span style={{ color: MUTED }}> · read by Claude</span> : null}
-                  </TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums" }}>{full(j.counts.total)}</TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums", color: GREEN }}>{full(j.counts.matched)}</TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums", color: j.counts.review ? AMBER : MUTED }}>{full(j.counts.review)}</TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums", color: j.counts.unmatched ? RED : MUTED }}>{full(j.counts.unmatched)}</TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums" }}>{full(j.counts.added)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      </Section>
-      {open && (
-        <Section sx={{ p: 0, overflow: "hidden" }}>
-          {d === null && <Box sx={{ p: 2 }}><CircularProgress size={16} /></Box>}
-          {d && d.state !== "ok" && <Box sx={{ p: 2 }}><Typography sx={{ ...td, color: RED }}>{d.state === "error" ? d.error : "not configured"}</Typography></Box>}
-          {d && d.state === "ok" && (
-            <>
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, px: 2, pt: 1.75, pb: 1 }}>
-                {d.data.filename === "eingabe.csv" ? "Typed in" : d.data.filename || "Order list"} <span style={{ color: MUTED, fontWeight: 400 }}>· {when(d.data.createdAt)} · {d.data.locale || ""} · {full(d.data.lines.length)} lines</span>
-              </Typography>
-              <Box sx={{ overflowX: "auto" }}>
-                <Table size="small" sx={{ minWidth: 900 }}>
-                  <TableHead><TableRow>{["#", "As the customer wrote it", "Qty", "Status", "Our article", "Found by", "Suggestions"].map((h) => <TableCell key={h} sx={th}>{h}</TableCell>)}</TableRow></TableHead>
-                  <TableBody>
-                    {d.data.lines.map((l) => (
-                      <TableRow key={l.idx}>
-                        <TableCell sx={{ ...td, color: MUTED }}>{l.idx + 1}</TableCell>
-                        <TableCell sx={{ ...td, maxWidth: 320 }}>{[l.ref, l.description].filter(Boolean).join(" · ") || "–"}</TableCell>
-                        <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums" }}>{l.qty}{l.unit ? ` ${l.unit}` : ""}</TableCell>
-                        <TableCell sx={td}>
-                          <Chip size="small" label={l.state === "added" ? "in the cart" : l.status} sx={{ fontWeight: 600, color: "#fff",
-                            bgcolor: l.state === "added" ? BLUE : l.status === "matched" ? GREEN : l.status === "review" ? AMBER : l.status === "skipped" ? GREY : RED }} />
-                        </TableCell>
-                        <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums" }}>{l.chosen || "–"}</TableCell>
-                        <TableCell sx={{ ...td, color: MUTED }}>{l.via || l.reason || "–"}</TableCell>
-                        <TableCell sx={{ ...td, color: MUTED, maxWidth: 360 }}>{l.candidates.map((c) => `${c.articleNumber} ${c.description}`.slice(0, 70)).join(" · ") || "–"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            </>
-          )}
-        </Section>
-      )}
-    </>
-  );
-}
-
-// ── Client log ──────────────────────────────────────────────────────────────
-function LogTab() {
-  const [ev, setEv] = useState("");
-  const [n, setN] = useState(0);
-  const held = useHeld<Log>(`/api/website/directup?part=log&ev=${encodeURIComponent(ev)}&n=${n}`, [ev, n]);
-  const r = held.result;
-  if (r === null) return <LoadingPanel label="Reading the tool's log…" />;
-  if (r.state !== "ok") return <UpstreamPanel source="DirectUp Gateway" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
-  const L = r.data;
-  return (
-    <>
-      <Notice tone="info">What the tool and the shop&apos;s bridge report from customers&apos; pages - counts, states, the shop&apos;s own messages - never who the customer is. The last 30 days by kind; click one to see only it.</Notice>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 2 }}>
-        <Chip label="All" onClick={() => setEv("")} variant={ev === "" ? "filled" : "outlined"} sx={{ fontWeight: 600, ...(ev === "" ? { bgcolor: INK, color: "#fff" } : { color: MUTED, borderColor: HAIRLINE }) }} />
-        {L.kinds.map((k) => (
-          <Chip key={k.ev} label={`${k.ev} · ${full(k.n)}`} onClick={() => setEv(k.ev)} variant={ev === k.ev ? "filled" : "outlined"}
-            sx={{ fontWeight: 600, ...(ev === k.ev ? { bgcolor: INK, color: "#fff" } : { color: MUTED, borderColor: HAIRLINE }) }} />
-        ))}
-      </Box>
-      <Section sx={{ p: 0, overflow: "hidden" }}>
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small" sx={{ minWidth: 760 }}>
-            <TableHead><TableRow>{["When", "Event", "What it said"].map((h) => <TableCell key={h} sx={th}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {L.entries.length === 0 && <TableRow><TableCell colSpan={3} sx={{ ...td, color: MUTED }}>Nothing logged.</TableCell></TableRow>}
-              {L.entries.map((e, i) => (
-                <TableRow key={`${e.at}-${i}`}>
-                  <TableCell sx={{ ...td, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{when(e.at)}</TableCell>
-                  <TableCell sx={{ ...td, fontWeight: 600, whiteSpace: "nowrap" }}>{e.ev}</TableCell>
-                  <TableCell sx={{ ...td, color: MUTED, fontFamily: "ui-monospace, monospace", fontSize: "0.74rem", wordBreak: "break-all" }}>{e.data == null ? "" : JSON.stringify(e.data)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      </Section>
-    </>
-  );
-}
-
-// ── Status ──────────────────────────────────────────────────────────────────
 function StatusTab({ o, reload }: { o: Overview; reload: () => void }) {
   const s = o.status;
   const [busy, setBusy] = useState(false);
@@ -243,185 +173,123 @@ function StatusTab({ o, reload }: { o: Overview; reload: () => void }) {
     setBusy(true); setMsg(null);
     const r = await post({ action: "sync" });
     setBusy(false);
-    setMsg(r.ok ? "Pulling the catalogue from PricingHub - it takes about a minute; refresh to see it." : r.error ?? "Did not work.");
+    setMsg(r.ok ? "Copying the catalogue from PricingHub - it takes about a minute; refresh to see it." : r.error ?? "Did not work.");
   };
-  const ok = (b: boolean, yes: string, no: string) => <Chip size="small" label={b ? yes : no} sx={{ fontWeight: 700, color: "#fff", bgcolor: b ? GREEN : RED }} />;
-  const old = s.bridges.filter((b) => b.bridge && b.bridge !== CURRENT_BRIDGE);
+  const reach: { ok: boolean; yes: string; no: string }[] = [
+    { ok: s.keys.hubspot, yes: "HubSpot: pictures, type, status", no: "No HubSpot token" },
+    { ok: s.keys.claude, yes: "Claude: PDFs and photos", no: "No Claude key" },
+    { ok: s.keys.sync, yes: "PricingHub: the catalogue copy", no: "No catalogue key" },
+  ];
   return (
     <>
-      {old.length > 0 && <Notice tone="warn">{old.length} store view{old.length === 1 ? " still runs" : "s still run"} an older bridge. Paste the footer from Settings in those store views.</Notice>}
-      {s.catalogue.error && <Notice tone="warn">The last catalogue pull failed: {s.catalogue.error}</Notice>}
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, gap: 2, mb: 2.5 }}>
-        <StatTile label="Gateway" value={s.version} note={`up ${Math.round(s.uptimeS / 3600)} h · ${o.setting.url.replace(/^https:\/\//, "")}`} />
-        <StatTile label="Catalogue copy" value={full(s.catalogue.articles)} note={`articles, ${full(s.catalogue.crossrefs)} cross-references · no prices`} />
-        <StatTile label="Copied" value={when(s.catalogue.syncedAt)} note="from PricingHub, nightly at 02:30 UTC" />
-        <StatTile label="Order lists kept" value={full(s.jobs)} note={`the last on ${when(s.lastJobAt)}`} />
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
-        <Section>
-          <Title>What the gateway can reach</Title>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1.5 }}>
-            {ok(s.keys.hubspot, "HubSpot: pictures, type, status", "No HubSpot token")}
-            {ok(s.keys.claude, "Claude: PDFs and photos", "No Claude key")}
-            {ok(s.keys.sync, "PricingHub catalogue", "No catalogue key")}
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            {o.isAdmin && <Button size="small" variant="outlined" disabled={busy || s.catalogue.running} onClick={() => void pull()}>{s.catalogue.running ? "Pulling…" : "Pull the catalogue now"}</Button>}
-            <Button size="small" endIcon={<OpenInNewIcon sx={{ fontSize: 15 }} />} href={`${o.setting.url}/landing/tools/directup?embed=1`} target="_blank" rel="noopener">Open the tool</Button>
-            <Button size="small" onClick={reload}>Refresh</Button>
-          </Box>
-          {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>{msg}</Typography>}
-        </Section>
-        <Section sx={{ p: 0, overflow: "hidden" }}>
-          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, px: 2, pt: 1.75, pb: 1 }}>Bridge per store view <span style={{ color: MUTED, fontWeight: 400 }}>· last 30 days</span></Typography>
-          <Table size="small">
-            <TableHead><TableRow>{["Store view", "Bridge", "Seen", "Last"].map((h) => <TableCell key={h} sx={th}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {s.bridges.length === 0 && <TableRow><TableCell colSpan={4} sx={{ ...td, color: MUTED }}>No shop page has opened the tool yet.</TableCell></TableRow>}
-              {s.bridges.map((b, i) => (
-                <TableRow key={i}>
-                  <TableCell sx={td}>{b.locale || "–"}</TableCell>
-                  <TableCell sx={td}><Chip size="small" label={b.bridge || "?"} sx={{ fontWeight: 700, color: "#fff", bgcolor: b.bridge === CURRENT_BRIDGE ? GREEN : AMBER }} /></TableCell>
-                  <TableCell sx={{ ...td, fontVariantNumeric: "tabular-nums" }}>{full(b.n)}</TableCell>
-                  <TableCell sx={{ ...td, whiteSpace: "nowrap" }}>{when(b.last)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Section>
-      </Box>
-    </>
-  );
-}
-
-// ── Settings ────────────────────────────────────────────────────────────────
-function Copy({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Tooltip title={done ? "Copied" : "Copy to paste"} arrow>
-      <IconButton size="small" aria-label="Copy" onClick={() => { void navigator.clipboard.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
-        <ContentCopyIcon sx={{ fontSize: 16, color: done ? GREEN : MUTED }} />
-      </IconButton>
-    </Tooltip>
-  );
-}
-const SNIPPETS: { key: "footer" | "page" | "head"; label: string; need: "Required" | "Optional"; where: string }[] = [
-  { key: "footer", label: "Footer HTML - the bridge", need: "Required", where: "Magento: Content > Design > Configuration > [each store view] > Footer > Miscellaneous HTML. Replace any older DirectUP bridge block; leave the rest of the field as it is." },
-  { key: "page", label: "Page HTML - the DirectUP page", need: "Required", where: "Magento: Content > Pages > DirectUP (URL key direct-up), editor OFF or a PageBuilder \"HTML Code\" element. The same block for every store view." },
-  { key: "head", label: "Head HTML - faster start", need: "Optional", where: "Magento: Content > Design > Configuration > [each store view] > HTML Head > Scripts and Style Sheets. Lets the browser connect to the gateway while the page loads." },
-];
-
-function SettingsTab({ o, reload }: { o: Overview; reload: () => void }) {
-  const [n, setN] = useState(0);
-  const held = useHeld<{ setting: GatewaySetting; snippets: Snippets; isAdmin: boolean }>(`/api/website/directup?part=snippets&n=${n}`, [n]);
-  const [batch, setBatch] = useState(String(o.status.settings.batchSize));
-  const [url, setUrl] = useState(o.setting.url);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const act = async (name: string, body: unknown, done: string) => {
-    setBusy(name); setMsg(null);
-    const r = await post(body);
-    setBusy(null);
-    setMsg(r.ok ? { ok: true, text: done } : { ok: false, text: r.error ?? "Did not work." });
-    if (r.ok) { setN((x) => x + 1); reload(); }
-  };
-  const r = held.result;
-  return (
-    <>
-      {msg && <Notice tone={msg.ok ? "info" : "warn"}>{msg.text}</Notice>}
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 2.5 }}>
-        <Section>
-          <Title>Gateway address</Title>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.25 }}>
-            Where the tool runs. {o.setting.fromDefault ? "The Railway default." : `Set by ${o.setting.by} on ${when(o.setting.at)}.`} After a move, set the new address, regenerate, and paste the footer and the page again.
-          </Typography>
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <TextField size="small" value={url} onChange={(e) => setUrl(e.target.value)} disabled={!o.isAdmin} sx={{ flex: "1 1 280px" }} inputProps={{ "aria-label": "Gateway address" }} />
-            {o.isAdmin && <Button variant="contained" disableElevation disabled={busy !== null || url.trim() === o.setting.url} onClick={() => void act("url", { action: "gateway", url }, "Address saved. Regenerate the snippets for it.")}>Save</Button>}
-          </Box>
-        </Section>
-        <Section>
-          <Title>Lines per request</Title>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.25 }}>One click puts the whole list into one cart. It goes to the shop in requests of this many lines, one after the other. At most 100: the shop refuses longer requests (192 lines did not go through, 128 did).</Typography>
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <TextField size="small" type="number" value={batch} onChange={(e) => setBatch(e.target.value)} disabled={!o.isAdmin} sx={{ width: 120 }} inputProps={{ min: 1, max: 100, "aria-label": "Lines per request" }} />
-            {o.isAdmin && <Button variant="contained" disableElevation disabled={busy !== null || Number(batch) === o.status.settings.batchSize} onClick={() => void act("batch", { action: "settings", batchSize: Number(batch) }, `Lines per request: ${batch}. The tool uses it from the next click.`)}>Save</Button>}
-          </Box>
-        </Section>
-      </Box>
-
-      <Section>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
-          <Title>Installation on the shop</Title>
-          {r?.state === "ok" && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.25 }}>made {when(r.data.snippets.generatedAt)} for {r.data.snippets.url.replace(/^https:\/\//, "")} · gateway {r.data.snippets.version}</Typography>}
-          {o.isAdmin && <Button size="small" variant="outlined" sx={{ ml: "auto", mb: 1.25 }} disabled={busy !== null} onClick={() => void act("regen", { action: "regenerate" }, "The snippets were made again for the gateway's address.")}>
-            {busy === "regen" ? <CircularProgress size={14} /> : "Regenerate"}
-          </Button>}
-        </Box>
-        {r === null && <CircularProgress size={16} />}
-        {r && r.state !== "ok" && <Typography sx={{ ...td, color: RED }}>{r.state === "error" ? r.error : "not configured"}</Typography>}
-        {r?.state === "ok" && r.data.snippets.url !== o.setting.url && (
-          <Notice tone="warn">These snippets were made for {r.data.snippets.url}, not for the address set above. Regenerate.</Notice>
-        )}
-        {r?.state === "ok" && SNIPPETS.map((s) => (
-          <Box key={s.key} sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 1.5, mt: 1.5 }}>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DnsOutlinedIcon />} tint="blue" label="Gateway" value={s.version.replace(/^deploy-/, "")} note={`running for ${Math.round(s.uptimeS / 3600)} h · ${o.setting.url.replace(/^https:\/\//, "")}`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<Inventory2OutlinedIcon />} tint="purple" label="Catalogue copy" value={full(s.catalogue.articles)} note={`articles and ${full(s.catalogue.crossrefs)} cross-references, without prices`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HistoryOutlinedIcon />} tint="green" label="Last copied" value={when(s.catalogue.syncedAt).slice(0, 10)} note={`${when(s.catalogue.syncedAt).slice(11)} · from PricingHub, every night at 02:30 UTC`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ListAltOutlinedIcon />} tint="amber" label="Order lists kept" value={full(s.jobs)} note={`the last on ${when(s.lastJobAt)}`} /></Grid>
+      </Grid>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 5 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<KeyOutlinedIcon />} tint="slate" title="What the gateway can reach" note="Its keys, as set on Railway" />
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 2 }}>
+              {reach.map((k) => <Chip key={k.yes} tint={k.ok ? "green" : "pink"}>{k.ok ? k.yes : k.no}</Chip>)}
+            </Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{s.label}</Typography>
-              <Chip size="small" label={s.need} sx={{ fontWeight: 700, ...(s.need === "Required" ? { bgcolor: INK, color: "#fff" } : { bgcolor: "#eef1f4", color: INK }) }} />
-              <Box sx={{ ml: "auto" }}><Copy text={r.data.snippets[s.key]} /></Box>
+              {o.isAdmin && (
+                <Button size="small" variant="outlined" disabled={busy || s.catalogue.running} onClick={() => void pull()} sx={{ borderRadius: "999px", textTransform: "none", fontWeight: 600 }}>
+                  {s.catalogue.running ? "Copying…" : "Copy the catalogue now"}
+                </Button>
+              )}
+              <Button size="small" endIcon={<OpenInNewIcon sx={{ fontSize: 15 }} />} href={`${o.setting.url}/landing/tools/directup?embed=1`} target="_blank" rel="noopener" sx={{ textTransform: "none", fontWeight: 600 }}>
+                Open the tool
+              </Button>
+              <Button size="small" onClick={reload} sx={{ textTransform: "none", fontWeight: 600 }}>Refresh</Button>
             </Box>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED, my: 0.75 }}>{s.where}</Typography>
-            <Box component="pre" sx={{ m: 0, p: 1.25, maxHeight: 160, overflow: "auto", bgcolor: "#f6f8fa", border: `1px solid ${HAIRLINE}`, borderRadius: 1.5, fontSize: "0.72rem", lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-              {r.data.snippets[s.key]}
+            {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>{msg}</Typography>}
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 7 }}>
+          <GlassCard sx={{ height: "100%", p: 0, pt: { xs: 2, md: 2.5 } }}>
+            <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+              <CardTitle icon={<StorefrontOutlinedIcon />} tint="amber" title="Shop bridge per store view"
+                note={`The footer each store view runs, from its visits in the last 30 days. Current: ${CURRENT_BRIDGE}.`} />
             </Box>
-          </Box>
-        ))}
-      </Section>
+            <Box sx={{ overflowX: "auto" }}>
+            <Table size="small" sx={{ minWidth: 420 }}>
+              <TableHead><TableRow>{["Store view", "Bridge", "Visits", "Last visit"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableBody>
+                {s.bridges.length === 0 && <TableRow><TableCell colSpan={4} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No shop page has opened DirectUP yet.</TableCell></TableRow>}
+                {s.bridges.map((b, i) => (
+                  <TableRow key={i} hover>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{b.locale || "–"}</TableCell>
+                    <TableCell sx={bodyCell}><Chip tint={b.bridge === CURRENT_BRIDGE ? "green" : "amber"}>{b.bridge || "?"}{b.bridge === CURRENT_BRIDGE ? "" : " · older"}</Chip></TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(b.n)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{when(b.last)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            </Box>
+          </GlassCard>
+        </Grid>
+      </Grid>
     </>
   );
 }
 
-// ── the page ────────────────────────────────────────────────────────────────
 export default function DirectUpPage() {
-  const [tab, setTab] = useState<TabKey>("usage");
-  const [days, setDays] = useState(30);
+  const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
+  const [days, setDays] = useState<Days>("30");
   const [forced, setForced] = useState(0);
   const url = `/api/website/directup?part=overview&days=${days}&n=${forced}`;
   const held = useHeld<Overview>(url, [url]);
   const r = held.result;
   const reload = () => setForced((n) => n + 1);
+  const o = r?.state === "ok" ? r.data : null;
 
-  const header = (
-    <PageHeader
-      title="DirectUP"
-      subtitle="The shop's order tool: an order file in, the lines checked, the whole list into the cart"
-      rightSlot={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-          <Tooltip title="Ask the gateway again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
-        </Box>
-      }
-    />
-  );
-  const shell = (children: React.ReactNode) => (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 } }}>
-      {header}
-      <Tabs value={tab} onChange={(_, t: TabKey) => setTab(t)} variant="scrollable" sx={{ mb: 2.5, minHeight: 36, borderBottom: `1px solid ${HAIRLINE}` }}>
-        {([["usage", "Usage"], ["lists", "Order lists"], ["log", "Client log"], ["status", "Status"], ["settings", "Settings"]] as const).map(([k, l]) => (
-          <Tab key={k} value={k} label={l} sx={{ textTransform: "none", fontWeight: 600, minHeight: 36 }} />
-        ))}
-      </Tabs>
-      {children}
+  let body: React.ReactNode;
+  if (r === null) body = <LoadingPanel label="Reading the DirectUp Gateway…" />;
+  else if (r.state === "not-configured") body = <NotConnectedPanel source="DirectUp Gateway" missing={r.missing} />;
+  else if (r.state === "error") body = <UpstreamPanel source="DirectUp Gateway" error={r.error} status={r.status} onRetry={reload} />;
+  else {
+    const d = r.data;
+    const panel =
+      view === "lists" ? <ListsTab total={d.status.jobs} />
+      : view === "activity" ? <LogTab />
+      : view === "status" ? <StatusTab o={d} reload={reload} />
+      : view === "settings" ? <SettingsTab o={d} reload={reload} />
+      : <OverviewTab o={d} days={days} setDays={setDays} />;
+    body = (
+      <Box id={`directup-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+        <Problems o={d} />
+        {panel}
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+      <PageHeader
+        title="DirectUP"
+        subtitle="The shop's order tool: an order file in, every line checked, the whole list into one cart"
+        rightSlot={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            <Tooltip title="Ask the gateway again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
+          </Box>
+        }
+      />
+      <Box>
+        <ReportTabs name="directup" tab={view} onSelect={setView} tabs={[
+          { id: "overview", label: "Overview", count: null },
+          { id: "lists", label: "Order lists", count: o ? full(o.status.jobs) : null },
+          { id: "activity", label: "Activity", count: null },
+          { id: "status", label: "Status", count: null },
+          { id: "settings", label: "Settings", count: null },
+        ]} />
+      </Box>
+      {body}
     </Box>
   );
-
-  if (r === null) return shell(<LoadingPanel label="Reading the DirectUp Gateway…" />);
-  if (r.state === "not-configured") return shell(<NotConnectedPanel source="DirectUp Gateway" missing={r.missing} />);
-  if (r.state === "error") return shell(<UpstreamPanel source="DirectUp Gateway" error={r.error} status={r.status} onRetry={reload} />);
-  const o = r.data;
-  if (tab === "lists") return shell(<ListsTab />);
-  if (tab === "log") return shell(<LogTab />);
-  if (tab === "status") return shell(<StatusTab o={o} reload={reload} />);
-  if (tab === "settings") return shell(<SettingsTab o={o} reload={reload} />);
-  return shell(<UsageTab o={o} days={days} setDays={setDays} />);
 }
