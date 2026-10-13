@@ -200,7 +200,7 @@ async function scan(
       signal,
       body: {
         filterGroups: [{ filters: [{ propertyName: "eshop_activity", operator: "HAS_PROPERTY" }] }],
-        properties: ["eshop_activity", "name", "company_unique_number", "mandant",
+        properties: ["eshop_activity", "name", "domain", "company_unique_number", "mandant",
           "country_custom", "apso_customer", "sales_priority", "hubspot_owner_id"],
         limit: 100,
         after,
@@ -212,7 +212,7 @@ async function scan(
       const p = r.properties ?? {};
       // Our own companies (tests, intercompany): not on the boards, never a
       // ticket, never a morning mail - all three read this scan.
-      if (isInternalCompany(p.name)) continue;
+      if (isInternalCompany(p.name, p.domain)) continue;
       let parsed: ActivityJson;
       try { parsed = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson; } catch { continue; }
 

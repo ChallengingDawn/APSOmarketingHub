@@ -270,6 +270,11 @@ test("isInternalCompany: APSOparts and Angst + Pfister entities, nobody else", (
   for (const n of ["Rubix Spa", "Sati S.r.l.", "Seal Supply B.V.", "Pfister Maschinen AG", null, ""]) {
     assert.equal(isInternalCompany(n), false, String(n));
   }
+  // an internal account under a person's name is known by its domain (13.10.2026: "Luca Fantasia")
+  assert.equal(isInternalCompany("Luca Fantasia", "angst-pfister.com"), true);
+  assert.equal(isInternalCompany("Test", "www.apsoparts.com"), true);
+  assert.equal(isInternalCompany("Rubix Spa", "rubix.com"), false);
+  assert.equal(isInternalCompany("Rubix Spa", "not-angst-pfister.com.example"), false);
 });
 
 test("Jan Kalt (37053854) is ESO; a guessed id is not", () => {

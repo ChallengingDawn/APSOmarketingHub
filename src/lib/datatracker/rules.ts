@@ -89,8 +89,10 @@ export const PROFIT_CENTRES = [
  * check of the day. SARCLA, 05.10: "exclude APSOparts companies from the boards
  * and tickets". By name, because HubSpot carries no internal flag.
  */
-export function isInternalCompany(name: string | null | undefined): boolean {
-  return /^\s*(apso\s*parts|angst\s*\+?\s*pfister)\b/i.test(String(name ?? ""));
+export function isInternalCompany(name: string | null | undefined, domain?: string | null): boolean {
+  if (/^\s*(apso\s*parts|angst\s*\+?\s*pfister)\b/i.test(String(name ?? ""))) return true;
+  // an internal account under a person's name - "Luca Fantasia", angst-pfister.com (SARCLA 13.10.2026)
+  return /(^|\.)(angst-pfister|apsoparts)\.com$/i.test(String(domain ?? "").trim());
 }
 
 /**
