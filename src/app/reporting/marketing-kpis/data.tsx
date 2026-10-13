@@ -29,15 +29,32 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 type Live = { value?: LiveKpis; computing?: boolean; progress?: string; computedAt?: string; error?: string };
 export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: boolean; error?: string };
 
+/**
+ * JSON from one of the hub's own routes. During a deployment the load balancer
+ * answers a request that reaches a stopping task with its own HTML page (13.10:
+ * "Unexpected token '<'"): that is a moment, not an answer, so it is retried.
+ */
+export async function hubJson<T>(url: string): Promise<T> {
+  const r = await fetch(url);
+  const text = await r.text();
+  try { return JSON.parse(text) as T; } catch { throw new Error(`the hub answered ${r.status} without data - it may be restarting`); }
+}
+/** Asks again every 5 s while the hub is busy or restarting; says so only after 2 minutes of failing. */
+export const RETRY_MS = 5000, RETRIES = 24;
+
 export function useMarketingKpis(): [MkState | null, () => void] {
   const [state, setState] = useState<MkState | null>(null);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () => fetch("/api/reporting/marketing-kpis").then((r) => r.json())
-      .then((j: MkState) => { if (!alive) return; setState(j); if (j.live?.computing) timer = setTimeout(load, 5000); })
-      .catch((e) => { if (alive) setState({ error: String(e) }); });
+    const load = (tries = 0) => hubJson<MkState>("/api/reporting/marketing-kpis")
+      .then((j) => { if (!alive) return; setState(j); if (j.live?.computing) timer = setTimeout(load, RETRY_MS); })
+      .catch((e) => {
+        if (!alive) return;
+        if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
+        setState((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
+      });
     load();
     return () => { alive = false; if (timer) clearTimeout(timer); };
   }, [tick]);

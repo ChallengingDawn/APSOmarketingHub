@@ -48,7 +48,7 @@ import {
   type Agg, type Cube, type Dim, type Filters, type Row, type SortKey, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { stageHref } from "./data";
+import { RETRY_MS, RETRIES, hubJson, stageHref } from "./data";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -57,9 +57,14 @@ export function useCustomersCube(): { cube: Cube | null; computing: boolean; pro
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () => fetch("/api/reporting/marketing-kpis/customers").then((r) => r.json())
-      .then((j) => { if (!alive) return; setSt(j); if (j?.cube?.computing) timer = setTimeout(load, 5000); })
-      .catch((e) => { if (alive) setSt({ error: String(e) }); });
+    // a deployment's error page is a moment, not an answer: ask again, keep what is shown
+    const load = (tries = 0) => hubJson<{ ok?: boolean; cube?: SlowState<Cube>; error?: string }>("/api/reporting/marketing-kpis/customers")
+      .then((j) => { if (!alive) return; setSt(j); if (j?.cube?.computing) timer = setTimeout(load, RETRY_MS); })
+      .catch((e) => {
+        if (!alive) return;
+        if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
+        setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
+      });
     load();
     return () => { alive = false; if (timer) clearTimeout(timer); };
   }, []);
