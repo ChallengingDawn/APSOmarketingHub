@@ -3,6 +3,8 @@
 // place on the shop, in the served files and in HubSpot against it. Until somebody sets it, it is
 // the DoC backend's address (DOC_BACKEND_URL, or the Railway default) - the same service today.
 
+import https from "node:https";
+import zlib from "node:zlib";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { backend } from "@/lib/doc/config";
 import { CAD_LOCALES, apiAddress, cadPageUrl, cadSnippet, headerSnippet, iframeOrigin, judge, originOf, scriptOrigin, type PlaceState } from "./places";
@@ -45,10 +47,29 @@ export type Place = {
 
 const UA = "Mozilla/5.0 (compatible; APSOhub settings check)";
 
-async function read(url: string): Promise<string> {
-  const r = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.text();
+/**
+ * A page or file, read with Node's LENIENT HTTP parser. The shop's server sends its large pages with a
+ * malformed chunk size: curl reads them, Node's fetch stops with "terminated" (HPE_INVALID_CHUNK_SIZE,
+ * 14.10.2026 - every row of this tab said "Could not read"). Gzip asked for and unpacked tolerantly.
+ */
+function read(url: string, timeoutMs = 20_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { insecureHTTPParser: true, headers: { "User-Agent": UA, "Accept-Encoding": "gzip" } }, (res) => {
+      if ((res.statusCode ?? 0) >= 400) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      const chunks: Buffer[] = [];
+      res.on("data", (d: Buffer) => chunks.push(d));
+      res.on("error", reject);
+      res.on("end", () => {
+        let body = Buffer.concat(chunks);
+        if (res.headers["content-encoding"] === "gzip") {
+          try { body = zlib.gunzipSync(body, { finishFlush: zlib.constants.Z_SYNC_FLUSH }); } catch (e) { return reject(e as Error); }
+        }
+        resolve(body.toString("utf8"));
+      });
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`timeout after ${timeoutMs} ms`)));
+    req.on("error", reject);
+  });
 }
 
 /** Every place that names the gateway, read live: six shop pages, two served files, plus the two set by hand. */
