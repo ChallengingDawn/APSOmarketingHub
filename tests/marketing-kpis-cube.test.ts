@@ -20,7 +20,7 @@ function cubeOf(list: In[], loaded = 9): Cube {
   return { generatedAt: "", years: [2026, 2025, 2024], loaded: [loaded, 12, 12], running: null, labels, ...fold(companies) };
 }
 const co = (prio: string, segment: string, country: string, owner: string, x: Omit<In, "dims"> = {}): In => ({
-  dims: { prio, segment, potential: potentialBand(x.potential ?? null), country, owner, type: "OEM", mandant: "M100" }, ...x,
+  dims: { prio, segment, potential: potentialBand(x.potential ?? null), country, owner, type: "OEM", apic: "1.1 Machine Manufacturing (OEM)", mandant: "M100" }, ...x,
 });
 const cube = cubeOf([
   co("Prio 1", "APSOcore", "Switzerland", "Anna", { potential: 120_000, cy: { 0: 30_000, 5: 30_000 }, py: { 0: 50_000, 11: 7_000 } }),

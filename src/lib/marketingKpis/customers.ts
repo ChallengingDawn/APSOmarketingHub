@@ -16,7 +16,7 @@ import { chainHistory } from "@/lib/connectors/chainStatus";
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v4";
+const KEY = "marketingKpis:customers:v5";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 export function customersCube(): Promise<SlowState<Cube>> {
@@ -34,7 +34,7 @@ async function build(): Promise<Cube> {
   reportProgress(KEY, "reading the owners");
   const owners = await ownerNames();
 
-  const props = ["sales_priority", "apso_customer", "customer_type", "country_custom", "mandant", "hubspot_owner_id",
+  const props = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id",
     "yearly_customer_potential", ...years.map((y) => `rev_${y}_pc_monthly`)];
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
@@ -69,6 +69,7 @@ async function build(): Promise<Cube> {
           country: index("country", p.country_custom || "Not set"),
           owner: index("owner", owner),
           type: index("type", p.customer_type || "Not set"),
+          apic: index("apic", p.apic_ap || "Not set"),
           mandant: index("mandant", p.mandant || "Not set"),
         },
         potential, months,

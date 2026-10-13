@@ -44,6 +44,7 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
+import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -89,9 +90,10 @@ const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tin
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where our customers are", kpi: "KPI C05" },
   owner: { name: "Sales rep", lower: "sales rep", icon: <PersonOutlineIcon />, tint: "slate", note: "The company owner in HubSpot", kpi: "" },
   type: { name: "Customer type", lower: "customer type", icon: <CategoryOutlinedIcon />, tint: "pink", note: "OEM, C2S workshops, MRO, resellers", kpi: "KPI C04" },
+  apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The company's APIC industry code - 1.x OEM industries, down to the sub-industry", kpi: "" },
   mandant: { name: "Mandant", lower: "mandant", icon: <AccountBalanceOutlinedIcon />, tint: "slate", note: "The ERP company the customer is invoiced from", kpi: "KPI C05" },
 };
-const ORDER: Dim[] = ["prio", "segment", "potential", "country", "owner", "type", "mandant"];
+const ORDER: Dim[] = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant"];
 const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 
 const int = (n: number) => Math.round(n).toLocaleString("en");

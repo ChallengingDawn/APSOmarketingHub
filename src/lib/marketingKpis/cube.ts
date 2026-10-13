@@ -4,17 +4,17 @@
 // filter").
 //
 // Every company in HubSpot is counted into one cell per combination of its
-// sales priority, APSO segment, potential band, country, owner, customer type
-// and mandant. Beside the cells: revenue per cell month by month over three
+// sales priority, APSO segment, potential band, country, owner, customer type,
+// APIC and mandant. Beside the cells: revenue per cell month by month over three
 // years, and the companies that bought, by the months they bought in across all
 // three - so "who bought between October and March" counts each company once,
 // over a year end too. Counts and sums only - no company, no id.
 
-export const DIMS = ["prio", "segment", "potential", "country", "owner", "type", "mandant"] as const;
+export const DIMS = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant"] as const;
 export type Dim = (typeof DIMS)[number];
 
 /** A cell: the dimension indexes in DIMS order, then these. */
-export const CELL = { n: 7, pot: 8 } as const;
+export const CELL = { n: DIMS.length, pot: DIMS.length + 1 } as const;
 
 export type Cube = {
   generatedAt: string;
@@ -218,7 +218,8 @@ export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[
     sow: (r) => (r.pot > 0 ? r.revPot / r.pot : -Infinity),
   };
   const dir = desc ? 1 : -1;
-  const cmp = key === "label" ? (a: Row, b: Row) => dir * a.label.localeCompare(b.label)
+  // names compare as people read them: APIC 1.1.9 before 1.1.10
+  const cmp = key === "label" ? (a: Row, b: Row) => dir * a.label.localeCompare(b.label, "en", { numeric: true })
     : key === "natural" ? (fixed ? (a: Row, b: Row) => fixed.indexOf(a.label) - fixed.indexOf(b.label) : (a: Row, b: Row) => b.rev - a.rev)
       : (a: Row, b: Row) => dir * (val[key]!(b) - val[key]!(a));
   return [...rows].sort((a, b) => cmp(a, b) || b.n - a.n || a.label.localeCompare(b.label));
