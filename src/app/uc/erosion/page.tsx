@@ -461,7 +461,7 @@ export default function ErosionApp() {
   const busy = tr === null || fr === null || ticketsHeld.stale || forecastHeld.stale;
   const header = (
     <PageHeader
-      title="Erosion on article level"
+      title="UC16 Erosion on article level"
       subtitle="Customers whose yearly reorder has lapsed, the tickets raised for them, and what ESO and TSA did"
       rightSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

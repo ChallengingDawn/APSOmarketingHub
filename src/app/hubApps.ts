@@ -143,10 +143,8 @@ export const APPS: HubApp[] = [
     line: "Communication, integration and sales tools.",
     from: "#f5a23c", to: "#c97a10", wash: "rgba(245,162,60,.10)", icon: "hub",
     subs: [
-      { name: "Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
-      { name: "Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
       // the lifecycle use cases, reported (they run as HubSpot workflows)
-      { name: "Lifecycle overview", short: "Overview", note: "Every company's stage, and the moves each month", href: "/uc/lifecycle", icon: "route", ...PURPLE },
+      { name: "Use Cases Overview", short: "Overview", note: "Every use case, and every company's lifecycle stage", href: "/uc/lifecycle", icon: "route", ...PURPLE },
       { name: "UC2 Welcome", note: "New registrants, qualified and their first order", href: "/uc/lifecycle/welcome", icon: "groups", ...BLUE },
       { name: "UC15 Lost Leads", note: "Lost leads pushed to a first purchase", href: "/uc/lifecycle/lost-leads", icon: "target", ...PINK },
       { name: "UC6 Thank You", note: "First purchasers and their ratings", href: "/uc/lifecycle/thank-you", icon: "verified", ...GREEN },
@@ -155,6 +153,8 @@ export const APPS: HubApp[] = [
       { name: "UC13 Reactivation", note: "Churned customers, and who came back", href: "/uc/lifecycle/reactivation", icon: "route", ...PURPLE },
       { name: "UC4 Abandoned Cart", note: "Carts left in the shop, and the orders after", href: "/uc/lifecycle/abandoned-cart", icon: "tag", ...BLUE },
       { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
+      { name: "UC16 Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
+      { name: "UC17 Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
       { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
       { name: "Owner redirection", note: "Companies to the right owner, by country or person", href: "/uc/owner-redirection", icon: "groups", ...GREEN },

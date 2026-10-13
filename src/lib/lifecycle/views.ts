@@ -45,7 +45,7 @@ const answerOf = (t: Ticket) => t.resolution || (t.closed ? "Closed, no answer g
 function resolutionBars(tickets: Ticket[], title = "What ESO and TSA answered"): ChartView {
   const t = tally(tickets.map(answerOf));
   return {
-    kind: "bars", title, note: `${plural(tickets.length, "ticket")} raised in the period, by the answer on the ticket`, fmt: "n",
+    kind: "bars", tab: "follow", title, note: `${plural(tickets.length, "ticket")} raised in the period, by the answer on the ticket`, fmt: "n",
     rows: t.map((r) => ({ label: r.label, value: r.n, secondary: pct(r.n, tickets.length) })),
   };
 }
@@ -202,8 +202,8 @@ export function overviewView(d: OverviewData, emails: EmailData | null, win: Win
   }
 
   return {
-    key: "overview", generatedAt: d.generatedAt, code: "Lifecycle", title: "Lifecycle overview",
-    does: "Where every company stands in its lifecycle today, and how many moved stage each month - the stages the UC workflows move.",
+    key: "overview", generatedAt: d.generatedAt, code: "UC", title: "Use Cases Overview",
+    does: "Every use case, where every company stands in its lifecycle today, and how many moved stage each month.",
     converted: "Each UC page says what converted means there; all of them count companies and real ERP orders.",
     window: win,
     tiles: [
@@ -256,7 +256,7 @@ export function whoQualified(cos: Co[], names: Record<string, string>): ChartVie
     by.set(person, p);
   }
   return {
-    kind: "table", title: "Who qualified", fmt: "n",
+    kind: "table", tab: "follow", title: "Who qualified", fmt: "n",
     note: "The period's new MQLs, by the person who set \"Qualified by Company Owner\"; not decided yet = the company owner",
     cols: [
       { key: "person", label: "Person", fmt: "text" },
@@ -327,7 +327,7 @@ export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
         footnote: foot(months),
       },
       {
-        kind: "stack", title: "ESO's follow-up: tasks until October 2026, tickets since", note: "Tasks and tickets the UC2 workflows created each month", fmt: "n",
+        kind: "stack", tab: "follow", title: "ESO's follow-up: tasks until October 2026, tickets since", note: "Tasks and tickets the UC2 workflows created each month", fmt: "n",
         parts: [{ key: "tasks", label: "Tasks" }, { key: "tickets", label: "Tickets" }],
         rows: (() => {
           const r = monthly(d.tasks, (t) => t.created, months, [{ key: "tasks", label: "" }, { key: "tickets", label: "" }], () => "tasks");
@@ -590,12 +590,12 @@ export function uc10View(d: UcData, emails: EmailData | null, win: Win): View {
         footnote: foot(months),
       },
       {
-        kind: "stack", title: "Reminder tasks per month", note: "\"No repeated purchase\" tasks for the owner, UC10 and UC11", fmt: "n",
+        kind: "stack", tab: "follow", title: "Reminder tasks per month", note: "\"No repeated purchase\" tasks for the owner, UC10 and UC11", fmt: "n",
         parts: [{ key: "UC10", label: "UC10" }, { key: "UC11", label: "UC11" }],
         rows: monthly(d.tasks, (t) => t.created, months, [{ key: "UC10", label: "" }, { key: "UC11", label: "" }], (t) => (/UC_11/i.test(t.workflow) ? "UC11" : "UC10")),
       },
       {
-        kind: "bars", title: "Why they did not buy again", note: "The reason on the company, every company that has one", fmt: "n",
+        kind: "bars", tab: "follow", title: "Why they did not buy again", note: "The reason on the company, every company that has one", fmt: "n",
         rows: (d.reasons ?? []).map((r) => ({ label: r.label, value: r.n })),
       },
     ],
@@ -657,7 +657,7 @@ export function uc13View(d: UcData, emails: EmailData | null, win: Win): View {
         footnote: foot(months),
       },
       {
-        kind: "stack", title: "Tasks per month", note: "Follow-up when the discount code got no reaction, and the countries' own outreach", fmt: "n",
+        kind: "stack", tab: "follow", title: "Tasks per month", note: "Follow-up when the discount code got no reaction, and the countries' own outreach", fmt: "n",
         parts: [{ key: "follow", label: "Follow-up" }, { key: "country", label: "Country outreach" }],
         rows: monthly(d.tasks, (t) => t.created, months, [{ key: "follow", label: "" }, { key: "country", label: "" }], (t) => (/Outreach/i.test(t.workflow) ? "country" : "follow")),
       },
@@ -800,7 +800,7 @@ export function uc12View(d: UcData, emails: EmailData | null, win: Win): View {
     ],
     charts: [
       {
-        kind: "stack", title: "Flags per month", note: "Revenue-drop tasks created, by value segment", fmt: "n",
+        kind: "stack", tab: "follow", title: "Flags per month", note: "Revenue-drop tasks created, by value segment", fmt: "n",
         parts: [{ key: "high", label: "High value" }, { key: "medium", label: "Medium value" }, { key: "v1", label: "First version" }],
         rows: monthly(d.tasks, (t) => t.created, months, [{ key: "high", label: "" }, { key: "medium", label: "" }, { key: "v1", label: "" }], (t) => era(t.workflow)),
       },

@@ -116,13 +116,17 @@ export type Tile = { label: string; value: number | string | null; fmt: Fmt; not
 
 export type Row = Record<string, string | number | null>;
 
-export type ChartView =
+/** Where a chart sits: the UC's results, or the follow-up (tickets, tasks, who did what). */
+export type ChartTab = "results" | "follow";
+
+export type ChartView = ({ tab?: ChartTab }) & (
   | { kind: "stack"; title: string; note: string; parts: { key: string; label: string }[]; rows: Row[]; fmt: Fmt; footnote?: string }
   | { kind: "lines"; title: string; note: string; parts: { key: string; label: string }[]; rows: Row[]; fmt: Fmt; footnote?: string }
   | { kind: "grouped"; title: string; note: string; current: string; prior: string; rows: { x: string; current: number | null; prior: number | null }[]; fmt: Fmt; footnote?: string }
   | { kind: "trend"; title: string; note: string; label: string; points: { x: string; value: number | null }[]; fmt: Fmt; footnote?: string; extra?: { columns: string[]; rows: (string | number)[][] } }
   | { kind: "bars"; title: string; note: string; rows: { label: string; value: number; secondary?: string }[]; fmt: Fmt; footnote?: string }
-  | { kind: "table"; title: string; note: string; cols: Col[]; rows: Row[]; fmt: Fmt; footnote?: string };
+  | { kind: "table"; title: string; note: string; cols: Col[]; rows: Row[]; fmt: Fmt; footnote?: string }
+);
 
 export type Col = { key: string; label: string; fmt: Fmt; hint?: string };
 

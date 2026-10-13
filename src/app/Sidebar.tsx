@@ -282,10 +282,8 @@ const navSections: NavSection[] = [
     icon: <HubIcon />,
     color: "#eda100",
     items: [
-      { group: "Use cases", label: "UCX - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
-      { group: "Use cases", label: "UCX - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       // the lifecycle use cases' reports - they run as HubSpot workflows; the hub only reads (SARCLA, 13.10.2026)
-      { group: "Use cases", label: "Lifecycle Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
+      { group: "Use cases", label: "Use Cases Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
       { group: "Use cases", label: "UC2 - Welcome", href: "/uc/lifecycle/welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
       { group: "Use cases", label: "UC15 - Lost Leads", href: "/uc/lifecycle/lost-leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
       { group: "Use cases", label: "UC6 - Thank You", href: "/uc/lifecycle/thank-you", icon: <ThumbUpOffAltIcon fontSize="small" /> },
@@ -294,6 +292,9 @@ const navSections: NavSection[] = [
       { group: "Use cases", label: "UC13 - Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
       { group: "Use cases", label: "UC4 - Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
       { group: "Use cases", label: "UC12 - Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
+      // new use cases, numbered after the lifecycle ones (SARCLA, 13.10.2026)
+      { group: "Use cases", label: "UC16 - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
+      { group: "Use cases", label: "UC17 - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },

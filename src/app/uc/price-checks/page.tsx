@@ -431,7 +431,7 @@ export default function PriceCheckTickets() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <Box>
         <PageHeader
-          title="Price check tickets"
+          title="UC17 Price check tickets"
           subtitle="Customers who priced articles in the shop and did not order, the tickets raised to call them, and what came of them"
           rightSlot={
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

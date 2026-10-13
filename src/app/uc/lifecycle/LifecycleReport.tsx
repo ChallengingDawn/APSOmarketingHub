@@ -53,7 +53,8 @@ import { compact, full, percent } from "@/app/charts/format";
 import {
   ACCENT, AMBER, CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, TINT, bodyCell, clip, glass, headCell, hsTicket,
 } from "@/app/uc/report/ui";
-import { PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
+import { ReportTabs, useHashTab, type TabDef } from "@/app/uc/report/Tabs";
+import { HUB_UCS, PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
 import type { ChartView, Col, EmailView, Fmt, IconKey, Row, View } from "@/lib/lifecycle/types";
 
 /* ── the data ──────────────────────────────────────────────────────────── */
@@ -388,12 +389,12 @@ function Findings({ items }: { items: string[] }) {
   );
 }
 
-/** The UC pages, as cards - on the overview. */
+/** The UC pages, as cards - on the overview: the lifecycle UCs, then the hub's own. */
 function UcCards() {
   return (
     <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" } }}>
-      {UCS.map((u) => (
-        <Box key={u.key} component={Link} href={u.href} sx={{
+      {[...UCS, ...HUB_UCS].map((u) => (
+        <Box key={u.code} component={Link} href={u.href} sx={{
           ...glass, borderRadius: "18px", p: 2, textDecoration: "none", display: "grid", gap: 0.5,
           transition: "box-shadow .15s", "&:hover": { boxShadow: "0 2px 6px rgba(31,45,78,.08), 0 16px 36px rgba(31,45,78,.12)" },
         }}>
@@ -406,17 +407,62 @@ function UcCards() {
   );
 }
 
+type TabId = "cases" | "results" | "follow" | "list" | "emails";
+const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", follow: "#follow-up", list: "#list", emails: "#emails" };
+
+/** What each page's list tab is called. */
+const LIST_TAB: Record<ViewKey, string> = {
+  overview: "Stage changes", uc2: "New MQLs", uc15: "Tickets", uc6: "Tickets", uc9: "New customers",
+  uc10: "Past their reorder", uc13: "Churn entries", uc4: "Tickets", uc12: "Flagged companies",
+};
+
+/** Charts two to a row; a table, and a last chart left alone, take the whole row. */
+function ChartGrid({ charts, stale }: { charts: ChartView[]; stale: boolean }) {
+  if (!charts.length) return <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing to show here.</Typography></GlassCard>;
+  const plain = charts.filter((x) => x.kind !== "table");
+  return (
+    <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" } }}>
+      {charts.map((c, i) => {
+        const wide = c.kind === "table" || (plain.length % 2 === 1 && c === plain[plain.length - 1]);
+        return (
+          <Box key={`${c.title}-${i}`} sx={{ minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
+            {c.kind === "table" ? <TableCard c={c} /> : <Chart c={c} stale={stale} />}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 export default function LifecycleReport({ view: key }: { view: ViewKey }) {
   const { resp, stale } = useLifecycle(key);
   const v = resp?.view ?? null;
   const st = resp?.state ?? null;
   const uc = UCS.find((u) => u.key === key);
-  const title = v ? (key === "overview" ? v.title : `${v.code} ${v.title}`) : uc ? `${uc.code} ${uc.title}` : "Lifecycle overview";
-  const does = v?.does ?? uc?.does ?? "Where every company stands in its lifecycle today, and how many moved stage each month.";
+  const overview = key === "overview";
+  const title = v ? (overview ? v.title : `${v.code} ${v.title}`) : uc ? `${uc.code} ${uc.title}` : "Use Cases Overview";
+  const does = v?.does ?? uc?.does ?? "Every use case, where every company stands in its lifecycle today, and how many moved stage each month.";
   const busy = !resp || stale || !!st?.computing || !!resp?.emailState?.computing;
+  const [tab, selectTab] = useHashTab<TabId>(TAB_HASH, overview ? "cases" : "results");
+  const results = (v?.charts ?? []).filter((c) => (c.tab ?? "results") === "results");
+  const follow = (v?.charts ?? []).filter((c) => c.tab === "follow");
+  const tabs: TabDef<TabId>[] = overview
+    ? [
+        { id: "cases", label: "Use cases", count: String(UCS.length + HUB_UCS.length) },
+        { id: "results", label: "Lifecycle stages", count: null },
+        { id: "list", label: LIST_TAB.overview, count: null },
+      ]
+    : [
+        { id: "results", label: "Results", count: null },
+        { id: "follow", label: "Follow-up", count: null },
+        { id: "list", label: LIST_TAB[key], count: v?.list ? full(v.list.total) : null },
+        ...(key !== "uc12" ? [{ id: "emails" as const, label: "Emails", count: resp?.emails ? String(resp.emails.rows.length) : null }] : []),
+      ];
+  const shown: TabId = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+  const needsData = shown !== "cases";
 
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gap: 2.5 }}>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <Box>
         <PageHeader
           title={title}
@@ -431,8 +477,6 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         <Typography sx={{ fontSize: "0.88rem", color: INK, mt: -1.5 }}>{v?.converted ?? uc?.converted ?? ""}</Typography>
       </Box>
 
-      {key === "overview" && <UcCards />}
-
       {resp && !resp.ok && (
         <GlassCard>
           <Typography sx={{ fontSize: "0.9rem", color: RED }}>
@@ -441,7 +485,26 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         </GlassCard>
       )}
 
-      {resp?.ok && !v && (
+      {v && (
+        <>
+          <Findings items={v.findings} />
+          {st?.computing && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Refreshing in the background - showing the last finished read.</Typography>}
+          {st?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>The last refresh failed ({st.error}) - showing the read before it.</Typography>}
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: `repeat(${Math.min(v.tiles.length, 6) > 4 ? 3 : Math.max(2, v.tiles.length)}, 1fr)` } }}>
+            {v.tiles.map((t) => (
+              <KpiTile key={t.label} icon={ICON[t.icon]} tint={t.tint} label={t.label} value={fmtValue(t.value, t.fmt)} note={t.note} />
+            ))}
+          </Box>
+        </>
+      )}
+
+      <Box>
+        <ReportTabs name="lifecycle" tab={shown} onSelect={selectTab} tabs={tabs} />
+      </Box>
+
+      {shown === "cases" && <Box id="lifecycle-panel-cases" role="tabpanel"><UcCards /></Box>}
+
+      {needsData && resp?.ok && !v && (
         <GlassCard>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
             {!st?.error && <CircularProgress size={18} />}
@@ -452,45 +515,26 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         </GlassCard>
       )}
 
+      {v && shown === "results" && <Box id="lifecycle-panel-results" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={results} stale={stale} /></Box>}
+      {v && shown === "follow" && <Box id="lifecycle-panel-follow" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={follow} stale={stale} /></Box>}
+      {v && shown === "list" && (
+        <Box id="lifecycle-panel-list" role="tabpanel" sx={{ minWidth: 0 }}>
+          {v.list ? <List v={v.list} /> : <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing to show here.</Typography></GlassCard>}
+        </Box>
+      )}
+      {shown === "emails" && resp?.ok && (
+        <Box id="lifecycle-panel-emails" role="tabpanel" sx={{ minWidth: 0 }}><Emails e={resp.emails ?? null} st={resp.emailState ?? null} /></Box>
+      )}
+
       {v && (
-        <>
-          <Findings items={v.findings} />
-          {st?.computing && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Refreshing in the background - showing the last finished read.</Typography>}
-          {st?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>The last refresh failed ({st.error}) - showing the read before it.</Typography>}
-
-          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: `repeat(${Math.min(v.tiles.length, 6) > 4 ? 3 : Math.max(2, v.tiles.length)}, 1fr)` } }}>
-            {v.tiles.map((t) => (
-              <KpiTile key={t.label} icon={ICON[t.icon]} tint={t.tint} label={t.label} value={fmtValue(t.value, t.fmt)} note={t.note} />
-            ))}
-          </Box>
-
-          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" } }}>
-            {v.charts.map((c, i) => {
-              // a table takes the whole row; so does the last chart when the rest leave it alone
-              const charts = v.charts.filter((x) => x.kind !== "table");
-              const wide = c.kind === "table" || (charts.length % 2 === 1 && c === charts[charts.length - 1]);
-              return (
-                <Box key={`${c.title}-${i}`} sx={{ minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
-                  {c.kind === "table" ? <TableCard c={c} /> : <Chart c={c} stale={stale} />}
-                </Box>
-              );
-            })}
-          </Box>
-
-          {v.list && <List v={v.list} />}
-
-          {key !== "overview" && key !== "uc12" && <Emails e={resp?.emails ?? null} st={resp?.emailState ?? null} />}
-
-          <Box sx={{ display: "grid", gap: 0.5 }}>
-            {v.notes.map((n) => <Typography key={n} sx={{ fontSize: "0.78rem", color: MUTED }}>{n}</Typography>)}
-            <Typography sx={{ fontSize: "0.75rem", color: FAINT }}>
-              Read from HubSpot {new Date(v.generatedAt).toLocaleString("en-GB")} · refreshed every 12 hours ·{" "}
-              {v.sources.map((s) => `${full(s.n)} ${s.label}`).join(" · ")}
-            </Typography>
-          </Box>
-        </>
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          {v.notes.map((n) => <Typography key={n} sx={{ fontSize: "0.78rem", color: MUTED }}>{n}</Typography>)}
+          <Typography sx={{ fontSize: "0.75rem", color: FAINT }}>
+            Read from HubSpot {new Date(v.generatedAt).toLocaleString("en-GB")} · refreshed every 12 hours ·{" "}
+            {v.sources.map((s) => `${full(s.n)} ${s.label}`).join(" · ")}
+          </Typography>
+        </Box>
       )}
     </Box>
   );
 }
-

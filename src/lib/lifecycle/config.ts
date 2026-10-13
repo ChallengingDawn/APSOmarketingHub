@@ -108,6 +108,12 @@ export type Uc = {
   findings: string[];
 };
 
+/** The use cases the hub runs itself (not lifecycle workflows) - cards on the overview, numbered after the others. */
+export const HUB_UCS = [
+  { code: "UC16", title: "Erosion on article level", href: "/uc/erosion", does: "Customers whose yearly reorder of an article has lapsed get a ticket for ESO or TSA." },
+  { code: "UC17", title: "Price check tickets", href: "/uc/price-checks", does: "Customers who priced articles in the shop and did not order get a ticket to call them." },
+];
+
 export const UCS: Uc[] = [
   {
     key: "uc2", code: "UC2", title: "Welcome", href: "/uc/lifecycle/welcome",
