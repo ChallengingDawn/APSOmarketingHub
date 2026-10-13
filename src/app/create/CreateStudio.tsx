@@ -1369,18 +1369,19 @@ export default function CreateStudio({
           })()}
 
           {!busy && designing && (
-            <Box className="fade-in-result">
-              {/* ── Canvas hero — everything happens here ── */}
-              <Card>
-                <Box sx={{ p: 2, borderBottom: "1px solid #e6e8ec", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                  <BrushIcon sx={{ fontSize: 20, color: "#ed1b2f" }} />
-                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: "#1a1d21" }}>
-                    {designing.target === "draft"
-                      ? `Canvas — your draft${draft?.draftId ? ` (#${draft.draftId})` : ""}`
-                      : designing.target === "concept"
-                        ? `Canvas — concept ${designing.idx + 1} of ${concepts.length}`
-                        : "Canvas — blank"}
-                  </Typography>
+            <Box className="fade-in-result" sx={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+              {/* The artboard sits bare on the grey. Its name and type are in
+                  the chrome already; a title row here repeated the top bar and
+                  cost a strip of height, and the Card around it put a second
+                  white frame around a white page. */}
+              <Box sx={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                <Box sx={{
+                  display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", flexShrink: 0,
+                  alignSelf: "center", mb: 1,
+                  px: 1, py: 0.5, borderRadius: "999px",
+                  bgcolor: "#fff", border: "1px solid rgba(21,34,58,.10)",
+                  boxShadow: "0 1px 3px rgba(21,34,58,.10)",
+                }}>
                   {designing.target === "concept" && concepts.length > 1 && (
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1 }}>
                       <IconButton
@@ -1406,7 +1407,6 @@ export default function CreateStudio({
                       </IconButton>
                     </Box>
                   )}
-                  <Box sx={{ flex: 1 }} />
                   {activeSeeds.length > 0 && (
                     <Tooltip title="Place the generated kicker, headline, supporting line and CTA onto the canvas as editable text (with readable pills)">
                       <Button size="small" onClick={() => setSeedSignal((v) => v + 1)} startIcon={<TitleIcon sx={{ fontSize: 15 }} />} sx={{ fontWeight: 700, color: NAVY }}>
@@ -1425,7 +1425,7 @@ export default function CreateStudio({
                     </Button>
                   )}
                 </Box>
-                <Box sx={{ p: 2 }}>
+                <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
                   <EditorCanvas
                     key={
                       designing.target === "draft"
@@ -1472,7 +1472,7 @@ export default function CreateStudio({
                     </Typography>
                   )}
                 </Box>
-              </Card>
+              </Box>
 
               {/* ── Content & refine — collapsible panel below the canvas ── */}
               {((designing.target === "draft" && Boolean(draft)) || (designing.target === "concept" && Boolean(concepts[designing.idx]))) && (
