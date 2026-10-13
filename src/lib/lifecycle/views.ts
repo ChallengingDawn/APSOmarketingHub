@@ -242,7 +242,7 @@ export function overviewView(d: OverviewData, emails: EmailData | null, win: Win
   return {
     key: "overview", generatedAt: d.generatedAt, code: "UC", title: "Use Cases Overview",
     does: "Every use case, where every company stands in its lifecycle today, and how many moved stage each month.",
-    converted: "Each UC page says what converted means there; all of them count companies and real ERP orders.",
+    converted: "",
     window: win,
     tiles: [
       { label: "Companies", value: d.total, fmt: "n", icon: "companies", tint: "blue", note: `${n0(d.noStage)} without a lifecycle stage` },

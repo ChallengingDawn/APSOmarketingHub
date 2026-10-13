@@ -565,7 +565,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
             </Box>
           }
         />
-        <Typography sx={{ fontSize: "0.88rem", color: INK, mt: -1.5 }}>{v?.converted ?? uc?.converted ?? ""}</Typography>
+        {(v?.converted ?? uc?.converted) && <Typography sx={{ fontSize: "0.88rem", color: INK, mt: -1.5 }}>{v?.converted ?? uc?.converted}</Typography>}
       </Box>
 
       {resp && !resp.ok && (
