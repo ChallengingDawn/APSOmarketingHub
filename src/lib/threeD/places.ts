@@ -7,6 +7,7 @@
 // and /{locale}/service/3d-cad-data (six store views) frames
 //   <iframe src="https://commercehubbackend-production.up.railway.app/cad?v=anim2&lang=de" ...>
 // pdp3d.js and cad.html themselves name the service too (var/const API = '...').
+// Since 14.10.2026 the CMS page takes one iframe for all six store views (cadSnippet, no lang=).
 
 export const SHOP = "https://www.apsoparts.com";
 /** The store views that have the "3D CAD data" page (their sitemaps list it). */
@@ -15,9 +16,14 @@ export const cadPageUrl = (locale: string) => `${SHOP}/${locale}/service/3d-cad-
 
 /** What goes into Magento's HTML Head (Content > Design > Configuration), every store view. */
 export const headerSnippet = (gateway: string) => `<script defer src="${gateway}/pdp3d.js"></script>`;
-/** What goes into each store view's "3D CAD data" CMS page - the attributes as found on the live page. */
-export const cadSnippet = (gateway: string, locale: string) =>
-  `<iframe src="${gateway}/cad?v=anim2&lang=${locale.slice(0, 2)}" style="width:100%;height:1050px;border:0;display:block" title="Download 3D Models" loading="lazy"></iframe>`;
+/**
+ * What goes into the "3D CAD data" CMS page - ONE snippet for all six store views (SARCLA, 14.10.2026:
+ * "one for all, like DirectUP"). No lang=: the shop sends the page's full address as the referrer
+ * (Referrer-Policy: no-referrer-when-downgrade), the catalogue reads /fr-FR/ from it and writes the
+ * language into its own address, so the gateway counts its calls under the store view.
+ */
+export const cadSnippet = (gateway: string) =>
+  `<iframe src="${gateway}/cad?v=anim2" style="width:100%;height:1050px;border:0;display:block" title="Download 3D Models" loading="lazy"></iframe>`;
 
 export function originOf(url: string | null | undefined): string | null {
   try { return url ? new URL(url).origin : null; } catch { return null; }

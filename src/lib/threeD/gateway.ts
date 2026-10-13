@@ -10,6 +10,8 @@ import { gatewayAdminUrl } from "./calls";
 import { CAD_LOCALES, apiAddress, cadPageUrl, cadSnippet, headerSnippet, iframeOrigin, judge, originOf, scriptOrigin, type PlaceState } from "./places";
 
 const KV = "threeD:gateway";
+/** The address written into the AP-Link files card of the hub's HubSpot app, as uploaded (build #23). */
+const CARD_GATEWAY = "https://3d-gateway-production.up.railway.app";
 
 export type GatewaySetting = { url: string; by: string | null; at: string | null; fromDefault: boolean };
 
@@ -72,7 +74,7 @@ function read(url: string, timeoutMs = 20_000): Promise<string> {
   });
 }
 
-/** Every place that names the gateway, read live: six shop pages, two served files, plus the two set by hand. */
+/** Every place that names the gateway: six shop pages and two served files read live, plus the HubSpot card. */
 export async function checkPlaces(gateway: string): Promise<Place[]> {
   const pages = await Promise.all(CAD_LOCALES.map((l) => read(cadPageUrl(l)).then((html) => ({ l, html }), (e: Error) => ({ l, error: e.message }))));
   const [pdp, cad] = await Promise.all([read(`${gateway}/pdp3d.js`).then((t) => ({ t }), (e: Error) => ({ error: e.message })),
@@ -93,7 +95,7 @@ export async function checkPlaces(gateway: string): Promise<Place[]> {
     out.push({
       key: `cad:${p.l}`, group: "Shop (Magento)", label: `3D CAD data page · ${p.l}`,
       where: `Content > Pages > "3D CAD data" (service/3d-cad-data), store view ${p.l}`,
-      found, state: "html" in p ? judge(found, gateway) : "error", snippet: cadSnippet(gateway, p.l), url: cadPageUrl(p.l),
+      found, state: "html" in p ? judge(found, gateway) : "error", snippet: cadSnippet(gateway), url: cadPageUrl(p.l),
       ...("error" in p ? { note: `The page could not be read: ${p.error}` } : {}),
     });
   }
@@ -107,8 +109,10 @@ export async function checkPlaces(gateway: string): Promise<Place[]> {
     });
   }
   out.push({
-    key: "card", group: "HubSpot", label: "AP-Link 3D card", where: "C:\\dev\\AP-Link 3D Files\\hubspot-project (fetch3d.js, Fetch3dCard.jsx, app.json)",
-    found: null, state: "manual", note: "Written into the card - change the three files and upload the project after a move.",
+    key: "card", group: "HubSpot", label: "AP-Link files card (Products & Pricing)",
+    where: "The hub's HubSpot app: C:\\dev\\hubspot-apsomarketinghub\\src\\app\\cards\\ApLinkFilesCard.jsx (GATEWAY) and app-hsmeta.json (permittedUrls)",
+    found: CARD_GATEWAY, state: judge(CARD_GATEWAY, gateway),
+    note: "Read from the card's source, not from HubSpot (build #23, 14.10.2026). After a move: change both files and upload the app.",
   });
   return out;
 }

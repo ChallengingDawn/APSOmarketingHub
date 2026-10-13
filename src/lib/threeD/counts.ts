@@ -7,6 +7,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   catalogue: "3D catalogue page",
   "product-page": "Product page (3D button)",
   "hubspot-card": "HubSpot card",
+  hub: "This hub (lookups, service check)",
   other: "Other / direct",
 };
 

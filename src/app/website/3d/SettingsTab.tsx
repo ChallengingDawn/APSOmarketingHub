@@ -41,9 +41,9 @@ const STATE: Record<PlaceState, { label: string; tint: Tint }> = {
 };
 
 const GROUP: Record<Place["group"], { icon: React.ReactNode; tint: Tint; note: string }> = {
-  "Shop (Magento)": { icon: <StorefrontOutlinedIcon />, tint: "amber", note: "Read from the live shop pages - paste the snippet where a row is red" },
+  "Shop (Magento)": { icon: <StorefrontOutlinedIcon />, tint: "amber", note: "Read from the live shop pages - paste the snippet where a row is red. The 3D CAD pages take the same snippet in every store view" },
   "Served by the gateway": { icon: <CloudOutlinedIcon />, tint: "blue", note: "The files the gateway serves, and the address written inside them" },
-  HubSpot: { icon: <HubOutlinedIcon />, tint: "purple", note: "Cannot be read from here - change it with the move" },
+  HubSpot: { icon: <HubOutlinedIcon />, tint: "purple", note: "The hub's own HubSpot app - read from its source, HubSpot cannot be asked" },
   Hub: { icon: <DashboardCustomizeOutlinedIcon />, tint: "slate", note: "This hub's own settings" },
 };
 

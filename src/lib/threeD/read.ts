@@ -45,12 +45,12 @@ async function railway<T>(path: string, timeoutMs: number): Promise<T> {
 
 /** One article on AP-Link: is there a 3D model, a drawing, a data sheet. */
 export async function checkArticle(article: string): Promise<{ article: string; stp: boolean; pdf: boolean; tds: boolean }> {
-  return railway(`/3d/check?article=${encodeURIComponent(article)}`, 40_000);
+  return railway(`/3d/check?article=${encodeURIComponent(article)}&src=hub`, 40_000);
 }
 
 async function service(): Promise<ThreeD["service"]> {
   const [cats, probe] = await Promise.allSettled([
-    railway<{ total?: number; categories?: { name: string; count: number }[] }>("/3d-cats", 15_000),
+    railway<{ total?: number; categories?: { name: string; count: number }[] }>("/3d-cats?src=hub", 15_000),
     checkArticle(PROBE),
   ]);
   const ok = cats.status === "fulfilled";

@@ -30,7 +30,9 @@ test("a served file's own address: written in, or taken from where it is served"
 test("the snippets carry the new address and keep the live page's attributes", () => {
   const g = "https://gateway.apsoparts.com";
   assert.equal(headerSnippet(g), `<script defer src="${g}/pdp3d.js"></script>`);
-  assert.match(cadSnippet(g, "fr-FR"), /src="https:\/\/gateway\.apsoparts\.com\/cad\?v=anim2&lang=fr"/);
-  assert.match(cadSnippet(g, "en-INT"), /lang=en"/);
-  assert.match(cadSnippet(g, "de-CH"), /height:1050px.*title="Download 3D Models"/);
+  // one snippet for every store view: the catalogue takes the language from the shop page
+  assert.match(cadSnippet(g), /src="https:\/\/gateway\.apsoparts\.com\/cad\?v=anim2"/);
+  assert.doesNotMatch(cadSnippet(g), /lang=/);
+  assert.match(cadSnippet(g), /height:1050px.*title="Download 3D Models"/);
+  assert.equal(iframeOrigin(`<p>${cadSnippet(g)}</p>`), g);
 });
