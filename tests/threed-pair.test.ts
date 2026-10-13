@@ -20,3 +20,9 @@ test("two requests from one person take their own tickets, in order; a ticket ei
   const out = pairTickets([sub("2026-10-01T11:00:00Z", "a@x.ch"), sub("2026-10-01T10:00:00Z", "a@x.ch"), sub("2026-10-01T03:00:00Z", "a@x.ch")], rows, emailOf);
   assert.deepEqual(out.map((s) => s.ticket?.id ?? null), ["t2", "t1", null]);
 });
+
+test("a paired submission takes its articles from the ticket when the form carried none", () => {
+  const rows = [{ ...tk("t1", "2026-10-12T07:20:00Z"), articles: "1150510538" }];
+  const out = pairTickets([sub("2026-10-12T07:15:00Z", "kevin@x.ch")], rows, new Map([["t1", "kevin@x.ch"]]));
+  assert.equal(out[0].articles, "1150510538");
+});

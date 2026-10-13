@@ -73,6 +73,8 @@ async function formSubmissions(): Promise<Omit<Submission, "ticket">[]> {
       path: `/form-integrations/v1/submissions/forms/${FORM_ID}?limit=50${after ? `&after=${encodeURIComponent(after)}` : ""}`,
     });
     for (const s of r.results ?? []) {
+      const email = (s.values?.find((x) => x.name === "email")?.value ?? "").trim().toLowerCase();
+      if (email.endsWith("@example.com")) continue; // the July build's test submissions
       const v = (name: string, type?: string) => s.values?.find((x) => x.name === name && (!type || !x.objectTypeId || x.objectTypeId === type))?.value ?? "";
       out.push({
         at: new Date(s.submittedAt).toISOString(),
@@ -99,7 +101,7 @@ async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<strin
       path: "/crm/v3/objects/tickets/search", method: "POST", useTicketsToken: true,
       body: {
         filterGroups: [{ filters: [{ propertyName: SUB, operator: "EQ", value: "3D Model request" }] }],
-        properties: ["createdate", "hs_pipeline", "hs_pipeline_stage", "source_type", "hs_is_closed"],
+        properties: ["createdate", "hs_pipeline", "hs_pipeline_stage", "source_type", "hs_is_closed", "enquiry_textbox___product_information"],
         sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, after,
       },
     });
@@ -121,6 +123,8 @@ async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<strin
       channel: CHANNEL[p.source_type ?? ""] ?? "Other",
       stage: stageName.get(`${p.hs_pipeline}/${p.hs_pipeline_stage}`) ?? (p.hs_pipeline_stage ?? "-"),
       closed: p.hs_is_closed === "true",
+      // the form has no article field; its workflow copies "3D Model request — article(s): …" here
+      articles: /article\(s\):\s*(.+)$/i.exec(p.enquiry_textbox___product_information ?? "")?.[1]?.trim() ?? "",
     };
   });
 
@@ -129,7 +133,9 @@ async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<strin
   const contactOf = new Map<string, string>();
   for (let i = 0; i < formIds.length; i += 100) {
     const a = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: string | number }[] }[] }>({
-      path: "/crm/v4/associations/tickets/contacts/batch/read", method: "POST", useTicketsToken: true,
+      // the hub's own token: the tickets token may not read contacts, and a batch read without
+      // the scope answers with no results instead of an error (13.10: every row said "no ticket")
+      path: "/crm/v4/associations/tickets/contacts/batch/read", method: "POST",
       body: { inputs: formIds.slice(i, i + 100).map((id) => ({ id })) },
     });
     for (const x of a.results ?? []) if (x.from?.id && x.to?.[0]?.toObjectId != null) contactOf.set(String(x.from.id), String(x.to[0].toObjectId));

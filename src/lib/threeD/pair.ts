@@ -4,7 +4,7 @@
 /** The form's workflow raises the ticket within minutes; a later ticket is another request. */
 export const MATCH_WINDOW_MS = 6 * 3_600_000;
 
-export type TicketRow = { id: string; at: string; channel: string; stage: string; closed: boolean };
+export type TicketRow = { id: string; at: string; channel: string; stage: string; closed: boolean; articles?: string };
 export type Submission = { at: string; name: string; email: string; company: string; articles: string; ticket: TicketRow | null };
 
 /** Each submission's ticket: the first form ticket of the same email raised within six hours after it. */
@@ -25,7 +25,7 @@ export function pairTickets(subs: Omit<Submission, "ticket">[], rows: TicketRow[
       return !used.has(r.id) && t >= t0 - 10 * 60_000 && t <= t0 + MATCH_WINDOW_MS;
     });
     if (hit) used.add(hit.id);
-    return { ...s, ticket: hit ?? null };
+    return { ...s, articles: s.articles || hit?.articles || "", ticket: hit ?? null };
   });
   return paired.sort((a, b) => b.at.localeCompare(a.at));
 }
