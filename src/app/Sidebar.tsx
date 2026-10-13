@@ -240,7 +240,7 @@ const navSections: NavSection[] = [
     // heading, each with a glyph, as the UC app lists its apps (SARCLA 12.10).
     items: c.reports.flatMap((r) => (r.children?.length
       ? [
-          { group: r.name, label: r.overview ?? r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> },
+          { group: r.name, label: r.overview ?? r.name, href: r.overviewHref ?? r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> },
           ...r.children.map((ch) => ({ group: ch.group ?? r.name, label: ch.name, href: ch.href, icon: <HubIconGlyph name={ch.icon ?? r.icon} fontSize={20} /> })),
         ]
       : [{ group: "Reports", label: r.name, href: r.href, icon: <HubIconGlyph name={r.icon} fontSize={20} /> }])),

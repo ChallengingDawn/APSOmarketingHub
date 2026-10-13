@@ -1,20 +1,21 @@
 // WHO ARE OUR CUSTOMERS - every company in HubSpot, read once every 6 hours and
-// folded into the cube the customers stage slices (cube.ts). The list API, page
+// folded into the cube the customers page slices (cube.ts). The list API, page
 // by page: no search cap, and not the throttled search endpoint. About 600 pages,
-// two to three minutes; the page says how far it is.
+// two to three minutes; the page says how far it is, and shows the last read
+// while a new one runs.
 //
-// Revenue is like for like: this year's loaded months against the same months
-// last year (a month counts once it is at least 60% loaded, as on the ESO
-// benchmark). "Bought" is invoiced revenue this year so far, the figure the
-// Active companies KPI shows; last year's is the whole year, shown as context.
+// Revenue per month for this year and the two before, from each company's
+// rev_<year>_pc_monthly; this year's months count once they are loaded (at
+// least 60% as many companies with a figure as the same month last year, as on
+// the ESO benchmark), so a window never compares a half-loaded month.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
-import { DIMS, addCompany, potentialBand, type Cube, type Dim } from "./cube";
+import { DIMS, fold, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v1";
+const KEY = "marketingKpis:customers:v2";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 export function customersCube(): Promise<SlowState<Cube>> {
@@ -26,16 +27,22 @@ const num = (v: string | null | undefined) => (v == null || v === "" ? null : Nu
 
 async function build(): Promise<Cube> {
   const now = new Date();
-  const year = now.getUTCFullYear(), py = year - 1;
+  const year = now.getUTCFullYear();
+  const years = [year, year - 1, year - 2];
   const monthsDone = now.getUTCMonth();
   reportProgress(KEY, "reading the owners");
   const owners = await ownerNames();
 
   const props = ["sales_priority", "apso_customer", "customer_type", "country_custom", "mandant", "hubspot_owner_id",
-    "yearly_customer_potential", `revenue_${year}`, `revenue_${py}`, `rev_${year}_pc_monthly`, `rev_${py}_pc_monthly`];
-  type Company = { dims: Record<Dim, string>; bought: boolean; boughtPy: boolean; cy: number[]; py: number[]; potential: number | null };
-  const companies: Company[] = [];
-  const cyFilled = Array(12).fill(0), pyFilled = Array(12).fill(0);
+    "yearly_customer_potential", ...years.map((y) => `rev_${y}_pc_monthly`)];
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const index = (d: Dim, v: string) => {
+    let i = labels[d].indexOf(v);
+    if (i < 0) i = labels[d].push(v) - 1;
+    return i;
+  };
+  const companies: CompanyIn[] = [];
+  const filled = years.map(() => Array(12).fill(0));
 
   let after: string | undefined;
   for (;;) {
@@ -43,25 +50,27 @@ async function build(): Promise<Cube> {
     const r = await hubspotFetchJson<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({ path: `/crm/v3/objects/companies?${qs}` });
     for (const o of r.results ?? []) {
       const p = o.properties;
-      const cyB = parsePcMonthly(p[`rev_${year}_pc_monthly`]), pyB = parsePcMonthly(p[`rev_${py}_pc_monthly`]);
-      const cy = cyB.map((_, i) => monthTotal(cyB, i)), pyM = pyB.map((_, i) => monthTotal(pyB, i));
-      cy.forEach((x, i) => { if (x) cyFilled[i]++; });
-      pyM.forEach((x, i) => { if (x) pyFilled[i]++; });
+      const months = years.map((y, yi) => {
+        const blob = parsePcMonthly(p[`rev_${y}_pc_monthly`]);
+        return blob.map((_, m) => {
+          const x = monthTotal(blob, m);
+          if (x) filled[yi][m]++;
+          return x;
+        });
+      });
       const potential = num(p.yearly_customer_potential);
       const owner = p.hubspot_owner_id ? owners.get(p.hubspot_owner_id) ?? `Owner ${p.hubspot_owner_id}` : "No owner";
       companies.push({
         dims: {
-          prio: prioOf(p.sales_priority),
-          segment: p.apso_customer || "No APSO segment",
-          potential: potentialBand(potential),
-          country: p.country_custom || "Not set",
-          owner,
-          type: p.customer_type || "Not set",
-          mandant: p.mandant || "Not set",
+          prio: index("prio", prioOf(p.sales_priority)),
+          segment: index("segment", p.apso_customer || "No APSO segment"),
+          potential: index("potential", potentialBand(potential)),
+          country: index("country", p.country_custom || "Not set"),
+          owner: index("owner", owner),
+          type: index("type", p.customer_type || "Not set"),
+          mandant: index("mandant", p.mandant || "Not set"),
         },
-        bought: (num(p[`revenue_${year}`]) ?? 0) > 0,
-        boughtPy: (num(p[`revenue_${py}`]) ?? 0) > 0,
-        cy, py: pyM, potential,
+        potential, months,
       });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
@@ -69,19 +78,6 @@ async function build(): Promise<Cube> {
     if (!after) break;
   }
 
-  // like for like: the months of this year that are loaded, and the same months last year
-  const revenueMonths = monthsLoaded(cyFilled, pyFilled, monthsDone);
-  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
-  const index = (d: Dim, v: string) => {
-    let i = labels[d].indexOf(v);
-    if (i < 0) i = labels[d].push(v) - 1;
-    return i;
-  };
-  const acc = new Map<string, number[]>();
-  const sum = (xs: number[]) => xs.slice(0, revenueMonths).reduce((a, b) => a + b, 0);
-  for (const c of companies) {
-    const dims = Object.fromEntries(DIMS.map((d) => [d, index(d, c.dims[d])])) as Record<Dim, number>;
-    addCompany(acc, dims, { bought: c.bought, boughtPy: c.boughtPy, rev: sum(c.cy), revPy: sum(c.py), potential: c.potential });
-  }
-  return { generatedAt: new Date().toISOString(), year, revenueMonths, labels, cells: [...acc.values()].map((c) => c.map(Math.round)) };
+  const loaded = [monthsLoaded(filled[0], filled[1], monthsDone), 12, 12];
+  return { generatedAt: new Date().toISOString(), years, loaded, labels, ...fold(companies) };
 }

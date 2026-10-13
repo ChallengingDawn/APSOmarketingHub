@@ -194,10 +194,23 @@ export function Spark({ v, height = 28 }: { v: KpiView; height?: number }) {
   );
 }
 
+/**
+ * How far a KPI's figure reaches (SARCLA 13.10: every KPI says how up to date it
+ * is): the last day of its last month - typed or read - or, for a count of the
+ * year so far, the day the hub read it.
+ */
+export function upToOf(v: KpiView, state: MkState | null, year: number): string {
+  const read = state?.live?.computedAt ?? state?.live?.value?.generatedAt;
+  const day = (d: Date) => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (v.measure.agg.kind === "ytd") return read ? `Up to ${day(new Date(read))} · read by the hub` : "";
+  if (!v.upTo) return "No month in yet";
+  return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · ${v.measure.origin === "live" ? `read ${read ? day(new Date(read)) : ""}` : "monthly input"}`;
+}
+
 export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet");
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
-export function KpiCard({ v, kpi, icon, tint = "blue" }: { v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint }) {
+export function KpiCard({ v, kpi, icon, tint = "blue", upTo }: { v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string }) {
   const L = MONTHS;
   const hasMonths = v.series.months.some((x) => x != null);
   const hasPy = v.series.py.some((x) => x != null);
@@ -214,6 +227,7 @@ export function KpiCard({ v, kpi, icon, tint = "blue" }: { v: KpiView; kpi?: Cat
         <Box sx={{ textAlign: "right" }}>
           <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)}</Typography>
+          {upTo && <Typography sx={{ fontSize: "0.7rem", color: FAINT, fontWeight: 600 }}>{upTo}</Typography>}
         </Box>
       </Box>
       <Compare v={v} />

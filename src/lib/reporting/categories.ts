@@ -23,6 +23,8 @@ export type Report = {
   children?: { name: string; href: string; icon?: IconKey; group?: string }[];
   /** The side panel's name for the report's own page when it has children ("In a nutshell"). */
   overview?: string;
+  /** That page's address, when a click on the report opens one of its children instead. */
+  overviewHref?: string;
 };
 export type ReportCategory = {
   slug: string;
@@ -47,11 +49,13 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "marketing", name: "Marketing Reports", line: "What marketing set out to do, and where it stands",
     reports: [
-      // The customer journey in a nutshell, each stage a page of its own - in the
-      // side panel as the UC app lists its apps: under a heading, each with a
-      // glyph, the name alone (SARCLA 12.10).
+      // Every marketing KPI, each stage a page of its own - in the side panel as
+      // the UC app lists its apps: under a heading, each with a glyph, the name
+      // alone (SARCLA 12.10). A click on the report opens "Who are our
+      // customers" (SARCLA 13.10: "this should be the initial page").
       {
-        name: "Marketing KPIs", href: "/reporting/marketing-kpis", note: "The customer journey in a nutshell", icon: "bar", overview: "In a nutshell",
+        name: "Marketing KPIs", href: "/reporting/marketing-kpis/customers", note: "Our customers, then every marketing KPI by stage", icon: "bar",
+        overview: "In a nutshell", overviewHref: "/reporting/marketing-kpis",
         children: [
           ...STAGES.map((s) => ({ name: s.name.replace(/\s*\(.*\)\s*$/, ""), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
           { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader", icon: "verified", group: "Views & inputs" },

@@ -12,7 +12,7 @@ import PageHeader from "@/app/PageHeader";
 import { GlassCard, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { KPIS, STAGES } from "@/lib/marketingKpis/catalogue";
 import { GUTTER } from "@/app/analytics/Shell";
-import { KpiCard, LEADER, LiveNote, NotConnected, StageGlyph, buildViews, isMeasured, stageHref, stageTint, useMarketingKpis } from "../data";
+import { KpiCard, LEADER, LiveNote, NotConnected, StageGlyph, buildViews, isMeasured, stageHref, stageTint, upToOf, useMarketingKpis } from "../data";
 import { CustomersSummary } from "../Customers";
 
 export default function SalesLeaderView() {
@@ -42,7 +42,7 @@ export default function SalesLeaderView() {
             {s.slug === "customers" && measured.length > 0 && <CustomersSummary />}
             {s.slug !== "customers" && measured.length > 0 && (
               <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-                {measured.map((k) => views[k.id] && <KpiCard key={k.id} v={views[k.id]} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} />)}
+                {measured.map((k) => views[k.id] && <KpiCard key={k.id} v={views[k.id]} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} upTo={upToOf(views[k.id], state, year)} />)}
               </Box>
             )}
             <NotConnected list={rest} />

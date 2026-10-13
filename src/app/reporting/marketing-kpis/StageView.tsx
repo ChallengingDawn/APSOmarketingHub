@@ -20,7 +20,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, FAINT, GlassCard, MUTED, RED } from "@/app/uc/report/ui";
 import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
-import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, stageTint, type MkState } from "./data";
+import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, upToOf, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, stageTint, type MkState } from "./data";
 import { CustomersExplorer } from "./Customers";
 
 const n0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("en"));
@@ -98,7 +98,7 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
         <>
           {measured.length > 0 && (
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} />)}
+              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} upTo={upToOf(v, state, year)} />)}
             </Box>
           )}
           <Breakdowns slug={s.slug} live={state.live?.value} />
@@ -113,4 +113,4 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
 }
 
 export const stageLine = (id: string, measured: number, missing: number, year: number) =>
-  `Stage ${id} of the customer journey · ${measured} of ${measured + missing} KPIs measured · ${year}`;
+  `Stage ${id} · ${measured} of ${measured + missing} KPIs measured · ${year}`;

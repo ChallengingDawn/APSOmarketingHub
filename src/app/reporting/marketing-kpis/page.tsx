@@ -23,14 +23,14 @@ import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import {
   Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, journeyAdditionsIn, journeyExtrasIn, measuredIn, nameOf, notConnectedIn, periodOf,
-  stageHref, stageTint, useMarketingKpis, type KpiView,
+  stageHref, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState,
 } from "./data";
 import { CustomersSummary } from "./Customers";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 
 /** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months. */
-function KpiTileChart({ v, slug, tint }: { v: KpiView; slug: string; tint: Tint }) {
+function KpiTileChart({ v, slug, tint, upTo }: { v: KpiView; slug: string; tint: Tint; upTo: string }) {
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
@@ -60,6 +60,7 @@ function KpiTileChart({ v, slug, tint }: { v: KpiView; slug: string; tint: Tint 
           <MiniBars v={v} />
         )}
       </Box>
+      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: FAINT, borderTop: "1px solid rgba(21,34,58,.07)", pt: 0.75 }}>{upTo}</Typography>
     </Box>
   );
 }
@@ -76,7 +77,9 @@ function TrafficOrigin({ live }: { live: LiveKpis }) {
   );
 }
 
-function StagePanel({ s, views, live }: { s: KpiStage; views: Record<string, KpiView>; live?: LiveKpis }) {
+function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, KpiView>; state: MkState }) {
+  const live = state.live?.value;
+  const year = new Date().getFullYear();
   const tint = stageTint(s.slug);
   const ids = [...measuredIn(s.id).map((k) => k.id), ...journeyExtrasIn(s.id), ...(s.id === "7" ? ["X01"] : [])];
   const tiles = ids.map((id) => views[id]).filter(Boolean);
@@ -112,7 +115,7 @@ function StagePanel({ s, views, live }: { s: KpiStage; views: Record<string, Kpi
         <CustomersSummary />
       ) : (tiles.length > 0 || traffic) ? (
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
-          {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} />)}
+          {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} />)}
           {traffic && <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}><TrafficOrigin live={live!} /></Box>}
         </Box>
       ) : (
@@ -140,7 +143,7 @@ export default function MarketingKpisMacro() {
   const measured = KPIS.filter((k) => isMeasured(k.id)).length;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Marketing KPIs" subtitle={`The customer journey, stage by stage · ${year} · ${measured} of ${KPIS.length} KPIs measured`} />
+      <PageHeader title="Marketing KPIs" subtitle={`Every KPI, stage by stage · ${year} · ${measured} of ${KPIS.length} measured`} />
       {!views && (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
           {!state?.error && <CircularProgress size={18} />}
@@ -149,7 +152,7 @@ export default function MarketingKpisMacro() {
       )}
       {views && state && (
         <>
-          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} live={state.live?.value} />)}
+          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} />)}
           {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
             <GlassCard key={title}>
               <CardTitle icon={<UpcomingIcon />} tint="slate" title={title} />
