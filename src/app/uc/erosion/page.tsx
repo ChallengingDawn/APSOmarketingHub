@@ -506,8 +506,8 @@ export default function ErosionApp() {
 
         {idleDays !== null && idleDays > 1 && (
           <Notice tone="bad">
-            The detector last ran on {summary?.lastRun}, {idleDays} days ago. It runs after each nightly Compass delta on the connector; if this
-            persists, check the connector&apos;s chain.
+            The detector last ran on {summary?.lastRun}, {idleDays} days ago. It runs once after each Compass chain in the hub; if this
+            persists, check The chain page (Connectors → Compass).
           </Notice>
         )}
 

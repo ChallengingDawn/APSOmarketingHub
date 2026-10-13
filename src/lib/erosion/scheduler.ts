@@ -1,17 +1,17 @@
 // EROSION'S TIMER IN THE HUB.
 //
-// Once a day, after the connector's nightly chain has finished - the same night's
+// Once after each chain the hub finishes (whenever it ends) - the same night's
 // order data the connector's own erosion step used to read. Only while this
 // deployment OWNS erosion: EROSION_DETECTOR=live. Unset, it does nothing at all and
 // the connector raises the tickets, so the two never both write.
 //
 // Production runs two copies of the hub, so every tick takes a Postgres advisory
-// lock first; the copy that does not get it skips the tick. A day is tried at most
-// three times, half an hour apart - a failure that repeats is reported, not hammered.
+// lock first; the copy that does not get it skips the tick. Each chain gets at most
+// three tries, half an hour apart - a failure that repeats is reported, not hammered.
 
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { KV, chainDoneToday, importConnectorKeys, runErosion, utcToday } from "./run";
+import { KV, chainDoneSince, importConnectorKeys, runErosion, utcToday } from "./run";
 
 const EROSION_LOCK = 4_107_202;
 const TICK_MS = 10 * 60_000;
@@ -35,7 +35,8 @@ async function withErosionLock<T>(fn: () => Promise<T>): Promise<T | null> {
   }
 }
 
-type Tried = { today: string; count: number; at: string; error?: string };
+/** The tries for one chain (`chain` = its end time), three at most. */
+type Tried = { today: string; chain?: string; count: number; at: string; error?: string };
 
 async function tick() {
   await withErosionLock(async () => {
@@ -50,23 +51,24 @@ async function tick() {
       }
     }
     const today = utcToday();
-    const last = await kvGet<{ today: string }>(KV.last);
-    if (last?.today === today) return;                       // already ran today
+    const last = await kvGet<{ today: string; at?: string }>(KV.last);
+    // once per chain, whenever it ends - not "once per UTC day after a chain that ended today"
+    const chain = await chainDoneSince(last?.at ?? null);
+    if (!chain.done) return;                                 // no new chain since the last run
+    const key = chain.at ?? today;
     const tried = await kvGet<Tried>(KV.tried);
-    const t = tried?.today === today ? tried : { today, count: 0, at: "" };
+    const t = tried?.chain === key ? tried : { today, chain: key, count: 0, at: "" };
     if (t.count >= MAX_TRIES) return;
     if (t.at && Date.now() - Date.parse(t.at) < RETRY_AFTER_MS) return;
-    const chain = await chainDoneToday(today);
-    if (!chain.done) return;                                 // tonight's data is not in yet
     const at = new Date().toISOString();
-    await kvSet(KV.tried, { today, count: t.count + 1, at });
+    await kvSet(KV.tried, { today, chain: key, count: t.count + 1, at });
     try {
       const run = await runErosion("live", today);
       console.log(`[erosion] ${today}: created ${run.created}, merged ${run.merged}, failed ${run.failed}, held ${run.heldOpenOrder} on open orders`);
     } catch (e) {
       const error = (e as Error).message;
       console.warn(`[erosion] run failed (try ${t.count + 1}/${MAX_TRIES}): ${error}`);
-      await kvSet(KV.tried, { today, count: t.count + 1, at, error });
+      await kvSet(KV.tried, { today, chain: key, count: t.count + 1, at, error });
     }
   }).catch((e) => console.warn(`[erosion] no run this tick: ${(e as Error).message}`));
 }

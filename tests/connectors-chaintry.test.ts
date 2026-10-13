@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_CHAIN_TRIES, deliverySig, nextTry } from "../src/lib/connectors/chainTry";
+import { MAX_CHAIN_TRIES, deliverySig, newChainSince, nextTry } from "../src/lib/connectors/chainTry";
 
 // A hub copy that runs out of memory mid-run loses the downloaded files with its disk; the
 // delivery is tried again on the next tick, twice at most - never a server down every 15 minutes.
@@ -26,4 +26,18 @@ test("the signature does not depend on the listing order", () => {
   const a = { remote: "a.csv", size: 1, mtime: 1 };
   const b = { remote: "b.csv", size: 2, mtime: 2 };
   assert.equal(deliverySig([a, b]), deliverySig([b, a]));
+});
+
+test("erosion answers each finished chain once, whatever UTC day it ended", () => {
+  const ended = Math.floor(Date.parse("2026-10-12T23:15:36Z") / 1000);
+  // 12.10: the re-run ended 23:15 UTC, erosion last ran 10.10 -> run, even on 13.10
+  assert.deepEqual(newChainSince({ status: "done", ts: ended }, "2026-10-10T15:57:00.000Z"), { done: true, at: "2026-10-12T23:15:36.000Z" });
+  // erosion already ran after it -> wait for the next chain
+  assert.equal(newChainSince({ status: "done", ts: ended }, "2026-10-12T23:25:00.000Z").done, false);
+  // a chain that gave up, or is still running, is no answer
+  assert.equal(newChainSince({ status: "failed", ts: ended }, "2026-10-10T15:57:00.000Z").done, false);
+  assert.equal(newChainSince({ status: "running", ts: ended }, null).done, false);
+  // never ran before -> any finished chain counts; no chain on record -> nothing
+  assert.equal(newChainSince({ status: "done", ts: ended }, null).done, true);
+  assert.equal(newChainSince(null, null).done, false);
 });

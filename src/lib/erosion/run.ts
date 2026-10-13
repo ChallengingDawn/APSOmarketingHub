@@ -13,6 +13,7 @@ import { previewDetector } from "@/lib/integrations/erosionDetector";
 import { erosionTagExists, writeErosionTicket, type WriteResult } from "@/lib/integrations/erosionWriter";
 import { WATERMARK } from "./detector";
 import { hubChain, hubRunsChainSteps } from "@/lib/connectors/chainStatus";
+import { newChainSince } from "@/lib/connectors/chainTry";
 import { CONNECTOR_RETIRED } from "@/lib/connectors/retired";
 
 export const KV = {
@@ -84,6 +85,17 @@ export async function chainDoneToday(today: string): Promise<{ done: boolean; at
     if (hat && (!at || hat > at)) at = hat;
   }
   return { done, at };
+}
+
+/**
+ * Has a chain finished since `since` (the last erosion run)? Erosion answers each chain
+ * once, whenever it ends - not only on the UTC day it ended (SARCLA 13.10.2026: the 12.10
+ * re-run finished 23:15 UTC and erosion never ran after it). A chain that failed or is
+ * still running is not an answer.
+ */
+export async function chainDoneSince(since: string | null): Promise<{ done: boolean; at: string | null }> {
+  if (!CONNECTOR_RETIRED) return chainDoneToday(utcToday());
+  return newChainSince(await hubChain(), since);
 }
 
 export type HubRun = {

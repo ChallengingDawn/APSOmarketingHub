@@ -19,3 +19,13 @@ export function nextTry(prev: ChainTry | null, sig: string, now: number): { give
   if (n >= MAX_CHAIN_TRIES) return { giveUp: true, save: { sig, n, at: now } };
   return { giveUp: false, save: { sig, n: n + 1, at: now } };
 }
+
+/**
+ * Is this chain record a FINISHED chain that ended after `since`? The steps that follow a
+ * chain (erosion) answer each chain once, whenever it ends - a failed or running chain is
+ * not an answer, and the UTC day it ended does not matter.
+ */
+export function newChainSince(h: { status?: string; ts?: number } | null, since: string | null): { done: boolean; at: string | null } {
+  const at = h?.ts ? new Date(h.ts * 1000).toISOString() : null;
+  return { done: h?.status === "done" && !!at && (!since || at > since), at };
+}
