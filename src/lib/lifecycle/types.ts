@@ -81,6 +81,8 @@ export type UcData = {
   erosion?: string[];
   /** HubSpot people by "u:<user id>" and "o:<owner id>" - only those the read met. */
   people?: Record<string, string>;
+  /** The ticket UCs: each ticket company's last real order and ERP revenue by month - "revenue generated". */
+  ticketCos?: Record<string, { last: string | null; rev: Record<string, number> }>;
   sources: Source[];
 };
 
@@ -107,6 +109,8 @@ export type EmailData = {
   /** sent / opened / clicked per email name - only with the email-statistics token */
   stats: Record<string, { sent: number; open: number; click: number }> | null;
   statsError: string | null;
+  /** each company's last real order day, by the index in `companies` - "ordered after the email" */
+  lastOrder?: (string | null)[];
 };
 
 /* ── what a page is sent ───────────────────────────────────────────────── */
@@ -122,7 +126,7 @@ export type Row = Record<string, string | number | null>;
 /** Where a chart sits: the UC's results, or the follow-up (tickets, tasks, who did what). */
 export type ChartTab = "results" | "follow";
 
-export type ChartView = ({ tab?: ChartTab }) & (
+export type ChartView = ({ tab?: ChartTab; answers?: boolean }) & (
   | { kind: "stack"; title: string; note: string; parts: { key: string; label: string }[]; rows: Row[]; fmt: Fmt; footnote?: string }
   | { kind: "lines"; title: string; note: string; parts: { key: string; label: string }[]; rows: Row[]; fmt: Fmt; footnote?: string }
   | { kind: "grouped"; title: string; note: string; current: string; prior: string; rows: { x: string; current: number | null; prior: number | null }[]; fmt: Fmt; footnote?: string }
@@ -153,6 +157,29 @@ export type EmailRow = {
   sendsAll: number;
   lastSent: string | null;
   stats: { sent: number; open: number; click: number } | null;
+  /** companies reached in the period that ordered (real orders) on or after the email; null before that was read */
+  orderedWin: number | null;
+  /** the page's best email: the highest share of companies that ordered after it */
+  top?: boolean;
+};
+
+/* ── the overview's cards: three KPIs per UC ───────────────────────────── */
+
+export type CardSlot = { label: string; value: number | null; fmt: "pct" | "n" | "eur"; note: string };
+
+export type UcCard = {
+  code: string;
+  title: string;
+  href: string;
+  /** the rate (win rate, qualified, reactivated ...) */
+  a: CardSlot | null;
+  /** the top 5 answers or outcomes */
+  top: { label: string; rows: { label: string; n: number; won?: boolean }[]; total: number } | null;
+  /** the money (revenue generated ...) */
+  b: CardSlot | null;
+  /** still being read for the first time */
+  reading?: boolean;
+  error?: string | null;
 };
 
 export type EmailView = {

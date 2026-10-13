@@ -46,7 +46,7 @@ const answerOf = (t: Ticket) => t.resolution || (t.closed ? "Closed, no answer g
 function resolutionBars(tickets: Ticket[], title = "What ESO and TSA answered"): ChartView {
   const t = tally(tickets.map(answerOf));
   return {
-    kind: "bars", tab: "follow", title, note: `${plural(tickets.length, "ticket")} raised in the period, by the answer on the ticket`, fmt: "n",
+    kind: "bars", tab: "follow", answers: true, title, note: `${plural(tickets.length, "ticket")} raised in the period, by the answer on the ticket`, fmt: "n",
     rows: t.map((r) => ({ label: r.label, value: r.n, secondary: pct(r.n, tickets.length) })),
   };
 }
@@ -127,10 +127,14 @@ function view(key: UcKey, win: Win, d: UcData, parts: Pick<View, "tiles" | "char
 /* ── emails, every page ────────────────────────────────────────────────── */
 
 /** Sends per email step of the given UC numbers: in the period, since the horizon, and the statistics when there are any. */
+/** An email reaching fewer companies than this is never the "top performer" - one order would make it 100%. */
+const TOP_MIN_COMPANIES = 30;
+
 export function emailView(data: EmailData | null, ucNums: string[], win: Win, expected: string[] = []): EmailView | null {
   if (!data) return null;
   const parsed = data.names.map((n) => parseEmailName(n));
-  type G = { step: string; raw: string; version: string; names: Set<string>; sendsWin: number; companies: Set<number>; sendsAll: number; last: string | null };
+  // companies reached in the period, with the first day the email reached them there
+  type G = { step: string; raw: string; version: string; names: Set<string>; sendsWin: number; companies: Map<number, string>; sendsAll: number; last: string | null };
   const groups = new Map<string, G>();
   for (const [ni, day, ci] of data.sends) {
     const p = parsed[ni];
@@ -138,11 +142,14 @@ export function emailView(data: EmailData | null, ucNums: string[], win: Win, ex
     const step = ucNums.length > 1 ? `UC${p.uc} · ${p.step}` : p.step;
     const k = `${p.version}|${step}`;
     let g = groups.get(k);
-    if (!g) { g = { step, raw: p.step, version: p.version, names: new Set(), sendsWin: 0, companies: new Set(), sendsAll: 0, last: null }; groups.set(k, g); }
+    if (!g) { g = { step, raw: p.step, version: p.version, names: new Set(), sendsWin: 0, companies: new Map(), sendsAll: 0, last: null }; groups.set(k, g); }
     g.names.add(data.names[ni]);
     g.sendsAll += 1;
     if (!g.last || day > g.last) g.last = day;
-    if (inWin(day, win)) { g.sendsWin += 1; if (ci >= 0) g.companies.add(ci); }
+    if (inWin(day, win)) {
+      g.sendsWin += 1;
+      if (ci >= 0 && (!g.companies.has(ci) || day < g.companies.get(ci)!)) g.companies.set(ci, day);
+    }
   }
   const rows: EmailRow[] = [...groups.values()]
     .sort((a, b) => b.version.localeCompare(a.version) || a.step.localeCompare(b.step, "en", { numeric: true }))
@@ -155,8 +162,15 @@ export function emailView(data: EmailData | null, ucNums: string[], win: Win, ex
           if (s) { stats.sent += s.sent; stats.open += s.open; stats.click += s.click; }
         }
       }
-      return { step: g.step, version: g.version, variants: g.names.size, sendsWin: g.sendsWin, companiesWin: g.companies.size, sendsAll: g.sendsAll, lastSent: g.last, stats };
+      // ordered after = the company's last real order is on or after the day the email first reached it
+      const lo = data.lastOrder;
+      const orderedWin = lo ? [...g.companies].filter(([ci, day]) => !!lo[ci] && lo[ci]! >= day).length : null;
+      return { step: g.step, version: g.version, variants: g.names.size, sendsWin: g.sendsWin, companiesWin: g.companies.size, sendsAll: g.sendsAll, lastSent: g.last, stats, orderedWin };
     });
+  // the top performer: the highest share of companies that ordered after it - among emails that reached 30 or more
+  const share = (r: EmailRow) => (r.orderedWin !== null && r.companiesWin >= TOP_MIN_COMPANIES ? r.orderedWin / r.companiesWin : -1);
+  const best = rows.reduce<EmailRow | null>((b, r) => (share(r) > (b ? share(b) : 0) ? r : b), null);
+  if (best && share(best) > 0) best.top = true;
   const seen = new Set([...groups.values()].filter((g) => g.sendsAll > 0).map((g) => g.raw));
   return {
     rows, unseen: expected.filter((s) => !seen.has(s)), contactsRead: data.contactsRead, horizon: data.horizon,
@@ -294,8 +308,8 @@ export function whoQualified(cos: Co[], names: Record<string, string>): ChartVie
   };
 }
 
-export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
-  const months = chartMonths(d.horizon, d.today);
+/** Every company that became an MQL since the horizon: was it a customer already, did it reach SQL / Lost lead, did it order within 90 days. */
+export function uc2Cohort(d: UcData) {
   type C = { c: Co; mql: string; already: boolean; sql: boolean; lost: boolean; order: Follow };
   const cohort: C[] = [];
   for (const c of d.companies) {
@@ -309,6 +323,12 @@ export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
       order: already ? "no" : within(mql, c.first, UC2_DAYS, d.today),
     });
   }
+  return cohort;
+}
+
+export function uc2View(d: UcData, emails: EmailData | null, win: Win): View {
+  const months = chartMonths(d.horizon, d.today);
+  const cohort = uc2Cohort(d);
   const fresh = cohort.filter((x) => !x.already);
   const inW = fresh.filter((x) => inWin(x.mql, win));
   const alreadyW = cohort.filter((x) => x.already && inWin(x.mql, win)).length;

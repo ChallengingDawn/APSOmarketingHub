@@ -14,6 +14,7 @@ import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import Chip from "@mui/material/Chip";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -57,7 +58,7 @@ import { ReportTabs, useHashTab, type TabDef } from "@/app/uc/report/Tabs";
 import { OutcomeReport } from "@/app/uc/report/OutcomeReport";
 import { isClosed, isWon } from "@/lib/erosion/model";
 import { HUB_UCS, PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
-import type { ChartView, Col, EmailView, Fmt, IconKey, Row, View } from "@/lib/lifecycle/types";
+import type { CardSlot, ChartView, Col, EmailView, Fmt, IconKey, Row, UcCard, View } from "@/lib/lifecycle/types";
 
 /* ── the data ──────────────────────────────────────────────────────────── */
 
@@ -322,6 +323,7 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
     );
   }
   const stats = e.statsOn;
+  const ordered = e.rows.some((r) => r.orderedWin !== null);
   const num = { ...bodyCell, textAlign: "right" as const, fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" };
   const numHead = { ...headCell, textAlign: "right" as const };
   return (
@@ -344,6 +346,7 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
               <TableCell sx={numHead} title="Language and country versions of the same email">Languages</TableCell>
               <TableCell sx={numHead}>Sent in the period</TableCell>
               <TableCell sx={numHead} title="Distinct companies of the contacts it reached">Companies reached</TableCell>
+              {ordered && <TableCell sx={numHead} title="Companies reached in the period whose last real order is on or after the day the email reached them">Ordered after</TableCell>}
               <TableCell sx={numHead}>Sent since {day(e.horizon).slice(-8)}</TableCell>
               <TableCell sx={headCell}>Last sent</TableCell>
               {stats && <TableCell sx={numHead} title="All time, from HubSpot's email statistics">Opened</TableCell>}
@@ -352,11 +355,19 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
             <TableBody>
               {e.rows.map((r) => (
                 <TableRow key={`${r.version}-${r.step}`} hover>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: INK }}>{r.step}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: INK, whiteSpace: "nowrap" }}>
+                    {r.step}
+                    {r.top && (
+                      <Tooltip title="Top performer: the highest share of companies that ordered after it (emails that reached 30 or more)">
+                        <Chip size="small" label="Top" sx={{ ml: 0.75, height: 18, fontSize: "0.66rem", fontWeight: 700, bgcolor: TINT.green.bg, color: TINT.green.fg }} />
+                      </Tooltip>
+                    )}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED }}>{r.version}</TableCell>
                   <TableCell sx={num}>{r.variants}</TableCell>
                   <TableCell sx={{ ...num, fontWeight: 600 }}>{full(r.sendsWin)}</TableCell>
                   <TableCell sx={num}>{full(r.companiesWin)}</TableCell>
+                  {ordered && <TableCell sx={{ ...num, fontWeight: r.top ? 700 : 400 }}>{r.orderedWin === null ? "—" : `${full(r.orderedWin)} (${r.companiesWin ? percent(r.orderedWin / r.companiesWin, 0) : "—"})`}</TableCell>}
                   <TableCell sx={num}>{full(r.sendsAll)}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{r.lastSent ? day(r.lastSent) : "—"}</TableCell>
                   {stats && <TableCell sx={num}>{r.stats ? `${full(r.stats.open)} (${r.stats.sent ? percent(r.stats.open / r.stats.sent, 0) : "—"})` : "—"}</TableCell>}
@@ -376,26 +387,112 @@ function Emails({ e, st }: { e: EmailView | null; st: ReadState | null }) {
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
-/** The UC pages, as cards - on the overview: the lifecycle UCs, then the hub's own. */
-function UcCards() {
+/* ── the overview: one card per UC, three KPIs side by side ─────────────── */
+
+type CardsResp = { ok: boolean; cards?: UcCard[]; reading?: boolean; error?: string };
+
+/** The cards for the hub-wide period, asked again every 10 seconds while a UC is still being read. */
+function useCards(): CardsResp | null {
+  const { window: win } = useReportingWindow();
+  const [resp, setResp] = useState<CardsResp | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      fetch(`/api/uc/lifecycle/cards?from=${win.from}&to=${win.to}`, { cache: "no-store" })
+        .then((r) => r.json() as Promise<CardsResp>)
+        .then((j) => {
+          if (!alive) return;
+          setResp(j);
+          if (j.reading) timer = setTimeout(load, 10_000);
+        })
+        .catch((e) => { if (alive) setResp({ ok: false, error: String((e as Error)?.message ?? e) }); });
+    load();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, [win.from, win.to]);
+  return resp;
+}
+
+const slotText = (s: CardSlot) =>
+  s.value === null ? "—" : s.fmt === "pct" ? percent(s.value, 0) : s.fmt === "eur" ? `€${compact(s.value)}` : full(s.value);
+
+function Slot({ s }: { s: CardSlot | null }) {
   return (
-    <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" } }}>
-      {[...UCS, ...HUB_UCS].map((u) => (
-        <Box key={u.code} component={Link} href={u.href} sx={{
-          ...glass, borderRadius: "18px", p: 2, textDecoration: "none", display: "grid", gap: 0.5,
-          transition: "box-shadow .15s", "&:hover": { boxShadow: "0 2px 6px rgba(31,45,78,.08), 0 16px 36px rgba(31,45,78,.12)" },
-        }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: TINT.amber.fg, letterSpacing: "0.06em" }}>{u.code}</Typography>
-          <Typography sx={{ fontSize: "0.98rem", fontWeight: 600, color: INK }}>{u.title}</Typography>
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.4 }}>{u.does}</Typography>
-        </Box>
-      ))}
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: MUTED }}>{s?.label ?? ""}</Typography>
+      <Typography sx={{ fontSize: "1.6rem", fontWeight: 650, color: INK, letterSpacing: "-0.02em", lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>
+        {s ? slotText(s) : "—"}
+      </Typography>
+      {s?.note && <Typography sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.35 }}>{s.note}</Typography>}
     </Box>
   );
 }
 
-type TabId = "cases" | "results" | "win" | "follow" | "list" | "emails";
-const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", win: "#win-rate", follow: "#follow-up", list: "#list", emails: "#emails" };
+function TopRows({ t }: { t: UcCard["top"] }) {
+  if (!t) return <Box />;
+  const max = Math.max(1, ...t.rows.map((r) => r.n));
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: MUTED, mb: 0.6 }}>{t.label}</Typography>
+      {t.rows.length === 0 ? (
+        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Nothing in this period.</Typography>
+      ) : (
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          {t.rows.map((r) => (
+            <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1, rowGap: 0.25, alignItems: "center" }}>
+              <Typography title={r.label} sx={{ fontSize: "0.76rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                {full(r.n)}{t.total ? ` · ${percent(r.n / t.total, 0)}` : ""}
+              </Typography>
+              <Box sx={{ gridColumn: "1 / -1", height: 4, borderRadius: 2, bgcolor: "#edf0f5", overflow: "hidden" }}>
+                <Box sx={{ width: `${(100 * r.n) / max}%`, height: "100%", borderRadius: 2, bgcolor: r.won ? "#22a06b" : SERIES[0] }} />
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function UcCards() {
+  const resp = useCards();
+  const cards: UcCard[] = resp?.cards
+    ?? [...UCS, ...HUB_UCS].map((u) => ({ code: u.code, title: u.title, href: u.href, a: null, top: null, b: null, reading: true }));
+  return (
+    <Box sx={{ display: "grid", gap: 2 }}>
+      {resp && !resp.ok && <Typography sx={{ fontSize: "0.84rem", color: RED }}>The cards could not be read: {resp.error ?? "unknown error"}</Typography>}
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" } }}>
+        {cards.map((c) => (
+          <Box key={c.code} sx={{ ...glass, borderRadius: "18px", p: 2, display: "grid", gap: 1.5, minWidth: 0, alignContent: "start" }}>
+            <Box component={Link} href={c.href} sx={{ display: "flex", alignItems: "baseline", gap: 1, textDecoration: "none" }}>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: TINT.amber.fg, letterSpacing: "0.06em" }}>{c.code}</Typography>
+              <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: INK }}>{c.title}</Typography>
+              <Typography sx={{ ml: "auto", fontSize: "0.76rem", color: ACCENT, whiteSpace: "nowrap" }}>Open →</Typography>
+            </Box>
+            {c.error ? (
+              <Typography sx={{ fontSize: "0.8rem", color: RED }}>Could not be read: {c.error}</Typography>
+            ) : c.reading ? (
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <CircularProgress size={14} />
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Reading HubSpot…</Typography>
+              </Box>
+            ) : (
+              <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr)" } }}>
+                <Slot s={c.a} />
+                <TopRows t={c.top} />
+                <Slot s={c.b} />
+              </Box>
+            )}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+type TabId = "cases" | "results" | "follow" | "list" | "emails";
+const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", follow: "#resolutions", list: "#list", emails: "#emails" };
 /** The UCs whose tickets get Erosion's "Win rate & resolution" (views.ts WIN_UCS). */
 const WIN_TAB: ViewKey[] = ["uc15", "uc6", "uc9", "uc4"];
 
@@ -437,7 +534,8 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
   const busy = !resp || stale || !!st?.computing || !!resp?.emailState?.computing;
   const [tab, selectTab] = useHashTab<TabId>(TAB_HASH, overview ? "cases" : "results");
   const results = (v?.charts ?? []).filter((c) => (c.tab ?? "results") === "results");
-  const follow = (v?.charts ?? []).filter((c) => c.tab === "follow");
+  // where the win-rate report shows the closed tickets' answers, the answers chart would only repeat it
+  const follow = (v?.charts ?? []).filter((c) => c.tab === "follow" && !(WIN_TAB.includes(key) && c.answers));
   const tabs: TabDef<TabId>[] = overview
     ? [
         { id: "cases", label: "Use cases", count: String(UCS.length + HUB_UCS.length) },
@@ -446,8 +544,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
       ]
     : [
         { id: "results", label: "Results", count: null },
-        ...(WIN_TAB.includes(key) ? [{ id: "win" as const, label: "Win rate & resolution", count: rtClosed ? `${Math.round((100 * rt.filter(isWon).length) / rtClosed)}%` : null }] : []),
-        { id: "follow", label: "Follow-up", count: null },
+        { id: "follow", label: "Resolutions", count: WIN_TAB.includes(key) && rtClosed ? `${Math.round((100 * rt.filter(isWon).length) / rtClosed)}%` : null },
         { id: "list", label: LIST_TAB[key], count: v?.list ? full(v.list.total) : null },
         ...(key !== "uc12" ? [{ id: "emails" as const, label: "Emails", count: resp?.emails ? String(resp.emails.rows.length) : null }] : []),
       ];
@@ -509,15 +606,15 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
       )}
 
       {v && shown === "results" && <Box id="lifecycle-panel-results" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={results} stale={stale} /></Box>}
-      {v && shown === "win" && (
-        <Box id="lifecycle-panel-win" role="tabpanel" sx={{ minWidth: 0 }}>
-          {v.resolution
+      {v && shown === "follow" && (
+        <Box id="lifecycle-panel-follow" role="tabpanel" sx={{ minWidth: 0, display: "grid", gap: 2.5 }}>
+          {WIN_TAB.includes(key) && (v.resolution
             ? <OutcomeReport tickets={v.resolution.tickets} period={periodLabel} stale={stale} amounts={v.resolution.amounts}
                 amountMeans={v.resolution.amountMeans} wonNote="Won = the ticket closed with the answer Ordered." />
-            : <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No tickets in this period.</Typography></GlassCard>}
+            : <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No tickets in this period.</Typography></GlassCard>)}
+          {(follow.length > 0 || !WIN_TAB.includes(key)) && <ChartGrid charts={follow} stale={stale} />}
         </Box>
       )}
-      {v && shown === "follow" && <Box id="lifecycle-panel-follow" role="tabpanel" sx={{ minWidth: 0 }}><ChartGrid charts={follow} stale={stale} /></Box>}
       {v && shown === "list" && (
         <Box id="lifecycle-panel-list" role="tabpanel" sx={{ minWidth: 0 }}>
           {v.list ? <List v={v.list} /> : <GlassCard><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing to show here.</Typography></GlassCard>}

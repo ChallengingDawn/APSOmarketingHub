@@ -22,7 +22,8 @@ import type { Co, EmailData, OverviewData, Source, Task, Ticket, UcData } from "
 const TTL_MS = 12 * 60 * 60 * 1000;
 // a read whose shape changes gets a new version, so an old cached read is never shown in the new page
 // (UC2 v2, 13.10.2026: the qualification field, the company owner and the people's names)
-const VERSION: Partial<Record<ViewKey | "emails", string>> = { uc2: "v2" };
+// (13.10 v3/v2: UC2's buyers' revenue, the ticket companies' revenue, the emailed companies' last order)
+const VERSION: Partial<Record<ViewKey | "emails", string>> = { uc2: "v3", uc15: "v2", uc6: "v2", uc9: "v2", uc4: "v2", emails: "v2" };
 export const keyOf = (k: ViewKey | "emails") => `lifecycle:${k}:${VERSION[k] ?? "v1"}`;
 
 const todayZurich = () => toDay(Date.now()) as string;
@@ -160,6 +161,18 @@ async function buildUc2(key: string): Promise<UcData> {
     owner: r.properties?.hubspot_owner_id?.trim() || null,
     qual: qualOf(r.propertiesWithHistory?.[UC2_QUAL] ?? []),
   }));
+  // the buyers' ERP revenue by month - the overview's "revenue generated"
+  const months = monthsFrom(HORIZON, today);
+  const buyers = companies.filter((c) => c.first && c.first >= HORIZON).map((c) => c.id);
+  if (buyers.length) {
+    const byCo = new Map(companies.map((c) => [c.id, c]));
+    const revs = await batchRead("companies", buyers, months.map(revProp), [],
+      (n) => reportProgress(key, `reading the buyers' revenue · ${n0(n)} of ${n0(buyers.length)}`));
+    for (const r of revs) {
+      const c = byCo.get(String(r.id));
+      if (c) c.rev = revenueByMonth(r.properties ?? {}, months);
+    }
+  }
   const tickets = await readTickets(key, uc.tickets.map((t) => t.name));
   await addMissing(key, companies, tickets.map((t) => t.companyId));
   const tasks = await readTasks(key, uc.tasks.map((t) => t.name), HORIZON);
@@ -454,6 +467,18 @@ async function buildEmails(key: string): Promise<EmailData> {
     }
   }, (n) => reportProgress(key, `reading email histories · ${n0(n)} of ${n0(ids.length)} contacts`));
 
+  // each emailed company's last real order: "ordered after the email"
+  const sent = [...new Set(sends.map((s) => s[2]).filter((ci) => ci >= 0))];
+  const lastOrder: (string | null)[] = companies.map(() => null);
+  if (sent.length) {
+    await batchEach("companies", sent.map((ci) => companies[ci]), ["order_last_order_date"], [], (recs) => {
+      for (const r of recs) {
+        const ci = coIdx.get(String(r.id));
+        if (ci !== undefined) lastOrder[ci] = toDay(r.properties?.order_last_order_date);
+      }
+    }, (n) => reportProgress(key, `reading the companies' last order · ${n0(n)} of ${n0(sent.length)}`));
+  }
+
   let stats: EmailData["stats"] = null;
   let statsError: string | null = null;
   if (emailStatsToken()) {
@@ -464,7 +489,7 @@ async function buildEmails(key: string): Promise<EmailData> {
       statsError = String((e as Error)?.message ?? e);
     }
   }
-  return { generatedAt: new Date().toISOString(), horizon: HORIZON, contactsRead: read, names, companies, sends, stats, statsError };
+  return { generatedAt: new Date().toISOString(), horizon: HORIZON, contactsRead: read, names, companies, sends, stats, statsError, lastOrder };
 }
 
 /* ── the cache ─────────────────────────────────────────────────────────── */
@@ -488,9 +513,26 @@ async function withOwnerNames(d: UcData): Promise<UcData> {
   return { ...d, people: names };
 }
 
+/** The ticket UCs whose tickets get a win rate and "revenue generated". */
+const TICKET_REVENUE: UcKey[] = ["uc15", "uc6", "uc9", "uc4"];
+
+/** Each ticket company's last real order and its ERP revenue by month since January 2025. */
+async function withTicketRevenue(k: UcKey, key: string, d: UcData): Promise<UcData> {
+  if (!TICKET_REVENUE.includes(k)) return d;
+  const ids = [...new Set(d.tickets.map((t) => t.companyId).filter((x): x is string => !!x))];
+  const months = monthsFrom(HORIZON, d.today);
+  const ticketCos: NonNullable<UcData["ticketCos"]> = {};
+  if (ids.length) {
+    const recs = await batchRead("companies", ids, ["order_last_order_date", ...months.map(revProp)], [],
+      (n) => reportProgress(key, `reading the ticket companies' revenue · ${n0(n)} of ${n0(ids.length)}`));
+    for (const r of recs) ticketCos[String(r.id)] = { last: toDay(r.properties?.order_last_order_date), rev: revenueByMonth(r.properties ?? {}, months) };
+  }
+  return { ...d, ticketCos };
+}
+
 export function ucState(k: UcKey): Promise<SlowState<UcData>> {
   const key = keyOf(k);
-  return slowReport(key, TTL_MS, async () => withOwnerNames(await BUILD[k](key)));
+  return slowReport(key, TTL_MS, async () => withTicketRevenue(k, key, await withOwnerNames(await BUILD[k](key))));
 }
 
 export function emailState(): Promise<SlowState<EmailData>> {

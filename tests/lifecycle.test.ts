@@ -10,6 +10,7 @@ import {
   emailView, firstOnOrAfter, overviewView, resolutionOf, whoQualified, secondOrderCurve, stepsByCompany, uc10View, uc12View, uc13View, uc15View, uc2View, uc4View, uc6View, uc9View,
 } from "../src/lib/lifecycle/views";
 import type { Co, EmailData, OverviewData, Ticket, UcData } from "../src/lib/lifecycle/types";
+import { cardOf, hubCard } from "../src/lib/lifecycle/cards";
 
 /* ── days ─────────────────────────────────────────────────────────────── */
 
@@ -462,4 +463,78 @@ test("UC15's tickets of the period go to Erosion's outcome report: closed day, t
   assert.equal(b.closed, null);
   assert.equal(b.owner, "No owner");
   assert.equal(resolutionOf("uc2", d, SEPT), null); // UC2's answers are qualifications, not orders
+});
+
+
+/* ── emails: ordered after, the top performer ─────────────────────────── */
+
+test("ordered after an email = its last real order is on or after the day the email reached the company; the best share is flagged", () => {
+  // 40 companies reached by Email 1 (10 ordered after), 35 by Email 2 (21 ordered after), 5 by Email 3 (5 - too few to be top)
+  const companies: string[] = [], lastOrder: (string | null)[] = [], sends: [number, string, number][] = [];
+  const add = (ni: number, n: number, orderedAfter: number, day: string) => {
+    for (let i = 0; i < n; i++) {
+      const ci = companies.length;
+      companies.push(`c${ci}`);
+      lastOrder.push(i < orderedAfter ? "2026-09-20" : i % 2 ? "2026-08-01" : null); // the rest: before the email, or never
+      sends.push([ni, day, ci]);
+    }
+  };
+  add(0, 40, 10, "2026-09-01");
+  add(1, 35, 21, "2026-09-05");
+  add(2, 5, 5, "2026-09-06");
+  const data: EmailData = {
+    generatedAt: "", horizon: "2025-01-01", contactsRead: 80, companies, sends, lastOrder, stats: null, statsError: null,
+    names: ["DE_UC15_v2_Email_1_2607", "DE_UC15_v2_Email_2_2607", "DE_UC15_v2_Email_3_2607"],
+  };
+  const v = emailView(data, ["15"], SEPT)!;
+  assert.deepEqual(v.rows.map((r) => [r.step, r.companiesWin, r.orderedWin, !!r.top]), [
+    ["Email 1", 40, 10, false],
+    ["Email 2", 35, 21, true],
+    ["Email 3", 5, 5, false],
+  ]);
+  // before the last orders were read: no column, no flag
+  const old = emailView({ ...data, lastOrder: undefined }, ["15"], SEPT)!;
+  assert.ok(old.rows.every((r) => r.orderedWin === null && !r.top));
+});
+
+/* ── the overview's cards ─────────────────────────────────────────────── */
+
+test("a ticket flow's card: win rate and top 5 of the closed tickets, revenue of the companies that ordered after their ticket", () => {
+  const tk = (id: string, created: string, closed: boolean, resolution: string | null, companyId: string) =>
+    ({ id, created, closed, closedOn: closed ? created : null, stage: "", team: "ESO", resolution, subject: "", workflow: "w", companyId, owner: null });
+  const d = {
+    uc: "uc15", generatedAt: "", today: "2026-10-13", horizon: "2025-01-01",
+    companies: [], tasks: [], lastTask: [], sources: [],
+    tickets: [
+      tk("1", "2026-09-02", true, "Ordered", "a"), tk("2", "2026-09-03", true, "No demand", "b"),
+      tk("3", "2026-09-04", true, "No demand", "c"), tk("4", "2026-09-05", false, null, "d"),
+      tk("5", "2026-09-06", true, "Ordered", "a"), // a second ticket: revenue from the first one's month
+    ],
+    ticketCos: {
+      a: { last: "2026-09-20", rev: { "2026-08": 999, "2026-09": 100, "2026-10": 50 } }, // ordered after: counts from September
+      b: { last: "2026-08-01", rev: { "2026-09": 500 } }, // last order before the ticket: no
+      d: { last: "2026-10-01", rev: { "2026-10": 70 } }, // open ticket, but ordered after it: counts
+    },
+  } as unknown as UcData;
+  const c = cardOf("uc15", d, SEPT);
+  assert.equal(c.a?.value, 2 / 4);
+  assert.deepEqual(c.top?.rows.map((r) => [r.label, r.n, !!r.won]), [["No demand", 2, false], ["Ordered", 2, true]]);
+  assert.equal(c.b?.value, 150 + 70);
+  assert.ok(c.b?.note.includes("2 companies"));
+  assert.equal(cardOf("uc15", null, SEPT).reading, true);
+});
+
+test("UC16 / UC17 cards from their own tickets: win rate, top 5, Erosion's won-back EUR; Price checks shows no money while values are paused", () => {
+  const t = (id: string, created: string, resolution: string | null, amount: number) => ({
+    id, subject: "", created, closed: resolution ? created : null, stage: "", stageClosed: !!resolution, pipeline: "", resolution,
+    resolutionDetail: null, closingNote: null, team: "ESO" as const, owner: "x", priority: null, amount, article: null,
+    articleDescription: null, company: null, un: null, lastOrder: null,
+  });
+  const tickets = [t("1", "2026-09-02", "Ordered", 1000), t("2", "2026-09-03", "No demand", 500), t("3", "2026-08-03", "Ordered", 9)];
+  const e = hubCard("UC16", tickets, SEPT, { valuesShown: false });
+  assert.equal(e.a?.value, 0.5);
+  assert.equal(e.b?.value, 1000);
+  const p = hubCard("UC17", tickets, SEPT, { valuesShown: false });
+  assert.equal(p.b?.value, null);
+  assert.equal(hubCard("UC16", null, SEPT, { valuesShown: false, error: "403" }).error, "403");
 });
