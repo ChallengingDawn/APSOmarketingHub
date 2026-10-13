@@ -57,8 +57,7 @@ import type { SeedText } from "../editor/EditorCanvas";
 import TypePicker from "./TypePicker";
 import SaveToProject from "./SaveToProject";
 import VariationStrip, { type StripVariant } from "./VariationStrip";
-import Assistant from "@/app/projects/Assistant";
-import AssistantBar, { type BarTurn } from "./AssistantBar";
+import FloatingAssistant from "@/app/projects/FloatingAssistant";
 import StudioChrome from "./StudioChrome";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
@@ -125,7 +124,7 @@ const RED = "#ed1b2f";
 const geoChannels = new Set(["blog", "seo"]);
 
 /** Sidebar accordion sections. */
-type SectionKey = "assistant" | "setup" | "personas" | "add" | "style" | "templates" | "intel";
+type SectionKey = "setup" | "personas" | "add" | "style" | "templates" | "intel";
 
 const SIDEBAR_W = 344;
 
@@ -134,9 +133,6 @@ const SIDEBAR_W = 344;
  * with its word underneath — an icon column with no labels is a quiz.
  */
 const RAIL: { key: SectionKey; label: string; icon: ReactNode }[] = [
-  // First, and deliberately: it is the only thing here that can answer a
-  // question about what is on the screen.
-  { key: "assistant", label: "Assistant", icon: <AutoAwesomeIcon /> },
   { key: "setup", label: "Brief", icon: <TuneIcon /> },
   { key: "personas", label: "Who for", icon: <GroupsIcon /> },
   { key: "add", label: "Add", icon: <AddPhotoAlternateIcon /> },
@@ -383,11 +379,7 @@ export default function CreateStudio({
   const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
   // Bumped when a version is saved, so the strip shows it without a reload.
   const [stripKey, setStripKey] = useState(0);
-  // The assistant's latest answer, shown under the box it was asked in.
-  const [barTurn, setBarTurn] = useState<BarTurn | null>(null);
-  const [asking, setAsking] = useState(false);
   const openSections: Record<SectionKey, boolean> = {
-    assistant: activePanel === "assistant",
     setup: activePanel === "setup",
     personas: activePanel === "personas",
     add: activePanel === "add",
@@ -488,67 +480,6 @@ export default function CreateStudio({
     }
     return [];
   }, [designing, draft, concepts, channel, contentType]);
-
-  /**
-   * Ask the assistant, from the same box the brief is typed in.
-   *
-   * It needs a project, because everything it is good for comes from one —
-   * the type's required sections, the versions, the comments. Without one it
-   * would be a worse chatbot than the thing in the sidebar, so it says so
-   * rather than answering thinly.
-   */
-  const askAssistant = async () => {
-    const question = topic.trim();
-    if (!question || asking) return;
-    if (!projectId) {
-      setBarTurn({
-        id: -1,
-        author: "assistant",
-        body: "I work on a project — its brief, its versions and what people said about them. Open the studio from a project and I can be specific.",
-        proposal: null,
-        status: "none",
-      });
-      return;
-    }
-    setAsking(true);
-    setBarTurn(null);
-    try {
-      const j = await fetch(`/api/content/projects/${projectId}/assistant`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "ask", body: question }),
-      }).then((r) => r.json());
-      if (j.ok && j.turn) {
-        setBarTurn(j.turn as BarTurn);
-        setTopic("");
-      } else {
-        setBarTurn({ id: -1, author: "assistant", body: j.error ?? "That did not go through.", proposal: null, status: "none" });
-      }
-    } catch (e) {
-      setBarTurn({
-        id: -1, author: "assistant",
-        body: e instanceof Error ? e.message : "That did not go through.",
-        proposal: null, status: "none",
-      });
-    } finally {
-      setAsking(false);
-    }
-  };
-
-  const decideProposal = async (turnId: number, action: "accept" | "dismiss") => {
-    if (!projectId) return;
-    const j = await fetch(`/api/content/projects/${projectId}/assistant`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, turnId }),
-    }).then((r) => r.json()).catch(() => ({ ok: false }));
-
-    // An accepted image proposal is a brief, so it lands in the brief box the
-    // generator reads rather than drawing anything on its own.
-    if (j.ok && j.imageBrief) setBriefText(j.imageBrief as string);
-    setBarTurn((t) => (t ? { ...t, status: action === "accept" ? "accepted" : "dismissed" } : t));
-    setStripKey((n) => n + 1);
-  };
 
   /* ── actions ── */
 
@@ -839,7 +770,7 @@ export default function CreateStudio({
               size="small"
               placeholder={
                 projectId
-                  ? `Write a brief and press Generate — or ask: "what is missing?", "the hero is too long", "write the six proofs"`
+                  ? `What are we making? A topic is enough — "Enhance" turns it into a full brief.`
                   : `What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`
               }
               value={topic}
@@ -863,17 +794,6 @@ export default function CreateStudio({
                 </Button>
               </span>
             </Tooltip>
-            {/* Two things one box can do. Generate is the pipeline it always
-                was; Ask is the assistant that can see the project. Neither is
-                hidden behind the other. */}
-            <Button
-              onClick={askAssistant}
-              disabled={asking || !topic.trim()}
-              startIcon={asking ? <CircularProgress size={14} /> : <AutoAwesomeIcon />}
-              sx={{ fontWeight: 700, color: "#6a46c9", flexShrink: 0 }}
-            >
-              {asking ? "Asking…" : "Ask"}
-            </Button>
             <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
               <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
               <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
@@ -923,13 +843,6 @@ export default function CreateStudio({
         </Alert>
       )}
 
-      <AssistantBar
-        turn={barTurn}
-        busy={asking}
-        onDecide={decideProposal}
-        onDismissView={() => setBarTurn(null)}
-      />
-
       {/* ── rail · panel · canvas · versions ── */}
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", gap: 1.25, alignItems: "stretch" }}>
         {/* ── LEFT: the rail, always there ── */}
@@ -973,26 +886,6 @@ export default function CreateStudio({
                 tools portal into this tree, and unmounting the target takes
                 the canvas's own toolbar with it. */}
             <Box>
-              {sectionHeader("assistant", "Assistant", <AutoAwesomeIcon sx={{ fontSize: 18, color: "#6a46c9" }} />)}
-              <Collapse in={openSections.assistant}>
-                <Box sx={{ px: 2, pb: 2 }}>
-                  {projectId ? (
-                    // It reads the project, so it needs one. Saving a draft
-                    // here is what gives it something to be specific about.
-                    <Assistant
-                      projectId={projectId}
-                      canEdit
-                      onApplied={() => setStripKey((n) => n + 1)}
-                    />
-                  ) : (
-                    <Typography sx={{ fontSize: 12.5, color: "#5b6470", lineHeight: 1.6 }}>
-                      The assistant works on a project — it reads the brief, every version and what
-                      people said about them. Open the studio from a project and it appears here.
-                    </Typography>
-                  )}
-                </Box>
-              </Collapse>
-
               {/* ── section: Generate setup ── */}
               {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.setup}>
@@ -1714,6 +1607,12 @@ export default function CreateStudio({
       </Box>
       </Box>
 
+      {projectId && (
+        <FloatingAssistant
+          projectId={projectId}
+          onApplied={() => setStripKey((n) => n + 1)}
+        />
+      )}
     </Box>
   );
 }

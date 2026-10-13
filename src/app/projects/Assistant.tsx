@@ -65,11 +65,18 @@ export default function Assistant({
   projectId,
   canEdit,
   onApplied,
+  bare = false,
 }: {
   projectId: number;
   /** A commenter may ask, but may not accept. */
   canEdit: boolean;
   onApplied: () => void;
+  /**
+   * Inside the floating window, which already has its own frame and title.
+   * A card and a heading in there would be a box in a box with the name
+   * written twice.
+   */
+  bare?: boolean;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [text, setText] = useState("");
@@ -127,14 +134,16 @@ export default function Assistant({
     }
   };
 
-  return (
-    <GlassCard>
+  const body = (
+    <>
+      {!bare && (
       <CardTitle
         icon={<AutoAwesomeIcon />}
         tint="purple"
         title="Assistant"
         note="It can see this whole project — the brief, every version, and what people said. It proposes; you accept."
       />
+      )}
 
       <Box sx={{ maxHeight: 420, overflowY: "auto", pr: 0.5 }}>
         {turns === null && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Loading…</Typography>}
@@ -258,6 +267,9 @@ export default function Assistant({
           {busy ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 18 }} />}
         </Button>
       </Box>
-    </GlassCard>
+    </>
   );
+
+  // The window supplies its own frame; the board needs one.
+  return bare ? body : <GlassCard>{body}</GlassCard>;
 }
