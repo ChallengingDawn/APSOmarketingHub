@@ -58,6 +58,7 @@ import SaveToProject from "./SaveToProject";
 import VariationStrip, { type StripVariant } from "./VariationStrip";
 import Assistant from "@/app/projects/Assistant";
 import AssistantBar, { type BarTurn } from "./AssistantBar";
+import StudioChrome from "./StudioChrome";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 
 // Konva is client-only
@@ -784,58 +785,35 @@ export default function CreateStudio({
   );
 
   return (
-    <Box sx={{ p: 1 }}>
-      {/* header */}
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1 }}>
-        <Box sx={{ minWidth: 0 }}>
-          {/* The way out. A breadcrumb rather than a bare arrow, because
-              "back" only means something if it says where to. */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.25 }}>
-            <Box
-              component={Link}
-              href={projectId ? `/projects/${projectId}` : "/projects"}
-              sx={{
-                display: "inline-flex", alignItems: "center", gap: 0.5,
-                textDecoration: "none", color: "#5b6470", fontSize: 13, fontWeight: 600,
-                px: 0.75, py: 0.25, ml: -0.75, borderRadius: "8px",
-                "&:hover": { bgcolor: "#f0f2f5", color: "#1a1d21" },
-              }}
-            >
-              <ArrowBackIcon sx={{ fontSize: 16 }} />
-              {projectId ? (projectTitle ?? "Back to the project") : "Projects"}
-            </Box>
-          </Box>
-          <Typography sx={{ fontFamily: "var(--font-outfit)", fontSize: 26, fontWeight: 700, color: "#1a1d21", letterSpacing: "-0.02em" }}>
-            {projectTitle ?? "Create Studio"}
-          </Typography>
-          <Typography sx={{ fontSize: 13, color: "#5b6470" }}>
-            {projectId
-              ? "Everything you make here lands in this project, beside the other versions."
-              : "One place for everything — persona, keywords, GEO structure and imagery, powered by the brain."}
-          </Typography>
-        </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          {!designing && (
-            <Button onClick={() => setDesigning({ target: "scratch" })} startIcon={<BrushIcon />} sx={{ fontWeight: 700, color: "#ed1b2f" }}>
-              Design canvas
-            </Button>
-          )}
-          {/* Not the library any more: it is not a place in the menu, and what
-              a person wants from here is the project they came from. */}
-          <Button
-            component={Link}
-            href={projectId ? `/projects/${projectId}` : "/projects"}
-            startIcon={<FolderOpenIcon />}
-            sx={{ fontWeight: 600, color: NAVY }}
-          >
-            {projectId ? "Open the project" : "Projects"}
-          </Button>
-        </Box>
-      </Box>
+    <Box sx={{
+      // The editor owns the window. One scroll per column, never one for the
+      // page: an artboard that slides away when you reach for a tool is the
+      // single thing that makes a canvas feel like a web page.
+      height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
+      bgcolor: "#eef1f5",
+    }}>
+      <StudioChrome
+        projectId={projectId}
+        projectTitle={projectTitle}
+        typeLabel={CONTENT_BY_KEY[contentType]?.label ?? "Draft"}
+        right={
+          <SaveToProject
+            draftId={draft?.draftId ?? null}
+            defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
+            projectId={projectId}
+            projectTitle={projectTitle}
+            onSaved={() => setStripKey((n) => n + 1)}
+          />
+        }
+      />
 
-      {/* ── top brief bar ── */}
-      <Card sx={{ mb: 2 }}>
-        <CardContent sx={{ p: 2, "&:last-child": { pb: 1.5 } }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", p: 1.25, gap: 1.25 }}>
+      {/* ── the assistant bar: where the typing happens ── */}
+      <Box sx={{
+        flexShrink: 0, bgcolor: "#fff", borderRadius: "14px",
+        border: "1px solid rgba(21,34,58,.10)", boxShadow: "0 1px 2px rgba(31,45,78,.04)",
+      }}>
+        <Box sx={{ p: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, flexWrap: "wrap" }}>
             <TypePicker value={contentType} onChange={setContentType} />
             <TextField
@@ -869,13 +847,6 @@ export default function CreateStudio({
                 </Button>
               </span>
             </Tooltip>
-            <SaveToProject
-              draftId={draft?.draftId ?? null}
-              projectId={projectId}
-              projectTitle={projectTitle}
-              onSaved={() => setStripKey((n) => n + 1)}
-              defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
-            />
             {/* Two things one box can do. Generate is the pipeline it always
                 was; Ask is the assistant that can see the project. Neither is
                 hidden behind the other. */}
@@ -927,8 +898,8 @@ export default function CreateStudio({
               {primaryKeyword.trim() ? ` · keyword "${primaryKeyword.trim()}"` : ""}
             </Typography>
           </Box>
-        </CardContent>
-      </Card>
+        </Box>
+      </Box>
 
       {error && (
         <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2 }}>
@@ -943,13 +914,13 @@ export default function CreateStudio({
         onDismissView={() => setBarTurn(null)}
       />
 
-      {/* ── sidebar + stage ── */}
-      <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+      {/* ── rail · panel · canvas · versions ── */}
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", gap: 1.25, alignItems: "stretch" }}>
         {/* ── LEFT: the rail, always there ── */}
         <Box sx={{
           width: 76, flexShrink: 0, display: "flex", flexDirection: "column", gap: 0.5,
           p: 0.75, borderRadius: "16px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.10)",
-          position: "sticky", top: 8, alignSelf: "flex-start",
+          overflowY: "auto",
         }}>
           {RAIL.map((r) => {
             const on = activePanel === r.key;
@@ -1724,6 +1695,7 @@ export default function CreateStudio({
             }}
           />
         )}
+      </Box>
       </Box>
 
     </Box>
