@@ -40,8 +40,9 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, bodyCell, headCell } from "@/app/uc/report/ui";
-import { Chip, Choice } from "@/app/connectors/parts";
+import { Chip } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
 import { Bars, CURRENT_BRIDGE, pct, post, when, type Overview } from "./shared";
 import ListsTab from "./ListsTab";
 import LogTab from "./LogTab";
@@ -50,8 +51,8 @@ import SettingsTab from "./SettingsTab";
 type View = "overview" | "lists" | "activity" | "status" | "settings";
 /** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
 const VIEW_HASH: Record<View, string> = { overview: "#overview", lists: "#lists", activity: "#activity", status: "#status", settings: "#settings" };
-type Days = "30" | "90" | "365";
-const PERIODS: { key: Days; label: string }[] = [{ key: "30", label: "30 days" }, { key: "90", label: "90 days" }, { key: "365", label: "12 months" }];
+/** The tabs the hub-wide period applies to - it sits in the header, as on the UC reports (SARCLA 14.10.2026). */
+const DATED: View[] = ["overview", "lists", "activity"];
 
 /** A store view whose LATEST visit came through an older bridge - an earlier one does not count once the
  *  footer was replaced. A visit does not say whether it was ACC or production, so the notice says both. */
@@ -79,17 +80,18 @@ function Problems({ o }: { o: Overview }) {
   );
 }
 
-/** Every day of the period, or every week over 12 months - a day without lists is a gap, not a missing bar. */
-function buckets(perDay: Overview["usage"]["perDay"], days: number) {
+/** Every day of the period, or every week when it is longer than 90 days - a day without lists is a gap, not a
+ *  missing bar. Days are the gateway's (UTC) and the period's (local): a list made just after midnight can sit a
+ *  day off, which a chart of lists per day can live with. */
+function buckets(perDay: Overview["usage"]["perDay"], win: ReportingWindow) {
   const by = new Map(perDay.map((d) => [d.day, d]));
   const out: { label: string; lists: number; lines: number; notFound: number }[] = [];
-  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-  const weekly = days > 90;
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * 86_400_000);
-    const key = d.toISOString().slice(0, 10);
-    const row = by.get(key);
-    const label = weekly ? `week of ${new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(5, 10).split("-").reverse().join(".")}` : key.slice(5).split("-").reverse().join(".");
+  const weekly = spanDays(win.from, win.to) > 90;
+  const dm = (iso: string) => iso.slice(5).split("-").reverse().join(".");
+  for (let day = win.from; day <= win.to; day = shiftIso(day, 1)) {
+    const row = by.get(day);
+    const monday = shiftIso(day, -((new Date(`${day}T12:00:00`).getDay() + 6) % 7));
+    const label = weekly ? `week of ${dm(monday < win.from ? win.from : monday)}` : dm(day);
     const last = out[out.length - 1];
     if (weekly && last && last.label === label) {
       last.lists += row?.lists ?? 0; last.lines += row?.lines ?? 0; last.notFound += row?.not_found ?? 0;
@@ -98,23 +100,24 @@ function buckets(perDay: Overview["usage"]["perDay"], days: number) {
   return out;
 }
 
-function OverviewTab({ o, days, setDays }: { o: Overview; days: Days; setDays: (d: Days) => void }) {
+function OverviewTab({ o, win, label }: { o: Overview; win: ReportingWindow; label: string }) {
   const u = o.usage;
   const t = useMemo(() => {
-    const sum = (k: keyof Overview["usage"]["perDay"][number]) => u.perDay.reduce((a, d) => a + (Number(d[k]) || 0), 0);
+    const inWin = (d: { day: string }) => d.day >= win.from && d.day <= win.to;
+    const perDay = u.perDay.filter(inWin), carts = u.carts.filter(inWin);
+    const sum = (k: keyof Overview["usage"]["perDay"][number]) => perDay.reduce((a, d) => a + (Number(d[k]) || 0), 0);
     return {
       lists: sum("lists"), files: sum("files"), claude: sum("read_by_claude"), lines: sum("lines"),
       byNumber: sum("by_number"), byText: sum("by_text"), notFound: sum("not_found"), added: sum("added"),
-      carts: u.carts.reduce((a, c) => a + c.carts, 0), cartLines: u.carts.reduce((a, c) => a + c.cart_lines, 0),
+      carts: carts.reduce((a, c) => a + c.carts, 0), cartLines: carts.reduce((a, c) => a + c.cart_lines, 0),
     };
-  }, [u]);
-  const series = useMemo(() => buckets(u.perDay, Number(days)), [u, days]);
+  }, [u, win.from, win.to]);
+  const series = useMemo(() => buckets(u.perDay, win), [u, win]);
   const max = Math.max(1, ...series.map((s) => s.lists));
   const opened = o.status.bridges.reduce<Record<string, number>>((m, b) => ({ ...m, [b.locale || "?"]: (m[b.locale || "?"] ?? 0) + b.n }), {});
 
   return (
     <>
-      <Choice value={days} onChange={setDays} options={PERIODS} />
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<UploadFileOutlinedIcon />} tint="blue" label="Order lists" value={full(t.lists)} note={`${full(t.files)} from a file · ${full(t.lists - t.files)} typed in`} /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ManageSearchOutlinedIcon />} tint="purple" label="Lines read" value={full(t.lines)} note={`${full(t.claude)} ${t.claude === 1 ? "list" : "lists"} read by Claude from a PDF or a photo`} /></Grid>
@@ -125,8 +128,8 @@ function OverviewTab({ o, days, setDays }: { o: Overview; days: Days; setDays: (
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 7 }}>
           <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<BarChartOutlinedIcon />} tint="blue" title={days === "365" ? "Order lists per week" : "Order lists per day"} note="Point at a bar for its lines and what was not found" />
-            {t.lists === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No order lists in this period.</Typography>}
+            <CardTitle icon={<BarChartOutlinedIcon />} tint="blue" title={spanDays(win.from, win.to) > 90 ? "Order lists per week" : "Order lists per day"} note={`${label} · point at a bar for its lines and what was not found`} />
+            {t.lists === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No order lists in {label.toLowerCase()}.</Typography>}
             {t.lists > 0 && (
               <>
                 <Box sx={{ display: "flex", alignItems: "flex-end", gap: "2px", height: 150 }}>
@@ -146,7 +149,7 @@ function OverviewTab({ o, days, setDays }: { o: Overview; days: Days; setDays: (
         </Grid>
         <Grid size={{ xs: 12, md: 5 }}>
           <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<TimelineOutlinedIcon />} tint="green" title="What became of the lines" note={`${full(t.lines)} lines read in this period`} />
+            <CardTitle icon={<TimelineOutlinedIcon />} tint="green" title="What became of the lines" note={`${full(t.lines)} lines read · ${label}`} />
             <Bars rows={[
               { label: "Found by their number", n: t.byNumber, note: "our number or the customer's own", colour: GREEN },
               { label: "Found from the description", n: t.byText, note: "a person checks these", colour: ACCENT },
@@ -240,9 +243,11 @@ function StatusTab({ o, reload }: { o: Overview; reload: () => void }) {
 
 export default function DirectUpPage() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
-  const [days, setDays] = useState<Days>("30");
+  // the hub-wide period; the gateway counts back from today, so it is asked back to the period's first day
+  const { window: win, label } = useReportingWindow();
+  const back = Math.min(365, spanDays(win.from, isoDate(new Date())));
   const [forced, setForced] = useState(0);
-  const url = `/api/website/directup?part=overview&days=${days}&n=${forced}`;
+  const url = `/api/website/directup?part=overview&days=${back}&n=${forced}`;
   const held = useHeld<Overview>(url, [url]);
   const r = held.result;
   const reload = () => setForced((n) => n + 1);
@@ -259,7 +264,7 @@ export default function DirectUpPage() {
       : view === "activity" ? <LogTab />
       : view === "status" ? <StatusTab o={d} reload={reload} />
       : view === "settings" ? <SettingsTab o={d} reload={reload} />
-      : <OverviewTab o={d} days={days} setDays={setDays} />;
+      : <OverviewTab o={d} win={win} label={label} />;
     body = (
       <Box id={`directup-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
         <Problems o={d} />
@@ -274,8 +279,9 @@ export default function DirectUpPage() {
         title="DirectUP"
         subtitle="The shop's order tool: an order file in, every line checked, the whole list into one cart"
         rightSlot={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            {DATED.includes(view) && <WindowPicker />}
             <Tooltip title="Ask the gateway again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }

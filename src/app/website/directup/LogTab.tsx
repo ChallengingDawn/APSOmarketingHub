@@ -23,6 +23,7 @@ import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { AMBER, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, type Tint } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { describe, TOPICS, type Described, type Tone, type Topic } from "@/lib/directup/events";
+import { isoDate, useReportingWindow } from "@/app/window/ReportingWindow";
 import type { Log } from "@/lib/directup/gateway";
 import { CURRENT_BRIDGE, when } from "./shared";
 
@@ -48,16 +49,23 @@ export default function LogTab() {
   const [view, setView] = useState<ViewKey>("important");
   const [raw, setRaw] = useState<number | null>(null);
   const r = held.result;
+  // the hub-wide period in the header, as on the UC reports
+  const { window: win, label } = useReportingWindow();
 
+  const read = useMemo(() => (r?.state === "ok" ? r.data.entries : []), [r]);
   const rows: Row[] = useMemo(
-    () => (r?.state === "ok" ? r.data.entries : []).map((e, i) => ({ i, at: e.at, ev: e.ev, data: e.data, d: describe(e.ev, e.data, CURRENT_BRIDGE) })),
-    [r],
+    () => read
+      .map((e, i) => ({ i, at: e.at, ev: e.ev, data: e.data, d: describe(e.ev, e.data, CURRENT_BRIDGE, e.product ?? null) }))
+      .filter((x) => { const day = isoDate(new Date(x.at)); return day >= win.from && day <= win.to; }),
+    [read, win.from, win.to],
   );
+  // the gateway hands the latest 1,000 steps: a period that starts before the oldest of them is not complete
+  const cut = read.length >= 1000 && isoDate(new Date(read[read.length - 1].at)) > win.from;
   const pick = (k: ViewKey) => (x: Row) =>
     k === "all" ? true : k === "important" ? !x.d.routine : k === "problems" ? x.d.tone === "warn" || x.d.tone === "bad" : x.d.topic === k;
   const shown = useMemo(() => rows.filter(pick(view)), [rows, view]);
   const { slice, pager, setPage } = usePaged(shown, 25);
-  useEffect(() => { setPage(0); setRaw(null); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(0); setRaw(null); }, [view, win.from, win.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (r === null) return <LoadingPanel label="Reading what happened on the shop pages…" />;
   if (r.state !== "ok") return <UpstreamPanel source="DirectUp Gateway" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
@@ -74,7 +82,7 @@ export default function LogTab() {
     <>
       <GlassCard>
         <CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title="What happened on customers' shop pages"
-          note={`Each step DirectUP and the shop's bridge reported, newest first: what was done, the figures, and whether it went well. Never who the customer is. The last ${rows.length.toLocaleString("en-US")} steps.`}
+          note={`Each step DirectUP and the shop's bridge reported, newest first: what was done, on which article, the figures, and whether it went well. Never who the customer is. ${label}: ${rows.length.toLocaleString("en-US")} steps${cut ? ` - only the latest 1,000 are kept, from ${when(read[read.length - 1].at).slice(0, 10)}` : ""}.`}
           right={
             <Tooltip title="Read again">
               <IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Read the activity again">
@@ -91,7 +99,7 @@ export default function LogTab() {
       </GlassCard>
 
       <GlassCard sx={{ p: 0, pt: 1 }}>
-        {slice.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 2 }}>Nothing here in the last {rows.length.toLocaleString("en-US")} steps.</Typography>}
+        {slice.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 2 }}>Nothing here in {label.toLowerCase()}.</Typography>}
         {slice.map((x, k) => {
           const newDay = k === 0 || day(slice[k - 1].at) !== day(x.at);
           const t = TONE_ICON[x.d.tone];
@@ -112,6 +120,12 @@ export default function LogTab() {
                 <Tooltip title={t.label} arrow><Box sx={{ pt: "1px", lineHeight: 0 }}>{t.icon}</Box></Tooltip>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: x.d.tone === "bad" ? RED : INK }}>{x.d.title}</Typography>
+                  {x.d.article && (
+                    <Typography sx={{ fontSize: "0.82rem", color: INK, overflowWrap: "anywhere" }}>
+                      <Box component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{x.d.article.sku}</Box>
+                      {x.d.article.name ? <Box component="span" sx={{ color: MUTED }}> · {x.d.article.name}</Box> : null}
+                    </Typography>
+                  )}
                   {x.d.detail && <Typography sx={{ fontSize: "0.8rem", color: MUTED, overflowWrap: "anywhere" }}>{x.d.detail}</Typography>}
                   <Typography sx={{ display: { xs: "block", md: "none" }, fontSize: "0.74rem", color: FAINT, mt: 0.25 }}>{when(x.at, true).slice(11)} · {TOPICS[x.d.topic]}</Typography>
                   {raw === x.i && (

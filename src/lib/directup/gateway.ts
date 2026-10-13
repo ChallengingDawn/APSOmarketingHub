@@ -67,7 +67,8 @@ export type Status = {
 };
 export type UsageDay = { day: string; lists: number; files: number; read_by_claude: number; lines: number; by_number: number; by_text: number; not_found: number; added: number };
 export type Usage = { days: number; perDay: UsageDay[]; carts: { day: string; carts: number; cart_lines: number }[] };
-export type LogEntry = { at: string; ev: string; data: unknown };
+/** `product`: the article's name from the gateway's catalogue copy, when the event names an article. */
+export type LogEntry = { at: string; ev: string; data: unknown; product?: string | null };
 export type Log = { entries: LogEntry[]; kinds: { ev: string; n: number }[] };
 export type JobSummary = { id: string; createdAt: string; locale: string | null; filename: string | null; method: string | null;
   counts: { total: number; matched: number; review: number; unmatched: number; added: number; skipped: number } };

@@ -24,6 +24,7 @@ import { AMBER, CardTitle, FAINT, GREEN, GlassCard, MUTED, RED, bodyCell, clip, 
 import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import type { JobDetail, JobLine, JobSummary } from "@/lib/directup/gateway";
 import { when } from "./shared";
+import { isoDate, useReportingWindow } from "@/app/window/ReportingWindow";
 
 type Filter = "all" | "carted" | "open" | "check";
 
@@ -106,12 +107,20 @@ export default function ListsTab({ total }: { total: number }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
   const r = held.result;
-  const jobs = useMemo(() => (r?.state === "ok" ? r.data.jobs : []), [r]);
+  // the hub-wide period in the header: the lists made in it
+  const { window: win, label } = useReportingWindow();
+  const read = useMemo(() => (r?.state === "ok" ? r.data.jobs : []), [r]);
+  const jobs = useMemo(
+    () => read.filter((j) => { const day = isoDate(new Date(j.createdAt)); return day >= win.from && day <= win.to; }),
+    [read, win.from, win.to],
+  );
+  // the gateway hands the latest 200 lists: a period that starts before the oldest of them is not complete
+  const cut = read.length >= 200 && isoDate(new Date(read[read.length - 1].createdAt)) > win.from;
   const pick = (f: Filter) => (j: JobSummary) =>
     f === "all" ? true : f === "carted" ? j.counts.added > 0 : f === "open" ? j.counts.added === 0 : j.counts.review > 0 || j.counts.unmatched > 0;
   const shown = useMemo(() => jobs.filter(pick(filter)), [jobs, filter]);
   const { slice, pager, setPage } = usePaged(shown, 15);
-  useEffect(() => { setPage(0); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(0); }, [filter, win.from, win.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (r === null) return <LoadingPanel label="Reading the order lists…" />;
   if (r.state !== "ok") return <UpstreamPanel source="DirectUp Gateway" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
@@ -120,8 +129,8 @@ export default function ListsTab({ total }: { total: number }) {
     <>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<ListAltOutlinedIcon />} tint="blue" title={`The latest ${full(jobs.length)} order lists`}
-            note={`Of ${full(total)} kept, newest first. Click one to see its lines.`}
+          <CardTitle icon={<ListAltOutlinedIcon />} tint="blue" title={`Order lists · ${full(jobs.length)}`}
+            note={`${label}${cut ? ` - of the latest 200 (${full(total)} kept)` : ""}, newest first. Click one to see its lines.`}
             right={
               <Tooltip title="Read again">
                 <IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Read the order lists again">
@@ -144,7 +153,7 @@ export default function ListsTab({ total }: { total: number }) {
               <TableRow>{["Made", "Store view", "From", "Lines", "Found", "To check", "Not found", "In the cart"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow>
             </TableHead>
             <TableBody>
-              {slice.length === 0 && <TableRow><TableCell colSpan={8} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No order lists here.</TableCell></TableRow>}
+              {slice.length === 0 && <TableRow><TableCell colSpan={8} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No order lists here in {label.toLowerCase()}.</TableCell></TableRow>}
               {slice.map((j) => (
                 <TableRow key={j.id} hover selected={open === j.id} onClick={() => setOpen(open === j.id ? null : j.id)} sx={{ cursor: "pointer" }}>
                   <TableCell sx={{ ...num, whiteSpace: "nowrap" }}>{when(j.createdAt)}</TableCell>

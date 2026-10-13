@@ -46,6 +46,19 @@ test("the shop's request answers: a sign-in, a too-long request and an error are
   assert.equal(describe("bridge:share", { status: 500 }, CUR).title, "The shop answered with an error (HTTP 500)");
 });
 
+test("an event about an article names it: number, and the name from the catalogue copy", () => {
+  const q = describe("qty:erp", { sku: "1140011004", from: 50, to: 200, kind: "up", unit: "Stk" }, CUR, "O-Ring 10 x 2 mm NBR 70");
+  assert.equal(q.title, "Quantity raised from 50 to 200 Stk");
+  assert.deepEqual(q.article, { sku: "1140011004", name: "O-Ring 10 x 2 mm NBR 70" });
+  // the events written before 14.10.2026 carry only the new quantity
+  const old = describe("qty:erp", { to: 200, kind: "up" }, CUR);
+  assert.equal(old.title, "Quantity raised to 200");
+  assert.equal(old.article, undefined);
+  const late = describe("erp:late", { sku: "1140072513" }, CUR, null);
+  assert.equal(late.title, "No answer from the shop's ERP");
+  assert.deepEqual(late.article, { sku: "1140072513", name: null });
+});
+
 test("quantities say why they changed", () => {
   assert.match(describe("qty:erp", { to: 200, kind: "up" }, CUR).detail, /minimum or a pack size/);
   assert.match(describe("qty:erp", { to: 5, kind: "disc" }, CUR).detail, /phased out/);
@@ -54,7 +67,8 @@ test("quantities say why they changed", () => {
 });
 
 test("price problems name the article", () => {
-  assert.equal(describe("erp:late", { sku: "1140072513" }, CUR).title, "No answer from the shop's ERP for 1140072513");
+  assert.equal(describe("erp:late", { sku: "1140072513" }, CUR).article?.sku, "1140072513");
+  assert.equal(describe("erp:none", { sku: "1144752411" }, CUR, "FFKM O-ring KALREZ® 6375 ID 11.30 x 2.40 mm -").article?.name, "FFKM O-ring KALREZ® 6375 ID 11.30 x 2.40 mm");
   assert.equal(describe("session:lost", { run: 3 }, CUR).tone, "bad");
   assert.match(describe("session:lost", { run: 3 }, CUR).detail, /^3 articles in a row/);
 });

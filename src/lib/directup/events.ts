@@ -17,6 +17,8 @@ export type Described = {
   detail: string;
   /** Happens on every visit and says little on its own - left out of the "Important" view. */
   routine: boolean;
+  /** The article it is about, when there is one: its number and, from the catalogue copy, its name. */
+  article?: { sku: string; name: string | null };
 };
 
 export const TOPICS: Record<Topic, string> = {
@@ -49,10 +51,14 @@ const fileKind = (t: unknown) => {
 const text = (v: unknown) => String(v ?? "").trim();
 const sku = (v: unknown) => text(v) || "an article";
 
-/** One event in words. `currentBridge` is the footer every store view should run (an older one is a warning). */
-export function describe(ev: string, data: unknown, currentBridge: string): Described {
+/** One event in words. `currentBridge` is the footer every store view should run; `product` is the name of the
+ *  article the event names, when the gateway found it (SARCLA 14.10.2026: "would be great to have which product"). */
+export function describe(ev: string, data: unknown, currentBridge: string, product: string | null = null): Described {
   const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-  const ret = (topic: Topic, tone: Tone, title: string, detail = "", routine = false): Described => ({ topic, tone, title, detail, routine });
+  // the catalogue copy's names end in " -" (the shop's own separator), which says nothing here
+  const article = text(d.sku) ? { sku: text(d.sku), name: product ? product.replace(/\s*[-–]+\s*$/, "").trim() || null : null } : undefined;
+  const ret = (topic: Topic, tone: Tone, title: string, detail = "", routine = false): Described =>
+    article ? { topic, tone, title, detail, routine, article } : { topic, tone, title, detail, routine };
 
   switch (ev) {
     // ── visits ────────────────────────────────────────────────────────────
@@ -123,21 +129,24 @@ export function describe(ev: string, data: unknown, currentBridge: string): Desc
 
     // ── prices and quantities (the shop's ERP) ───────────────────────────
     case "qty:erp": {
-      const k = text(d.kind);
-      if (k === "up") return ret("prices", "info", `Quantity raised to ${num(d.to)}`, "The shop sells this article only from that quantity (a minimum or a pack size)", true);
-      if (k === "disc") return ret("prices", "info", `Quantity lowered to ${num(d.to)}`, "The article is being phased out and no more than that is left", true);
-      return ret("prices", "info", `Quantity lowered to ${num(d.to)}`, "The shop can deliver no more than that", true);
+      // since 14.10.2026 the event carries the article, the quantity before and the unit; older ones only the new one
+      const k = text(d.kind), unit = text(d.unit) ? ` ${text(d.unit)}` : "";
+      const from = Number(d.from) > 0 ? ` from ${num(d.from)}` : "";
+      const verb = k === "up" ? "raised" : "lowered";
+      const why = k === "up" ? "The shop sells this article only from that quantity (a minimum or a pack size)"
+        : k === "disc" ? "The article is being phased out and no more than that is left" : "The shop can deliver no more than that";
+      return ret("prices", "info", `Quantity ${verb}${from} to ${num(d.to)}${unit}`, why, true);
     }
     case "qty:loop":
       return ret("prices", "warn", `Quantity kept switching between ${num(d.a)} and ${num(d.b)}`, "The shop's answers contradicted each other, so the tool stopped adjusting it");
     case "erp:late":
-      return ret("prices", "warn", `No answer from the shop's ERP for ${sku(d.sku)}`, "The price check took longer than 8 seconds; the line shows no price for now");
+      return ret("prices", "warn", article ? "No answer from the shop's ERP" : `No answer from the shop's ERP for ${sku(d.sku)}`, "The price check took longer than 8 seconds; the line shows no price for now");
     case "erp:none":
-      return ret("prices", "warn", `No price for ${sku(d.sku)}`, "The shop answered without a price; the line reads \"Price on request\"");
+      return ret("prices", "warn", "No price from the shop", "The shop answered without a price; the line reads \"Price on request\"");
     case "erp:noname":
-      return ret("prices", "info", `No article name from the ERP for ${sku(d.sku)}`, "Shown as \"Special article\": the shop's ERP route does not pass the name on", true);
+      return ret("prices", "info", "No article name from the ERP", "Shown as \"Special article\": the shop's ERP route does not pass the name on", true);
     case "erp:unreadable":
-      return ret("prices", "warn", `Unreadable answer for ${sku(d.sku)}`, "The shop answered, but not with a price the tool could read");
+      return ret("prices", "warn", "Unreadable answer from the shop", "The shop answered, but not with a price the tool could read");
     case "session:lost":
       return ret("prices", "bad", "The customer's shop session ran out",
         `${count(d.run, "article", "articles")} in a row came back without a price; the customer was asked to sign in again`);

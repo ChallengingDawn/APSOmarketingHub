@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       const log = await gateway<Log>("/log?n=1000");
       return NextResponse.json({ configured: true, ok: true, data: log });
     }
-    if (part === "jobs") return NextResponse.json({ configured: true, ok: true, data: await gateway<{ jobs: JobSummary[] }>("/jobs?n=100") });
+    if (part === "jobs") return NextResponse.json({ configured: true, ok: true, data: await gateway<{ jobs: JobSummary[] }>("/jobs?n=200") });
     if (part === "job") {
       const id = q.get("id") || "";
       if (!/^[0-9a-f-]{8,64}$/i.test(id)) return NextResponse.json({ configured: true, ok: false, error: "No such order list.", status: 400 });
