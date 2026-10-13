@@ -64,9 +64,9 @@ export async function POST(req: NextRequest) {
   try {
     if (body.action === "settings") {
       const n = Number(body.batchSize);
-      if (!Number.isInteger(n) || n < 1 || n > 500) return NextResponse.json({ ok: false, error: "Lines per cart: 1 to 500." }, { status: 400 });
+      if (!Number.isInteger(n) || n < 1 || n > 100) return NextResponse.json({ ok: false, error: "Lines per request: 1 to 100." }, { status: 400 });
       const data = await gateway<{ batchSize: number }>("/settings", { method: "PUT", body: { batchSize: n } });
-      console.log(`[directup] lines per cart set to ${n} by ${who}`);
+      console.log(`[directup] lines per request set to ${n} by ${who}`);
       return NextResponse.json({ ok: true, data });
     }
     if (body.action === "sync") return NextResponse.json({ ok: true, data: await gateway<{ started: boolean }>("/catalogue/sync", { method: "POST" }) });

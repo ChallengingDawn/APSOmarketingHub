@@ -341,11 +341,11 @@ function SettingsTab({ o, reload }: { o: Overview; reload: () => void }) {
           </Box>
         </Section>
         <Section>
-          <Title>Lines per cart</Title>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.25 }}>A long order goes into the cart in batches of this many lines, each its own cart. The old tool stopped at 60.</Typography>
+          <Title>Lines per request</Title>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.25 }}>One click puts the whole list into one cart. It goes to the shop in requests of this many lines, one after the other. At most 100: the shop refuses longer requests (192 lines did not go through, 128 did).</Typography>
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <TextField size="small" type="number" value={batch} onChange={(e) => setBatch(e.target.value)} disabled={!o.isAdmin} sx={{ width: 120 }} inputProps={{ min: 1, max: 500, "aria-label": "Lines per cart" }} />
-            {o.isAdmin && <Button variant="contained" disableElevation disabled={busy !== null || Number(batch) === o.status.settings.batchSize} onClick={() => void act("batch", { action: "settings", batchSize: Number(batch) }, `Lines per cart: ${batch}. The tool uses it from the next list.`)}>Save</Button>}
+            <TextField size="small" type="number" value={batch} onChange={(e) => setBatch(e.target.value)} disabled={!o.isAdmin} sx={{ width: 120 }} inputProps={{ min: 1, max: 100, "aria-label": "Lines per request" }} />
+            {o.isAdmin && <Button variant="contained" disableElevation disabled={busy !== null || Number(batch) === o.status.settings.batchSize} onClick={() => void act("batch", { action: "settings", batchSize: Number(batch) }, `Lines per request: ${batch}. The tool uses it from the next click.`)}>Save</Button>}
           </Box>
         </Section>
       </Box>
