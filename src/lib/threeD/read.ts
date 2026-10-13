@@ -93,7 +93,7 @@ async function formSubmissions(): Promise<Omit<Submission, "ticket">[]> {
 type Obj = { id: string; properties?: Record<string, string | null> };
 
 /** Every 3D-request ticket (any channel), with its stage's name, and each one's contact email. */
-async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<string, string> }> {
+async function requestTickets(): Promise<{ rows: TicketRow[]; emailsOf: Map<string, string[]> }> {
   const tickets: Obj[] = [];
   let after: string | undefined;
   do {
@@ -128,19 +128,21 @@ async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<strin
     };
   });
 
-  // the contact of each FORM ticket, to pair it with its submission (by email and time)
+  // EVERY contact of each FORM ticket, to pair it with its submission (by email and time): the
+  // submitter is not always the first - on Kevin Meili's ticket an A+P colleague came first, and
+  // matching on the first contact left every row "no ticket found" (13.10.2026)
   const formIds = rows.filter((r) => r.channel === "Form").map((r) => r.id);
-  const contactOf = new Map<string, string>();
+  const contactsOf = new Map<string, string[]>();
   for (let i = 0; i < formIds.length; i += 100) {
     const a = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: string | number }[] }[] }>({
-      // the hub's own token: the tickets token may not read contacts, and a batch read without
-      // the scope answers with no results instead of an error (13.10: every row said "no ticket")
       path: "/crm/v4/associations/tickets/contacts/batch/read", method: "POST",
       body: { inputs: formIds.slice(i, i + 100).map((id) => ({ id })) },
     });
-    for (const x of a.results ?? []) if (x.from?.id && x.to?.[0]?.toObjectId != null) contactOf.set(String(x.from.id), String(x.to[0].toObjectId));
+    for (const x of a.results ?? []) {
+      if (x.from?.id && x.to?.length) contactsOf.set(String(x.from.id), x.to.filter((t) => t.toObjectId != null).map((t) => String(t.toObjectId)));
+    }
   }
-  const cids = [...new Set(contactOf.values())];
+  const cids = [...new Set([...contactsOf.values()].flat())];
   const mail = new Map<string, string>();
   for (let i = 0; i < cids.length; i += 100) {
     const c = await hubspotFetchJson<{ results?: Obj[] }>({
@@ -149,9 +151,9 @@ async function requestTickets(): Promise<{ rows: TicketRow[]; emailOf: Map<strin
     });
     for (const x of c.results ?? []) if (x.properties?.email) mail.set(x.id, x.properties.email.trim().toLowerCase());
   }
-  const emailOf = new Map<string, string>();
-  for (const [tid, cid] of contactOf) { const e = mail.get(cid); if (e) emailOf.set(tid, e); }
-  return { rows, emailOf };
+  const emailsOf = new Map<string, string[]>();
+  for (const [tid, ids] of contactsOf) emailsOf.set(tid, ids.map((id) => mail.get(id)).filter((e): e is string => !!e));
+  return { rows, emailsOf };
 }
 
 export async function readThreeD(): Promise<ThreeD> {
@@ -163,7 +165,7 @@ export async function readThreeD(): Promise<ThreeD> {
   return {
     at: new Date().toISOString(),
     service: svc,
-    submissions: "s" in subs ? pairTickets(subs.s, tickets.rows, tickets.emailOf) : [],
+    submissions: "s" in subs ? pairTickets(subs.s, tickets.rows, tickets.emailsOf) : [],
     ...("error" in subs ? { submissionsError: subs.error } : {}),
     tickets: tickets.rows,
     catalogueUrl: `${await gatewayUrl()}/cad`,

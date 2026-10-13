@@ -7,14 +7,17 @@ export const MATCH_WINDOW_MS = 6 * 3_600_000;
 export type TicketRow = { id: string; at: string; channel: string; stage: string; closed: boolean; articles?: string };
 export type Submission = { at: string; name: string; email: string; company: string; articles: string; ticket: TicketRow | null };
 
-/** Each submission's ticket: the first form ticket of the same email raised within six hours after it. */
-export function pairTickets(subs: Omit<Submission, "ticket">[], rows: TicketRow[], emailOf: Map<string, string>): Submission[] {
+/**
+ * Each submission's ticket: the first form ticket raised within six hours after it whose contacts
+ * include the submitter. A ticket carries SEVERAL contacts - on Kevin Meili's the A+P colleague
+ * came first (13.10.2026), so matching on the first contact only found nothing.
+ */
+export function pairTickets(subs: Omit<Submission, "ticket">[], rows: TicketRow[], emailsOf: Map<string, string[]>): Submission[] {
   const used = new Set<string>();
   const byEmail = new Map<string, TicketRow[]>();
   for (const r of rows) {
-    const e = emailOf.get(r.id);
-    if (!e || r.channel !== "Form") continue;
-    byEmail.set(e, [...(byEmail.get(e) ?? []), r]);
+    if (r.channel !== "Form") continue;
+    for (const e of new Set(emailsOf.get(r.id) ?? [])) byEmail.set(e, [...(byEmail.get(e) ?? []), r]);
   }
   for (const list of byEmail.values()) list.sort((a, b) => a.at.localeCompare(b.at));
   // oldest submission first, so two requests from one person take their own tickets in order
