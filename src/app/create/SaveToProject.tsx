@@ -31,7 +31,7 @@ const FAINT = "#8b97ac";
 const HAIRLINE = "rgba(21,34,58,.10)";
 
 export default function SaveToProject({
-  draftId, defaultLabel, projectId, projectTitle, onSaved,
+  draftId, defaultLabel, projectId, projectTitle, onSaved, onDark = false,
 }: {
   /** The content row the studio already wrote. Null while nothing is drafted. */
   draftId: number | null;
@@ -41,6 +41,12 @@ export default function SaveToProject({
   projectTitle?: string;
   /** Called after a successful save so the versions strip can catch up. */
   onSaved?: () => void;
+  /**
+   * Rendered on the editor's dark chrome. A button keeps the colours it would
+   * have on a white page, so on dark navy the label — and worse, the disabled
+   * label — comes out dark grey on dark navy and cannot be read at all.
+   */
+  onDark?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -101,7 +107,16 @@ export default function SaveToProject({
         onClick={() => (projectId ? attach(projectId) : setOpen(true))}
         disabled={draftId === null || busy}
         startIcon={<FolderOpenIcon />}
-        sx={{ textTransform: "none", fontWeight: 700, flexShrink: 0 }}
+        sx={{
+          textTransform: "none", fontWeight: 700, flexShrink: 0,
+          ...(onDark
+            ? {
+                color: "#e8edf6",
+                "&:hover": { bgcolor: "rgba(255,255,255,.08)" },
+                "&.Mui-disabled": { color: "rgba(232,237,246,.42)" },
+              }
+            : {}),
+        }}
       >
         {projectId ? (done ? "Saved" : `Save to ${projectTitle ?? "project"}`) : "Save to project"}
       </Button>

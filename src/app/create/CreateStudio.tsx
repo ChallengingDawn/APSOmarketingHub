@@ -43,6 +43,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import CloseIcon from "@mui/icons-material/Close";
 import PaletteIcon from "@mui/icons-material/Palette";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
 import MarkdownPreview from "./MarkdownPreview";
@@ -773,16 +774,30 @@ export default function CreateStudio({
 
   /* ── render ── */
 
-  const sectionHeader = (key: SectionKey, label: string, icon: ReactNode) => (
-    <Box
-      onClick={() => toggleSection(key)}
-      sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.25, cursor: "pointer", borderTop: "1px solid #f0f1f3", "&:hover": { bgcolor: "#fafbfc" } }}
-    >
-      {icon}
-      <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#1a1d21", flex: 1 }}>{label}</Typography>
-      <ChevronRightIcon sx={{ fontSize: 18, color: "#c7ccd2", transform: openSections[key] ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
-    </Box>
-  );
+  /**
+   * The header of the ONE open panel.
+   *
+   * It used to render for all seven, which turned the column into a list of
+   * things you had NOT chosen — while the rail above it had already chosen.
+   * A panel that is not open now renders no header; its content stays mounted
+   * and hidden, because the canvas portals its tools into that tree and
+   * unmounting the target takes the toolbar with it.
+   */
+  const sectionHeader = (key: SectionKey, label: string, icon: ReactNode) => {
+    if (activePanel !== key) return null;
+    return (
+      <Box sx={{
+        display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.5,
+        borderBottom: "1px solid #eceef1",
+      }}>
+        {icon}
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: "#15223a", flex: 1 }}>{label}</Typography>
+        <IconButton size="small" onClick={() => setActivePanel(null)} aria-label="Close this panel">
+          <CloseIcon sx={{ fontSize: 17, color: "#8b97ac" }} />
+        </IconButton>
+      </Box>
+    );
+  };
 
   return (
     <Box sx={{
@@ -798,6 +813,7 @@ export default function CreateStudio({
         typeLabel={CONTENT_BY_KEY[contentType]?.label ?? "Draft"}
         right={
           <SaveToProject
+            onDark
             draftId={draft?.draftId ?? null}
             defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
             projectId={projectId}
