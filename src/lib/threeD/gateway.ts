@@ -100,7 +100,7 @@ export async function checkPlaces(gateway: string): Promise<Place[]> {
   for (const [key, label, res, url] of [["pdp3d", "Inside pdp3d.js", pdp, `${gateway}/pdp3d.js`], ["cadhtml", "Inside the catalogue (cad.html)", cad, `${gateway}/cad`]] as const) {
     const a = "t" in res ? apiAddress(res.t) : { origin: null, follows: false };
     out.push({
-      key, group: "Served by the gateway", label, where: "C:\\dev\\APSOPricingHub, packages/backend/public (const API)",
+      key, group: "Served by the gateway", label, where: "The file the gateway address serves - the 3D Gateway's takes its own address (C:\\dev\\APSOAssistant-threed-wt\\threed-gateway\\public)",
       found: a.origin, url,
       state: "error" in res ? "error" : a.follows ? "follows" : judge(a.origin, gateway),
       note: "error" in res ? `Not served at this address: ${res.error}` : a.follows ? "Takes the address it is served from - nothing to change." : "Written into the file: change it in the repo and push (Railway deploys).",

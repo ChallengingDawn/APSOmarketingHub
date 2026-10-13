@@ -37,24 +37,17 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, GREEN, GlassCard, INK, KpiTile, MUTED, Notice, TRACK, bodyCell, headCell, hsTicket } from "@/app/uc/report/ui";
-import { Chip, Choice, usePaged } from "@/app/connectors/parts";
+import { Chip, usePaged } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import type { ThreeD } from "@/lib/threeD/read";
 import SettingsTab from "./SettingsTab";
+import CallsTab from "./CallsTab";
+import Bars from "./Bars";
+import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 
-type View = "overview" | "settings";
+type View = "overview" | "calls" | "settings";
 /** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
-const VIEW_HASH: Record<View, string> = { overview: "#overview", settings: "#settings" };
-type PeriodKey = "30" | "90" | "year" | "all";
-const PERIODS: { key: PeriodKey; label: string }[] = [
-  { key: "30", label: "30 days" }, { key: "90", label: "90 days" }, { key: "year", label: "This year" }, { key: "all", label: "All" },
-];
-
-function since(key: PeriodKey): number {
-  if (key === "all") return 0;
-  if (key === "year") return Date.UTC(new Date().getUTCFullYear(), 0, 1);
-  return Date.now() - Number(key) * 86_400_000;
-}
+const VIEW_HASH: Record<View, string> = { overview: "#overview", calls: "#calls", settings: "#settings" };
 
 const sent = (iso: string) => {
   const d = new Date(iso);
@@ -67,24 +60,6 @@ const tally = (items: string[]) =>
     .map(([label, n]) => ({ label, n }))
     .sort((a, b) => b.n - a.n);
 
-/** Rows of label, bar and figure - the UC apps' horizontal bars. */
-function Bars({ rows, colour = ACCENT }: { rows: { label: string; n: number; colour?: string }[]; colour?: string }) {
-  const max = Math.max(1, ...rows.map((r) => r.n));
-  if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>None in this period.</Typography>;
-  return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      {rows.map((r) => (
-        <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,2fr) 52px", alignItems: "center", gap: 1.25 }}>
-          <Typography sx={{ fontSize: "0.84rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.label}>{r.label}</Typography>
-          <Box sx={{ height: 10, borderRadius: 5, bgcolor: TRACK }}>
-            <Box sx={{ height: 10, borderRadius: 5, width: `${(r.n / max) * 100}%`, bgcolor: r.colour ?? colour }} />
-          </Box>
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(r.n)}</Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-}
 
 function Lookup({ catalogueUrl }: { catalogueUrl: string }) {
   const [article, setArticle] = useState("");
@@ -131,10 +106,11 @@ function Lookup({ catalogueUrl }: { catalogueUrl: string }) {
   );
 }
 
-function Overview({ d, period, setPeriod }: { d: ThreeD; period: PeriodKey; setPeriod: (p: PeriodKey) => void }) {
+function Overview({ d, from, to }: { d: ThreeD; from: string; to: string }) {
   const v = useMemo(() => {
-    const from = since(period);
-    const inP = (iso: string) => Date.parse(iso) >= from;
+    // the reporting window's days, inclusive, in UTC
+    const lo = Date.parse(`${from}T00:00:00Z`), hi = Date.parse(`${to}T23:59:59.999Z`);
+    const inP = (iso: string) => { const t = Date.parse(iso); return t >= lo && t <= hi; };
     const subs = d.submissions.filter((s) => inP(s.at));
     const tickets = d.tickets.filter((t) => inP(t.at));
     const closedStage = new Set(tickets.filter((t) => t.closed).map((t) => t.stage));
@@ -145,7 +121,7 @@ function Overview({ d, period, setPeriod }: { d: ThreeD; period: PeriodKey; setP
       byChannel: tally(tickets.map((t) => t.channel)),
       byStage: tally(tickets.map((t) => t.stage)).map((s) => ({ ...s, colour: closedStage.has(s.label) ? GREEN : ACCENT })),
     };
-  }, [d, period]);
+  }, [d, from, to]);
   const { slice, pager } = usePaged(v.subs, 15);
   const svc = d.service;
 
@@ -170,8 +146,6 @@ function Overview({ d, period, setPeriod }: { d: ThreeD; period: PeriodKey; setP
           )}
         </Box>
       </GlassCard>
-
-      <Choice value={period} onChange={setPeriod} options={PERIODS} />
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DescriptionOutlinedIcon />} tint="blue" label="Form submissions" value={full(v.subs.length)} note="the 3D catalogue's request form" /></Grid>
@@ -252,7 +226,7 @@ function Overview({ d, period, setPeriod }: { d: ThreeD; period: PeriodKey; setP
 
 export default function ThreeDFiles() {
   const [forced, setForced] = useState(0);
-  const [period, setPeriod] = useState<PeriodKey>("90");
+  const { window: win } = useReportingWindow();
   // Settings: the gateway's address and every place that names it (SARCLA, 13.10.2026)
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const url = forced ? `/api/website/3d?refresh=1&n=${forced}` : "/api/website/3d";
@@ -260,19 +234,21 @@ export default function ThreeDFiles() {
   const r = held.result;
 
   let body: React.ReactNode;
-  if (view === "settings") body = <Box id="threed-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab /></Box>;
+  if (view === "calls") body = <Box id="threed-panel-calls" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><CallsTab from={win.from} to={win.to} /></Box>;
+  else if (view === "settings") body = <Box id="threed-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the 3D service and HubSpot…" />;
   else if (r.state === "not-configured") body = <NotConnectedPanel source="HubSpot" missing={r.missing} />;
   else if (r.state === "error") body = <UpstreamPanel source="HubSpot (3D requests)" error={r.error} status={r.status} onRetry={() => setForced((n) => n + 1)} />;
-  else body = <Box id="threed-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} period={period} setPeriod={setPeriod} /></Box>;
+  else body = <Box id="threed-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} from={win.from} to={win.to} /></Box>;
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="3D files"
         subtitle="The shop's 3D catalogue, the requests its form sends, and the tickets they become"
-        rightSlot={view === "overview" ? (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        rightSlot={view !== "settings" ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <WindowPicker />
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Ask Railway and HubSpot again">
               <IconButton size="small" onClick={() => setForced((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
@@ -283,6 +259,7 @@ export default function ThreeDFiles() {
       <Box>
         <ReportTabs name="threed" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
+          { id: "calls", label: "Calls to AP-Link", count: null },
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>

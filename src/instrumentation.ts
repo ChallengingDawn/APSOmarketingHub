@@ -40,5 +40,9 @@ export async function register() {
     // for HubSpot when opening one (read-only; never beside an ERP chain; LIFECYCLE_WARM=off stops it)
     const { startLifecycleWarm } = await import("./lib/lifecycle/scheduler");
     startLifecycleWarm();
+    // The 3D Gateway's counts (Railway keeps them in memory only): collected every 15 minutes into the
+    // hub's database. Needs THREED_ADMIN_KEY; THREED_COLLECT=off stops it.
+    const { startThreeDCollector } = await import("./lib/threeD/calls");
+    startThreeDCollector();
   }
 }
