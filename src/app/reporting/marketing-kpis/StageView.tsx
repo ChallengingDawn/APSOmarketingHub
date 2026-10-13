@@ -78,7 +78,9 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (s.id === "7" && views?.X01) measured.push({ k: { ...KPIS[0], id: "X01", name: "SEA cost", question: "What do the ads cost?", definition: "Google Ads + Microsoft Ads spend." }, v: views.X01 });
   const missing = [...notConnectedIn(s.id), ...journeyAdditionsIn(s.id)];
   const customers = s.slug === "customers";
-  const count = customers ? measuredIn(s.id).length : measured.length;
+  // the customers page is its own: its title with its figures beside it, the filters, the tabs
+  if (customers) return <CustomersExplorer />;
+  const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
       {header && <PageHeader title={s.name} subtitle={stageLine(s.id, count, missing.length, year)} />}
@@ -93,8 +95,7 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
           <Typography sx={{ fontSize: "0.86rem", color: MUTED }}><b style={{ color: "#15223a" }}>Note:</b> {s.note}</Typography>
         </GlassCard>
       )}
-      {customers && <CustomersExplorer />}
-      {views && state && !customers && (
+      {views && state && (
         <>
           {measured.length > 0 && (
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
@@ -107,7 +108,6 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
           <LiveNote state={state} />
         </>
       )}
-      {customers && <NotConnected list={missing} />}
     </Box>
   );
 }

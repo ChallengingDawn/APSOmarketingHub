@@ -12,10 +12,11 @@
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
+import { chainHistory } from "@/lib/connectors/chainStatus";
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
-import { DIMS, fold, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
+import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v3";
+const KEY = "marketingKpis:customers:v4";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 export function customersCube(): Promise<SlowState<Cube>> {
@@ -79,5 +80,13 @@ async function build(): Promise<Cube> {
   }
 
   const loaded = [monthsLoaded(filled[0], filled[1], monthsDone), 12, 12];
-  return { generatedAt: new Date().toISOString(), years, loaded, labels, ...fold(companies) };
+  // The month in progress reaches the day of the last ERP delivery the chain ran
+  // (yesterday when no delivery is on record): year to date and month to date end there.
+  let day: string | undefined;
+  try { day = (await chainHistory()).map((d) => d.day).sort().pop(); } catch { /* no database on this machine */ }
+  const reach = day ? new Date(`${day}T00:00:00Z`) : new Date(Date.now() - 86_400_000);
+  const running = reach.getUTCFullYear() === year && reach.getUTCMonth() >= loaded[0]
+    ? { month: monthOf(0, reach.getUTCMonth()), day: reach.getUTCDate(), days: new Date(Date.UTC(year, reach.getUTCMonth() + 1, 0)).getUTCDate() }
+    : null;
+  return { generatedAt: new Date().toISOString(), years, loaded, running, labels, ...fold(companies) };
 }

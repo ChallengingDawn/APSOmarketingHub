@@ -44,12 +44,15 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
+import TuneIcon from "@mui/icons-material/Tune";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import {
-  DIMS, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, shareOfWallet, sortRows, totals,
+  DIMS, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
   upToDate, windowLabel, yearOfMonth, type Agg, type Cube, type Dim, type Filters, type Row, type SortKey, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { SlowState } from "@/lib/integrations/slowReport";
@@ -84,7 +87,7 @@ const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tin
   segment: { name: "APSO customer", lower: "APSO customer", icon: <GroupsOutlinedIcon />, tint: "purple", note: "APSOcore, APSOgrowth, APSOprospect, APSOlost, APSOmicro, Growth Engine", kpi: "KPI C03" },
   potential: { name: "Potential", lower: "potential", icon: <SavingsOutlinedIcon />, tint: "amber", note: "The yearly customer potential, and how much of it we get", kpi: "KPI C07" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where our customers are", kpi: "KPI C05" },
-  owner: { name: "Owner", lower: "owner", icon: <PersonOutlineIcon />, tint: "slate", note: "The company owner in HubSpot", kpi: "" },
+  owner: { name: "Sales rep", lower: "sales rep", icon: <PersonOutlineIcon />, tint: "slate", note: "The company owner in HubSpot", kpi: "" },
   type: { name: "Customer type", lower: "customer type", icon: <CategoryOutlinedIcon />, tint: "pink", note: "OEM, C2S workshops, MRO, resellers", kpi: "KPI C04" },
   mandant: { name: "Mandant", lower: "mandant", icon: <AccountBalanceOutlinedIcon />, tint: "slate", note: "The ERP company the customer is invoiced from", kpi: "KPI C05" },
 };
@@ -139,7 +142,7 @@ function Period({ cube, win, onChange }: { cube: Cube; win: Win; onChange: (w: W
 function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string }) {
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const upTo = `Up to ${upToDate(cube, win)}`;
-  const sow = shareOfWallet(a, win);
+  const sow = shareOfWallet(a, win, cube);
   return (
     <Grid container spacing={1.5}>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -223,7 +226,7 @@ function DimTable({ cube, dim, rows, win, selected, onPick }: { cube: Cube; dim:
     { key: "diff", head: "Change in €", tip: "Revenue in the period minus the same months a year earlier", cell: (r) => <span style={{ color: tone(r.rev - r.revPy) }}>{signedEur(r.rev - r.revPy)}</span> },
     { key: "change", head: "Change in %", tip: "The change against the same months a year earlier", cell: (r) => <span style={{ color: tone(change(r.rev, r.revPy)), fontWeight: 700 }}>{r.revPy ? signedPct(change(r.rev, r.revPy)) : r.rev > 0 ? "new" : "—"}</span> },
     { key: "share", head: "Share of revenue", tip: "This row's part of all the revenue in the table", cell: (r, s) => (r.rev > 0 && s > 0 ? pct(r.rev / s) : "—") },
-    { key: "sow", head: "Share of wallet", tip: "Revenue against the yearly potential for the same number of months", cell: (r) => pct(shareOfWallet(r, win)) },
+    { key: "sow", head: "Share of wallet", tip: "Revenue against the yearly potential for the same number of months", cell: (r) => pct(shareOfWallet(r, win, cube)) },
   ];
   const sorted = sortRows(rows, sort.key, dim, sort.desc);
   const found = q ? sorted.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : sorted;
@@ -332,14 +335,69 @@ export function CustomersExplorer() {
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
   const rows = useMemo(() => (cube && win ? breakdown(cube, view, filters, win) : []), [cube, view, filters, win]);
 
+  // the filters fold away behind a button at the top (SARCLA 13.10); the choice is remembered in this browser
+  const [open, setOpen] = useState(false);
+  useEffect(() => { try { setOpen(localStorage.getItem(OPEN_KEY) === "1"); } catch { /* storage blocked */ } }, []);
+  const flip = () => setOpen((o) => { try { localStorage.setItem(OPEN_KEY, o ? "0" : "1"); } catch { /* storage blocked */ } return !o; });
+
   if (!cube || !win || !a || !all) return <Waiting computing={computing} progress={progress} error={error} />;
   const d = DIM[view];
   const active = DIMS.filter((x) => filters[x]);
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const pro = proRataNote(cube, win);
   // the charts show the twelve with the most revenue; priority and potential keep their order
-  const chartRows = view === "prio" || view === "potential" ? rows : sortRows(rows, "rev", view).slice(0, 12);
+  const top = (dim: Dim, n: number) => {
+    const r = breakdown(cube, dim, filters, win);
+    return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim).slice(0, n);
+  };
+  const chartRows = top(view, 12);
+  // every view also shows the revenue by country and by sales rep (SARCLA 13.10); where one of
+  // them is the view itself, the sales priority takes its place
+  const beside: Dim[] = view === "country" ? ["owner", "prio"] : view === "owner" ? ["country", "prio"] : ["country", "owner"];
   return (
-    <Box sx={{ display: "grid", gap: 2, minWidth: 0 }}>
+    <Box sx={{ display: "grid", gap: 1.75, minWidth: 0 }}>
+      {/* the title, the four figures small beside it, and the filters button */}
+      <Box sx={{ display: "flex", alignItems: "flex-end", gap: { xs: 1.5, md: 3 }, flexWrap: "wrap" }}>
+        <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
+          Who are our customers
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <KpiStrip cube={cube} a={a} all={all} win={win} readIso={computedAt} />
+      </Box>
+
+      {/* what is shown, always; the period controls when the filters are open */}
+      <Box sx={{ ...glass, borderRadius: "16px", px: 2, py: 1.1, display: "grid", gap: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Button onClick={flip} size="small" variant={open ? "contained" : "outlined"} disableElevation aria-expanded={open} aria-controls="customers-filters"
+            startIcon={<TuneIcon />} endIcon={open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px", px: 1.5, height: 32, mr: 0.5 }}>
+            Filters{active.length ? ` (${active.length})` : ""}
+          </Button>
+          <CalendarMonthOutlinedIcon sx={{ fontSize: 18, color: MUTED }} />
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
+            <b style={{ color: INK }}>{w}</b> against <b style={{ color: INK }}>{pw}</b>{pro ? ` (${pro})` : ""} · figures up to {upToDate(cube, win)}{computing ? " · reading HubSpot again" : ""}
+          </Typography>
+          <Box sx={{ width: "1px", height: 18, bgcolor: HAIRLINE, mx: 0.5 }} />
+          <FilterAltOutlinedIcon sx={{ fontSize: 18, color: MUTED }} />
+          {active.length === 0 ? (
+            <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>All companies - click a bar or a row to show only that one</Typography>
+          ) : (
+            <>
+              {active.map((x) => (
+                <Chip key={x} size="small" label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => clear(x)}
+                  sx={{ height: 26, fontSize: "0.8rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+              ))}
+              <Button size="small" onClick={() => setFilters({})} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+            </>
+          )}
+        </Box>
+        {open && (
+          <Box id="customers-filters" sx={{ pt: 1, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Period cube={cube} win={win} onChange={setWin} />
+          </Box>
+        )}
+      </Box>
+
       <Box>
         <ReportTabs name="customers" tab={view} onSelect={setView}
           tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
@@ -349,32 +407,7 @@ export function CustomersExplorer() {
         <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
           right={d.kpi ? <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT }}>{d.kpi}</Typography> : undefined} />
 
-        {/* what the chart and the table show: the period, and any drill-down */}
-        <Box sx={{ display: "grid", gap: 1, p: 1.5, mt: -1, borderRadius: "14px", bgcolor: "rgba(237,240,245,.6)", border: `1px solid ${HAIRLINE}` }}>
-          <Period cube={cube} win={win} onChange={setWin} />
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, pl: 3.5 }}>
-            Showing <b>{w}</b>, compared with <b>{pw}</b> · figures up to {upToDate(cube, win)} · companies read {readAt(computedAt)}{computing ? " · reading HubSpot again" : ""}
-          </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            <FilterAltOutlinedIcon sx={{ fontSize: 20, color: MUTED }} />
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mr: 0.5 }}>Filter</Typography>
-            {active.length === 0 ? (
-              <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>All companies - click a bar or a row to show only that one</Typography>
-            ) : (
-              <>
-                {active.map((x) => (
-                  <Chip key={x} label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => clear(x)}
-                    sx={{ height: 30, fontSize: "0.82rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
-                ))}
-                <Button size="small" onClick={() => setFilters({})} sx={{ textTransform: "none", fontWeight: 600 }}>Clear all</Button>
-              </>
-            )}
-          </Box>
-        </Box>
-
-        <Figures cube={cube} a={a} all={all} win={win} readIso={computedAt} />
-
-        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } }}>
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
           <DimChart title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy}
             curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={(l) => toggle(view, l)} />
           <DimChart title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy}
@@ -386,11 +419,46 @@ export function CustomersExplorer() {
 
         <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} />
 
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } }}>
+          {beside.map((o) => (
+            <DimChart key={o} title={`Revenue, by ${DIM[o].lower}${o === "prio" ? "" : " - the 10 largest"}`} rows={top(o, 10)} cur={(r) => r.rev} prev={(r) => r.revPy}
+              curLabel={w} prevLabel={pw} fmt={eur} selected={filters[o]} onPick={(l) => toggle(o, l)} />
+          ))}
+        </Box>
+
         <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-          Every company in HubSpot, read every 6 hours. Bought = invoiced revenue in at least one month of the period. This year&apos;s months count once their revenue is loaded.
-          Priority, APSO customer, potential and owner are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
+          Every company in HubSpot, read every 6 hours; revenue up to the last ERP delivery. Bought = invoiced revenue in at least one month of the period.
+          Priority, APSO customer, potential and sales rep are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
         </Typography>
       </GlassCard>
+    </Box>
+  );
+}
+
+const OPEN_KEY = "apsomh:customers-filters-open";
+
+/** The four figures, small, beside the title (SARCLA 13.10: "it is always repeating, put it small on top"). */
+function KpiStrip({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string }) {
+  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
+  const items: { label: string; value: string; ch?: number | null; sub: string; tip: string }[] = [
+    { label: "Companies", value: int(a.n), sub: a.n !== all.n ? `${pct(a.n / all.n)} of ${int(all.n)}` : `as of ${readAt(readIso)}`, tip: `Companies in HubSpot, as of ${readAt(readIso)}` },
+    { label: `Bought, ${w}`, value: int(a.bought), ch: change(a.bought, a.boughtPy), sub: `${pw}: ${int(a.boughtPy)}`, tip: "Companies with invoiced revenue in at least one month of the period" },
+    { label: `Revenue, ${w}`, value: eur(a.rev), ch: change(a.rev, a.revPy), sub: `${pw}: ${eur(a.revPy)}`, tip: `Invoiced revenue, up to ${upToDate(cube, win)}` },
+    { label: "Share of wallet", value: pct(shareOfWallet(a, win, cube)), sub: "of the yearly potential", tip: "Revenue against the yearly potential, for the same time" },
+  ];
+  return (
+    <Box sx={{ display: "flex", gap: { xs: 2, md: 3 }, flexWrap: "wrap", alignItems: "flex-end" }}>
+      {items.map((it) => (
+        <Box key={it.label} title={it.tip} sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, whiteSpace: "nowrap" }}>{it.label}</Typography>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75 }}>
+            <Typography sx={{ fontSize: "1.2rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
+            {it.ch !== undefined && <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
+          </Box>
+          <Typography sx={{ fontSize: "0.7rem", color: FAINT, whiteSpace: "nowrap" }}>{it.sub}</Typography>
+        </Box>
+      ))}
     </Box>
   );
 }

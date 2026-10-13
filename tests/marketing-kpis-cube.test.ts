@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  DIMS, breakdown, clampWindow, defaultWindow, fold, lastMonth, masks, monthOf, potentialBand, presets, shareOfWallet, sortRows, totals,
+  DIMS, breakdown, clampWindow, defaultWindow, fold, lastMonth, masks, monthOf, potentialBand, presets, proRataNote, shareOfWallet, sortRows, totals,
   upToDate, usablePotential, windowLabel, type CompanyIn, type Cube, type Dim,
 } from "../src/lib/marketingKpis/cube";
 
@@ -17,7 +17,7 @@ function cubeOf(list: In[], loaded = 9): Cube {
     potential: c.potential ?? null,
     months: [months(c.cy), months(c.py), months(c.py2)],
   }));
-  return { generatedAt: "", years: [2026, 2025, 2024], loaded: [loaded, 12, 12], labels, ...fold(companies) };
+  return { generatedAt: "", years: [2026, 2025, 2024], loaded: [loaded, 12, 12], running: null, labels, ...fold(companies) };
 }
 const co = (prio: string, segment: string, country: string, owner: string, x: Omit<In, "dims"> = {}): In => ({
   dims: { prio, segment, potential: potentialBand(x.potential ?? null), country, owner, type: "OEM", mandant: "M100" }, ...x,
@@ -67,7 +67,7 @@ test("a quarter, last year whole, and the months a window may reach", () => {
   assert.equal(windowLabel(cube, ly, 1), "2024");
   assert.equal(totals(cube, {}, ly).rev, 99_000);
   assert.equal(totals(cube, {}, ly).revPy, 9_000);
-  assert.deepEqual(presets(cube).map((p) => p.id), ["ytd", "12m", "ly", "q1", "q2", "q3"]);
+  assert.deepEqual(presets(cube).map((p) => p.id), ["ytd", "lm", "12m", "ly", "q1", "q2", "q3"]);   // no month in progress: no "month to date"
   assert.equal(lastMonth(cube), 32);
   assert.deepEqual(clampWindow(cube, { start: 0, end: 99 }), { start: 12, end: 32 });
   assert.equal(upToDate(cube, ytd), "30 Sep 2026");
@@ -110,4 +110,36 @@ test("share of wallet: revenue in the window against the potential for as many m
   // (60k + 30k) / ((120k + 40k) * 9/12)
   assert.equal(Math.round(shareOfWallet(a, ytd)! * 1000) / 1000, 0.75);
   assert.equal(shareOfWallet(totals(cube, { country: "Nowhere" }, ytd), ytd), null);
+});
+
+test("the month in progress: year and month to date reach the last delivery, last year's same month pro rata", () => {
+  // October 2026 so far (to the 12th), against October 2025 counted 12/31
+  const c = cubeOf([
+    co("Prio 1", "APSOcore", "Switzerland", "Anna", { potential: 120_000, cy: { 0: 10_000, 9: 3_100 }, py: { 0: 9_000, 9: 31_000 } }),
+    co("Prio 2", "APSOcore", "Germany", "Ben", { potential: 12_000, py: { 9: 3_100 } }),
+  ]);
+  c.running = { month: monthOf(0, 9), day: 12, days: 31 };
+  const ids = presets(c).map((p) => p.id);
+  assert.deepEqual(ids.slice(0, 3), ["ytd", "mtd", "lm"]);
+  const ytdW = presets(c)[0].win, mtd = presets(c)[1].win;
+  assert.deepEqual(ytdW, { start: 24, end: 33 });
+  assert.equal(windowLabel(c, ytdW), "Jan – 12 Oct 2026");
+  assert.equal(windowLabel(c, ytdW, 1), "Jan – 12 Oct 2025");
+  assert.equal(windowLabel(c, mtd), "1–12 Oct 2026");
+  assert.equal(upToDate(c, mtd), "12 Oct 2026");
+  assert.equal(presets(c)[2].label, "September 2026");
+  const m = totals(c, {}, mtd);
+  assert.equal(m.rev, 3_100);
+  assert.equal(Math.round(m.revPy), 12_000 + 1_200);      // (31,000 + 3,100) x 12/31
+  assert.equal(Math.round(m.boughtPy * 100) / 100, 0.77); // two of last October's buyers, 12/31 of each
+  const y = totals(c, {}, ytdW);
+  assert.equal(y.rev, 13_100);
+  assert.equal(Math.round(y.revPy), 9_000 + 13_200);
+  // the first company also bought in January last year: whole; the second only in October: pro rata
+  assert.equal(Math.round(y.boughtPy * 1000) / 1000, Math.round((1 + 12 / 31) * 1000) / 1000);
+  assert.match(proRataNote(c, ytdW)!, /October 2025 counted pro rata, 12 of 31 days/);
+  assert.equal(proRataNote(c, presets(c)[2].win), null);
+  // share of wallet over 9 months and 12 days
+  assert.equal(Math.round(shareOfWallet(totals(c, { prio: "Prio 1" }, ytdW), ytdW, c)! * 10000) / 10000,
+    Math.round((13_100 / (120_000 * ((9 + 12 / 31) / 12))) * 10000) / 10000);
 });

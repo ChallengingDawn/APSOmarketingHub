@@ -22,6 +22,11 @@ export type Cube = {
   years: number[];
   /** months each year has loaded: this year's complete months with their revenue in, 12 for the others */
   loaded: number[];
+  /**
+   * The month in progress, as far as the last ERP delivery reaches: its month
+   * number, that day, and the days the month has. Null when there is none.
+   */
+  running: { month: number; day: number; days: number } | null;
   labels: Record<Dim, string[]>;
   /** [dimension indexes…, companies, their yearly potential where usable] */
   cells: number[][];
@@ -155,6 +160,12 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
   };
   cube.cells.forEach((c, ci) => { if (ok[ci]) { const a = at(ci); a.n += c[CELL.n]; a.pot += c[CELL.pot]; } });
   const { start, end } = win, ps = start - 12, pe = end - 12;
+  // The month in progress is compared with the same month a year earlier, pro
+  // rata: 12 days of October against 12/31 of last October. Monthly figures
+  // know no days, so that part of last year is an estimate - and says so.
+  const run = partial(cube);
+  const pyRun = run ? run.month - 12 : -99;
+  const share = run ? run.day / run.days : 1;
   for (const r of cube.revenue) {
     if (!ok[r[0]]) continue;
     const base = monthOf(r[1], 0);
@@ -162,7 +173,7 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
     for (let m = 0; m < 12; m++) {
       const k = base + m;
       if (k >= start && k <= end) cur += r[2 + m];
-      if (k >= ps && k <= pe) prev += r[2 + m];
+      if (k >= ps && k <= pe) prev += r[2 + m] * (k === pyRun ? share : 1);
     }
     if (cur || prev) { const a = at(r[0]); a.rev += cur; a.revPot += cur; a.revPy += prev; }
   }
@@ -174,10 +185,13 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
     if (cur) at(r[0]).revPot -= cur;
   }
   const [wl, wh] = masks(start, end), [pl, ph] = masks(ps, pe);
+  // last year's buyers who bought ONLY in the month matching the one in progress count pro rata too
+  const cut = pyRun >= ps && pyRun <= pe;
+  const [ql, qh] = cut ? [pl & ~(pyRun < 24 ? 1 << pyRun : 0), ph & ~(pyRun >= 24 ? 1 << (pyRun - 24) : 0)] : [pl, ph];
   for (const b of cube.buyers) {
     if (!ok[b[0]]) continue;
     if ((b[1] & wl) || (b[2] & wh)) at(b[0]).bought += b[3];
-    if ((b[1] & pl) || (b[2] & ph)) at(b[0]).boughtPy += b[3];
+    if ((b[1] & pl) || (b[2] & ph)) at(b[0]).boughtPy += cut && !((b[1] & ql) || (b[2] & qh)) ? b[3] * share : b[3];
   }
   return out;
 }
@@ -210,9 +224,10 @@ export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[
   return [...rows].sort((a, b) => cmp(a, b) || b.n - a.n || a.label.localeCompare(b.label));
 }
 
-/** Revenue in the window against the yearly potential for as many months. */
-export function shareOfWallet(a: Agg, win: Win): number | null {
-  const months = win.end - win.start + 1;
+/** Revenue in the window against the yearly potential for as many months - the month in progress as far as it has gone. */
+export function shareOfWallet(a: Agg, win: Win, cube?: Cube): number | null {
+  const run = cube ? partial(cube) : null;
+  const months = win.end - win.start + 1 - (run && win.start <= run.month && run.month <= win.end ? 1 - run.day / run.days : 0);
   return a.pot > 0 && months > 0 ? a.revPot / (a.pot * (months / 12)) : null;
 }
 
@@ -221,36 +236,61 @@ export function shareOfWallet(a: Agg, win: Win): number | null {
 export const yearOfMonth = (cube: Cube, k: number) => cube.years[2] + Math.floor(k / 12);
 /** "Sep 2026" */
 export const monthLabel = (cube: Cube, k: number) => `${MONTH_NAMES[((k % 12) + 12) % 12]} ${yearOfMonth(cube, k)}`;
-/** The last month a window may reach: this year's last loaded month. */
-export const lastMonth = (cube: Cube) => monthOf(0, Math.max(0, (cube.loaded[0] || 1) - 1));
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+/** The month in progress when the data stop before its end; null otherwise. */
+export const partial = (cube: Cube) => (cube.running && cube.running.day < cube.running.days ? cube.running : null);
+/** This year's last complete month with its revenue in. */
+export const lastComplete = (cube: Cube) => monthOf(0, Math.max(0, (cube.loaded[0] || 1) - 1));
+/** The last month a window may reach: the month in progress, as far as the data go. */
+export const lastMonth = (cube: Cube) => Math.max(lastComplete(cube), cube.running?.month ?? -1);
 /** The first: January last year, so the comparison stays inside the three years read. */
 export const FIRST_MONTH = 12;
 
-/** "2025", "Jan–Sep 2026", "Mar 2026", "Oct 2025 – Sep 2026"; `yearsBack` 1 = the comparison. */
+/**
+ * "2025", "Jan–Sep 2026", "Mar 2026", "Oct 2025 – Sep 2026"; a window ending in
+ * the month in progress ends on its day: "Jan – 12 Oct 2026", "1–12 Oct 2026".
+ * `yearsBack` 1 = the comparison, the same days a year earlier.
+ */
 export function windowLabel(cube: Cube, win: Win, yearsBack = 0): string {
   const s = win.start - 12 * yearsBack, e = win.end - 12 * yearsBack;
   const ys = yearOfMonth(cube, s), ye = yearOfMonth(cube, e);
+  const run = partial(cube);
+  const day = run && win.end === run.month ? run.day : null;
+  if (day) {
+    if (s === e) return `1–${day} ${MONTH_NAMES[e % 12]} ${ye}`;
+    return ys === ye ? `${MONTH_NAMES[s % 12]} – ${day} ${MONTH_NAMES[e % 12]} ${ys}` : `${monthLabel(cube, s)} – ${day} ${monthLabel(cube, e)}`;
+  }
   if (s === e) return monthLabel(cube, s);
   if (ys === ye) return s % 12 === 0 && e % 12 === 11 ? String(ys) : `${MONTH_NAMES[s % 12]}–${MONTH_NAMES[e % 12]} ${ys}`;
   return `${monthLabel(cube, s)} – ${monthLabel(cube, e)}`;
 }
-/** The last day the window's figures cover: "30 Sep 2026". */
+/** The last day the window's figures cover: "30 Sep 2026", or the last delivery's day in the month in progress. */
 export function upToDate(cube: Cube, win: Win): string {
   const y = yearOfMonth(cube, win.end), m = win.end % 12;
-  return `${new Date(Date.UTC(y, m + 1, 0)).getUTCDate()} ${MONTH_NAMES[m]} ${y}`;
+  const run = partial(cube);
+  const day = run && win.end === run.month ? run.day : new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return `${day} ${MONTH_NAMES[m]} ${y}`;
+}
+/** When the window reaches into the month in progress, how last year's same month was counted - else null. */
+export function proRataNote(cube: Cube, win: Win): string | null {
+  const run = partial(cube);
+  if (!run || run.month - 12 < win.start - 12 || run.month - 12 > win.end - 12) return null;
+  return `${MONTH_FULL[run.month % 12]} ${yearOfMonth(cube, run.month - 12)} counted pro rata, ${run.day} of ${run.days} days`;
 }
 
 /** The ready-made windows; the first is the one a page opens on. */
 export function presets(cube: Cube): { id: string; label: string; win: Win }[] {
-  const last = lastMonth(cube), jan = monthOf(0, 0);
+  const last = lastMonth(cube), done = lastComplete(cube), jan = monthOf(0, 0), run = partial(cube);
   const out = [
-    { id: "ytd", label: "This year to date", win: { start: jan, end: last } },
+    { id: "ytd", label: "Year to date", win: { start: jan, end: last } },
+    ...(run ? [{ id: "mtd", label: "Month to date", win: { start: run.month, end: run.month } }] : []),
+    { id: "lm", label: `${MONTH_FULL[done % 12]} ${yearOfMonth(cube, done)}`, win: { start: done, end: done } },
     { id: "12m", label: "Last 12 months", win: { start: Math.max(FIRST_MONTH, last - 11), end: last } },
     { id: "ly", label: `Last year (${cube.years[1]})`, win: { start: monthOf(1, 0), end: monthOf(1, 11) } },
   ];
   for (let q = 0; q < 4; q++) {
     const w = { start: jan + q * 3, end: jan + q * 3 + 2 };
-    if (w.end <= last) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${cube.years[0]}`, win: w });
+    if (w.end <= done) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${cube.years[0]}`, win: w });
   }
   return out;
 }
