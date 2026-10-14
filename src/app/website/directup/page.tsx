@@ -44,6 +44,7 @@ import { Chip } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
 import { Bars, CURRENT_BRIDGE, pct, post, shopName, when, type Overview } from "./shared";
+import type { ShopCheck } from "@/lib/directup/check";
 import ListsTab from "./ListsTab";
 import LogTab from "./LogTab";
 import SettingsTab from "./SettingsTab";
@@ -67,20 +68,29 @@ function olderBridges(bridges: Overview["status"]["bridges"]) {
   return [...latest.values()].filter((b) => b.bridge && b.bridge !== CURRENT_BRIDGE && !(b.shop == null && current.has(b.locale)));
 }
 
-/** What needs doing, on every tab: a store view on an older bridge, a catalogue copy that failed. */
+/** What needs doing, on every tab. The footer bridge (SARCLA 14.10.2026, after pasting: the warnings said v9 still ran):
+ *  production is judged by its pages read LIVE - what customers get, right after a paste and a cache flush - not by
+ *  the last visits, which lag until somebody opens DirectUP again; ACC by its visits that say they are ACC's. Visits
+ *  from before 14.10 do not say their shop and are not used. A failed catalogue copy. */
 function Problems({ o }: { o: Overview }) {
-  const old = olderBridges(o.status.bridges);
-  const by = new Map<string, typeof old>();
-  for (const b of old) by.set(shopName(b.shop), [...(by.get(shopName(b.shop)) ?? []), b]);
+  const live = useHeld<ShopCheck>("/api/website/directup?part=check", []);
+  const check = live.result?.state === "ok" ? live.result.data : null;
+  const prodOld = (check?.stores ?? []).filter((s) => !s.error && s.footer !== CURRENT_BRIDGE);
+  const versions = [...new Set(prodOld.map((s) => s.footer ?? "no bridge"))].join(", ");
+  const acc = olderBridges(o.status.bridges).filter((b) => shopName(b.shop) === "ACC");
   return (
     <>
-      {[...by.entries()].map(([shop, rows]) => (
-        <Notice key={shop} tone="warn">
-          {shop === "not recorded"
-            ? <>The last visits from {rows.map((b) => b.locale || "?").join(", ")} came through an older shop bridge ({[...new Set(rows.map((b) => b.bridge))].join(", ")}), before visits said which shop - most likely ACC. Settings checks production&apos;s store views live.</>
-            : <>{shop} still runs an older shop bridge ({[...new Set(rows.map((b) => b.bridge))].join(", ")}) on {rows.map((b) => b.locale || "?").join(", ")}. Paste the footer from Settings there.</>}
+      {prodOld.length > 0 && (
+        <Notice tone="warn">
+          Production serves the footer bridge {versions} in {prodOld.length === check?.stores.length ? `all ${prodOld.length} store views` : prodOld.map((s) => s.locale).join(", ")} -
+          read live {when(check?.checkedAt)}. Paste the {CURRENT_BRIDGE} footer from Settings into Footer &gt; Miscellaneous HTML (in place of the old DirectUP block), save, and flush the Magento cache.
         </Notice>
-      ))}
+      )}
+      {acc.length > 0 && (
+        <Notice tone="warn">
+          ACC still runs an older shop bridge ({[...new Set(acc.map((b) => b.bridge))].join(", ")}) on {acc.map((b) => b.locale || "?").join(", ")}, by its last visits. Paste the footer from Settings there too.
+        </Notice>
+      )}
       {o.status.catalogue.error && <Notice tone="bad">The last copy of the catalogue failed: {o.status.catalogue.error}</Notice>}
     </>
   );
