@@ -10,7 +10,7 @@ import { ACCENT, INK, MUTED, TRACK } from "@/app/uc/report/ui";
 import type { GatewaySetting, Status, Usage } from "@/lib/directup/gateway";
 
 /** The bridge every store view should run; anything older has to be replaced in the footer. */
-export const CURRENT_BRIDGE = "v9-tools";
+export { CURRENT_BRIDGE } from "@/lib/directup/bridge";
 
 export type Overview = { setting: GatewaySetting; status: Status; usage: Usage; isAdmin: boolean };
 

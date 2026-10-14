@@ -35,7 +35,7 @@ export type ShopCheck = { checkedAt: string; gateway: string; stores: StoreCheck
  * which Node's fetch stops on ("terminated", HPE_INVALID_CHUNK_SIZE) - curl and browsers read them. Learnt on
  * the 3D page's settings check (src/lib/threeD/gateway.ts), 14.10.2026.
  */
-function read(url: string, timeoutMs = 20_000): Promise<{ status: number; body: string }> {
+export function readPage(url: string, timeoutMs = 20_000): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { insecureHTTPParser: true, headers: { "User-Agent": UA, "Accept-Encoding": "gzip" } }, (res) => {
       const chunks: Buffer[] = [];
@@ -86,7 +86,7 @@ export async function checkShop(gateway: string, seen: string[], fresh = false):
   // a recheck within a minute of the last one gets the last one: each check is a dozen shop page loads
   if (fresh && held && held.gateway === gateway && Date.now() - held.at < 60_000) return held.data;
 
-  const first = await read(`${SHOP}/fr-CH/directup`).catch(() => null);
+  const first = await readPage(`${SHOP}/fr-CH/directup`).catch(() => null);
   const pages = first && first.status < 400 ? declared(first.body) : new Map<string, string>();
   const slug = /\/[a-z]{2}-[A-Za-z]{2,3}\/([^/?#]+)$/.exec([...pages.values()][0] ?? "")?.[1] ?? "directup";
   for (const loc of seen) if (/^[a-z]{2}-[A-Za-z]{2,3}$/.test(loc) && !pages.has(loc)) pages.set(loc, `${SHOP}/${loc}/${slug}`);
@@ -100,7 +100,7 @@ export async function checkShop(gateway: string, seen: string[], fresh = false):
       const k = next++;
       const [locale, url] = list[k];
       try {
-        const r = locale === "fr-CH" && first && first.status < 400 ? first : await read(url);
+        const r = locale === "fr-CH" && first && first.status < 400 ? first : await readPage(url);
         if (r.status >= 400) stores[k] = { locale, url, error: r.status === 404 ? "no DirectUP page in this store view (404)" : `HTTP ${r.status}`, footer: null, head: false, page: "missing", pageOrigin: null };
         else stores[k] = { locale, url, error: null, ...inspect(r.body, gateway) };
       } catch (e) {

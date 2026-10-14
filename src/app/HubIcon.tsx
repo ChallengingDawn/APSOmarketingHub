@@ -24,6 +24,10 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CookieIcon from "@mui/icons-material/Cookie";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
+import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
+import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
 
 import type { IconKey } from "./hubApps";
 
@@ -50,6 +54,10 @@ const MAP: Record<IconKey, React.ElementType> = {
   cookie: CookieIcon,
   verified: VerifiedOutlinedIcon,
   upload: UploadFileOutlinedIcon,
+  ring: TripOriginOutlinedIcon,
+  shaft: AdjustOutlinedIcon,
+  science: ScienceOutlinedIcon,
+  loop: AllInclusiveOutlinedIcon,
 };
 
 export default function HubIcon({ name, fontSize = 18 }: { name: IconKey; fontSize?: number }) {

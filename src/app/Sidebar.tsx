@@ -83,6 +83,10 @@ import ShowChartIcon from "@mui/icons-material/ShowChart";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
+import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
+import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -177,6 +181,10 @@ const navSections: NavSection[] = [
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DirectUP", href: "/website/directup", icon: <UploadFileOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "O-Ring Expert", href: "/website/oring-expert", icon: <TripOriginOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "Shaft-seal expert", href: "/website/shaft-seal-expert", icon: <AdjustOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "Compatibility table", href: "/website/compatibility-table", icon: <ScienceOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "Vulcanised O-rings", href: "/website/vulcanised-o-rings", icon: <AllInclusiveOutlinedIcon fontSize="small" /> },
     ],
   },
   {

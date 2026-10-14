@@ -25,7 +25,7 @@ export type SubApp = {
 export type IconKey =
   | "groups" | "description" | "inventory" | "bar" | "layers" | "edit" | "photo"
   | "search" | "filter" | "tag" | "sync" | "route" | "health" | "ads" | "target"
-  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload";
+  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop";
 
 export type HubApp = {
   key: string;
@@ -80,6 +80,11 @@ export const APPS: HubApp[] = [
       { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
       // the order tool the shop frames, on its own Railway gateway (SARCLA 13.10.2026)
       { group: "Microservices", name: "DirectUP", note: "Order files into the cart: usage, lists, log, installation", href: "/website/directup", icon: "upload", ...PINK },
+      // the shop tools, each on its own gateway since 14.10.2026 (SARCLA: "one page per tool")
+      { group: "Microservices", name: "O-Ring Expert", note: "O-rings by groove or size, in 3D: use and installation", href: "/website/oring-expert", icon: "ring", ...PURPLE },
+      { group: "Microservices", name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
+      { group: "Microservices", name: "Compatibility table", note: "Which material resists which chemical", href: "/website/compatibility-table", icon: "science", ...TEAL },
+      { group: "Microservices", name: "Vulcanised O-rings", note: "Any O-ring size from stocked cord", href: "/website/vulcanised-o-rings", icon: "loop", ...BLUE },
     ],
   },
   {
