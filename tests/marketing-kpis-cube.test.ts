@@ -143,3 +143,25 @@ test("the month in progress: year and month to date reach the last delivery, las
   assert.equal(Math.round(shareOfWallet(totals(c, { prio: "Prio 1" }, ytdW), ytdW, c)! * 10000) / 10000,
     Math.round((13_100 / (120_000 * ((9 + 12 / 31) / 12))) * 10000) / 10000);
 });
+
+test("new customers: a first order ever in the window, against the same months a year earlier", () => {
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const one = (type: string, firstMonth: number | null): CompanyIn => ({
+    dims: Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "type" ? type : "x")])) as Record<Dim, number>,
+    potential: null, months: [months(), months(), months()], firstMonth,
+  });
+  const c: Cube = {
+    generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: null, labels,
+    ...fold([one("OEM", monthOf(0, 2)), one("OEM", monthOf(0, 4)), one("MRO", monthOf(1, 3)), one("OEM", monthOf(1, 9)), one("OEM", null)]),
+  };
+  const ytd = defaultWindow(c);
+  const t = totals(c, {}, ytd);
+  assert.equal(t.newC, 2);                 // March and May 2026
+  assert.equal(t.newCPy, 1);               // April 2025 - October 2025 is outside Jan-Sep
+  assert.deepEqual(sortRows(breakdown(c, "type", {}, ytd), "newC", "type").map((r) => [r.label, r.newC, r.newCPy]), [["OEM", 2, 0], ["MRO", 0, 1]]);
+  // the month in progress: last October's new customer counts 12/31
+  c.running = { month: monthOf(0, 9), day: 12, days: 31 };
+  const y2 = totals(c, {}, presets(c)[0].win);
+  assert.equal(Math.round(y2.newCPy * 1000) / 1000, Math.round((1 + 12 / 31) * 1000) / 1000);
+});

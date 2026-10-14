@@ -12,6 +12,7 @@
 // wider so we can see the data clearly"; "no abbreviation".
 
 import { useEffect, useMemo, useState } from "react";
+import { keyframes } from "@mui/system";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -49,6 +50,8 @@ import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import CloseIcon from "@mui/icons-material/Close";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -109,6 +112,9 @@ const fromYm = (cube: Cube, s: string | null) => {
   const m = /^(\d{4})-(\d{2})$/.exec(s ?? "");
   return m ? (Number(m[1]) - cube.years[2]) * 12 + Number(m[2]) - 1 : null;
 };
+
+/** The filter window's folds come in one after another as it opens. */
+const foldIn = keyframes`from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; }`;
 
 /* ── the period ───────────────────────────────────────────────────────── */
 
@@ -171,17 +177,41 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
 
 /* ── the charts: their bars are the filter ────────────────────────────── */
 
-function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, onPick }: {
+function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10 }: {
   title: string; rows: Row[]; cur: (r: Row) => number; prev: (r: Row) => number; curLabel: string; prevLabel: string;
-  fmt: (n: number) => string; selected?: string; onPick: (label: string) => void;
+  fmt: (n: number) => string; selected?: string; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
 }) {
-  const data = rows.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)) }));
+  // every value, a page at a time - the largest first (SARCLA 14.10: "only 10 is cool, but show all in pages")
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
+  const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
+  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)) }));
   const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick(l); };
+  const tall = Math.min(rows.length, pageSize);
+  const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
-      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
-      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>Click a bar to show only that one</Typography>
-      <ResponsiveContainer width="100%" height={Math.max(140, data.length * 44 + 56)}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
+            Click a bar to show only that one{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, by revenue` : ""}
+          </Typography>
+        </Box>
+        {pages > 1 && (
+          <Box sx={{ display: "flex", gap: 0.5 }}>
+            <IconButton size="small" aria-label="The previous ones" disabled={page === 0} onClick={() => setPage((x) => Math.max(0, x - 1))} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+            <IconButton size="small" aria-label="The next ones" disabled={page >= pages - 1} onClick={() => setPage((x) => Math.min(pages - 1, x + 1))} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+          </Box>
+        )}
+        {onFilter && (
+          <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...nav, color: selected ? TINT.blue.fg : MUTED, bgcolor: selected ? TINT.blue.bg : "transparent" }}>
+            <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        )}
+      </Box>
+      <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
           <CartesianGrid horizontal={false} stroke="#e6e8ec" />
           <XAxis type="number" hide />
@@ -190,11 +220,11 @@ function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, 
           <Tooltip cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => [fmt(Number(v)), String(n)]}
             contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
           <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
-          <Bar dataKey="cur" name={curLabel} fill={THIS} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false}>
+          <Bar dataKey="cur" name={curLabel} fill={THIS} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
             {data.map((d) => <Cell key={d.label} fill={THIS} fillOpacity={selected && selected !== d.label ? 0.3 : 1} />)}
             <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
           </Bar>
-          <Bar dataKey="prev" name={prevLabel} fill={BEFORE} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false}>
+          <Bar dataKey="prev" name={prevLabel} fill={BEFORE} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
             {data.map((d) => <Cell key={d.label} fill={BEFORE} fillOpacity={selected && selected !== d.label ? 0.3 : 1} />)}
             <LabelList dataKey="prev" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 11.5, fill: MUTED }} />
           </Bar>
@@ -208,7 +238,7 @@ function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, 
 
 type Col = { key: SortKey; head: string; tip: string; cell: (r: Row, sum: number) => React.ReactNode };
 
-function DimTable({ cube, dim, rows, win, selected, onPick }: { cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string; onPick: (label: string) => void }) {
+function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: { cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string; onPick: (label: string) => void; withNew?: boolean }) {
   const fixed = dim === "prio" || dim === "potential";
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: fixed ? "natural" : "rev", desc: true });
   const [q, setQ] = useState("");
@@ -218,13 +248,17 @@ function DimTable({ cube, dim, rows, win, selected, onPick }: { cube: Cube; dim:
   const sumRev = rows.reduce((s, r) => s + Math.max(0, r.rev), 0);
   const tot: Row = rows.reduce<Row>((t, r) => ({
     label: "Total", n: t.n + r.n, pot: t.pot + r.pot, bought: t.bought + r.bought, boughtPy: t.boughtPy + r.boughtPy,
-    rev: t.rev + r.rev, revPy: t.revPy + r.revPy, revPot: t.revPot + r.revPot,
-  }), { label: "Total", n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0 });
+    rev: t.rev + r.rev, revPy: t.revPy + r.revPy, revPot: t.revPot + r.revPot, newC: t.newC + r.newC, newCPy: t.newCPy + r.newCPy,
+  }), { label: "Total", n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0 });
   const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
   const cols: Col[] = [
     { key: "n", head: "Companies", tip: "Companies in HubSpot today", cell: (r) => int(r.n) },
     { key: "bought", head: `Bought in ${w}`, tip: "Companies with invoiced revenue in at least one month of the period", cell: (r) => int(r.bought) },
     { key: "boughtPy", head: `Bought in ${pw}`, tip: "The same, a year earlier", cell: (r) => int(r.boughtPy) },
+    ...(withNew ? [
+      { key: "newC" as SortKey, head: `New customers ${w}`, tip: "Companies whose first order ever falls in the period", cell: (r: Row) => int(r.newC) },
+      { key: "newCPy" as SortKey, head: `New customers ${pw}`, tip: "The same, a year earlier", cell: (r: Row) => int(r.newCPy) },
+    ] : []),
     { key: "rev", head: `Revenue ${w}`, tip: "Invoiced revenue in the period", cell: (r) => eur(r.rev) },
     { key: "revPy", head: `Revenue ${pw}`, tip: "Invoiced revenue in the same months a year earlier", cell: (r) => eur(r.revPy) },
     { key: "diff", head: "Change in €", tip: "Revenue in the period minus the same months a year earlier", cell: (r) => <span style={{ color: tone(r.rev - r.revPy) }}>{signedEur(r.rev - r.revPy)}</span> },
@@ -339,23 +373,27 @@ export function CustomersExplorer() {
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
   const rows = useMemo(() => (cube && win ? breakdown(cube, view, filters, win) : []), [cube, view, filters, win]);
 
-  // the filters open as a window of their own (SARCLA 13.10), closed at first
+  // the filters open as a window of their own (SARCLA 13.10), closed at first; a chart can open it on its breakdown
   const [panel, setPanel] = useState(false);
+  const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
+  const openOn = (dim: Dim) => { setFocus((f) => ({ dim, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
   if (!cube || !win || !a || !all) return <Waiting computing={computing} progress={progress} error={error} />;
   const d = DIM[view];
-  // the charts show the twelve with the most revenue; priority and potential keep their order
-  const top = (dim: Dim, n: number) => {
+  // the charts take every value, largest first, and page through them; priority and potential keep their order
+  const ranked = (dim: Dim) => {
     const r = breakdown(cube, dim, filters, win);
-    return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim).slice(0, n);
+    return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim);
   };
-  const chartRows = top(view, 12);
+  const chartRows = ranked(view);
+  // a bar filters, and the filter window opens on that breakdown (SARCLA 14.10)
+  const fromChart = (dim: Dim) => (label: string) => { toggle(dim, label); openOn(dim); };
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const pro = proRataNote(cube, win);
   const active = DIMS.filter((x) => filters[x]);
-  // every view also shows the revenue by country and by sales rep (SARCLA 13.10); where one of
-  // them is the view itself, the sales priority takes its place
-  const beside: Dim[] = view === "country" ? ["owner", "prio"] : view === "owner" ? ["country", "prio"] : ["country", "owner"];
+  // each tab shows its own breakdown only (SARCLA 14.10: "information not belonging to the table");
+  // customer type and APIC also count their new customers
+  const withNew = view === "type" || view === "apic";
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
       {/* the title and what is shown on the left; the four figures and the filters button top right */}
@@ -379,7 +417,8 @@ export function CustomersExplorer() {
         </Box>
         <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", justifyContent: { lg: "flex-end" }, flexWrap: { xs: "wrap", lg: "nowrap" } }}>
         <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
-        <Button onClick={() => setPanel((o) => !o)} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+        {/* the button opens the window on the breakdown of the tab in question (SARCLA 14.10) */}
+        <Button onClick={() => (panel ? setPanel(false) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2, height: 42, alignSelf: "flex-start", whiteSpace: "nowrap" }}>
           Filters{active.length ? ` · ${active.length}` : ""}
@@ -397,21 +436,21 @@ export function CustomersExplorer() {
         <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
           right={d.kpi ? <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT }}>{d.kpi}</Typography> : undefined} />
 
-        {/* the charts first - this view's two, then revenue by country and by sales rep - and the table at the end */}
+        {/* the charts first - this view's own - and the table at the end */}
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
-          <DimChart title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy}
-            curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={(l) => toggle(view, l)} />
-          <DimChart title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy}
-            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={(l) => toggle(view, l)} />
-          {beside.map((o) => (
-            <DimChart key={o} title={`Revenue, by ${DIM[o].lower}${o === "prio" ? "" : " - the 10 largest"}`} rows={top(o, 10)} cur={(r) => r.rev} prev={(r) => r.revPy}
-              curLabel={w} prevLabel={pw} fmt={eur} selected={filters[o]} onPick={(l) => toggle(o, l)} />
-          ))}
+          <DimChart key={`b-${view}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy} pageSize={12}
+            curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
+          <DimChart key={`r-${view}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy} pageSize={12}
+            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
+          {withNew && (
+            <DimChart key={`n-${view}`} title={`New customers, by ${d.lower}`} rows={sortRows(chartRows, "newC", view)} cur={(r) => r.newC} prev={(r) => r.newCPy} pageSize={12}
+              curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
+          )}
         </Box>
 
         <Box>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {d.lower}</Typography>
-          <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} />
+          <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} withNew={withNew} />
         </Box>
 
         <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
@@ -420,7 +459,7 @@ export function CustomersExplorer() {
         </Typography>
       </GlassCard>
 
-      <FilterWindow open={panel} onClose={() => setPanel(false)} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} />
+      <FilterWindow open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} />
     </Box>
   );
 }
@@ -459,8 +498,8 @@ function KpiCards({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clearAll }: {
-  open: boolean; onClose: () => void; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
+function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+  open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const active = DIMS.filter((x) => filters[x]);
   const [shut, setShut] = useState<Partial<Record<Dim | "period", boolean>>>({});
@@ -476,6 +515,16 @@ function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clear
     return k === "period" || k === "prio" || k === "segment" || !!filters[k];
   };
   const flip = (k: Dim | "period") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
+  // opened from a chart: that breakdown unfolds, comes into view and lights up for a moment
+  const [lit, setLit] = useState<Dim | null>(null);
+  useEffect(() => {
+    if (!focus) return;
+    setShut((s) => ({ ...s, [focus.dim]: false }));
+    setLit(focus.dim);
+    const t1 = setTimeout(() => document.getElementById(`filter-${focus.dim}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    const t2 = setTimeout(() => setLit(null), 1600);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [focus]);
   return (
     <Box id="customers-filters" role="dialog" aria-modal="false" aria-label="Filters" aria-hidden={!open}
       sx={{
@@ -483,8 +532,15 @@ function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clear
         display: "flex", flexDirection: "column", borderRadius: "22px", overflow: "hidden",
         bgcolor: "#fff", border: "1px solid rgba(21,34,58,.08)",
         boxShadow: "0 24px 60px rgba(21,34,58,.22), 0 4px 14px rgba(21,34,58,.08)",
-        transform: open ? "translateX(0)" : "translateX(calc(100% + 32px))", opacity: open ? 1 : 0, visibility: open ? "visible" : "hidden",
-        transition: "transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease, visibility .22s",
+        // it grows out of the top right, where its button is, and settles softly
+        transformOrigin: "top right",
+        transform: open ? "translate3d(0, 0, 0) scale(1)" : "translate3d(28px, -6px, 0) scale(.96)",
+        opacity: open ? 1 : 0, visibility: open ? "visible" : "hidden",
+        transition: open
+          ? "transform .42s cubic-bezier(.16, 1, .3, 1), opacity .24s ease, visibility 0s"
+          : "transform .22s cubic-bezier(.4, 0, 1, 1), opacity .18s ease, visibility 0s linear .22s",
+        "& .fold": { animation: open ? `${foldIn} .38s cubic-bezier(.16, 1, .3, 1) both` : "none" },
+        "@media (prefers-reduced-motion: reduce)": { transition: "opacity .1s linear", transform: "none", "& .fold": { animation: "none" } },
       }}>
       {/* the header: what this is, how many choices, and the way out */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.25, py: 1.75, borderBottom: `1px solid ${HAIRLINE}`, background: "linear-gradient(180deg, #f6f8fc, #fff)" }}>
@@ -509,15 +565,15 @@ function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clear
       )}
 
       <Box sx={{ flex: 1, overflowY: "auto", px: 1.25, py: 1 }}>
-        <Section title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
+        <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
           summary={windowLabel(cube, win)}>
           <Period cube={cube} win={win} onChange={setWin} />
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
             Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
           </Typography>
         </Section>
-        {ORDER.map((dim) => (
-          <Section key={dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={filters[dim] ?? "All"} chosen={!!filters[dim]}>
+        {ORDER.map((dim, i) => (
+          <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={filters[dim] ?? "All"} chosen={!!filters[dim]}>
             <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
           </Section>
         ))}
@@ -532,11 +588,15 @@ function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clear
 }
 
 /** One fold of the filter window: its glyph, its name, what is chosen - and its content when open. */
-function Section({ title, icon, tint, open, onFlip, summary, chosen = false, children }: {
-  title: string; icon: React.ReactNode; tint: Tint; open: boolean; onFlip: () => void; summary: string; chosen?: boolean; children: React.ReactNode;
+function Section({ id, index, lit = false, title, icon, tint, open, onFlip, summary, chosen = false, children }: {
+  id: string; index: number; lit?: boolean; title: string; icon: React.ReactNode; tint: Tint; open: boolean; onFlip: () => void; summary: string; chosen?: boolean; children: React.ReactNode;
 }) {
   return (
-    <Box sx={{ borderRadius: "14px", mb: 0.75, bgcolor: open ? "#f7f9fc" : "transparent", border: `1px solid ${open ? HAIRLINE : "transparent"}`, transition: "background-color .15s" }}>
+    <Box id={id} className="fold" sx={{
+      borderRadius: "14px", mb: 0.75, scrollMarginTop: 8, animationDelay: `${40 + index * 28}ms`,
+      bgcolor: lit ? TINT[tint].bg : open ? "#f7f9fc" : "transparent", border: `1px solid ${lit ? TINT[tint].fg : open ? HAIRLINE : "transparent"}`,
+      transition: "background-color .4s ease, border-color .4s ease",
+    }}>
       <Box component="button" type="button" onClick={onFlip} aria-expanded={open}
         sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%", border: 0, bgcolor: "transparent", font: "inherit", cursor: "pointer", textAlign: "left", px: 1, py: 0.9, borderRadius: "14px", "&:hover": { bgcolor: open ? "transparent" : "rgba(21,34,58,.04)" } }}>
         <Badge icon={icon} tint={tint} size={26} />

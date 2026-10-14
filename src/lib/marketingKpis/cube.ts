@@ -42,6 +42,8 @@ export type Cube = {
    * of this year (month 35); the first 24 sit in one mask, this year's 12 in the other.
    */
   buyers: number[][];
+  /** [cell, month number, companies whose first order ever falls in that month] - the new customers */
+  newCustomers: number[][];
 };
 
 /**
@@ -51,7 +53,7 @@ export type Cube = {
  */
 export type Win = { start: number; end: number };
 export type Filters = Partial<Record<Dim, string>>;
-export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number };
+export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number; newC: number; newCPy: number };
 export type Row = Agg & { label: string };
 
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -96,13 +98,15 @@ export type CompanyIn = {
   potential: number | null;
   /** revenue per month, per year index (this year, last, the one before) */
   months: number[][];
+  /** the month number of the company's first order ever, when it falls in the three years; null otherwise */
+  firstMonth?: number | null;
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */
-export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers"> {
+export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers"> {
   const cellIx = new Map<string, number>();
   const cells: number[][] = [];
-  const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>();
+  const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>();
   for (const c of companies) {
     const idx = DIMS.map((d) => c.dims[d]);
     const key = idx.join(",");
@@ -132,14 +136,19 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       const b = buyers.get(k);
       if (b) b[3] += 1; else buyers.set(k, [ci, lo, hi, 1]);
     }
+    if (c.firstMonth != null && c.firstMonth >= 0 && c.firstMonth <= 35) {
+      const k = `${ci},${c.firstMonth}`;
+      const f = fresh.get(k);
+      if (f) f[2] += 1; else fresh.set(k, [ci, c.firstMonth, 1]);
+    }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
-  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()] };
+  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()] };
 }
 
 /* ── slicing ──────────────────────────────────────────────────────────── */
 
-const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0 });
+const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0 });
 
 /**
  * Everything the filters leave in the window, against the same months a year
@@ -196,6 +205,12 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
     if ((b[1] & wl) || (b[2] & wh)) at(b[0]).bought += b[3];
     if ((b[1] & pl) || (b[2] & ph)) at(b[0]).boughtPy += cut && !((b[1] & ql) || (b[2] & qh)) ? b[3] * share : b[3];
   }
+  // new customers: a first order ever in the window; last year's month in progress pro rata as well
+  for (const f of cube.newCustomers ?? []) {
+    if (!ok[f[0]]) continue;
+    if (f[1] >= start && f[1] <= end) at(f[0]).newC += f[2];
+    if (f[1] >= ps && f[1] <= pe) at(f[0]).newCPy += f[2] * (f[1] === pyRun ? share : 1);
+  }
   return out;
 }
 
@@ -210,13 +225,13 @@ export function breakdown(cube: Cube, dim: Dim, filters: Filters, win: Win): Row
   return sortRows(rows, "natural", dim);
 }
 
-export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow";
+export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "newC" | "newCPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow";
 export const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
 /** Every sort is largest first except the name; `desc: false` turns it round. */
 export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[] {
   const fixed = FIXED[dim];
   const val: Partial<Record<SortKey, (r: Row) => number>> = {
-    n: (r) => r.n, bought: (r) => r.bought, boughtPy: (r) => r.boughtPy, rev: (r) => r.rev, revPy: (r) => r.revPy,
+    n: (r) => r.n, bought: (r) => r.bought, boughtPy: (r) => r.boughtPy, newC: (r) => r.newC, newCPy: (r) => r.newCPy, rev: (r) => r.rev, revPy: (r) => r.revPy,
     diff: (r) => r.rev - r.revPy, change: (r) => change(r.rev, r.revPy) ?? -Infinity, share: (r) => r.rev,
     sow: (r) => (r.pot > 0 ? r.revPot / r.pot : -Infinity),
   };

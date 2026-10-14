@@ -16,7 +16,7 @@ import { chainHistory } from "@/lib/connectors/chainStatus";
 import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v6";
+const KEY = "marketingKpis:customers:v7";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -35,6 +35,13 @@ async function lastDelivery(): Promise<string | undefined> {
 }
 
 type Obj = { id: string; properties: Record<string, string | null> };
+/** The month number (0 = January of the year before last) of a first order "2026-05-08"; null outside the three years. */
+function firstMonthOf(v: string | null | undefined, firstYear: number): number | null {
+  const m = /^(\d{4})-(\d{2})/.exec(v ?? "");
+  if (!m) return null;
+  const k = (Number(m[1]) - firstYear) * 12 + Number(m[2]) - 1;
+  return k >= 0 && k <= 35 ? k : null;
+}
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 async function build(): Promise<Cube> {
@@ -46,7 +53,7 @@ async function build(): Promise<Cube> {
   const owners = await ownerNames();
 
   const props = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id",
-    "yearly_customer_potential", ...years.map((y) => `rev_${y}_pc_monthly`)];
+    "yearly_customer_potential", "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`)];
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
     let i = labels[d].indexOf(v);
@@ -84,6 +91,7 @@ async function build(): Promise<Cube> {
           mandant: index("mandant", p.mandant || "Not set"),
         },
         potential, months,
+        firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
       });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
