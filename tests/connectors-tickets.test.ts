@@ -139,7 +139,7 @@ test("deputy: customer tickets that arrived during the absence move; a reply goe
   const iso = (ms: number) => new Date(ms).toISOString();
   const d = (p: Record<string, string | null>) => deputyDecision(p, get, false);
   assert.deepEqual(d({ hubspot_owner_id: "10", subject: "Anfrage", createdate: iso(T0 - 3_600_000), hs_pipeline_stage: CUSTOMER_REPLIED }), {
-    kind: "move", to: "12", reason: "a@x.ch away -> D2", props: { hubspot_owner_id: "12", hs_pipeline_stage: NEW },
+    kind: "move", to: "12", reason: "a@x.ch away -> D2", props: { hubspot_owner_id: "12", holiday_redirection: "true", hs_pipeline_stage: NEW },
   });
   assert.deepEqual(d({ hubspot_owner_id: "10", subject: "Anfrage", createdate: iso(T0 - 2 * DAY), hs_pipeline_stage: NEW }), { kind: "before_window" });
   assert.deepEqual(d({ hubspot_owner_id: "10", subject: "  EROSION | 4711", createdate: iso(T0) }), { kind: "system" });

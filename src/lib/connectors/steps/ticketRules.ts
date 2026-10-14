@@ -323,6 +323,13 @@ export type DeputyDecision =
   | { kind: "move"; to: string; reason: string; props: Record<string, string> };
 
 /**
+ * The ticket property (single checkbox, Yes/No) set to Yes on every ticket the
+ * holiday redirection hands to a deputy - created in HubSpot 14.10.2026 under
+ * Ticket information, "Holiday redirection".
+ */
+export const HOLIDAY_FLAG = "holiday_redirection";
+
+/**
  * One ticket of deputy_sweep.run(). DELIBERATE FIX: an owner who is out of office with
  * no absence window holding "now" is skipped ("no_window") - the connector moved every
  * ticket in those stages then, however old, because it could not tell which arrived
@@ -339,7 +346,8 @@ export function deputyDecision(p: Props, get: (id: string) => UserState | undefi
   if (!win) return { kind: "no_window" };
   const ts = createdUtcMs(p.createdate);
   if (ts !== null && ts < win[0]) return { kind: "before_window" };
-  const props: Record<string, string> = { hubspot_owner_id: t.to };
+  // holiday_redirection = Yes: the ticket went to a deputy - a filter in HubSpot (SARCLA 14.10.2026)
+  const props: Record<string, string> = { hubspot_owner_id: t.to, [HOLIDAY_FLAG]: "true" };
   if (p.hs_pipeline_stage === CUSTOMER_REPLIED) props.hs_pipeline_stage = NEW;
   return { kind: "move", to: t.to, reason: t.reason, props };
 }
