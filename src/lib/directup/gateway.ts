@@ -61,7 +61,8 @@ export async function gateway<T>(path: string, init: { method?: string; body?: u
 export type Status = {
   version: string; url: string; uptimeS: number; jobs: number; lastJobAt: string | null;
   catalogue: { articles: number; crossrefs: number; syncedAt: string | null; error: string | null; running: boolean };
-  bridges: { bridge: string | null; locale: string | null; n: number; last: string }[];
+  /** `shop`: the host the visit came from (www = production, acc = ACC); null for visits before 14.10.2026 */
+  bridges: { bridge: string | null; locale: string | null; shop?: string | null; n: number; last: string }[];
   settings: { batchSize: number };
   keys: { hubspot: boolean; claude: boolean; sync: boolean };
 };

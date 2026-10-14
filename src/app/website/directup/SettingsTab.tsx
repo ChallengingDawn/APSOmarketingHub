@@ -16,11 +16,15 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RouterOutlinedIcon from "@mui/icons-material/RouterOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import CodeOutlinedIcon from "@mui/icons-material/CodeOutlined";
+import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import { useHeld } from "@/app/analytics/AnalyticsData";
-import { CardTitle, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, type Tint } from "@/app/uc/report/ui";
 import { Chip } from "@/app/connectors/parts";
 import type { GatewaySetting, Snippets } from "@/lib/directup/gateway";
-import { post, when, type Overview } from "./shared";
+import type { ShopCheck, StoreCheck } from "@/lib/directup/check";
+import { CURRENT_BRIDGE, post, when, type Overview } from "./shared";
 
 const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
 
@@ -40,6 +44,65 @@ const SNIPPETS: { key: "footer" | "page" | "head"; label: string; need: "Require
   { key: "page", label: "Page HTML - the DirectUP page", need: "Required", where: "Magento: Content > Pages > DirectUP, editor OFF or a PageBuilder \"HTML Code\" element. The same block for every store view." },
   { key: "head", label: "Head HTML - a faster start", need: "Optional", where: "Magento: Content > Design > Configuration > [each store view] > HTML Head > Scripts and Style Sheets. Lets the browser connect to the gateway while the page loads." },
 ];
+
+/** Each store view's DirectUP page read live: the footer bridge, the head and the page snippet - what customers get,
+ *  after the cache. (The shop's APIs cannot give the configured HTML: GraphQL is off, REST has no endpoint.) */
+function Installed() {
+  const [n, setN] = useState(0);
+  const held = useHeld<ShopCheck>(`/api/website/directup?part=check${n ? `&refresh=1&n=${n}` : ""}`, [n]);
+  const r = held.result;
+  const footer = (s: StoreCheck): { label: string; tint: Tint } =>
+    !s.footer ? { label: "No bridge", tint: "pink" } : s.footer === CURRENT_BRIDGE ? { label: s.footer, tint: "green" } : { label: `${s.footer} · older`, tint: "amber" };
+  const page = (s: StoreCheck): { label: string; tint: Tint } =>
+    s.page === "this" ? { label: "This gateway", tint: "green" } : s.page === "other" ? { label: "Another address", tint: "amber" } : { label: "Not found", tint: "pink" };
+  const good = (s: StoreCheck) => !s.error && s.footer === CURRENT_BRIDGE && s.page === "this";
+  return (
+    <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+      <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+        <CardTitle icon={<StorefrontOutlinedIcon />} tint="green" title="Installed on the shop"
+          note={r?.state === "ok" ? `Production's DirectUP page in every store view, read live ${when(r.data.checkedAt)} - what customers get, after the cache` : "Production's DirectUP page in every store view, read live"}
+          right={
+            <Tooltip title="Read the shop's pages again">
+              <IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Check again">
+                {r === null || held.stale ? <CircularProgress size={14} sx={{ color: MUTED }} /> : <RefreshIcon sx={{ fontSize: 18, color: MUTED }} />}
+              </IconButton>
+            </Tooltip>
+          } />
+        {r === null && <Typography sx={{ fontSize: "0.84rem", color: MUTED, pb: 2 }}>Reading the shop&apos;s pages - about ten seconds…</Typography>}
+        {r && r.state !== "ok" && <Typography sx={{ fontSize: "0.84rem", color: RED, pb: 2 }}>{r.state === "error" ? r.error : "not configured"}</Typography>}
+        {r?.state === "ok" && (
+          <Box sx={{ pb: 1.5 }}>
+            {/* a sentence, not a chip: chips do not wrap, and this one is long on a phone */}
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: r.data.stores.every(good) ? GREEN : "#a96a12" }}>
+              {r.data.stores.every(good)
+                ? `All ${r.data.stores.length} store views run the current footer and frame this gateway.`
+                : `${r.data.stores.filter((s) => !good(s)).length} of ${r.data.stores.length} store views need the footer or the page.`}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+      {r?.state === "ok" && r.data.stores.map((s) => (
+        <Box key={s.locale} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0,0.8fr) minmax(0,1fr) minmax(0,0.9fr) minmax(0,1fr) auto" }, gap: 1, alignItems: "center", px: { xs: 2, md: 2.75 }, py: 1.1, borderTop: `1px solid ${HAIRLINE}` }}>
+          <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>{s.locale}</Typography>
+          {s.error
+            ? <Typography sx={{ gridColumn: { md: "span 3" }, fontSize: "0.8rem", color: RED }}>Could not read: {s.error}</Typography>
+            : (
+              <>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Typography component="span" sx={{ fontSize: "0.74rem", color: FAINT, width: 44 }}>Footer</Typography><Chip tint={footer(s).tint}>{footer(s).label}</Chip></Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Typography component="span" sx={{ fontSize: "0.74rem", color: FAINT, width: 36 }}>Head</Typography><Chip tint={s.head ? "green" : "slate"}>{s.head ? "Faster start" : "Not set (optional)"}</Chip></Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }} title={s.pageOrigin ?? ""}><Typography component="span" sx={{ fontSize: "0.74rem", color: FAINT, width: 36 }}>Page</Typography><Chip tint={page(s).tint}>{page(s).label}</Chip></Box>
+              </>
+            )}
+          <Tooltip title="Open this store view's page" arrow>
+            <IconButton size="small" component="a" href={s.url} target="_blank" rel="noopener" aria-label={`Open the ${s.locale} page`} sx={{ justifySelf: { md: "end" } }}>
+              <OpenInNewIcon sx={{ fontSize: 16, color: MUTED }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ))}
+    </GlassCard>
+  );
+}
 
 export default function SettingsTab({ o, reload }: { o: Overview; reload: () => void }) {
   const [n, setN] = useState(0);
@@ -91,6 +154,8 @@ export default function SettingsTab({ o, reload }: { o: Overview; reload: () => 
           </GlassCard>
         </Grid>
       </Grid>
+
+      <Installed />
 
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>

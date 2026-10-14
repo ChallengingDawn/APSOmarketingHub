@@ -25,6 +25,14 @@ export function when(iso: string | null | undefined, seconds = false): string {
 
 export const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "–");
 
+/** The shop a visit came from, in words: www is production. Visits before 14.10.2026 do not say. */
+export function shopName(host: string | null | undefined): string {
+  if (!host) return "not recorded";
+  if (host === "www.apsoparts.com" || host === "apsoparts.com") return "Production";
+  if (host.startsWith("acc.")) return "ACC";
+  return host;
+}
+
 export async function post(body: unknown): Promise<{ ok: boolean; error?: string; data?: unknown }> {
   const r = await fetch("/api/website/directup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return (await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))) as { ok: boolean; error?: string; data?: unknown };

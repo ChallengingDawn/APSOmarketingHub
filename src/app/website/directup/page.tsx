@@ -43,7 +43,7 @@ import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, KpiTile, MUTED, Notice, RED
 import { Chip } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
-import { Bars, CURRENT_BRIDGE, pct, post, when, type Overview } from "./shared";
+import { Bars, CURRENT_BRIDGE, pct, post, shopName, when, type Overview } from "./shared";
 import ListsTab from "./ListsTab";
 import LogTab from "./LogTab";
 import SettingsTab from "./SettingsTab";
@@ -54,27 +54,33 @@ const VIEW_HASH: Record<View, string> = { overview: "#overview", lists: "#lists"
 /** The tabs the hub-wide period applies to - it sits in the header, as on the UC reports (SARCLA 14.10.2026). */
 const DATED: View[] = ["overview", "lists", "activity"];
 
-/** A store view whose LATEST visit came through an older bridge - an earlier one does not count once the
- *  footer was replaced. A visit does not say whether it was ACC or production, so the notice says both. */
+/** A store view whose LATEST visit (per shop) came through an older bridge - an earlier one does not count once
+ *  the footer was replaced. Since 14.10.2026 a visit says its shop (ACC or production); older ones do not. */
 function olderBridges(bridges: Overview["status"]["bridges"]) {
   const latest = new Map<string, Overview["status"]["bridges"][number]>();
   for (const b of bridges) {
-    const k = b.locale || "?", had = latest.get(k);
+    const k = `${b.shop ?? ""}|${b.locale || "?"}`, had = latest.get(k);
     if (!had || Date.parse(b.last) > Date.parse(had.last)) latest.set(k, b);
   }
-  return [...latest.values()].filter((b) => b.bridge && b.bridge !== CURRENT_BRIDGE);
+  // a store view seen through the current bridge on a known shop since covers its unrecorded older visits there
+  const current = new Set([...latest.values()].filter((b) => b.bridge === CURRENT_BRIDGE).map((b) => b.locale));
+  return [...latest.values()].filter((b) => b.bridge && b.bridge !== CURRENT_BRIDGE && !(b.shop == null && current.has(b.locale)));
 }
 
 /** What needs doing, on every tab: a store view on an older bridge, a catalogue copy that failed. */
 function Problems({ o }: { o: Overview }) {
   const old = olderBridges(o.status.bridges);
+  const by = new Map<string, typeof old>();
+  for (const b of old) by.set(shopName(b.shop), [...(by.get(shopName(b.shop)) ?? []), b]);
   return (
     <>
-      {old.length > 0 && (
-        <Notice tone="warn">
-          The last visits from {old.map((b) => b.locale || "?").join(", ")} came through an older shop bridge ({[...new Set(old.map((b) => b.bridge))].join(", ")}), on ACC or production - a visit does not say which. Paste the footer from Settings there.
+      {[...by.entries()].map(([shop, rows]) => (
+        <Notice key={shop} tone="warn">
+          {shop === "not recorded"
+            ? <>The last visits from {rows.map((b) => b.locale || "?").join(", ")} came through an older shop bridge ({[...new Set(rows.map((b) => b.bridge))].join(", ")}), before visits said which shop - most likely ACC. Settings checks production&apos;s store views live.</>
+            : <>{shop} still runs an older shop bridge ({[...new Set(rows.map((b) => b.bridge))].join(", ")}) on {rows.map((b) => b.locale || "?").join(", ")}. Paste the footer from Settings there.</>}
         </Notice>
-      )}
+      ))}
       {o.status.catalogue.error && <Notice tone="bad">The last copy of the catalogue failed: {o.status.catalogue.error}</Notice>}
     </>
   );
@@ -216,16 +222,17 @@ function StatusTab({ o, reload }: { o: Overview; reload: () => void }) {
           <GlassCard sx={{ height: "100%", p: 0, pt: { xs: 2, md: 2.5 } }}>
             <Box sx={{ px: { xs: 2, md: 2.75 } }}>
               <CardTitle icon={<StorefrontOutlinedIcon />} tint="amber" title="Shop bridge per store view"
-                note={`The footer each store view runs, from its visits in the last 30 days. Current: ${CURRENT_BRIDGE}.`} />
+                note={`The footer each store view runs, from its visits in the last 30 days. Current: ${CURRENT_BRIDGE}. Settings reads production's pages live.`} />
             </Box>
             <Box sx={{ overflowX: "auto" }}>
-            <Table size="small" sx={{ minWidth: 420 }}>
-              <TableHead><TableRow>{["Store view", "Bridge", "Visits", "Last visit"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+            <Table size="small" sx={{ minWidth: 520 }}>
+              <TableHead><TableRow>{["Store view", "Shop", "Bridge", "Visits", "Last visit"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
-                {s.bridges.length === 0 && <TableRow><TableCell colSpan={4} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No shop page has opened DirectUP yet.</TableCell></TableRow>}
+                {s.bridges.length === 0 && <TableRow><TableCell colSpan={5} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No shop page has opened DirectUP yet.</TableCell></TableRow>}
                 {s.bridges.map((b, i) => (
                   <TableRow key={i} hover>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{b.locale || "–"}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", color: b.shop ? undefined : FAINT }}>{shopName(b.shop)}</TableCell>
                     <TableCell sx={bodyCell}><Chip tint={b.bridge === CURRENT_BRIDGE ? "green" : "amber"}>{b.bridge || "?"}{b.bridge === CURRENT_BRIDGE ? "" : " · older"}</Chip></TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(b.n)}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{when(b.last)}</TableCell>

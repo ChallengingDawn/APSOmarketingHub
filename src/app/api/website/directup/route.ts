@@ -2,13 +2,14 @@
 // installation snippets - read for the hub's page (Website's grant). Changes - the batch size, a catalogue
 // pull, new snippets, the gateway's address - are admins' only. Same three answers as every integration
 // route: not configured, upstream failed (with the reason), or the data.
-//   GET  ?part=overview&days=30 | log | jobs | job&id= | snippets
+//   GET  ?part=overview&days=30 | log | jobs | job&id= | snippets | check[&refresh=1]
 //   POST { action: "settings", batchSize } | { action: "sync" } | { action: "regenerate" } | { action: "gateway", url }
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { adminKey, gateway, gatewaySetting, setGateway, type JobDetail, type JobSummary, type Log, type Snippets, type Status, type Usage } from "@/lib/directup/gateway";
+import { checkShop } from "@/lib/directup/check";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,13 @@ export async function GET(req: NextRequest) {
       const id = q.get("id") || "";
       if (!/^[0-9a-f-]{8,64}$/i.test(id)) return NextResponse.json({ configured: true, ok: false, error: "No such order list.", status: 400 });
       return NextResponse.json({ configured: true, ok: true, data: await gateway<JobDetail>(`/jobs/${id}`) });
+    }
+    if (part === "check") {
+      // the shop's store views read live: footer bridge, head, page (src/lib/directup/check.ts)
+      const status = await gateway<Status>("/status").catch(() => null);
+      const seen = [...new Set((status?.bridges ?? []).map((b) => b.locale).filter((l): l is string => !!l))];
+      const data = await checkShop(setting.url, seen, q.get("refresh") === "1");
+      return NextResponse.json({ configured: true, ok: true, data });
     }
     if (part === "snippets") {
       const snippets = await gateway<Snippets>("/snippets");
