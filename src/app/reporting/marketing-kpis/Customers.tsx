@@ -415,20 +415,23 @@ export function CustomersExplorer() {
             </Box>
           )}
         </Box>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", justifyContent: { lg: "flex-end" }, flexWrap: { xs: "wrap", lg: "nowrap" } }}>
-        <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
-        {/* the button opens the window on the breakdown of the tab in question (SARCLA 14.10) */}
-        <Button onClick={() => (panel ? setPanel(false) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
-          aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
-          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2, height: 42, alignSelf: "flex-start", whiteSpace: "nowrap" }}>
-          Filters{active.length ? ` · ${active.length}` : ""}
-        </Button>
+        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
+          <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
         </Box>
       </Box>
 
-      <Box>
-        <ReportTabs name="customers" tab={view} onSelect={setView}
-          tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
+      {/* the tabs, and at their right end the Filters button (SARCLA 14.10) - it opens the window on the tab's breakdown */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+        <Box sx={{ minWidth: 0 }}>
+          <ReportTabs name="customers" tab={view} onSelect={setView}
+            tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Button onClick={() => (panel ? setPanel(false) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+          aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
+          Filters{active.length ? ` · ${active.length}` : ""}
+        </Button>
       </Box>
 
       {/* minmax(0, 1fr): a chart may not widen its card past the column */}
