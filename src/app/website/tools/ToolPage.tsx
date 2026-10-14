@@ -20,6 +20,9 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
+import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import SearchOffOutlinedIcon from "@mui/icons-material/SearchOffOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
@@ -36,13 +39,13 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
 import { Bars, when } from "@/app/website/directup/shared";
 import { CURRENT_BRIDGE } from "@/lib/directup/bridge";
-import { SHOP_TOOLS, type ShopToolKey, type ToolSnippet, type ToolStatus, type ToolUsage } from "@/lib/shopTools/tools";
+import { SHOP_TOOLS, type ShopToolKey, type ToolEvents, type ToolSnippet, type ToolStatus, type ToolUsage } from "@/lib/shopTools/tools";
 import type { ToolSetting } from "@/lib/shopTools/gateway";
 import type { ShopHost, ToolCheck, ToolStoreCheck } from "@/lib/shopTools/check";
 
 type View = "overview" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", settings: "#settings" };
-type Overview = { setting: ToolSetting; status: ToolStatus; usage: ToolUsage; isAdmin: boolean };
+type Overview = { setting: ToolSetting; status: ToolStatus; usage: ToolUsage; events: ToolEvents | null; isAdmin: boolean };
 
 const shopOf = (s: string) => (s === "www.apsoparts.com" || s === "apsoparts.com" ? "production" : s.startsWith("acc.") ? "ACC" : s === "direct" ? "outside the shop" : s);
 const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
@@ -68,6 +71,59 @@ function series(rows: ToolUsage["rows"], win: ReportingWindow) {
   return out;
 }
 
+/** What visitors searched and clicked inside the tool, as the page reported it (the compatibility table, SARCLA
+ *  14.10.2026: "should have more KPI as product searched and product clicks"). */
+function useEvents(ev: ToolEvents | null, win: ReportingWindow) {
+  return useMemo(() => {
+    const rows = (ev?.rows ?? []).filter((r) => r.day >= win.from && r.day <= win.to);
+    const sum = (k: string) => rows.filter((r) => r.kind === k).reduce((a, r) => a + r.n, 0);
+    const top = (kinds: string[], n = 10) => {
+      const m = new Map<string, { n: number; nohit: boolean }>();
+      for (const r of rows.filter((x) => kinds.includes(x.kind))) {
+        const had = m.get(r.label) ?? { n: 0, nohit: false };
+        m.set(r.label, { n: had.n + r.n, nohit: had.nohit || r.kind === "nohit" });
+      }
+      return [...m.entries()].map(([label, v]) => ({ label, ...v })).sort((a, b) => b.n - a.n).slice(0, n);
+    };
+    return {
+      searches: sum("search") + sum("nohit"), nohit: sum("nohit"), products: sum("product"), materials: sum("material"),
+      chemicals: sum("chemical"), pins: sum("pin"),
+      topSearched: top(["search", "nohit"]), topNohit: top(["nohit"]), topProducts: top(["product"]), topChemicals: top(["chemical", "pin"]),
+    };
+  }, [ev, win.from, win.to]);
+}
+
+function EventLists({ e, label }: { e: ReturnType<typeof useEvents>; label: string }) {
+  return (
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard sx={{ height: "100%" }}>
+          <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Most searched" note={`What visitors typed · red: nothing matched · ${label}`} />
+          <Bars rows={e.topSearched.map((x) => ({ label: x.label, n: x.n, colour: x.nohit ? RED : undefined, note: x.nohit ? "nothing found" : undefined }))} />
+        </GlassCard>
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard sx={{ height: "100%" }}>
+          <CardTitle icon={<AdsClickOutlinedIcon />} tint="green" title="Products clicked" note={`Opened in the shop from the tool · ${label}`} />
+          <Bars colour={GREEN} rows={e.topProducts.map((x) => ({ label: x.label, n: x.n }))} />
+        </GlassCard>
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard sx={{ height: "100%" }}>
+          <CardTitle icon={<ScienceOutlinedIcon />} tint="blue" title="Chemicals opened" note={`Clicked for the materials that resist them, or pinned to compare · ${label}`} />
+          <Bars rows={e.topChemicals.map((x) => ({ label: x.label, n: x.n }))} />
+        </GlassCard>
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard sx={{ height: "100%" }}>
+          <CardTitle icon={<SearchOffOutlinedIcon />} tint="pink" title="Searched, nothing found" note={`Chemicals the table does not know yet - candidates to add · ${label}`} />
+          <Bars colour={RED} rows={e.topNohit.map((x) => ({ label: x.label, n: x.n }))} />
+        </GlassCard>
+      </Grid>
+    </Grid>
+  );
+}
+
 function OverviewTab({ o, toolKey, win, label }: { o: Overview; toolKey: ShopToolKey; win: ReportingWindow; label: string }) {
   const tool = SHOP_TOOLS[toolKey];
   const rows = useMemo(() => o.usage.rows.filter((r) => r.day >= win.from && r.day <= win.to), [o.usage.rows, win.from, win.to]);
@@ -84,14 +140,19 @@ function OverviewTab({ o, toolKey, win, label }: { o: Overview; toolKey: ShopToo
     return [...m.entries()].map(([lbl, n]) => ({ label: lbl, n })).sort((a, b) => b.n - a.n);
   }, [rows]);
   const st = o.status;
+  const e = useEvents(o.events, win);
+  const kpi = o.events ? { xs: 12, sm: 6, lg: 2.4 } : { xs: 12, sm: 6, lg: 3 };
 
   return (
     <>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<VisibilityOutlinedIcon />} tint="blue" label="Opened" value={full(opened)} note={`${full(prod)} on production · ${full(acc)} on ACC${opened - prod - acc ? ` · ${full(opened - prod - acc)} outside the shop` : ""}`} /></Grid>
+        <Grid size={kpi}><KpiTile icon={<VisibilityOutlinedIcon />} tint="blue" label="Opened" value={full(opened)} note={`${full(prod)} on production · ${full(acc)} on ACC${opened - prod - acc ? ` · ${full(opened - prod - acc)} outside the shop` : ""}`} /></Grid>
+        {o.events && <Grid size={kpi}><KpiTile icon={<ManageSearchOutlinedIcon />} tint="purple" label="Searches" value={full(e.searches)} note={e.searches ? `${full(e.nohit)} found nothing` : label} /></Grid>}
+        {o.events && <Grid size={kpi}><KpiTile icon={<AdsClickOutlinedIcon />} tint="green" label="Product clicks" value={full(e.products)} note={`and ${full(e.materials)} material ${e.materials === 1 ? "page" : "pages"} opened`} /></Grid>}
+        {o.events && <Grid size={kpi}><KpiTile icon={<ScienceOutlinedIcon />} tint="amber" label="Chemicals opened" value={full(e.chemicals)} note={`${full(e.pins)} pinned to compare`} /></Grid>}
         {tool.counts.search && <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ManageSearchOutlinedIcon />} tint="purple" label={tool.counts.search} value={full(sum("search"))} note={opened ? `${(sum("search") / opened).toFixed(1)} per opening` : label} /></Grid>}
         {tool.counts.detail && <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<FactCheckOutlinedIcon />} tint="green" label={tool.counts.detail} value={full(sum("detail"))} note={label} /></Grid>}
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DnsOutlinedIcon />} tint="slate" label="Gateway" value={st.version.replace(/^deploy-/, "")}
+        <Grid size={kpi}><KpiTile icon={<DnsOutlinedIcon />} tint="slate" label="Gateway" value={st.version.replace(/^deploy-/, "")}
           note={`${st.data ? `${full(st.data.articles)} articles, built ${st.data.built ?? "?"} · ` : ""}running for ${Math.round(st.uptimeS / 3600)} h`} /></Grid>
       </Grid>
       <Grid container spacing={2}>
@@ -124,6 +185,7 @@ function OverviewTab({ o, toolKey, win, label }: { o: Overview; toolKey: ShopToo
           </GlassCard>
         </Grid>
       </Grid>
+      {o.events && <EventLists e={e} label={label} />}
     </>
   );
 }

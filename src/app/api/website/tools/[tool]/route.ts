@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { adminKey } from "@/lib/directup/gateway";
-import { SHOP_TOOLS, isShopTool, type ToolSnippet, type ToolStatus, type ToolUsage } from "@/lib/shopTools/tools";
+import { SHOP_TOOLS, isShopTool, type ToolEvents, type ToolSnippet, type ToolStatus, type ToolUsage } from "@/lib/shopTools/tools";
 import { setToolGateway, setToolPath, toolGateway, toolSetting } from "@/lib/shopTools/gateway";
 import { checkTool } from "@/lib/shopTools/check";
 
@@ -32,8 +32,11 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const setting = await toolSetting(tool);
     if (part === "overview") {
       const days = Math.min(400, Math.max(1, parseInt(q.get("days") || "30", 10) || 30));
-      const [status, usage] = await Promise.all([toolGateway<ToolStatus>(tool, "/status"), toolGateway<ToolUsage>(tool, `/usage?days=${days}`)]);
-      return NextResponse.json({ configured: true, ok: true, data: { setting, status, usage, isAdmin } });
+      const [status, usage, events] = await Promise.all([
+        toolGateway<ToolStatus>(tool, "/status"), toolGateway<ToolUsage>(tool, `/usage?days=${days}`),
+        SHOP_TOOLS[tool].events ? toolGateway<ToolEvents>(tool, `/events?days=${days}`) : Promise.resolve(null),
+      ]);
+      return NextResponse.json({ configured: true, ok: true, data: { setting, status, usage, events, isAdmin } });
     }
     if (part === "snippet") {
       const snippet = await toolGateway<ToolSnippet>(tool, "/snippets");

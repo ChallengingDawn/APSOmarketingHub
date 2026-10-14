@@ -20,6 +20,8 @@ export type ShopTool = {
   shopPath: string | null;
   /** what the gateway counts besides page opens */
   counts: { search?: string; detail?: string };
+  /** the page reports what visitors search and click (GET /api/admin/events on its gateway) */
+  events?: boolean;
 };
 
 export const SHOP_TOOLS: Record<ShopToolKey, ShopTool> = {
@@ -39,7 +41,7 @@ export const SHOP_TOOLS: Record<ShopToolKey, ShopTool> = {
     key: "compat", name: "Compatibility table", page: "compat", href: "/website/compatibility-table",
     what: "Which sealing material resists which chemical",
     gateway: "https://compat-gateway-production.up.railway.app", shopPath: null,
-    counts: {},
+    counts: {}, events: true,
   },
   vulcan: {
     key: "vulcan", name: "Vulcanised O-rings", page: "vulcan", href: "/website/vulcanised-o-rings",
@@ -56,3 +58,6 @@ export type ToolStatus = { tool: ShopToolKey; name: string; version: string; url
 export type ToolUsageRow = { day: string; kind: "page" | "search" | "detail"; shop: string; locale: string; n: number };
 export type ToolUsage = { days: number; rows: ToolUsageRow[] };
 export type ToolSnippet = { page: string; url: string; version: string; generatedAt: string };
+/** What the page reported: search / nohit (a term, lower case), chemical / pin (a chemical), product ("<no> <name>"),
+ *  material (a material code) - per day, label and shop. */
+export type ToolEvents = { days: number; kinds: string[]; rows: { day: string; kind: string; label: string; shop: string; n: number }[] };
