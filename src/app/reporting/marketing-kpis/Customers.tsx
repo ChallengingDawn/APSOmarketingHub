@@ -29,6 +29,8 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Collapse from "@mui/material/Collapse";
 import CheckIcon from "@mui/icons-material/Check";
 import SearchIcon from "@mui/icons-material/Search";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -44,6 +46,9 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
+import TuneIcon from "@mui/icons-material/Tune";
+import CloseIcon from "@mui/icons-material/Close";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -334,6 +339,9 @@ export function CustomersExplorer() {
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
   const rows = useMemo(() => (cube && win ? breakdown(cube, view, filters, win) : []), [cube, view, filters, win]);
 
+  // the filters open as a window of their own (SARCLA 13.10), closed at first
+  const [panel, setPanel] = useState(false);
+
   if (!cube || !win || !a || !all) return <Waiting computing={computing} progress={progress} error={error} />;
   const d = DIM[view];
   // the charts show the twelve with the most revenue; priority and potential keep their order
@@ -343,125 +351,207 @@ export function CustomersExplorer() {
   };
   const chartRows = top(view, 12);
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const pro = proRataNote(cube, win);
+  const active = DIMS.filter((x) => filters[x]);
   // every view also shows the revenue by country and by sales rep (SARCLA 13.10); where one of
   // them is the view itself, the sales priority takes its place
   const beside: Dim[] = view === "country" ? ["owner", "prio"] : view === "owner" ? ["country", "prio"] : ["country", "owner"];
   return (
-    <Box sx={{ display: "grid", gap: 2, minWidth: 0, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 300px" }, alignItems: "start" }}>
-      <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
-        <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
-          Who are our customers
-        </Typography>
-
-        <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
-
-        <Box>
-          <ReportTabs name="customers" tab={view} onSelect={setView}
-            tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
-        </Box>
-
-        {/* minmax(0, 1fr): a chart may not widen its card past the column (it ran under the side panel) */}
-        <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
-          <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
-            right={d.kpi ? <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT }}>{d.kpi}</Typography> : undefined} />
-
-          {/* the charts first - this view's two, then revenue by country and by sales rep - and the table at the end */}
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
-            <DimChart title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy}
-              curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={(l) => toggle(view, l)} />
-            <DimChart title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy}
-              curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={(l) => toggle(view, l)} />
-            {beside.map((o) => (
-              <DimChart key={o} title={`Revenue, by ${DIM[o].lower}${o === "prio" ? "" : " - the 10 largest"}`} rows={top(o, 10)} cur={(r) => r.rev} prev={(r) => r.revPy}
-                curLabel={w} prevLabel={pw} fmt={eur} selected={filters[o]} onPick={(l) => toggle(o, l)} />
-            ))}
-          </Box>
-
-          <Box>
-            <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {d.lower}</Typography>
-            <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} />
-          </Box>
-
-          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-            Every company in HubSpot, read every 6 hours; revenue up to the last ERP delivery. Bought = invoiced revenue in at least one month of the period.
-            Priority, APSO customer, potential, sales rep and APIC are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
+    <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      {/* the title and what is shown on the left; the four figures and the filters button top right */}
+      <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
+        <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
+          <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
+            Who are our customers
           </Typography>
-        </GlassCard>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
+            <b style={{ color: INK }}>{w}</b> against {pw}{pro ? ` (${pro})` : ""} · figures up to {upToDate(cube, win)}{computing ? " · reading HubSpot again" : ""}
+          </Typography>
+          {active.length > 0 && (
+            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+              {active.map((x) => (
+                <Chip key={x} size="small" label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => clear(x)}
+                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+              ))}
+              <Button size="small" onClick={() => setFilters({})} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+            </Box>
+          )}
+        </Box>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", justifyContent: { lg: "flex-end" }, flexWrap: { xs: "wrap", lg: "nowrap" } }}>
+        <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
+        <Button onClick={() => setPanel((o) => !o)} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+          aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2, height: 42, alignSelf: "flex-start", whiteSpace: "nowrap" }}>
+          Filters{active.length ? ` · ${active.length}` : ""}
+        </Button>
+        </Box>
       </Box>
 
-      {/* the filters, at the side: the period, and every value to click - a second click takes it off (SARCLA 13.10) */}
-      <FilterPanel cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} computing={computing} />
+      <Box>
+        <ReportTabs name="customers" tab={view} onSelect={setView}
+          tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
+      </Box>
+
+      {/* minmax(0, 1fr): a chart may not widen its card past the column */}
+      <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+        <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
+          right={d.kpi ? <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT }}>{d.kpi}</Typography> : undefined} />
+
+        {/* the charts first - this view's two, then revenue by country and by sales rep - and the table at the end */}
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
+          <DimChart title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy}
+            curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={(l) => toggle(view, l)} />
+          <DimChart title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy}
+            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={(l) => toggle(view, l)} />
+          {beside.map((o) => (
+            <DimChart key={o} title={`Revenue, by ${DIM[o].lower}${o === "prio" ? "" : " - the 10 largest"}`} rows={top(o, 10)} cur={(r) => r.rev} prev={(r) => r.revPy}
+              curLabel={w} prevLabel={pw} fmt={eur} selected={filters[o]} onPick={(l) => toggle(o, l)} />
+          ))}
+        </Box>
+
+        <Box>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {d.lower}</Typography>
+          <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} />
+        </Box>
+
+        <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+          Every company in HubSpot, read again after every ERP delivery; revenue up to that delivery. Bought = invoiced revenue in at least one month of the period.
+          Priority, APSO customer, potential, sales rep and APIC are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
+        </Typography>
+      </GlassCard>
+
+      <FilterWindow open={panel} onClose={() => setPanel(false)} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} />
     </Box>
   );
 }
 
-/** The four figures, each in a small card (SARCLA 13.10: "inside of smaller placeholders"). */
+/** The four figures, each in a small card, top right beside the title (SARCLA 13.10). */
 function KpiCards({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string }) {
-  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
-  const items: { label: string; value: string; ch?: number | null; sub: string; tip: string; icon: React.ReactNode; tint: Tint }[] = [
-    { label: "Companies", value: int(a.n), sub: a.n !== all.n ? `${pct(a.n / all.n)} of all ${int(all.n)}` : `as of ${readAt(readIso)}`, tip: `Companies in HubSpot, as of ${readAt(readIso)}`, icon: <ApartmentOutlinedIcon />, tint: "purple" },
-    { label: "Companies that bought", value: int(a.bought), ch: change(a.bought, a.boughtPy), sub: `a year earlier: ${int(a.boughtPy)}`, tip: `Companies with invoiced revenue in ${w}, against ${pw}`, icon: <ShoppingCartOutlinedIcon />, tint: "green" },
-    { label: "Revenue", value: eur(a.rev), ch: change(a.rev, a.revPy), sub: `a year earlier: ${eur(a.revPy)}`, tip: `Invoiced revenue in ${w}, against ${pw} - up to ${upToDate(cube, win)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
-    { label: "Share of wallet", value: pct(shareOfWallet(a, win, cube)), sub: "of the yearly potential", tip: "Revenue against the yearly potential, for the same time", icon: <DonutLargeOutlinedIcon />, tint: "amber" },
+  const items: { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint }[] = [
+    { label: "Companies", value: int(a.n), sub: a.n !== all.n ? `${pct(a.n / all.n)} of all ${int(all.n)}` : `as of ${readAt(readIso)}`, icon: <ApartmentOutlinedIcon />, tint: "purple" },
+    { label: "Companies that bought", value: int(a.bought), ch: change(a.bought, a.boughtPy), sub: `a year earlier: ${int(a.boughtPy)}`, icon: <ShoppingCartOutlinedIcon />, tint: "green" },
+    { label: "Revenue", value: eur(a.rev), ch: change(a.rev, a.revPy), sub: `a year earlier: ${eur(a.revPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
+    { label: "Share of wallet", value: pct(shareOfWallet(a, win, cube)), sub: "of the yearly potential", icon: <DonutLargeOutlinedIcon />, tint: "amber" },
   ];
   return (
-    <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(132px, 180px))" }, flex: "0 1 auto" }}>
       {items.map((it) => (
-        <Box key={it.label} title={it.tip} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.25, minWidth: 0, display: "flex", gap: 1, alignItems: "flex-start" }}>
-          <Badge icon={it.icon} tint={it.tint} size={26} />
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: MUTED, lineHeight: 1.3 }}>{it.label}</Typography>
-            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
-              <Typography sx={{ fontSize: "1.2rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
-              {it.ch !== undefined && <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
-            </Box>
-            <Typography sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.35 }}>{it.sub}</Typography>
+        <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Badge icon={it.icon} tint={it.tint} size={22} />
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{it.label}</Typography>
           </Box>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
+            {it.ch !== undefined && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
+          </Box>
+          <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{it.sub}</Typography>
         </Box>
       ))}
     </Box>
   );
 }
 
-/** The side panel: the period on top, then every breakdown's values - a click filters, a second click lets go. */
-function FilterPanel({ cube, win, setWin, filters, toggle, clearAll, computing }: {
-  cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void; computing: boolean;
+/**
+ * The filters, as a window of their own over the page - like the assistant's
+ * chat: it opens from the button, closes with its cross or Escape, and the
+ * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
+ * overlays the graphs; it works like a separate chat").
+ */
+function FilterWindow({ open, onClose, cube, win, setWin, filters, toggle, clearAll }: {
+  open: boolean; onClose: () => void; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const active = DIMS.filter((x) => filters[x]);
-  const pro = proRataNote(cube, win);
+  const [shut, setShut] = useState<Partial<Record<Dim | "period", boolean>>>({});
+  useEffect(() => {
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [open, onClose]);
+  // a breakdown opens by itself when it holds a choice; the first two are open to begin with
+  const isOpen = (k: Dim | "period") => {
+    if (shut[k] !== undefined) return !shut[k];
+    return k === "period" || k === "prio" || k === "segment" || !!filters[k];
+  };
+  const flip = (k: Dim | "period") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
   return (
-    <Box component="aside" aria-label="Filters" sx={{
-      ...glass, borderRadius: "20px", p: 2, display: "grid", gap: 1.75, minWidth: 0,
-      position: { lg: "sticky" }, top: { lg: 12 }, maxHeight: { lg: "calc(100vh - 24px)" }, overflowY: { lg: "auto" }, order: { xs: -1, lg: 0 },
-    }}>
-      <Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1 }}>
-          <CalendarMonthOutlinedIcon sx={{ fontSize: 18, color: MUTED }} />
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>Period</Typography>
+    <Box id="customers-filters" role="dialog" aria-modal="false" aria-label="Filters" aria-hidden={!open}
+      sx={{
+        position: "fixed", top: 16, right: 16, bottom: 16, width: { xs: "calc(100vw - 32px)", sm: 380 }, zIndex: 1300,
+        display: "flex", flexDirection: "column", borderRadius: "22px", overflow: "hidden",
+        bgcolor: "#fff", border: "1px solid rgba(21,34,58,.08)",
+        boxShadow: "0 24px 60px rgba(21,34,58,.22), 0 4px 14px rgba(21,34,58,.08)",
+        transform: open ? "translateX(0)" : "translateX(calc(100% + 32px))", opacity: open ? 1 : 0, visibility: open ? "visible" : "hidden",
+        transition: "transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease, visibility .22s",
+      }}>
+      {/* the header: what this is, how many choices, and the way out */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.25, py: 1.75, borderBottom: `1px solid ${HAIRLINE}`, background: "linear-gradient(180deg, #f6f8fc, #fff)" }}>
+        <Badge icon={<TuneIcon />} tint="blue" size={34} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>Filters</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{active.length ? `${active.length} chosen - click again to let go` : "Click a value to show only it"}</Typography>
         </Box>
-        <Period cube={cube} win={win} onChange={setWin} />
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
-          <b style={{ color: INK }}>{windowLabel(cube, win)}</b> against <b style={{ color: INK }}>{windowLabel(cube, win, 1)}</b>
-          {pro ? ` - ${pro}` : ""} · figures up to {upToDate(cube, win)}{computing ? " · reading HubSpot again" : ""}
-        </Typography>
+        {active.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 700 }}>Clear all</Button>}
+        <IconButton aria-label="Close the filters" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}>
+          <CloseIcon sx={{ fontSize: 20 }} />
+        </IconButton>
       </Box>
 
-      <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 1.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <FilterAltOutlinedIcon sx={{ fontSize: 18, color: MUTED }} />
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, flex: 1 }}>Filter{active.length ? ` (${active.length})` : ""}</Typography>
-          {active.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0, py: 0 }}>Clear all</Button>}
+      {active.length > 0 && (
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", px: 2.25, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "#fbfcfe" }}>
+          {active.map((x) => (
+            <Chip key={x} size="small" label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => toggle(x, filters[x]!)}
+              sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+          ))}
         </Box>
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 0.25 }}>Click a value to show only it; click it again to let it go</Typography>
+      )}
+
+      <Box sx={{ flex: 1, overflowY: "auto", px: 1.25, py: 1 }}>
+        <Section title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
+          summary={windowLabel(cube, win)}>
+          <Period cube={cube} win={win} onChange={setWin} />
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
+            Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
+          </Typography>
+        </Section>
+        {ORDER.map((dim) => (
+          <Section key={dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={filters[dim] ?? "All"} chosen={!!filters[dim]}>
+            <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
+          </Section>
+        ))}
       </Box>
 
-      {ORDER.map((dim) => <Facet key={dim} cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />)}
+      <Box sx={{ px: 2.25, py: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 1, alignItems: "center", bgcolor: "#fbfcfe" }}>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT, flex: 1 }}>Filters apply at once; the charts behind stay live</Typography>
+        <Button variant="contained" disableElevation onClick={onClose} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Done</Button>
+      </Box>
     </Box>
   );
 }
 
-/** One breakdown in the side panel: its values with the companies that bought; the long ones search. */
+/** One fold of the filter window: its glyph, its name, what is chosen - and its content when open. */
+function Section({ title, icon, tint, open, onFlip, summary, chosen = false, children }: {
+  title: string; icon: React.ReactNode; tint: Tint; open: boolean; onFlip: () => void; summary: string; chosen?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <Box sx={{ borderRadius: "14px", mb: 0.75, bgcolor: open ? "#f7f9fc" : "transparent", border: `1px solid ${open ? HAIRLINE : "transparent"}`, transition: "background-color .15s" }}>
+      <Box component="button" type="button" onClick={onFlip} aria-expanded={open}
+        sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%", border: 0, bgcolor: "transparent", font: "inherit", cursor: "pointer", textAlign: "left", px: 1, py: 0.9, borderRadius: "14px", "&:hover": { bgcolor: open ? "transparent" : "rgba(21,34,58,.04)" } }}>
+        <Badge icon={icon} tint={tint} size={26} />
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: 1 }}>{title}</Typography>
+        <Typography sx={{ fontSize: "0.76rem", fontWeight: chosen ? 700 : 500, color: chosen ? TINT[tint].fg : FAINT, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</Typography>
+        <ExpandMoreIcon sx={{ fontSize: 20, color: FAINT, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ px: 1.25, pb: 1.25 }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+/** One breakdown's values: a check, the name, a bar of the companies that bought, the count; the long ones search. */
 function Facet({ cube, dim, win, filters, onPick }: { cube: Cube; dim: Dim; win: Win; filters: Filters; onPick: (label: string) => void }) {
   const [all, setAll] = useState(false);
   const [q, setQ] = useState("");
@@ -471,38 +561,47 @@ function Facet({ cube, dim, win, filters, onPick }: { cube: Cube; dim: Dim; win:
   }, [cube, dim, filters, win]);
   const sel = filters[dim];
   const found = q ? rows.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : rows;
-  const LIMIT = 6;
-  // the chosen value always shows, even when it is not among the first six
+  const LIMIT = 8;
+  // the chosen value always shows, even when it is not among the first ones
   const shown = all || q ? found : [...found.slice(0, LIMIT), ...found.slice(LIMIT).filter((r) => r.label === sel)];
+  const max = Math.max(1, ...rows.map((r) => r.bought));
   const t = TINT[DIM[dim].tint];
   return (
-    <Box sx={{ minWidth: 0 }}>
-      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.5 }}>{DIM[dim].name}</Typography>
-      {rows.length > 10 && (all || q) && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, mb: 0.5, height: 30, borderRadius: "8px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
+    <Box sx={{ display: "grid", gap: 0.25 }}>
+      {rows.length > LIMIT && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, mb: 0.5, height: 32, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
           <SearchIcon sx={{ fontSize: 16, color: MUTED }} />
           <InputBase value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Find a ${DIM[dim].lower}…`} inputProps={{ "aria-label": `Find a ${DIM[dim].lower} to filter` }} sx={{ fontSize: "0.8rem", flex: 1 }} />
         </Box>
       )}
-      <Box sx={{ display: "grid", gap: 0.25 }}>
-        {shown.map((r) => {
-          const on = sel === r.label;
-          return (
-            <Box key={r.label} component="button" type="button" onClick={() => onPick(r.label)} aria-pressed={on} title={on ? "Click again to let it go" : `Show only ${r.label}`}
-              sx={{
-                display: "flex", alignItems: "center", gap: 0.75, width: "100%", border: 0, font: "inherit", textAlign: "left", cursor: "pointer",
-                px: 1, py: 0.55, borderRadius: "8px", bgcolor: on ? t.bg : "transparent", color: INK, opacity: sel && !on ? 0.6 : 1,
-                "&:hover": { bgcolor: on ? t.bg : "rgba(21,34,58,.05)", opacity: 1 }, "&:focus-visible": { outline: `2px solid ${t.fg}` },
-              }}>
-              <Box sx={{ width: 16, display: "grid", placeItems: "center", flexShrink: 0 }}>{on ? <CheckIcon sx={{ fontSize: 15, color: t.fg }} /> : <Box sx={{ width: 8, height: 8, borderRadius: "2px", border: "1.5px solid rgba(21,34,58,.3)" }} />}</Box>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: on ? 700 : 500, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</Typography>
-              <Typography sx={{ fontSize: "0.76rem", color: MUTED, fontVariantNumeric: "tabular-nums" }} title="Companies that bought in the period">{int(r.bought)}</Typography>
-            </Box>
-          );
-        })}
+      <Box sx={{ display: "flex", justifyContent: "space-between", px: 1, pb: 0.25 }}>
+        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>{DIM[dim].name}</Typography>
+        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Bought</Typography>
       </Box>
-      {rows.length > LIMIT && (
-        <Button size="small" onClick={() => { setAll((x) => !x); setQ(""); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0, px: 1, mt: 0.25 }}>
+      {shown.map((r) => {
+        const on = sel === r.label;
+        return (
+          <Box key={r.label} component="button" type="button" onClick={() => onPick(r.label)} aria-pressed={on} title={on ? "Click again to let it go" : `Show only ${r.label}`}
+            sx={{
+              display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto", alignItems: "center", columnGap: 1, width: "100%", border: 0, font: "inherit", textAlign: "left", cursor: "pointer",
+              px: 1, py: 0.6, borderRadius: "9px", bgcolor: on ? t.bg : "#fff", color: INK, boxShadow: on ? `inset 0 0 0 1.5px ${t.fg}` : "inset 0 0 0 1px rgba(21,34,58,.06)",
+              opacity: sel && !on ? 0.7 : 1, "&:hover": { boxShadow: `inset 0 0 0 1.5px ${t.fg}`, opacity: 1 }, "&:focus-visible": { outline: `2px solid ${t.fg}`, outlineOffset: 1 },
+            }}>
+            <Box sx={{ width: 18, height: 18, borderRadius: "5px", display: "grid", placeItems: "center", bgcolor: on ? t.fg : "#fff", border: on ? "none" : "1.5px solid rgba(21,34,58,.28)" }}>
+              {on && <CheckIcon sx={{ fontSize: 14, color: "#fff" }} />}
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: on ? 700 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</Typography>
+              <Box sx={{ height: 3, borderRadius: 99, bgcolor: "rgba(21,34,58,.06)", mt: 0.4, overflow: "hidden" }}>
+                <Box sx={{ width: `${(100 * Math.max(0, r.bought)) / max}%`, height: "100%", bgcolor: t.fg, opacity: 0.55, borderRadius: 99 }} />
+              </Box>
+            </Box>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{int(r.bought)}</Typography>
+          </Box>
+        );
+      })}
+      {rows.length > LIMIT && !q && (
+        <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", px: 1, mt: 0.25 }}>
           {all ? "Show fewer" : `Show all ${rows.length}`}
         </Button>
       )}

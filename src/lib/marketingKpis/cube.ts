@@ -27,6 +27,8 @@ export type Cube = {
    * number, that day, and the days the month has. Null when there is none.
    */
   running: { month: number; day: number; days: number } | null;
+  /** The day of the ERP delivery the read stands on - a newer one makes the read stale. */
+  dataDay?: string | null;
   labels: Record<Dim, string[]>;
   /** [dimension indexes…, companies, their yearly potential where usable] */
   cells: number[][];

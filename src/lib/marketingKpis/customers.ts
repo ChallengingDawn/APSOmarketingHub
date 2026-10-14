@@ -19,8 +19,19 @@ import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim
 const KEY = "marketingKpis:customers:v6";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
-export function customersCube(): Promise<SlowState<Cube>> {
-  return slowReport(KEY, TTL_MS, build);
+/**
+ * The read moves with the ERP: as soon as a newer delivery is on record than the
+ * one the read stands on, it is read again (SARCLA 14.10: "still frozen on 12
+ * October - this should go forward as we move"). Otherwise every 6 hours.
+ */
+export async function customersCube(): Promise<SlowState<Cube>> {
+  const day = await lastDelivery();
+  return slowReport(KEY, (v: Cube) => (day && v?.dataDay !== day ? 0 : TTL_MS), build);
+}
+
+/** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */
+async function lastDelivery(): Promise<string | undefined> {
+  try { return (await chainHistory()).map((d) => d.day).sort().pop(); } catch { return undefined; }
 }
 
 type Obj = { id: string; properties: Record<string, string | null> };
@@ -83,11 +94,10 @@ async function build(): Promise<Cube> {
   const loaded = [monthsLoaded(filled[0], filled[1], monthsDone), 12, 12];
   // The month in progress reaches the day of the last ERP delivery the chain ran
   // (yesterday when no delivery is on record): year to date and month to date end there.
-  let day: string | undefined;
-  try { day = (await chainHistory()).map((d) => d.day).sort().pop(); } catch { /* no database on this machine */ }
+  const day = await lastDelivery();
   const reach = day ? new Date(`${day}T00:00:00Z`) : new Date(Date.now() - 86_400_000);
   const running = reach.getUTCFullYear() === year && reach.getUTCMonth() >= loaded[0]
     ? { month: monthOf(0, reach.getUTCMonth()), day: reach.getUTCDate(), days: new Date(Date.UTC(year, reach.getUTCMonth() + 1, 0)).getUTCDate() }
     : null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, labels, ...fold(companies) };
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, ...fold(companies) };
 }
