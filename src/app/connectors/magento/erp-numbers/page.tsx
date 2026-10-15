@@ -82,40 +82,42 @@ export default function ErpNumbers() {
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader
-        title="ERP numbers"
-        subtitle="Each web order gets its A-number from the shop itself, as soon as the shop has transferred it to the ERP"
-        rightSlot={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            {(data === null || running) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-            <Tooltip title="Read again"><IconButton size="small" onClick={refresh} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
-          </Box>
-        }
-      />
+      <Box>
+        <PageHeader
+          title="ERP numbers"
+          subtitle="Each web order gets its A-number from the shop itself, as soon as the shop has transferred it to the ERP"
+          rightSlot={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {data && (data.live ? <Chip tint="green">Live</Chip> : <Chip tint="amber">Test runs only</Chip>)}
+              {data?.admin && (
+                <>
+                  <Button size="small" variant="outlined" disabled={busy || running} onClick={() => void act("preview")}>Test run</Button>
+                  {data.live && <Button size="small" variant="outlined" disabled={busy || running} onClick={() => void act("run")}>Run now</Button>}
+                  <Button size="small" variant="contained" disableElevation disabled={busy} color={data.live ? "inherit" : "primary"}
+                    onClick={() => {
+                      if (confirm(data.live ? "Switch the ERP-number lookup off? Web orders then wait for export.xml again." : "Switch the ERP-number lookup on? It then stamps web orders in HubSpot every 15 minutes.")) void act(data.live ? "live-off" : "live-on");
+                    }}>
+                    {data.live ? "Switch off" : "Switch on"}
+                  </Button>
+                </>
+              )}
+              {(data === null || running) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+              <Tooltip title="Read again"><IconButton size="small" onClick={refresh} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
+            </Box>
+          }
+        />
+        {data && (
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: -1.5 }}>
+            Every 15 minutes, never during an ERP chain · last live run {when(data.run?.finished ?? data.run?.started)} · last test run {when(data.preview?.finished ?? data.preview?.started)}
+          </Typography>
+        )}
+      </Box>
 
       {error && <Notice tone="bad">{error}</Notice>}
       {data === null && !error && <LoadingPanel label="Reading the step…" />}
 
       {data && (
         <>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
-            {data.live ? <Chip tint="green">Live</Chip> : <Chip tint="amber">Test runs only</Chip>}
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-              Every 15 minutes, never during an ERP chain · last live run {when(data.run?.finished ?? data.run?.started)} · last test run {when(data.preview?.finished ?? data.preview?.started)}
-            </Typography>
-            {data.admin && (
-              <Box sx={{ display: "flex", gap: 1, ml: { md: "auto" } }}>
-                <Button size="small" variant="outlined" disabled={busy || running} onClick={() => void act("preview")}>Test run</Button>
-                {data.live && <Button size="small" variant="outlined" disabled={busy || running} onClick={() => void act("run")}>Run now</Button>}
-                <Button size="small" variant="contained" disableElevation disabled={busy} color={data.live ? "inherit" : "primary"}
-                  onClick={() => {
-                    if (confirm(data.live ? "Switch the ERP-number lookup off? Web orders then wait for export.xml again." : "Switch the ERP-number lookup on? It then stamps web orders in HubSpot every 15 minutes.")) void act(data.live ? "live-off" : "live-on");
-                  }}>
-                  {data.live ? "Switch off" : "Switch on"}
-                </Button>
-              </Box>
-            )}
-          </Box>
           {note && <Info>{note}</Info>}
 
           <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" } }}>
