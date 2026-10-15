@@ -31,9 +31,10 @@ import { Chip, Info, when } from "../../parts";
 type Result = Record<string, unknown> & {
   waiting?: number; asked_orders?: number; found?: number; stamped?: number; not_transferred?: number;
   left_for_next_run?: number; lookups?: number; shop_no_answer?: number; unreadable?: number; skipped_a_number_taken?: number;
-  stamp_failed?: number; seconds?: number; skipped?: string;
+  stamp_failed?: number; seconds?: number; skipped?: string; twins_merged?: number; twin_merge_failed?: number;
   examples?: { order: string; inc: string; a_number: string; name: string }[];
-  a_number_taken?: { order: string; inc: string; a_number: string; already_on: string[] }[];
+  a_number_taken?: { order: string; inc: string; a_number: string; already_on: string[]; reason?: string }[];
+  twins?: { web_order: string; inc: string; a_number: string; into: string; carried?: string[]; contacts?: number; companies?: number; note?: string }[];
   errors?: string[];
 };
 type Run = { started: string; finished?: string; by: string; error?: string; result?: Result };
@@ -125,7 +126,8 @@ export default function ErpNumbers() {
             <KpiTile icon={<TagIcon />} tint="blue" label={test ? "Found in the test run" : "Found in the last run"} value={n(r.found)}
               note={last ? `of ${n(r.asked_orders)} asked · ${n(r.not_transferred)} not transferred yet` : "no run yet"} />
             <KpiTile icon={<TaskAltIcon />} tint="green" label={test ? "Would be stamped" : "Stamped"} value={n(r.stamped)}
-              note={r.skipped_a_number_taken ? `${n(r.skipped_a_number_taken)} A-number already on another order` : "order_order_number, name, erp_linked"} />
+              note={[r.twins_merged ? `${n(r.twins_merged)} duplicate${r.twins_merged === 1 ? "" : "s"} ${test ? "would be " : ""}merged into the ERP order` : "",
+                r.skipped_a_number_taken ? `${n(r.skipped_a_number_taken)} left for you` : ""].filter(Boolean).join(" · ") || "order_order_number, name, erp_linked"} />
             <KpiTile icon={<ScheduleIcon />} tint="slate" label="Left for the next run" value={n(r.left_for_next_run)}
               note={last ? `${n(r.lookups)} lookups in ${n(r.seconds)} s` : ""} />
           </Box>
@@ -135,17 +137,46 @@ export default function ErpNumbers() {
           {(r.shop_no_answer ?? 0) > 0 && <Notice tone="warn">{n(r.shop_no_answer)} orders got no answer from the shop - the next run asks again.</Notice>}
           {(r.errors ?? []).length > 0 && <Notice tone="warn">{(r.errors ?? []).join(" · ")}</Notice>}
 
+          {(r.twin_merge_failed ?? 0) > 0 && <Notice tone="warn">{n(r.twin_merge_failed)} duplicates could not be merged - the next run tries again.</Notice>}
+
+          {(r.twins ?? []).length > 0 && (
+            <GlassCard>
+              <CardTitle icon={<TaskAltIcon />} tint="green" title={test ? "Duplicates the test run would merge" : "Duplicates merged into the ERP order"}
+                note="The web copy archived; its person (and company, when the ERP order had none) and its web fields moved to the ERP order · the first 10" />
+              <Table size="small">
+                <TableHead><TableRow>{["Web order", "A-number", "Moved over", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {(r.twins ?? []).map((t) => (
+                    <TableRow key={t.web_order} hover>
+                      <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }}>{t.inc}</TableCell>
+                      <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{t.a_number}</TableCell>
+                      <TableCell sx={bodyCell}>{[`${t.contacts ?? 0} person`, t.companies ? `${t.companies} company` : "", ...(t.carried ?? [])].filter(Boolean).join(" · ")}{t.note ? ` - ${t.note}` : ""}</TableCell>
+                      <TableCell sx={{ ...bodyCell, p: 0.25 }}>
+                        <Tooltip title="Open the ERP order in HubSpot">
+                          <IconButton size="small" href={hubspotOrder(t.into)} target="_blank" rel="noreferrer" aria-label="Open in HubSpot">
+                            <OpenInNewIcon sx={{ fontSize: 15, color: ACCENT }} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </GlassCard>
+          )}
+
           {(r.a_number_taken ?? []).length > 0 && (
             <GlassCard>
-              <CardTitle icon={<TagIcon />} tint="amber" title="A-number already on another order" note="Not stamped - the two HubSpot orders need merging by hand" />
+              <CardTitle icon={<TagIcon />} tint="amber" title="A-number already on another order" note="Not stamped, not merged - the other order is not the ERP's own copy; to check by hand" />
               <Table size="small">
-                <TableHead><TableRow>{["Web order", "A-number", "Also on"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{["Web order", "A-number", "Also on", "Why not merged"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
                   {(r.a_number_taken ?? []).map((t) => (
                     <TableRow key={t.order}>
                       <TableCell sx={bodyCell}>{t.inc}</TableCell>
                       <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }}>{t.a_number}</TableCell>
                       <TableCell sx={bodyCell}>{t.already_on.join(", ")}</TableCell>
+                      <TableCell sx={bodyCell}>{t.reason ?? ""}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

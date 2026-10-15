@@ -655,3 +655,34 @@ export function withKnownOptions(p: Record<string, string>, options: Map<string,
 /** HubSpot's current value equals what would be written (strings compared trimmed). */
 export const sameAsCurrent = (p: Record<string, string>, cur: Record<string, string | null | undefined>): boolean =>
   Object.entries(p).every(([k, v]) => pyStrip(cur[k] ?? "") === v);
+
+
+/* ── a web order and the ERP's own copy of it (SARCLA 15.10.2026) ────────── */
+
+/** What a web order knows and its ERP order may lack - the same fields the .000 guard carries. */
+export const TWIN_CARRY = ["order_web_order_number", "order_doc_request", "order_doc_status"] as const;
+
+export type TwinDecision =
+  | { merge: true; carry: Record<string, string> }
+  | { merge: false; reason: string };
+
+/**
+ * A waiting web order whose A-number already sits on another order: merge only when that
+ * other order is the ERP's own (no web number of another shop order on it, not a waiting web
+ * order itself). The ERP order stays; it gets the web number, the link state and the web
+ * fields it lacks - never one it has.
+ */
+export function twinDecision(inc: string, web: Record<string, string | null | undefined>, erp: Record<string, string | null | undefined>): TwinDecision {
+  const erpWeb = pyStrip(erp.hs_external_order_id ?? "");
+  const erpState = pyStrip(erp.order_reconcile_state ?? "");
+  if (erpWeb && erpWeb !== inc) return { merge: false, reason: `the other order is web order ${erpWeb}` };
+  if (erpState === "web_provisional") return { merge: false, reason: "the other order is a waiting web order too" };
+  const carry: Record<string, string> = {};
+  for (const k of TWIN_CARRY) {
+    const v = pyStrip(web[k] ?? "");
+    if (v && !pyStrip(erp[k] ?? "")) carry[k] = v;
+  }
+  if (!erpWeb) carry.hs_external_order_id = inc;
+  if (erpState !== "erp_linked") carry.order_reconcile_state = "erp_linked";
+  return { merge: true, carry };
+}

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   BestArticles, DEFAULT_PIN, PPK_MESSAGE, PyCsvReader, agentColumns, agentDecision, agentIndex, agentOption, agentRow,
   articleKeys, domainProves, fingerprintOf, hostKeyOk, keyInfo, keyText, matchArticle, nameTokens, normalizeName,
-  parseMagentoExport, payloadFor, payloadHash, pinOf, planPull, pyCsvRows, pyJsonSorted, stampName, toMs,
+  parseMagentoExport, payloadFor, payloadHash, pinOf, planPull, pyCsvRows, pyJsonSorted, stampName, toMs, twinDecision,
   withKnownOptions, zfill,
 } from "../src/lib/connectors/steps/filesRules";
 
@@ -222,4 +222,18 @@ test("enum values HubSpot does not offer are left out, not sent to fail the batc
   const r = withKnownOptions({ sales_unit: "Stk", material: "NBR", profit_center: "P9" }, new Map([["sales_unit", new Set(["Stk"])], ["profit_center", new Set(["P1"])]]));
   assert.deepEqual(r.payload, { sales_unit: "Stk", material: "NBR" });
   assert.deepEqual(r.dropped, [["profit_center", "P9"]]);
+});
+
+
+test("a web order and the ERP's own copy: merged, carrying only what the ERP order lacks", () => {
+  // the ERP's own order: no web number, no link state - it gets the web number, erp_linked and the DoC fields it lacks
+  assert.deepEqual(
+    twinDecision("1000123", { order_web_order_number: "1000123", order_doc_request: "yes", order_doc_status: "" }, { order_doc_request: "no" }),
+    { merge: true, carry: { order_web_order_number: "1000123", hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" } },
+  );
+  // already linked to this same web order: nothing to carry but the merge itself
+  assert.deepEqual(twinDecision("1000123", {}, { hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" }), { merge: true, carry: {} });
+  // another shop order's, or a waiting web order: never merged
+  assert.equal(twinDecision("1000123", {}, { hs_external_order_id: "1000999" }).merge, false);
+  assert.equal(twinDecision("1000123", {}, { order_reconcile_state: "web_provisional" }).merge, false);
 });

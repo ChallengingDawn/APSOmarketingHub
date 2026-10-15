@@ -18,8 +18,8 @@ import { findErpNumber, yearsToTry, type Cond } from "../magento/erpNumber";
 import type { StepResult } from "./companyFacts";
 import {
   BestArticles, ENUM_MAP, MagentoExportParser, PP_OBJECT, PP_PROPS, PyCsvReader,
-  agentColumns, agentDecision, agentIndex, agentRow, articleKeys, domainProves, enumValue, matchArticle,
-  payloadFor, payloadHash, pyStrip, sameAsCurrent, stampName, topUnknown, withKnownOptions,
+  TWIN_CARRY, agentColumns, agentDecision, agentIndex, agentRow, articleKeys, domainProves, enumValue, matchArticle,
+  payloadFor, payloadHash, pyStrip, sameAsCurrent, stampName, topUnknown, twinDecision, withKnownOptions,
   type AgentSource, type ExportHit, type MagentoExport,
 } from "./filesRules";
 
@@ -152,6 +152,59 @@ async function ordersByNumber(nums: string[], beat: Beat): Promise<Map<string, s
   return out;
 }
 
+/** The ids an order is associated with, of one object type (every page). */
+async function orderLinks(orderId: string, to: "contacts" | "companies"): Promise<string[]> {
+  const ids: string[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const j = await hs<{ results?: { toObjectId: string | number }[]; paging?: { next?: { after?: string } } }>({
+      path: `/crm/v4/objects/orders/${orderId}/associations/${to}?limit=500${after ? `&after=${encodeURIComponent(after)}` : ""}`,
+    });
+    ids.push(...(j.results ?? []).map((t) => String(t.toObjectId)));
+    after = j.paging?.next?.after;
+    if (!after) return ids;
+  }
+}
+
+type TwinOutcome = { result: "merged" | "not_erp" | "failed"; detail?: string; carried?: string[]; contacts?: number; companies?: number };
+
+/**
+ * Merge a waiting web order into the ERP's own order with the same A-number (SARCLA
+ * 15.10.2026: "merge them automatically"): the ERP order stays; it gets the web order's
+ * person, its company when it has none (the Datatracker counts an order under every linked
+ * company), the web number and the web fields it lacks; then the web copy is archived - the
+ * rule the .000 guard follows for split deliveries. Preview decides the same, writes nothing.
+ */
+async function mergeTwin(live: boolean, webId: string, inc: string, erpId: string): Promise<TwinOutcome> {
+  const props = ["hs_external_order_id", "order_reconcile_state", ...TWIN_CARRY];
+  const j = await hs<{ results?: Obj[] }>({ path: "/crm/v3/objects/orders/batch/read", method: "POST", body: { inputs: [{ id: webId }, { id: erpId }], properties: props } });
+  const byId = new Map((j.results ?? []).map((o) => [String(o.id), o.properties ?? {}]));
+  const web = byId.get(webId), erp = byId.get(erpId);
+  if (!web || !erp) return { result: "failed", detail: "one of the two orders could not be read" };
+  const d = twinDecision(inc, web, erp);
+  if (!d.merge) return { result: "not_erp", detail: d.reason };
+  const contacts = await orderLinks(webId, "contacts");
+  const companies = (await orderLinks(erpId, "companies")).length ? [] : await orderLinks(webId, "companies");
+  const out: TwinOutcome = { result: "merged", carried: Object.keys(d.carry), contacts: contacts.length, companies: companies.length };
+  if (!live) return out;
+  try {
+    for (const cid of contacts) await hs({ path: `/crm/v4/objects/orders/${erpId}/associations/default/contacts/${cid}`, method: "PUT" });
+    for (const coid of companies) await hs({ path: `/crm/v4/objects/orders/${erpId}/associations/default/companies/${coid}`, method: "PUT" });
+    await hs({ path: "/crm/v3/objects/orders/batch/archive", method: "POST", body: { inputs: [{ id: webId }] } });
+  } catch (e) {
+    return { result: "failed", detail: msg(e) };
+  }
+  // after the archive: the web number then sits on one order only
+  if (Object.keys(d.carry).length) {
+    try {
+      await hs({ path: `/crm/v3/objects/orders/${erpId}`, method: "PATCH", body: { properties: d.carry } });
+    } catch (e) {
+      out.detail = `merged, but the web fields were not carried: ${msg(e)}`;
+    }
+  }
+  return out;
+}
+
 /** The companies a contact is associated with (every page). */
 async function contactCompanies(cid: string): Promise<string[]> {
   const ids: string[] = [];
@@ -200,7 +253,7 @@ export async function magentoStamp(live: boolean, beat: Beat, opts: { file: stri
  */
 export async function stampProvisionals(live: boolean, beat: Beat, found: Map<string, ExportHit>): Promise<StepResult> {
   const n = {
-    provisionals: 0, stamped: 0, contacts_associated: 0,
+    provisionals: 0, stamped: 0, twins_merged: 0, twin_merge_failed: 0, contacts_associated: 0,
     company_mismatch_fixed: 0, company_mismatch_flagged: 0,
     // the connector's name: provisional orders the export has no Transferred row for
     skipped_no_provisional: 0,
@@ -218,16 +271,34 @@ export async function stampProvisionals(live: boolean, beat: Beat, found: Map<st
   });
   const holders = await ordersByNumber([...new Set(cands.map((c) => c.hit.apo))], beat);
   const claimed = new Map<string, string>();
-  const examples: Record<string, unknown>[] = [], taken: unknown[] = [], flagged: unknown[] = [], errors: string[] = [];
+  const examples: Record<string, unknown>[] = [], taken: unknown[] = [], flagged: unknown[] = [], merged: unknown[] = [], errors: string[] = [];
   let k = 0;
   for (const { o, inc, hit } of cands) {
     if (++k % 20 === 0) await beat();
     const { apo, apc, email, comp } = hit;
     const others = (holders.get(apo) ?? []).filter((id) => id !== o.id);
     const mine = claimed.get(apo);
-    if (others.length || (mine && mine !== o.id)) {
+    let reason = others.length > 1 ? `on ${others.length} orders already` : mine && mine !== o.id ? "another web order took it in this run" : "";
+    if (others.length === 1 && !(mine && mine !== o.id)) {
+      // the ERP's own copy of this web order: merge into it (mergeTwin)
+      let m: TwinOutcome;
+      try { m = await mergeTwin(live, o.id, inc, others[0]); } catch (e) { m = { result: "failed", detail: msg(e) }; }
+      if (m.result === "merged") {
+        n.twins_merged += 1;
+        claimed.set(apo, others[0]);
+        if (merged.length < 10) merged.push({ web_order: o.id, inc, a_number: apo, into: others[0], carried: m.carried, contacts: m.contacts, companies: m.companies, ...(m.detail ? { note: m.detail } : {}) });
+        continue;
+      }
+      if (m.result === "failed") {
+        n.twin_merge_failed += 1;
+        if (errors.length < 5) errors.push(`merge ${o.id} into ${others[0]}: ${m.detail}`);
+        continue;
+      }
+      reason = m.detail ?? "not the ERP's own order";
+    }
+    if (reason) {
       n.skipped_a_number_taken += 1;
-      if (taken.length < 10) taken.push({ order: o.id, inc, a_number: apo, already_on: others.length ? others : [mine] });
+      if (taken.length < 10) taken.push({ order: o.id, inc, a_number: apo, already_on: others.length ? others : [mine], reason });
       continue;
     }
     claimed.set(apo, o.id);
@@ -304,6 +375,7 @@ export async function stampProvisionals(live: boolean, beat: Beat, found: Map<st
   }
   return {
     ...n, examples,
+    ...(merged.length ? { twins: merged } : {}),
     ...(taken.length ? { a_number_taken: taken } : {}),
     ...(flagged.length ? { flagged } : {}),
     ...(errors.length ? { errors } : {}),
