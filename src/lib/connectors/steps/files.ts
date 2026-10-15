@@ -19,7 +19,7 @@ import type { StepResult } from "./companyFacts";
 import {
   BestArticles, ENUM_MAP, MagentoExportParser, PP_OBJECT, PP_PROPS, PyCsvReader,
   TWIN_CARRY, agentColumns, agentDecision, agentIndex, agentRow, articleKeys, domainProves, enumValue, matchArticle,
-  payloadFor, payloadHash, pyStrip, sameAsCurrent, stampName, topUnknown, twinDecision, withKnownOptions,
+  differentCustomers, payloadFor, payloadHash, pyStrip, sameAsCurrent, stampName, topUnknown, twinDecision, withKnownOptions,
   type AgentSource, type ExportHit, type MagentoExport,
 } from "./filesRules";
 
@@ -166,7 +166,7 @@ async function orderLinks(orderId: string, to: "contacts" | "companies"): Promis
   }
 }
 
-type TwinOutcome = { result: "merged" | "not_erp" | "failed"; detail?: string; carried?: string[]; contacts?: number; companies?: number };
+type TwinOutcome = { result: "merged" | "not_erp" | "failed"; kind?: "erp_copy" | "repeat"; detail?: string; carried?: string[]; contacts?: number; companies?: number };
 
 /**
  * Merge a waiting web order into the ERP's own order with the same A-number (SARCLA
@@ -183,9 +183,11 @@ async function mergeTwin(live: boolean, webId: string, inc: string, erpId: strin
   if (!web || !erp) return { result: "failed", detail: "one of the two orders could not be read" };
   const d = twinDecision(inc, web, erp);
   if (!d.merge) return { result: "not_erp", detail: d.reason };
-  const contacts = await orderLinks(webId, "contacts");
-  const companies = (await orderLinks(erpId, "companies")).length ? [] : await orderLinks(webId, "companies");
-  const out: TwinOutcome = { result: "merged", carried: Object.keys(d.carry), contacts: contacts.length, companies: companies.length };
+  const [contacts, webCos, erpCos] = await Promise.all([orderLinks(webId, "contacts"), orderLinks(webId, "companies"), orderLinks(erpId, "companies")]);
+  // the same purchase has the same buyer: two different companies are left for a person to look at
+  if (differentCustomers(webCos, erpCos)) return { result: "not_erp", detail: "the two orders belong to different companies" };
+  const companies = erpCos.length ? [] : webCos;
+  const out: TwinOutcome = { result: "merged", kind: d.kind, carried: Object.keys(d.carry), contacts: contacts.length, companies: companies.length };
   if (!live) return out;
   try {
     for (const cid of contacts) await hs({ path: `/crm/v4/objects/orders/${erpId}/associations/default/contacts/${cid}`, method: "PUT" });
@@ -278,20 +280,23 @@ export async function stampProvisionals(live: boolean, beat: Beat, found: Map<st
     const { apo, apc, email, comp } = hit;
     const others = (holders.get(apo) ?? []).filter((id) => id !== o.id);
     const mine = claimed.get(apo);
-    let reason = others.length > 1 ? `on ${others.length} orders already` : mine && mine !== o.id ? "another web order took it in this run" : "";
-    if (others.length === 1 && !(mine && mine !== o.id)) {
-      // the ERP's own copy of this web order: merge into it (mergeTwin)
+    // the order this one merges into: the one other holder, or the order an earlier copy in this
+    // run was stamped or merged into (three repeats of one ERP order all go to the same one)
+    const target = others.length === 1 ? (mine && mine !== others[0] ? null : others[0]) : others.length === 0 && mine && mine !== o.id ? mine : null;
+    let reason = others.length > 1 ? `on ${others.length} orders already` : !target && mine && mine !== o.id ? "another web order took it in this run" : "";
+    if (target) {
+      // the ERP's own copy, or a repeat the ERP took as the same order: merge into it (mergeTwin)
       let m: TwinOutcome;
-      try { m = await mergeTwin(live, o.id, inc, others[0]); } catch (e) { m = { result: "failed", detail: msg(e) }; }
+      try { m = await mergeTwin(live, o.id, inc, target); } catch (e) { m = { result: "failed", detail: msg(e) }; }
       if (m.result === "merged") {
         n.twins_merged += 1;
-        claimed.set(apo, others[0]);
-        if (merged.length < 10) merged.push({ web_order: o.id, inc, a_number: apo, into: others[0], carried: m.carried, contacts: m.contacts, companies: m.companies, ...(m.detail ? { note: m.detail } : {}) });
+        claimed.set(apo, target);
+        if (merged.length < 10) merged.push({ web_order: o.id, inc, a_number: apo, into: target, kind: m.kind, carried: m.carried, contacts: m.contacts, companies: m.companies, ...(m.detail ? { note: m.detail } : {}) });
         continue;
       }
       if (m.result === "failed") {
         n.twin_merge_failed += 1;
-        if (errors.length < 5) errors.push(`merge ${o.id} into ${others[0]}: ${m.detail}`);
+        if (errors.length < 5) errors.push(`merge ${o.id} into ${target}: ${m.detail}`);
         continue;
       }
       reason = m.detail ?? "not the ERP's own order";

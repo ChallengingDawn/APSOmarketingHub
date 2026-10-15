@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   BestArticles, DEFAULT_PIN, PPK_MESSAGE, PyCsvReader, agentColumns, agentDecision, agentIndex, agentOption, agentRow,
   articleKeys, domainProves, fingerprintOf, hostKeyOk, keyInfo, keyText, matchArticle, nameTokens, normalizeName,
-  parseMagentoExport, payloadFor, payloadHash, pinOf, planPull, pyCsvRows, pyJsonSorted, stampName, toMs, twinDecision,
+  parseMagentoExport, payloadFor, payloadHash, pinOf, planPull, pyCsvRows, pyJsonSorted, stampName, toMs, twinDecision, differentCustomers,
   withKnownOptions, zfill,
 } from "../src/lib/connectors/steps/filesRules";
 
@@ -229,11 +229,22 @@ test("a web order and the ERP's own copy: merged, carrying only what the ERP ord
   // the ERP's own order: no web number, no link state - it gets the web number, erp_linked and the DoC fields it lacks
   assert.deepEqual(
     twinDecision("1000123", { order_web_order_number: "1000123", order_doc_request: "yes", order_doc_status: "" }, { order_doc_request: "no" }),
-    { merge: true, carry: { order_web_order_number: "1000123", hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" } },
+    { merge: true, kind: "erp_copy", carry: { order_web_order_number: "1000123", hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" } },
   );
   // already linked to this same web order: nothing to carry but the merge itself
-  assert.deepEqual(twinDecision("1000123", {}, { hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" }), { merge: true, carry: {} });
-  // another shop order's, or a waiting web order: never merged
-  assert.equal(twinDecision("1000123", {}, { hs_external_order_id: "1000999" }).merge, false);
+  assert.deepEqual(twinDecision("1000123", {}, { hs_external_order_id: "1000123", order_reconcile_state: "erp_linked" }), { merge: true, kind: "erp_copy", carry: {} });
+  // a waiting web order, or another shop order NOT linked to the ERP: never merged
   assert.equal(twinDecision("1000123", {}, { order_reconcile_state: "web_provisional" }).merge, false);
+  assert.equal(twinDecision("1000123", {}, { hs_external_order_id: "1000999" }).merge, false);
+});
+
+test("a repeat of a shop order the ERP took as one order: merged, the other keeps its own web number", () => {
+  assert.deepEqual(
+    twinDecision("1000123", { order_web_order_number: "1000123", order_doc_request: "yes" }, { hs_external_order_id: "1000999", order_reconcile_state: "erp_linked", order_web_order_number: "" }),
+    { merge: true, kind: "repeat", carry: { order_doc_request: "yes" } },
+  );
+  // the same buyer is the rule: two different companies are never merged
+  assert.equal(differentCustomers(["1"], ["2"]), true);
+  assert.equal(differentCustomers(["1", "2"], ["2"]), false);
+  assert.equal(differentCustomers([], ["2"]), false);
 });

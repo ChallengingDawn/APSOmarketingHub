@@ -34,7 +34,7 @@ type Result = Record<string, unknown> & {
   stamp_failed?: number; seconds?: number; skipped?: string; twins_merged?: number; twin_merge_failed?: number;
   examples?: { order: string; inc: string; a_number: string; name: string }[];
   a_number_taken?: { order: string; inc: string; a_number: string; already_on: string[]; reason?: string }[];
-  twins?: { web_order: string; inc: string; a_number: string; into: string; carried?: string[]; contacts?: number; companies?: number; note?: string }[];
+  twins?: { web_order: string; inc: string; a_number: string; into: string; kind?: "erp_copy" | "repeat"; carried?: string[]; contacts?: number; companies?: number; note?: string }[];
   errors?: string[];
 };
 type Run = { started: string; finished?: string; by: string; error?: string; result?: Result };
@@ -142,14 +142,15 @@ export default function ErpNumbers() {
           {(r.twins ?? []).length > 0 && (
             <GlassCard>
               <CardTitle icon={<TaskAltIcon />} tint="green" title={test ? "Duplicates the test run would merge" : "Duplicates merged into the ERP order"}
-                note="The web copy archived; its person (and company, when the ERP order had none) and its web fields moved to the ERP order · the first 10" />
+                note="The copy archived; its person (and company, when the other order had none) and its web fields moved over · the first 10" />
               <Table size="small">
-                <TableHead><TableRow>{["Web order", "A-number", "Moved over", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{["Web order", "A-number", "What it was", "Moved over", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
                   {(r.twins ?? []).map((t) => (
                     <TableRow key={t.web_order} hover>
                       <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }}>{t.inc}</TableCell>
                       <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{t.a_number}</TableCell>
+                      <TableCell sx={bodyCell}>{t.kind === "repeat" ? "A repeat of an order the ERP took as one" : "A copy of the ERP's own order"}</TableCell>
                       <TableCell sx={bodyCell}>{[`${t.contacts ?? 0} person`, t.companies ? `${t.companies} company` : "", ...(t.carried ?? [])].filter(Boolean).join(" · ")}{t.note ? ` - ${t.note}` : ""}</TableCell>
                       <TableCell sx={{ ...bodyCell, p: 0.25 }}>
                         <Tooltip title="Open the ERP order in HubSpot">
@@ -167,7 +168,7 @@ export default function ErpNumbers() {
 
           {(r.a_number_taken ?? []).length > 0 && (
             <GlassCard>
-              <CardTitle icon={<TagIcon />} tint="amber" title="A-number already on another order" note="Not stamped, not merged - the other order is not the ERP's own copy; to check by hand" />
+              <CardTitle icon={<TagIcon />} tint="amber" title="A-number already on another order" note="Not stamped, not merged - to check by hand" />
               <Table size="small">
                 <TableHead><TableRow>{["Web order", "A-number", "Also on", "Why not merged"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>

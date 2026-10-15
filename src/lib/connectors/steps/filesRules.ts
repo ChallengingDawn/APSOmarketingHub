@@ -663,26 +663,38 @@ export const sameAsCurrent = (p: Record<string, string>, cur: Record<string, str
 export const TWIN_CARRY = ["order_web_order_number", "order_doc_request", "order_doc_status"] as const;
 
 export type TwinDecision =
-  | { merge: true; carry: Record<string, string> }
+  | { merge: true; kind: "erp_copy" | "repeat"; carry: Record<string, string> }
   | { merge: false; reason: string };
 
 /**
- * A waiting web order whose A-number already sits on another order: merge only when that
- * other order is the ERP's own (no web number of another shop order on it, not a waiting web
- * order itself). The ERP order stays; it gets the web number, the link state and the web
- * fields it lacks - never one it has.
+ * A waiting web order whose A-number already sits on another order. Merged into it when that
+ * other order is
+ *   - the ERP's own copy (no web number of another shop order on it): it gets the web
+ *     number, the link state and the web fields it lacks, or
+ *   - a REPEAT: another shop order the ERP took over as the same single ERP order - linked
+ *     (erp_linked) and carrying its own web number, which it keeps (SARCLA 15.10.2026, "merge
+ *     repeats too": the customer sent the same order 2-4 times, the ERP made one order of it).
+ * Never into a waiting web order, and never a field the other order has.
  */
 export function twinDecision(inc: string, web: Record<string, string | null | undefined>, erp: Record<string, string | null | undefined>): TwinDecision {
   const erpWeb = pyStrip(erp.hs_external_order_id ?? "");
   const erpState = pyStrip(erp.order_reconcile_state ?? "");
-  if (erpWeb && erpWeb !== inc) return { merge: false, reason: `the other order is web order ${erpWeb}` };
   if (erpState === "web_provisional") return { merge: false, reason: "the other order is a waiting web order too" };
+  const repeat = !!erpWeb && erpWeb !== inc;
+  if (repeat && erpState !== "erp_linked") return { merge: false, reason: `the other order is web order ${erpWeb}, not linked to the ERP` };
   const carry: Record<string, string> = {};
   for (const k of TWIN_CARRY) {
+    // a repeat keeps its own web number; the DoC fields go over when it lacks them
+    if (repeat && k === "order_web_order_number") continue;
     const v = pyStrip(web[k] ?? "");
     if (v && !pyStrip(erp[k] ?? "")) carry[k] = v;
   }
   if (!erpWeb) carry.hs_external_order_id = inc;
   if (erpState !== "erp_linked") carry.order_reconcile_state = "erp_linked";
-  return { merge: true, carry };
+  return { merge: true, kind: repeat ? "repeat" : "erp_copy", carry };
+}
+
+/** Two orders of different customers: both linked to companies, and to none in common. */
+export function differentCustomers(a: string[], b: string[]): boolean {
+  return a.length > 0 && b.length > 0 && !a.some((x) => b.includes(x));
 }
