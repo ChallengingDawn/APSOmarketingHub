@@ -75,6 +75,11 @@ function getJsonOnce(url: string, timeoutMs = 25_000): Promise<{ status: number;
     );
     req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", () => resolve({ status: 0, json: null }));
+    // `timeout` above only fires on a SILENT socket; a body that trickles in never trips it. A
+    // hard end as well (15.10.2026: the shop-order sync hung 20 hours on one request, lock held).
+    const deadline = setTimeout(() => req.destroy(new Error("deadline")), timeoutMs * 2);
+    deadline.unref?.();
+    req.on("close", () => clearTimeout(deadline));
     req.end();
   });
 }

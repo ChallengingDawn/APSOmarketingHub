@@ -45,6 +45,17 @@ const BACKOFF_MS = 10 * 60_000;
 const PAGE_RETRY_MS = [5_000, 15_000];
 const RETENTION_DAYS = 30;
 const GIVE_UP_HOURS = 24;
+/**
+ * A sweep still running after this long is stopped and its lock dropped. 14.10.2026 10:10 UTC one
+ * sweep never came back while holding the lock: the other copy of the hub skips quietly while the
+ * lock is taken, so for 20 hours no web order reached HubSpot and nothing said so. The catch-up
+ * after that day-long gap took 10 minutes, so this leaves room for a long sweep.
+ */
+const SWEEP_LIMIT_MS = 25 * 60_000;
+/** Each HubSpot call of the sync gives up after this long instead of waiting for ever. */
+const HS_TIMEOUT_MS = 60_000;
+/** When the other copy has held the lock this long, the log says so (again every as long). */
+const LOCK_WARN_MS = 30 * 60_000;
 
 /* ── the hub's own tables (created on first use, never in ensureSchema) ── */
 
@@ -151,6 +162,10 @@ export async function setMode(m: Mode): Promise<{ marked: number; toWrite: numbe
 /* ── the shop ──────────────────────────────────────────────────────────── */
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A sweep past its time limit stops at the next page or order instead of writing on beside the next one. */
+function stopIfOver(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error(`stopped after ${SWEEP_LIMIT_MS / 60_000} minutes`);
+}
 
 /** One page of orders; a page the shop does not answer is asked again (5 s, then 15 s) before it counts as failed. */
 async function ordersPage(path: string): Promise<{ items?: MagentoOrder[]; total_count?: number }> {
@@ -169,9 +184,10 @@ async function ordersPage(path: string): Promise<{ items?: MagentoOrder[]; total
  * comes (the read back stages it at once, so a late failure keeps what was read); `pauseMs`
  * spaces the requests out (the read back's 50-odd pages are not fired back to back).
  */
-async function ordersChangedSince(sinceIso: string, opts: { onPage?: (items: MagentoOrder[], page: number, total: number) => Promise<void>; pauseMs?: number } = {}): Promise<MagentoOrder[]> {
+async function ordersChangedSince(sinceIso: string, opts: { onPage?: (items: MagentoOrder[], page: number, total: number) => Promise<void>; pauseMs?: number; signal?: AbortSignal } = {}): Promise<MagentoOrder[]> {
   const all: MagentoOrder[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
+    stopIfOver(opts.signal);
     if (page > 1 && opts.pauseMs) await sleep(opts.pauseMs);
     const qs = [
       "searchCriteria[filterGroups][0][filters][0][field]=updated_at",
@@ -195,12 +211,16 @@ async function ordersChangedSince(sinceIso: string, opts: { onPage?: (items: Mag
 
 type Found = { id: string; properties?: Record<string, string | null> };
 
+/** HubSpot with a time limit on every call: a call left waiting must not hold the sync's lock. */
+const hs = <T = unknown>(req: Parameters<typeof hubspotFetchJson>[0]) =>
+  hubspotFetchJson<T>({ ...req, signal: AbortSignal.timeout(HS_TIMEOUT_MS) });
+
 /** Every HubSpot order carrying one of these web order numbers (at most 100 numbers), all pages. */
 async function ordersByWebNumber(numbers: string[], properties: string[]): Promise<Found[]> {
   const out: Found[] = [];
   let after: string | undefined;
   do {
-    const r = await hubspotFetchJson<{ results?: Found[]; paging?: { next?: { after?: string } } }>({
+    const r = await hs<{ results?: Found[]; paging?: { next?: { after?: string } } }>({
       path: "/crm/v3/objects/orders/search", method: "POST",
       body: { filterGroups: [{ filters: [{ propertyName: "hs_external_order_id", operator: "IN", values: numbers }] }],
         properties: [...new Set(["hs_external_order_id", ...properties])], limit: 100, ...(after ? { after } : {}) },
@@ -222,7 +242,7 @@ function byWebNumber(found: Found[]): Map<string, Found[]> {
 }
 const split = (n: number) => `left to the ERP: ${n} HubSpot orders carry this web number (the ERP's deliveries) - the shop's fields are not written onto one of them`;
 const search = (obj: string, filters: object[], properties: string[], limit = 1) =>
-  hubspotFetchJson<{ results?: Found[] }>({ path: `/crm/v3/objects/${obj}/search`, method: "POST", body: { filterGroups: [{ filters }], properties, limit } });
+  hs<{ results?: Found[] }>({ path: `/crm/v3/objects/${obj}/search`, method: "POST", body: { filterGroups: [{ filters }], properties, limit } });
 
 /**
  * Update the order HubSpot holds under its web order number (an order the ERP linked keeps its
@@ -239,12 +259,12 @@ async function upsertOrder(props: Props, erpSince?: number): Promise<{ id: strin
   const found = all[0];
   if (found) {
     const write = writableProps(props, found.properties ?? null);
-    await hubspotFetchJson({ path: `/crm/v3/objects/orders/${found.id}`, method: "PATCH", body: { properties: write } });
+    await hs({ path: `/crm/v3/objects/orders/${found.id}`, method: "PATCH", body: { properties: write } });
     return { id: found.id };
   }
   const why = mayNotCreate(props, Date.now(), erpSince);
   if (why) return { skipped: why };
-  const made = await hubspotFetchJson<{ id?: string }>({ path: "/crm/v3/objects/orders", method: "POST", body: { properties: props } });
+  const made = await hs<{ id?: string }>({ path: "/crm/v3/objects/orders", method: "POST", body: { properties: props } });
   if (!made.id) throw new Error("HubSpot created the order but returned no id");
   return { id: made.id };
 }
@@ -257,13 +277,13 @@ async function upsertOrder(props: Props, erpSince?: number): Promise<{ id: strin
  */
 async function linkCompany(orderId: string, contactId: string): Promise<void> {
   try {
-    const res = await hubspotFetchJson<{ results?: { toObjectId: string | number; associationTypes?: { category?: string; typeId?: number }[] }[] }>({
+    const res = await hs<{ results?: { toObjectId: string | number; associationTypes?: { category?: string; typeId?: number }[] }[] }>({
       path: `/crm/v4/objects/contacts/${contactId}/associations/companies`,
     });
     const all = res.results ?? [];
     const primary = all.find((r) => r.associationTypes?.some((t) => t.category === "HUBSPOT_DEFINED" && t.typeId === 1));
     const company = primary ?? (all.length === 1 ? all[0] : undefined);
-    if (company) await hubspotFetchJson({ path: `/crm/v4/objects/orders/${orderId}/associations/default/companies/${company.toObjectId}`, method: "PUT" });
+    if (company) await hs({ path: `/crm/v4/objects/orders/${orderId}/associations/default/companies/${company.toObjectId}`, method: "PUT" });
   } catch { /* best effort - the contact link already stands */ }
 }
 
@@ -275,7 +295,7 @@ async function link(row: { entity_id: string; hs_order_id: string; customer_emai
     try {
       const c = (await search("contacts", [{ propertyName: "email", operator: "EQ", value: row.customer_email }], ["email"])).results?.[0];
       if (c) {
-        await hubspotFetchJson({ path: `/crm/v4/objects/orders/${row.hs_order_id}/associations/default/contacts/${c.id}`, method: "PUT" });
+        await hs({ path: `/crm/v4/objects/orders/${row.hs_order_id}/associations/default/contacts/${c.id}`, method: "PUT" });
         contactId = c.id;
         await linkCompany(row.hs_order_id, c.id);
       } else why = "no contact with this email yet";
@@ -288,7 +308,7 @@ async function link(row: { entity_id: string; hs_order_id: string; customer_emai
     for (const sku of [...new Set(row.skus ?? [])]) {
       try {
         const p = (await search(PP, [{ propertyName: "article_number", operator: "EQ", value: sku }], ["article_number"])).results?.[0];
-        if (p) await hubspotFetchJson({ path: `/crm/v4/objects/orders/${row.hs_order_id}/associations/${PP}/${p.id}`, method: "PUT", body: [{ associationCategory: "USER_DEFINED", associationTypeId: 119 }] });
+        if (p) await hs({ path: `/crm/v4/objects/orders/${row.hs_order_id}/associations/${PP}/${p.id}`, method: "PUT", body: [{ associationCategory: "USER_DEFINED", associationTypeId: 119 }] });
       } catch { /* best effort */ }
     }
   }
@@ -339,7 +359,7 @@ const caps = () => (cetHour() >= 7 && cetHour() < 19 ? { write: 15, relink: 10 }
 
 export type SweepResult = { mode: Mode; found: number; written: number; errors: number; error?: string };
 
-async function sweep(mode: Mode): Promise<SweepResult> {
+async function sweep(mode: Mode, signal?: AbortSignal): Promise<SweepResult> {
   await ensureTables();
   const started = new Date();
   const floor = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
@@ -356,7 +376,7 @@ async function sweep(mode: Mode): Promise<SweepResult> {
   let skus = "";
   try {
     // STAGE - always
-    const orders = await ordersChangedSince(magentoTs(since.toISOString()));
+    const orders = await ordersChangedSince(magentoTs(since.toISOString()), { signal });
     out.found = orders.length;
     await stage(orders);
     // PROCESS - Active only
@@ -377,6 +397,7 @@ async function sweep(mode: Mode): Promise<SweepResult> {
       const pending = await q<{ entity_id: string; payload: Props; skus: string[] | null; customer_email: string | null }>(
         `SELECT entity_id, payload, skus, customer_email FROM apsomh_mg_stage WHERE sync_status='pending' ORDER BY last_seen ASC LIMIT ${cap.write}`);
       for (const row of pending) {
+        stopIfOver(signal);
         (row.skus ?? []).forEach((s) => seen.add(s));
         const bad = validate(row.payload);
         let status = "ok", msg: string | null = bad, hsId: string | null = null;
@@ -398,7 +419,10 @@ async function sweep(mode: Mode): Promise<SweepResult> {
       const due = await q<{ entity_id: string; hs_order_id: string; customer_email: string | null; skus: string[] | null; assoc_retries: number; assoc_first_at: string | null }>(
         `SELECT entity_id, hs_order_id, customer_email, skus, assoc_retries, assoc_first_at FROM apsomh_mg_stage
           WHERE assoc_status='pending' AND assoc_next_at <= now() AND hs_order_id IS NOT NULL ORDER BY assoc_next_at ASC LIMIT ${cap.relink}`);
-      for (const row of due) await link(row).catch((e) => console.warn(`[magento] relink ${row.entity_id}: ${(e as Error).message}`));
+      for (const row of due) {
+        stopIfOver(signal);
+        await link(row).catch((e) => console.warn(`[magento] relink ${row.entity_id}: ${(e as Error).message}`));
+      }
       skus = [...seen].slice(0, 40).join(", ");
     }
   } catch (e) {
@@ -415,36 +439,73 @@ async function sweep(mode: Mode): Promise<SweepResult> {
   return out;
 }
 
-/** One sweep under the sync's own lock (one copy of the hub at a time); null when the other copy has it. */
-export async function runSweep(): Promise<SweepResult | null> {
+/** Since when this copy has found the lock taken by the other one, and when the log last said so. */
+let lockTakenSince: number | null = null;
+let lockWarnedAt = 0;
+
+/**
+ * One sweep under the sync's own lock (one copy of the hub at a time); null when the other copy
+ * has it. When `signal` aborts (the time limit), the lock's connection is closed, so Postgres
+ * frees the lock even if the sweep never comes back.
+ */
+export async function runSweep(signal?: AbortSignal): Promise<SweepResult | null> {
   if (!magentoConfigured()) return null;
   const mode = await getMode();
   if (mode === "off") return null;
   const client = await getPool().connect();
+  let dropped = false;
+  const drop = () => { dropped = true; client.release(new Error("the sweep's time limit")); };
+  if (signal?.aborted) drop(); else signal?.addEventListener("abort", drop, { once: true });
   try {
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
-    if (!got.rows[0]?.ok) return null;
+    if (!got.rows[0]?.ok) {
+      const now = Date.now();
+      lockTakenSince ??= now;
+      if (now - lockTakenSince >= LOCK_WARN_MS && now - lockWarnedAt >= LOCK_WARN_MS) {
+        lockWarnedAt = now;
+        console.warn(`[magento] the other copy has held the sync's lock for ${Math.round((now - lockTakenSince) / 60_000)} min - no sweep from here meanwhile`);
+      }
+      return null;
+    }
+    lockTakenSince = null;
     try {
-      return await sweep(mode);
+      return await sweep(mode, signal);
     } finally {
-      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+      if (!dropped) await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
     }
   } finally {
-    client.release();
+    signal?.removeEventListener("abort", drop);
+    if (!dropped) client.release();
   }
 }
 
 let started = false;
 let running = false;
 
-/** Every minute, from the first minute after boot. MAGENTO_SYNC=off stops it entirely. */
+/**
+ * Every minute, from the first minute after boot. MAGENTO_SYNC=off stops it entirely. A sweep
+ * past SWEEP_LIMIT_MS is stopped: its lock goes, and the next minute starts a fresh one.
+ */
 export function startMagentoSync() {
   if (started || process.env.MAGENTO_SYNC === "off") return;
   started = true;
   const tick = () => {
     if (running) return;
     running = true;
-    void runSweep().catch((e) => console.warn(`[magento] sweep: ${(e as Error).message}`)).finally(() => { running = false; });
+    const limit = new AbortController();
+    const timer = setTimeout(() => {
+      console.error(`[magento] sweep still running after ${SWEEP_LIMIT_MS / 60_000} min - stopped and its lock dropped; the next minute starts a new one`);
+      limit.abort();
+      running = false;
+    }, SWEEP_LIMIT_MS);
+    timer.unref?.();
+    void runSweep(limit.signal)
+      .catch((e) => console.warn(`[magento] sweep: ${(e as Error).message}`))
+      .finally(() => {
+        clearTimeout(timer);
+        // a sweep stopped by the limit already handed its turn on
+        if (!limit.signal.aborted) running = false;
+      });
   };
   setTimeout(tick, 60_000).unref?.();
   setInterval(tick, 60_000).unref?.();
