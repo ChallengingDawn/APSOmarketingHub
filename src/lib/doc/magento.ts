@@ -57,6 +57,10 @@ function getJsonOnce(url: string, timeoutMs = 25_000): Promise<{ status: number;
         },
         timeout: timeoutMs,
         insecureHTTPParser: true,
+        // a fresh socket per call: the shop closes it after each answer (Connection: close), and
+        // node's keep-alive agent would hand the closed one to the next call (9f, 15.10.2026:
+        // back to back, every second request came back with no answer; with this, all did)
+        agent: false,
       },
       (resp) => {
         const chunks: Buffer[] = [];
