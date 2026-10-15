@@ -192,6 +192,7 @@ export const APPS: HubApp[] = [
       { group: "Magento connector", name: "Shop sweeps", short: "Sweeps", note: "The minute-by-minute look at the shop", href: "/connectors/magento/sweeps", icon: "sync", ...BLUE },
       { group: "Magento connector", name: "What the shop sync writes", short: "What it writes", note: "Every order property and link, and its shop field", href: "/connectors/magento/writes", icon: "layers", ...PURPLE },
       { group: "Magento connector", name: "Shop review queue", short: "Review queue", note: "Orders held back or missing their contact", href: "/connectors/magento/review", icon: "groups", ...AMBER },
+      { group: "Magento connector", name: "Web orders' ERP numbers", short: "ERP numbers", note: "Each web order's A-number, asked of the shop", href: "/connectors/magento/erp-numbers", icon: "tag", ...AMBER },
     ],
   },
 ];

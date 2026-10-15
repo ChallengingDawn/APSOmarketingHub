@@ -81,6 +81,7 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
+import TagIcon from "@mui/icons-material/Tag";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
@@ -282,6 +283,8 @@ const navSections: NavSection[] = [
       { group: "Magento connector", label: "Sweeps", href: "/connectors/magento/sweeps", icon: <SyncAltIcon fontSize="small" /> },
       { group: "Magento connector", label: "What it writes", href: "/connectors/magento/writes", icon: <LayersIcon fontSize="small" /> },
       { group: "Magento connector", label: "Review queue", href: "/connectors/magento/review", icon: <GroupsIcon fontSize="small" /> },
+      // web orders get their A-number from the shop itself (magento_link, SARCLA 15.10.2026)
+      { group: "Magento connector", label: "ERP numbers", href: "/connectors/magento/erp-numbers", icon: <TagIcon fontSize="small" /> },
     ],
   },
   {
