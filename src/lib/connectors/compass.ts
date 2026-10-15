@@ -269,6 +269,13 @@ export const OTHER_STEPS: Step[] = [
     ],
   },
   {
+    key: "magento_link", name: "Web orders get their A-number from the shop", group: "orders", phase: "hub",
+    what: "A web order waiting for its ERP number is looked up in the shop: the shop keeps the A-number its transfer module writes back, and answers yes/no questions about it (about 23 per order). Found numbers are stamped like the export does. Replaces the manual export.xml, which stays as a backup.",
+    when: "Every 15 minutes, beside the chain (never during it) - preview until switched on",
+    reads: "Orders in state web_provisional · the shop's order API (read-only, one order per question)",
+    writes: [{ object: OBJECTS.order, props: ["order_order_number", "hs_order_name", "order_reconcile_state (→ erp_linked)"] }],
+  },
+  {
     key: "ticket_assoc", name: "Ticket ↔ order and article links", group: "tickets", phase: "preview",
     what: "Finds order and article numbers in a ticket's text and emails and links them; flags cut-to-size tickets. The live path is a HubSpot workflow action - this one only runs by hand.",
     when: "By hand (and a webhook that may no longer be used - to check in the portal)",

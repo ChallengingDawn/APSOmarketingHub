@@ -12,12 +12,15 @@ import { createReadStream } from "node:fs";
 import { query } from "@/lib/db/client";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
+import { magentoGet } from "@/lib/doc/magento";
+import { hubChain } from "../chainStatus";
+import { findErpNumber, yearsToTry, type Cond } from "../magento/erpNumber";
 import type { StepResult } from "./companyFacts";
 import {
   BestArticles, ENUM_MAP, MagentoExportParser, PP_OBJECT, PP_PROPS, PyCsvReader,
   agentColumns, agentDecision, agentIndex, agentRow, articleKeys, domainProves, enumValue, matchArticle,
   payloadFor, payloadHash, pyStrip, sameAsCurrent, stampName, topUnknown, withKnownOptions,
-  type AgentSource, type MagentoExport,
+  type AgentSource, type ExportHit, type MagentoExport,
 } from "./filesRules";
 
 type Beat = () => Promise<void>;
@@ -178,14 +181,6 @@ async function contactCompanies(cid: string): Promise<string[]> {
 export async function magentoStamp(live: boolean, beat: Beat, opts: { file: string }): Promise<StepResult> {
   const t0 = Date.now();
   const exp = await readMagentoExport(opts.file);
-  const n = {
-    export_rows: exp.orders.size, provisionals: 0, stamped: 0, contacts_associated: 0,
-    company_mismatch_fixed: 0, company_mismatch_flagged: 0,
-    // the connector's name: provisional orders the export has no Transferred row for
-    skipped_no_provisional: 0,
-    skipped_a_number_taken: 0, stamp_failed: 0, contact_not_found: 0, contact_assoc_failed: 0,
-    company_not_found: 0, company_fix_failed: 0, company_fix_partial: 0, lookup_failed: 0,
-  };
   const out: StepResult = {};
   if (!exp.columns.has("email")) {
     // Loud on purpose: without the column no contact can be linked, and the run would
@@ -193,12 +188,31 @@ export async function magentoStamp(live: boolean, beat: Beat, opts: { file: stri
     out.WARNING = "the export has no Customer Email column, so NO contact can be associated - switch it on in the admin grid and export again";
     out.columns_found = [...exp.columns].sort();
   }
+  const r = await stampProvisionals(live, beat, exp.orders);
+  return { export_rows: exp.orders.size, ...r, ...out, seconds: Math.round((Date.now() - t0) / 1000) };
+}
+
+/**
+ * Stamp the web_provisional orders the map knows - web number -> A-number, and from an
+ * export also the buyer's email, customer number and company for the second pass. Shared by
+ * the export (magento_stamp) and the shop lookup (magento_link), which knows the A-number
+ * only: the shop sync has linked the buyer already.
+ */
+export async function stampProvisionals(live: boolean, beat: Beat, found: Map<string, ExportHit>): Promise<StepResult> {
+  const n = {
+    provisionals: 0, stamped: 0, contacts_associated: 0,
+    company_mismatch_fixed: 0, company_mismatch_flagged: 0,
+    // the connector's name: provisional orders the export has no Transferred row for
+    skipped_no_provisional: 0,
+    skipped_a_number_taken: 0, stamp_failed: 0, contact_not_found: 0, contact_assoc_failed: 0,
+    company_not_found: 0, company_fix_failed: 0, company_fix_partial: 0, lookup_failed: 0,
+  };
   const provs = await searchAll("orders", [{ propertyName: "order_reconcile_state", operator: "EQ", value: "web_provisional" }], ["hs_external_order_id", "order_customer_name"]);
   n.provisionals = provs.length;
   await beat();
   const cands = provs.flatMap((o) => {
     const inc = o.properties?.hs_external_order_id;
-    const hit = inc != null ? exp.orders.get(inc) : undefined;
+    const hit = inc != null ? found.get(inc) : undefined;
     if (!hit) { n.skipped_no_provisional += 1; return []; }
     return [{ o, inc: inc!, hit }];
   });
@@ -289,10 +303,98 @@ export async function magentoStamp(live: boolean, beat: Beat, opts: { file: stri
     }
   }
   return {
-    ...n, ...out, examples,
+    ...n, examples,
     ...(taken.length ? { a_number_taken: taken } : {}),
     ...(flagged.length ? { flagged } : {}),
     ...(errors.length ? { errors } : {}),
+  };
+}
+
+/* ── web orders get their A-number from the shop itself (magento_link) ──── */
+
+/**
+ * One yes/no question about one web order, on the shop's order API (read-only). A dropped
+ * connection, a 429 or a 5xx is asked again twice, a little later; `codes` counts every
+ * answer that was not a 200, for the run's result.
+ */
+async function askShop(inc: string, cond: Cond, value: string, codes: Record<string, number>): Promise<boolean | null> {
+  const qs = [
+    "searchCriteria[filterGroups][0][filters][0][field]=increment_id",
+    `searchCriteria[filterGroups][0][filters][0][value]=${encodeURIComponent(inc)}`,
+    "searchCriteria[filterGroups][1][filters][0][field]=erp_order_number",
+    `searchCriteria[filterGroups][1][filters][0][value]=${encodeURIComponent(value)}`,
+    `searchCriteria[filterGroups][1][filters][0][condition_type]=${cond}`,
+    "searchCriteria[pageSize]=1",
+  ].join("&");
+  for (let attempt = 0; ; attempt++) {
+    const r = await magentoGet(`/rest/V1/orders?${qs}`, 15_000);
+    if (r.status === 200) {
+      const items = (r.json as { items?: unknown[] } | null)?.items;
+      return Array.isArray(items) && items.length > 0;
+    }
+    codes[String(r.status)] = (codes[String(r.status)] ?? 0) + 1;
+    if (attempt >= 2 || !(r.status === 0 || r.status === 429 || r.status >= 500)) return null;
+    await new Promise((res) => setTimeout(res, 800 * (attempt + 1)));
+  }
+}
+
+async function chainRunning(): Promise<boolean> {
+  try {
+    const c = await hubChain();
+    return c?.status === "running" && Date.now() / 1000 - (c.ts ?? 0) < 3 * 3600;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Web orders get their A-number from the SHOP, as soon as it has transferred them (SARCLA
+ * 15.10.2026) - no export.xml. Each web_provisional order is asked about (magento/erpNumber.ts:
+ * about 23 yes/no lookups once the shop has an A-number, 1 while it has none), four orders at
+ * a time, newest first, for at most a few minutes a run - the rest wait for the next run. What
+ * is found is stamped exactly as the export stamps it (stampProvisionals: an A-number already
+ * on another order is reported, never stamped twice). Not while an ERP chain runs: its order
+ * sync must not meet a stamp half-way.
+ */
+export async function magentoErpLink(live: boolean, beat: Beat, opts: { budgetMs?: number; width?: number } = {}): Promise<StepResult> {
+  const t0 = Date.now();
+  const budget = opts.budgetMs ?? 4 * 60_000;
+  const width = opts.width ?? 4;
+  if (await chainRunning()) return { skipped: "an ERP chain is running - the next run asks the shop" };
+  const provs = await searchAll("orders", [{ propertyName: "order_reconcile_state", operator: "EQ", value: "web_provisional" }], ["hs_external_order_id", "hs_createdate"]);
+  const queue = provs
+    .map((o) => ({ inc: String(o.properties?.hs_external_order_id ?? "").trim(), at: String(o.properties?.hs_createdate ?? "") }))
+    .filter((x) => x.inc)
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((x) => x.inc);
+  const st = { waiting: queue.length, asked_orders: 0, found: 0, not_transferred: 0, unreadable: 0, shop_no_answer: 0, left_for_next_run: 0, lookups: 0 };
+  const years = yearsToTry(new Date());
+  const found = new Map<string, ExportHit>();
+  const unreadable: string[] = [];
+  const codes: Record<string, number> = {};
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(width, queue.length) }, async () => {
+    for (;;) {
+      if (Date.now() - t0 > budget) return;
+      const i = next++;
+      if (i >= queue.length) return;
+      const inc = queue[i];
+      const f = await findErpNumber((cond, value) => askShop(inc, cond, value, codes), years);
+      st.asked_orders += 1;
+      st.lookups += f.asked;
+      if (f.state === "found" && f.number) { st.found += 1; found.set(inc, { apo: f.number, apc: "", email: "", comp: "" }); }
+      else if (f.state === "not_transferred") st.not_transferred += 1;
+      else if (f.state === "no_answer") st.shop_no_answer += 1;
+      else { st.unreadable += 1; if (unreadable.length < 10) unreadable.push(inc); }
+    }
+  }));
+  await beat();
+  st.left_for_next_run = queue.length - st.asked_orders;
+  const r = found.size ? await stampProvisionals(live, beat, found) : {};
+  return {
+    ...st, ...r,
+    ...(Object.keys(codes).length ? { shop_answers_not_200: codes } : {}),
+    ...(unreadable.length ? { unreadable_orders: unreadable } : {}),
     seconds: Math.round((Date.now() - t0) / 1000),
   };
 }

@@ -11,7 +11,7 @@
 
 import path from "node:path";
 import { companyStats, contactShipment, mandantSweep, type StepResult } from "./companyFacts";
-import { articleCreateMissing, articleLoad, customerAgents, magentoStamp } from "./files";
+import { articleCreateMissing, articleLoad, customerAgents, magentoErpLink, magentoStamp } from "./files";
 import { revenueHistory, revenueKpi, revenueLoad } from "./revenue";
 import { erpRevenue } from "./erpRevenue";
 import { orderSync, ordersDaily, stageLoad } from "./orders";
@@ -72,6 +72,9 @@ export const REGISTRY: StepDef[] = [
   // HUB ONLY: Owner redirection's safety net (/uc/owner-redirection) - the HubSpot app function
   // reacts at once; this applies the same published rules to every company every 15 minutes
   { key: "owner_rules", cadence: "15min", hubOnly: true, run: (c) => ownerRulesSweep(c.live, c.beat) },
+  // HUB ONLY: web orders get their A-number from the shop itself, as soon as it has transferred
+  // them (SARCLA 15.10.2026) - magento_stamp's export.xml becomes a backup
+  { key: "magento_link", cadence: "15min", hubOnly: true, run: (c) => magentoErpLink(c.live, c.beat) },
   { key: "ticket_assoc", cadence: "manual", run: (c) => ticketAssoc(c.live, c.beat, {}) },
   { key: "articles_create_missing", cadence: "manual", file: "dim_article.csv", run: (c) => articleCreateMissing(c.live, c.beat, { file: at(c, "dim_article.csv") }) },
 ];
