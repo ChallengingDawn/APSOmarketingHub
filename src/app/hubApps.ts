@@ -143,10 +143,11 @@ export const APPS: HubApp[] = [
   },
   {
     key: "uc",
-    // Erosion, not price checks: /uc/price-checks redirects into a Datatracker
-    // tab, so landing there drops people into Datatracker's menu and the UC
-    // apps never show. The tile has to open the UC app itself.
-    href: "/uc/erosion",
+    // The Use Cases Overview, the UC app's first page (SARCLA 15.10: "the first
+    // page should be the overview"). Never price checks: /uc/price-checks
+    // redirects into a Datatracker tab, so landing there drops people into
+    // Datatracker's menu and the UC apps never show.
+    href: "/uc/lifecycle",
     name: "UC & HubSpot Apps",
     line: "Communication, integration and sales tools.",
     from: "#f5a23c", to: "#c97a10", wash: "rgba(245,162,60,.10)", icon: "hub",
