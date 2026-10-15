@@ -35,7 +35,14 @@ export function getPool(): Pool {
       url.includes('railway.app') || url.includes('railway.internal') || process.env.NODE_ENV === 'production'
         ? { rejectUnauthorized: false }
         : undefined,
-    max: 5,
+    // 15.10.2026: with 5 connections and no wait limit one copy of the hub jammed for good. Every
+    // scheduler that runs under an advisory lock keeps one connection for the lock and asks for a
+    // second for its queries; five of them at once waited on each other for ever (the shop-order
+    // sync, the chain's sweep lane, price checks and every page on that copy stopped). Room for
+    // twelve (Aurora Serverless takes ~200; two copies, four during a rollout), and a wait that
+    // ends: after 30 s the query fails, its holder lets go of its lock, and the rest moves on.
+    max: 12,
+    connectionTimeoutMillis: 30_000,
     idleTimeoutMillis: 30000,
   });
   return _pool;
