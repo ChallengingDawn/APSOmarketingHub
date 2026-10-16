@@ -37,13 +37,13 @@ test("the store views come from the page's own hreflang links", () => {
   ]);
 });
 
-test("a footer bridge counts as current from v11 on - a newer one pasted before the hub knows it is not 'older'", async () => {
+test("a footer bridge counts as current from v12 on - a newer one pasted before the hub knows it is not 'older'", async () => {
   const { bridgeNumber, isCurrentBridge } = await import("../src/lib/directup/bridge");
-  assert.equal(bridgeNumber("v11-tools"), 11);
+  assert.equal(bridgeNumber("v12-tools"), 12);
   assert.equal(bridgeNumber("v9-tools"), 9);
   assert.equal(bridgeNumber(null), 0);
-  assert.equal(isCurrentBridge("v11-tools"), true);
   assert.equal(isCurrentBridge("v12-tools"), true);
-  assert.equal(isCurrentBridge("v10-tools"), false);
+  assert.equal(isCurrentBridge("v13-tools"), true);
+  assert.equal(isCurrentBridge("v11-tools"), false);
   assert.equal(isCurrentBridge(null), false);
 });
