@@ -6,6 +6,8 @@
 //
 // Pure, so it is tested (tests/directup-events.test.ts): an event nobody described still shows, as itself.
 
+import { bridgeNumber } from "./bridge";
+
 export type Topic = "visit" | "cart" | "prices" | "files" | "other";
 export type Tone = "ok" | "info" | "warn" | "bad";
 export type Described = {
@@ -68,7 +70,7 @@ export function describe(ev: string, data: unknown, currentBridge: string, produ
       const bridge = text(d.bridge) || "unknown";
       return ret("visit", "info",
         `DirectUP opened on ${text(d.locale) || "an unknown store view"}`,
-        `${d.loggedIn === false ? "Not signed in (yet)" : "Customer signed in"} · shop bridge ${bridge}${bridge !== currentBridge ? " (older)" : ""}`);
+        `${d.loggedIn === false ? "Not signed in (yet)" : "Customer signed in"} · shop bridge ${bridge}${bridgeNumber(bridge) < bridgeNumber(currentBridge) ? " (older)" : ""}`);
     }
     case "own":
       return ret("visit", "info",

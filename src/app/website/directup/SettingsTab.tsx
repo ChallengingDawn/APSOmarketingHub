@@ -24,7 +24,7 @@ import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, 
 import { Chip } from "@/app/connectors/parts";
 import type { GatewaySetting, Snippets } from "@/lib/directup/gateway";
 import type { ShopCheck, StoreCheck } from "@/lib/directup/check";
-import { CURRENT_BRIDGE, post, when, type Overview } from "./shared";
+import { isCurrentBridge, post, when, type Overview } from "./shared";
 
 const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
 
@@ -52,10 +52,10 @@ function Installed() {
   const held = useHeld<ShopCheck>(`/api/website/directup?part=check${n ? `&refresh=1&n=${n}` : ""}`, [n]);
   const r = held.result;
   const footer = (s: StoreCheck): { label: string; tint: Tint } =>
-    !s.footer ? { label: "No bridge", tint: "pink" } : s.footer === CURRENT_BRIDGE ? { label: s.footer, tint: "green" } : { label: `${s.footer} · older`, tint: "amber" };
+    !s.footer ? { label: "No bridge", tint: "pink" } : isCurrentBridge(s.footer) ? { label: s.footer, tint: "green" } : { label: `${s.footer} · older`, tint: "amber" };
   const page = (s: StoreCheck): { label: string; tint: Tint } =>
     s.page === "this" ? { label: "This gateway", tint: "green" } : s.page === "other" ? { label: "Another address", tint: "amber" } : { label: "Not found", tint: "pink" };
-  const good = (s: StoreCheck) => !s.error && s.footer === CURRENT_BRIDGE && s.page === "this";
+  const good = (s: StoreCheck) => !s.error && isCurrentBridge(s.footer) && s.page === "this";
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 } }}>

@@ -38,7 +38,7 @@ import { Chip, Choice } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
 import { Bars, when } from "@/app/website/directup/shared";
-import { CURRENT_BRIDGE } from "@/lib/directup/bridge";
+import { CURRENT_BRIDGE, isCurrentBridge } from "@/lib/directup/bridge";
 import { SHOP_TOOLS, type ShopToolKey, type ToolEvents, type ToolSnippet, type ToolStatus, type ToolUsage } from "@/lib/shopTools/tools";
 import type { ToolSetting } from "@/lib/shopTools/gateway";
 import type { ShopHost, ToolCheck, ToolStoreCheck } from "@/lib/shopTools/check";
@@ -216,11 +216,11 @@ function OnTheShop({ toolKey, setting, isAdmin, reload }: { toolKey: ShopToolKey
     if (j.ok) reload();
   };
   const foot = (s: ToolStoreCheck): { label: string; tint: Tint } =>
-    !s.footer ? { label: "No bridge", tint: "pink" } : s.footer === CURRENT_BRIDGE ? { label: s.footer, tint: "green" } : { label: `${s.footer} · older`, tint: "amber" };
+    !s.footer ? { label: "No bridge", tint: "pink" } : isCurrentBridge(s.footer) ? { label: s.footer, tint: "green" } : { label: `${s.footer} · older`, tint: "amber" };
   const page = (s: ToolStoreCheck): { label: string; tint: Tint } =>
     s.page === "this" ? { label: "This gateway", tint: "green" } : s.page === "pricinghub" ? { label: "Still PricingHub", tint: "amber" } : s.page === "other" ? { label: "Another address", tint: "amber" } : { label: "Not on the page", tint: "slate" };
   const data = r?.state === "ok" ? r.data : null;
-  const good = (s: ToolStoreCheck) => !s.error && s.footer === CURRENT_BRIDGE && s.page === "this";
+  const good = (s: ToolStoreCheck) => !s.error && isCurrentBridge(s.footer) && s.page === "this";
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 } }}>

@@ -43,7 +43,7 @@ import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, KpiTile, MUTED, Notice, RED
 import { Chip } from "@/app/connectors/parts";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, shiftIso, spanDays, useReportingWindow, type ReportingWindow } from "@/app/window/ReportingWindow";
-import { Bars, CURRENT_BRIDGE, pct, post, shopName, when, type Overview } from "./shared";
+import { Bars, CURRENT_BRIDGE, isCurrentBridge, pct, post, shopName, when, type Overview } from "./shared";
 import type { ShopCheck } from "@/lib/directup/check";
 import ListsTab from "./ListsTab";
 import LogTab from "./LogTab";
@@ -62,7 +62,7 @@ const DATED: View[] = ["overview", "lists", "activity"];
 function Problems({ o }: { o: Overview }) {
   const live = useHeld<ShopCheck>("/api/website/directup?part=check", []);
   const check = live.result?.state === "ok" ? live.result.data : null;
-  const prodOld = (check?.stores ?? []).filter((s) => !s.error && s.footer !== CURRENT_BRIDGE);
+  const prodOld = (check?.stores ?? []).filter((s) => !s.error && !isCurrentBridge(s.footer));
   const versions = [...new Set(prodOld.map((s) => s.footer ?? "no bridge"))].join(", ");
   return (
     <>
@@ -224,7 +224,7 @@ function StatusTab({ o, reload }: { o: Overview; reload: () => void }) {
                   <TableRow key={i} hover>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{b.locale || "–"}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", color: b.shop ? undefined : FAINT }}>{shopName(b.shop)}</TableCell>
-                    <TableCell sx={bodyCell}><Chip tint={b.bridge === CURRENT_BRIDGE ? "green" : "amber"}>{b.bridge || "?"}{b.bridge === CURRENT_BRIDGE ? "" : " · older"}</Chip></TableCell>
+                    <TableCell sx={bodyCell}><Chip tint={isCurrentBridge(b.bridge) ? "green" : "amber"}>{b.bridge || "?"}{isCurrentBridge(b.bridge) ? "" : " · older"}</Chip></TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(b.n)}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{when(b.last)}</TableCell>
                   </TableRow>
