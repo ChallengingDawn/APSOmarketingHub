@@ -177,10 +177,15 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
 
 /* ── the charts: their bars are the filter ────────────────────────────── */
 
-function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10 }: {
+function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false }: {
   title: string; rows: Row[]; cur: (r: Row) => number; prev: (r: Row) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
+  /** priority and potential keep their own order; every other chart ranks by what it shows */
+  fixedOrder?: boolean;
 }) {
+  // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
+  // "this should follow revenue or customer count on top depending on the value")
+  const rows = useMemo(() => (fixedOrder ? given : [...given].sort((a, b) => cur(b) - cur(a) || b.rev - a.rev || a.label.localeCompare(b.label))), [given, fixedOrder, cur]);
   // every value, a page at a time - the largest first (SARCLA 14.10: "only 10 is cool, but show all in pages")
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -196,7 +201,7 @@ function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, 
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-            Click a bar to show only that one{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, by revenue` : ""}
+            Click a bar to show only that one{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""}
           </Typography>
         </Box>
         {pages > 1 && (
@@ -233,6 +238,8 @@ function DimChart({ title, rows, cur, prev, curLabel, prevLabel, fmt, selected, 
     </Box>
   );
 }
+
+const byBought = (r: Row) => r.bought, byRev = (r: Row) => r.rev, byNew = (r: Row) => r.newC;
 
 /* ── the table: wide, in words, any column sorts ──────────────────────── */
 
@@ -386,6 +393,7 @@ export function CustomersExplorer() {
     return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim);
   };
   const chartRows = ranked(view);
+  const fixedView = view === "prio" || view === "potential";
   // a bar filters, and the filter window opens on that breakdown (SARCLA 14.10)
   const fromChart = (dim: Dim) => (label: string) => { toggle(dim, label); openOn(dim); };
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
@@ -441,12 +449,12 @@ export function CustomersExplorer() {
 
         {/* the charts first - this view's own - and the table at the end */}
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
-          <DimChart key={`b-${view}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={(r) => r.bought} prev={(r) => r.boughtPy} pageSize={12}
+          <DimChart key={`b-${view}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={byBought} prev={(r) => r.boughtPy} pageSize={12} fixedOrder={fixedView}
             curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
-          <DimChart key={`r-${view}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={(r) => r.rev} prev={(r) => r.revPy} pageSize={12}
+          <DimChart key={`r-${view}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={byRev} prev={(r) => r.revPy} pageSize={12} fixedOrder={fixedView}
             curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
           {withNew && (
-            <DimChart key={`n-${view}`} title={`New customers, by ${d.lower}`} rows={sortRows(chartRows, "newC", view)} cur={(r) => r.newC} prev={(r) => r.newCPy} pageSize={12}
+            <DimChart key={`n-${view}`} title={`New customers, by ${d.lower}`} rows={chartRows} cur={byNew} prev={(r) => r.newCPy} pageSize={12} fixedOrder={fixedView}
               curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
           )}
         </Box>
@@ -685,6 +693,15 @@ export function CustomersSummary() {
   const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const };
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
+      {/* a newer ERP delivery is being read: say so, rather than show the old date as if current (SARCLA 16.10) */}
+      {computing && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <CircularProgress size={14} />
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+            Reading the companies again for the latest ERP delivery{progress ? ` - ${progress}` : ""}; these figures stand at {upToDate(cube, win)} until it is done.
+          </Typography>
+        </Box>
+      )}
       <Figures cube={cube} a={a} all={a} win={win} readIso={computedAt} />
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "repeat(2, minmax(0, 1fr))" } }}>
         {(["prio", "segment"] as Dim[]).map((d) => (
