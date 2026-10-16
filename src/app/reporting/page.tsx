@@ -28,7 +28,7 @@ export default function AdvancedReporting() {
       <Box sx={{ mt: { xs: 2, md: 2.5 }, display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap" }}>
         <Typography component="h1" sx={{
           fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: { xs: "1.3rem", md: "1.45rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: 1.15,
+          fontSize: { xs: "1.3rem", md: "1.45rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: "28px",
         }}>Advanced reporting</Typography>
         <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Every report in the hub, by team.</Typography>
       </Box>

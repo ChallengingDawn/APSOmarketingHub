@@ -140,7 +140,8 @@ export function HomeBar({ on }: { on?: string }) {
   return (
     <Box sx={{
       ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5,
-      animation: "riseIn .5s cubic-bezier(.22,.8,.3,1) .05s both",
+      // backwards: once in, the bar lets go of the animation (a held one keeps it on its own layer)
+      animation: "riseIn .5s cubic-bezier(.22,.8,.3,1) .05s backwards",
       display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
       position: "relative", zIndex: 5,
     }}>

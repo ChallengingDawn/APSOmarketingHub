@@ -41,7 +41,10 @@ export const riseKeyframes = {
     },
   },
 };
-const rise = (i: number) => ({ animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) ${0.05 + i * 0.07}s both` });
+// `backwards`, not `both`: a fill that holds the end state keeps the animation active, and
+// Chrome keeps every tile on a compositor layer of its own - on Windows that turns the text
+// soft (SARCLA 16.10: "pixelized"). Backwards hides the tile before its turn and lets go after.
+const rise = (i: number) => ({ animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) ${0.05 + i * 0.07}s backwards` });
 
 type Tone = { icon: IconKey; tint: string; fg: string };
 const FALLBACK: Tone = { icon: "bar", tint: "#e6edfd", fg: "#3461c9" };
@@ -89,7 +92,9 @@ export function CategoryTile({ c, reports, i }: { c: ReportCategory; reports: Re
   const entry = categoryEntry(c, (href) => reports.some((r) => r.href === href));
   return (
     <Box sx={{
-      ...glass, borderRadius: "22px", p: { xs: 1.75, md: 1.9 }, height: "100%", boxSizing: "border-box",
+      // no backdrop blur: the tile paints its own gradient, so the blur showed nothing and only
+      // lifted each tile onto a layer whose text Windows draws soft
+      ...glass, backdropFilter: "none", borderRadius: "22px", p: { xs: 1.75, md: 1.9 }, height: "100%", boxSizing: "border-box",
       display: "flex", flexDirection: "column", gap: 1.25,
       background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 58%)`,
       transition: "transform .22s cubic-bezier(.22,.8,.3,1), box-shadow .22s ease",
