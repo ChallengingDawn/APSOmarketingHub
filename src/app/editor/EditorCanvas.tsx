@@ -746,27 +746,45 @@ export default function EditorCanvas({
   }, [selectedId, nodes]);
 
   /* ── node factories ── */
-  const addText = (kind: "headline" | "body") => {
+  /**
+   * The text styles the gallery offers.
+   *
+   * Sizes are fractions of the canvas width, not pixels: the same style has
+   * to look like itself on a 1200x627 banner and a 1080x1920 story, and a
+   * fixed point size does not survive that.
+   */
+  const TEXT_STYLES = [
+    { key: "eyebrow",  label: "Eyebrow",    sample: "APSOPARTS · SEALS", font: "inter",  div: 52, style: "bold",   fill: "#ed1b2f", upper: true,  y: 0.08 },
+    { key: "headline", label: "Headline",   sample: "Your headline",     font: "outfit", div: 18, style: "bold",   fill: "#1a1d21", upper: false, y: 0.12 },
+    { key: "subhead",  label: "Subheading", sample: "The line beneath",  font: "outfit", div: 28, style: "normal", fill: "#274e64", upper: false, y: 0.3  },
+    { key: "body",     label: "Body",       sample: "Supporting copy that explains the claim.", font: "inter", div: 38, style: "normal", fill: "#3c4043", upper: false, y: 0.4 },
+    { key: "quote",    label: "Quote",      sample: "“It arrived the next morning.”", font: "outfit", div: 24, style: "normal", fill: "#274e64", upper: false, y: 0.55 },
+    { key: "caption",  label: "Caption",    sample: "FKM · 200 °C · DIN 3771", font: "inter", div: 56, style: "normal", fill: "#5b6470", upper: false, y: 0.88 },
+  ] as const;
+
+  const addStyledText = (key: (typeof TEXT_STYLES)[number]["key"]) => {
+    const st = TEXT_STYLES.find((t) => t.key === key)!;
     const id = nid();
     commit((cur) => [
       ...cur,
       {
         id,
         kind: "text",
-        // Konva does not snap glyphs, so whole-pixel geometry keeps inserted text sharp.
+        // Konva does not snap glyphs, so whole-pixel geometry keeps text sharp.
         x: Math.round(canvas.w * 0.08),
-        y: Math.round(canvas.h * (kind === "headline" ? 0.12 : 0.4)),
-        text: kind === "headline" ? "Your headline here" : "Supporting copy — edit it in the field above",
-        fontKey: kind === "headline" ? "outfit" : "inter",
-        fontSize: kind === "headline" ? Math.round(canvas.w / 18) : Math.round(canvas.w / 38),
-        fontStyle: kind === "headline" ? "bold" : "normal",
-        fill: kind === "headline" ? "#1a1d21" : "#3c4043",
+        y: Math.round(canvas.h * st.y),
+        text: st.upper ? st.sample.toUpperCase() : st.sample,
+        fontKey: st.font as "inter" | "outfit",
+        fontSize: Math.round(canvas.w / st.div),
+        fontStyle: st.style as "bold" | "normal",
+        fill: st.fill,
         width: Math.round(canvas.w * 0.84),
         align: "left",
       },
     ]);
     setSelectedId(id);
   };
+
 
   const addBadge = () => {
     const id = nid();
@@ -1312,19 +1330,75 @@ export default function EditorCanvas({
   const insertPanel = (
     <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-        Insert
+        Text
+      </Typography>
+      {/* Each card is drawn in the style it inserts. A button saying
+          "Headline" names a thing; a card set in heavy Outfit shows it. */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mb: 2 }}>
+        {TEXT_STYLES.map((st) => (
+          <Box
+            key={st.key}
+            component="button"
+            type="button"
+            onClick={() => addStyledText(st.key)}
+            sx={{
+              cursor: "pointer", textAlign: "left", p: 1, borderRadius: "10px",
+              border: "1px solid #e3e6ea", bgcolor: "#fff", overflow: "hidden",
+              "&:hover": { borderColor: "#2459d1", bgcolor: "#f7f9ff" },
+            }}
+          >
+            <Typography
+              noWrap
+              sx={{
+                fontFamily: st.font === "outfit" ? "var(--font-outfit)" : "var(--font-inter)",
+                fontWeight: st.style === "bold" ? 800 : 400,
+                fontSize: st.key === "headline" ? 15 : st.key === "subhead" ? 13 : 11,
+                letterSpacing: st.upper ? "0.08em" : "-0.01em",
+                color: st.fill,
+                lineHeight: 1.25,
+              }}
+            >
+              {st.upper ? st.sample.toUpperCase() : st.sample}
+            </Typography>
+            <Typography sx={{ fontSize: 10, color: "#8b97ac", mt: 0.4 }}>{st.label}</Typography>
+          </Box>
+        ))}
+      </Box>
+
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Shapes
+      </Typography>
+      {/* Drawn, not labelled: a red bar IS the badge you are about to place. */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75, mb: 2 }}>
+        {[
+          { key: "badge",  title: "Colour block",  add: addBadge,  el: <Box sx={{ width: 26, height: 14, borderRadius: "3px", bgcolor: "#ed1b2f" }} /> },
+          { key: "circle", title: "Circle",        add: addCircle, el: <Box sx={{ width: 20, height: 20, borderRadius: "50%", bgcolor: "#274e64" }} /> },
+          { key: "ell",    title: "Ellipse",       add: addEllipse, el: <Box sx={{ width: 26, height: 16, borderRadius: "50%", bgcolor: "#274e64" }} /> },
+          { key: "arrow",  title: "Arrow",         add: addArrow,  el: <Box sx={{ width: 26, height: 2, bgcolor: "#1a1d21", position: "relative", "&::after": { content: '""', position: "absolute", right: -1, top: -3, borderLeft: "7px solid #1a1d21", borderTop: "4px solid transparent", borderBottom: "4px solid transparent" } }} /> },
+          { key: "line",   title: "Line",          add: addLine,   el: <Box sx={{ width: 26, height: 2, bgcolor: "#1a1d21" }} /> },
+        ].map((sh) => (
+          <Tooltip key={sh.key} title={sh.title}>
+            <Box
+              component="button"
+              type="button"
+              onClick={sh.add}
+              aria-label={sh.title}
+              sx={{
+                cursor: "pointer", height: 44, display: "grid", placeItems: "center",
+                borderRadius: "10px", border: "1px solid #e3e6ea", bgcolor: "#fff",
+                "&:hover": { borderColor: "#2459d1", bgcolor: "#f7f9ff" },
+              }}
+            >
+              {sh.el}
+            </Box>
+          </Tooltip>
+        ))}
+      </Box>
+
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Brand
       </Typography>
       <Box sx={{ display: "flex", gap: 0.75, mb: 2, flexWrap: "wrap" }}>
-        <Tooltip title="Headline (Outfit bold)">
-          <Button onClick={() => addText("headline")} startIcon={<TitleIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
-            Headline
-          </Button>
-        </Tooltip>
-        <Tooltip title="Body text (Inter)">
-          <Button onClick={() => addText("body")} startIcon={<TextFieldsIcon />} size="small" variant="outlined" sx={{ fontWeight: 700 }}>
-            Text
-          </Button>
-        </Tooltip>
         <Tooltip title="Colour block / badge">
           <IconButton onClick={addBadge} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
             <CropSquareIcon fontSize="small" />
