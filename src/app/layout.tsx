@@ -1,24 +1,44 @@
 import type { Metadata } from "next";
-import { Inter, Outfit } from "next/font/google";
+import localFont from "next/font/local";
 import ThemeRegistry from "./ThemeRegistry";
 import AppShell from "./AppShell";
 import "./globals.css";
 
-// Self-hosted at build time (next/font) — the previous Google Fonts @import
-// was blocked by our CSP, so the app silently fell back to Segoe UI/Arial.
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+// THE FONTS LIVE IN THE REPO.
+//
+// next/font/google fetches from Google at BUILD time, and that fetch fails.
+// Not rarely: five builds died on it in one day across three people, always
+// with the same useless message —
+//
+//   An error occurred in `next/font`. TypeError: Cannot read properties of null
+//
+// It has nothing to do with the commit carrying it, which is why re-running
+// always worked and why it kept being treated as bad luck rather than as a
+// dependency on a network call inside a Docker build. A re-run also silently
+// re-tags :prod, so one of those flakes shipped an older image than master.
+//
+// Local woff2, latin, variable: one file per family covering every weight,
+// which is both smaller than seven static cuts and impossible to half-ship.
+// The variable ranges are declared so the browser interpolates rather than
+// faking a weight it does not have.
+//
+// The CSS variable names are unchanged ON PURPOSE. EditorCanvas reads the
+// real family names out of them at runtime to draw text on the artboard, so
+// renaming one would leave canvas text in a fallback while the DOM stayed
+// correct — a split nobody would catch from a screenshot.
+const inter = localFont({
+  src: [{ path: "./fonts/Inter-latin.woff2", style: "normal", weight: "300 800" }],
   variable: "--font-inter",
   display: "swap",
+  fallback: ["system-ui", "Segoe UI", "Arial", "sans-serif"],
 });
-const outfit = Outfit({
-  subsets: ["latin"],
+const outfit = localFont({
   // 200 and 300 are the wordmark: Outfit is a different typeface at its light
   // weights, and that is the one this hub is set in.
-  weight: ["200", "300", "400", "500", "600", "700", "800"],
+  src: [{ path: "./fonts/Outfit-latin.woff2", style: "normal", weight: "200 800" }],
   variable: "--font-outfit",
   display: "swap",
+  fallback: ["system-ui", "Segoe UI", "Arial", "sans-serif"],
 });
 
 export const metadata: Metadata = {
