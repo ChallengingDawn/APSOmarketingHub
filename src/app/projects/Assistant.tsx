@@ -45,9 +45,12 @@ const ACCENT = "#2459d1";
 
 /** Things worth asking that somebody would not think to type. */
 const OPENERS = [
+  // Writing comes first now. With the brief bar gone this is how work
+  // starts, and nobody should have to guess the words that start it.
+  "Write the first draft",
+  "Make a picture for it",
   "What is missing from the best version?",
-  "Is this actually written for the audience in the brief?",
-  "Write the section that is weakest",
+  "Is this written for the audience in the brief?",
 ];
 
 function proposalTitle(p: Proposal): string {
@@ -211,7 +214,7 @@ export default function Assistant({
                           onClick={() => decide(t.id, "accept")}
                           sx={{ textTransform: "none", fontWeight: 600, borderRadius: "9px" }}
                         >
-                          {t.proposal.kind === "image" ? "Use this brief" : "Apply it"}
+                          {t.proposal.kind === "image" ? "Draw it" : "Apply it"}
                         </Button>
                         <Button
                           size="small" disabled={deciding === t.id}

@@ -755,88 +755,12 @@ export default function CreateStudio({
       />
 
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", p: 1.25, gap: 1.25 }}>
-      {/* ── the assistant bar: where the typing happens ── */}
-      <Box sx={{
-        flexShrink: 0, bgcolor: "#fff", borderRadius: "14px",
-        border: "1px solid rgba(21,34,58,.10)", boxShadow: "0 1px 2px rgba(31,45,78,.04)",
-      }}>
-        <Box sx={{ p: 1.5 }}>
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, flexWrap: "wrap" }}>
-            <TypePicker value={contentType} onChange={setContentType} />
-            <TextField
-              multiline
-              minRows={1}
-              maxRows={briefExpanded ? 24 : 3}
-              size="small"
-              placeholder={
-                projectId
-                  ? `What are we making? A topic is enough — "Enhance" turns it into a full brief.`
-                  : `What are we creating? A topic is enough — "Enhance" turns it into a full brief.\ne.g. "Why FFKM o-rings when FKM fails — chemical processing"`
-              }
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              sx={{ flex: 1, minWidth: 260, "& .MuiOutlinedInput-root": { fontSize: 13.5, lineHeight: 1.6 } }}
-            />
-            <Tooltip title={briefExpanded ? "Collapse the brief" : "Show the full brief"}>
-              <IconButton size="small" onClick={() => setBriefExpanded((v) => !v)} sx={{ mt: 0.5 }}>
-                <ChevronRightIcon sx={{ fontSize: 20, color: "#5b6470", transform: briefExpanded ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform 0.2s" }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Expand your topic into a sharp brief using the brain's demand and persona context">
-              <span>
-                <Button
-                  onClick={enhanceBrief}
-                  disabled={enhancing || !topic.trim()}
-                  startIcon={enhancing ? <CircularProgress size={14} /> : <BoltIcon />}
-                  sx={{ fontWeight: 700, color: NAVY, flexShrink: 0 }}
-                >
-                  {enhancing ? "Enhancing…" : "Enhance brief"}
-                </Button>
-              </span>
-            </Tooltip>
-            <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && setMode(v)} sx={{ flexShrink: 0 }}>
-              <ToggleButton value="draft" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>Single draft</ToggleButton>
-              <ToggleButton value="concepts" sx={{ px: 1.5, fontSize: 12, fontWeight: 700 }}>3 concepts</ToggleButton>
-            </ToggleButtonGroup>
-            <Button
-              onClick={generate}
-              disabled={busy || !topic.trim()}
-              variant="contained"
-              startIcon={busy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon />}
-              sx={{ bgcolor: RED, px: 3.5, fontWeight: 700, flexShrink: 0, "&:hover": { bgcolor: "#d81528" } }}
-            >
-              {busy ? (mode === "draft" ? "Writing…" : "Creating 3 concepts…") : "Generate"}
-            </Button>
-          </Box>
-          {/* slim second row: demand chips + setup summary */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
-            {trends.length > 0 && (
-              <>
-                <TrendingUpIcon sx={{ fontSize: 15, color: RED }} />
-                <Typography sx={{ fontSize: 11.5, color: "#5b6470", fontWeight: 600 }}>Hot demand:</Typography>
-                {trends.slice(0, 4).map((t) => (
-                  <Chip
-                    key={t.term}
-                    label={t.term}
-                    size="small"
-                    onClick={() => setTopic((cur) => (cur ? `${cur} — target the search term "${t.term}"` : `Content targeting the hot search term "${t.term}" (${t.signal})`))}
-                    sx={{ height: 22, fontSize: 11, fontWeight: 700, bgcolor: "#fdebed", color: RED, "&:hover": { bgcolor: "#fbd8dc" } }}
-                  />
-                ))}
-                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              </>
-            )}
-            <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
-              {activePersonas.length ? `Writing for ${activePersonas.map((p) => p.code).join(" + ")}` : "General audience"}
-              {` · ${language} · ${length}`}
-              {category ? ` · ${category}` : ""}
-              {audience ? ` · ${audience}` : ""}
-              {primaryKeyword.trim() ? ` · keyword "${primaryKeyword.trim()}"` : ""}
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-
+      {/* The brief bar is gone. SARCLA: "the agent itself should generate the
+          image and everything — the top bar where it generated before, we can
+          take it out". It was a box, a Generate button, an Enhance button, a
+          draft/concepts switch and a row of demand chips, all to start one
+          piece of work. The agent does that now, from a window you can put
+          anywhere, and the editor gets the height back. */}
       {error && (
         <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2 }}>
           {error}

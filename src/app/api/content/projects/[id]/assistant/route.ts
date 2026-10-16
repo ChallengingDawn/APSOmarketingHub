@@ -13,6 +13,9 @@ import {
   getTurn, listTurns, type Proposal,
 } from "@/lib/content/assistant";
 import { addVariant, getProject } from "@/lib/content/projects";
+import { readBrain } from "@/lib/brain";
+import { generateApsoImage } from "@/lib/images";
+import { buildImagePrompt } from "@/lib/imagePrompt";
 import { query } from "@/lib/db/client";
 
 export const runtime = "nodejs";
@@ -180,10 +183,39 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ ok: true, variant });
     }
 
-    // An image proposal is a brief: accepting it hands that brief to the
-    // studio, which owns the generator. Nothing is drawn here.
+    // The agent draws it. Handing back a sentence and expecting somebody to
+    // carry it to a generator was the assistant describing work rather than
+    // doing it — and the box it used to be carried to is gone.
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!geminiKey) {
+      return NextResponse.json(
+        { ok: false, error: "No image key is configured on this hub, so I cannot draw it." },
+        { status: 503 },
+      );
+    }
+
+    const brain = await readBrain();
+    const prompt = buildImagePrompt(brain, { brief: p.brief, overlaySpace: true });
+    const drawn = await generateApsoImage(geminiKey, prompt, []);
+    if (!drawn.ok) {
+      return NextResponse.json({ ok: false, error: `The picture could not be made: ${drawn.error}` }, { status: 502 });
+    }
+
+    // Attached to the chosen version when there is one, so the picture lands
+    // on the thing it was asked about rather than floating in the project.
+    const found = await getProject(id);
+    const target =
+      found?.variants.find((v) => v.id === found.project.chosenVariantId) ??
+      found?.variants[found.variants.length - 1];
+    if (target) {
+      await query(
+        `UPDATE apsomh_content SET image_url = $2, updated_by = $3, updated_at = NOW() WHERE id = $1`,
+        [target.id, drawn.dataUrl, me.username],
+      );
+    }
+
     await decideTurn(turnId, "accepted", me.username);
-    return NextResponse.json({ ok: true, imageBrief: p.brief });
+    return NextResponse.json({ ok: true, imageUrl: drawn.dataUrl, variantId: target?.id ?? null });
   }
 
   /* ── ask ──────────────────────────────────────────────────────────── */
