@@ -51,6 +51,7 @@ import AlignVerticalTopIcon from "@mui/icons-material/AlignVerticalTop";
 import AlignVerticalCenterIcon from "@mui/icons-material/AlignVerticalCenter";
 import AlignVerticalBottomIcon from "@mui/icons-material/AlignVerticalBottom";
 import { TEMPLATES, type TemplateSpec } from "@/data/templates";
+import { layoutsFor, type Layout } from "@/lib/content/layouts";
 
 /* ── palette & canvas presets ── */
 
@@ -264,6 +265,7 @@ export default function EditorCanvas({
   onExported,
   toolsContainer,
   toolsContainers,
+  contentTypeKey,
 }: {
   itemId?: number;
   initialImage?: string | null;
@@ -290,6 +292,8 @@ export default function EditorCanvas({
    * separately. Any that is given wins over toolsContainer for that panel;
    * the standalone editor passes none and keeps the single stacked column.
    */
+  /** Which content type this is, so the gallery offers layouts that fit it. */
+  contentTypeKey?: string;
   toolsContainers?: {
     insert?: HTMLElement | null;
     canvas?: HTMLElement | null;
@@ -906,6 +910,28 @@ export default function EditorCanvas({
   };
 
   /* ── template loading ── */
+  /**
+   * Put a starter layout on the canvas.
+   *
+   * A layout is a DesignDocument, so it replaces the artboard, the background
+   * and every node — not merged into what is there. Merging would leave the
+   * previous layout's blocks underneath the new one, which is never what
+   * "start from this" means.
+   */
+  const loadLayout = useCallback(
+    (layout: Layout) => {
+      const d = layout.build();
+      setCanvas({ w: d.canvas.w, h: d.canvas.h });
+      setBgColor(d.background.color);
+      setBgSrc(null);
+      commit(() => d.nodes as NodeSpec[]);
+      setSelectedId(null);
+    },
+    // commit and the setters are stable; the layout arrives as an argument.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const loadTemplate = useCallback(
     (spec: TemplateSpec) => {
       setCanvas({ w: spec.width, h: spec.height });
@@ -1586,6 +1612,64 @@ export default function EditorCanvas({
 
   const templatesPanel = (
     <Box sx={{ p: toolsContainer !== undefined ? 0 : 2 }}>
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Start from
+      </Typography>
+      {/* The preview is drawn FROM the layout — the same nodes, scaled down —
+          so what you see is what loading it gives you. A hand-drawn thumbnail
+          beside a generated layout drifts the first time either changes. */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mb: 2 }}>
+        {layoutsFor(contentTypeKey).map((layout) => {
+          const d = layout.build();
+          const scale = 150 / d.canvas.w;
+          return (
+            <Tooltip key={layout.id} title={layout.note} placement="right">
+              <Box
+                component="button"
+                type="button"
+                onClick={() => loadLayout(layout)}
+                sx={{
+                  cursor: "pointer", p: 0, borderRadius: "10px", overflow: "hidden",
+                  border: "1px solid #e3e6ea", bgcolor: "#fff", textAlign: "left",
+                  "&:hover": { borderColor: "#2459d1" },
+                }}
+              >
+                <Box sx={{
+                  position: "relative", width: "100%", aspectRatio: `${d.canvas.w} / ${d.canvas.h}`,
+                  bgcolor: d.background.color, overflow: "hidden",
+                }}>
+                  {d.nodes.map((n) => (
+                    <Box
+                      key={n.id}
+                      sx={{
+                        position: "absolute",
+                        left: `${(n.x / d.canvas.w) * 100}%`,
+                        top: `${(n.y / d.canvas.h) * 100}%`,
+                        width: n.width ? `${(n.width / d.canvas.w) * 100}%` : "auto",
+                        height: n.kind === "text" ? "auto" : n.height ? `${(n.height / d.canvas.h) * 100}%` : "auto",
+                        bgcolor: n.kind === "text" ? "transparent" : n.fill,
+                        borderRadius: n.cornerRadius ? `${n.cornerRadius * scale}px` : 0,
+                        color: n.fill,
+                        fontFamily: n.fontKey === "outfit" ? "var(--font-outfit)" : "var(--font-inter)",
+                        fontWeight: n.fontStyle === "bold" ? 800 : 400,
+                        fontSize: n.fontSize ? Math.max(3, n.fontSize * scale) : undefined,
+                        lineHeight: 1.15,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {n.kind === "text" ? n.text : null}
+                    </Box>
+                  ))}
+                </Box>
+                <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: "#1a1d21", px: 0.75, py: 0.5 }}>
+                  {layout.name}
+                </Typography>
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Brand templates
       </Typography>

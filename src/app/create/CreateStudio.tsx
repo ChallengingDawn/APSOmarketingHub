@@ -1258,6 +1258,7 @@ export default function CreateStudio({
                       if (designing.target === "draft") setDraft((d) => d ? { ...d, revision, designDocument } : d);
                     }}
                     toolsContainers={toolHosts}
+                    contentTypeKey={contentType}
                     initialImage={
                       designing.target === "draft"
                         ? draft?.imageUrl ?? null
