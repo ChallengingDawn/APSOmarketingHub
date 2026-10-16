@@ -38,7 +38,8 @@ export type ReportCategory = {
 
 // The order is SARCLA's (16.10.2026): Digital Growth - the former Marketing
 // Reports, renamed - then ESO, TSA, Back-Office, Website, OTD and Satisfaction;
-// Customer Reports, not named in that list, last.
+// Customer Reports, not named in that list, after them; Products Reports (added
+// the same day) last.
 export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "marketing", name: "Digital Growth Reports", line: "What marketing set out to do, and where it stands",
@@ -105,6 +106,14 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period", icon: "groups" },
       { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often", icon: "tag" },
       { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted", icon: "description" },
+    ],
+  },
+  {
+    // SARCLA, 16.10.2026: Articles CY/LY moves here from UC & HubSpot Apps > Reports & data.
+    // Its address and its access rule (the UC app's) stay as they were.
+    slug: "products", name: "Products Reports", line: "Articles and products, this year against last",
+    reports: [
+      { name: "Articles CY/LY", href: "/uc/articles", note: "Every article, this year against last", icon: "bar" },
     ],
   },
 ];

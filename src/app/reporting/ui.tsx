@@ -55,84 +55,45 @@ export function toneOf(slug: string): Tone {
   return sub ? { icon: sub.icon, tint: sub.tint, fg: sub.fg } : FALLBACK;
 }
 
-/** One report: the white row with a tinted glyph, as on a launch-pad tile. */
-export function ReportRow({ r, tone, big = false }: { r: Report; tone: Tone; big?: boolean }) {
-  return (
-    <Box component={Link} href={r.href} sx={{
-      display: "flex", alignItems: "center", gap: 1.2, p: big ? 1.5 : 0.8, borderRadius: "14px",
-      textDecoration: "none", bgcolor: "rgba(255,255,255,.72)",
-      border: "1px solid rgba(255,255,255,.85)", ...focusRing,
-      transition: "background-color .18s ease, transform .18s ease",
-      "&:hover": { bgcolor: "#fff", transform: "translateX(3px)" },
-    }}>
-      <Box sx={{
-        width: big ? 40 : 34, height: big ? 40 : 34, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
-        bgcolor: tone.tint, color: tone.fg,
-      }}><HubIconGlyph name={r.icon} fontSize={big ? 21 : 18} /></Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography sx={{ fontSize: big ? "0.95rem" : "0.875rem", fontWeight: 600, color: INK, letterSpacing: "-0.01em", lineHeight: 1.25 }}>
-          {r.name}
-        </Typography>
-        <Typography sx={{ fontSize: big ? "0.8rem" : "0.735rem", color: FAINT, lineHeight: 1.3 }}>{r.note}</Typography>
-      </Box>
-      <ChevronRightIcon sx={{ fontSize: 17, color: FAINT, flexShrink: 0 }} />
-    </Box>
-  );
-}
-
 /**
- * A category as a launch-pad tile. `reports` is what this person may open.
- * SARCLA, 16.10.2026: every tile the same size, a smaller top, and a click on the
- * name goes straight into the first report (categoryEntry) - so the glyph sits
- * beside the name instead of above it, and the page gives every row of tiles
- * the same height.
+ * A category as a small tile: its glyph, name and line, and how many reports it
+ * holds - the reports themselves are not listed (SARCLA, 16.10.2026: "smaller
+ * tiles, don't list every sub-report"). The whole tile is one link, straight
+ * into the first report this person may open (categoryEntry); a category with
+ * none yet opens its own page, which names what comes first. No lift on hover:
+ * a transform puts the tile on a layer of its own, and that is what made the
+ * text soft (119b6ce) - the border and the shadow answer the hover instead.
  */
 export function CategoryTile({ c, reports, i }: { c: ReportCategory; reports: Report[]; i: number }) {
   const tone = toneOf(c.slug);
   const entry = categoryEntry(c, (href) => reports.some((r) => r.href === href));
+  const count = reports.length
+    ? `${reports.length} report${reports.length === 1 ? "" : "s"}`
+    : c.reports.length ? "Not opened to you - an admin can grant it" : "No report yet";
   return (
-    <Box sx={{
-      // no backdrop blur: the tile paints its own gradient, so the blur showed nothing and only
-      // lifted each tile onto a layer whose text Windows draws soft
-      ...glass, backdropFilter: "none", borderRadius: "22px", p: { xs: 1.75, md: 1.9 }, height: "100%", boxSizing: "border-box",
-      display: "flex", flexDirection: "column", gap: 1.25,
-      background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 58%)`,
-      transition: "transform .22s cubic-bezier(.22,.8,.3,1), box-shadow .22s ease",
-      "&:hover": { transform: "translateY(-4px)", boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 24px 52px rgba(31,45,78,.12)" },
+    <Box component={Link} href={entry} sx={{
+      ...glass, backdropFilter: "none", borderRadius: "18px", p: { xs: 1.5, md: 1.6 }, height: "100%", boxSizing: "border-box",
+      display: "flex", flexDirection: "column", gap: 0.9, textDecoration: "none", color: INK, ...focusRing,
+      background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 62%)`,
+      transition: "box-shadow .2s ease, border-color .2s ease",
+      "&:hover": { borderColor: `${tone.fg}55`, boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 18px 40px rgba(31,45,78,.11)" },
+      "&:hover .chev": { transform: "translateX(3px)" },
       ...rise(i + 1),
     }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minHeight: 44 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.1 }}>
         <Box sx={{
-          width: 40, height: 40, borderRadius: "12px", flexShrink: 0, display: "grid", placeItems: "center",
+          width: 36, height: 36, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
           background: `linear-gradient(140deg, ${tone.fg}b3, ${tone.fg})`, color: "#fff",
-          boxShadow: `0 8px 18px ${tone.tint}`,
-        }}><HubIconGlyph name={tone.icon} fontSize={21} /></Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Box component={Link} href={entry} sx={{
-            display: "inline-flex", alignItems: "center", gap: 0.3, textDecoration: "none", color: INK, ...focusRing,
-            "&:hover .chev": { transform: "translateX(4px)" },
-          }}>
-            <Typography component="span" sx={{
-              fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-              fontSize: "1.05rem", fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.15,
-            }}>{c.name}</Typography>
-            <ChevronRightIcon className="chev" sx={{ fontSize: 19, color: tone.fg, transition: "transform .18s ease" }} />
-          </Box>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.25, lineHeight: 1.35 }}>{c.line}</Typography>
-        </Box>
+          boxShadow: `0 6px 14px ${tone.tint}`,
+        }}><HubIconGlyph name={tone.icon} fontSize={19} /></Box>
+        <Typography component="span" sx={{
+          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+          fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.02em", lineHeight: "22px", minWidth: 0,
+        }}>{c.name}</Typography>
+        <ChevronRightIcon className="chev" sx={{ fontSize: 18, color: tone.fg, ml: "auto", flexShrink: 0, transition: "transform .18s ease" }} />
       </Box>
-
-      {/* Rows follow the line rather than sinking to the foot: categories hold
-          zero to four reports, and a lone row at the bottom reads as a gap. */}
-      <Box sx={{ display: "grid", gap: 0.75 }}>
-        {reports.map((r) => <ReportRow key={r.href} r={r} tone={tone} />)}
-        {/* Empty on purpose says so, and names what comes first. */}
-        {!reports.length && (
-          <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, py: 0.5 }}>
-            {c.reports.length ? "Not opened to you - an admin can grant it." : c.next}
-          </Typography>
-        )}
-      </Box>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: "18px" }}>{c.line}</Typography>
+      <Typography sx={{ fontSize: "0.74rem", color: reports.length ? tone.fg : FAINT, fontWeight: 600, mt: "auto", lineHeight: "16px" }}>{count}</Typography>
     </Box>
   );
 }

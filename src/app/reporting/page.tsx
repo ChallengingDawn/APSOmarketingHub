@@ -9,7 +9,9 @@
 //
 // SARCLA, 16.10.2026: "keep the header like it was a second home page" - the
 // front page's own bar (src/app/HomeBar.tsx) instead of an "All apps" link, a
-// smaller title under it, and every tile the same size.
+// smaller title under it, and every tile the same size; later the same day the
+// tiles became small cards without their report lists, and the line under the
+// title went.
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -17,7 +19,7 @@ import Typography from "@mui/material/Typography";
 import { HomeBar } from "@/app/HomeBar";
 import { REPORT_CATEGORIES } from "@/lib/reporting/categories";
 import { useCanOpen } from "./useCanOpen";
-import { CategoryTile, INK, MUTED, riseKeyframes } from "./ui";
+import { CategoryTile, INK, riseKeyframes } from "./ui";
 
 export default function AdvancedReporting() {
   const canOpen = useCanOpen();
@@ -25,23 +27,20 @@ export default function AdvancedReporting() {
     <Box sx={{ maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 }, ...riseKeyframes }}>
       <HomeBar />
 
-      <Box sx={{ mt: { xs: 2, md: 2.5 }, display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap" }}>
-        <Typography component="h1" sx={{
-          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: { xs: "1.3rem", md: "1.45rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: "28px",
-        }}>Advanced reporting</Typography>
-        <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Every report in the hub, by team.</Typography>
-      </Box>
+      {/* The name alone (SARCLA 16.10: the line "Every report in the hub, by team." goes). */}
+      <Typography component="h1" sx={{
+        mt: { xs: 2, md: 2.5 },
+        fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+        fontSize: { xs: "1.3rem", md: "1.45rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: "28px",
+      }}>Advanced reporting</Typography>
 
-      {/* Eight categories: two even rows of four on a wide screen, never a row
-          of three with two left over - and every row as tall as the tallest, so
-          all eight tiles are the same size. On a phone, one column at its own
-          height. */}
+      {/* Small tiles, all the same size (SARCLA 16.10): as many as fit across
+          at 240 px or more - five on a wide screen - and every row as tall as the
+          tallest. On a phone, two across. */}
       <Box sx={{
-        display: "grid", gap: 2, alignItems: "stretch", mt: { xs: 1.75, md: 2 },
-        gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
-        gridAutoRows: { xs: "auto", sm: "1fr" },
-        "@media (min-width:1280px)": { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" },
+        display: "grid", gap: 1.5, alignItems: "stretch", mt: { xs: 1.5, md: 1.75 },
+        gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(auto-fill, minmax(240px, 1fr))" },
+        gridAutoRows: "1fr",
       }}>
         {REPORT_CATEGORIES.map((c, i) => (
           <CategoryTile key={c.slug} c={c} reports={c.reports.filter((r) => canOpen(r.href))} i={i} />

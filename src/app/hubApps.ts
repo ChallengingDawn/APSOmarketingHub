@@ -139,6 +139,8 @@ export const APPS: HubApp[] = [
       { name: "OTD Reports", note: "On-time delivery", href: "/reporting/otd", icon: "sync", ...BLUE },
       { name: "Satisfaction Reports", note: "What customers say", href: "/reporting/satisfaction", icon: "health", ...GREEN },
       { name: "Customer Reports", note: "KPIs, new and buying customers", href: "/reporting/customers", icon: "groups", ...GREEN },
+      // Articles CY/LY, moved from UC & HubSpot Apps (SARCLA, 16.10.2026)
+      { name: "Products Reports", note: "Articles, this year against last", href: "/reporting/products", icon: "inventory", ...TEAL },
     ],
   },
   {
@@ -171,7 +173,6 @@ export const APPS: HubApp[] = [
       { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
-      { name: "Articles CY/LY", note: "Every article, this year against last", href: "/uc/articles", icon: "bar", ...BLUE },
     ],
   },
   {

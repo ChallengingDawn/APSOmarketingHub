@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPORT_CATEGORIES, categoryBySlug, categoryEntry } from "../src/lib/reporting/categories";
 
-test("the categories stand in SARCLA's order (16.10.2026), Customer Reports last", () => {
+test("the categories stand in SARCLA's order (16.10.2026), then Customer and Products Reports", () => {
   assert.deepEqual(REPORT_CATEGORIES.map((c) => c.slug),
-    ["marketing", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers"]);
+    ["marketing", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products"]);
   assert.equal(categoryBySlug("marketing")?.name, "Digital Growth Reports");
 });
 
@@ -13,6 +13,8 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("marketing")!), "/reporting/marketing-kpis");
   assert.equal(categoryEntry(categoryBySlug("eso")!), "/reporting/eso-benchmark/visits");
   assert.equal(categoryEntry(categoryBySlug("website")!), "/website/overview");
+  // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged
+  assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa");
 });
