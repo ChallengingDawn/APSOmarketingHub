@@ -85,6 +85,9 @@ export const APPS: HubApp[] = [
       { group: "Microservices", name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
       { group: "Microservices", name: "Compatibility table", note: "Which material resists which chemical", href: "/website/compatibility-table", icon: "science", ...TEAL },
       { group: "Microservices", name: "Vulcanised O-rings", note: "Any O-ring size from stocked cord", href: "/website/vulcanised-o-rings", icon: "loop", ...BLUE },
+      // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
+      // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
+      { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
     ],
   },
   {

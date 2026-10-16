@@ -1,0 +1,333 @@
+"use client";
+
+// DIRECTCUT — the hub's page on the cut-to-size tool (SARCLA, 16.10.2026: "only migrate what is possible,
+// don't break anything; it's also more the dashboard at this point").
+//
+// This is a READ-ONLY MIRROR of the Railway dashboard's cut-to-size pages. The tool itself cannot move here:
+// the shop's anonymous customers have to reach it and this hub answers only on the A+P network, and the
+// middleware is single-instance by design — its ledger lives in RAM and two copies would promise the same
+// plate twice. The reasons are written out in src/lib/directcut/gateway.ts.
+//
+// So: nothing on this page reserves, cancels or moves a stage. Acting on a line stays in the dashboard until
+// this page has been watched for a while. In the UC apps' kit, like DirectUP, 3D files and DoC.
+
+import { useCallback, useState } from "react";
+import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import TextField from "@mui/material/TextField";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
+import HandymanOutlinedIcon from "@mui/icons-material/HandymanOutlined";
+import DoneAllOutlinedIcon from "@mui/icons-material/DoneAllOutlined";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+import PrecisionManufacturingOutlinedIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
+import DnsOutlinedIcon from "@mui/icons-material/DnsOutlined";
+import MonitorHeartOutlinedIcon from "@mui/icons-material/MonitorHeartOutlined";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
+import PageHeader from "@/app/PageHeader";
+import { useHeld } from "@/app/analytics/AnalyticsData";
+import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { full } from "@/app/charts/format";
+import { CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
+import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { DoneTab, OpenTab } from "./LinesTab";
+import ShelfTab from "./ShelfTab";
+import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
+
+type View = "overview" | "open" | "done" | "shelf" | "status";
+const VIEW_HASH: Record<View, string> = {
+  overview: "#overview", open: "#open", done: "#done", shelf: "#shelf", status: "#status",
+};
+
+type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
+
+const countWork = (open: Line[]) => {
+  const n = { saw: 0, pick: 0, unknown: 0 };
+  for (const l of open) n[workOf(l)]++;
+  return n;
+};
+
+/* ── what needs doing, shown on every tab ─────────────────────────────────── */
+
+function Problems({ s }: { s: Status | null }) {
+  if (!s) return null;
+  const out: React.ReactNode[] = [];
+
+  if (s.feed.down) out.push(<>The machine feed is <b>down</b>{s.feed.downReason ? <> — {s.feed.downReason}</> : null}. The widget is not being served stock.</>);
+  else if (s.feed.frozen) out.push(<>The machine feed is <b>frozen</b>{s.feed.frozenReason ? <> — {s.feed.frozenReason}</> : null}.</>);
+
+  const shelfStale = !!s.shelf?.stale;
+  if (shelfStale) out.push(<>
+    The shelf is <b>too old to promise from</b> — {String(s.shelf?.reason ?? "the File Agent has stopped writing")}.
+    Every cut is being answered as production, so no stock is being promised.
+  </>);
+
+  const broken = Number(s.promiseSweep?.articlesBroken) || 0;
+  if (broken > 0) out.push(<>
+    <b>{Number(s.promiseSweep?.piecesBroken) || 0} piece(s)</b> are promised on {broken} article(s) the shelf can no
+    longer cover{Array.isArray(s.promiseSweep?.lastBroken) ? null : null}
+    {(s.promiseSweep?.lastBroken as { orders?: string[] } | null)?.orders?.length
+      ? <> — order {(s.promiseSweep!.lastBroken as { orders: string[] }).orders.join(", ")}</> : null}.
+    Somebody has to source the material or tell the customer.
+  </>);
+
+  if (!s.heartbeat.reporting) out.push(<>
+    No woodStore PC is reporting a heartbeat{s.heartbeat.verdict ? <> — {s.heartbeat.verdict}</> : null}. Without it,
+    a quiet workshop and a dead File Agent look the same to the shelf&rsquo;s age check.
+  </>);
+
+  if (!out.length) return null;
+  return <>{out.map((n, i) => <Notice key={i} tone={i === 0 && (s.feed.down || shelfStale || broken > 0) ? "bad" : "warn"}>{n}</Notice>)}</>;
+}
+
+/* ── overview ─────────────────────────────────────────────────────────────── */
+
+function Overview({ b, s }: { b: Board; s: Status | null }) {
+  const work = countWork(b.open);
+  const inCart = b.open.filter((l) => l.stage === "reserved").length;
+  const offered = b.stock.reduce((a, x) => a + x.offered, 0);
+  const refs = s?.erpRefs as { known?: number; withOrderNo?: number } | undefined;
+  const pctRefs = refs?.withOrderNo ? Math.round((100 * (refs.known ?? 0)) / refs.withOrderNo) : null;
+
+  return (
+    <>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<HandymanOutlinedIcon fontSize="small" />} tint="blue" label="Still to cut"
+            value={full(b.counts["to-cut"] ?? 0)} note="lines waiting at the saw" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<ContentCutOutlinedIcon fontSize="small" />} tint="slate" label={WORK_LABEL.saw}
+            value={full(work.saw)} note={`of ${full(b.open.length)} open · ${full(work.pick)} pick & ship, ${full(work.unknown)} not recorded`} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<DoneAllOutlinedIcon fontSize="small" />} tint="green" label="Cut done"
+            value={full(b.doneTotal)} note="finished lines in the ledger" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<Inventory2OutlinedIcon fontSize="small" />} tint="purple" label="Plates on offer"
+            value={full(offered)} note={`across ${full(b.stock.length)} article(s) with work`} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<ShoppingCartOutlinedIcon fontSize="small" />} tint="amber" label="In a cart now"
+            value={full(inCart)} note="live 30-minute windows" />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<PrecisionManufacturingOutlinedIcon fontSize="small" />} tint="blue" label="Board types on the feed"
+            value={s ? full(s.feed.boardTypes) : "—"} note={s?.feed.inventoryChangedAt ? `shelf last moved ${when(s.feed.inventoryChangedAt)}` : undefined} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<FactCheckOutlinedIcon fontSize="small" />} tint="green" label="Lines with their A-number"
+            value={pctRefs === null ? "—" : `${pctRefs}%`} note={refs?.withOrderNo ? `${full(refs.known ?? 0)} of ${full(refs.withOrderNo)}` : undefined} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiTile icon={<MonitorHeartOutlinedIcon fontSize="small" />} tint={s?.shelf?.stale ? "amber" : "green"} label="Shelf age"
+            value={s?.shelf?.writtenAt ? `${Number(s.shelf.workingDaysSince) || 0} d` : "—"}
+            note={s?.shelf?.writtenAt ? `agent last wrote ${when(String(s.shelf.writtenAt))}` : "not dated yet"} />
+        </Grid>
+      </Grid>
+
+      <Box sx={{ mt: 3 }}>
+        <GlassCard>
+          <CardTitle icon={<DnsOutlinedIcon fontSize="small" />} tint="slate" title="Where this comes from"
+            note="The cut-to-size tool runs on Railway and stays there; this page reads it." />
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.75 }}>
+            The widget is framed by the shop, so it needs an address anonymous customers can reach — and this hub
+            answers only on the A+P network. The middleware is also the <b>reservation authority</b>: its holds and
+            its cut ledger live in memory and are rehydrated from Postgres at boot, so a second copy of it would
+            promise the same plate area to two customers with nothing to catch it.
+          </Typography>
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.75, mt: 1.5 }}>
+            That is why this page is read-only. It shows what the tool is doing; <b>acting</b> on a line — a stage
+            move, a cancellation — stays in the Railway dashboard.
+          </Typography>
+        </GlassCard>
+      </Box>
+    </>
+  );
+}
+
+/* ── status ───────────────────────────────────────────────────────────────── */
+
+function Fact({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "good" | "bad" }) {
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 1.5, py: 0.9, borderBottom: "1px solid rgba(21,34,58,.07)" }}>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontSize: "0.84rem", color: INK }}>{label}</Typography>
+        {note && <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{note}</Typography>}
+      </Box>
+      <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, textAlign: "right", whiteSpace: "nowrap",
+        color: tone === "bad" ? "#c5221f" : tone === "good" ? GREEN : INK }}>{value}</Typography>
+    </Box>
+  );
+}
+
+function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
+  const [url, setUrl] = useState(s.setting.url);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const cd = (s.cutDone ?? {}) as Record<string, unknown>;
+  const g = s.guard as Record<string, unknown>;
+  const ps = s.promiseSweep as Record<string, unknown>;
+  const er = s.erpRefs as Record<string, unknown>;
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    const r = await post({ action: "gateway", url });
+    setBusy(false);
+    if (!r.ok) setErr(r.error ?? "It did not save.");
+    else onSaved();
+  };
+
+  return (
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard>
+          <CardTitle icon={<PrecisionManufacturingOutlinedIcon fontSize="small" />} tint="blue" title="The machine feed"
+            note="HOMAG materialManager, polled every five minutes" />
+          <Fact label="Feed" value={s.feed.down ? "down" : s.feed.frozen ? "frozen" : "live"}
+            tone={s.feed.down || s.feed.frozen ? "bad" : "good"} note={s.feed.downReason ?? s.feed.frozenReason ?? undefined} />
+          <Fact label="Board types" value={full(s.feed.boardTypes)} />
+          <Fact label="Shelf last moved" value={when(s.feed.inventoryChangedAt)} note={`idle ${s.feed.idleWorkingHours.toFixed(1)} working hours`} />
+          <Fact label="Polls since boot" value={full(s.feed.runs)} />
+          <Fact label="Cut-done detector" value={cd.skipped ? "skipping" : `${full(Number(cd.checked) || 0)} line(s) judged`}
+            tone={cd.skipped ? "bad" : "good"} note={cd.skipped ? String(cd.skipped) : cd.lastAt ? `last ran ${when(String(cd.lastAt))}` : undefined} />
+        </GlassCard>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard>
+          <CardTitle icon={<MonitorHeartOutlinedIcon fontSize="small" />} tint={s.shelf?.stale ? "amber" : "green"}
+            title="How old the shelf is" note="From the File Agent's own write stamps, not from whether our poll succeeded" />
+          <Fact label="Verdict" value={s.shelf?.stale ? "too old to promise from" : "current"} tone={s.shelf?.stale ? "bad" : "good"}
+            note={s.shelf?.reason ? String(s.shelf.reason) : undefined} />
+          <Fact label="Agent last wrote" value={s.shelf?.writtenAt ? when(String(s.shelf.writtenAt)) : "not dated yet"}
+            note={s.shelf?.workingDaysSince !== null && s.shelf?.workingDaysSince !== undefined
+              ? `${Number(s.shelf.workingDaysSince)} working day(s) ago · stale after ${Number(s.shelf.maxWorkingDays) || 3}` : undefined} />
+          <Fact label="Decided by" value={String(s.shelf?.from ?? "–")} />
+          <Fact label="woodStore heartbeat" value={s.heartbeat.reporting ? `${s.heartbeat.hosts} host(s)` : "nobody reporting"}
+            tone={s.heartbeat.reporting ? "good" : "bad"} note={s.heartbeat.verdict ?? undefined} />
+        </GlassCard>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard>
+          <CardTitle icon={<FactCheckOutlinedIcon fontSize="small" />} tint="slate" title="The watchers"
+            note="What checks the orders, and what it found" />
+          <Fact label="Order guard" value={String(g.mode ?? "–")}
+            note={`${full(Number(g.ordersJudged) || 0)} order(s) examined, ${full(Number(g.ordersShort) || 0)} short`} />
+          <Fact label="Tickets raised" value={full(Number(g.ticketsRaised) || 0)}
+            note={Number(g.heldBack) ? `${full(Number(g.heldBack))} held back` : undefined} />
+          <Fact label="Promise re-check" value={`${full(Number(ps.sweeps) || 0)} sweep(s)`}
+            note={ps.lastAt ? `last ${when(String(ps.lastAt))}` : undefined} />
+          <Fact label="Promises the shelf cannot keep" value={full(Number(ps.piecesBroken) || 0)}
+            tone={Number(ps.piecesBroken) ? "bad" : "good"}
+            note={`${full(Number(ps.promisesChecked) || 0)} promise(s) across ${full(Number(ps.articlesChecked) || 0)} article(s)`} />
+          <Fact label="A-numbers resolved" value={full(Number(er.known) || 0)}
+            note={er.withOrderNo ? `of ${full(Number(er.withOrderNo))} line(s) with an order` : undefined} />
+        </GlassCard>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GlassCard>
+          <CardTitle icon={<KeyOutlinedIcon fontSize="small" />} tint="purple" title="The gateway"
+            note={s.setting.fromDefault ? "The Railway address, until somebody sets another" : `Set by ${s.setting.by ?? "–"}${s.setting.at ? ` on ${when(s.setting.at)}` : ""}`} />
+          <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <TextField size="small" fullWidth value={url} disabled={!s.isAdmin || busy}
+              onChange={(e) => setUrl(e.target.value)} sx={{ maxWidth: 420 }}
+              helperText={s.isAdmin ? "The service's https address, no path." : "Admins change this."} />
+            {s.isAdmin && (
+              <Button variant="outlined" size="small" disabled={busy || !url.trim() || url.trim() === s.setting.url} onClick={save}>
+                {busy ? "Saving…" : "Save"}
+              </Button>
+            )}
+            <Tooltip title="Open the widget as a customer sees it">
+              <IconButton size="small" component="a" href={`${s.setting.url}/widget.html`} target="_blank" rel="noreferrer">
+                <OpenInNewIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", mt: 1 }}>{err}</Typography>}
+          <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 2 }}>
+            Changing this points the hub at a different middleware. It does not move the tool, and it does not
+            change what the shop frames — that address lives in the shop&rsquo;s own snippets.
+          </Typography>
+        </GlassCard>
+      </Grid>
+    </Grid>
+  );
+}
+
+/* ── the page ─────────────────────────────────────────────────────────────── */
+
+export default function DirectCutPage() {
+  const [tab, setTab] = useHashTab<View>(VIEW_HASH, "overview");
+  const [nonce, setNonce] = useState(0);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&n=${nonce}`, [nonce]);
+  const statusHeld = useHeld<Status>(`/api/website/directcut?part=status&n=${nonce}`, [nonce]);
+  const r = boardHeld.result;
+  const s = statusHeld.result?.state === "ok" ? statusHeld.result.data : null;
+  const b = r?.state === "ok" ? r.data.board : null;
+
+  const work = b ? countWork(b.open) : null;
+  const tabs = [
+    { id: "overview" as View, label: "Overview", count: null },
+    { id: "open" as View, label: "Open work", count: b ? String(b.open.length) : null },
+    { id: "done" as View, label: "Cut done", count: b ? String(b.doneTotal) : null },
+    { id: "shelf" as View, label: "The shelf", count: b ? String(b.stock.length) : null },
+    { id: "status" as View, label: "Status", count: null },
+  ];
+
+  let body: React.ReactNode;
+  if (r === null) body = <LoadingPanel label="Reading the cut-to-size gateway…" />;
+  else if (r.state === "not-configured") body = <NotConnectedPanel source="C2S middleware" missing={r.missing} />;
+  else if (r.state === "error") body = <UpstreamPanel source="C2S middleware" error={r.error} status={r.status} onRetry={reload} />;
+  else {
+    const board = r.data.board;
+    body = (
+      <>
+        <Problems s={s} />
+        <ReportTabs name="directcut" tab={tab} onSelect={setTab} tabs={tabs} />
+        <Box sx={{ mt: 3 }}>
+          {tab === "overview" && <Overview b={board} s={s} />}
+          {tab === "open" && <OpenTab open={board.open} />}
+          {tab === "done" && <DoneTab done={board.done} total={board.doneTotal} />}
+          {tab === "shelf" && <ShelfTab stock={board.stock} />}
+          {tab === "status" && (s
+            ? <StatusTab s={s} onSaved={reload} />
+            : statusHeld.result?.state === "error"
+              ? <UpstreamPanel source="C2S middleware" error={statusHeld.result.error} status={statusHeld.result.status} onRetry={reload} />
+              : <LoadingPanel label="Asking the gateway how it is…" />)}
+        </Box>
+        <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 3 }}>
+          Read {when(board.at, true)} from {r.data.setting.url}
+          {work ? ` · ${work.saw} need the saw, ${work.pick} are pick & ship` : ""}
+        </Typography>
+      </>
+    );
+  }
+
+  return (
+    <Box sx={{ px: GUTTER, py: { xs: 3, md: 4 } }}>
+      <PageHeader
+        title="DirectCut"
+        subtitle="Cut to size: the open work, the shelf behind it, and the health of the machine feed"
+        rightSlot={
+          <Tooltip title="Read it again">
+            <IconButton onClick={reload} size="small"><RefreshIcon fontSize="small" /></IconButton>
+          </Tooltip>
+        }
+      />
+      {body}
+    </Box>
+  );
+}
