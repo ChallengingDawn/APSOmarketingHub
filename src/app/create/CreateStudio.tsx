@@ -60,6 +60,7 @@ import VariationStrip, { type StripVariant } from "./VariationStrip";
 import FloatingAssistant from "@/app/projects/FloatingAssistant";
 import StudioChrome from "./StudioChrome";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { layoutsFor } from "@/lib/content/layouts";
 
 // Konva is client-only
 const EditorCanvas = dynamic(() => import("../editor/EditorCanvas"), { ssr: false });
@@ -1253,7 +1254,17 @@ export default function CreateStudio({
                     }
                     itemId={designing.target === "draft" ? draft?.draftId : undefined}
                     initialRevision={designing.target === "draft" ? draft?.revision : undefined}
-                    initialDocument={designing.target === "draft" ? draft?.designDocument : undefined}
+                    initialDocument={
+                      designing.target === "draft"
+                        ? draft?.designDocument
+                        // A canvas type with nothing written opens ON the first
+                        // layout for it, not on a white rectangle. The gallery
+                        // existed and the canvas still arrived blank, which is
+                        // a gallery nobody opens.
+                        : designing.target === "scratch"
+                          ? layoutsFor(contentType)[0]?.build()
+                          : undefined
+                    }
                     onSaved={(revision, designDocument) => {
                       if (designing.target === "draft") setDraft((d) => d ? { ...d, revision, designDocument } : d);
                     }}
