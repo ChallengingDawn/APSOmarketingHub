@@ -9,7 +9,7 @@
 // Pages keep their addresses: a move is a move in the menu, so every link and
 // bookmark still works, and each page keeps the access rule it already had.
 
-import type { IconKey } from "@/app/hubApps";
+import type { IconKey } from "../../app/hubApps"; // relative: the unit tests compile this file
 import { STAGES } from "../marketingKpis/catalogue";
 
 export const STAGE_ICON: Record<string, IconKey> = {
@@ -36,18 +36,12 @@ export type ReportCategory = {
   next?: string;
 };
 
+// The order is SARCLA's (16.10.2026): Digital Growth - the former Marketing
+// Reports, renamed - then ESO, TSA, Back-Office, Website, OTD and Satisfaction;
+// Customer Reports, not named in that list, last.
 export const REPORT_CATEGORIES: ReportCategory[] = [
   {
-    slug: "website", name: "Website Reports", line: "How the site is found and used",
-    reports: [
-      { name: "Site overview", href: "/website/overview", note: "Visits, engagement and revenue", icon: "bar" },
-      { name: "Acquisition", href: "/website/acquisition", note: "Where the visits come from", icon: "ads" },
-      { name: "Audience", href: "/website/audience", note: "Who comes, and from where", icon: "groups" },
-      { name: "Pages", href: "/website/pages", note: "Which pages carry the traffic", icon: "layers" },
-    ],
-  },
-  {
-    slug: "marketing", name: "Marketing Reports", line: "What marketing set out to do, and where it stands",
+    slug: "marketing", name: "Digital Growth Reports", line: "What marketing set out to do, and where it stands",
     reports: [
       // Every marketing KPI, each stage a page of its own - in the side panel as
       // the UC app lists its apps: under a heading, each with a glyph, the name
@@ -63,15 +57,6 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         ],
       },
       { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
-    ],
-  },
-  {
-    slug: "customers", name: "Customer Reports", line: "Where customers arrive, where we lose them, what came of it",
-    reports: [
-      { name: "KPIs", href: "/journey/kpis", note: "Conversion, losses and what is working", icon: "bar" },
-      { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period", icon: "groups" },
-      { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often", icon: "tag" },
-      { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted", icon: "description" },
     ],
   },
   {
@@ -97,6 +82,15 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     reports: [], next: "First report: tickets in and closed per week, by type and person.",
   },
   {
+    slug: "website", name: "Website Reports", line: "How the site is found and used",
+    reports: [
+      { name: "Site overview", href: "/website/overview", note: "Visits, engagement and revenue", icon: "bar" },
+      { name: "Acquisition", href: "/website/acquisition", note: "Where the visits come from", icon: "ads" },
+      { name: "Audience", href: "/website/audience", note: "Who comes, and from where", icon: "groups" },
+      { name: "Pages", href: "/website/pages", note: "Which pages carry the traffic", icon: "layers" },
+    ],
+  },
+  {
     slug: "otd", name: "OTD Reports", line: "On-time delivery: promised against shipped",
     reports: [], next: "First report: share of order lines shipped on the promised date, by month.",
   },
@@ -104,6 +98,26 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     slug: "satisfaction", name: "Satisfaction Reports", line: "What customers say about us",
     reports: [], next: "First report: survey and feedback results once a source is chosen.",
   },
+  {
+    slug: "customers", name: "Customer Reports", line: "Where customers arrive, where we lose them, what came of it",
+    reports: [
+      { name: "KPIs", href: "/journey/kpis", note: "Conversion, losses and what is working", icon: "bar" },
+      { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period", icon: "groups" },
+      { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often", icon: "tag" },
+      { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted", icon: "description" },
+    ],
+  },
 ];
 
 export const categoryBySlug = (slug: string) => REPORT_CATEGORIES.find((c) => c.slug === slug) ?? null;
+
+/**
+ * Where a click on a category goes: straight into its first report the person may
+ * open (SARCLA, 16.10.2026: "I should not enter this view, I should go directly to
+ * In a nutshell") - the report's overview page when it has one. Only a category
+ * with no report yet keeps its own page, which names what comes first.
+ */
+export function categoryEntry(c: ReportCategory, canOpen: (href: string) => boolean = () => true): string {
+  const first = c.reports.find((r) => canOpen(r.href));
+  return first ? first.overviewHref ?? first.href : `/reporting/${c.slug}`;
+}

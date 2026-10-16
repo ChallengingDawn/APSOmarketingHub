@@ -1,23 +1,34 @@
 "use client";
-// One category of Advanced reporting: the reports this person may open, or -
-// while it has none - the one line naming its first. Categories come from
+// One category of Advanced reporting. A category with reports is a doorway, not
+// a page: it sends you straight into its first report (SARCLA, 16.10.2026: "when
+// I click a report I should not enter this view, I should go directly to In a
+// nutshell") - so the launch pad, the landing tiles and the side panel's category
+// link all land in the report. Only a category with no report yet (or none this
+// person may open) stays, and says what comes first. Categories come from
 // src/lib/reporting/categories.ts; the look is the launch pad's (./ui.tsx).
 
-import { notFound, useParams } from "next/navigation";
+import { useEffect } from "react";
+import { notFound, useParams, useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
 import HubIconGlyph from "@/app/HubIcon";
-import { categoryBySlug } from "@/lib/reporting/categories";
-import { useCanOpen } from "../useCanOpen";
-import { FAINT, INK, MUTED, ReportRow, glass, riseKeyframes, toneOf } from "../ui";
+import { categoryBySlug, categoryEntry } from "@/lib/reporting/categories";
+import { useReportAccess } from "../useCanOpen";
+import { FAINT, INK, MUTED, glass, riseKeyframes, toneOf } from "../ui";
 
 export default function ReportCategory() {
   const { category } = useParams<{ category: string }>();
+  const router = useRouter();
   const c = categoryBySlug(category);
-  const canOpen = useCanOpen();
+  const { canOpen, ready } = useReportAccess();
+  const reports = c ? c.reports.filter((r) => canOpen(r.href)) : [];
+  const go = c && ready && reports.length ? categoryEntry(c, canOpen) : null;
+  useEffect(() => { if (go) router.replace(go); }, [go, router]);
   if (!c) notFound();
-  const reports = c.reports.filter((r) => canOpen(r.href));
+  // on the way into the first report: nothing to draw
+  if (!ready || reports.length) return null;
+
   const tone = toneOf(c.slug);
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gap: 2.5, maxWidth: 1080, ...riseKeyframes }}>
@@ -35,17 +46,11 @@ export default function ReportCategory() {
         </Box>
       </Box>
 
-      {reports.length ? (
-        <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-          {reports.map((r) => <ReportRow key={r.href} r={r} tone={tone} big />)}
-        </Box>
-      ) : (
-        <Box sx={{ ...glass, borderRadius: "18px", p: 2.25, background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 58%)` }}>
-          <Typography sx={{ fontSize: "0.9rem", color: FAINT, lineHeight: 1.5 }}>
-            {c.reports.length ? "These reports are not opened to you - an admin can grant them." : `No report here yet. ${c.next}`}
-          </Typography>
-        </Box>
-      )}
+      <Box sx={{ ...glass, borderRadius: "18px", p: 2.25, background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 58%)` }}>
+        <Typography sx={{ fontSize: "0.9rem", color: FAINT, lineHeight: 1.5 }}>
+          {c.reports.length ? "These reports are not opened to you - an admin can grant them." : `No report here yet. ${c.next}`}
+        </Typography>
+      </Box>
     </Box>
   );
 }

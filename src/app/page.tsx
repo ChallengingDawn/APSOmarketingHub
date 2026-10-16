@@ -10,9 +10,8 @@
 // real app list rather than pretending. Motion is held to a drift and a lift,
 // and all of it stops under prefers-reduced-motion.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
@@ -24,24 +23,15 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
 import CableIcon from "@mui/icons-material/Cable";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import HomeIcon from "@mui/icons-material/Home";
-import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import SensorsIcon from "@mui/icons-material/Sensors";
-import AppsIcon from "@mui/icons-material/Apps";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import SearchIcon from "@mui/icons-material/Search";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
 import ConnectorsPanel from "./ConnectorsPanel";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
-import { APPS, HUB_TOOLS, search as searchApps, type HubApp, type Hit } from "./hubApps";
+import { HomeBar } from "./HomeBar";
+import { APPS, HUB_TOOLS, type HubApp } from "./hubApps";
 import { useViewAs } from "./ViewAs";
-import { AvatarFace } from "./AvatarFace";
-import { Wordmark } from "./Wordmark";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
@@ -77,7 +67,6 @@ const rise = (i: number) => ({
 });
 
 export default function FrontPage() {
-  const router = useRouter();
   // While previewing somebody, the wall shows what THEY would get: the apps
   // they can open, and the rest locked rather than hidden, so you can see both
   // what they have and what they are missing.
@@ -108,33 +97,12 @@ export default function FrontPage() {
           hiddenPanels: j.prefs?.home?.hiddenPanels ?? [],
           appOrder: j.prefs?.home?.appOrder ?? [],
         });
-        setFace({ photo: j.prefs?.avatar ?? null, iconId: j.prefs?.avatarIcon ?? null });
       })
       .catch(() => {});
   }, []);
   const panel = (id: string) => !home.hiddenPanels.includes(id);
-  const [face, setFace] = useState<{ photo: string | null; iconId: string | null }>({ photo: null, iconId: null });
 
-  const [initials, setInitials] = useState("");
-  const [q, setQ] = useState("");
-  const [openSearch, setOpenSearch] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const boxRef = useRef<HTMLDivElement | null>(null);
-
-  // The real signed-in person, not a placeholder. Nothing else on this page
-  // depends on it, so a failure costs the initials and nothing more.
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        const name: string | undefined = j?.user?.full_name || j?.user?.username;
-        if (!alive || !name) return;
-        setInitials(name.trim().split(/\s+/).slice(0, 2).map((p: string) => p[0]).join("").toUpperCase());
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
 
   // HIDDEN, not greyed. SARCLA: somebody with no access should see no apps —
   // a wall of doors that all turn you away is a worse answer than an empty hall
@@ -172,36 +140,6 @@ export default function FrontPage() {
   // One or two apps should not stretch across the window; three or more share it.
   const wide = visibleApps.length < 3 ? "minmax(0, 340px)" : "minmax(0, 1fr)";
 
-  const hits = useMemo<Hit[]>(
-    () => searchApps(q).filter((h) => mayOpen(h.href)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [q, mine, viewed, role],
-  );
-
-  useEffect(() => {
-    const away = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpenSearch(false);
-    };
-    document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
-  }, []);
-
-  // One row. Destinations and the two in-page anchors together — a second nav
-  // strip underneath asked people to learn two menus on one screen, and put
-  // Settings in the chrome twice. Account things live behind the avatar now.
-  // A viewer was offered the whole strip — Applications, Mission Control, Live,
-  // Resources — when their hub is one app. Home and Settings is the honest
-  // header for them; everything else earns its place or is not drawn.
-  const reads = role === "viewer";
-  const NAV = [
-    { name: "Home", href: "/", icon: <HomeIcon />, on: true, show: true },
-    { name: "Applications", href: "#applications", icon: <AppsIcon />, on: false, show: !reads },
-    { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, on: false, show: openFor("marketing") },
-    { name: "Live", href: "/live", icon: <SensorsIcon />, on: false, show: openFor("website") },
-    { name: "Resources", href: "#resources", icon: <MenuBookIcon />, on: false, show: !reads },
-    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, on: false, show: true },
-  ].filter((n) => n.show);
-
   return (
     <Box sx={{
       minHeight: "100vh", position: "relative", overflowX: "hidden", bgcolor: MESH_BASE,
@@ -221,110 +159,8 @@ export default function FrontPage() {
 
       <Box sx={{ position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 } }}>
 
-        {/* ---------------------------------------------------------------- bar */}
-        <Box sx={{
-          ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5, ...rise(0),
-          display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
-        }}>
-          <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
-            <Wordmark size={26} />
-          </Box>
-
-          <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>
-            {NAV.map((n) => (
-              <Box key={n.name} component={Link} href={n.href} sx={{
-                display: "flex", alignItems: "center", gap: 0.8, px: 1.6, py: 1, borderRadius: "14px",
-                textDecoration: "none", fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
-                color: n.on ? ACCENT : MUTED,
-                bgcolor: n.on ? "rgba(59,125,246,.13)" : "transparent",
-                transition: "background-color .18s ease, color .18s ease",
-                "& svg": { fontSize: 19 }, ...focusRing,
-                "&:hover": { bgcolor: n.on ? "rgba(59,125,246,.18)" : "rgba(21,34,58,.05)", color: n.on ? ACCENT : INK },
-                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-              }}>{n.icon}{n.name}</Box>
-            ))}
-          </Box>
-
-          <Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
-            <Box sx={{
-              display: panel("search") ? { xs: "none", sm: "flex" } : "none", alignItems: "center", gap: 1,
-              width: { sm: 220, lg: 320 }, px: 1.75, py: 1, borderRadius: "14px",
-              bgcolor: "rgba(255,255,255,.8)", border: "1px solid rgba(21,34,58,.08)",
-              transition: "border-color .18s ease, box-shadow .18s ease",
-              "&:focus-within": { borderColor: ACCENT, boxShadow: `0 0 0 3px rgba(59,125,246,.16)` },
-            }}>
-              <SearchIcon sx={{ fontSize: 18, color: FAINT }} />
-              <Box
-                component="input"
-                value={q}
-                placeholder="Search apps, tools or help…"
-                aria-label="Search apps and tools"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setQ(e.target.value); setOpenSearch(true); }}
-                onFocus={() => setOpenSearch(true)}
-                onKeyDown={(e: React.KeyboardEvent) => {
-                  if (e.key === "Enter" && hits[0]) router.push(hits[0].href);
-                  if (e.key === "Escape") setOpenSearch(false);
-                }}
-                sx={{
-                  flex: 1, minWidth: 0, border: 0, outline: 0, background: "none",
-                  fontFamily: "inherit", fontSize: "0.86rem", color: INK,
-                  "&::placeholder": { color: FAINT },
-                }}
-              />
-            </Box>
-
-            {openSearch && q.trim() && (
-              <Box sx={{
-                position: "absolute", top: "calc(100% + 10px)", right: 0, width: { xs: 280, sm: 340 },
-                ...glass, bgcolor: "rgba(255,255,255,.94)", borderRadius: "16px", p: 1, zIndex: 20,
-                maxHeight: 360, overflowY: "auto",
-              }}>
-                {hits.length === 0 && (
-                  <Typography sx={{ fontSize: "0.84rem", color: MUTED, p: 1.5 }}>
-                    Nothing here matches &ldquo;{q.trim()}&rdquo;.
-                  </Typography>
-                )}
-                {hits.map((h) => (
-                  <Box key={h.app + h.href + h.name} component={Link} href={h.href}
-                    onClick={() => setOpenSearch(false)}
-                    sx={{
-                      display: "flex", alignItems: "center", gap: 1.25, p: 1, borderRadius: "12px",
-                      textDecoration: "none", ...focusRing,
-                      "&:hover": { bgcolor: "rgba(59,125,246,.09)" },
-                    }}>
-                    <Box sx={{
-                      width: 30, height: 30, borderRadius: "9px", flexShrink: 0, display: "grid", placeItems: "center",
-                      bgcolor: h.tint, color: h.fg,
-                    }}><HubIconGlyph name={h.icon} fontSize={16} /></Box>
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{h.name}</Typography>
-                      <Typography sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.3 }}>{h.app}</Typography>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            {/* Your account, not the Settings front page: a person clicking
-                their own initials wants their own account. */}
-            <Box component={Link} href="/settings/you" aria-label="Your account" title="Your account" sx={{
-              display: "grid", placeItems: "center", textDecoration: "none", borderRadius: "50%", ...focusRing,
-              transition: "transform .18s ease",
-              "&:hover": { transform: "scale(1.06)" },
-              "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-              // The initials keep the purple circle they have always had; a photo
-              // or an icon brings its own.
-              "& > *": face.photo || face.iconId
-                ? {}
-                : { background: "linear-gradient(140deg,#5b8def,#7c5cf0)", color: "#fff" },
-            }}>
-              {/* A dot told nobody anything. Until the name arrives this is a
-                  face, which at least says whose button it is. */}
-              <AvatarFace size={38} photo={face.photo} iconId={face.iconId} initials={initials}
-                fallback={<AccountCircleIcon sx={{ fontSize: 24 }} />} />
-            </Box>
-          </Box>
-        </Box>
+        {/* The bar: wordmark, the way round the hub, search, your face (src/app/HomeBar.tsx). */}
+        <HomeBar on="Home" />
 
         {/* No hero. The wordmark is in the bar, and a page whose job is to
             hand you five doors does not need a paragraph telling you so. The

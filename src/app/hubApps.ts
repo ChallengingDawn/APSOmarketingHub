@@ -131,14 +131,14 @@ export const APPS: HubApp[] = [
     line: "Every report in the hub, by team.",
     from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
     subs: [
-      { name: "Website Reports", note: "How the site is found and used", href: "/reporting/website", icon: "globe", ...BLUE },
-      { name: "Marketing Reports", note: "Targets and where they stand", href: "/reporting/marketing", icon: "target", ...AMBER },
-      { name: "Customer Reports", note: "KPIs, new and buying customers", href: "/reporting/customers", icon: "groups", ...GREEN },
+      { name: "Digital Growth Reports", note: "Targets and where they stand", href: "/reporting/marketing", icon: "target", ...AMBER },
       { name: "ESO Reports", note: "The ESO benchmark per sales rep", href: "/reporting/eso", icon: "bar", ...PURPLE },
       { name: "TSA Reports", note: "Tickets, calls, response times", href: "/reporting/tsa", icon: "route", ...TEAL },
       { name: "Back-Office Reports", note: "What comes in, how fast it goes", href: "/reporting/back-office", icon: "layers", ...PINK },
+      { name: "Website Reports", note: "How the site is found and used", href: "/reporting/website", icon: "globe", ...BLUE },
       { name: "OTD Reports", note: "On-time delivery", href: "/reporting/otd", icon: "sync", ...BLUE },
       { name: "Satisfaction Reports", note: "What customers say", href: "/reporting/satisfaction", icon: "health", ...GREEN },
+      { name: "Customer Reports", note: "KPIs, new and buying customers", href: "/reporting/customers", icon: "groups", ...GREEN },
     ],
   },
   {
