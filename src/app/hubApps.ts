@@ -80,6 +80,8 @@ export const APPS: HubApp[] = [
       { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
       // the order tool the shop frames, on its own Railway gateway (SARCLA 13.10.2026)
       { group: "Microservices", name: "DirectUP", note: "Order files into the cart: usage, lists, log, installation", href: "/website/directup", icon: "upload", ...PINK },
+      // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026)
+      { group: "Microservices", name: "Search bar", note: "What customers search and find, the gaps, feedback, stock", href: "/website/search-bar", icon: "search", ...BLUE },
       // the shop tools, each on its own gateway since 14.10.2026 (SARCLA: "one page per tool")
       { group: "Microservices", name: "O-Ring Expert", note: "O-rings by groove or size, in 3D: use and installation", href: "/website/oring-expert", icon: "ring", ...PURPLE },
       { group: "Microservices", name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
