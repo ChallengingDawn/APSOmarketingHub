@@ -311,6 +311,8 @@ const navSections: NavSection[] = [
       { group: "Use cases", label: "UC16 - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { group: "Use cases", label: "UC17 - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
+      // the companies' sales priority - first of the HubSpot apps (SARCLA, 16.10.2026)
+      { group: "HubSpot apps", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
       // replaces the HubSpot project sarcla-france-owner, with more than one rule (SARCLA, 12.10.2026)
@@ -319,7 +321,6 @@ const navSections: NavSection[] = [
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "Reports & data", label: "Articles CY/LY", href: "/uc/articles", icon: <QueryStatsIcon fontSize="small" /> },
-      { group: "Reports & data", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
     ],
   },
   {
