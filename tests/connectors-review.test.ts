@@ -25,3 +25,10 @@ test("never guesses: several candidates, another key, nothing, or not a key", ()
   assert.equal(verdictFrom("100-5", [], []).kind, "missing");
   assert.equal(verdictFrom("ABC", [], []).kind, "invalid");
 });
+
+test("a placeholder in the key field is no customer's key: it is overwritten, a real key never", () => {
+  // Stellar Alpina, 16.10.2026: "100-NO ERP ID (LEAD)"
+  assert.deepEqual(verdictFrom("100-865031", [], [co("s", { mandant: "M100", company_unique_number: "100-NO ERP ID (LEAD)" })]),
+    { kind: "can_link", companyId: "s", name: "Co s" });
+  assert.equal(verdictFrom("100-865763", [], [co("k", { mandant: "M100", company_unique_number: "100-865265" })]).kind, "conflict");
+});

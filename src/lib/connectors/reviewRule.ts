@@ -13,6 +13,9 @@ export type CheckRow = { un: string; verdict: CheckVerdict };
 
 export type Co = { id: string; properties: Record<string, string | null | undefined> };
 
+/** A real customer key: mandant, dash, ERP number ("100-865265"). */
+export const isCustomerKey = (k: string): boolean => /^\d+-\d+$/.test(k.trim());
+
 /** The rule, with no HubSpot in it: the companies that carry the key, and those with the ERP id. */
 export function verdictFrom(un: string, withKey: Co[], byErpId: Co[]): CheckVerdict {
   const m = /^(\d+)-(\d+)$/.exec(un.trim());
@@ -26,6 +29,8 @@ export function verdictFrom(un: string, withKey: Co[], byErpId: Co[]): CheckVerd
   if (cand.length > 1) return { kind: "several", ids: cand.map((o) => o.id) };
   const c = cand[0];
   const holds = (c.properties.company_unique_number ?? "").trim();
-  if (holds && holds !== un) return { kind: "conflict", companyId: c.id, name: c.properties.name ?? c.id, holds };
+  // only a real key (mandant-number) is another customer's; a placeholder such as
+  // "100-NO ERP ID (LEAD)" holds no customer and is overwritten (SARCLA 16.10.2026)
+  if (holds && holds !== un && isCustomerKey(holds)) return { kind: "conflict", companyId: c.id, name: c.properties.name ?? c.id, holds };
   return { kind: "can_link", companyId: c.id, name: c.properties.name ?? c.id };
 }
