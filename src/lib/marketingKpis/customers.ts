@@ -44,6 +44,22 @@ function firstMonthOf(v: string | null | undefined, firstYear: number): number |
 }
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
+/** The company properties that place a company in the cube. */
+export const DIM_PROPS = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id", "yearly_customer_potential"];
+/** Where a company sits on each dimension - shared with the online share's read (online.ts), so both place it alike. */
+export function labelsOf(p: Record<string, string | null | undefined>, owners: Map<string, string>): Record<Dim, string> {
+  return {
+    prio: prioOf(p.sales_priority),
+    segment: p.apso_customer || "No APSO segment",
+    potential: potentialBand(num(p.yearly_customer_potential)),
+    country: p.country_custom || "Not set",
+    owner: p.hubspot_owner_id ? owners.get(p.hubspot_owner_id) ?? `Owner ${p.hubspot_owner_id}` : "No owner",
+    type: p.customer_type || "Not set",
+    apic: p.apic_ap || "Not set",
+    mandant: p.mandant || "Not set",
+  };
+}
+
 async function build(): Promise<Cube> {
   const now = new Date();
   const year = now.getUTCFullYear();
@@ -52,8 +68,7 @@ async function build(): Promise<Cube> {
   reportProgress(KEY, "reading the owners");
   const owners = await ownerNames();
 
-  const props = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id",
-    "yearly_customer_potential", "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`)];
+  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`)];
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
     let i = labels[d].indexOf(v);
@@ -78,18 +93,9 @@ async function build(): Promise<Cube> {
         });
       });
       const potential = num(p.yearly_customer_potential);
-      const owner = p.hubspot_owner_id ? owners.get(p.hubspot_owner_id) ?? `Owner ${p.hubspot_owner_id}` : "No owner";
+      const l = labelsOf(p, owners);
       companies.push({
-        dims: {
-          prio: index("prio", prioOf(p.sales_priority)),
-          segment: index("segment", p.apso_customer || "No APSO segment"),
-          potential: index("potential", potentialBand(potential)),
-          country: index("country", p.country_custom || "Not set"),
-          owner: index("owner", owner),
-          type: index("type", p.customer_type || "Not set"),
-          apic: index("apic", p.apic_ap || "Not set"),
-          mandant: index("mandant", p.mandant || "Not set"),
-        },
+        dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
         potential, months,
         firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
       });

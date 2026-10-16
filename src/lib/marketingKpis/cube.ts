@@ -54,7 +54,8 @@ export type Cube = {
 export type Win = { start: number; end: number };
 export type Filters = Partial<Record<Dim, string>>;
 export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number; newC: number; newCPy: number };
-export type Row = Agg & { label: string };
+/** A row of one breakdown; the online share (KPI C06) joins it on the page once its own read is in. */
+export type Row = Agg & { label: string; online?: number | null; onlinePy?: number | null };
 
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -225,7 +226,7 @@ export function breakdown(cube: Cube, dim: Dim, filters: Filters, win: Win): Row
   return sortRows(rows, "natural", dim);
 }
 
-export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "newC" | "newCPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow";
+export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "newC" | "newCPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow" | "online";
 export const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
 /** Every sort is largest first except the name; `desc: false` turns it round. */
 export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[] {
@@ -234,6 +235,7 @@ export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[
     n: (r) => r.n, bought: (r) => r.bought, boughtPy: (r) => r.boughtPy, newC: (r) => r.newC, newCPy: (r) => r.newCPy, rev: (r) => r.rev, revPy: (r) => r.revPy,
     diff: (r) => r.rev - r.revPy, change: (r) => change(r.rev, r.revPy) ?? -Infinity, share: (r) => r.rev,
     sow: (r) => (r.pot > 0 ? r.revPot / r.pot : -Infinity),
+    online: (r) => r.online ?? -Infinity,
   };
   const dir = desc ? 1 : -1;
   // names compare as people read them: APIC 1.1.9 before 1.1.10

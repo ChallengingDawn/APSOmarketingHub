@@ -62,7 +62,9 @@ import {
   upToDate, windowLabel, yearOfMonth, type Agg, type Cube, type Dim, type Filters, type Row, type SortKey, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { RETRY_MS, RETRIES, hubJson, stageHref } from "./data";
+import { RETRY_MS, RETRIES, hubJson, stageHref, useSlow } from "./data";
+import { onlineBy, onlineShare, type OnlineAgg, type OnlineCube } from "@/lib/marketingKpis/onlineShare";
+import { MovementsView } from "./Movements";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -89,8 +91,8 @@ export function useCustomersCube(): { cube: Cube | null; computing: boolean; pro
 /* ── words and numbers, in full ───────────────────────────────────────── */
 
 const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string; kpi: string }> = {
-  prio: { name: "Sales priority", lower: "sales priority", icon: <StarOutlineIcon />, tint: "green", note: "Which priority bands buy, and which carry the revenue", kpi: "KPI C01 · C02" },
-  segment: { name: "APSO customer", lower: "APSO customer", icon: <GroupsOutlinedIcon />, tint: "purple", note: "APSOcore, APSOgrowth, APSOprospect, APSOlost, APSOmicro, Growth Engine", kpi: "KPI C03" },
+  prio: { name: "Sales priority", lower: "sales priority", icon: <StarOutlineIcon />, tint: "green", note: "Which priority bands buy, and which carry the revenue", kpi: "KPI C01 · C02 · C06" },
+  segment: { name: "APSO customer", lower: "APSO customer", icon: <GroupsOutlinedIcon />, tint: "purple", note: "APSOcore, APSOgrowth, APSOprospect, APSOlost, APSOmicro, Growth Engine", kpi: "KPI C03 · C06" },
   potential: { name: "Potential", lower: "potential", icon: <SavingsOutlinedIcon />, tint: "amber", note: "The yearly customer potential, and how much of it we get", kpi: "KPI C07" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where our customers are", kpi: "KPI C05" },
   owner: { name: "Sales rep", lower: "sales rep", icon: <PersonOutlineIcon />, tint: "slate", note: "The company owner in HubSpot", kpi: "" },
@@ -240,12 +242,53 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
 }
 
 const byBought = (r: Row) => r.bought, byRev = (r: Row) => r.rev, byNew = (r: Row) => r.newC;
+// a row without orders a year earlier draws no grey bar, rather than a false 0%
+const byOnline = (r: Row) => r.online ?? 0, byOnlinePy = (r: Row) => r.onlinePy ?? NaN;
+
+/** KPI C06, read on its own (online.ts): the page shows everything else meanwhile. */
+const useOnline = () => useSlow<OnlineCube>("/api/reporting/marketing-kpis/online", "online");
+/** Rows with the online share of their orders - by label, under the same filters and months. */
+function withOnline(rows: Row[], groups: Map<string, OnlineAgg> | null): Row[] {
+  if (!groups) return rows;
+  return rows.map((r) => {
+    const a = groups.get(r.label);
+    return { ...r, online: a ? onlineShare(a.all, a.web) : null, onlinePy: a ? onlineShare(a.allPy, a.webPy) : null };
+  });
+}
+/** All the groups together. */
+function sumOnline(groups: Map<string, OnlineAgg>): OnlineAgg {
+  const t = { all: 0, web: 0, allPy: 0, webPy: 0 };
+  for (const a of groups.values()) { t.all += a.all; t.web += a.web; t.allPy += a.allPy; t.webPy += a.webPy; }
+  return t;
+}
+/** A share's change, in percentage points. */
+const points = (a: number | null | undefined, b: number | null | undefined) =>
+  a == null || b == null ? null : `${a - b > 0 ? "+" : a - b < 0 ? "−" : "±"}${Math.abs((a - b) * 100).toFixed(1)} pt`;
+
+/** In the online chart's place while its read runs - or why it could not. */
+function OnlineWaiting({ progress, error }: { progress?: string; error?: string }) {
+  return (
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, alignContent: "start" }}>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Online share of order value</Typography>
+      <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
+        {!error && <CircularProgress size={16} />}
+        <Typography sx={{ fontSize: "0.82rem", color: error ? RED : MUTED }}>
+          {error ? `Could not read the orders: ${error}` : `Reading every order of the three years${progress ? ` - ${progress}` : ""}. About 5 minutes the first time, then kept for 6 hours; the rest of the page does not wait for it.`}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
 
 /* ── the table: wide, in words, any column sorts ──────────────────────── */
 
 type Col = { key: SortKey; head: string; tip: string; cell: (r: Row, sum: number) => React.ReactNode };
 
-function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: { cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string; onPick: (label: string) => void; withNew?: boolean }) {
+function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false, onlineTotal }: {
+  cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string; onPick: (label: string) => void; withNew?: boolean;
+  /** the online share of all the rows' orders; the column shows once the online read is in */
+  onlineTotal?: OnlineAgg | null;
+}) {
   const fixed = dim === "prio" || dim === "potential";
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: fixed ? "natural" : "rev", desc: true });
   const [q, setQ] = useState("");
@@ -257,6 +300,7 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: {
     label: "Total", n: t.n + r.n, pot: t.pot + r.pot, bought: t.bought + r.bought, boughtPy: t.boughtPy + r.boughtPy,
     rev: t.rev + r.rev, revPy: t.revPy + r.revPy, revPot: t.revPot + r.revPot, newC: t.newC + r.newC, newCPy: t.newCPy + r.newCPy,
   }), { label: "Total", n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0 });
+  if (onlineTotal) { tot.online = onlineShare(onlineTotal.all, onlineTotal.web); tot.onlinePy = onlineShare(onlineTotal.allPy, onlineTotal.webPy); }
   const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
   const cols: Col[] = [
     { key: "n", head: "Companies", tip: "Companies in HubSpot today", cell: (r) => int(r.n) },
@@ -272,18 +316,28 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: {
     { key: "change", head: "Change in %", tip: "The change against the same months a year earlier", cell: (r) => <span style={{ color: tone(change(r.rev, r.revPy)), fontWeight: 700 }}>{r.revPy ? signedPct(change(r.rev, r.revPy)) : r.rev > 0 ? "new" : "—"}</span> },
     { key: "share", head: "Share of revenue", tip: "This row's part of all the revenue in the table", cell: (r, s) => (r.rev > 0 && s > 0 ? pct(r.rev / s) : "—") },
     { key: "sow", head: "Share of wallet", tip: "Revenue against the yearly potential for the same number of months", cell: (r) => pct(shareOfWallet(r, win, cube)) },
+    ...(onlineTotal ? [{
+      key: "online" as SortKey, head: "Online share of orders", tip: `The orders' net value that came through the shop, in ${w}; in brackets ${pw} (KPI C06)`,
+      // the year earlier beneath, so the eleven columns still fit the card
+      cell: (r: Row) => (r.online == null ? "—" : <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.2 }}>
+        {pct(r.online)}{r.onlinePy != null && <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>({pct(r.onlinePy)})</Box>}
+      </Box>),
+    }] : []),
   ];
   const sorted = sortRows(rows, sort.key, dim, sort.desc);
   const found = q ? sorted.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : sorted;
   const LIMIT = 25;
   const shown = open || q ? found : found.slice(0, LIMIT);
   const by = (key: SortKey) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: true }));
-  // headers may take two lines, so the ten columns fit the card without scrolling sideways
+  // headers may take two lines, and the thirteen columns with the new customers sit a little closer, so the table fits the card without scrolling sideways
+  const pad = withNew ? 0.6 : 0.75;
   const head = {
-    fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: 1, verticalAlign: "bottom" as const,
-    maxWidth: 132, "& .MuiTableSortLabel-root": { whiteSpace: "normal", textAlign: "right" },
+    fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: pad, verticalAlign: "bottom" as const,
+    maxWidth: 124, "& .MuiTableSortLabel-root": { whiteSpace: "normal", textAlign: "right" },
+    // the arrow only on the column that sorts: an unseen arrow on every header cost the table its width
+    "& .MuiTableSortLabel-root:not(.Mui-active) .MuiTableSortLabel-icon": { display: "none" },
   };
-  const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const, py: 1, px: 1 };
+  const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const, py: 1, px: pad };
   return (
     <Box sx={{ minWidth: 0 }}>
       {rows.length > 12 && (
@@ -296,7 +350,7 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: {
         <Table size="small" sx={{ minWidth: 860 }} aria-label={`Our customers by ${DIM[dim].lower}`}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ ...head, maxWidth: "none", minWidth: 150, pl: 1.5 }}>
+              <TableCell sx={{ ...head, maxWidth: "none", minWidth: 110, pl: 1.5 }}>
                 <TableSortLabel active={sort.key === "label"} direction={sort.key === "label" && !sort.desc ? "desc" : "asc"} onClick={() => by("label")}>{DIM[dim].name}</TableSortLabel>
               </TableCell>
               {cols.map((c) => (
@@ -312,7 +366,7 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false }: {
               return (
                 <TableRow key={r.label} hover onClick={() => onPick(r.label)} selected={on} aria-selected={on}
                   sx={{ cursor: "pointer", opacity: selected && !on ? 0.5 : 1, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: TINT[DIM[dim].tint].bg } }}>
-                  <TableCell sx={{ ...body, fontWeight: 600 }}>
+                  <TableCell sx={{ ...body, fontWeight: 600, whiteSpace: "normal", maxWidth: 150 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>{on && <CheckIcon sx={{ fontSize: 16, color: TINT[DIM[dim].tint].fg }} />}{r.label}</Box>
                   </TableCell>
                   {cols.map((c) => <TableCell key={c.key} align="right" sx={body}>{c.cell(r, sumRev)}</TableCell>)}
@@ -354,7 +408,9 @@ export function CustomersExplorer() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const params = useSearchParams();
   const [filters, setFilters] = useState<Filters>(() => Object.fromEntries(DIMS.flatMap((d) => (params.get(d) ? [[d, params.get(d)!]] : []))));
-  const [view, setView] = useState<Dim>(() => ((ORDER as string[]).includes(params.get("view") ?? "") ? (params.get("view") as Dim) : "prio"));
+  // the breakdowns, and after them the movements (KPI C08)
+  const [view, setView] = useState<Dim | "moves">(() => ([...ORDER, "moves"] as string[]).includes(params.get("view") ?? "") ? (params.get("view") as Dim | "moves") : "prio");
+  const dimView: Dim = view === "moves" ? "prio" : view;
   const [win, setWin] = useState<Win | null>(null);
   useEffect(() => {
     if (!cube || win) return;
@@ -378,7 +434,10 @@ export function CustomersExplorer() {
   const clear = (d: Dim) => setFilters((f) => { const n = { ...f }; delete n[d]; return n; });
   const a = useMemo(() => (cube && win ? totals(cube, filters, win) : null), [cube, filters, win]);
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
-  const rows = useMemo(() => (cube && win ? breakdown(cube, view, filters, win) : []), [cube, view, filters, win]);
+  const rows = useMemo(() => (cube && win ? breakdown(cube, dimView, filters, win) : []), [cube, dimView, filters, win]);
+  const onl = useOnline();
+  const onlineGroups = useMemo(() => (onl.value && win ? onlineBy(onl.value, filters, win, dimView) : null), [onl.value, filters, win, dimView]);
+  const onlineNow = useMemo(() => (onl.value && win ? onlineBy(onl.value, filters, win).get("") ?? { all: 0, web: 0, allPy: 0, webPy: 0 } : null), [onl.value, filters, win]);
 
   // the filters open as a window of their own (SARCLA 13.10), closed at first; a chart can open it on its breakdown
   const [panel, setPanel] = useState(false);
@@ -386,14 +445,14 @@ export function CustomersExplorer() {
   const openOn = (dim: Dim) => { setFocus((f) => ({ dim, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
   if (!cube || !win || !a || !all) return <Waiting computing={computing} progress={progress} error={error} />;
-  const d = DIM[view];
+  const d = DIM[dimView];
   // the charts take every value, largest first, and page through them; priority and potential keep their order
   const ranked = (dim: Dim) => {
     const r = breakdown(cube, dim, filters, win);
     return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim);
   };
-  const chartRows = ranked(view);
-  const fixedView = view === "prio" || view === "potential";
+  const chartRows = ranked(dimView);
+  const fixedView = dimView === "prio" || dimView === "potential";
   // a bar filters, and the filter window opens on that breakdown (SARCLA 14.10)
   const fromChart = (dim: Dim) => (label: string) => { toggle(dim, label); openOn(dim); };
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
@@ -424,51 +483,66 @@ export function CustomersExplorer() {
           )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
-          <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} />
+          <KpiCards cube={cube} a={a} all={all} win={win} readIso={computedAt} online={onlineNow} onlineBusy={!onl.value && !onl.error} />
         </Box>
       </Box>
 
       {/* the tabs, and at their right end the Filters button (SARCLA 14.10) - it opens the window on the tab's breakdown */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-        <Box sx={{ minWidth: 0 }}>
+      {/* one row from tablet width: when the tabs do not fit they wrap inside their own bar, and Filters stays at the right end; on a phone Filters goes below */}
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
           <ReportTabs name="customers" tab={view} onSelect={setView}
-            tabs={ORDER.map((x) => ({ id: x, label: DIM[x].name, count: filters[x] ? "1 chosen" : null }))} />
+            tabs={[...ORDER.map((x) => ({ id: x as Dim | "moves", label: DIM[x].name, count: filters[x] ? "1" : null })), { id: "moves" as const, label: "Movements", count: null }]} />
         </Box>
         <Box sx={{ flex: 1 }} />
-        <Button onClick={() => (panel ? setPanel(false) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+        <Button onClick={() => (panel ? setPanel(false) : view === "moves" ? setPanel(true) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
           Filters{active.length ? ` · ${active.length}` : ""}
         </Button>
       </Box>
 
-      {/* minmax(0, 1fr): a chart may not widen its card past the column */}
+      {view === "moves" ? <MovementsView cube={cube} win={win} filtered={active.length > 0} /> : (
+      /* minmax(0, 1fr): a chart may not widen its card past the column */
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
           right={d.kpi ? <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT }}>{d.kpi}</Typography> : undefined} />
 
         {/* the charts first - this view's own - and the table at the end */}
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
-          <DimChart key={`b-${view}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={byBought} prev={(r) => r.boughtPy} pageSize={12} fixedOrder={fixedView}
-            curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
-          <DimChart key={`r-${view}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={byRev} prev={(r) => r.revPy} pageSize={12} fixedOrder={fixedView}
-            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
+          <DimChart key={`b-${dimView}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={byBought} prev={(r) => r.boughtPy} pageSize={12} fixedOrder={fixedView}
+            curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+          <DimChart key={`r-${dimView}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={byRev} prev={(r) => r.revPy} pageSize={12} fixedOrder={fixedView}
+            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
           {withNew && (
-            <DimChart key={`n-${view}`} title={`New customers, by ${d.lower}`} rows={chartRows} cur={byNew} prev={(r) => r.newCPy} pageSize={12} fixedOrder={fixedView}
-              curLabel={w} prevLabel={pw} fmt={int} selected={filters[view]} onPick={fromChart(view)} onFilter={() => openOn(view)} filterLabel={`Filter by ${d.lower}`} />
+            <DimChart key={`n-${dimView}`} title={`New customers, by ${d.lower}`} rows={chartRows} cur={byNew} prev={(r) => r.newCPy} pageSize={12} fixedOrder={fixedView}
+              curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
           )}
+          {/* KPI C06: of the orders' value, how much came through the shop - its own read, in when it is in */}
+          {/* the odd chart out takes the whole row */}
+          <Box sx={{ minWidth: 0, gridColumn: { lg: withNew ? "auto" : "1 / -1" } }}>
+          {onlineGroups ? (
+            <DimChart key={`o-${dimView}`} title={`Online share of order value, by ${d.lower}`} rows={withOnline(chartRows, onlineGroups).filter((r) => r.online != null)}
+              cur={byOnline} prev={byOnlinePy} pageSize={12} fixedOrder={fixedView}
+              curLabel={w} prevLabel={pw} fmt={pct} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+          ) : <OnlineWaiting progress={onl.progress} error={onl.error} />}
+          </Box>
         </Box>
 
         <Box>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {d.lower}</Typography>
-          <DimTable cube={cube} dim={view} rows={rows} win={win} selected={filters[view]} onPick={(l) => toggle(view, l)} withNew={withNew} />
+          <DimTable cube={cube} dim={dimView} rows={withOnline(rows, onlineGroups)} win={win} selected={filters[dimView]} onPick={(l) => toggle(dimView, l)} withNew={withNew}
+            onlineTotal={onlineGroups ? sumOnline(onlineGroups) : null} />
         </Box>
 
         <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
           Every company in HubSpot, read again after every ERP delivery; revenue up to that delivery. Bought = invoiced revenue in at least one month of the period.
           Priority, APSO customer, potential, sales rep and APIC are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
+          {onl.value && <> Online share: of the orders&apos; net value by order date, the part that came through the shop (apsoparts.com), read {readAt(onl.value.generatedAt)};
+            credit notes and cancelled orders left out; in each order&apos;s own currency (CHF or EUR).</>}
         </Typography>
       </GlassCard>
+      )}
 
       <FilterWindow open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} />
     </Box>
@@ -476,16 +550,23 @@ export function CustomersExplorer() {
 }
 
 /** The four figures, each in a small card, top right beside the title (SARCLA 13.10). */
-function KpiCards({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string }) {
+function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string; online?: OnlineAgg | null; onlineBusy?: boolean }) {
   const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
-  const items: { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint }[] = [
+  const items: { label: string; value: string; ch?: number | null; chText?: string | null; chTone?: number | null; sub: string; icon: React.ReactNode; tint: Tint }[] = [
     { label: "Companies", value: int(a.n), sub: a.n !== all.n ? `${pct(a.n / all.n)} of all ${int(all.n)}` : `as of ${readAt(readIso)}`, icon: <ApartmentOutlinedIcon />, tint: "purple" },
     { label: "Companies that bought", value: int(a.bought), ch: change(a.bought, a.boughtPy), sub: `a year earlier: ${int(a.boughtPy)}`, icon: <ShoppingCartOutlinedIcon />, tint: "green" },
     { label: "Revenue", value: eur(a.rev), ch: change(a.rev, a.revPy), sub: `a year earlier: ${eur(a.revPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
     { label: "Share of wallet", value: pct(shareOfWallet(a, win, cube)), sub: "of the yearly potential", icon: <DonutLargeOutlinedIcon />, tint: "amber" },
   ];
+  if (online || onlineBusy) {
+    const now = online ? onlineShare(online.all, online.web) : null, py = online ? onlineShare(online.allPy, online.webPy) : null;
+    items.push({
+      label: "Online share", value: online ? pct(now) : "…", chText: points(now, py), chTone: now != null && py != null ? now - py : null,
+      sub: online ? (py != null ? `of order value · a year earlier: ${pct(py)}` : "of the orders' value") : "reading the orders", icon: <ShoppingCartOutlinedIcon />, tint: "blue",
+    });
+  }
   return (
-    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(132px, 180px))" }, flex: "0 1 auto" }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${items.length}, minmax(124px, 172px))` }, flex: "0 1 auto" }}>
       {items.map((it) => (
         <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -495,6 +576,7 @@ function KpiCards({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6, flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
             {it.ch !== undefined && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
+            {it.chText && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: tone(it.chTone ?? null) }}>{it.chText}</Typography>}
           </Box>
           <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{it.sub}</Typography>
         </Box>
@@ -686,6 +768,7 @@ export function CustomersSummary() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const win = useMemo(() => (cube ? defaultWindow(cube) : null), [cube]);
   const a = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
+  const onl = useOnline();
   if (!cube || !win || !a) return <Waiting computing={computing} progress={progress} error={error} />;
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const href = (d: Dim, label: string) => `${stageHref("customers")}?${new URLSearchParams({ view: d, [d]: label }).toString()}`;
@@ -710,10 +793,10 @@ export function CustomersSummary() {
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead><TableRow>
-                  {[DIM[d].name, "Companies", `Bought in ${w}`, `Revenue ${w}`, "Change in %"].map((h, i) => <TableCell key={h} align={i ? "right" : "left"} sx={head}>{h}</TableCell>)}
+                  {[DIM[d].name, "Companies", `Bought in ${w}`, `Revenue ${w}`, "Change in %", "Online share of orders"].map((h, i) => <TableCell key={h} align={i ? "right" : "left"} sx={head}>{h}</TableCell>)}
                 </TableRow></TableHead>
                 <TableBody>
-                  {breakdown(cube, d, {}, win).map((r) => {
+                  {withOnline(breakdown(cube, d, {}, win), onl.value ? onlineBy(onl.value, {}, win, d) : null).map((r) => {
                     const c = change(r.rev, r.revPy);
                     return (
                       <TableRow key={r.label} hover component={Link} href={href(d, r.label)} sx={{ textDecoration: "none", cursor: "pointer" }}>
@@ -722,6 +805,7 @@ export function CustomersSummary() {
                         <TableCell align="right" sx={body}>{int(r.bought)}</TableCell>
                         <TableCell align="right" sx={body}>{eur(r.rev)}</TableCell>
                         <TableCell align="right" sx={{ ...body, fontWeight: 700, color: c == null ? FAINT : c > 0 ? GREEN : RED }}>{r.revPy ? signedPct(c) : "—"}</TableCell>
+                        <TableCell align="right" sx={body}>{onl.value ? pct(r.online ?? null) : "…"}</TableCell>
                       </TableRow>
                     );
                   })}

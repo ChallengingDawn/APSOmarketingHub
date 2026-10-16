@@ -15,6 +15,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 
 import { ChartFrame } from "@/app/charts/ChartFrame";
+import type { SlowState } from "@/lib/integrations/slowReport";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import HubIconGlyph from "@/app/HubIcon";
 import { Badge, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, bodyCell, headCell, type Tint } from "@/app/uc/report/ui";
@@ -41,6 +42,34 @@ export async function hubJson<T>(url: string): Promise<T> {
 }
 /** Asks again every 5 s while the hub is busy or restarting; says so only after 2 minutes of failing. */
 export const RETRY_MS = 5000, RETRIES = 24;
+
+/**
+ * A background read the hub keeps (slowReport): asked until it is done, and asked
+ * again through a deployment's error page. The page shows what it has meanwhile,
+ * so a slow read never holds the rest of the page back.
+ */
+export function useSlow<T>(url: string, field: string): { value: T | null; computing: boolean; progress?: string; error?: string } {
+  const [st, setSt] = useState<{ state?: SlowState<T>; error?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (tries = 0) => hubJson<Record<string, unknown>>(url)
+      .then((j) => {
+        if (!alive) return;
+        const state = j?.[field] as SlowState<T> | undefined;
+        setSt({ state, error: typeof j?.error === "string" ? j.error : undefined });
+        if (state?.computing) timer = setTimeout(load, RETRY_MS);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
+        setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
+      });
+    load();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, [url, field]);
+  return { value: st?.state?.value ?? null, computing: !!st?.state?.computing || st === null, progress: st?.state?.progress, error: st?.error ?? st?.state?.error };
+}
 
 export function useMarketingKpis(): [MkState | null, () => void] {
   const [state, setState] = useState<MkState | null>(null);
@@ -141,7 +170,7 @@ export const nameOf = (id: string) => JOURNEY.find((j) => j.id === id)?.name ?? 
  * rather than as a monthly series: counts, revenue and share of wallet by
  * priority, segment, type, country, mandant and potential.
  */
-export const CUSTOMER_CUBE_KPIS: ReadonlySet<string> = new Set(["C01", "C02", "C03", "C04", "C05", "C07"]);
+export const CUSTOMER_CUBE_KPIS: ReadonlySet<string> = new Set(["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"]);
 export const isMeasured = (id: string) => (!!MEASURES[id] && !MEASURES[id].notCatalogue) || CUSTOMER_CUBE_KPIS.has(id);
 const measures = (k: CatalogueKpi) => isMeasured(k.id);
 
