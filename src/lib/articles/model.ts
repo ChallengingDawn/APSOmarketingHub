@@ -112,6 +112,8 @@ type Acc = {
   qtyCy: number; qtyLyYtd: number; qtyLy: number;
   linesCy: number; linesLyYtd: number; linesLy: number;
   cuCy: Set<string>; cuLyYtd: Set<string>; cuLy: Set<string>;
+  /** this year's quantity per buyer, for the split by country */
+  qtyByUnCy: Map<string, number>;
   text: string; pc: string;
 };
 
@@ -175,6 +177,12 @@ export type ArticleRow = {
   linesCy: number; linesLyYtd: number; linesLy: number;
   customersCy: number; customersLyYtd: number; customersLy: number;
   countries: string;
+  /**
+   * This year's buyers and quantity per country: { "Switzerland": [buyers, qty] }.
+   * What the Datatracker's Articles tab filters on by country (SARCLA 16.10).
+   * Absent on reports built before it existed.
+   */
+  byCountryCy?: Record<string, [number, number]>;
 };
 
 export type ReportOptions = { cy: number; ly: number; today: string; basis: Basis };
@@ -192,12 +200,12 @@ export function aggregate(docs: Doc[], o: ReportOptions): Map<string, Acc> {
       let a = agg.get(l.art);
       if (!a) {
         a = { cy: 0, lyYtd: 0, ly: 0, qtyCy: 0, qtyLyYtd: 0, qtyLy: 0, linesCy: 0, linesLyYtd: 0, linesLy: 0,
-          cuCy: new Set(), cuLyYtd: new Set(), cuLy: new Set(), text: "", pc: "" };
+          cuCy: new Set(), cuLyYtd: new Set(), cuLy: new Set(), qtyByUnCy: new Map(), text: "", pc: "" };
         agg.set(l.art, a);
       }
       if (cur) {
         a.cy += l.rev; a.qtyCy += l.qty; a.linesCy += 1;
-        if (u.un) a.cuCy.add(u.un);
+        if (u.un) { a.cuCy.add(u.un); a.qtyByUnCy.set(u.un, (a.qtyByUnCy.get(u.un) ?? 0) + l.qty); }
       } else {
         a.ly += l.rev; a.qtyLy += l.qty; a.linesLy += 1;
         if (u.un) a.cuLy.add(u.un);
@@ -230,6 +238,13 @@ export function rowsOf(agg: Map<string, Acc>, countryOf: (un: string) => string 
   for (const [art, a] of agg) {
     const delta = a.cy - a.lyYtd;
     const ctry = [...new Set([...a.cuCy, ...a.cuLy].map(countryOf).filter((c): c is string => !!c))].sort();
+    const byCountryCy: Record<string, [number, number]> = {};
+    for (const [un, qty] of a.qtyByUnCy ?? []) {
+      const c = countryOf(un);
+      if (!c) continue;
+      const v = (byCountryCy[c] ??= [0, 0]);
+      v[0] += 1; v[1] = r2(v[1] + qty);
+    }
     rows.push({
       article: art, description: a.text, pc: a.pc || "?", pseudo: PSEUDO_ARTICLES.has(art),
       revenueCy: r2(a.cy), revenueLyYtd: r2(a.lyYtd), revenueLy: r2(a.ly),
@@ -238,6 +253,7 @@ export function rowsOf(agg: Map<string, Acc>, countryOf: (un: string) => string 
       linesCy: a.linesCy, linesLyYtd: a.linesLyYtd, linesLy: a.linesLy,
       customersCy: a.cuCy.size, customersLyYtd: a.cuLyYtd.size, customersLy: a.cuLy.size,
       countries: ctry.slice(0, 4).join("|") + (ctry.length > 4 ? `|+${ctry.length - 4}` : ""),
+      ...(Object.keys(byCountryCy).length ? { byCountryCy } : {}),
     });
   }
   return rows.sort((x, y) => y.revenueCy - x.revenueCy);

@@ -116,12 +116,13 @@ async function countries(uns: string[]): Promise<Map<string, string>> {
         path: "/crm/v3/objects/companies/search", method: "POST", useTicketsToken: true,
         body: {
           filterGroups: [{ filters: [{ propertyName: "company_unique_number", operator: "IN", values: uns.slice(i, i + 100) }] }],
-          properties: ["company_unique_number", "country"], limit: 100,
+          properties: ["company_unique_number", "country_custom", "country"], limit: 100,
         },
       });
       for (const o of r.results ?? []) {
         const un = str(o.properties?.company_unique_number).trim();
-        const c = str(o.properties?.country).trim();
+        // the Datatracker's country list is country_custom; the free-text field only when that is empty
+        const c = (str(o.properties?.country_custom).trim() || str(o.properties?.country).trim());
         if (un && c && !out.has(un)) out.set(un, c.slice(0, 24));
       }
     } catch (e) {

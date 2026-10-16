@@ -27,12 +27,16 @@ export async function GET(req: NextRequest) {
   const after = sp.get("after") ?? undefined;
   const pcRaw = (sp.get("pc") ?? "").trim().toUpperCase();
   const pc = /^[A-Z]{2}$/.test(pcRaw) ? pcRaw : undefined;
+  // a country and a number of customers buying turn the list into this year's buying (SARCLA 16.10)
+  const country = (sp.get("country") ?? "").trim().slice(0, 60) || undefined;
+  const minRaw = Math.floor(Number(sp.get("minCustomers")));
+  const minCustomers = Number.isFinite(minRaw) && minRaw > 1 ? Math.min(minRaw, 100_000) : undefined;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const data = await cachedReport(`articles:${search ?? ""}:${sort}:${pc ?? ""}:${limit}:${after ?? ""}`, () =>
-      fetchArticleActivity({ search, sort, pc, limit, after, signal: controller.signal }),
+    const data = await cachedReport(`articles:${search ?? ""}:${sort}:${pc ?? ""}:${limit}:${after ?? ""}:${country ?? ""}:${minCustomers ?? ""}`, () =>
+      fetchArticleActivity({ search, sort, pc, limit, after, country, minCustomers, signal: controller.signal }),
     );
     return NextResponse.json({ configured: true, ok: true, data });
   } catch (err) {

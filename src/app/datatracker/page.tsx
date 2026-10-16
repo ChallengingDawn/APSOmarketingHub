@@ -781,6 +781,9 @@ function EshopActivityPage() {
   };
   const [articles, setArticles] = useState<ArticleActivity | null>(null);
   const [articleSort, setArticleSort] = useState<"orders" | "companies" | "stock">("orders");
+  // SARCLA 16.10: "allow more filter per country, per number of customers". A country or a
+  // number of customers buying turns the list into this year's buying, sorted by its buyers.
+  const [minCustomers, setMinCustomers] = useState("");
   const [articlesError, setArticlesError] = useState<string | null>(null);
   // Which 200 HubSpot sends is `articleSort`; how the loaded rows are ordered on
   // screen is this. Clicking a header that HubSpot can sort on moves BOTH, so
@@ -905,6 +908,10 @@ function EshopActivityPage() {
     const q = new URLSearchParams({ sort: articleSort, limit: "200" });
     if (searchSlow.trim()) q.set("search", searchSlow.trim());
     if (profitCentre) q.set("pc", profitCentre);
+    if (country) q.set("country", country);
+    if (Number(minCustomers) > 1) q.set("minCustomers", minCustomers);
+    // this year's buying comes sorted by its buyers; the table says so
+    if (country || Number(minCustomers) > 1) { setArticleSortKey("buyersYtd"); setArticleSortDir("desc"); }
     fetch(`/api/datatracker/articles?${q}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((j) => {
@@ -913,7 +920,7 @@ function EshopActivityPage() {
       })
       .catch((e) => { if ((e as Error)?.name !== "AbortError") setArticlesError(String(e)); });
     return () => ctrl.abort();
-  }, [tab, articleSort, searchSlow, profitCentre]);
+  }, [tab, articleSort, searchSlow, profitCentre, country, minCustomers]);
 
   // Typing filters what is on screen rather than asking HubSpot again: the rows
   // are already here, and a search per keystroke would hit the search throttle.
@@ -962,6 +969,8 @@ function EshopActivityPage() {
       const q = new URLSearchParams({ sort: articleSort, limit: "200", after: articles.after });
       if (searchSlow.trim()) q.set("search", searchSlow.trim());
       if (profitCentre) q.set("pc", profitCentre);
+      if (country) q.set("country", country);
+      if (Number(minCustomers) > 1) q.set("minCustomers", minCustomers);
       const j = await fetch(`/api/datatracker/articles?${q}`).then((r) => r.json());
       if (j?.ok && j.data) {
         const next = j.data as ArticleActivity;
@@ -970,7 +979,7 @@ function EshopActivityPage() {
     } finally {
       setArticlesLoadingMore(false);
     }
-  }, [articles, articlesLoadingMore, articleSort, searchSlow, profitCentre]);
+  }, [articles, articlesLoadingMore, articleSort, searchSlow, profitCentre, country, minCustomers]);
 
   // A row that does not qualify is still worth seeing: it is how you check the
   // rule is drawing its line where you meant it to.
@@ -1191,7 +1200,8 @@ function EshopActivityPage() {
     const day = isoDay(stamp);
     const repName = representative ? options?.representatives?.find((r) => r.id === representative)?.name ?? representative : "";
     const filters = [
-      usedHere.company && mandant, usedHere.company && country, usedHere.company && apsoCustomer,
+      usedHere.company && mandant, (usedHere.company || tab === "articles") && country, usedHere.company && apsoCustomer,
+      tab === "articles" && Number(minCustomers) > 1 && `at least ${minCustomers} customers buying`,
       usedHere.company && priority && `priority ${shortPriority(priority)}`, usedHere.company && repName,
       usedHere.pc && profitCentre && `profit centre ${profitCentre}`, search.trim() && `search "${search.trim()}"`,
     ].filter(Boolean).join(" · ") || "no filter";
@@ -1412,7 +1422,7 @@ function EshopActivityPage() {
           {/* Articles: which 200 HubSpot sends, so the header arrow follows it -
               otherwise the table says it is sorted by one thing while it was
               fetched by another. */}
-          {tab === "articles" && (
+          {tab === "articles" && !country && !(Number(minCustomers) > 1) && (
             <Select size="small" value={articleSort} sx={{ minWidth: 180 }} aria-label="Sort the articles"
               onChange={(e) => {
                 const v = e.target.value as typeof articleSort;
@@ -1443,10 +1453,17 @@ function EshopActivityPage() {
               <MenuItem value="">All mandants</MenuItem>
               {(options?.mandants ?? []).map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
             </Select>)}
-          {hint(usedHere.company,
-            <Select size="small" displayEmpty value={country} onChange={(e) => setCountry(e.target.value)} sx={{ minWidth: 160 }} disabled={!usedHere.company}>
+          {hint(usedHere.company || tab === "articles",
+            <Select size="small" displayEmpty value={country} onChange={(e) => setCountry(e.target.value)} sx={{ minWidth: 160 }}
+              inputProps={{ "aria-label": "Country" }} disabled={!(usedHere.company || tab === "articles")}>
               <MenuItem value="">All countries</MenuItem>
               {(options?.countries ?? []).map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            </Select>)}
+          {hint(tab === "articles",
+            <Select size="small" displayEmpty value={minCustomers} onChange={(e) => setMinCustomers(String(e.target.value))} sx={{ minWidth: 210 }}
+              inputProps={{ "aria-label": "Customers buying" }}>
+              <MenuItem value="">Any number of customers</MenuItem>
+              {[2, 3, 5, 10, 25, 50, 100].map((n) => <MenuItem key={n} value={String(n)}>{`At least ${n} customers buying`}</MenuItem>)}
             </Select>)}
           {hint(usedHere.selection,
             <Select size="small" displayEmpty value={apsoCustomer} onChange={(e) => setApsoCustomer(e.target.value)} sx={{ minWidth: 180 }} disabled={!usedHere.selection}>
@@ -1508,6 +1525,13 @@ function EshopActivityPage() {
             <Chip size="small" label={`${full(articles.total)} articles match`} sx={{ bgcolor: "#e3edf7", color: "#1b4a80", fontWeight: 600 }} />
           )}
           {tab === "articles" && articlesError && <Typography sx={{ fontSize: "0.8rem", color: "#9e1b18" }}>{articlesError}</Typography>}
+          {tab === "articles" && articles?.mode === "bought" && (
+            <Typography sx={{ fontSize: "0.8rem", color: articles.countrySplit === false ? "#8a5a00" : "#5d6b85", flexBasis: "100%" }}>
+              {articles.countrySplit === false
+                ? "The split by country comes with the next Articles report - it is built again every morning after the ERP delivery."
+                : `This year's buying${articles.country ? ` in ${articles.country}` : ""}${Number(minCustomers) > 1 ? `, at least ${minCustomers} customers` : ""} · sorted by customers buying`}
+            </Typography>
+          )}
           {tab === "customers" && (<>
           {/* A bounded scan must say so. A silent cap reads as "this is the
               whole total" and that is how a wrong number gets published. */}
@@ -1732,7 +1756,11 @@ function EshopActivityPage() {
                           letterSpacing: "0.05em", textTransform: "uppercase", py: 0.7, whiteSpace: "nowrap" }}>
                         <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.4 }}>
                           <ExpandMoreIcon sx={{ fontSize: 16, transition: "transform .15s", transform: folded[g] ? "rotate(-90deg)" : "none" }} />
-                          {folded[g] ? band(articles?.boughtAsOf ?? null).split(" · ")[0] : band(articles?.boughtAsOf ?? null)}
+                          {(() => {
+                            const b = band(articles?.boughtAsOf ?? null);
+                            const t = g === "bought" && articles?.country ? b.replace("Bought this year", `Bought in ${articles.country} this year`) : b;
+                            return folded[g] ? t.split(" · ")[0] : t;
+                          })()}
                         </Box>
                       </TableCell>
                     );

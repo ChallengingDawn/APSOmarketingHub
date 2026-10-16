@@ -94,3 +94,19 @@ test("movers leave accounting lines out; filters and sorting", () => {
   assert.deepEqual(filterRows(rows, { q: "seal" }).map((r) => r.article), ["1110000001"]);
   assert.deepEqual(sortRows(rows, "deltaAsc").map((r) => r.article)[0], "1110000002");
 });
+
+test("this year's buyers and quantity per country - what the Datatracker filters on", () => {
+  const docs = [
+    doc("1.000", "2026-02-01", [L("A", 100, 10)], "100-1"),
+    doc("2.000", "2026-03-01", [L("A", 100, 5)], "100-1"),   // the same buyer again: one buyer, 15 pieces
+    doc("3.000", "2026-04-01", [L("A", 50, 2)], "110-7"),
+    doc("4.000", "2026-05-01", [L("A", 50, 3)], "100-9"),     // no country known: not in the split
+    doc("5.000", "2025-05-01", [L("A", 70, 4)], "110-8"),     // last year: not in this year's split
+  ];
+  const where: Record<string, string> = { "100-1": "Switzerland", "110-7": "Germany", "110-8": "Germany" };
+  const [a] = rowsOf(aggregate(docs, { ...O, basis: "orders" }), (un) => where[un] ?? null);
+  assert.deepEqual(a.byCountryCy, { Switzerland: [1, 15], Germany: [1, 2] });
+  assert.equal(a.customersCy, 3);
+  const [none] = rowsOf(aggregate([doc("9.000", "2026-02-01", [L("B", 1)])], { ...O, basis: "orders" }));
+  assert.equal(none.byCountryCy, undefined);                  // no country known at all: no split
+});

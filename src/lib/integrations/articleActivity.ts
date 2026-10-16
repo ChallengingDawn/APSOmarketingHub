@@ -55,6 +55,17 @@ export type ArticleRow = {
 export type ArticleActivity = {
   /** The day this year's buying runs to; null when the Articles report has not been built. */
   boughtAsOf: string | null;
+  /**
+   * "erp": every article the ERP knows, sorted by its all-time counts (the default).
+   * "bought": a country or a number of customers was chosen, so the list is this
+   * year's buying from the Articles report - in that country - and "Buyers" and
+   * "Qty" count only there (SARCLA 16.10).
+   */
+  mode?: "erp" | "bought";
+  /** The country the buying columns count, when one was chosen. */
+  country?: string | null;
+  /** False when a country was asked for but the report predates the split - it comes with the next build. */
+  countrySplit?: boolean;
   rows: ArticleRow[];
   total: number | null;
   /** Null now that views come from the shop itself rather than a GA4 window. */
@@ -91,9 +102,16 @@ async function boughtThisYear(): Promise<typeof boughtIndex> {
 }
 
 export async function fetchArticleActivity(
-  params: { search?: string; sort?: "orders" | "companies" | "stock"; pc?: string; limit?: number; after?: string; from?: string; to?: string; signal?: AbortSignal } = {},
+  params: {
+    search?: string; sort?: "orders" | "companies" | "stock"; pc?: string; limit?: number; after?: string; from?: string; to?: string; signal?: AbortSignal;
+    /** only what customers in this country bought this year (country_custom, as the filter bar lists it) */
+    country?: string;
+    /** only articles at least this many customers bought this year (in the country, when one is chosen) */
+    minCustomers?: number;
+  } = {},
 ): Promise<ArticleActivity> {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 200);
+  if (params.country || (params.minCustomers ?? 0) > 1) return boughtMode({ ...params, limit });
   const sortProperty =
     params.sort === "companies" ? "company_article_count" : params.sort === "stock" ? "stock_quantity" : "order_article_count";
 
@@ -177,5 +195,84 @@ export async function fetchArticleActivity(
     boughtAsOf: bought?.asOf ?? null,
     generatedAt: new Date().toISOString(),
     after: res.paging?.next?.after ?? null,
+  };
+}
+
+/**
+ * This year's buying as the list: the Articles report's articles, in a country
+ * when one is chosen, with at least so many customers buying; sorted by those
+ * customers, then the quantity. A page at a time, the ERP columns (stock, all-time
+ * orders and customers, the assortment) read for that page only, 100 article
+ * numbers per search; the shop columns joined as everywhere else.
+ */
+async function boughtMode(params: { search?: string; pc?: string; limit: number; after?: string; signal?: AbortSignal; country?: string; minCustomers?: number }): Promise<ArticleActivity> {
+  const report = await loadReport().catch(() => null);
+  const empty = (countrySplit: boolean): ArticleActivity => ({
+    rows: [], total: 0, viewsFrom: null, viewsTo: null, viewsError: null, boughtAsOf: report?.today ?? null,
+    generatedAt: new Date().toISOString(), after: null, mode: "bought", country: params.country ?? null, countrySplit,
+  });
+  if (!report) return empty(true);
+  const country = params.country?.trim() || null;
+  const split = !country || report.rows.some((r) => r.byCountryCy);
+  if (!split) return empty(false);
+
+  const min = Math.max(1, params.minCustomers ?? 1);
+  const q = params.search?.trim().toLowerCase() ?? "";
+  const numberSearch = /^\d+$/.test(q);
+  const picked = report.rows
+    .map((r) => {
+      const c = country ? r.byCountryCy?.[country] : ([r.customersCy, r.qtyCy] as [number, number]);
+      return { r, buyers: c?.[0] ?? 0, qty: c?.[1] ?? 0 };
+    })
+    .filter(({ r, buyers }) => buyers >= min && !r.pseudo
+      && (!params.pc || r.pc === params.pc)
+      && (!q || (numberSearch ? r.article.includes(q) : r.description.toLowerCase().includes(q))))
+    .sort((a, b) => b.buyers - a.buyers || b.qty - a.qty || a.r.article.localeCompare(b.r.article));
+
+  const offset = Math.max(0, Number(params.after) || 0);
+  const page = picked.slice(offset, offset + params.limit);
+
+  // the ERP side of the page's articles - 100 article numbers a search
+  const pp = new Map<string, { id: string; p: Record<string, unknown> }>();
+  const numbers = page.map((x) => x.r.article);
+  for (let i = 0; i < numbers.length; i += 100) {
+    const res = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, unknown> }[] }>({
+      path: "/crm/v3/objects/2-200042439/search", method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: numbers.slice(i, i + 100) }] }], properties: PROPERTIES, limit: 100 },
+      signal: params.signal,
+    });
+    for (const o of res.results ?? []) {
+      const n = str(o.properties?.article_number);
+      if (n && !pp.has(n)) pp.set(n, { id: String(o.id ?? ""), p: o.properties ?? {} });
+    }
+  }
+  let looks: Record<string, { views: number; customers: number; carts: number; lastSeen: string | null; topQty: number | null }> = {};
+  let viewsError: string | null = null;
+  try { looks = await fetchArticleLooks(params.signal); } catch (err) { viewsError = String((err as Error)?.message ?? err); }
+
+  const rows: ArticleRow[] = page.map(({ r, buyers, qty }) => {
+    const e = pp.get(r.article), p = e?.p ?? {};
+    const l = looks[r.article];
+    return {
+      id: e?.id || `report-${r.article}`,
+      articleNumber: r.article,
+      description: str(p.article_description) ?? str(p.product_description) ?? (r.description || null),
+      articleType: str(p.article_type),
+      mainGroup: str(p.main_group_description),
+      subGroup: str(p.sub_group_description),
+      stock: num(p.stock_quantity),
+      stockUnit: str(p.stock_unit),
+      profitCentre: str(p.profit_center) ?? (r.pc && r.pc !== "?" ? r.pc : null),
+      salesUnit: str(p.sales_unit),
+      buyersYtd: buyers, qtyYtd: qty, qtyPerBuyer: buyers ? qty / buyers : null,
+      orders: num(p.order_article_count),
+      companies: num(p.company_article_count),
+      views: l?.views ?? null, lookedBy: l?.customers ?? null, carts: l?.carts ?? null, topQty: l?.topQty ?? null, lastLooked: l?.lastSeen ?? null,
+    };
+  });
+  return {
+    rows, total: picked.length, viewsFrom: null, viewsTo: null, viewsError, boughtAsOf: report.today,
+    generatedAt: new Date().toISOString(), after: offset + params.limit < picked.length ? String(offset + params.limit) : null,
+    mode: "bought", country, countrySplit: true,
   };
 }
