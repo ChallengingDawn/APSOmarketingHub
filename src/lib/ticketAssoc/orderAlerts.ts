@@ -9,8 +9,9 @@
 // placed in the last 14 days (rules.ts alertArticles). One alert per ticket and order, ever.
 //
 // Modes (in Ticket associations' settings): off; preview - lists what it would do, links and mails
-// nothing; link - links the order to the ticket; mail - links and mails the owner. Switching to mail
-// never mails what preview already listed: only what is found from then on.
+// nothing; link - links the order to the ticket; mail - links and mails the owner. Switching to link
+// or mail also acts on what preview listed, while it still counts - the ticket still open, the order
+// at most 14 days old (SARCLA 17.10.2026: "I have activated it but the mail did not go out").
 
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
@@ -22,7 +23,7 @@ import { renderOrderAlert } from "./mail";
 import { alertArticles, msOf, nextSince } from "./rules";
 
 export type AlertMode = "off" | "preview" | "link" | "mail";
-export type AlertRun = { at: string; seconds: number; mode: AlertMode; read: number; withArticles: number; matched: number; created: number; linked: number; mailed: number; error?: string };
+export type AlertRun = { at: string; seconds: number; mode: AlertMode; read: number; withArticles: number; matched: number; created: number; promoted: number; linked: number; mailed: number; error?: string };
 
 const PORTAL = "26492587";
 const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-5/${id}`;
@@ -90,10 +91,72 @@ async function ownerOf(id: string): Promise<{ email: string | null; first: strin
   return owners.get(id)!;
 }
 
+type Act = { ticketId: string; orderId: string; ownerId: string | null; subject: string | null; orderNumber: string; orderDate: string | null; articles: string[]; company: string | null };
+
+/** Link (link, mail) and mail the owner (mail) - what one alert does; counts into `out`. */
+async function act(mode: AlertMode, a: Act, out: AlertRun): Promise<{ linked: boolean; mailedAt: string | null; ownerEmail: string | null; error: string | null }> {
+  let linked = false, mailedAt: string | null = null, ownerEmail: string | null = null, error: string | null = null;
+  if (mode === "link" || mode === "mail") {
+    try {
+      await hs(`/crm/v4/objects/tickets/${a.ticketId}/associations/default/orders/${a.orderId}`, "PUT");
+      linked = true;
+      out.linked += 1;
+    } catch (e) { error = `link: ${(e as Error).message.slice(0, 160)}`; }
+  }
+  if (a.ownerId) {
+    const ow = await ownerOf(a.ownerId);
+    ownerEmail = ow.email;
+    if (mode === "mail" && linked) {
+      if (!ow.email) error = "the ticket's owner has no e-mail address";
+      else if (!mailConfigured()) error = "the hub's mail relay is not set up";
+      else {
+        try {
+          const m = renderOrderAlert({ ownerName: ow.first, ticketSubject: a.subject, ticketUrl: ticketUrl(a.ticketId), orderNumber: a.orderNumber, orderDate: a.orderDate, articles: a.articles, company: a.company, hubUrl: hubPublicUrl() });
+          await sendHubMail({ to: ow.email, ...m });
+          mailedAt = new Date().toISOString();
+          out.mailed += 1;
+        } catch (e) { error = `mail: ${(e as Error).message.slice(0, 160)}`; }
+      }
+    }
+  } else if (mode === "mail") error = "the ticket has no owner";
+  return { linked, mailedAt, ownerEmail, error };
+}
+
+/**
+ * What preview listed, acted on now that the mode links or mails: each alert of the last 14 days
+ * not linked yet (or, in mail, not mailed yet) whose ticket is still open - read again from HubSpot.
+ */
+async function promote(mode: AlertMode, out: AlertRun): Promise<void> {
+  if (mode !== "link" && mode !== "mail") return;
+  const rows = await q<{ ticket_id: string; order_id: string; order_number: string | null; order_date: string | null; articles: string[]; company: string | null; ticket_subject: string | null; linked: boolean }>(
+    `SELECT ticket_id, order_id, order_number, order_date, articles, company, ticket_subject, linked FROM apsomh_ticket_order_alerts
+      WHERE at > now() - interval '14 days' AND mailed_at IS NULL AND (NOT linked OR $1 = 'mail')
+        AND (error IS NULL OR error LIKE 'mail:%' OR error LIKE 'link:%') ORDER BY at LIMIT 100`, [mode]);
+  if (!rows.length) return;
+  const open = await openStages();
+  const tickets = new Map<string, Obj>();
+  await batchRead("tickets", [...new Set(rows.map((r) => r.ticket_id))], ["subject", "hs_pipeline_stage", "hubspot_owner_id"], tickets);
+  for (const r of rows) {
+    const p = tickets.get(r.ticket_id)?.properties ?? {};
+    if (!open.has(p.hs_pipeline_stage ?? "")) {
+      await q("UPDATE apsomh_ticket_order_alerts SET error='the ticket was closed before the alert went out', mode=$3 WHERE ticket_id=$1 AND order_id=$2", [r.ticket_id, r.order_id, mode]);
+      continue;
+    }
+    // in mail mode an alert already linked is only mailed: link again is harmless (PUT), so act() does both
+    const res = await act(mode, {
+      ticketId: r.ticket_id, orderId: r.order_id, ownerId: p.hubspot_owner_id ?? null, subject: p.subject ?? r.ticket_subject,
+      orderNumber: r.order_number ?? r.order_id, orderDate: r.order_date, articles: r.articles, company: r.company,
+    }, out);
+    await q("UPDATE apsomh_ticket_order_alerts SET mode=$3, linked=$4, mailed_at=$5, owner_email=COALESCE($6, owner_email), error=$7 WHERE ticket_id=$1 AND order_id=$2",
+      [r.ticket_id, r.order_id, mode, res.linked || r.linked, res.mailedAt, res.ownerEmail, res.error]);
+    out.promoted += 1;
+  }
+}
+
 export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Promise<AlertRun> {
   await ensureTable();
   const t0 = Date.now();
-  const out: AlertRun = { at: new Date().toISOString(), seconds: 0, mode, read: 0, withArticles: 0, matched: 0, created: 0, linked: 0, mailed: 0 };
+  const out: AlertRun = { at: new Date().toISOString(), seconds: 0, mode, read: 0, withArticles: 0, matched: 0, created: 0, promoted: 0, linked: 0, mailed: 0 };
   const stored = (await kvGet<number>(KV.since)) ?? null;
   let since = stored && Date.now() - stored < 3 * 86_400_000 ? stored : Date.now() - 86_400_000;
   const changes: number[] = [];
@@ -101,6 +164,7 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
   const companies = new Map<string, Obj>();
   const products = new Map<string, Obj>();
   try {
+    await promote(mode, out);
     const open = await openStages();
     let after: string | undefined;
     while (out.read < MAX_READ) {
@@ -163,30 +227,7 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
           const orderDate = f.o.properties?.order_order_date?.slice(0, 10) ?? null;
           const company = companies.get(f.co)?.properties?.name ?? null;
           const ownerId = p.hubspot_owner_id ?? null;
-          let linked = false, mailedAt: string | null = null, ownerEmail: string | null = null, error: string | null = null;
-          if (mode === "link" || mode === "mail") {
-            try {
-              await hs(`/crm/v4/objects/tickets/${f.t.id}/associations/default/orders/${f.o.id}`, "PUT");
-              linked = true;
-              out.linked += 1;
-            } catch (e) { error = `link: ${(e as Error).message.slice(0, 160)}`; }
-          }
-          if (ownerId) {
-            const ow = await ownerOf(ownerId);
-            ownerEmail = ow.email;
-            if (mode === "mail" && linked) {
-              if (!ow.email) error = "the ticket's owner has no e-mail address";
-              else if (!mailConfigured()) error = "the hub's mail relay is not set up";
-              else {
-                try {
-                  const m = renderOrderAlert({ ownerName: ow.first, ticketSubject: p.subject ?? null, ticketUrl: ticketUrl(f.t.id), orderNumber, orderDate, articles: f.arts, company, hubUrl: hubPublicUrl() });
-                  await sendHubMail({ to: ow.email, ...m });
-                  mailedAt = new Date().toISOString();
-                  out.mailed += 1;
-                } catch (e) { error = `mail: ${(e as Error).message.slice(0, 160)}`; }
-              }
-            }
-          } else if (mode === "mail") error = "the ticket has no owner";
+          const { linked, mailedAt, ownerEmail, error } = await act(mode, { ticketId: f.t.id, orderId: f.o.id, ownerId, subject: p.subject ?? null, orderNumber, orderDate, articles: f.arts, company }, out);
           await q(
             `INSERT INTO apsomh_ticket_order_alerts (ticket_id, order_id, order_number, order_date, articles, company_id, company, pipeline, ticket_subject, owner_id, owner_email, mode, linked, mailed_at, error)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (ticket_id, order_id) DO NOTHING`,
@@ -205,7 +246,7 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
   }
   out.seconds = Math.round((Date.now() - t0) / 1000);
   await kvSet(KV.last, out);
-  if (out.error || out.created) console.log(`[ticket-assoc] order alerts (${mode}): ${out.read} orders read, ${out.matched} matched, ${out.created} new, ${out.linked} linked, ${out.mailed} mailed${out.error ? ` - ${out.error}` : ""}`);
+  if (out.error || out.created || out.promoted) console.log(`[ticket-assoc] order alerts (${mode}): ${out.read} orders read, ${out.matched} matched, ${out.created} new, ${out.promoted} listed before and acted on, ${out.linked} linked, ${out.mailed} mailed${out.error ? ` - ${out.error}` : ""}`);
   return out;
 }
 
@@ -218,9 +259,9 @@ export type AlertRow = {
   pipeline: string | null; ticket_subject: string | null; owner_email: string | null; mode: string; linked: boolean; mailed_at: string | null; error: string | null; at: string;
 };
 
-export async function alertRows(from: string, to: string): Promise<AlertRow[]> {
+export async function alertRows(from: string, to: string, pipeline: string | null = null): Promise<AlertRow[]> {
   await ensureTable();
   return q<AlertRow>(
     `SELECT ticket_id, order_id, order_number, order_date, articles, company, pipeline, ticket_subject, owner_email, mode, linked, mailed_at, error, at
-       FROM apsomh_ticket_order_alerts WHERE at >= $1::date AND at < ($2::date + 1) ORDER BY at DESC LIMIT 200`, [from, to]);
+       FROM apsomh_ticket_order_alerts WHERE at >= $1::date AND at < ($2::date + 1) AND ($3::text IS NULL OR pipeline = $3) ORDER BY at DESC LIMIT 200`, [from, to, pipeline]);
 }

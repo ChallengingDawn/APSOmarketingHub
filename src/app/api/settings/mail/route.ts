@@ -37,7 +37,7 @@ function templates(me: { full_name: string; username: string; email: string | nu
     },
     {
       key: "ticket-order-alert", name: "Please check your ticket - an order was detected", audience: "ESO / TSA ticket owners",
-      when: "When the customer of an open ESO or TSA ticket orders an article the ticket names, on or after the day the ticket was opened. The order is linked to the ticket; one mail per ticket and order. Sent only while Ticket associations > Order alerts is set to mail.",
+      when: "When the customer of an open ESO or TSA ticket orders an article the ticket names, on or after the day the ticket was opened. The order is linked to the ticket; one mail per ticket and order. Sent only while Ticket/order/article associations > Order alerts is set to mail.",
       from: FROM, replyTo: REPLY_TO,
       ...renderOrderAlert({ ...SAMPLE_ORDER_ALERT, ownerName: first }),
     },

@@ -1,6 +1,6 @@
 "use client";
 
-// TICKET ASSOCIATIONS - a HubSpot app (UC & HubSpot Apps > HubSpot apps). Back Office, ESO and
+// TICKET/ORDER/ARTICLE ASSOCIATIONS (SARCLA 17.10.2026: the name) - a HubSpot app (UC & HubSpot Apps > HubSpot apps). Back Office, ESO and
 // TSA tickets linked to the orders and Products & Pricing articles they name, empty reference
 // fields filled, cut-to-size flagged - every 3 minutes, by the hub, in place of the HubSpot
 // workflow that ran on the Tickets app (SARCLA, 17.10.2026: "migrate the workflow here").
@@ -43,7 +43,7 @@ import { CardTitle, GlassCard, INK, KpiTile, MUTED, RED, bodyCell, clip, headCel
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
-import type { LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
+import type { Backfill, LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
 import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
 import type { SecretFlows } from "@/lib/ticketAssoc/workflows";
 
@@ -54,7 +54,7 @@ type Row = {
 type Pipe = { pipeline: string | null; tickets: number; orders: number; articles: number; filled: number; c2s: number; failed: number };
 type ArtRow = { ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] };
 type Data = {
-  settings: Settings; mode: "preview" | "live"; byPipeline: Pipe[]; recent: Row[]; from: string; to: string;
+  settings: Settings; mode: "preview" | "live"; pipeline: string | null; backfill: Backfill; byPipeline: Pipe[]; recent: Row[]; from: string; to: string;
   articles: ArtRow[]; alerts: AlertRow[]; lastAlerts: AlertRun | null; alertsEveryMinutes: number;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
@@ -175,12 +175,13 @@ function ArticlesTab({ d }: { d: Data }) {
         An article is found in the ticket&apos;s subject, description and reference fields - ten digits in one piece or in groups
         (&quot;1120 030 724&quot;, &quot;1120-030-724&quot;, &quot;1120.030.724&quot;) - and from the lines of the orders the ticket names; Products &amp; Pricing confirms each one.
         The articles found go into <b>Article(s)</b> and <b>Articles on the ticket</b> while those are empty, and are linked to the ticket.
-        &quot;Not in the catalogue&quot; shows what looked like an article but is not one - that is where the detection can still learn.
+        &quot;Not in the catalogue&quot; shows what looked like an article but is not one. An 8-digit number is a shop product (page), not an article: one product holds many articles (11400711 holds 919 O-ring sizes), so it is shown, not linked.
+        This tab lists the tickets the hub processed in the period - new ones, ones that moved stage, and the older ones the re-check (Settings) goes through.
       </Info>
       <Grid container spacing={2}>
         {[
           { icon: <Inventory2OutlinedIcon />, tint: "green" as const, label: "Tickets with an article", value: withArt, note: "confirmed by Products & Pricing" },
-          { icon: <PinOutlinedIcon />, tint: "blue" as const, label: "Different articles", value: distinct, note: "across those tickets" },
+          { icon: <ReceiptLongOutlinedIcon />, tint: "blue" as const, label: "Tickets with an order", value: rows.filter((r) => r.orders.length).length, note: `${full(distinct)} different articles` },
           { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Tickets with unknown numbers", value: rejected, note: "looked like an article, are not" },
           { icon: <EditNoteOutlinedIcon />, tint: "purple" as const, label: d.mode === "preview" ? "Article(s) to fill" : "Article(s) filled", value: filledArt, note: "only when it was empty" },
         ].map((k) => (
@@ -192,14 +193,15 @@ function ArticlesTab({ d }: { d: Data }) {
           <CardTitle icon={<Inventory2OutlinedIcon />} tint="green" title="What the detection saw" note="Every processed ticket in the period that named a number" />
         </Box>
         <Table size="small">
-          <TableHead><TableRow>{["Ticket", "Pipeline", "Articles found", "Not in the catalogue", "8-digit numbers", "Article(s)", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Ticket", "Pipeline", "Articles found", "Order linked", "Not in the catalogue", "8-digit numbers", "Article(s)", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
-            {!rows.length && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No ticket in this period named a number.</TableCell></TableRow>}
+            {!rows.length && <TableRow><TableCell colSpan={8} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No ticket in this period named a number.</TableCell></TableRow>}
             {slice.map((r) => (
               <TableRow key={`${r.ticket_id}-${r.at}`} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketCell id={r.ticket_id} subject={r.subject} /></TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.join(", ") || "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.length ? <><Chip tint="green">article found</Chip> {r.articles.join(", ")}</> : "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.orders.length ? <><Chip tint="purple">order linked</Chip> {r.orders.join(", ")}</> : "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: r.rejected.length ? "#a96a12" : MUTED }}>{r.rejected.join(", ") || "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{r.products.join(", ") || "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.filled.includes("article") ? <Chip tint="green">filled</Chip> : "-"}</TableCell>
@@ -271,6 +273,34 @@ function AlertsTab({ d }: { d: Data }) {
   );
 }
 
+/** The ticket workflows that look at Article(s) - what could start when the copy fills it. */
+function ArticleFlows() {
+  const [data, setData] = useState<SecretFlows | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/uc/ticket-associations?articleFlows=1")
+      .then((r) => r.json())
+      .then((j: { ok: boolean; data?: SecretFlows; error?: string }) => { if (alive) setData(j.ok && j.data ? j.data : { ok: false, error: j.error ?? "could not be read", at: new Date().toISOString() }); })
+      .catch((e) => { if (alive) setData({ ok: false, error: String((e as Error).message), at: new Date().toISOString() }); });
+    return () => { alive = false; };
+  }, []);
+  if (data === null) return <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.75 }}>Reading which ticket workflows look at Article(s)…</Typography>;
+  if (!data.ok) return <Typography sx={{ fontSize: "0.8rem", color: RED, mt: 0.75 }}>{data.error}</Typography>;
+  if (!data.flows.length) return <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.75 }}>No ticket workflow looks at Article(s).</Typography>;
+  return (
+    <Box sx={{ mt: 0.75 }}>
+      <Typography sx={{ fontSize: "0.8rem", color: INK, fontWeight: 600 }}>Ticket workflows that look at Article(s):</Typography>
+      {data.flows.map((f) => (
+        <Box key={f.id} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.4 }}>
+          <Chip tint={f.enabled ? "amber" : "slate"}>{f.enabled ? "on" : "off"}</Chip>
+          <Box component="a" href={f.url} target="_blank" rel="noopener" sx={{ fontSize: "0.84rem", color: INK }}>{f.name}</Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+
 /** The HubSpot workflows whose custom code still reads the Tickets app's secret. */
 function Workflows() {
   const [n, setN] = useState(0);
@@ -298,6 +328,59 @@ function Workflows() {
           <Box component="a" href={f.url} target="_blank" rel="noopener" sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>{f.name}</Box>
         </Box>
       ))}
+    </GlassCard>
+  );
+}
+
+/**
+ * Older tickets (SARCLA 17.10.2026: "these tickets are old, it is not running"). Every run already
+ * copies Articles on the ticket into an empty Article(s); this re-checks older tickets with today's
+ * detection - links, empty fields, Article(s) - 50 a run, newest first, down to the chosen day.
+ */
+function BackfillCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  const b = d.backfill;
+  const running = !!b.from && !b.done;
+  const [from, setFrom] = useState(b.from ?? "2026-01-01");
+  const [busy, setBusy] = useState(false);
+  const send = async (value: string | null) => {
+    setBusy(true);
+    try {
+      await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backfill: { from: value } }) });
+      onChanged();
+    } finally { setBusy(false); }
+  };
+  const saveCopy = async (on: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ copyArticles: on }) });
+      onChanged();
+    } finally { setBusy(false); }
+  };
+  const at = b.cursor ? new Date(b.cursor).toISOString().slice(0, 10) : null;
+  return (
+    <GlassCard>
+      <CardTitle icon={<HistoryOutlinedIcon />} tint="amber" title="Older tickets"
+        note="Two catch-ups for tickets the hub never processed: the copy below, and a re-check with today's detection (100 a run, newest first)." />
+      <Box sx={{ mb: 1.5 }}>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Copy Articles on the ticket into an empty Article(s), on every older Back Office / ESO / TSA ticket (500 a run)</Typography>
+        {d.admin ? (
+          <Choice<"off" | "on"> value={d.settings.copyArticles ? "on" : "off"} onChange={(v) => void saveCopy(v === "on")} options={[{ key: "off", label: "Off" }, { key: "on", label: "On" }]} />
+        ) : <Chip tint="slate">{d.settings.copyArticles ? "on" : "off"}</Chip>}
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>About 12,000 tickets wait for it. Before switching it on, check the workflows below that look at Article(s): one that starts when Article(s) gets a value would start for each of them.</Typography>
+        <ArticleFlows />
+      </Box>
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+        <TextField size="small" type="date" value={from} onChange={(e) => setFrom(e.target.value)} disabled={!d.admin || running} inputProps={{ "aria-label": "Re-check tickets created since" }} />
+        {d.admin && (running
+          ? <Button size="small" variant="outlined" onClick={() => void send(null)} disabled={busy} sx={{ borderRadius: "999px", textTransform: "none" }}>Stop</Button>
+          : <Button size="small" variant="contained" disableElevation onClick={() => void send(from)} disabled={busy || !from || d.settings.mode !== "live"} sx={{ borderRadius: "999px", textTransform: "none" }}>Re-check from this day</Button>)}
+      </Box>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 1 }}>
+        {b.from
+          ? `${running ? "Running" : "Done"}: ${full(b.processed)} tickets re-checked since ${b.from}${at ? `, now at tickets created ${at}` : ""}${b.startedAt ? ` (started ${when(b.startedAt)})` : ""}.`
+          : "Not started."}
+        {d.settings.mode !== "live" && " Runs only while the mode is Live."}
+      </Typography>
     </GlassCard>
   );
 }
@@ -390,6 +473,8 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
         </Box>
       </GlassCard>
 
+      <BackfillCard d={d} onChanged={onChanged} />
+
       <Workflows />
 
       <GlassCard>
@@ -429,13 +514,15 @@ export default function TicketAssociations() {
   const { window: win } = useReportingWindow();
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
-  const url = `/api/uc/ticket-associations?from=${win.from}&to=${win.to}${n ? `&n=${n}` : ""}`;
+  // the pipeline filter (SARCLA 17.10.2026): all, or Back Office / ESO / TSA
+  const [pipe, setPipe] = useState<"all" | "BO" | "ESO" | "TSA">("all");
+  const url = `/api/uc/ticket-associations?from=${win.from}&to=${win.to}${pipe !== "all" ? `&pipeline=${pipe}` : ""}${n ? `&n=${n}` : ""}`;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
 
   let body: React.ReactNode;
   if (r === null) body = <LoadingPanel label="Reading the tickets the hub linked…" />;
-  else if (r.state !== "ok") body = <UpstreamPanel source="Ticket associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
+  else if (r.state !== "ok") body = <UpstreamPanel source="Ticket/order/article associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   else if (view === "settings") body = <Box id="ticketassoc-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
   else if (view === "articles") body = <Box id="ticketassoc-panel-articles" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ArticlesTab d={r.data} /></Box>;
   else if (view === "alerts") body = <Box id="ticketassoc-panel-alerts" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><AlertsTab d={r.data} /></Box>;
@@ -444,7 +531,7 @@ export default function TicketAssociations() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Ticket associations"
+        title="Ticket/order/article associations"
         subtitle="Tickets linked to the orders and articles they name - by the hub, every 3 minutes"
         rightSlot={view !== "settings" ? (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -464,6 +551,14 @@ export default function TicketAssociations() {
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
+      {view !== "settings" && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Pipeline</Typography>
+          <Choice<"all" | "BO" | "ESO" | "TSA"> value={pipe} onChange={setPipe} options={[
+            { key: "all", label: "All" }, { key: "BO", label: "Back Office" }, { key: "ESO", label: "ESO" }, { key: "TSA", label: "TSA" },
+          ]} />
+        </Box>
+      )}
       {body}
     </Box>
   );

@@ -26,11 +26,16 @@ import { alertRows, lastAlertRun, runOrderAlerts, type AlertMode } from "./order
 
 export type Mode = "off" | "preview" | "live";
 /** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail. */
-export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; by: string | null; at: string | null };
+/** copyArticles: fill an empty Article(s) from Articles on the ticket on older tickets - a bulk write, so a switch. */
+export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; copyArticles: boolean; by: string | null; at: string | null };
 export type LastRun = {
   at: string; seconds: number; mode: "preview" | "live"; read: number; processed: number; skipped: number; retried: number;
   newOrders: number; newArticles: number; filled: number; c2s: number; failed: number; error?: string;
+  /** Article(s) copied from Articles on the ticket; older tickets re-checked by the backfill. */
+  copied?: number; backfilled?: number;
 };
+/** The re-check of older tickets (SARCLA 17.10.2026: "these tickets are old, it is not running"). */
+export type Backfill = { from: string | null; cursor: number | null; processed: number; done: boolean; startedAt: string | null; by: string | null };
 
 const LOCK = 4_107_214;
 const EVERY_MS = 3 * 60_000;
@@ -38,6 +43,9 @@ const EVERY_MS = 3 * 60_000;
 const LIMIT_MS = 10 * 60_000;
 /** Tickets read per run; the rest come in the next one, oldest change first. */
 const MAX_READ = 300;
+/** Article(s) copied from Articles on the ticket per run, and older tickets re-checked per run. */
+const COPY_PER_RUN = 500;
+const BACKFILL_PER_RUN = 100;
 /** HubSpot's search index trails a write by a little: each window starts this much earlier. */
 const OVERLAP_MS = 3 * 60_000;
 const RETENTION_DAYS = 180;
@@ -45,6 +53,7 @@ const RETENTION_DAYS = 180;
 const ALERTS_EVERY_MS = 15 * 60_000;
 const KV = {
   settings: "ticketAssoc:settings",
+  backfill: "ticketAssoc:backfill",
   since: (m: string) => `ticketAssoc:since:${m}`,
   last: (m: string) => `ticketAssoc:last:${m}`,
 };
@@ -62,18 +71,32 @@ const tix = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
 /** Until somebody chooses: preview, fields only, order alerts listed but not sent - the hub watches. */
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings).catch(() => undefined);
-  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", copyArticles: !!s?.copyArticles, by: s?.by ?? null, at: s?.at ?? null };
 }
 
-export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }, by: string): Promise<Settings> {
+export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; copyArticles?: boolean }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const mode = change.mode && ["off", "preview", "live"].includes(change.mode) ? change.mode : cur.mode;
   const alerts = change.alerts && ["off", "preview", "link", "mail"].includes(change.alerts) ? change.alerts : cur.alerts;
-  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, by, at: new Date().toISOString() };
+  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, copyArticles: change.copyArticles ?? cur.copyArticles, by, at: new Date().toISOString() };
   // going live: the live window starts at the last half hour, not at whenever live last ran
   if (mode === "live" && cur.mode !== "live") await kvSet(KV.since("live"), Date.now() - 30 * 60_000);
   await kvSet(KV.settings, next);
   return next;
+}
+
+export async function getBackfill(): Promise<Backfill> {
+  const b = await kvGet<Backfill>(KV.backfill).catch(() => undefined);
+  return { from: b?.from ?? null, cursor: b?.cursor ?? null, processed: b?.processed ?? 0, done: !!b?.done, startedAt: b?.startedAt ?? null, by: b?.by ?? null };
+}
+
+/** Start the re-check from a day (newest tickets first, down to that day), or stop it (from null). */
+export async function setBackfill(from: string | null, by: string): Promise<Backfill> {
+  const b: Backfill = from && /^\d{4}-\d{2}-\d{2}$/.test(from)
+    ? { from, cursor: null, processed: 0, done: false, startedAt: new Date().toISOString(), by }
+    : { ...(await getBackfill()), done: true };
+  await kvSet(KV.backfill, b);
+  return b;
 }
 
 const evidence = (s: Settings): Evidence => (s.extended ? { emails: true, offers: true } : { emails: false, offers: false });
@@ -165,11 +188,11 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
   let since = firstSince((await kvGet<number>(KV.since(mode))) ?? null, Date.now());
   const changes: number[] = [];
 
-  const handle = async (batch: Ticket[], forced: boolean) => {
+  const handle = async (batch: Ticket[], forced: boolean, forcedWhy = "retry") => {
     const seen = await seenOf(mode, batch.map((t) => t.id));
     const todo: { t: Ticket; why: string }[] = [];
     for (const t of batch) {
-      const why = forced ? "retry" : reason(t.properties?.hs_pipeline_stage ?? null, seen.get(t.id));
+      const why = forced ? forcedWhy : reason(t.properties?.hs_pipeline_stage ?? null, seen.get(t.id));
       if (why) todo.push({ t, why });
       else out.skipped += 1;
     }
@@ -191,6 +214,7 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
     out.processed += gathered.length;
   };
 
+  const handleForced = (batch: Ticket[]) => handle(batch, true, "backfill");
   try {
     await handle(await retries(mode), true);
     let after: string | undefined;
@@ -208,6 +232,10 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
     // the window moves on to the newest change this run read - all of it, or up to its cap
     since = nextSince(since, changes);
     await kvSet(KV.since(mode), since);
+    if (live) {
+      if (settings.copyArticles) out.copied = await copyArticles(signal);
+      out.backfilled = await backfill(handleForced, signal);
+    }
   } catch (e) {
     out.error = (e as Error).message.slice(0, 300);
   }
@@ -220,7 +248,7 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
   out.seconds = Math.round((Date.now() - t0) / 1000);
   await kvSet(KV.last(mode), out);
   if (Math.random() < 0.02) await q(`DELETE FROM apsomh_ticket_assoc_log WHERE at < now() - interval '${RETENTION_DAYS} days'`);
-  if (out.error || out.processed) console.log(`[ticket-assoc] ${mode}: ${out.read} read, ${out.processed} processed (${out.retried} again), ${out.newOrders} order and ${out.newArticles} article links, ${out.filled} fields, ${out.c2s} C2S${out.error ? ` - ${out.error}` : ""}`);
+  if (out.error || out.processed || out.copied) console.log(`[ticket-assoc] ${mode}: ${out.read} read, ${out.processed} processed (${out.retried} again, ${out.backfilled ?? 0} older), ${out.newOrders} order and ${out.newArticles} article links, ${out.filled} fields, ${out.c2s} C2S, ${out.copied ?? 0} Article(s) copied${out.error ? ` - ${out.error}` : ""}`);
   return out;
 }
 
@@ -256,6 +284,63 @@ export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promis
   }
 }
 
+/**
+ * Article(s) for the tickets the HubSpot workflow handled before the hub: it filled Articles on the
+ * ticket only. Every Back Office / ESO / TSA ticket with Articles on the ticket and an empty Article(s)
+ * gets the same articles copied over - never over a value somebody typed.
+ */
+async function copyArticles(signal?: AbortSignal): Promise<number> {
+  let copied = 0;
+  // the search trails the writes by a few seconds: what this run wrote may come back once more
+  const done = new Set<string>();
+  while (copied < COPY_PER_RUN) {
+    stopIfOver(signal);
+    const j = await tix<Page>("/crm/v3/objects/tickets/search", "POST", {
+      filterGroups: [{ filters: [
+        { propertyName: "hs_pipeline", operator: "IN", values: [BO, ESO, TSA] },
+        { propertyName: "articles_on_the_ticket", operator: "HAS_PROPERTY" },
+        { propertyName: "article", operator: "NOT_HAS_PROPERTY" },
+      ] }],
+      properties: ["articles_on_the_ticket"], limit: 100,
+    });
+    const found = j.results ?? [];
+    const rows = found
+      .filter((t) => !done.has(t.id))
+      .map((t) => ({ id: t.id, properties: { article: (t.properties?.articles_on_the_ticket ?? "").trim().slice(0, 500) } }))
+      .filter((r) => r.properties.article);
+    if (!rows.length) break;
+    await tix("/crm/v3/objects/tickets/batch/update", "POST", { inputs: rows });
+    for (const r of rows) done.add(r.id);
+    copied += rows.length;
+    if (found.length < 100) break;
+  }
+  return copied;
+}
+
+/** The re-check of older tickets: the next 50, newest first, down to the chosen day; done when none is left. */
+async function backfill(handleForced: (batch: Ticket[]) => Promise<void>, signal?: AbortSignal): Promise<number> {
+  const b = await getBackfill();
+  if (!b.from || b.done) return 0;
+  stopIfOver(signal);
+  const filters: object[] = [
+    { propertyName: "hs_pipeline", operator: "IN", values: [BO, ESO, TSA] },
+    { propertyName: "createdate", operator: "GTE", value: String(Date.parse(`${b.from}T00:00:00Z`)) },
+  ];
+  if (b.cursor) filters.push({ propertyName: "createdate", operator: "LT", value: String(b.cursor) });
+  const j = await tix<Page>("/crm/v3/objects/tickets/search", "POST", {
+    filterGroups: [{ filters }], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], properties: PROPS, limit: BACKFILL_PER_RUN,
+  });
+  const res = j.results ?? [];
+  if (res.length) await handleForced(res);
+  const last = res.length ? Date.parse(res[res.length - 1].properties?.createdate ?? "") : NaN;
+  await kvSet(KV.backfill, {
+    ...b, processed: b.processed + res.length,
+    cursor: Number.isFinite(last) ? last : b.cursor,
+    done: res.length < BACKFILL_PER_RUN,
+  });
+  return res.length;
+}
+
 /** One ticket, read and planned but never written - the page's "check a ticket". */
 export async function checkTicket(id: string) {
   const tid = id.replace(/\D/g, "");
@@ -278,18 +363,20 @@ export async function checkTicket(id: string) {
 
 /* ── the page's figures ────────────────────────────────────────────────── */
 
-export async function report(from: string, to: string) {
+export async function report(from: string, to: string, pipeline: string | null = null) {
   await ensureTables();
   const settings = await getSettings();
   const mode = settings.mode === "live" ? "live" : "preview";
+  // the page's pipeline filter: BO / ESO / TSA, or all
+  const pipe = pipeline && ["BO", "ESO", "TSA"].includes(pipeline) ? pipeline : null;
   const [byPipeline, recent, lastPreview, lastLive] = await Promise.all([
     q<{ pipeline: string | null; tickets: number; orders: number; articles: number; filled: number; c2s: number; failed: number }>(
       `SELECT pipeline, count(*)::int AS tickets, sum(new_orders)::int AS orders, sum(new_articles)::int AS articles,
               sum(coalesce(cardinality(filled), 0))::int AS filled, count(*) FILTER (WHERE c2s)::int AS c2s, count(*) FILTER (WHERE NOT ok)::int AS failed
-         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) GROUP BY pipeline ORDER BY pipeline`, [mode, from, to]),
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4) GROUP BY pipeline ORDER BY pipeline`, [mode, from, to, pipe]),
     q<{ ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[]; offer_orders: string[]; new_orders: number; new_articles: number; filled: string[]; c2s: boolean; ok: boolean; error: string | null }>(
       `SELECT ticket_id, at, pipeline, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error
-         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) ORDER BY at DESC LIMIT 60`, [mode, from, to]),
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4) ORDER BY at DESC LIMIT 60`, [mode, from, to, pipe]),
     kvGet<LastRun>(KV.last("preview")),
     kvGet<LastRun>(KV.last("live")),
   ]);
@@ -300,11 +387,13 @@ export async function report(from: string, to: string) {
       `SELECT ticket_id, at, pipeline, subject, articles, coalesce(rejected, '{}') AS rejected, coalesce(products, '{}') AS products, filled, orders
          FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
           AND (cardinality(articles) > 0 OR cardinality(coalesce(rejected, '{}')) > 0 OR cardinality(coalesce(products, '{}')) > 0)
-        ORDER BY at DESC LIMIT 200`, [mode, from, to]),
-    alertRows(from, to),
+          AND ($4::text IS NULL OR pipeline = $4)
+        ORDER BY at DESC LIMIT 200`, [mode, from, to, pipe]),
+    alertRows(from, to, pipe),
     lastAlertRun(),
   ]);
-  return { settings, mode, byPipeline, recent, articles, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
+  const backfillState = await getBackfill();
+  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, articles, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
 }
 
 /* ── the schedule ──────────────────────────────────────────────────────── */

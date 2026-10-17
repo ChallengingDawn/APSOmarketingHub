@@ -322,7 +322,7 @@ const navSections: NavSection[] = [
       // replaces the HubSpot project sarcla-france-owner, with more than one rule (SARCLA, 12.10.2026)
       { group: "HubSpot apps", label: "Owner Redirection", href: "/uc/owner-redirection", icon: <CompareArrowsIcon fontSize="small" /> },
       // the "Ticket associations" workflow of the Tickets app, run by the hub (SARCLA, 17.10.2026)
-      { group: "HubSpot apps", label: "Ticket Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
+      { group: "HubSpot apps", label: "Ticket/Order/Article Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },

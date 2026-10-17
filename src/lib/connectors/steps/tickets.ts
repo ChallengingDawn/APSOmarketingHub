@@ -297,6 +297,24 @@ async function resolveOrders(numbers: string[]): Promise<Map<string, FoundOrder>
       found.set(n, f);
     }
   }
+  // a web order lists no positions: its articles are the Products & Pricing records the Magento
+  // sync linked it to (SARCLA 17.10.2026: the detection found far too few - tickets naming a web
+  // order took no article from it)
+  const bare = [...found.values()].filter((f) => !f.arts.length);
+  if (bare.length) {
+    type A = { from: { id: string }; to?: { toObjectId: string | number }[] };
+    const links = await crm<{ results?: A[] }>(`/crm/v4/associations/orders/${PP_OBJ}/batch/read`, "POST", { inputs: bare.map((f) => ({ id: f.id })) });
+    const ppIds = [...new Set((links.results ?? []).flatMap((r) => (r.to ?? []).map((t) => String(t.toObjectId))))].slice(0, 100);
+    const nums = new Map<string, string>();
+    if (ppIds.length) {
+      const pp = await crm<{ results?: Obj[] }>(`/crm/v3/objects/${PP_OBJ}/batch/read`, "POST", { properties: ["article_number"], inputs: ppIds.map((id) => ({ id })) });
+      for (const x of pp.results ?? []) if (x.properties?.article_number) nums.set(String(x.id), String(x.properties.article_number).trim());
+    }
+    for (const r of links.results ?? []) {
+      const f = bare.find((b) => b.id === String(r.from.id));
+      if (f) f.arts = (r.to ?? []).map((t) => nums.get(String(t.toObjectId)) ?? "").filter((a) => /^\d{10}$/.test(a)).slice(0, 20);
+    }
+  }
   return found;
 }
 
