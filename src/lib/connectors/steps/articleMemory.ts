@@ -127,6 +127,9 @@ async function scanOrders(beat: Beat): Promise<{ orders: number; found: [string,
 export async function repairArticleLines(live: boolean, beat: Beat, opts: { full?: boolean } = {}): Promise<StepResult> {
   const t0 = Date.now();
   const out: StepResult = {};
+  // the July seed here too, so a "Run now" repairs at once - without waiting for a delivery's article_ids
+  const seeded = await loadSeed(live);
+  if (seeded) out.seeded = seeded;
   // once (or when asked): every order since January 2025, so the lines written before 17.10.2026 are found too
   const scanned = await kvGet<{ at: string }>(KV_SCAN);
   if (!scanned || opts.full || !live) {
