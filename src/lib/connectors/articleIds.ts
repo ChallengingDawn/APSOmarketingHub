@@ -38,6 +38,9 @@ function ensure(): Promise<void> {
         first_seen timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (order_id, internal_id)
       )`);
+      // the profit centre the line borrowed from its order or customer ('' = nothing to borrow);
+      // NULL = not tried. The row stays: the real answer still replaces it (18.10.2026)
+      await query(`ALTER TABLE ${PENDING} ADD COLUMN IF NOT EXISTS borrowed_pc text`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -115,6 +118,45 @@ export async function resolvablePending(limit: number): Promise<{ orderId: strin
   return [...by.entries()].map(([orderId, known]) => ({ orderId, known }));
 }
 
+/** Up to `limit` orders whose waiting ids nothing knows and that have not borrowed yet. */
+export async function unknownPending(limit: number): Promise<{ orderId: string; ids: string[] }[]> {
+  await ensure();
+  const r = await query<{ order_id: string; ids: string[] }>(
+    `SELECT p.order_id, array_agg(p.internal_id) AS ids FROM ${PENDING} p LEFT JOIN ${IDS} a ON a.internal_id = p.internal_id
+     WHERE a.internal_id IS NULL AND p.borrowed_pc IS NULL GROUP BY p.order_id ORDER BY p.order_id LIMIT $1`,
+    [limit],
+  );
+  return r.rows.map((x) => ({ orderId: x.order_id, ids: x.ids }));
+}
+
+/** The orders that found nothing to borrow are asked again (their customer may have revenue now). */
+export async function retryNothingBorrowed(): Promise<void> {
+  await ensure();
+  await query(`UPDATE ${PENDING} SET borrowed_pc = NULL WHERE borrowed_pc = ''`);
+}
+
+/** The profit centre each id borrowed most often on its other orders: id -> profit centre. */
+export async function usualBorrowed(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  await ensure();
+  const r = await query<{ id: string; pc: string }>(
+    `SELECT DISTINCT ON (internal_id) internal_id AS id, borrowed_pc AS pc FROM (
+       SELECT internal_id, borrowed_pc, count(*) AS n FROM ${PENDING}
+       WHERE internal_id = ANY($1::text[]) AND borrowed_pc <> '' GROUP BY internal_id, borrowed_pc
+     ) t ORDER BY internal_id, n DESC, borrowed_pc`,
+    [ids],
+  );
+  for (const x of r.rows) out.set(x.id, x.pc);
+  return out;
+}
+
+export async function markBorrowed(orderId: string, ids: string[], pc: string): Promise<void> {
+  if (!ids.length) return;
+  await ensure();
+  await query(`UPDATE ${PENDING} SET borrowed_pc = $3 WHERE order_id = $1 AND internal_id = ANY($2::text[])`, [orderId, ids, pc]);
+}
+
 /** The 10-digit articles waiting for their profit centre that the memory does not know yet. */
 export async function pendingArticleNumbers(): Promise<string[]> {
   await ensure();
@@ -132,14 +174,19 @@ export async function clearPending(orderId: string, ids: string[]): Promise<void
 }
 
 /** For the page: ids remembered, lines waiting, and how many of those the hub can fix now. */
-export async function memoryCounts(): Promise<{ remembered: number; pending_orders: number; pending_lines: number; resolvable_lines: number }> {
+export async function memoryCounts(): Promise<{ remembered: number; pending_orders: number; pending_lines: number; resolvable_lines: number; borrowed_lines: number; nothing_to_borrow_lines: number }> {
   await ensure();
-  const r = await query<{ a: string; o: string; l: string; k: string }>(
+  const r = await query<{ a: string; o: string; l: string; k: string; b: string; n: string }>(
     `SELECT (SELECT count(*) FROM ${IDS})::text AS a,
             (SELECT count(DISTINCT order_id) FROM ${PENDING})::text AS o,
             (SELECT count(*) FROM ${PENDING})::text AS l,
-            (SELECT count(*) FROM ${PENDING} p JOIN ${IDS} a ON a.internal_id = p.internal_id)::text AS k`,
+            (SELECT count(*) FROM ${PENDING} p JOIN ${IDS} a ON a.internal_id = p.internal_id)::text AS k,
+            (SELECT count(*) FROM ${PENDING} WHERE borrowed_pc <> '')::text AS b,
+            (SELECT count(*) FROM ${PENDING} WHERE borrowed_pc = '')::text AS n`,
   );
   const x = r.rows[0];
-  return { remembered: Number(x?.a ?? 0), pending_orders: Number(x?.o ?? 0), pending_lines: Number(x?.l ?? 0), resolvable_lines: Number(x?.k ?? 0) };
+  return {
+    remembered: Number(x?.a ?? 0), pending_orders: Number(x?.o ?? 0), pending_lines: Number(x?.l ?? 0), resolvable_lines: Number(x?.k ?? 0),
+    borrowed_lines: Number(x?.b ?? 0), nothing_to_borrow_lines: Number(x?.n ?? 0),
+  };
 }

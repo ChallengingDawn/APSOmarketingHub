@@ -661,18 +661,14 @@ export function unresolvedIds(lines: Iterable<FctLine>, ctx: Pick<PayloadCtx, "a
  * never touched. Nothing to fix -> an empty patch.
  */
 export function repairOrder(positionsJsonText: string | null | undefined, known: ReadonlyMap<string, ArtInfo>): { patch: Record<string, string>; fixed: string[] } {
-  let pos: PosRow[];
-  try {
-    const parsed = JSON.parse(positionsJsonText || "[]") as Partial<PosRow>[];
-    if (!Array.isArray(parsed)) return { patch: {}, fixed: [] };
-    pos = parsed.map((p) => ({ a: String(p.a ?? ""), q: Number(p.q ?? 0), r: Number(p.r ?? 0), gm: p.gm === null || p.gm === undefined ? null : Number(p.gm), pc: String(p.pc ?? ""), t: String(p.t ?? "") }));
-  } catch {
-    return { patch: {}, fixed: [] };
-  }
+  const pos = parsePositions(positionsJsonText);
+  if (!pos) return { patch: {}, fixed: [] };
   const patch: Record<string, string> = {};
   const fixed = new Set<string>();
   pos.forEach((p, j) => {
-    if (p.pc) return;
+    // final: a real article with its profit centre. A line still on an internal id with a profit
+    // centre has BORROWED it (borrowOrder) - the real answer replaces it
+    if (p.pc && isArticleNumber(p.a)) return;
     const k = known.get(pyStrip(p.a));
     // a line on its real article with no profit centre: fixed only by a profit centre
     if (!k || !k[1] || (!k[0] && k[1] === pyStrip(p.a))) return;
@@ -687,15 +683,77 @@ export function repairOrder(positionsJsonText: string | null | undefined, known:
     }
   });
   if (!fixed.size) return { patch: {}, fixed: [] };
-  const pcrev = new Map<string, number>();
-  for (const p of pos) if (p.pc) pcrev.set(p.pc, (pcrev.get(p.pc) ?? 0) + Math.abs(p.r));
-  if (pcrev.size) {
-    let top = "", best = 0, first = true;
-    for (const [pc, v] of pcrev) if (first || v > best) { top = pc; best = v; first = false; }
-    patch.order_profit_center = PC_OK.has(top) ? top : "Unknown";
-  }
+  const top = mainPc(pos);
+  if (top) patch.order_profit_center = PC_OK.has(top) ? top : "Unknown";
   patch.order_positions_json = positionsJson(pos);
   return { patch, fixed: [...fixed] };
+}
+
+function parsePositions(text: string | null | undefined): PosRow[] | null {
+  try {
+    const parsed = JSON.parse(text || "[]") as Partial<PosRow>[];
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map((p) => ({ a: String(p.a ?? ""), q: Number(p.q ?? 0), r: Number(p.r ?? 0), gm: p.gm === null || p.gm === undefined ? null : Number(p.gm), pc: String(p.pc ?? ""), t: String(p.t ?? "") }));
+  } catch {
+    return null;
+  }
+}
+
+/** An order's main profit centre: the one with the most revenue on its lines (the first on a tie), as orderPayload picks it. */
+export function mainPc(pos: readonly { pc: string; r: number }[]): string {
+  const pcrev = new Map<string, number>();
+  for (const p of pos) if (p.pc) pcrev.set(p.pc, (pcrev.get(p.pc) ?? 0) + Math.abs(p.r));
+  let top = "", best = 0, first = true;
+  for (const [pc, v] of pcrev) if (first || v > best) { top = pc; best = v; first = false; }
+  return top;
+}
+
+/**
+ * A customer's main profit centre from the company's rev_<year>_pc_monthly (the ERP revenue file:
+ * {"jan": {"dt": 1234.5, ...}, ...}): the first of the given years with revenue, the profit centre
+ * with the most of it. "" when none.
+ */
+export function customerPc(revPcMonthly: readonly (string | null | undefined)[]): string {
+  for (const text of revPcMonthly) {
+    let months: Record<string, Record<string, number>>;
+    try { months = JSON.parse(text || "{}"); } catch { continue; }
+    const tot = new Map<string, number>();
+    for (const m of Object.values(months ?? {})) for (const [pc, v] of Object.entries(m ?? {})) {
+      const code = linePc(pc);
+      if (code && Number(v) > 0) tot.set(code, (tot.get(code) ?? 0) + Number(v));
+    }
+    let top = "", best = 0;
+    for (const [pc, v] of tot) if (v > best) { top = pc; best = v; }
+    if (top) return top;
+  }
+  return "";
+}
+
+/**
+ * SARCLA 18.10.2026: a line on an internal id NO file knows (dim_article leaves those articles
+ * out - credit notes, fees) takes its order's main profit centre - or, on an order with no other
+ * line, the customer's (`fallback`). Its internal id stays on the line, so the real article and
+ * profit centre replace the borrowed one the day the hub learns them (repairOrder).
+ */
+export function borrowOrder(positionsJsonText: string | null | undefined, ids: ReadonlySet<string>, fallback: string): { patch: Record<string, string>; borrowed: string[]; pc: string } {
+  const pos = parsePositions(positionsJsonText);
+  const none = { patch: {}, borrowed: [], pc: "" };
+  if (!pos) return none;
+  const pc = mainPc(pos) || fallback;
+  if (!pc) return none;
+  const patch: Record<string, string> = {};
+  const borrowed = new Set<string>();
+  pos.forEach((p, j) => {
+    if (p.pc || !ids.has(pyStrip(p.a))) return;
+    borrowed.add(pyStrip(p.a));
+    p.pc = pc;
+    if (j < MAX_LINE_PROPS) patch[`order_line_${String(j + 1).padStart(2, "0")}_pc`] = pc;
+  });
+  if (!borrowed.size) return none;
+  const top = mainPc(pos);
+  patch.order_profit_center = PC_OK.has(top) ? top : "Unknown";
+  patch.order_positions_json = positionsJson(pos);
+  return { patch, borrowed: [...borrowed], pc };
 }
 
 /** What an order's lines without a profit centre carry: an internal id, or a 10-digit article. */

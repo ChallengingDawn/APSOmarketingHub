@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { articleOf, internalIdsOn, isArticleNumber, linePc, linesWithoutPcOn, repairOrder, unresolvedIds, type ArtInfo, type LiveLine } from "../src/lib/connectors/steps/orderRules";
+import { articleOf, borrowOrder, customerPc, internalIdsOn, isArticleNumber, linePc, linesWithoutPcOn, mainPc, repairOrder, unresolvedIds, type ArtInfo, type LiveLine } from "../src/lib/connectors/steps/orderRules";
 
 const line = (key: string, artno: string, rlc = 10): LiveLine => ({ d: "20261001", gone: false, key, artno, unit: "Stk", qty: 1, sq: 1, rlc, clc: 5, rtc: rlc, meur: 5 });
 const DIM = new Map<string, ArtInfo>([["630093", ["DT", "1222010102", "Chair leg buffer"]]]);
@@ -70,4 +70,36 @@ test("a line the old fixmap resolved without a profit centre: noted by its artic
   assert.equal(linePc(null), "");
   // the memory knows the article but no profit centre: nothing to change
   assert.deepEqual(repairOrder(before, new Map<string, ArtInfo>([["0650454103", ["", "0650454103", "O-ring"]]])), { patch: {}, fixed: [] });
+});
+
+test("a line no file knows borrows its order's main profit centre, else the customer's; the real answer replaces it", () => {
+  const order = JSON.stringify([
+    { a: "1222010102", q: 1, r: 50, gm: 20, pc: "DT", t: "Chair leg buffer" },
+    { a: "0110150012", q: 1, r: 300, gm: 20, pc: "KT", t: "PTFE round bar" },
+    { a: "22498505", q: 1, r: 11, gm: null, pc: "", t: "" },
+  ]);
+  assert.equal(mainPc(JSON.parse(order)), "KT");
+  const b = borrowOrder(order, new Set(["22498505"]), "ST");
+  assert.deepEqual([b.borrowed, b.pc], [["22498505"], "KT"]); // the order's own, not the customer's
+  assert.equal(b.patch.order_line_03_pc, "KT");
+  assert.equal(b.patch.order_line_03_article, undefined); // the internal id stays on the line
+  assert.equal(b.patch.order_profit_center, "KT");
+  const after = b.patch.order_positions_json;
+  assert.deepEqual(linesWithoutPcOn(after), []);
+  // a credit note with its one line: the customer's profit centre
+  const credit = JSON.stringify([{ a: "471395", q: -1, r: -14.4, gm: null, pc: "", t: "" }]);
+  assert.deepEqual(borrowOrder(credit, new Set(["471395"]), "DT").patch.order_line_01_pc, "DT");
+  assert.deepEqual(borrowOrder(credit, new Set(["471395"]), ""), { patch: {}, borrowed: [], pc: "" }); // nothing to borrow
+  // the day the hub learns the article: the borrowed profit centre is replaced, real lines stay
+  const r = repairOrder(after, new Map<string, ArtInfo>([["22498505", ["WS", "8001133004", "Certificate"]]]));
+  assert.deepEqual(r.fixed, ["22498505"]);
+  assert.equal(r.patch.order_line_03_article, "8001133004");
+  assert.equal(r.patch.order_line_03_pc, "WS");
+  assert.equal(r.patch.order_line_02_article, undefined);
+  // the customer's main profit centre: the first year with revenue, the biggest profit centre in it
+  const y26 = JSON.stringify({ jan: { dt: 100, kt: 50 }, feb: { kt: 80, unknown: 999 } });
+  const y25 = JSON.stringify({ mar: { st: 5000 } });
+  assert.equal(customerPc([y26, y25]), "KT"); // 130 KT against 100 DT; "unknown" never counts
+  assert.equal(customerPc([JSON.stringify({}), y25]), "ST");
+  assert.equal(customerPc([null, "not json"]), "");
 });

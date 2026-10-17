@@ -16,6 +16,9 @@
 // and all 287 on the orders of Sep-Oct 2026 (FT, AT, ST, WS, DT). Both steps
 // look them up there by NUMBER and remember them: the article for the repair, the fixmap id for
 // orders_daily.
+// The rest (SARCLA 18.10.2026, "this should be 100%"): ids NO file knows - dim_article leaves those
+// articles out (credit notes, fees) - borrow the order's main profit centre, or the customer's on an
+// order with no other line (orderRules.borrowOrder); the real answer still replaces it.
 // Preview reads and counts; it writes neither HubSpot nor the memory.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
@@ -23,8 +26,11 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { kvGet, kvSet } from "@/lib/db/init";
 import type { StepResult } from "./companyFacts";
 import { articleLookup, readCsvFile } from "./orderFiles";
-import { FCT, isArticleNumber, linePc, linesWithoutPcOn, pyStrip, repairOrder, type ArtInfo, type FixMap } from "./orderRules";
-import { addPending, clearPending, knownArticles, memoryCounts, pendingArticleNumbers, rememberArticles, resolvablePending } from "../articleIds";
+import { FCT, PC_OK, borrowOrder, customerPc, isArticleNumber, linePc, linesWithoutPcOn, mainPc, pyStrip, repairOrder, type ArtInfo, type FixMap } from "./orderRules";
+import {
+  addPending, clearPending, knownArticles, markBorrowed, memoryCounts, pendingArticleNumbers, rememberArticles, resolvablePending,
+  retryNothingBorrowed, unknownPending, usualBorrowed,
+} from "../articleIds";
 import seedJson from "../data/article_ids_seed.json";
 import fixmapJson from "../data/article_fixmap.json";
 
@@ -143,6 +149,121 @@ async function learnByNumber(live: boolean, beat: Beat): Promise<StepResult> {
   return { by_number_asked: wanted.length, by_number_waiting: waiting.length, by_number_found: found.size, by_number_remembered: remembered };
 }
 
+/* ── borrowing ─────────────────────────────────────────────────────────── */
+
+/** Each order's companies (the first is the buyer's - orders carry one). */
+async function companiesOf(orderIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const j = await hs<{ results?: { from?: { id?: string | number }; to?: { toObjectId?: string | number }[] }[] }>({
+      path: "/crm/v4/associations/orders/companies/batch/read", method: "POST",
+      body: { inputs: orderIds.slice(i, i + 100).map((id) => ({ id })) },
+    });
+    for (const r of j.results ?? []) {
+      const to = r.to?.[0]?.toObjectId;
+      if (r.from?.id !== undefined && to !== undefined) out.set(String(r.from.id), String(to));
+    }
+  }
+  return out;
+}
+
+/** The customers' main profit centre for each year asked: company id -> year -> profit centre. */
+async function customerPcs(companyIds: string[], years: number[]): Promise<Map<string, Map<number, string>>> {
+  const out = new Map<string, Map<number, string>>();
+  const props = [...new Set(years.flatMap((y) => [y, y - 1]))].map((y) => `rev_${y}_pc_monthly`);
+  for (let i = 0; i < companyIds.length; i += 100) {
+    const j = await hs<{ results?: Obj[] }>({
+      path: "/crm/v3/objects/companies/batch/read", method: "POST",
+      body: { inputs: companyIds.slice(i, i + 100).map((id) => ({ id })), properties: props },
+    });
+    for (const c of j.results ?? []) {
+      const m = new Map<number, string>();
+      for (const y of years) m.set(y, customerPc([c.properties?.[`rev_${y}_pc_monthly`], c.properties?.[`rev_${y - 1}_pc_monthly`]]));
+      out.set(String(c.id), m);
+    }
+  }
+  return out;
+}
+
+/**
+ * The lines on an id no file knows: the order's main profit centre (its lines', else its own
+ * field), else the customer's (that year or the one before), else - a new customer's first order -
+ * the one that same id borrowed most often on its other orders. Two passes: the second gives the
+ * orders the first left empty the ids' usual profit centre.
+ */
+async function borrowUnknown(beat: Beat, until: number): Promise<StepResult> {
+  let orders = 0, lines = 0, fromOrder = 0, fromCustomer = 0, fromId = 0, nothing = 0, failed = 0;
+  const errors: string[] = [];
+  const examples: string[] = [];
+  for (let pass = 0; pass < 2 && Date.now() < until; pass++) {
+    await retryNothingBorrowed();
+    nothing = 0;
+    const seen = new Set<string>();
+    while (Date.now() < until) {
+      const batch = (await unknownPending(100)).filter((b) => !seen.has(b.orderId));
+      if (!batch.length) break;
+      for (const b of batch) seen.add(b.orderId);
+      const j = await hs<{ results?: Obj[] }>({
+        path: "/crm/v3/objects/orders/batch/read", method: "POST",
+        body: { inputs: batch.map((b) => ({ id: b.orderId })), properties: ["order_positions_json", "order_order_number", "order_order_date", "order_profit_center"] },
+      });
+      const byId = new Map((j.results ?? []).map((o) => [String(o.id), o.properties ?? {}]));
+      const ownPc = (p: Record<string, string | null>) => (PC_OK.has(p.order_profit_center ?? "") ? (p.order_profit_center as string) : "");
+      // the customer, only for the orders with no line - and no profit centre - of their own to lend
+      const lonely = batch.filter((b) => {
+        const p = byId.get(b.orderId);
+        if (!p || ownPc(p)) return false;
+        try { return !mainPc(JSON.parse(p.order_positions_json || "[]")); } catch { return true; }
+      });
+      // the order date as HubSpot gives it: epoch milliseconds or an ISO date
+      const yearOf = (p: Record<string, string | null>) => {
+        const v = (p.order_order_date ?? "").trim();
+        const d = /^\d+$/.test(v) ? new Date(Number(v)) : new Date(v);
+        return Number.isNaN(d.getTime()) ? new Date().getUTCFullYear() : d.getUTCFullYear();
+      };
+      const co = lonely.length ? await companiesOf(lonely.map((b) => b.orderId)) : new Map<string, string>();
+      const cpc = co.size ? await customerPcs([...new Set(co.values())], [...new Set(lonely.map((b) => yearOf(byId.get(b.orderId)!)))]) : new Map<string, Map<number, string>>();
+      const usual = pass ? await usualBorrowed([...new Set(lonely.flatMap((b) => b.ids))]) : new Map<string, string>();
+      const inputs: { id: string; properties: Record<string, string> }[] = [];
+      const marks: { orderId: string; ids: string[]; pc: string }[] = [];
+      for (const b of batch) {
+        const p = byId.get(b.orderId);
+        // gone from HubSpot: nothing left to borrow for
+        if (!p) { await clearPending(b.orderId, b.ids); continue; }
+        const isLonely = lonely.some((x) => x.orderId === b.orderId);
+        const customer = cpc.get(co.get(b.orderId) ?? "")?.get(yearOf(p)) ?? "";
+        const byIdPc = b.ids.map((x) => usual.get(x)).find(Boolean) ?? "";
+        const r = borrowOrder(p.order_positions_json, new Set(b.ids), ownPc(p) || customer || byIdPc);
+        if (!r.borrowed.length) { nothing += 1; marks.push({ orderId: b.orderId, ids: b.ids, pc: "" }); continue; }
+        inputs.push({ id: b.orderId, properties: r.patch });
+        marks.push({ orderId: b.orderId, ids: r.borrowed, pc: r.pc });
+        lines += r.borrowed.length;
+        const from = !isLonely ? "order" : customer ? "customer" : "same id elsewhere";
+        if (from === "order") fromOrder += 1; else if (from === "customer") fromCustomer += 1; else fromId += 1;
+        if (examples.length < 10) examples.push(`${p.order_order_number}: ${r.borrowed.join(", ")} -> ${r.pc}${from === "order" ? "" : ` (${from})`}`);
+      }
+      if (inputs.length) {
+        try {
+          await hs({ path: "/crm/v3/objects/orders/batch/update", method: "POST", body: { inputs } });
+          orders += inputs.length;
+        } catch (e) {
+          failed += inputs.length;
+          if (errors.length < 3) errors.push(msg(e));
+          // not marked: the next run tries these again
+          const bad = new Set(inputs.map((x) => x.id));
+          for (let i = marks.length - 1; i >= 0; i--) if (bad.has(marks[i].orderId)) marks.splice(i, 1);
+        }
+      }
+      for (const m of marks) await markBorrowed(m.orderId, m.ids, m.pc);
+      await beat();
+    }
+  }
+  return {
+    borrowed_orders: orders, borrowed_lines: lines, borrowed_from_order: fromOrder, borrowed_from_customer: fromCustomer, borrowed_from_same_id: fromId,
+    nothing_to_borrow: nothing, borrow_failed: failed, ...(errors.length ? { borrow_errors: errors } : {}), borrow_examples: examples,
+  };
+}
+
 /* ── repair ────────────────────────────────────────────────────────────── */
 
 const monthStart = (ym: string) => Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
@@ -250,6 +371,8 @@ export async function repairArticleLines(live: boolean, beat: Beat, opts: { full
     for (const d of done) await clearPending(d.orderId, d.ids);
     await beat();
   }
+  // what nothing knows: borrowed, in the time left
+  Object.assign(out, await borrowUnknown(beat, t0 + REPAIR_BUDGET_MS));
   return {
     ...out, orders_repaired: orders, lines_repaired: lines, failed, ...(errors.length ? { errors } : {}), examples,
     ...(await memoryCounts().catch(() => ({}))),
