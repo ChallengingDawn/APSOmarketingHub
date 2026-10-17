@@ -34,6 +34,13 @@ export const designNodeSchema = z.object({
   stroke: color.optional(), strokeWidth: number.nonnegative().max(1000).optional(),
   flipH: z.boolean().optional(), flipV: z.boolean().optional(),
   brightness: number.min(-100).max(100).optional(),
+  /** Softens a photograph so text over it stays readable. 0-60px. */
+  blur: number.min(0).max(60).optional(),
+  /**
+   * The shape the image is cut to. A rectangle is the absence of a mask, so
+   * it is the default and costs nothing to store.
+   */
+  mask: z.enum(["circle", "rounded"]).optional(),
   contrastVal: number.min(-100).max(100).optional(), grayscale: z.boolean().optional(),
 }).strict();
 

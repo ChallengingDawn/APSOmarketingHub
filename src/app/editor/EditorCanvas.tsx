@@ -203,10 +203,10 @@ const pillPad = (n: NodeSpec) => {
 
 const isShape = (k: NodeSpec["kind"]) => k === "rect" || k === "ellipse" || k === "arrow";
 
-const hasImageFilters = (n: NodeSpec) => Boolean(n.brightness || n.contrastVal || n.grayscale);
+const hasImageFilters = (n: NodeSpec) => Boolean(n.brightness || n.contrastVal || n.grayscale || n.blur);
 
 const filtersOf = (n: NodeSpec) =>
-  [n.brightness ? Konva.Filters.Brighten : null, n.contrastVal ? Konva.Filters.Contrast : null, n.grayscale ? Konva.Filters.Grayscale : null].filter(
+  [n.brightness ? Konva.Filters.Brighten : null, n.contrastVal ? Konva.Filters.Contrast : null, n.grayscale ? Konva.Filters.Grayscale : null, n.blur ? Konva.Filters.Blur : null].filter(
     Boolean
   ) as (typeof Konva.Filters.Brighten)[];
 
@@ -2298,6 +2298,52 @@ export default function EditorCanvas({
                   onChange={(_, v) => patch(selected.id, { contrastVal: Array.isArray(v) ? v[0] : v }, `ct-${selected.id}`)}
                 />
               </Box>
+
+              {/* The reason this exists: a photograph behind a headline is
+                  unreadable until it is softened, and the only way to do that
+                  before was to go back and generate a different picture. */}
+              <Box sx={{ width: 160 }}>
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>Blur · {selected.blur ?? 0}</Typography>
+                <Slider
+                  size="small"
+                  value={selected.blur ?? 0}
+                  min={0}
+                  max={60}
+                  step={1}
+                  onChange={(_, v) => patch(selected.id, { blur: Array.isArray(v) ? v[0] : v }, `bl-${selected.id}`)}
+                />
+              </Box>
+
+              <Box>
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Shape</Typography>
+                <Box sx={{ display: "flex", gap: 0.5 }}>
+                  {([
+                    { key: undefined, label: "Square", r: "2px" },
+                    { key: "rounded" as const, label: "Rounded", r: "7px" },
+                    { key: "circle" as const, label: "Circle", r: "50%" },
+                  ]).map((opt) => {
+                    const on = selected.mask === opt.key;
+                    return (
+                      <Tooltip key={opt.label} title={opt.label}>
+                        <Box
+                          component="button"
+                          type="button"
+                          aria-label={opt.label}
+                          aria-pressed={on}
+                          onClick={() => patch(selected.id, { mask: opt.key })}
+                          sx={{
+                            width: 30, height: 30, cursor: "pointer", display: "grid", placeItems: "center",
+                            borderRadius: "7px", bgcolor: on ? "#eef3ff" : "#fff",
+                            border: `1px solid ${on ? "#2459d1" : "#e3e6ea"}`,
+                          }}
+                        >
+                          <Box sx={{ width: 15, height: 15, bgcolor: on ? "#2459d1" : "#8a93a0", borderRadius: opt.r }} />
+                        </Box>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              </Box>
             </Box>
           )}
         </Card>
@@ -2430,10 +2476,21 @@ export default function EditorCanvas({
                     offsetX={n.flipH ? n.width ?? 0 : 0}
                     offsetY={n.flipV ? n.height ?? 0 : 0}
                     image={imgEls[n.src ?? ""]}
-                    cornerRadius={n.cornerRadius}
+                    // Konva has no mask on an image, so the shape IS the corner
+                    // radius: half the shorter side draws a circle, a twelfth
+                    // draws the rounded card the rest of the hub uses. A node
+                    // that sets its own radius keeps it.
+                    cornerRadius={
+                      n.mask === "circle"
+                        ? Math.min(n.width ?? 0, n.height ?? 0) / 2
+                        : n.mask === "rounded"
+                          ? Math.min(n.width ?? 0, n.height ?? 0) / 12
+                          : n.cornerRadius
+                    }
                     filters={filtersOf(n)}
                     brightness={(n.brightness ?? 0) / 100}
                     contrast={n.contrastVal ?? 0}
+                    blurRadius={n.blur ?? 0}
                     opacity={n.opacity ?? 1}
                     shadowColor={DROP_SHADOW.color}
                     shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
