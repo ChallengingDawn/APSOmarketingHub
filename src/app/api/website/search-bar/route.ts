@@ -34,7 +34,7 @@ const fail = (err: unknown) => NextResponse.json({
   configured: true, ok: false, error: String((err as Error)?.message ?? err), status: (err as { status?: number })?.status ?? null,
 });
 const FEATURE_LANGS = ["en", "de", "fr", "it", "nl", "pl"];
-const HUBSPOT_JOBS = ["live_on_shop", "stock_copy", "ads_buckets", "shop_activity"];
+const HUBSPOT_JOBS = ["live_on_shop", "stock_copy"];   // the Ads buckets + shop activity: /api/website/ads-buckets
 const int = (v: string | null, def: number, min: number, max: number) => Math.min(max, Math.max(min, parseInt(v || String(def), 10) || def));
 const pick = (v: string | null, allowed: string[], def: string) => (v && allowed.includes(v) ? v : def);
 

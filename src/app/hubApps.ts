@@ -78,6 +78,8 @@ export const APPS: HubApp[] = [
       // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026), first of
       // the Microservices (SARCLA 17.10.2026)
       { group: "Microservices", name: "Search bar", note: "What customers search and find, the gaps, stock, brands, its views", href: "/website/search-bar", icon: "search", ...BLUE },
+      // the Google Ads buyer buckets + live shop activity, their own service since 17.10.2026 (SARCLA: "a separate microservice")
+      { group: "Microservices", name: "Google Ads buckets", note: "New, active or reactivated buyers for Google Ads; live shop activity", href: "/website/ads-buckets", icon: "ads", ...AMBER },
       // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
       // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
       { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },

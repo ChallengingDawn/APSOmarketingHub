@@ -185,6 +185,7 @@ const navSections: NavSection[] = [
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
       // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
       { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
+      { group: "Microservices", label: "Google Ads buckets", href: "/website/ads-buckets", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DirectCut", href: "/website/directcut", icon: <ContentCutOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
