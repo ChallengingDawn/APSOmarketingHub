@@ -44,5 +44,11 @@ export async function register() {
     // hub's database. Needs THREED_ADMIN_KEY; THREED_COLLECT=off stops it.
     const { startThreeDCollector } = await import("./lib/threeD/calls");
     startThreeDCollector();
+
+    // Ticket associations: the Tickets app's HubSpot workflow, run by the hub every 3 minutes
+    // (src/lib/ticketAssoc/run.ts) - starts in preview, writes only once set live on its page.
+    // TICKET_ASSOC=off stops it.
+    const { startTicketAssoc } = await import("./lib/ticketAssoc/run");
+    startTicketAssoc();
   }
 }

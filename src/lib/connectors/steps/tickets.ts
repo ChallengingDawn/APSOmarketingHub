@@ -246,12 +246,12 @@ const KV_ASSOC = "connectors:hub:ticket_assoc";
 const KV_DONE = "connectors:hub:ticket_assoc:done";
 const STAT_KEYS = ["scanned", "order_assoc", "article_assoc", "offer_order_match", "offer_converted", "fields_filled", "c2s_flagged",
   "email_mined", "email_blocked", "write_failed", "read_failed"] as const;
-type Stats = Record<(typeof STAT_KEYS)[number], number> & {
+export type Stats = Record<(typeof STAT_KEYS)[number], number> & {
   samples: unknown[]; truncated?: boolean; error?: string;
   // what a preview would write / what a live run found to write, after "changed only"
   fields_to_fill: number; c2s_to_set: number; order_links_new: number; article_links_new: number;
 };
-const newStats = (): Stats => ({
+export const newStats = (): Stats => ({
   ...(Object.fromEntries(STAT_KEYS.map((k) => [k, 0])) as Record<(typeof STAT_KEYS)[number], number>),
   samples: [], fields_to_fill: 0, c2s_to_set: 0, order_links_new: 0, article_links_new: 0,
 });
@@ -356,8 +356,16 @@ async function offerOrderMatch(cid: string, article: string, createdMs: number):
   return hits;
 }
 
-type Detail = { orders: string[]; articles: string[]; offer_orders: string[]; c2s: boolean; emails: number; filled: string[]; write_ok: boolean };
-type Gathered = { tid: string; p: Props; detail: Detail; plan: AssocPlan | null; error?: string };
+/** One ticket's outcome; new_orders / new_articles = the links it did not carry yet (set by flush). */
+export type Detail = { orders: string[]; articles: string[]; offer_orders: string[]; c2s: boolean; emails: number; filled: string[]; write_ok: boolean; new_orders?: number; new_articles?: number };
+export type Gathered = { tid: string; p: Props; detail: Detail; plan: AssocPlan | null; error?: string };
+/**
+ * What evidence to read beyond the ticket's own fields. The connector's engine read the
+ * ticket's e-mails and matched ESO / TSA offers to the order that followed; the HubSpot
+ * workflow that ran from August 2026 read the fields only (Ticket associations app, /uc).
+ */
+export type Evidence = { emails: boolean; offers: boolean };
+const FULL: Evidence = { emails: true, offers: true };
 
 /**
  * ticket_assoc._process, the reading half: every piece of evidence for ONE ticket and
@@ -365,10 +373,10 @@ type Gathered = { tid: string; p: Props; detail: Detail; plan: AssocPlan | null;
  * the next sweep tries it again - the connector carried on with less evidence and
  * marked it done.
  */
-async function gather(tid: string, p: Props, name: string, stats: Stats, pp: Map<string, string | null>): Promise<Gathered> {
+export async function gather(tid: string, p: Props, name: string, stats: Stats, pp: Map<string, string | null>, ev: Evidence = FULL): Promise<Gathered> {
   stats.scanned += 1;
   const blob = ticketBlob(p);
-  const [etext, ecount] = await emailText(tid);
+  const [etext, ecount] = ev.emails ? await emailText(tid) : ["", 0] as [string, number];
   if (ecount > 0) stats.email_mined += 1;
   else if (ecount < 0) stats.email_blocked += 1;
   const detail: Detail = { orders: [], articles: [], offer_orders: [], c2s: false, emails: Math.max(ecount, 0), filled: [], write_ok: true };
@@ -381,7 +389,7 @@ async function gather(tid: string, p: Props, name: string, stats: Stats, pp: Map
     let c2s = mentionsC2S(all) || [...orders.values()].some((o) => o.c2s);
     // ESO / TSA: the article -> an order of the ticket's company in the time frame
     const offer: [string, string, boolean][] = [];
-    if ((name === "ESO" || name === "TSA") && arts.size) {
+    if (ev.offers && (name === "ESO" || name === "TSA") && arts.size) {
       const cid = await companyOf(tid);
       if (cid) {
         const created = createdMsIso(p.createdate);
@@ -459,7 +467,7 @@ async function linkBatches(path: string, pairs: { tid: string; input: object }[]
  * as planned (only empty fields, only an unset flag), and only the associations the
  * ticket does not carry yet. Returns the tickets whose writes all went through.
  */
-async function flush(page: Gathered[], live: boolean, stats: Stats, errors: string[]): Promise<Set<string>> {
+export async function flush(page: Gathered[], live: boolean, stats: Stats, errors: string[]): Promise<Set<string>> {
   const ready = page.filter((g) => g.plan);
   const wantsLinks = ready.filter((g) => g.plan!.orderIds.length || g.plan!.ppIds.length).map((g) => g.tid);
   const haveOrders = wantsLinks.length ? await existingLinks("orders", wantsLinks) : new Map() as Links;
@@ -474,8 +482,12 @@ async function flush(page: Gathered[], live: boolean, stats: Stats, errors: stri
     if (plan.props.c2s_ticket) stats.c2s_to_set += 1;
     const ho = new Set((haveOrders.get(g.tid) ?? []).filter((t) => hasDefaultType(t.associationTypes)).map((t) => String(t.toObjectId)));
     const hp = new Set((havePP.get(g.tid) ?? []).filter((t) => hasArticleType(t.associationTypes)).map((t) => String(t.toObjectId)));
-    for (const oid of plan.orderIds.filter((o) => !ho.has(o))) orderPairs.push({ tid: g.tid, input: { from: { id: g.tid }, to: { id: oid } } });
-    for (const pid of plan.ppIds.filter((x) => !hp.has(x))) {
+    const newOrders = plan.orderIds.filter((o) => !ho.has(o));
+    const newArticles = plan.ppIds.filter((x) => !hp.has(x));
+    g.detail.new_orders = newOrders.length;
+    g.detail.new_articles = newArticles.length;
+    for (const oid of newOrders) orderPairs.push({ tid: g.tid, input: { from: { id: g.tid }, to: { id: oid } } });
+    for (const pid of newArticles) {
       ppPairs.push({ tid: g.tid, input: { from: { id: g.tid }, to: { id: pid }, types: [{ associationCategory: "USER_DEFINED", associationTypeId: PP_ASSOC_TYPE }] } });
     }
   }
