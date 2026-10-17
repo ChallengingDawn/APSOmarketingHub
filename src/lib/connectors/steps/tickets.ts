@@ -16,7 +16,7 @@ import type { StepResult } from "./companyFacts";
 import {
   ASSOC_FIELDS, ASSOC_PIPELINES, BO, DEPUTY_PIPELINE, DEPUTY_STAGES, ESO, ORDER_PROPS, PIPE_NAME, PP_ASSOC_TYPE, PP_OBJ, TSA, USER_PROPS,
   WRONG_OWNER_PROPS, absorbArticles, addOwners, articleCandidates, articleSearchValues, articlesFromCache, articlesToCheck, assocPlan,
-  companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch,
+  companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch, productCandidates,
   orderRefs, pySlice, pySorted, rememberMissing, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
   wrongOwnerSearch, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
 } from "./ticketRules";
@@ -357,7 +357,12 @@ async function offerOrderMatch(cid: string, article: string, createdMs: number):
 }
 
 /** One ticket's outcome; new_orders / new_articles = the links it did not carry yet (set by flush). */
-export type Detail = { orders: string[]; articles: string[]; offer_orders: string[]; c2s: boolean; emails: number; filled: string[]; write_ok: boolean; new_orders?: number; new_articles?: number };
+export type Detail = {
+  orders: string[]; articles: string[]; offer_orders: string[]; c2s: boolean; emails: number; filled: string[]; write_ok: boolean;
+  new_orders?: number; new_articles?: number;
+  /** Numbers in the text that looked like articles but Products & Pricing does not know; eight-digit numbers seen. */
+  rejected?: string[]; products?: string[];
+};
 export type Gathered = { tid: string; p: Props; detail: Detail; plan: AssocPlan | null; error?: string };
 /**
  * What evidence to read beyond the ticket's own fields. The connector's engine read the
@@ -384,8 +389,11 @@ export async function gather(tid: string, p: Props, name: string, stats: Stats, 
     const all = `${blob}\n${etext}`;
     const refs = orderRefs(all);
     const orders = refs.length ? await resolveOrders(wantedOrderNumbers(refs)) : new Map<string, FoundOrder>();
-    const cands = articlesToCheck(articleCandidates(all), orders);
+    const fromText = articleCandidates(all);
+    const cands = articlesToCheck(fromText, orders);
     const arts = cands.length ? await resolveArticles(cands, pp) : new Map<string, string>();
+    detail.rejected = pySorted([...fromText].filter((a) => !arts.has(a))).slice(0, 8);
+    detail.products = productCandidates(all);
     let c2s = mentionsC2S(all) || [...orders.values()].some((o) => o.c2s);
     // ESO / TSA: the article -> an order of the ticket's company in the time frame
     const offer: [string, string, boolean][] = [];

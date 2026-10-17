@@ -203,12 +203,16 @@ test("assoc: what is written - empty fields only, the first 4 + 3 orders, the fi
   const arts = new Map(Array.from({ length: 7 }, (_, i) => [`100000000${i}`, `pp${i % 6}`]));
   const plan = assocPlan({ order_number: " ", articles_on_the_ticket: "x", c2s_ticket: "false" }, orders, arts,
     [["o9", "A26.9", true], ["o1", "A26.000001.000", false], ["o8", "A26.8", true], ["o7", "A26.7", true]], true);
-  assert.deepEqual(plan.props, { order_number: "A26.000001.000", c2s_ticket: "true" });
-  assert.deepEqual(plan.filled, ["order_number"]);
+  // Article(s) is empty here, so it gets the articles found too (SARCLA 17.10.2026)
+  assert.deepEqual(plan.props, { order_number: "A26.000001.000", article: [...arts.keys()].sort().join("; "), c2s_ticket: "true" });
+  assert.deepEqual(plan.filled, ["order_number", "article"]);
   assert.deepEqual(plan.orderIds, ["o1", "o4", "o3", "o2", "o9", "o8"]);
   assert.deepEqual(plan.ppIds, ["pp0", "pp1", "pp2", "pp3", "pp4"]);
   const long = assocPlan({}, new Map(), new Map(Array.from({ length: 30 }, (_, i) => [String(1_000_000_000 + i), "p"])), [], false);
   assert.equal(long.props.articles_on_the_ticket.length, 250);
+  assert.equal(long.props.article.split("; ").length, 30);
+  // a filled Article(s) is never overwritten
+  assert.equal(assocPlan({ article: "set by a person" }, new Map(), arts, [], false).props.article, undefined);
 });
 
 test("assoc: the offer match - the article as is or zero-padded, converted from the ticket's day", () => {

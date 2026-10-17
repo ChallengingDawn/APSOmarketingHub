@@ -6,7 +6,7 @@
 // workflow that ran on the Tickets app (SARCLA, 17.10.2026: "migrate the workflow here").
 // Same kit as the other UC apps: the period on top, Overview and Settings as UC tabs.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -30,6 +30,11 @@ import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
+import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
+import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
+import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import PinOutlinedIcon from "@mui/icons-material/PinOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -39,18 +44,22 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
+import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
+import type { SecretFlows } from "@/lib/ticketAssoc/workflows";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
   offer_orders: string[]; new_orders: number; new_articles: number; filled: string[]; c2s: boolean; ok: boolean; error: string | null;
 };
 type Pipe = { pipeline: string | null; tickets: number; orders: number; articles: number; filled: number; c2s: number; failed: number };
+type ArtRow = { ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] };
 type Data = {
   settings: Settings; mode: "preview" | "live"; byPipeline: Pipe[]; recent: Row[]; from: string; to: string;
+  articles: ArtRow[]; alerts: AlertRow[]; lastAlerts: AlertRun | null; alertsEveryMinutes: number;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
-type View = "overview" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", settings: "#settings" };
+type View = "overview" | "articles" | "alerts" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", alerts: "#alerts", settings: "#settings" };
 const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA" };
 const WHY: Record<string, string> = { new: "new", stage: "moved stage", retry: "asked again" };
 const FIELD: Record<string, string> = { order_number: "order number", articles_on_the_ticket: "articles", c2s_ticket: "C2S" };
@@ -140,6 +149,159 @@ function Overview({ d }: { d: Data }) {
   );
 }
 
+function TicketCell({ id, subject }: { id: string; subject: string | null }) {
+  return (
+    <Box component="a" href={hsTicket(id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(300) }}>
+      {subject || `Ticket ${id}`}
+    </Box>
+  );
+}
+
+/**
+ * ARTICLES (SARCLA 17.10.2026: "the detection is also not very good, we should put a new tab for it"):
+ * what the detection saw on each ticket - the articles Products & Pricing confirmed, the numbers that
+ * looked like articles but the catalogue does not know, and eight-digit numbers (often a product page).
+ */
+function ArticlesTab({ d }: { d: Data }) {
+  const rows = d.articles;
+  const { slice, pager } = usePaged(rows, 15);
+  const withArt = rows.filter((r) => r.articles.length).length;
+  const distinct = new Set(rows.flatMap((r) => r.articles)).size;
+  const rejected = rows.filter((r) => r.rejected.length).length;
+  const filledArt = rows.filter((r) => r.filled.includes("article")).length;
+  return (
+    <>
+      <Info>
+        An article is found in the ticket&apos;s subject, description and reference fields - ten digits in one piece or in groups
+        (&quot;1120 030 724&quot;, &quot;1120-030-724&quot;, &quot;1120.030.724&quot;) - and from the lines of the orders the ticket names; Products &amp; Pricing confirms each one.
+        The articles found go into <b>Article(s)</b> and <b>Articles on the ticket</b> while those are empty, and are linked to the ticket.
+        &quot;Not in the catalogue&quot; shows what looked like an article but is not one - that is where the detection can still learn.
+      </Info>
+      <Grid container spacing={2}>
+        {[
+          { icon: <Inventory2OutlinedIcon />, tint: "green" as const, label: "Tickets with an article", value: withArt, note: "confirmed by Products & Pricing" },
+          { icon: <PinOutlinedIcon />, tint: "blue" as const, label: "Different articles", value: distinct, note: "across those tickets" },
+          { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Tickets with unknown numbers", value: rejected, note: "looked like an article, are not" },
+          { icon: <EditNoteOutlinedIcon />, tint: "purple" as const, label: d.mode === "preview" ? "Article(s) to fill" : "Article(s) filled", value: filledArt, note: "only when it was empty" },
+        ].map((k) => (
+          <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
+        ))}
+      </Grid>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+          <CardTitle icon={<Inventory2OutlinedIcon />} tint="green" title="What the detection saw" note="Every processed ticket in the period that named a number" />
+        </Box>
+        <Table size="small">
+          <TableHead><TableRow>{["Ticket", "Pipeline", "Articles found", "Not in the catalogue", "8-digit numbers", "Article(s)", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {!rows.length && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No ticket in this period named a number.</TableCell></TableRow>}
+            {slice.map((r) => (
+              <TableRow key={`${r.ticket_id}-${r.at}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketCell id={r.ticket_id} subject={r.subject} /></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.join(", ") || "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: r.rejected.length ? "#a96a12" : MUTED }}>{r.rejected.join(", ") || "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{r.products.join(", ") || "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.filled.includes("article") ? <Chip tint="green">filled</Chip> : "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
+      </GlassCard>
+    </>
+  );
+}
+
+const ALERT_MODE: Record<AlertMode, string> = { off: "Off", preview: "Preview - list only", link: "Link the order", mail: "Link and mail the owner" };
+
+/**
+ * ORDER ALERTS (SARCLA 17.10.2026): an open ESO / TSA ticket names an article, the customer then orders
+ * it - the order is linked to the ticket and the owner gets "please check your ticket" with a Review
+ * button (Settings > Mail shows the mail). Every 15 minutes, from the orders that got their A-number.
+ */
+function AlertsTab({ d }: { d: Data }) {
+  const rows = d.alerts;
+  const { slice, pager } = usePaged(rows, 15);
+  const a = d.settings.alerts;
+  const la = d.lastAlerts;
+  return (
+    <>
+      {a === "off" && <Info>Order alerts are off. Settings &gt; Order alerts turns them on.</Info>}
+      {a === "preview" && <Info>Preview - every {d.alertsEveryMinutes} minutes the hub matches the orders that just got their A-number to open ESO / TSA tickets of the same customer that name one of the order&apos;s articles, and lists them here. Nothing is linked and nobody is mailed until Settings &gt; Order alerts says so.</Info>}
+      {a === "link" && <Info>Linking - a matched order is linked to the ticket; nobody is mailed.</Info>}
+      <Grid container spacing={2}>
+        {[
+          { icon: <NotificationsActiveOutlinedIcon />, tint: "blue" as const, label: a === "preview" ? "Alerts it would send" : "Alerts", value: rows.length, note: "one per ticket and order" },
+          { icon: <ReceiptLongOutlinedIcon />, tint: "purple" as const, label: "Orders linked", value: rows.filter((r) => r.linked).length, note: "to the ticket" },
+          { icon: <MarkEmailReadOutlinedIcon />, tint: "green" as const, label: "Owners mailed", value: rows.filter((r) => r.mailed_at).length, note: "“please check your ticket”" },
+          { icon: <ReportProblemOutlinedIcon />, tint: "pink" as const, label: "Problems", value: rows.filter((r) => r.error).length, note: "no owner, no mail address, a failed link" },
+        ].map((k) => (
+          <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
+        ))}
+      </Grid>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+          <CardTitle icon={<NotificationsActiveOutlinedIcon />} tint="blue" title="Orders on open tickets" note={la ? `Last check ${when(la.at)}: ${full(la.read)} orders read, ${full(la.matched)} matched${la.error ? ` - ${la.error}` : ""}` : "Not checked yet"} />
+        </Box>
+        <Table size="small">
+          <TableHead><TableRow>{["Ticket", "Customer", "Order", "Article", "Owner", "What happened", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {!rows.length && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No order matched an open ticket in this period.</TableCell></TableRow>}
+            {slice.map((r) => (
+              <TableRow key={`${r.ticket_id}-${r.order_id}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketCell id={r.ticket_id} subject={r.ticket_subject} /><Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline}</Typography></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", ...clip(180) }}>{r.company ?? "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", whiteSpace: "nowrap" }}>{r.order_number ?? r.order_id}<Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{r.order_date ?? ""}</Typography></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.join(", ")}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", ...clip(200) }}>{r.owner_email ?? "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
+                  {r.mailed_at ? <Chip tint="green">mailed</Chip> : r.linked ? <Chip tint="purple">linked</Chip> : <Chip tint="slate">listed</Chip>}
+                  {r.error && <Typography sx={{ fontSize: "0.74rem", color: RED }}>{r.error}</Typography>}
+                </TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
+      </GlassCard>
+    </>
+  );
+}
+
+/** The HubSpot workflows whose custom code still reads the Tickets app's secret. */
+function Workflows() {
+  const [n, setN] = useState(0);
+  const [data, setData] = useState<SecretFlows | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    fetch(`/api/uc/ticket-associations?workflows=1${n ? "&refresh=1" : ""}`)
+      .then((r) => r.json())
+      .then((j: { ok: boolean; data?: SecretFlows; error?: string }) => { if (alive) setData(j.ok && j.data ? j.data : { ok: false, error: j.error ?? "could not be read", at: new Date().toISOString() }); })
+      .catch((e) => { if (alive) setData({ ok: false, error: String((e as Error).message), at: new Date().toISOString() }); });
+    return () => { alive = false; };
+  }, [n]);
+  return (
+    <GlassCard>
+      <CardTitle icon={<AccountTreeOutlinedIcon />} tint="slate" title="HubSpot workflows still using TICKETS_TOKEN"
+        note="The Tickets app (sarcla-tickets) can be deleted once none of these is on - switch off the Ticket associations workflow first"
+        right={<Tooltip title="Ask HubSpot again"><IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Check again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>} />
+      {data === null && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading HubSpot&apos;s workflows…</Typography>}
+      {data && !data.ok && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{data.error}</Typography>}
+      {data && data.ok && !data.flows.length && <Typography sx={{ fontSize: "0.84rem", color: INK }}>None of HubSpot&apos;s {full(data.checked)} workflows reads TICKETS_TOKEN - nothing stands in the way of deleting the Tickets app.</Typography>}
+      {data && data.ok && data.flows.map((f) => (
+        <Box key={f.id} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, borderTop: "1px solid rgba(21,34,58,.10)" }}>
+          <Chip tint={f.enabled ? "pink" : "slate"}>{f.enabled ? "on" : "off"}</Chip>
+          <Box component="a" href={f.url} target="_blank" rel="noopener" sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>{f.name}</Box>
+        </Box>
+      ))}
+    </GlassCard>
+  );
+}
+
 function LastRunLine({ label, r }: { label: string; r: LastRun | null }) {
   if (!r) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{label}: has not run yet.</Typography>;
   return (
@@ -156,7 +318,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [tid, setTid] = useState("");
   const [check, setCheck] = useState<Record<string, unknown> | null>(null);
 
-  const save = async (change: { mode?: Mode; extended?: boolean }) => {
+  const save = async (change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }) => {
     setBusy("save"); setMsg(null);
     try {
       const r = await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
@@ -205,6 +367,12 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
               ]} />
             ) : <Chip tint="slate">{d.settings.extended ? "extended" : "the ticket's fields"}</Chip>}
           </Box>
+          <Box>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Order alerts - an order with a ticket&apos;s article, on an open ESO / TSA ticket (every {d.alertsEveryMinutes} minutes)</Typography>
+            {d.admin ? (
+              <Choice<AlertMode> value={d.settings.alerts} onChange={(v) => void save({ alerts: v })} options={(Object.keys(ALERT_MODE) as AlertMode[]).map((k) => ({ key: k, label: ALERT_MODE[k] }))} />
+            ) : <Chip tint="slate">{ALERT_MODE[d.settings.alerts]}</Chip>}
+          </Box>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
             {d.settings.by ? `Set by ${d.settings.by}, ${when(d.settings.at)}.` : "Not set yet - preview, the ticket's fields."}
             {!d.admin && " Only an admin can change it."}
@@ -221,6 +389,8 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           {msg && <Typography sx={{ fontSize: "0.84rem", color: msg.ok ? INK : RED }}>{msg.text}</Typography>}
         </Box>
       </GlassCard>
+
+      <Workflows />
 
       <GlassCard>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Check a ticket" note="Read and planned, never written - what the hub finds on it and would write now" />
@@ -267,6 +437,8 @@ export default function TicketAssociations() {
   if (r === null) body = <LoadingPanel label="Reading the tickets the hub linked…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Ticket associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   else if (view === "settings") body = <Box id="ticketassoc-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
+  else if (view === "articles") body = <Box id="ticketassoc-panel-articles" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ArticlesTab d={r.data} /></Box>;
+  else if (view === "alerts") body = <Box id="ticketassoc-panel-alerts" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><AlertsTab d={r.data} /></Box>;
   else body = <Box id="ticketassoc-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} /></Box>;
 
   return (
@@ -287,6 +459,8 @@ export default function TicketAssociations() {
       <Box>
         <ReportTabs name="ticketassoc" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
+          { id: "articles", label: "Articles", count: null },
+          { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>

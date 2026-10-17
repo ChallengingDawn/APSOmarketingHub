@@ -30,3 +30,38 @@ export function nextSince(prev: number, lastChanges: number[]): number {
 export function firstSince(stored: number | null, now: number, maxBackMs = 30 * 60_000): number {
   return stored && now - stored <= 24 * 3_600_000 ? stored : now - maxBackMs;
 }
+
+/* ── order alerts (SARCLA, 17.10.2026) ──────────────────────────────────── */
+
+/** An article number as Products & Pricing writes it: digits only, ten long (order lines may drop the leading zero). */
+export const normArticle = (a: string): string => {
+  const d = String(a ?? "").replace(/\D/g, "");
+  return d.length && d.length <= 10 ? d.padStart(10, "0") : d;
+};
+
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * The articles an order shares with a ticket - when the order counts at all: an open ticket of
+ * ESO or TSA, and an order placed on or after the day the ticket was opened (UTC days, as the
+ * connector's offer match counted "converted"). Empty when it does not count.
+ */
+export function alertArticles(o: {
+  orderArticles: string[]; orderDayMs: number; ticketCreatedMs: number; ticketArticles: Iterable<string>; open: boolean; pipeline: string | null;
+  /** With `now`: an order placed more than this many days ago is old news, not an alert (default 14). */
+  now?: number; maxAgeDays?: number;
+}): string[] {
+  if (!o.open || (o.pipeline !== "ESO" && o.pipeline !== "TSA")) return [];
+  if (!Number.isFinite(o.orderDayMs) || !Number.isFinite(o.ticketCreatedMs)) return [];
+  // an old order that changed today (a status, a delivery) is not news to the ticket's owner
+  if (o.now !== undefined && o.orderDayMs < o.now - (o.maxAgeDays ?? 14) * 86_400_000) return [];
+  if (dayOf(o.orderDayMs) < dayOf(o.ticketCreatedMs)) return [];
+  const want = new Set([...o.ticketArticles].map(normArticle));
+  return [...new Set(o.orderArticles.map(normArticle))].filter((a) => a.length === 10 && want.has(a)).sort();
+}
+
+/** A HubSpot date or datetime property (ms or ISO) as epoch ms; NaN when it is neither. */
+export function msOf(v: string | null | undefined): number {
+  if (!v) return NaN;
+  return /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+}

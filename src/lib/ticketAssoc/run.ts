@@ -22,9 +22,11 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { flush, gather, newStats, type Evidence, type Gathered } from "@/lib/connectors/steps/tickets";
 import { ASSOC_FIELDS, ASSOC_PIPELINES, BO, ESO, TSA } from "@/lib/connectors/steps/ticketRules";
 import { firstSince, nextSince, reason, type Seen } from "./rules";
+import { alertRows, lastAlertRun, runOrderAlerts, type AlertMode } from "./orderAlerts";
 
 export type Mode = "off" | "preview" | "live";
-export type Settings = { mode: Mode; extended: boolean; by: string | null; at: string | null };
+/** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail. */
+export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; by: string | null; at: string | null };
 export type LastRun = {
   at: string; seconds: number; mode: "preview" | "live"; read: number; processed: number; skipped: number; retried: number;
   newOrders: number; newArticles: number; filled: number; c2s: number; failed: number; error?: string;
@@ -39,6 +41,8 @@ const MAX_READ = 300;
 /** HubSpot's search index trails a write by a little: each window starts this much earlier. */
 const OVERLAP_MS = 3 * 60_000;
 const RETENTION_DAYS = 180;
+/** The order alerts run inside the same scheduler and lock, every 15 minutes. */
+const ALERTS_EVERY_MS = 15 * 60_000;
 const KV = {
   settings: "ticketAssoc:settings",
   since: (m: string) => `ticketAssoc:since:${m}`,
@@ -55,16 +59,17 @@ const tix = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
 
 /* ── settings ──────────────────────────────────────────────────────────── */
 
-/** Until somebody chooses: preview, fields only - the hub watches beside the workflow. */
+/** Until somebody chooses: preview, fields only, order alerts listed but not sent - the hub watches. */
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings).catch(() => undefined);
-  return { mode: s?.mode ?? "preview", extended: !!s?.extended, by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
 }
 
-export async function setSettings(change: { mode?: Mode; extended?: boolean }, by: string): Promise<Settings> {
+export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const mode = change.mode && ["off", "preview", "live"].includes(change.mode) ? change.mode : cur.mode;
-  const next: Settings = { mode, extended: change.extended ?? cur.extended, by, at: new Date().toISOString() };
+  const alerts = change.alerts && ["off", "preview", "link", "mail"].includes(change.alerts) ? change.alerts : cur.alerts;
+  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, by, at: new Date().toISOString() };
   // going live: the live window starts at the last half hour, not at whenever live last ran
   if (mode === "live" && cur.mode !== "live") await kvSet(KV.since("live"), Date.now() - 30 * 60_000);
   await kvSet(KV.settings, next);
@@ -89,6 +94,8 @@ function ensureTables(): Promise<void> {
       new_orders int NOT NULL DEFAULT 0, new_articles int NOT NULL DEFAULT 0, filled text[], c2s boolean NOT NULL DEFAULT false,
       ok boolean NOT NULL, error text)`);
     await q("CREATE INDEX IF NOT EXISTS apsomh_ticket_assoc_log_at ON apsomh_ticket_assoc_log (mode, at DESC)");
+    // the Articles tab (17.10.2026): numbers the catalogue did not know, eight-digit numbers seen
+    await q("ALTER TABLE apsomh_ticket_assoc_log ADD COLUMN IF NOT EXISTS rejected text[], ADD COLUMN IF NOT EXISTS products text[]");
   })().catch((e) => { tables = null; throw e; });
   return tables;
 }
@@ -132,10 +139,11 @@ async function record(mode: "preview" | "live", live: boolean, rows: { g: Gather
     const d = g.detail;
     const filled = live ? d.filled : g.plan?.filled ?? [];
     await q(
-      `INSERT INTO apsomh_ticket_assoc_log (mode, ticket_id, pipeline, stage, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      `INSERT INTO apsomh_ticket_assoc_log (mode, ticket_id, pipeline, stage, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error, rejected, products)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [mode, g.tid, ASSOC_PIPELINES[g.p.hs_pipeline ?? ""] ?? null, stage, why, (g.p.subject ?? "").slice(0, 120) || null,
-        d.orders, d.articles, d.offer_orders, d.new_orders ?? 0, d.new_articles ?? 0, filled, !!g.plan?.props?.c2s_ticket, ok, error ?? null]);
+        d.orders, d.articles, d.offer_orders, d.new_orders ?? 0, d.new_articles ?? 0, filled, !!g.plan?.props?.c2s_ticket, ok, error ?? null,
+        d.rejected ?? [], d.products ?? []]);
     await q(
       `INSERT INTO apsomh_ticket_assoc_seen (mode, ticket_id, stage, ok, at) VALUES ($1,$2,$3,$4,now())
        ON CONFLICT (mode, ticket_id) DO UPDATE SET stage=EXCLUDED.stage, ok=EXCLUDED.ok, at=now()`,
@@ -221,9 +229,9 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
  * copy has the lock. When `signal` aborts, the lock's connection is closed so Postgres frees
  * the lock even if the run never comes back.
  */
-export async function runOnce(signal?: AbortSignal): Promise<LastRun | null> {
+export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promise<LastRun | null> {
   const settings = await getSettings();
-  if (settings.mode === "off") return null;
+  if (settings.mode === "off" && settings.alerts === "off") return null;
   const client: PoolClient = await getPool().connect();
   let dropped = false;
   const drop = () => { dropped = true; client.release(new Error("ticket associations: time limit")); };
@@ -232,7 +240,13 @@ export async function runOnce(signal?: AbortSignal): Promise<LastRun | null> {
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return null;
     try {
-      return await run(settings, signal);
+      const res = settings.mode !== "off" ? await run(settings, signal) : null;
+      // the order alerts: every 15 minutes (or now, from the page)
+      if (settings.alerts !== "off") {
+        const last = await lastAlertRun();
+        if (forceAlerts || !last || Date.now() - Date.parse(last.at) >= ALERTS_EVERY_MS) await runOrderAlerts(settings.alerts, signal);
+      }
+      return res;
     } finally {
       if (!dropped) await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
     }
@@ -279,7 +293,18 @@ export async function report(from: string, to: string) {
     kvGet<LastRun>(KV.last("preview")),
     kvGet<LastRun>(KV.last("live")),
   ]);
-  return { settings, mode, byPipeline, recent, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000 };
+  // the Articles tab: every processed ticket that named an article, a number the catalogue did not
+  // know, or an eight-digit number - what the detection saw, ticket by ticket
+  const [articles, alerts, lastAlerts] = await Promise.all([
+    q<{ ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] }>(
+      `SELECT ticket_id, at, pipeline, subject, articles, coalesce(rejected, '{}') AS rejected, coalesce(products, '{}') AS products, filled, orders
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
+          AND (cardinality(articles) > 0 OR cardinality(coalesce(rejected, '{}')) > 0 OR cardinality(coalesce(products, '{}')) > 0)
+        ORDER BY at DESC LIMIT 200`, [mode, from, to]),
+    alertRows(from, to),
+    lastAlertRun(),
+  ]);
+  return { settings, mode, byPipeline, recent, articles, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
 }
 
 /* ── the schedule ──────────────────────────────────────────────────────── */

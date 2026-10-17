@@ -368,6 +368,15 @@ export const ORDER_PROPS = ["order_order_number", "cuttosize_order", "order_cust
 
 export const ORDER_RE = new RegExp(`${B0}([AG]${D}{2}\\.${D}{6})(\\.${D}{3})?${B1}`, "gu");
 export const ART_RE = new RegExp(`${B0}(${D}{10})${B1}`, "gu");
+/**
+ * The same 10 digits written in groups - "1120 030 724", "1120-030-724", "1120.030.724" - which
+ * ART_RE never saw (SARCLA, 17.10.2026: "the detection is also not very good"). Groups of 1 to 4
+ * digits, one separator between them, at most four groups; only a total of exactly 10 digits
+ * counts, and Products & Pricing still has the last word, so a phone number never links.
+ */
+export const ART_GROUPED_RE = new RegExp(`${B0}(${D}{1,4}(?:[ .\\-/\\u00a0]${D}{1,4}){1,3})${B1}`, "gu");
+/** Eight digits alone: how customers often write a product (shop page) number - shown, never linked. */
+export const PRODUCT_RE = new RegExp(`${B0}(${D}{8})${B1}`, "gu");
 export const C2S_RE = new RegExp(
   `${B0}c2s${B1}|cut[^\\n]{0,3}to[^\\n]{0,3}s${I}ze|zuschn${I}tt|zuschn${I}tte|coupe${S}+sur${S}+mesure`, "iu",
 );
@@ -390,8 +399,26 @@ export function orderRefs(text: string): OrderRef[] {
     .map(([b, s]) => [b, s || null]);
 }
 
-/** 10-digit article candidates in the text. */
-export const articleCandidates = (text: string): Set<string> => new Set([...text.matchAll(ART_RE)].map((m) => m[1]));
+/** 10-digit article candidates in the text: written in one piece, or in groups (ART_GROUPED_RE). */
+export function articleCandidates(text: string): Set<string> {
+  const out = new Set([...text.matchAll(ART_RE)].map((m) => m[1]));
+  for (const m of text.matchAll(ART_GROUPED_RE)) {
+    // every run of neighbouring groups that makes exactly 10 digits: "1120 030 724 5 pcs" is the
+    // article and a quantity, not one 11-digit number
+    const groups = m[1].split(/[^\p{Nd}]/u);
+    for (let a = 0; a < groups.length; a++) {
+      let digits = "";
+      for (let b = a; b < groups.length && digits.length < 10; b++) {
+        digits += groups[b];
+        if (digits.length === 10 && b > a) out.add(digits);
+      }
+    }
+  }
+  return out;
+}
+
+/** Eight-digit numbers in the text - possible product numbers, for the page only. */
+export const productCandidates = (text: string): string[] => pySorted(new Set([...text.matchAll(PRODUCT_RE)].map((m) => m[1]))).slice(0, 6);
 
 /** Cut-to-size in the text. */
 export const mentionsC2S = (text: string): boolean => C2S_RE.test(text);
@@ -638,6 +665,12 @@ export function assocPlan(p: Props, orders: Map<string, FoundOrder>, arts: Map<s
   if (anums.length && !pyStrip(p.articles_on_the_ticket || "")) {
     props.articles_on_the_ticket = pySlice(anums.join("; "), 250);
     filled.push("articles_on_the_ticket");
+  }
+  // SARCLA, 17.10.2026: the articles found go into Article(s) too - the field the team reads -
+  // and, like every reference field here, only while it is empty
+  if (anums.length && !pyStrip(p.article || "")) {
+    props.article = pySlice(anums.join("; "), 500);
+    filled.push("article");
   }
   if (c2s && p.c2s_ticket !== "true") props.c2s_ticket = "true";
   const orderIds = [...new Set([...onums.slice(0, 4).map((n) => orders.get(n)!.id), ...offerOrders.slice(0, 3).map(([id]) => id)])];

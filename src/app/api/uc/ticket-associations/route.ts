@@ -3,12 +3,17 @@
 // the HubSpot workflow on the Tickets app (SARCLA, 17.10.2026).
 // GET ?from&to: the settings, the last runs, the figures and the latest tickets of the period.
 // GET ?ticket=ID: one ticket checked - read and planned, never written.
-// PUT (admins): mode (off / preview / live) and the extended evidence. POST (admins): run now.
+// GET ?workflows=1: the HubSpot workflows whose custom code still reads TICKETS_TOKEN (needs the
+// hub app's "automation" scope).
+// PUT (admins): mode (off / preview / live), the extended evidence, the order alerts (off / preview /
+// link / mail). POST (admins): run now - tickets and order alerts.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { checkTicket, report, runOnce, setSettings, type Mode } from "@/lib/ticketAssoc/run";
+import type { AlertMode } from "@/lib/ticketAssoc/orderAlerts";
+import { flowsUsingSecret } from "@/lib/ticketAssoc/workflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +27,7 @@ export async function GET(req: NextRequest) {
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   const sp = req.nextUrl.searchParams;
   try {
+    if (sp.get("workflows")) return NextResponse.json({ configured: true, ok: true, data: await flowsUsingSecret("TICKETS_TOKEN", sp.get("refresh") === "1") });
     const ticket = sp.get("ticket");
     if (ticket) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(ticket) });
     const to = ISO.test(sp.get("to") ?? "") ? sp.get("to")! : today();
@@ -36,9 +42,9 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean; alerts?: AlertMode };
   try {
-    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined }, `user ${access.userId}`);
+    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined, alerts: b.alerts }, `user ${access.userId}`);
     return NextResponse.json({ ok: true, data: s });
   } catch (err) {
     return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 });
@@ -52,7 +58,7 @@ export async function POST(req: NextRequest) {
   const b = (await req.json().catch(() => ({}))) as { action?: string };
   if (b.action !== "run") return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   try {
-    const r = await runOnce(AbortSignal.timeout(50_000));
+    const r = await runOnce(AbortSignal.timeout(50_000), true);
     return NextResponse.json({ ok: true, data: r ?? { skipped: "off, or a run is already going" } });
   } catch (err) {
     return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 });

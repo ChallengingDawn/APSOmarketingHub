@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { FROM, REPLY_TO, addressOf, mailConfigured, sendHubMail, smtp } from "@/lib/notify/mailer";
 import { SAMPLE_INVITE, renderInviteMail } from "@/lib/content/shareMail";
 import { renderEmail } from "@/lib/doc/email";
+import { SAMPLE_ORDER_ALERT, renderOrderAlert } from "@/lib/ticketAssoc/mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,12 @@ function templates(me: { full_name: string; username: string; email: string | nu
       when: "When a shop order asked for a declaration of conformity and the order is invoiced. In the customer's language; shown here in English.",
       from: FROM, replyTo: REPLY_TO,
       ...doc,
+    },
+    {
+      key: "ticket-order-alert", name: "Please check your ticket - an order was detected", audience: "ESO / TSA ticket owners",
+      when: "When the customer of an open ESO or TSA ticket orders an article the ticket names, on or after the day the ticket was opened. The order is linked to the ticket; one mail per ticket and order. Sent only while Ticket associations > Order alerts is set to mail.",
+      from: FROM, replyTo: REPLY_TO,
+      ...renderOrderAlert({ ...SAMPLE_ORDER_ALERT, ownerName: first }),
     },
   ];
 }
