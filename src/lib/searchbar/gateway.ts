@@ -72,10 +72,18 @@ export type Switches = {
   killSwitch: boolean; killSwitchAt: string | null; sameTab: boolean;
   buttons: { ai: boolean; feedback: boolean };
 };
+export type FeatureText = { tag: string; material: string; temp: string; use: string };
 export type Feature = {
   id: string; sku: string; title: string; code: string; hf: string; tag: string; spec: string; photo_url: string;
-  link_url: string; copy: string; i18n?: Record<string, Record<string, string>>;
+  link_url: string; copy: string; i18n?: Record<string, FeatureText>; active?: boolean; sort_order?: number; alternates?: string[];
 };
+/** Customer feedback (the bar's feedback button): name and e-mail are personal data, read server to server only. */
+export type FeedbackRow = {
+  id: string | number; created_at: string; name: string | null; email: string | null; feedback: string; rating: number | null;
+  locale: string | null; bar_query: string | null; page_url: string | null; status: string;
+  hs_ticket_id: string | null; hs_ticket_subject: string | null; reply: string | null;
+};
+export type Feedback = { total: number; rows: FeedbackRow[] };
 export type StockSummary = { total: number; with_stock: number; in_stock: number; no_stock: number; no_data: number; external: number };
 export type StockRow = {
   sku: string; product_number: string; description: string; material: string | null; stock_qty: number | null;

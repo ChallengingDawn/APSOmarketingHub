@@ -2,20 +2,25 @@
 // AI conversations, stock, brands, featured products, its setup - read for the hub's page (Website's
 // grant). Same three answers as every integration route: not configured, upstream failed (with the
 // reason), or the data. The Feedback tab left the page (SARCLA 17.10.2026).
-//   GET ?part=overview&days=30 | report&days= | logs&limit=&locale=&tier= | gaps&window=
-//       | ai&archived=0|1 | brands | features | stock&q=&state=&published=&limit=&offset=&sort=&dir=
-//       | jobs | setup
+//   GET ?part=overview&days=30 | report&days= | report-xlsx&days= (the Excel file) | logs&limit=&locale=&tier=
+//       | gaps&window= | ai&archived=0|1 | brands | features | feedback | stock&q=&state=&published=&limit=&offset=
+//       &sort=&dir= | jobs | setup
 // The switches and the brand list (SARCLA 17.10.2026: "maintenance button doesn't really work", "on brands
 // allow to add brands") - admins only, as DirectUP's settings, each change logged with who made it:
 //   POST { action: "kill-switch" | "same-tab", on } | { action: "buttons", ai?, feedback? }
 //        | { action: "brand-add", brand, material, vendor?, notes? } | { action: "brand-remove", brand }
+// and the old dashboard's last controls, moved so its search-bar pages can go (SARCLA 17.10.2026):
+//        | { action: "feature-save", feature } | { action: "feature-delete", id } | { action: "feature-reset" }
+//        | { action: "feedback-status", id, status } | { action: "feedback-ticket", id } | { action: "feedback-reply", id, reply }
+//        | { action: "sweep-run", scope, hubspot } | { action: "sweep-stop" } | { action: "sweep-schedule", on }
+//        | { action: "order-watch", on } | { action: "ai-archive", conversation_id, archived } | { action: "migration-run", num }
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import {
   adminToken, gateway, gatewaySetting,
-  type AiConversations, type Brands, type Feature, type Gaps, type Health, type LogRow, type Metrics, type Migration,
+  type AiConversations, type Brands, type Feature, type Feedback, type Gaps, type Health, type LogRow, type Metrics, type Migration,
   type OrderWatch, type Report, type Stock, type StockCalls, type SweepRun, type SweepStatus, type Switches,
 } from "@/lib/searchbar/gateway";
 
@@ -27,6 +32,9 @@ const ok = (data: unknown) => NextResponse.json({ configured: true, ok: true, da
 const fail = (err: unknown) => NextResponse.json({
   configured: true, ok: false, error: String((err as Error)?.message ?? err), status: (err as { status?: number })?.status ?? null,
 });
+const FEATURE_LANGS = ["en", "de", "fr", "it", "nl", "pl"];
+const FEEDBACK_STATUSES = ["open", "positive", "implemented", "refused", "company"];
+const FEEDBACK_REPLIES = ["under_resolution", "implemented", "taking_time", "thanks"];
 const int = (v: string | null, def: number, min: number, max: number) => Math.min(max, Math.max(min, parseInt(v || String(def), 10) || def));
 const pick = (v: string | null, allowed: string[], def: string) => (v && allowed.includes(v) ? v : def);
 
@@ -60,6 +68,7 @@ export async function GET(req: NextRequest) {
   if (!adminToken()) return NextResponse.json({ configured: false, missing: ["SMART_BAR_ADMIN_TOKEN"] });
   const q = req.nextUrl.searchParams;
   const part = q.get("part") || "overview";
+  const isAdmin = access.role === "admin";
   try {
     if (part === "overview") {
       const days = int(q.get("days"), 30, 1, 365);
@@ -82,9 +91,17 @@ export async function GET(req: NextRequest) {
       return ok(await gateway<LogRow[]>(`/api/smart-bar/logs?${p}`));
     }
     if (part === "gaps") return ok(await gateway<Gaps>(`/api/smart-bar/gaps?window=${pick(q.get("window"), ["24h", "7d", "30d"], "7d")}`));
-    if (part === "ai") return ok(await gateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=100&archived=${q.get("archived") === "1" ? 1 : 0}`));
+    if (part === "ai") return ok({ ...(await gateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=100&archived=${q.get("archived") === "1" ? 1 : 0}`)), isAdmin });
+    if (part === "feedback") return ok({ ...(await gateway<Feedback>("/api/smart-bar/feedback?limit=500")), isAdmin });
+    if (part === "report-xlsx") {
+      // the gateway's Excel file, passed through (the old dashboard's "Download"); the key stays on the server
+      const days = int(q.get("days"), 30, 1, 365);
+      const r = await fetch(`${(await gatewaySetting()).url}/api/smart-bar/report.xlsx?days=${days}`, { headers: { "x-admin-token": adminToken() ?? "" }, cache: "no-store", signal: AbortSignal.timeout(60_000) });
+      if (!r.ok) return NextResponse.json({ error: `The gateway answered ${r.status}` }, { status: 502 });
+      return new NextResponse(r.body, { headers: { "Content-Type": r.headers.get("content-type") ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="search-bar-report-${days}d-${new Date().toISOString().slice(0, 10)}.xlsx"`, "Cache-Control": "no-store" } });
+    }
     if (part === "brands") return ok({ ...(await gateway<Brands>("/api/smart-bar/brands")), isAdmin: access.role === "admin" });
-    if (part === "features") return ok(await gateway<{ features: Feature[] }>("/api/smart-bar/features"));
+    if (part === "features") return ok({ ...(await gateway<{ features: Feature[] }>("/api/smart-bar/features")), isAdmin });
     if (part === "stock") {
       const p = new URLSearchParams({ limit: String(int(q.get("limit"), 50, 1, 200)), offset: String(int(q.get("offset"), 0, 0, 1_000_000)) });
       const s = (q.get("q") || "").trim().slice(0, 80);
@@ -105,7 +122,7 @@ export async function GET(req: NextRequest) {
         gateway<StockCalls>("/api/stock-calls?limit=50"),
         health(),
       ]);
-      return ok({ sweep, runs: runs.runs ?? [], orders, calls, health: h });
+      return ok({ sweep, runs: runs.runs ?? [], orders, calls, health: h, isAdmin });
     }
     if (part === "setup") {
       const [migrations, switches, h, setting] = await Promise.all([
@@ -161,6 +178,80 @@ export async function POST(req: NextRequest) {
       const data = await gateway(`/api/smart-bar/brands/${encodeURIComponent(brand)}`, { method: "DELETE", body: { by: who } });
       console.log(`[search-bar] brand "${brand}" removed by ${who}`);
       return NextResponse.json({ ok: true, data });
+    }
+    const done = (data: unknown, what: string) => {
+      // the gateway's feedback routes answer 200 with { ok: false, error|detail } when HubSpot said no
+      const d = data as { ok?: boolean; error?: string; detail?: string } | null;
+      if (d && typeof d === "object" && d.ok === false) return NextResponse.json({ ok: false, error: d.detail || d.error || "The gateway said no." }, { status: 502 });
+      console.log(`[search-bar] ${what} by ${who}`);
+      return NextResponse.json({ ok: true, data });
+    };
+    const ref = (v: unknown) => ((typeof v === "string" || typeof v === "number") && /^[A-Za-z0-9-]{1,64}$/.test(String(v)) ? String(v) : "");
+    if (body.action === "feature-save") {
+      const f = (body.feature && typeof body.feature === "object" ? body.feature : {}) as Record<string, unknown>;
+      const src = (f.i18n && typeof f.i18n === "object" ? f.i18n : {}) as Record<string, Record<string, unknown>>;
+      const i18n: Record<string, { tag: string; material: string; temp: string; use: string }> = {};
+      for (const lang of FEATURE_LANGS) {
+        const b = src[lang];
+        if (!b || typeof b !== "object") continue;
+        i18n[lang] = { tag: str(b.tag, 120), material: str(b.material, 200), temp: str(b.temp, 80), use: str(b.use, 300) };
+      }
+      const row = {
+        sku: str(f.sku, 32), title: str(f.title, 200), code: str(f.code, 60), hf: str(f.hf, 120),
+        photo_url: str(f.photo_url, 500), link_url: str(f.link_url, 500), i18n,
+        tag: i18n.en?.tag ?? "", copy: i18n.en?.use ?? "",   // the flat English fallback the widget also reads
+        alternates: Array.isArray(f.alternates) ? f.alternates.map((x) => String(x)).slice(0, 12) : [],
+        sort_order: Number.isFinite(Number(f.sort_order)) ? Math.trunc(Number(f.sort_order)) : 0, active: f.active !== false,
+      };
+      if (!row.sku) return NextResponse.json({ ok: false, error: "The article or product number is needed: the card links to it." }, { status: 400 });
+      if (!row.title) return NextResponse.json({ ok: false, error: "The product name is needed." }, { status: 400 });
+      for (const [k, v] of [["picture", row.photo_url], ["link", row.link_url]] as const) {
+        if (v && !/^https:\/\/[^\s"'<>]+$/.test(v)) return NextResponse.json({ ok: false, error: `The ${k} address must start with https://` }, { status: 400 });
+      }
+      const id = ref(f.id);
+      const data = await gateway<{ feature: Feature }>(id ? `/api/smart-bar/features/${id}` : "/api/smart-bar/features", { method: id ? "PUT" : "POST", body: row });
+      return done(data, `featured "${row.title}" (${row.sku}) ${id ? "saved" : "added"}`);
+    }
+    if (body.action === "feature-delete") {
+      const id = ref(body.id);
+      if (!id) return NextResponse.json({ ok: false, error: "Which card?" }, { status: 400 });
+      return done(await gateway(`/api/smart-bar/features/${id}`, { method: "DELETE" }), `featured card ${id} deleted`);
+    }
+    if (body.action === "feature-reset") return done(await gateway("/api/smart-bar/features/reset", { method: "POST" }), "featured cards reset to the original six");
+    if (body.action === "feedback-status" || body.action === "feedback-ticket" || body.action === "feedback-reply") {
+      const id = ref(body.id);
+      if (!id) return NextResponse.json({ ok: false, error: "Which feedback?" }, { status: 400 });
+      if (body.action === "feedback-status") {
+        const status = str(body.status, 20);
+        if (!FEEDBACK_STATUSES.includes(status)) return NextResponse.json({ ok: false, error: "Unknown status." }, { status: 400 });
+        return done(await gateway("/api/smart-bar/feedback/status", { method: "POST", body: { id, status } }), `feedback ${id} -> ${status}`);
+      }
+      if (body.action === "feedback-ticket") return done(await gateway("/api/smart-bar/feedback/ticket", { method: "POST", body: { id }, timeoutMs: 45_000 }), `HubSpot ticket for feedback ${id}`);
+      const reply = str(body.reply, 30);
+      if (!FEEDBACK_REPLIES.includes(reply)) return NextResponse.json({ ok: false, error: "Unknown reply." }, { status: 400 });
+      return done(await gateway("/api/smart-bar/feedback/reply", { method: "POST", body: { id, reply }, timeoutMs: 60_000 }), `feedback ${id} reply "${reply}"`);
+    }
+    if (body.action === "sweep-run") {
+      const scope = str(body.scope, 20);
+      if (!["published", "standard", "all"].includes(scope)) return NextResponse.json({ ok: false, error: "Which articles?" }, { status: 400 });
+      const hs = body.hubspot === true;
+      return done(await gateway(`/api/stock-sweep/run?scope=${scope}${hs ? "&hubspot=1" : ""}`, { method: "POST" }), `stock check started (${scope}${hs ? ", HubSpot too" : ""})`);
+    }
+    if (body.action === "sweep-stop") return done(await gateway("/api/stock-sweep/stop", { method: "POST" }), "stock check stopped");
+    if (body.action === "sweep-schedule" || body.action === "order-watch") {
+      if (typeof body.on !== "boolean") return NextResponse.json({ ok: false, error: "On or off?" }, { status: 400 });
+      const path = body.action === "sweep-schedule" ? "/api/stock-sweep/schedule" : "/api/order-stock/watch";
+      return done(await gateway(`${path}?on=${body.on ? "true" : "false"}`, { method: "POST" }), `${body.action === "sweep-schedule" ? "nightly stock check" : "order refresh"} ${body.on ? "on" : "off"}`);
+    }
+    if (body.action === "ai-archive") {
+      const cid = ref(body.conversation_id);
+      if (!cid || typeof body.archived !== "boolean") return NextResponse.json({ ok: false, error: "Which conversation?" }, { status: 400 });
+      return done(await gateway("/api/smart-bar/ai-conversations/archive", { method: "POST", body: { conversation_id: cid, archived: body.archived } }), `AI conversation ${cid} ${body.archived ? "archived" : "brought back"}`);
+    }
+    if (body.action === "migration-run") {
+      const num = str(body.num, 4);
+      if (!/^\d{3}$/.test(num)) return NextResponse.json({ ok: false, error: "Which change?" }, { status: 400 });
+      return done(await gateway(`/api/smart-bar/admin/migrations/${num}`, { method: "POST", timeoutMs: 60_000 }), `database change ${num} applied`);
     }
     return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 });
   } catch (err) {

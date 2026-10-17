@@ -6,6 +6,8 @@
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -48,6 +50,7 @@ function Rows({ rows, empty }: { rows: ReportRow[]; empty: string }) {
 }
 
 export default function ReportTab({ r, label }: { r: Report; label: string }) {
+  const xlsx = `/api/website/search-bar?part=report-xlsx&days=${r.days}`;
   const [find, setFind] = useState("");
   const f = find.trim().toLowerCase();
   const top = f ? r.keywords_top.filter((x) => x.query.toLowerCase().includes(f)) : r.keywords_top;
@@ -56,7 +59,10 @@ export default function ReportTab({ r, label }: { r: Report; label: string }) {
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
           <CardTitle icon={<LeaderboardOutlinedIcon />} tint="blue" title="Most searched" note={`${label} · ${full(r.keywords_all_count)} different texts; the most frequent here`}
-            right={<TextField size="small" placeholder="Find a search…" value={find} onChange={(e) => setFind(e.target.value)} sx={{ width: 220 }} />} />
+            right={<Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              <TextField size="small" placeholder="Find a search…" value={find} onChange={(e) => setFind(e.target.value)} sx={{ width: 220 }} />
+              <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />} href={xlsx} sx={{ borderRadius: "999px", textTransform: "none", fontWeight: 600 }}>Excel</Button>
+            </Box>} />
         </Box>
         <Rows rows={top} empty={f ? "No search with that text in the list." : "No searches in this period."} />
       </GlassCard>

@@ -5,7 +5,12 @@
 // of the shop's pages, and the stock asked when a customer clicks "Calculate price". Read-only for now: the
 // on/off switches move here last (SARCLA 16.10.2026).
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import Grid from "@mui/material/Grid";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -18,18 +23,42 @@ import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import CalculateOutlinedIcon from "@mui/icons-material/CalculateOutlined";
 import { full } from "@/app/charts/format";
-import { CardTitle, FAINT, GlassCard, MUTED, RED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
-import { Chip, usePaged } from "@/app/connectors/parts";
+import { CardTitle, FAINT, GREEN, GlassCard, MUTED, Notice, RED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
+import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import type { Health, OrderWatch, StockCalls, SweepRun, SweepStatus } from "@/lib/searchbar/gateway";
-import { Empty, Loaded, Num, when } from "./shared";
+import { Empty, Loaded, Num, pill, post, when } from "./shared";
 
-type Jobs = { sweep: SweepStatus; runs: SweepRun[]; orders: OrderWatch; calls: StockCalls; health: Health | null };
+type Jobs = { sweep: SweepStatus; runs: SweepRun[]; orders: OrderWatch; calls: StockCalls; health: Health | null; isAdmin: boolean };
 
 const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.round(s / 60)} min`);
 
-function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
+type Scope = "published" | "standard" | "all";
+/** One change through the hub, then the tab reads the gateway again. */
+function useAct(reload: () => void) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const act = async (name: string, body: unknown, done: string) => {
+    setBusy(name); setMsg(null);
+    const r = await post(body);
+    setBusy(null);
+    setMsg(r.ok ? { ok: true, text: done } : { ok: false, text: r.error ?? "Did not work." });
+    if (r.ok) setTimeout(reload, 800);
+  };
+  const note = msg && (msg.ok ? <Typography sx={{ fontSize: "0.82rem", color: GREEN }}>{msg.text}</Typography> : <Notice tone="bad">{msg.text}</Notice>);
+  return { busy, act, note };
+}
+
+function Sweep({ s, runs, isAdmin, reload }: { s: SweepStatus; runs: SweepRun[]; isAdmin: boolean; reload: () => void }) {
   const n = s.nightly;
   const { slice, pager } = usePaged(runs, 7);
+  const { busy, act, note } = useAct(reload);
+  const [scope, setScope] = useState<Scope>("standard");
+  const [hs, setHs] = useState(true);
+  const SCOPE: Record<Scope, string> = { published: "On the shop", standard: "Standard articles", all: "Every article" };
+  const run = () => {
+    if (!confirm(`Start a stock check now for ${SCOPE[scope].toLowerCase()}${hs ? ", writing the stock into HubSpot too" : " (the bar only)"}? It asks the shop for every article's stock and takes a while.`)) return;
+    void act("run", { action: "sweep-run", scope, hubspot: hs }, "Started - the table below shows it running.");
+  };
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -40,6 +69,23 @@ function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
           <Chip tint={n.hubspot ? "green" : "slate"}>{n.hubspot ? "Writes HubSpot too" : "Bar only"}</Chip>
           {s.running && <Chip tint="amber">Running now · {full(s.remaining ?? 0)} left{s.eta_min != null ? ` · about ${s.eta_min} min` : ""}</Chip>}
         </Box>
+        {isAdmin && (
+          <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+            <FormControlLabel sx={{ mr: 1 }} control={<Switch checked={n.on} disabled={busy !== null} onChange={(e) => void act("night", { action: "sweep-schedule", on: e.target.checked }, e.target.checked ? "The check runs every night again." : "The nightly check is off.")} slotProps={{ input: { "aria-label": "Every night" } }} />}
+              label={<Typography sx={{ fontSize: "0.86rem" }}>Every night</Typography>} />
+            {s.running ? (
+              <Button size="small" variant="outlined" color="error" sx={pill} disabled={busy !== null} onClick={() => void act("stop", { action: "sweep-stop" }, "Stopping after the articles in hand.")}>{busy === "stop" ? <CircularProgress size={14} /> : "Stop"}</Button>
+            ) : (
+              <>
+                <Choice<Scope> value={scope} onChange={setScope} options={(Object.keys(SCOPE) as Scope[]).map((k) => ({ key: k, label: SCOPE[k] }))} />
+                <FormControlLabel control={<Switch size="small" checked={hs} onChange={(e) => setHs(e.target.checked)} slotProps={{ input: { "aria-label": "Write HubSpot too" } }} />}
+                  label={<Typography sx={{ fontSize: "0.82rem" }}>HubSpot too</Typography>} />
+                <Button size="small" variant="contained" disableElevation sx={pill} disabled={busy !== null} onClick={run}>{busy === "run" ? <CircularProgress size={14} color="inherit" /> : "Run now"}</Button>
+              </>
+            )}
+            {note}
+          </Box>
+        )}
       </Box>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 720 }}>
@@ -63,6 +109,17 @@ function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
       </Box>
       {pager}
     </GlassCard>
+  );
+}
+
+function OrderSwitch({ on, reload }: { on: boolean; reload: () => void }) {
+  const { busy, act, note } = useAct(reload);
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      {busy && <CircularProgress size={14} />}
+      <Switch checked={on} disabled={busy !== null} onChange={(e) => void act("orders", { action: "order-watch", on: e.target.checked }, e.target.checked ? "On." : "Off.")} slotProps={{ input: { "aria-label": "Refresh after shop orders" } }} />
+      {note}
+    </Box>
   );
 }
 
@@ -94,16 +151,17 @@ function Calls({ c }: { c: StockCalls }) {
 export default function JobsTab() {
   return (
     <Loaded<Jobs> url="/api/website/search-bar?part=jobs" what="the stock jobs">
-      {(d) => {
+      {(d, reload) => {
         const o = d.orders, pub = d.health?.published, mv = pub?.page_moves;
         const lr = (mv?.last_round ?? null) as Record<string, number | string | null> | null;
         return (
           <>
-            <Sweep s={d.sweep} runs={d.runs} />
+            <Sweep s={d.sweep} runs={d.runs} isAdmin={d.isAdmin} reload={reload} />
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
                 <GlassCard sx={{ height: "100%" }}>
-                  <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Refresh after shop orders" note="Every new web order: the stock of its articles is read again, in the bar and in HubSpot" />
+                  <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Refresh after shop orders" note="Every new web order: the stock of its articles is read again, in the bar and in HubSpot"
+                    right={d.isAdmin ? <OrderSwitch on={o.on} reload={reload} /> : undefined} />
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1.25 }}>
                     <Chip tint={o.on ? "green" : "slate"}>{o.on ? "On" : "Off"}</Chip>
                     <Chip tint="slate">Orders read from {o.source === "hubspot" ? "HubSpot (the hub's Magento connector)" : o.source}</Chip>

@@ -1,7 +1,7 @@
 "use client";
 
 // Search bar > Setup: how the bar is installed on the shop, its switches, and its database (the dashboard's
-// "Install", "Maintenance" and "Data model" pages). The switches work from here (SARCLA 17.10.2026: "the
+// "Install", "Maintenance", "Feedback" and "Data model" pages). The switches work from here (SARCLA 17.10.2026: "the
 // maintenance button doesn't really work" - it was only a state): the maintenance switch, same-tab links and
 // the bar's two buttons, admins only; each answer is the gateway's database, read back after the change.
 
@@ -23,7 +23,9 @@ import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, usePaged } from "@/app/connectors/parts";
 import type { GatewaySetting, Health, Migration, Switches } from "@/lib/searchbar/gateway";
-import { Empty, Loaded, post, when } from "./shared";
+import { Empty, Loaded, pill, post, when } from "./shared";
+import FeedbackCard from "./FeedbackCard";
+import Button from "@mui/material/Button";
 
 type Setup = { migrations: (Migration & { creates_table?: string; row_count?: number })[]; switches: Switches; health: Health | null; setting: GatewaySetting; isAdmin: boolean };
 
@@ -98,8 +100,18 @@ const MODEL: { name: string; kind: string; what: string }[] = [
 ];
 
 /** The database changes, a page at a time. */
-function Migrations({ rows }: { rows: Setup["migrations"] }) {
+function Migrations({ rows, isAdmin, reload }: { rows: Setup["migrations"]; isAdmin: boolean; reload: () => void }) {
   const { slice, pager } = usePaged(rows, 8);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const apply = async (num: string, name: string) => {
+    if (!confirm(`Apply database change ${num} (${name}) to the search bar's database now?`)) return;
+    setBusy(num); setMsg(null);
+    const r = await post({ action: "migration-run", num });
+    setBusy(null);
+    setMsg(r.ok ? { ok: true, text: `Change ${num} applied.` } : { ok: false, text: r.error ?? "Did not work." });
+    if (r.ok) reload();
+  };
   return (
     <>
       <Table size="small">
@@ -111,13 +123,17 @@ function Migrations({ rows }: { rows: Setup["migrations"] }) {
               <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.num}</TableCell>
               <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", fontFamily: "monospace" }}>{m.name}</TableCell>
               <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{m.description}</TableCell>
-              <TableCell sx={bodyCell}><Chip tint={m.applied ? "green" : "amber"}>{m.applied ? "yes" : "no"}</Chip></TableCell>
+              <TableCell sx={bodyCell}>
+                {m.applied || !isAdmin ? <Chip tint={m.applied ? "green" : "amber"}>{m.applied ? "yes" : "no"}</Chip>
+                  : <Button size="small" variant="outlined" sx={pill} disabled={busy !== null} onClick={() => void apply(m.num, m.name)}>{busy === m.num ? <CircularProgress size={14} /> : "Apply"}</Button>}
+              </TableCell>
               <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.row_count != null ? full(m.row_count) : "–"}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
       {pager}
+      {msg && <Box sx={{ px: { xs: 2, md: 2.75 }, py: 1 }}>{msg.ok ? <Typography sx={{ fontSize: "0.82rem", color: GREEN }}>{msg.text}</Typography> : <Notice tone="bad">{msg.text}</Notice>}</Box>}
     </>
   );
 }
@@ -125,7 +141,7 @@ function Migrations({ rows }: { rows: Setup["migrations"] }) {
 export default function SetupTab() {
   return (
     <Loaded<Setup> url="/api/website/search-bar?part=setup" what="the setup">
-      {(d) => {
+      {(d, reload) => {
         const base = d.setting.url;
         const snippet = `<link rel="stylesheet" href="${base}/demo/smart-search.css">\n<script src="${base}/demo/smart-search.js" defer></script>`;
         return (
@@ -142,6 +158,8 @@ export default function SetupTab() {
                 <Maintenance initial={d.switches} isAdmin={d.isAdmin} health={!!d.health} />
               </Grid>
             </Grid>
+
+            <FeedbackCard />
 
             <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
               <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -162,7 +180,7 @@ export default function SetupTab() {
               <Box sx={{ px: { xs: 2, md: 2.75 }, pt: 2 }}>
                 <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, mb: 1 }}>Database changes applied</Typography>
               </Box>
-              <Migrations rows={d.migrations} />
+              <Migrations rows={d.migrations} isAdmin={d.isAdmin} reload={reload} />
             </GlassCard>
           </>
         );
