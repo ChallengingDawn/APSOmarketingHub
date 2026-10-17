@@ -78,9 +78,9 @@ export async function gateway<T>(path: string, timeoutMs = 25_000): Promise<T> {
   return body as T;
 }
 
-export async function board(): Promise<Board> {
+export async function board(doneShown?: number): Promise<Board> {
   // 40 s: the pipeline is the middleware's heaviest read (p50 391 ms measured, but it walks the whole ledger)
-  return slim(await gateway<RawPipeline>("/admin/pipeline", 40_000));
+  return slim(await gateway<RawPipeline>("/admin/pipeline", 40_000), doneShown);
 }
 
 /* ── the registry, and the area actually held ────────────────────────────────
@@ -100,13 +100,22 @@ export type RegistryRow = {
   cutArticle: string; basisArticle: string; l: number; w: number; thickness: number | null;
   firstSeen: string | null; lastSeen: string | null; seenCount: number;
   lastOrderNo: string | null; lastLineId: string | null;
+  /** the ERP's number for that order, once Compass has reconciled it (layered on, never stored) */
+  lastOrderErpNo?: string | null;
 };
 export type Registry = { total: number; rows: RegistryRow[] };
 
 export async function registry(q = "", limit = 300): Promise<Registry> {
   const qs = new URLSearchParams({ limit: String(Math.min(1000, Math.max(1, limit))) });
   if (q) qs.set("q", q);
-  const r = await gateway<{ total?: number; rows?: RegistryRow[] }>(`/cut-articles?${qs}`, 30_000);
+  /* the /refs form layers the A-number onto each row's last order (SARCLA: "last order should use A
+     number"). It falls back to the plain list, so an older middleware still answers. */
+  let r: { total?: number; rows?: RegistryRow[] };
+  try {
+    r = await gateway<{ total?: number; rows?: RegistryRow[] }>(`/cut-articles/refs?${qs}`, 30_000);
+  } catch {
+    r = await gateway<{ total?: number; rows?: RegistryRow[] }>(`/cut-articles?${qs}`, 30_000);
+  }
   return { total: Number(r.total) || (r.rows ?? []).length, rows: r.rows ?? [] };
 }
 

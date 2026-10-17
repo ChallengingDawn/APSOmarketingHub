@@ -43,7 +43,8 @@ export async function GET(req: NextRequest) {
     if (part === "board") {
       /* the slim projection, built on the server: the middleware's own answer is 967 KB, mostly cut-done
          history and per-plate rows the page never shows (gateway.slim) */
-      return NextResponse.json({ configured: true, ok: true, data: { board: await board(), setting, isAdmin } });
+      const done = Number(req.nextUrl.searchParams.get("done")) || undefined;
+      return NextResponse.json({ configured: true, ok: true, data: { board: await board(done), setting, isAdmin } });
     }
     if (part === "status") {
       return NextResponse.json({ configured: true, ok: true, data: await status(setting, isAdmin) });

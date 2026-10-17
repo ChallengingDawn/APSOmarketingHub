@@ -17,6 +17,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
@@ -36,9 +37,14 @@ import { Pill, STAGE_LABEL, WORK_LABEL, WORK_TONE, day, when, workOf, type Line,
    numbers. Dropping the column without keeping the count would have buried that. */
 type ColKey = Work | "done";
 
+/* THE WORKSHOP'S OWN WORDS (SARCLA, 17.10.2026). "Needs the saw" became "Sent to machine", because that
+   is what happens to the line; "Pick & ship" became "Leftover", because what is picked IS a leftover.
+   And the rule underneath them changed with the names: an ORDER that mixes leftovers with pieces that
+   have to be cut is not a picking job at all - nothing ships until the saw has run - so the whole order
+   goes to the first column. Only an order that is leftovers end to end is a Leftover. */
 const COLS: { key: ColKey; label: string; note: string }[] = [
-  { key: "saw", label: WORK_LABEL.saw, note: "a piece has to be cut from a plate" },
-  { key: "pick", label: WORK_LABEL.pick, note: "a whole piece off the shelf, no cutting" },
+  { key: "saw", label: "Sent to machine", note: "a piece has to be cut from a plate — and any order that mixes cutting with leftovers belongs here, because none of it ships until the saw has run" },
+  { key: "pick", label: "Leftover", note: "a whole piece off the shelf, for an order that is leftovers end to end" },
   { key: "done", label: "Cut done", note: "finished, newest first" },
 ];
 
@@ -114,7 +120,8 @@ function Detail({ l, onClose }: { l: Line | null; onClose: () => void }) {
   );
 }
 
-export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; done: Line[]; doneTotal: number }) {
+export default function KanbanTab({ open, done, doneTotal, onMore, loadingMore }:
+  { open: Line[]; done: Line[]; doneTotal: number; onMore?: () => void; loadingMore?: boolean }) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Line | null>(null);
 
@@ -128,8 +135,14 @@ export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; don
   const cols = useMemo(() => {
     const o = match ? open.filter(match) : open;
     const d = match ? done.filter(match) : done;
+    /* an order with ANY line at the saw puts all of its lines at the saw */
+    const sawing = new Set<string>();
+    for (const l of o) if (workOf(l) === "saw" && l.orderNo) sawing.add(l.orderNo);
     const by: Record<ColKey, Line[]> = { saw: [], pick: [], unknown: [], done: d };
-    for (const l of o) by[workOf(l)].push(l);
+    for (const l of o) {
+      const w = workOf(l);
+      by[w === "pick" && l.orderNo && sawing.has(l.orderNo) ? "saw" : w].push(l);
+    }
     // the promised day drives the queue: oldest promise first, undated last
     for (const k of ["saw", "pick"] as Work[]) {
       by[k].sort((a, b) => String(a.date ?? "9999").localeCompare(String(b.date ?? "9999")));
@@ -162,7 +175,7 @@ export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; don
         }
       />
 
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
         {COLS.map((c) => {
           const rows = cols[c.key];
           const t = TONE[c.key];
@@ -214,9 +227,16 @@ export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; don
                       );
                     })}
                 {c.key === "done" && !match && doneTotal > done.length && (
-                  <Typography sx={{ fontSize: "0.74rem", color: FAINT, p: 0.5 }}>
-                    the {done.length} most recent of {full(doneTotal)}
-                  </Typography>
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+                      the {full(done.length)} most recent of {full(doneTotal)}
+                    </Typography>
+                    {onMore && (
+                      <Button size="small" onClick={onMore} disabled={loadingMore} sx={{ mt: 0.5, fontSize: "0.76rem" }}>
+                        {loadingMore ? "loading…" : "Show more"}
+                      </Button>
+                    )}
+                  </Box>
                 )}
               </Box>
             </Box>

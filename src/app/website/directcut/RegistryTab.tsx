@@ -74,7 +74,18 @@ function Numbers({ reg, q, setQ }: { reg: Registry; q: string; setQ: (v: string)
                 <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(r.seenCount)}</TableCell>
                 <TableCell sx={bodyCell}><Typography sx={{ fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.firstSeen)}</Typography></TableCell>
                 <TableCell sx={bodyCell}><Typography sx={{ fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.lastSeen)}</Typography></TableCell>
-                <TableCell sx={bodyCell}><Typography sx={{ fontSize: "0.8rem", color: r.lastOrderNo ? INK : FAINT }}>{r.lastOrderNo || "never ordered"}</Typography></TableCell>
+                <TableCell sx={bodyCell}>
+                  {/* the A-number where the ERP has reconciled it, the shop's own number until then */}
+                  {r.lastOrderErpNo
+                    ? <>
+                        <Typography sx={{ fontSize: "0.8rem", color: INK, whiteSpace: "nowrap" }}>{r.lastOrderErpNo}</Typography>
+                        <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>shop {r.lastOrderNo}</Typography>
+                      </>
+                    : <Typography sx={{ fontSize: "0.8rem", color: r.lastOrderNo ? MUTED : FAINT }}
+                        title={r.lastOrderNo ? "the ERP has not reconciled this order yet, so there is no A-number" : undefined}>
+                        {r.lastOrderNo || "never ordered"}
+                      </Typography>}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

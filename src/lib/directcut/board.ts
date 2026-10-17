@@ -39,7 +39,11 @@ export type RawPipeline = { at: string; counts: Record<string, number>; stages: 
    the projection happens HERE, on the server. Measured 16.10: 967 KB -> 86 KB,
    91% smaller, with every figure the page shows still present. */
 
-const DONE_SHOWN = 100;          // the most recent finished lines, for "what just got cut"
+/* HOW MANY FINISHED LINES TRAVEL. A cap, because the whole history is 531 KB of the gateway's 967 KB
+   answer, but a cap the reader can lift: SARCLA, 17.10.2026 - "you are only showing 100 more recent but
+   you should allow to see more". The page asks for more when it wants more. */
+const DONE_DEFAULT = 100;
+const DONE_MAX = 2000;
 const OPEN: Stage[] = ["reserved", "ordered", "to-cut"];
 
 export type Line = {
@@ -90,7 +94,8 @@ const line = (r: RawLine): Line => ({
   fromShop: !r.originBackend,
 });
 
-export function slim(p: RawPipeline): Board {
+export function slim(p: RawPipeline, doneShown = DONE_DEFAULT): Board {
+  const cap = Math.max(1, Math.min(DONE_MAX, Math.floor(doneShown) || DONE_DEFAULT));
   const stages = p.stages ?? {};
   const open = OPEN.flatMap((s) => (stages[s] ?? []).map(line));
   const doneAll = stages["cut-done"] ?? [];
@@ -100,7 +105,7 @@ export function slim(p: RawPipeline): Board {
     erpRefs: { known: Number(p.erpRefs?.known) || 0, withOrderNo: Number(p.erpRefs?.withOrderNo) || 0 },
     open,
     // newest first: the pipeline sorts each stage oldest-first by enteredStageAt
-    done: [...doneAll].reverse().slice(0, DONE_SHOWN).map(line),
+    done: [...doneAll].reverse().slice(0, cap).map(line),
     doneTotal: doneAll.length,
     stock: (p.stockImpact ?? []).map((a) => ({
       basis: a.basis,

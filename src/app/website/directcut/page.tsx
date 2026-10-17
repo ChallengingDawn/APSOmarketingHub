@@ -117,7 +117,7 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<ContentCutOutlinedIcon fontSize="small" />} tint="slate" label={WORK_LABEL.saw}
-            value={full(work.saw)} note={`of ${full(b.open.length)} open · ${full(work.pick)} pick & ship, ${full(work.unknown)} not recorded`} />
+            value={full(work.saw)} note={`of ${full(b.open.length)} open · ${full(work.pick)} leftover`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<DoneAllOutlinedIcon fontSize="small" />} tint="green" label="Cut done"
@@ -296,9 +296,11 @@ function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
 export default function DirectCutPage() {
   const [tab, setTab] = useHashTab<View>(VIEW_HASH, "overview");
   const [nonce, setNonce] = useState(0);
+  /* how many finished lines to fetch — lifted by the board's "Show more" (SARCLA, 17.10) */
+  const [doneShown, setDoneShown] = useState(100);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
-  const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&n=${nonce}`, [nonce]);
+  const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&done=${doneShown}&n=${nonce}`, [nonce, doneShown]);
   const [regQ, setRegQ] = useState("");
   const regHeld = useHeld<{ registry: Registry; holds: Holds }>(`/api/website/directcut?part=registry&q=${encodeURIComponent(regQ)}&n=${nonce}`, [nonce, regQ]);
   const brokenHeld = useHeld<{ broken: BrokenWithTickets; isAdmin: boolean }>(`/api/website/directcut?part=promises&n=${nonce}`, [nonce]);
@@ -333,7 +335,8 @@ export default function DirectCutPage() {
         <ReportTabs name="directcut" tab={tab} onSelect={setTab} tabs={tabs} />
         <Box sx={{ mt: 3 }}>
           {tab === "overview" && <Overview b={board} s={s} />}
-          {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal} />}
+          {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal}
+            onMore={() => setDoneShown((n) => Math.min(2000, n + 400))} loadingMore={boardHeld.stale} />}
           {tab === "shortages" && (bro
             ? <ShortagesTab broken={bro.broken} isAdmin={bro.isAdmin} onDone={reload} />
             : brokenHeld.result?.state === "error"
