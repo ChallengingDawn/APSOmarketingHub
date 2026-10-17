@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import {
   addComment, addVariant, archiveProject, attachVariant, chooseVariant, duplicateVariant,
-  getProject, labelVariant, removeVariant, updateProject,
+  getProject, labelVariant, removeVariant, setFolder, starProject, updateProject,
 } from "@/lib/content/projects";
 import { accessFor, membersOf } from "@/lib/content/sharing";
 
@@ -47,7 +47,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : null);
 
   // Commenters read and comment; saving, attaching and choosing are editing.
-  if (action !== "comment" && !access.canEdit) {
+  // A star is the reader's own bookmark, not a change to the project, so a
+  // commenter may set one.
+  if (action !== "comment" && action !== "star" && !access.canEdit) {
     return NextResponse.json({ ok: false, error: "You can comment on this project, not change it." }, { status: 403 });
   }
 
@@ -87,6 +89,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   if (action === "archive") {
     await archiveProject(id, body.archived !== false);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "folder") {
+    // An empty name means "out of every folder", which is a real answer.
+    await setFolder(id, str("folder") ?? null);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "star") {
+    // The only action here that does NOT need edit rights: starring is about
+    // the person's own list, and anyone who can open a project may keep it.
+    await starProject(id, me.username, body.starred !== false);
     return NextResponse.json({ ok: true });
   }
 

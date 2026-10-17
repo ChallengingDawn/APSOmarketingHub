@@ -310,6 +310,47 @@ export async function archiveProject(id: number, archived: boolean): Promise<voi
   );
 }
 
+/**
+ * File a project under a folder, or take it out of one.
+ *
+ * The folder is a NAME on the project rather than a row in a folders table.
+ * A folder nobody has put anything in is not a thing anybody needs, and a
+ * table for them buys a lifecycle - rename it, delete it, what happens to
+ * what was inside - that nothing here asks for. Filing is one UPDATE, and the
+ * list of folders is whatever names are in use.
+ */
+export async function setFolder(id: number, folder: string | null): Promise<void> {
+  await ensureSchema();
+  const name = folder?.trim().slice(0, 80) || null;
+  await query(
+    `UPDATE apsomh_content_projects SET folder = $2, updated_at = NOW() WHERE id = $1`,
+    [id, name],
+  );
+}
+
+/**
+ * Star a project, for one person.
+ *
+ * Deliberately NOT updated_at: starring is not work on the project, and
+ * touching it would push somebody else's project to the top of their list
+ * because you found it interesting.
+ */
+export async function starProject(id: number, username: string, starred: boolean): Promise<void> {
+  await ensureSchema();
+  if (starred) {
+    await query(
+      `INSERT INTO apsomh_content_project_stars (project_id, username)
+       VALUES ($1, $2) ON CONFLICT (project_id, username) DO NOTHING`,
+      [id, username],
+    );
+  } else {
+    await query(
+      `DELETE FROM apsomh_content_project_stars WHERE project_id = $1 AND username = $2`,
+      [id, username],
+    );
+  }
+}
+
 /** Rename one version, so a column of six reads without opening any. */
 export async function labelVariant(variantId: number, label: string, by: string): Promise<void> {
   await ensureSchema();

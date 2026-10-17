@@ -28,6 +28,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
+import ArchiveOutlinedIcon from "@mui/icons-material/ArchiveOutlined";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import AddIcon from "@mui/icons-material/Add";
 import FloatingAssistant from "./FloatingAssistant";
 import Link from "next/link";
@@ -151,6 +153,7 @@ export default function ProjectBoard({ id }: { id: number }) {
   if (!project) return <Typography sx={{ fontSize: "0.9rem", color: FAINT }}>Opening the project…</Typography>;
 
   const canEdit = access?.canEdit !== false;
+  const archived = project?.status === "archived";
   const general = comments.filter((c) => c.variantId === null);
 
   return (
@@ -159,6 +162,17 @@ export default function ProjectBoard({ id }: { id: number }) {
         {/* Who is in it and the way to bring someone in, top right - where
             Adobe Express and every shared-document tool keeps it. */}
         <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, flexWrap: "wrap" }}>
+          {archived && (
+            <Box sx={{
+              mb: 1.5, px: 1.5, py: 1, borderRadius: "12px", display: "flex", alignItems: "center", gap: 1,
+              bgcolor: "rgba(21,34,58,.05)", border: `1px solid ${HAIRLINE}`,
+            }}>
+              <ArchiveOutlinedIcon sx={{ fontSize: 17, color: MUTED }} />
+              <Typography sx={{ fontSize: "0.82rem", color: MUTED, flex: 1 }}>
+                This project is archived. It is all still here, and it is out of the lists.
+              </Typography>
+            </Box>
+          )}
           {editingTitle ? (
           <TextField
             autoFocus
@@ -203,6 +217,17 @@ export default function ProjectBoard({ id }: { id: number }) {
               onClick={() => setSharing(true)} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>
               {access?.canShare ? "Share" : "People"}
             </Button>
+            {canEdit && (
+              <Tooltip title={archived
+                ? "Bring it back, so it shows in the lists again"
+                : "Put it away. It stays complete, under Archived."}>
+                <IconButton onClick={() => void post({ action: "archive", archived: !archived })}>
+                  {archived
+                    ? <UnarchiveIcon sx={{ fontSize: 19, color: MUTED }} />
+                    : <ArchiveOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />}
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
         </Box>
         <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.25 }}>

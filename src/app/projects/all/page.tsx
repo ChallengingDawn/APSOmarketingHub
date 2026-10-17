@@ -12,7 +12,8 @@ export default async function AllProjectsPage({
   searchParams: Promise<{ scope?: string }>;
 }) {
   const { scope } = await searchParams;
-  const initial = scope === "shared" || scope === "all" ? scope : "mine";
+  const initial =
+    scope === "shared" || scope === "all" || scope === "starred" || scope === "archived" ? scope : "mine";
 
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3.5 } }}>

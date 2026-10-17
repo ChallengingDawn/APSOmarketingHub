@@ -197,26 +197,55 @@ export type ListedProject = {
   createdBy: string | null; ownerName: string | null; updatedAt: string;
   variantCount: number; commentCount: number; languages: string[];
   myRole: ProjectRole; members: { username: string; name: string }[];
+  /** The folder it is filed under, or null for the ones nobody has filed. */
+  folder: string | null;
+  /** Starred by the person asking - not by anyone else. */
+  starred: boolean;
+  /**
+   * The version LABELS and TITLES, joined, so searching the list finds a
+   * project by what is inside it: "shorter hero" lands on the project that
+   * holds that version. Bodies are left out on purpose - shipping every
+   * draft's full text to the browser to power a search box is a page weight
+   * nobody agreed to.
+   */
+  variantText: string;
 };
+
+export type ProjectScope = "mine" | "shared" | "all" | "editable" | "starred" | "archived";
 
 /**
  * The projects this person may open: "mine" they own, "shared" were shared
- * with them, "all" is every project and only for admins.
+ * with them, "all" is every project and only for admins. "starred" and
+ * "archived" cut across those - an archived project is still yours, or still
+ * shared with you - so both are expressed over everything this person may
+ * open rather than over one of the tabs.
  */
-export async function listProjectsFor(me: Me, scope: "mine" | "shared" | "all" | "editable"): Promise<ListedProject[]> {
+export async function listProjectsFor(me: Me, scope: ProjectScope): Promise<ListedProject[]> {
   await ensureSharing();
+  const member = "EXISTS (SELECT 1 FROM apsomh_content_project_members x WHERE x.project_id = p.id AND x.username = $1)";
+  // Everything this person may open at all. An admin may open all of it.
+  const visible = me.role === "admin" ? "TRUE" : `(p.created_by = $1 OR ${member})`;
   const where =
     scope === "all" && me.role === "admin" ? "TRUE"
-      : scope === "shared" ? "EXISTS (SELECT 1 FROM apsomh_content_project_members x WHERE x.project_id = p.id AND x.username = $1)"
+      : scope === "shared" ? member
         : scope === "editable" ? "(p.created_by = $1 OR EXISTS (SELECT 1 FROM apsomh_content_project_members x WHERE x.project_id = p.id AND x.username = $1 AND x.role = 'editor'))"
-          : "p.created_by = $1";
+          : scope === "starred"
+            ? `${visible} AND EXISTS (SELECT 1 FROM apsomh_content_project_stars s WHERE s.project_id = p.id AND s.username = $1)`
+            : scope === "archived" ? visible
+              : "p.created_by = $1";
+  // Archived is its own view. Every other view hides them, which is the whole
+  // point of putting one away.
+  const statusWhere = scope === "archived" ? "p.status = 'archived'" : "p.status <> 'archived'";
   const r = await query<{
     id: number; title: string; brief: string | null; status: string; chosen_variant_id: number | null; created_by: string | null;
     owner_name: string | null; updated_at: Date; variant_count: string; comment_count: string; languages: (string | null)[] | null;
     my_role: string | null; members: { username: string; name: string }[] | null;
+    folder: string | null; starred: boolean; variant_text: string | null;
   }>(
-    `SELECT p.id, p.title, p.brief, p.status, p.chosen_variant_id, p.created_by, p.updated_at,
+    `SELECT p.id, p.title, p.brief, p.status, p.chosen_variant_id, p.created_by, p.updated_at, p.folder,
             ou.full_name AS owner_name,
+            EXISTS (SELECT 1 FROM apsomh_content_project_stars s WHERE s.project_id = p.id AND s.username = $1) AS starred,
+            (SELECT STRING_AGG(CONCAT_WS(' ', c.label, c.title), ' ') FROM apsomh_content c WHERE c.project_id = p.id) AS variant_text,
             (SELECT COUNT(*) FROM apsomh_content c WHERE c.project_id = p.id) AS variant_count,
             (SELECT COUNT(*) FROM apsomh_content_comments k WHERE k.project_id = p.id) AS comment_count,
             (SELECT ARRAY_AGG(DISTINCT c.language) FROM apsomh_content c WHERE c.project_id = p.id) AS languages,
@@ -226,7 +255,7 @@ export async function listProjectsFor(me: Me, scope: "mine" | "shared" | "all" |
               WHERE m.project_id = p.id) AS members
        FROM apsomh_content_projects p
        LEFT JOIN apsomh_users ou ON ou.username = p.created_by
-      WHERE p.status <> 'archived' AND ${where}
+      WHERE ${statusWhere} AND ${where}
       ORDER BY p.updated_at DESC
       LIMIT 200`,
     [me.username],
@@ -236,6 +265,9 @@ export async function listProjectsFor(me: Me, scope: "mine" | "shared" | "all" |
     createdBy: p.created_by, ownerName: p.owner_name || p.created_by, updatedAt: new Date(p.updated_at).toISOString(),
     variantCount: Number(p.variant_count), commentCount: Number(p.comment_count),
     languages: (p.languages ?? []).filter((l): l is string => !!l),
+    folder: p.folder,
+    starred: !!p.starred,
+    variantText: p.variant_text ?? "",
     myRole: p.created_by === me.username ? "owner" : p.my_role === "commenter" ? "commenter" : p.my_role === "editor" ? "editor" : "admin",
     members: p.members ?? [],
   }));

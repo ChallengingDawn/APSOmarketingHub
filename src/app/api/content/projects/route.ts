@@ -14,7 +14,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const me = await requireUser();
   const raw = req.nextUrl.searchParams.get("scope");
-  const scope = raw === "shared" || raw === "all" || raw === "editable" ? raw : "mine";
+  const scope =
+    raw === "shared" || raw === "all" || raw === "editable" || raw === "starred" || raw === "archived"
+      ? raw
+      : "mine";
   return NextResponse.json({ ok: true, projects: await listProjectsFor(me, scope), me: me.username, isAdmin: me.role === "admin" });
 }
 

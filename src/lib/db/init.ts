@@ -190,6 +190,29 @@ export function ensureSchema(): Promise<void> {
       `ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS content_type VARCHAR(48)`,
     );
 
+    // The folder it is filed under - a name, not a foreign key. See the
+    // reasoning above setFolder() in src/lib/content/projects.ts.
+    await query(
+      `ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS folder TEXT`,
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_projects_folder ON apsomh_content_projects(folder)`,
+    );
+
+    // Starred, per person. Not a column on the project: two people looking at
+    // the same one disagree about whether it matters, and both are right.
+    await query(`
+      CREATE TABLE IF NOT EXISTS apsomh_content_project_stars (
+        project_id INTEGER NOT NULL REFERENCES apsomh_content_projects(id) ON DELETE CASCADE,
+        username VARCHAR(255) NOT NULL,
+        starred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (project_id, username)
+      );
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_stars_user ON apsomh_content_project_stars(username)`,
+    );
+
     for (const col of [
       "project_id INTEGER",
       "content_type VARCHAR(48)",

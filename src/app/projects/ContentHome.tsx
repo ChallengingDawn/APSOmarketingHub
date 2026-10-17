@@ -32,6 +32,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import GroupsIcon from "@mui/icons-material/Groups";
 import SearchIcon from "@mui/icons-material/Search";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { CONTENT_TYPES } from "@/lib/content/contentTypes";
@@ -317,12 +318,15 @@ export default function ContentHome({ name }: { name: string }) {
           "something of mine from March" are different errands. */}
       <Box sx={{
         mt: 4, display: "grid", gap: 1.5,
-        gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
+        // Four doors, so two or four across - three would leave one of them
+        // alone on a second row.
+        gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" },
       }}>
         {[
           { href: "/projects/all?scope=mine", label: "My projects", note: "Everything you own", icon: <FolderOpenIcon /> },
           { href: "/projects/all?scope=shared", label: "Shared with me", note: "Projects other people brought you into", icon: <GroupsIcon /> },
-          { href: "/projects/all", label: "Search all", note: "Find one by name, brief or owner", icon: <SearchIcon /> },
+          { href: "/projects/all?scope=starred", label: "Starred", note: "Your own shortlist", icon: <StarBorderIcon /> },
+          { href: "/projects/all", label: "Search all", note: "By name, brief, owner or a version inside it", icon: <SearchIcon /> },
         ].map((d) => (
           <Box
             key={d.href}
