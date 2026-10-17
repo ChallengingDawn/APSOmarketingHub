@@ -30,7 +30,8 @@ import { Empty, Loaded, Num, pill, post, when } from "./shared";
 
 type Jobs = { sweep: SweepStatus; runs: SweepRun[]; orders: OrderWatch; calls: StockCalls; health: Health | null; isAdmin: boolean };
 
-const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.round(s / 60)} min`);
+// whole minutes first, then hours: 10,770 s is "3 h 0 min", not "2 h 60 min" (SARCLA 17.10.2026)
+const dur = (s: number) => { const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
 
 type Scope = "published" | "standard" | "all";
 /** One change through the hub, then the tab reads the gateway again. */
