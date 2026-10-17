@@ -28,7 +28,8 @@ type RawStock = {
   heldParts?: number; pinnedParts?: number; producedParts?: number;
   plates?: unknown[];
 };
-export type RawPipeline = { at: string; counts: Record<string, number>; stages: Record<string, RawLine[]>; stockImpact: RawStock[] };
+export type RawPipeline = { at: string; counts: Record<string, number>; stages: Record<string, RawLine[]>;
+  stockImpact: RawStock[]; erpRefs?: { known?: number; withOrderNo?: number } };
 
 /* ── the slim projection ────────────────────────────────────────────────────────
    WHY THIS EXISTS. /admin/pipeline is 967 KB: 852 cut-done cards are 531 KB of
@@ -55,6 +56,10 @@ export type StockRow = {
 export type Board = {
   at: string;
   counts: Record<string, number>;
+  /* HOW MANY LINES CARRY THEIR A-NUMBER. It comes from the pipeline view, not from health: health's
+     erpRefs reports the SWEEPER (runs, asked, written), which is a different question. Reading the
+     sweeper's figures as coverage made the page say "0" while 1094 of 1095 lines in fact had one. */
+  erpRefs: { known: number; withOrderNo: number };
   open: Line[];
   done: Line[];
   doneTotal: number;
@@ -89,6 +94,7 @@ export function slim(p: RawPipeline): Board {
   return {
     at: p.at,
     counts: p.counts ?? {},
+    erpRefs: { known: Number(p.erpRefs?.known) || 0, withOrderNo: Number(p.erpRefs?.withOrderNo) || 0 },
     open,
     // newest first: the pipeline sorts each stage oldest-first by enteredStageAt
     done: [...doneAll].reverse().slice(0, DONE_SHOWN).map(line),

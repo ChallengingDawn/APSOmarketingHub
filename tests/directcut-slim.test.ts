@@ -51,6 +51,7 @@ const pipeline = (over: Record<string, unknown> = {}) => ({
       plates: [{ length: 1981, width: 402, qty: 1, full: false, available: 0, availableNet: 0, heldPct: 0 }],
     },
   ],
+  erpRefs: { known: 1094, withOrderNo: 1095 },
   ...over,
 });
 
@@ -128,4 +129,16 @@ test("a line the ERP feed brought in is marked apart from one the widget booked"
   assert.equal(l.fromShop, false);
   assert.equal(l.basis, null);
   assert.equal(l.sawNeeded, null, "no opinion, rather than a guess");
+});
+
+test("the A-number coverage comes through, because reading it off health gave 0", () => {
+  // SARCLA, 17.10: the Status tab said "A-numbers resolved 0" while 1094 of 1095 lines had one.
+  // health.erpRefs describes the SWEEPER (runs, asked, written) and carries no coverage at all; the
+  // PIPELINE VIEW counts the lines. The projection has to carry it or the page has nowhere to read it.
+  const b = slim(pipeline());
+  assert.equal(b.erpRefs.known, 1094);
+  assert.equal(b.erpRefs.withOrderNo, 1095);
+  // and a view that does not send it must not become NaN% on the tile
+  const none = slim({ at: "2026-10-17T06:00:00.000Z", counts: {}, stages: {}, stockImpact: [] });
+  assert.deepEqual(none.erpRefs, { known: 0, withOrderNo: 0 });
 });

@@ -78,10 +78,11 @@ function Problems({ s }: { s: Status | null }) {
     Somebody has to source the material or tell the customer.
   </>);
 
-  if (!s.heartbeat.reporting) out.push(<>
-    No woodStore PC is reporting a heartbeat{s.heartbeat.verdict ? <> — {s.heartbeat.verdict}</> : null}. Without it,
-    a quiet workshop and a dead File Agent look the same to the shelf&rsquo;s age check.
-  </>);
+  /* THE HEARTBEAT IS NOT WARNED ABOUT ANY MORE (SARCLA, 17.10.2026: "we are not going to install
+     heartbeat, it's working from homag agent"). It was never required — the File Agent autostarts with
+     Windows and the shelf is dated from its own write stamps. A banner asking for a thing nobody intends
+     to install is noise, and noise on this page buries the one line that matters. What it bought is said
+     plainly on the Status tab instead, where somebody looking for it will find it. */
 
   if (!out.length) return null;
   return <>{out.map((n, i) => <Notice key={i} tone={i === 0 && (s.feed.down || shelfStale || broken > 0) ? "bad" : "warn"}>{n}</Notice>)}</>;
@@ -93,8 +94,11 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
   const work = countWork(b.open);
   const inCart = b.open.filter((l) => l.stage === "reserved").length;
   const offered = b.stock.reduce((a, x) => a + x.offered, 0);
-  const refs = s?.erpRefs as { known?: number; withOrderNo?: number } | undefined;
-  const pctRefs = refs?.withOrderNo ? Math.round((100 * (refs.known ?? 0)) / refs.withOrderNo) : null;
+  /* FROM THE PIPELINE VIEW, NOT FROM HEALTH (SARCLA: "A-numbers resolved 0"). health.erpRefs describes
+     the SWEEPER — runs, asked, written — and has no coverage figure in it at all, so reading `known` off
+     it gave 0 while 1094 of 1095 lines actually carried an A-number. The view counts the lines. */
+  const refs = b.erpRefs;
+  const pctRefs = refs.withOrderNo ? Math.round((100 * refs.known) / refs.withOrderNo) : null;
 
   return (
     <>
@@ -125,7 +129,7 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<FactCheckOutlinedIcon fontSize="small" />} tint="green" label="Lines with their A-number"
-            value={pctRefs === null ? "—" : `${pctRefs}%`} note={refs?.withOrderNo ? `${full(refs.known ?? 0)} of ${full(refs.withOrderNo)}` : undefined} />
+            value={pctRefs === null ? "—" : `${pctRefs}%`} note={refs.withOrderNo ? `${full(refs.known)} of ${full(refs.withOrderNo)}` : undefined} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<MonitorHeartOutlinedIcon fontSize="small" />} tint={s?.shelf?.stale ? "amber" : "green"} label="Shelf age"
@@ -155,6 +159,9 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
 }
 
 /* ── status ───────────────────────────────────────────────────────────────── */
+
+/** A skip the detector makes because nothing moved — the normal state of a quiet day. */
+const idleSkip = (why: unknown) => /inventory unchanged|no change/i.test(String(why ?? ""));
 
 function Fact({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "good" | "bad" }) {
   return (
@@ -197,8 +204,18 @@ function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
           <Fact label="Board types" value={full(s.feed.boardTypes)} />
           <Fact label="Shelf last moved" value={when(s.feed.inventoryChangedAt)} note={`idle ${s.feed.idleWorkingHours.toFixed(1)} working hours`} />
           <Fact label="Polls since boot" value={full(s.feed.runs)} />
-          <Fact label="Cut-done detector" value={cd.skipped ? "skipping" : `${full(Number(cd.checked) || 0)} line(s) judged`}
-            tone={cd.skipped ? "bad" : "good"} note={cd.skipped ? String(cd.skipped) : cd.lastAt ? `last ran ${when(String(cd.lastAt))}` : undefined} />
+          {/* AN UNCHANGED SHELF IS IDLE, NOT BROKEN (SARCLA asked why this said "skipping"). The detector
+              decides a cut happened by diffing the inventory before and after a poll. When the shelf has not
+              moved there is nothing to diff, so it skips — which is the right thing to do and the normal
+              state of a quiet day. Painting that red made a Saturday look like a fault. Only a skip for a
+              reason OTHER than an unchanged shelf is worth worrying about. */}
+          <Fact label="Cut-done detector"
+            value={!cd.skipped ? `${full(Number(cd.checked) || 0)} line(s) judged`
+              : idleSkip(cd.skipped) ? "nothing to judge" : "skipping"}
+            tone={!cd.skipped ? "good" : idleSkip(cd.skipped) ? undefined : "bad"}
+            note={cd.skipped
+              ? (idleSkip(cd.skipped) ? "the shelf has not moved since the last poll, so there is no cut to detect" : String(cd.skipped))
+              : cd.lastAt ? `last ran ${when(String(cd.lastAt))}` : undefined} />
         </GlassCard>
       </Grid>
 
@@ -212,8 +229,13 @@ function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
             note={s.shelf?.workingDaysSince !== null && s.shelf?.workingDaysSince !== undefined
               ? `${Number(s.shelf.workingDaysSince)} working day(s) ago · stale after ${Number(s.shelf.maxWorkingDays) || 3}` : undefined} />
           <Fact label="Decided by" value={String(s.shelf?.from ?? "–")} />
-          <Fact label="woodStore heartbeat" value={s.heartbeat.reporting ? `${s.heartbeat.hosts} host(s)` : "nobody reporting"}
-            tone={s.heartbeat.reporting ? "good" : "bad"} note={s.heartbeat.verdict ?? undefined} />
+          {/* Not installed, by decision (SARCLA, 17.10.2026). Said without alarm, but said: it is the only
+              signal that can tell a dead File Agent from a workshop that simply is not cutting, because the
+              write stamps above only move when stock moves. */}
+          <Fact label="woodStore heartbeat" value={s.heartbeat.reporting ? `${s.heartbeat.hosts} host(s)` : "not installed"}
+            tone={s.heartbeat.reporting ? "good" : undefined}
+            note={s.heartbeat.reporting ? (s.heartbeat.verdict ?? undefined)
+              : "by decision — the agent autostarts. Without it, a quiet spell past the threshold above reads as a stale shelf"} />
         </GlassCard>
       </Grid>
 
@@ -230,8 +252,11 @@ function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
           <Fact label="Promises the shelf cannot keep" value={full(Number(ps.piecesBroken) || 0)}
             tone={Number(ps.piecesBroken) ? "bad" : "good"}
             note={`${full(Number(ps.promisesChecked) || 0)} promise(s) across ${full(Number(ps.articlesChecked) || 0)} article(s)`} />
-          <Fact label="A-numbers resolved" value={full(Number(er.known) || 0)}
-            note={er.withOrderNo ? `of ${full(Number(er.withOrderNo))} line(s) with an order` : undefined} />
+          {/* the SWEEPER's own work. Coverage ("how many lines have one") is a different question and
+              lives on the Overview tile, counted from the pipeline view. */}
+          <Fact label="A-number sweeper" value={er.running ? "running" : `${full(Number(er.runs) || 0)} run(s)`}
+            note={er.lastAt ? `last ${when(String(er.lastAt))} · ${full(Number(er.written) || 0)} written, ${full(Number(er.notFound) || 0)} not in HubSpot`
+              : "it has not needed to run yet"} />
         </GlassCard>
       </Grid>
 

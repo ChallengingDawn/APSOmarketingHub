@@ -78,6 +78,9 @@ export const APPS: HubApp[] = [
       // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026), first of
       // the Microservices (SARCLA 17.10.2026)
       { group: "Microservices", name: "Search bar", note: "What customers search and find, the gaps, stock, brands, its views", href: "/website/search-bar", icon: "search", ...BLUE },
+      // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
+      // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
+      { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
       // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
       { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
       { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
@@ -88,9 +91,6 @@ export const APPS: HubApp[] = [
       { group: "Microservices", name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
       { group: "Microservices", name: "Compatibility table", note: "Which material resists which chemical", href: "/website/compatibility-table", icon: "science", ...TEAL },
       { group: "Microservices", name: "Vulcanised O-rings", note: "Any O-ring size from stocked cord", href: "/website/vulcanised-o-rings", icon: "loop", ...BLUE },
-      // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
-      // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
-      { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
     ],
   },
   {
