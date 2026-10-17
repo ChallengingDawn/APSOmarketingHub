@@ -25,12 +25,20 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, clip } from "@/
 import { full } from "@/app/charts/format";
 import { Pill, STAGE_LABEL, WORK_LABEL, WORK_TONE, day, when, workOf, type Line, type Work } from "./shared";
 
+/* NO "NOT RECORDED" COLUMN (SARCLA, 17.10.2026: "then take them out"). Those lines carry a real order and
+   a real cut-article number and nothing else - no basis, no size, no quantity - because the number was
+   never minted by this ledger, and the shop's ERP route cannot supply either for an 8001 (its answer has
+   no name and no dimensions; those come from the shop PRODUCT, which a cut does not have). So there is
+   nothing to tell the workshop about them and they do not belong in its queue.
+   They are NOT hidden, though: the header says how many there are. He asked "it should not happen again
+   right" - it does, and that is why the count stays. Measured 17.10: they arrive in ones and fives every
+   few days (newest 16.10 15:37, oldest 21.09), so something outside this ledger is still minting cut
+   numbers. Dropping the column without keeping the count would have buried that. */
 type ColKey = Work | "done";
 
 const COLS: { key: ColKey; label: string; note: string }[] = [
   { key: "saw", label: WORK_LABEL.saw, note: "a piece has to be cut from a plate" },
   { key: "pick", label: WORK_LABEL.pick, note: "a whole piece off the shelf, no cutting" },
-  { key: "unknown", label: WORK_LABEL.unknown, note: "ordered by number only — our ledger never minted this cut article, so its basis and size are unknown" },
   { key: "done", label: "Cut done", note: "finished, newest first" },
 ];
 
@@ -123,16 +131,17 @@ export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; don
     const by: Record<ColKey, Line[]> = { saw: [], pick: [], unknown: [], done: d };
     for (const l of o) by[workOf(l)].push(l);
     // the promised day drives the queue: oldest promise first, undated last
-    for (const k of ["saw", "pick", "unknown"] as Work[]) {
+    for (const k of ["saw", "pick"] as Work[]) {
       by[k].sort((a, b) => String(a.date ?? "9999").localeCompare(String(b.date ?? "9999")));
     }
     return by;
   }, [open, done, match]);
 
-  const shownOpen = cols.saw.length + cols.pick.length + cols.unknown.length;
+  const shownOpen = cols.saw.length + cols.pick.length;
   const late = useMemo(() => {
     const t = today();
-    return (match ? open.filter(match) : open).filter((l) => l.date && String(l.date).slice(0, 10) < t).length;
+    return (match ? open.filter(match) : open)
+      .filter((l) => workOf(l) !== "unknown" && l.date && String(l.date).slice(0, 10) < t).length;
   }, [open, match]);
 
   return (
@@ -142,7 +151,8 @@ export default function KanbanTab({ open, done, doneTotal }: { open: Line[]; don
         tint={late ? "amber" : "blue"}
         title="Cut Kanban"
         note={`${full(shownOpen)} line(s) still to do · ${full(doneTotal)} finished` +
-          (late ? ` · ${full(late)} past the promised day` : "")}
+          (late ? ` · ${full(late)} past the promised day` : "") +
+          (cols.unknown.length ? ` · ${full(cols.unknown.length)} ordered by number only, not shown` : "")}
         right={
           <TextField
             size="small" value={q} onChange={(e) => setQ(e.target.value)} placeholder="article, order, A-number, customer"
