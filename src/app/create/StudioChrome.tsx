@@ -36,12 +36,15 @@ export default function StudioChrome({
   projectId,
   projectTitle,
   typeLabel,
+  canvasSize,
   /** The save control — the studio owns what saving means. */
   right,
 }: {
   projectId?: number;
   projectTitle?: string;
   typeLabel: string;
+  /** The artboard size, shown so nobody has to open a panel to read it. */
+  canvasSize?: { w: number; h: number } | null;
   right?: React.ReactNode;
 }) {
   const home = projectId ? `/projects/${projectId}` : "/projects";
@@ -67,6 +70,11 @@ export default function StudioChrome({
           {projectTitle ?? "Untitled"}
         </Typography>
         <Typography sx={{ fontSize: 12, color: DIM, whiteSpace: "nowrap" }}>{typeLabel}</Typography>
+        {canvasSize && (
+          <Typography sx={{ fontSize: 12, color: DIM, whiteSpace: "nowrap" }}>
+            {canvasSize.w} &times; {canvasSize.h}
+          </Typography>
+        )}
       </Box>
 
       <Box sx={{ flex: 1 }} />

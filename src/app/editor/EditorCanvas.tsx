@@ -266,6 +266,7 @@ export default function EditorCanvas({
   toolsContainer,
   toolsContainers,
   contentTypeKey,
+  onCanvasSize,
 }: {
   itemId?: number;
   initialImage?: string | null;
@@ -294,6 +295,8 @@ export default function EditorCanvas({
    */
   /** Which content type this is, so the gallery offers layouts that fit it. */
   contentTypeKey?: string;
+  /** Reports the artboard size up, so the chrome can show what you are on. */
+  onCanvasSize?: (size: { w: number; h: number }) => void;
   toolsContainers?: {
     insert?: HTMLElement | null;
     canvas?: HTMLElement | null;
@@ -309,6 +312,8 @@ export default function EditorCanvas({
 
   const [canvas, setCanvas] = useState(initialDocument?.canvas ?? { w: 1200, h: 627 });
   const [bgColor, setBgColor] = useState(initialDocument?.background.color ?? "#ffffff");
+  // The chrome shows the dimensions; only the canvas knows them.
+  useEffect(() => { onCanvasSize?.(canvas); }, [canvas, onCanvasSize]);
   const [bgGradientId, setBgGradientId] = useState<string | null>(initialDocument?.background.gradientId ?? null);
   const [customGrad, setCustomGrad] = useState(initialDocument?.background.customGradient ?? { from: "#16303f", to: "#ed1b2f" });
   const [bgSrc, setBgSrc] = useState<string | null>(initialDocument ? initialDocument.background.src : initialImage ?? null);

@@ -38,11 +38,14 @@ import Tooltip from "@mui/material/Tooltip";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import RemoveIcon from "@mui/icons-material/Remove";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import TuneIcon from "@mui/icons-material/Tune";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 import Assistant from "./Assistant";
 
 const INK = "#15223a";
 const FAINT = "#8b97ac";
+const MUTED = "#5d6b85";
 const HAIRLINE = "rgba(21,34,58,.10)";
 const PURPLE = "#6a46c9";
 
@@ -56,8 +59,11 @@ const KEY = "apsomh:assistant-window";
 
 /** Where it opens the very first time: bottom-right, clear of the rail. */
 function defaultRect(): Rect {
-  const w = 380;
-  const h = 520;
+  // Wider than a chat bubble on purpose: this window now holds the brief,
+  // the personas and the brain as well as the conversation, and a 380px
+  // column turns two dropdowns side by side into two dropdowns stacked.
+  const w = 460;
+  const h = 640;
   if (typeof window === "undefined") return { x: 40, y: 40, w, h };
   return {
     x: Math.max(MARGIN, window.innerWidth - w - 24),
@@ -112,15 +118,25 @@ export default function FloatingAssistant({
   projectId,
   canEdit = true,
   onApplied,
+  settings,
 }: {
   projectId: number;
   canEdit?: boolean;
   onApplied?: () => void;
+  /**
+   * The generator's own settings — brief, personas, brain. They belong with
+   * the thing that uses them, not on a rail of drawing tools, and they are
+   * passed in rather than lifted because their state lives in the studio.
+   */
+  settings?: React.ReactNode;
 }) {
   const [rect, setRect] = useState<Rect>(() => defaultRect());
   const [minimised, setMinimised] = useState(true);
   const [ready, setReady] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Collapsed by default: most turns are a sentence, and the settings are
+  // something you open when the answer is wrong, not before every question.
+  const [showSettings, setShowSettings] = useState(false);
   const [resizing, setResizing] = useState(false);
 
   // Read the remembered position after mount: localStorage does not exist on
@@ -263,8 +279,33 @@ export default function FloatingAssistant({
         </Tooltip>
       </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 1.25 }}>
-        <Assistant projectId={projectId} canEdit={canEdit} onApplied={onApplied ?? (() => {})} bare />
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {settings && (
+          <Box sx={{ borderBottom: `1px solid ${HAIRLINE}` }}>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setShowSettings((v) => !v)}
+              aria-expanded={showSettings}
+              sx={{
+                width: "100%", display: "flex", alignItems: "center", gap: 0.75,
+                px: 1.25, py: 1, border: 0, bgcolor: "transparent", cursor: "pointer",
+                fontFamily: "inherit", color: MUTED,
+                "&:hover": { bgcolor: "#fafbfd" },
+              }}
+            >
+              <TuneIcon sx={{ fontSize: 15 }} />
+              <Typography sx={{ flex: 1, textAlign: "left", fontSize: 12, fontWeight: 700, color: INK }}>
+                What it writes with
+              </Typography>
+              <ExpandMoreIcon sx={{ fontSize: 17, transform: showSettings ? "rotate(180deg)" : "none", transition: "transform 140ms" }} />
+            </Box>
+            {showSettings && <Box sx={{ pb: 1 }}>{settings}</Box>}
+          </Box>
+        )}
+        <Box sx={{ p: 1.25 }}>
+          <Assistant projectId={projectId} canEdit={canEdit} onApplied={onApplied ?? (() => {})} bare />
+        </Box>
       </Box>
 
       {/* The resize corner. A real target rather than a 4px hairline — a grip

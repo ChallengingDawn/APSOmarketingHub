@@ -134,12 +134,9 @@ const SIDEBAR_W = 344;
  * with its word underneath — an icon column with no labels is a quiz.
  */
 const RAIL: { key: SectionKey; label: string; icon: ReactNode }[] = [
-  { key: "setup", label: "Brief", icon: <TuneIcon /> },
-  { key: "personas", label: "Who for", icon: <GroupsIcon /> },
   { key: "add", label: "Add", icon: <AddPhotoAlternateIcon /> },
   { key: "style", label: "Style", icon: <PaletteIcon /> },
   { key: "templates", label: "Templates", icon: <DashboardCustomizeIcon /> },
-  { key: "intel", label: "Brain", icon: <PsychologyIcon /> },
 ];
 
 const MD_FENCE = /```[\s\S]*?```/g;
@@ -380,6 +377,9 @@ export default function CreateStudio({
   const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
   // Bumped when a version is saved, so the strip shows it without a reload.
   const [stripKey, setStripKey] = useState(0);
+  // Shown in the chrome. Express puts the page size where you can read it
+  // without opening a panel, and ours was only ever visible inside one.
+  const [canvasSize, setCanvasSize] = useState<{ w: number; h: number } | null>(null);
   const openSections: Record<SectionKey, boolean> = {
     setup: activePanel === "setup",
     personas: activePanel === "personas",
@@ -731,87 +731,21 @@ export default function CreateStudio({
     );
   };
 
-  return (
-    <Box sx={{
-      // The editor owns the window. One scroll per column, never one for the
-      // page: an artboard that slides away when you reach for a tool is the
-      // single thing that makes a canvas feel like a web page.
-      height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
-      bgcolor: "#eef1f5",
-    }}>
-      <StudioChrome
-        projectId={projectId}
-        projectTitle={projectTitle}
-        typeLabel={CONTENT_BY_KEY[contentType]?.label ?? "Draft"}
-        right={
-          <SaveToProject
-            onDark
-            draftId={draft?.draftId ?? null}
-            defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
-            projectId={projectId}
-            projectTitle={projectTitle}
-            onSaved={() => setStripKey((n) => n + 1)}
-          />
-        }
-      />
-
-      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", p: 1.25, gap: 1.25 }}>
-      {/* The brief bar is gone. SARCLA: "the agent itself should generate the
-          image and everything — the top bar where it generated before, we can
-          take it out". It was a box, a Generate button, an Enhance button, a
-          draft/concepts switch and a row of demand chips, all to start one
-          piece of work. The agent does that now, from a window you can put
-          anywhere, and the editor gets the height back. */}
-      {error && (
-        <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* ── rail · panel · canvas · versions ── */}
-      <Box sx={{ flex: 1, minHeight: 0, display: "flex", gap: 1.25, alignItems: "stretch" }}>
-        {/* ── LEFT: the rail, always there ── */}
-        <Box sx={{
-          width: 76, flexShrink: 0, display: "flex", flexDirection: "column", gap: 0.5,
-          p: 0.75, borderRadius: "16px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.10)",
-          overflowY: "auto",
-        }}>
-          {RAIL.map((r) => {
-            const on = activePanel === r.key;
-            return (
-              <Box
-                key={r.key}
-                component="button"
-                type="button"
-                onClick={() => toggleSection(r.key)}
-                aria-pressed={on}
-                sx={{
-                  border: 0, cursor: "pointer", fontFamily: "inherit", width: "100%",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 0.3,
-                  py: 1, borderRadius: "11px",
-                  bgcolor: on ? "#eef3ff" : "transparent",
-                  color: on ? "#2459d1" : "#5b6470",
-                  "&:hover": { bgcolor: on ? "#eef3ff" : "#f5f6f8" },
-                  "& svg": { fontSize: 20 },
-                }}
-              >
-                {r.icon}
-                <Typography sx={{ fontSize: 10.5, fontWeight: on ? 700 : 500, lineHeight: 1.2, color: "inherit" }}>
-                  {r.label}
-                </Typography>
-              </Box>
-            );
-          })}
-        </Box>
-
-        {/* ── the one open panel ── */}
-        <Box sx={{ width: activePanel ? SIDEBAR_W : 0, flexShrink: 0, transition: "width 0.2s ease", overflow: "hidden" }}>
-          <Card>
-            {/* Every section stays mounted whatever is showing: the canvas
-                tools portal into this tree, and unmounting the target takes
-                the canvas's own toolbar with it. */}
-            <Box>
-              {/* ── section: Generate setup ── */}
+  /**
+   * The AI half of the studio, rendered inside the assistant window.
+   *
+   * Language, length, category, audience, who it is written for and what
+   * the brain knows are all inputs to GENERATING. None of them does
+   * anything to a canvas, so none of them belongs on a rail beside shapes
+   * and colours — that rail was a list of unrelated things, and it left the
+   * assistant a chat box with no settings.
+   *
+   * Built here because the state lives here, and handed to the window as a
+   * slot rather than lifted — moving a dozen pieces of state would have
+   * been a rewrite for a relocation.
+   */
+  const aiSettings = (
+    <>
               {sectionHeader("setup", "Generate setup", <TuneIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.setup}>
                 <Box sx={{ px: 2, pb: 2 }}>
@@ -928,8 +862,6 @@ export default function CreateStudio({
                   </Collapse>
                 </Box>
               </Collapse>
-
-              {/* ── section: Canvas tools (EditorCanvas portals its tools panel here) ── */}
               {sectionHeader("personas", `Personas${personaIds.length ? ` · ${personaIds.length}` : ""}`, <GroupsIcon sx={{ fontSize: 18, color: NAVY }} />)}
               <Collapse in={openSections.personas}>
                 <Box sx={{ px: 2, pb: 2 }}>
@@ -985,34 +917,6 @@ export default function CreateStudio({
 
                 </Box>
               </Collapse>
-
-              {sectionHeader("add", "Add to the canvas", <AddPhotoAlternateIcon sx={{ fontSize: 18, color: RED }} />)}
-              <Collapse in={openSections.add}>
-                <Box sx={{ px: 2, pb: 2 }}>
-                  <div ref={addHostRef} />
-                  {busy && (
-                    <Typography sx={{ fontSize: 12, color: "#5b6470" }}>
-                      The canvas tools return here as soon as generation finishes.
-                    </Typography>
-                  )}
-                </Box>
-              </Collapse>
-
-              {sectionHeader("style", "Size, colour and background", <PaletteIcon sx={{ fontSize: 18, color: RED }} />)}
-              <Collapse in={openSections.style}>
-                <Box sx={{ px: 2, pb: 2 }}>
-                  <div ref={styleHostRef} />
-                </Box>
-              </Collapse>
-
-              {sectionHeader("templates", "Start from a template", <DashboardCustomizeIcon sx={{ fontSize: 18, color: RED }} />)}
-              <Collapse in={openSections.templates}>
-                <Box sx={{ px: 2, pb: 2 }}>
-                  <div ref={templatesHostRef} />
-                </Box>
-              </Collapse>
-
-              {/* ── section: Engine intelligence ── */}
               {sectionHeader("intel", "Engine intelligence", <PsychologyIcon sx={{ fontSize: 18, color: RED }} />)}
               <Collapse in={openSections.intel}>
                 <Box sx={{ px: 2, pb: 2 }}>
@@ -1081,6 +985,121 @@ export default function CreateStudio({
                   )}
                 </Box>
               </Collapse>
+    </>
+  );
+
+  return (
+    <Box sx={{
+      // The editor owns the window. One scroll per column, never one for the
+      // page: an artboard that slides away when you reach for a tool is the
+      // single thing that makes a canvas feel like a web page.
+      height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
+      bgcolor: "#eef1f5",
+    }}>
+      <StudioChrome
+        projectId={projectId}
+        projectTitle={projectTitle}
+        typeLabel={CONTENT_BY_KEY[contentType]?.label ?? "Draft"}
+        canvasSize={canvasSize}
+        right={
+          <SaveToProject
+            onDark
+            draftId={draft?.draftId ?? null}
+            defaultLabel={`${CONTENT_BY_KEY[contentType]?.label ?? "Draft"}${language === "EN" ? "" : ` (${language})`}`}
+            projectId={projectId}
+            projectTitle={projectTitle}
+            onSaved={() => setStripKey((n) => n + 1)}
+          />
+        }
+      />
+
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", p: 1.25, gap: 1.25 }}>
+      {/* The brief bar is gone. SARCLA: "the agent itself should generate the
+          image and everything — the top bar where it generated before, we can
+          take it out". It was a box, a Generate button, an Enhance button, a
+          draft/concepts switch and a row of demand chips, all to start one
+          piece of work. The agent does that now, from a window you can put
+          anywhere, and the editor gets the height back. */}
+      {error && (
+        <Alert severity="error" onClose={() => setError("")} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* ── rail · panel · canvas · versions ── */}
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", gap: 1.25, alignItems: "stretch" }}>
+        {/* ── LEFT: the rail, always there ── */}
+        <Box sx={{
+          width: 76, flexShrink: 0, display: "flex", flexDirection: "column", gap: 0.5,
+          p: 0.75, borderRadius: "16px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.10)",
+          overflowY: "auto",
+        }}>
+          {RAIL.map((r) => {
+            const on = activePanel === r.key;
+            return (
+              <Box
+                key={r.key}
+                component="button"
+                type="button"
+                onClick={() => toggleSection(r.key)}
+                aria-pressed={on}
+                sx={{
+                  border: 0, cursor: "pointer", fontFamily: "inherit", width: "100%",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 0.3,
+                  py: 1, borderRadius: "11px",
+                  bgcolor: on ? "#eef3ff" : "transparent",
+                  color: on ? "#2459d1" : "#5b6470",
+                  "&:hover": { bgcolor: on ? "#eef3ff" : "#f5f6f8" },
+                  "& svg": { fontSize: 20 },
+                }}
+              >
+                {r.icon}
+                <Typography sx={{ fontSize: 10.5, fontWeight: on ? 700 : 500, lineHeight: 1.2, color: "inherit" }}>
+                  {r.label}
+                </Typography>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* ── the one open panel ── */}
+        <Box sx={{ width: activePanel ? SIDEBAR_W : 0, flexShrink: 0, transition: "width 0.2s ease", overflow: "hidden" }}>
+          <Card>
+            {/* Every section stays mounted whatever is showing: the canvas
+                tools portal into this tree, and unmounting the target takes
+                the canvas's own toolbar with it. */}
+            <Box>
+              {/* ── section: Generate setup ── */}
+
+              {/* ── section: Canvas tools (EditorCanvas portals its tools panel here) ── */}
+
+              {sectionHeader("add", "Add to the canvas", <AddPhotoAlternateIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.add}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={addHostRef} />
+                  {busy && (
+                    <Typography sx={{ fontSize: 12, color: "#5b6470" }}>
+                      The canvas tools return here as soon as generation finishes.
+                    </Typography>
+                  )}
+                </Box>
+              </Collapse>
+
+              {sectionHeader("style", "Size, colour and background", <PaletteIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.style}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={styleHostRef} />
+                </Box>
+              </Collapse>
+
+              {sectionHeader("templates", "Start from a template", <DashboardCustomizeIcon sx={{ fontSize: 18, color: RED }} />)}
+              <Collapse in={openSections.templates}>
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <div ref={templatesHostRef} />
+                </Box>
+              </Collapse>
+
+              {/* ── section: Engine intelligence ── */}
             </Box>
           </Card>
         </Box>
@@ -1270,6 +1289,7 @@ export default function CreateStudio({
                     }}
                     toolsContainers={toolHosts}
                     contentTypeKey={contentType}
+                    onCanvasSize={setCanvasSize}
                     initialImage={
                       designing.target === "draft"
                         ? draft?.imageUrl ?? null
@@ -1547,6 +1567,7 @@ export default function CreateStudio({
         <FloatingAssistant
           projectId={projectId}
           onApplied={() => setStripKey((n) => n + 1)}
+          settings={aiSettings}
         />
       )}
     </Box>
