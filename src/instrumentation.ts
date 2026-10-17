@@ -29,6 +29,10 @@ export async function register() {
     // button, every 15 min (PRICE_CHECK_TICKETS=off stops it)
     const { startPriceCheckScheduler } = await import("./lib/datatracker/priceCheckScheduler");
     startPriceCheckScheduler();
+    // AVOR is told to pack a leftover as soon as its A-number arrives - the same run as the
+    // button on Website > DirectCut > Leftovers (C2S_AVOR_MAIL=off stops it). SARCLA, 18.10.
+    const { startAvorScheduler } = await import("./lib/directcut/avorScheduler");
+    startAvorScheduler();
     // Connectors & Integration: each Compass step's latest result, remembered (read-only)
     const { startConnectorsWatch } = await import("./lib/connectors/scheduler");
     startConnectorsWatch();
