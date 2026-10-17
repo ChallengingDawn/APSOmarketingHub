@@ -58,6 +58,7 @@ import AlignVerticalCenterIcon from "@mui/icons-material/AlignVerticalCenter";
 import AlignVerticalBottomIcon from "@mui/icons-material/AlignVerticalBottom";
 import { TEMPLATES, type TemplateSpec } from "@/data/templates";
 import { layoutsFor, type Layout } from "@/lib/content/layouts";
+import { applyReplace } from "@/lib/editor/findReplace";
 
 /* ── palette & canvas presets ── */
 
@@ -339,6 +340,8 @@ export default function EditorCanvas({
    */
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   /** Replace the selection, or add to it when shift is held. */
@@ -504,6 +507,25 @@ export default function EditorCanvas({
   }, []);
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
+
+  /**
+   * Replace a phrase everywhere on this artboard.
+   *
+   * The rule lives in @/lib/editor/findReplace so it can be tested without a
+   * canvas — three attempts to write the escaping inline produced three
+   * different broken patterns, and nothing here would have caught it except
+   * typing a product code with a dot in it and noticing the wrong thing
+   * changed.
+   */
+  const replaceEverywhere = useCallback((find: string, replaceWith: string): number => {
+    let changed = 0;
+    commit((cur) => {
+      const out = applyReplace(cur, find, replaceWith);
+      changed = out.changed;
+      return out.blocks as NodeSpec[];
+    });
+    return changed;
+  }, [commit]);
 
   const patch = useCallback(
     (id: string, attrs: Partial<NodeSpec>, coalesceKey?: string) => {
@@ -1590,6 +1612,47 @@ export default function EditorCanvas({
             <Typography sx={{ fontSize: 10, color: "#8b97ac", mt: 0.4 }}>{st.label}</Typography>
           </Box>
         ))}
+      </Box>
+
+      {/* Not "find" — "we are not calling it that any more". A product
+          renamed, a claim corrected, a price changed: without this it means
+          clicking every block on every page and hoping none was missed. */}
+      <Box sx={{ display: "flex", gap: 0.5, mb: 2, alignItems: "center" }}>
+        <TextField
+          size="small"
+          placeholder="Find"
+          value={findText}
+          onChange={(e) => setFindText(e.target.value)}
+          sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
+        />
+        <TextField
+          size="small"
+          placeholder="Replace"
+          value={replaceText}
+          onChange={(e) => setReplaceText(e.target.value)}
+          sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
+        />
+        <Tooltip title="Replace it everywhere on this page">
+          <span>
+            <Button
+              size="small"
+              disabled={!findText.trim()}
+              onClick={() => {
+                const n = replaceEverywhere(findText, replaceText);
+                // Say what happened. A replace that silently matched nothing
+                // looks identical to one that worked.
+                setNotice(
+                  n === 0
+                    ? `Nothing on this page says "${findText}".`
+                    : `Replaced in ${n} block${n === 1 ? "" : "s"}.`,
+                );
+              }}
+              sx={{ fontWeight: 700, flexShrink: 0, minWidth: 0, px: 1 }}
+            >
+              Go
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
 
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
