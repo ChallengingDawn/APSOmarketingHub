@@ -169,6 +169,13 @@ export const STEPS: Step[] = [
     fix: ["The write has no retry", "A key prefix other than 100/110 fails a whole batch of 100"],
   },
   {
+    key: "article_ids", name: "Order lines' articles remembered", group: "orders", phase: "hub",
+    what: "Every ERP order line carries the ERP's internal article id and a key into the article master. The hub remembers each internal id with the real 10-digit article, its profit centre and text - a made-to-order article missing from the day it was ordered is learnt from the next day's article file.",
+    when: "With each ERP delivery that brings the order lines, before Order lines",
+    reads: "fct_orderlinehist.csv · dim_article.csv (fetched again when this copy no longer has it)",
+    writes: [{ object: "Hub database (apsomh_article_ids)", props: ["internal id → article, profit centre, text"] }],
+  },
+  {
     key: "orders_daily", name: "New ERP orders", group: "orders", phase: "preview",
     what: "Creates the orders that are new in the ERP file, fills web orders that have no lines yet, and removes an order entry (.000) once its deliveries carry the same amount.",
     when: "When a new fct_orderlinehist.csv arrives",
@@ -185,6 +192,13 @@ export const STEPS: Step[] = [
     }],
     associations: ["Order → Company 509 (HubSpot-defined), new orders only", "Order → Contact (default), copied from the .000 entry to its deliveries"],
     fix: ["The customer map is not refreshed here - a company created after it gets no link", "The delivery search stops at 50 results"],
+  },
+  {
+    key: "article_repair", name: "Order lines get their real article and profit centre", group: "orders", phase: "hub",
+    what: "HubSpot order lines that still carry the ERP's internal id (no profit centre) get the real article number, its profit centre and the order's main profit centre, as soon as the hub knows the article. The first run reads every order since January 2025.",
+    when: "With each ERP delivery, after Order lines - preview until switched on",
+    reads: "Orders (order_positions_json) · the hub's memory of internal ids",
+    writes: [{ object: OBJECTS.order, props: ["order_line_NN_article", "order_line_NN_pc", "order_positions_json", "order_profit_center"], how: "only the lines still on an internal id" }],
   },
   {
     key: "stages_new_orders", name: "Stages for the orders just created", group: "orders", phase: "preview",
@@ -267,20 +281,6 @@ export const OTHER_STEPS: Step[] = [
       { object: OBJECTS.ticket, props: ["hubspot_owner_id (open tickets only)"] },
       { object: "Task (0-27)", props: ["hubspot_owner_id (open tasks only)"] },
     ],
-  },
-  {
-    key: "article_ids", name: "Order lines' articles remembered", group: "orders", phase: "hub",
-    what: "Every ERP order line carries the ERP's internal article id and a key into the article master. The hub remembers each internal id with the real 10-digit article, its profit centre and text - a made-to-order article missing from the day it was ordered is learnt from the next day's article file.",
-    when: "With each ERP delivery that brings the order lines, before Order lines",
-    reads: "fct_orderlinehist.csv · dim_article.csv (fetched again when this copy no longer has it)",
-    writes: [{ object: "Hub database (apsomh_article_ids)", props: ["internal id → article, profit centre, text"] }],
-  },
-  {
-    key: "article_repair", name: "Order lines get their real article and profit centre", group: "orders", phase: "hub",
-    what: "HubSpot order lines that still carry the ERP's internal id (no profit centre) get the real article number, its profit centre and the order's main profit centre, as soon as the hub knows the article. The first run reads every order since January 2025.",
-    when: "With each ERP delivery, after Order lines - preview until switched on",
-    reads: "Orders (order_positions_json) · the hub's memory of internal ids",
-    writes: [{ object: OBJECTS.order, props: ["order_line_NN_article", "order_line_NN_pc", "order_positions_json", "order_profit_center"], how: "only the lines still on an internal id" }],
   },
   {
     key: "magento_link", name: "Web orders get their A-number from the shop", group: "orders", phase: "hub",
