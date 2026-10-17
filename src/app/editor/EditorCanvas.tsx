@@ -47,6 +47,10 @@ import FormatUnderlinedIcon from "@mui/icons-material/FormatUnderlined";
 import AlignHorizontalLeftIcon from "@mui/icons-material/AlignHorizontalLeft";
 import AlignHorizontalCenterIcon from "@mui/icons-material/AlignHorizontalCenter";
 import AlignHorizontalRightIcon from "@mui/icons-material/AlignHorizontalRight";
+// ViewColumn and TableRows, because MUI ships no distribute glyph and these
+// read as "even columns" and "even rows", which is what the buttons do.
+import HorizontalDistributeIcon from "@mui/icons-material/ViewColumn";
+import VerticalDistributeIcon from "@mui/icons-material/TableRows";
 import AlignVerticalTopIcon from "@mui/icons-material/AlignVerticalTop";
 import AlignVerticalCenterIcon from "@mui/icons-material/AlignVerticalCenter";
 import AlignVerticalBottomIcon from "@mui/icons-material/AlignVerticalBottom";
@@ -322,7 +326,26 @@ export default function EditorCanvas({
 
   const [nodes, setNodesState] = useState<NodeSpec[]>(initialDocument?.nodes ?? []);
   const nodesRef = useRef<NodeSpec[]>(initialDocument?.nodes ?? []);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * What is selected.
+   *
+   * The set is the truth; selectedId is "the one, when there is exactly one".
+   * Keeping that derived name means every existing piece of single-selection
+   * UI — the style bar, the lock toggle, the in-place text editor — goes on
+   * working without being touched, and only the operations that genuinely
+   * need a set read the set.
+   */
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
+
+  /** Replace the selection, or add to it when shift is held. */
+  const setSelectedId = useCallback((id: string | null, additive = false) => {
+    setSelectedIds((cur) => {
+      if (id === null) return [];
+      if (!additive) return [id];
+      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    });
+  }, []);
   const [guides, setGuides] = useState<Guides>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -743,16 +766,20 @@ export default function EditorCanvas({
     const tr = trRef.current;
     const stage = stageRef.current;
     if (!tr || !stage) return;
-    if (!selectedId) {
+    if (selectedIds.length === 0) {
       tr.nodes([]);
       return;
     }
-    const spec = nodes.find((n) => n.id === selectedId);
-    const node = stage.findOne(`#${selectedId}`);
-    if (node && !spec?.locked && !spec?.hidden) tr.nodes([node as Konva.Node]);
-    else tr.nodes([]); // never leave the transformer attached to a removed, hidden or locked node
+    // Konva's transformer takes a list, so a multi-selection needs no special
+    // case — but a locked, hidden or deleted node must never stay attached to
+    // it, or you get handles floating over nothing.
+    const attach = selectedIds
+      .map((id) => ({ spec: nodes.find((n) => n.id === id), node: stage.findOne(`#${id}`) }))
+      .filter((x) => x.node && !x.spec?.locked && !x.spec?.hidden)
+      .map((x) => x.node as Konva.Node);
+    tr.nodes(attach);
     tr.getLayer()?.batchDraw();
-  }, [selectedId, nodes]);
+  }, [selectedIds, nodes]);
 
   /* ── node factories ── */
   /**
@@ -853,22 +880,31 @@ export default function EditorCanvas({
   };
 
   const removeSelected = useCallback(() => {
-    const id = selectedId;
-    if (!id) return;
+    if (selectedIds.length === 0) return;
+    const gone = new Set(selectedIds);
     setSelectedId(null);
-    commit((cur) => cur.filter((n) => n.id !== id));
-  }, [selectedId, commit]);
+    // A locked node is not deleted by a selection sweeping over it — that is
+    // what locking it was for.
+    commit((cur) => cur.filter((n) => !gone.has(n.id) || n.locked));
+  }, [selectedIds, commit, setSelectedId]);
 
   const duplicateSelected = useCallback(() => {
-    const sel = nodesRef.current.find((n) => n.id === selectedId);
-    if (!sel) return;
-    const id = nid();
-    if (sel.kind === "image") {
-      setImgEls((cur) => (cur[sel.id] ? { ...cur, [id]: cur[sel.id] } : cur));
-    }
-    commit((cur) => [...cur, { ...sel, id, x: sel.x + 20, y: sel.y + 20 }]);
-    setSelectedId(id);
-  }, [selectedId, commit]);
+    const chosen = nodesRef.current.filter((n) => selectedIds.includes(n.id));
+    if (chosen.length === 0) return;
+    const made: string[] = [];
+    const copies = chosen.map((sel) => {
+      const id = nid();
+      made.push(id);
+      if (sel.kind === "image") {
+        setImgEls((cur) => (cur[sel.id] ? { ...cur, [id]: cur[sel.id] } : cur));
+      }
+      return { ...sel, id, x: sel.x + 20, y: sel.y + 20 };
+    });
+    commit((cur) => [...cur, ...copies]);
+    // The copies become the selection, so the next drag moves what you just
+    // made rather than what you copied it from.
+    setSelectedIds(made);
+  }, [selectedIds, commit]);
 
   const moveLayer = (dir: 1 | -1) => {
     if (!selectedId) return;
@@ -893,16 +929,72 @@ export default function EditorCanvas({
     return { w: n.width ?? 100, h: n.height ?? (n.fontSize ?? 24) * (n.lineHeight ?? 1.25) };
   };
 
-  /* ── alignment (relative to canvas) ── */
+  /**
+   * Align, against the canvas for one node and against each other for several.
+   *
+   * That switch is not a special case, it is what people mean. Aligning one
+   * block can only sensibly mean "to the page"; aligning three means "to each
+   * other", and doing it to the page instead would stack them.
+   */
   const alignSelected = (mode: "left" | "centerH" | "right" | "top" | "centerV" | "bottom") => {
-    if (!selected) return;
-    const { w, h } = measuredSize(selected);
-    if (mode === "left") patch(selected.id, { x: 0 });
-    else if (mode === "centerH") patch(selected.id, { x: (canvas.w - w) / 2 });
-    else if (mode === "right") patch(selected.id, { x: canvas.w - w });
-    else if (mode === "top") patch(selected.id, { y: 0 });
-    else if (mode === "centerV") patch(selected.id, { y: (canvas.h - h) / 2 });
-    else patch(selected.id, { y: canvas.h - h });
+    const chosen = nodes.filter((n) => selectedIds.includes(n.id) && !n.locked);
+    if (chosen.length === 0) return;
+
+    const boxes = chosen.map((n) => ({ n, ...measuredSize(n) }));
+
+    if (boxes.length === 1) {
+      const { n, w, h } = boxes[0];
+      if (mode === "left") patch(n.id, { x: 0 });
+      else if (mode === "centerH") patch(n.id, { x: (canvas.w - w) / 2 });
+      else if (mode === "right") patch(n.id, { x: canvas.w - w });
+      else if (mode === "top") patch(n.id, { y: 0 });
+      else if (mode === "centerV") patch(n.id, { y: (canvas.h - h) / 2 });
+      else patch(n.id, { y: canvas.h - h });
+      return;
+    }
+
+    const left = Math.min(...boxes.map((b) => b.n.x));
+    const right = Math.max(...boxes.map((b) => b.n.x + b.w));
+    const top = Math.min(...boxes.map((b) => b.n.y));
+    const bottom = Math.max(...boxes.map((b) => b.n.y + b.h));
+
+    for (const { n, w, h } of boxes) {
+      if (mode === "left") patch(n.id, { x: left });
+      else if (mode === "centerH") patch(n.id, { x: (left + right) / 2 - w / 2 });
+      else if (mode === "right") patch(n.id, { x: right - w });
+      else if (mode === "top") patch(n.id, { y: top });
+      else if (mode === "centerV") patch(n.id, { y: (top + bottom) / 2 - h / 2 });
+      else patch(n.id, { y: bottom - h });
+    }
+  };
+
+  /**
+   * Equal gaps between three or more, along whichever axis they are spread.
+   *
+   * The first and last stay put — they define the span, and moving them would
+   * make "distribute" quietly resize the arrangement people already placed.
+   */
+  const distributeSelected = (axis: "h" | "v") => {
+    const chosen = nodes
+      .filter((n) => selectedIds.includes(n.id) && !n.locked)
+      .map((n) => ({ n, ...measuredSize(n) }))
+      .sort((a, b) => (axis === "h" ? a.n.x - b.n.x : a.n.y - b.n.y));
+    if (chosen.length < 3) return;
+
+    const first = chosen[0];
+    const last = chosen[chosen.length - 1];
+    const span = axis === "h"
+      ? last.n.x + last.w - first.n.x
+      : last.n.y + last.h - first.n.y;
+    const used = chosen.reduce((t, c) => t + (axis === "h" ? c.w : c.h), 0);
+    const gap = (span - used) / (chosen.length - 1);
+
+    let cursor = axis === "h" ? first.n.x : first.n.y;
+    for (const c of chosen) {
+      if (axis === "h") patch(c.n.id, { x: Math.round(cursor) });
+      else patch(c.n.id, { y: Math.round(cursor) });
+      cursor += (axis === "h" ? c.w : c.h) + gap;
+    }
   };
 
   const applyTextPreset = (preset: (typeof TEXT_PRESETS)[number]["id"]) => {
@@ -1694,7 +1786,7 @@ export default function EditorCanvas({
               {[...nodes].reverse().map((n) => (
                 <Box
                   key={n.id}
-                  onClick={() => setSelectedId(n.id)}
+                  onClick={(e) => setSelectedId(n.id, e.shiftKey)}
                   sx={{
                     display: "flex",
                     alignItems: "center",
@@ -1988,6 +2080,23 @@ export default function EditorCanvas({
                     <AlignHorizontalRightIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </Tooltip>
+                {/* Only offered when it can do something: distributing fewer
+                    than three has no meaning, and a live-but-inert button is
+                    a worse answer than no button. */}
+                {selectedIds.length > 2 && (
+                  <>
+                    <Tooltip title="Space them evenly across">
+                      <IconButton size="small" onClick={() => distributeSelected("h")}>
+                        <HorizontalDistributeIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Space them evenly down">
+                      <IconButton size="small" onClick={() => distributeSelected("v")}>
+                        <VerticalDistributeIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                )}
                 <Tooltip title="Align top edge">
                   <IconButton size="small" onClick={() => alignSelected("top")}>
                     <AlignVerticalTopIcon sx={{ fontSize: 16 }} />
@@ -2285,7 +2394,7 @@ export default function EditorCanvas({
                       shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                       shadowEnabled={Boolean(n.shadow)}
                       draggable={!n.locked}
-                      onClick={() => setSelectedId(n.id)}
+                      onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                       onTap={() => setSelectedId(n.id)}
                       onDblClick={() => editTextInline(n)}
                       onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "text")}
@@ -2331,7 +2440,7 @@ export default function EditorCanvas({
                     shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                     onTap={() => setSelectedId(n.id)}
                     onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "move")}
                     onMouseLeave={(e) => setCursor(e, "default")}
@@ -2371,7 +2480,7 @@ export default function EditorCanvas({
                     shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                     onTap={() => setSelectedId(n.id)}
                     onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "move")}
                     onMouseLeave={(e) => setCursor(e, "default")}
@@ -2410,7 +2519,7 @@ export default function EditorCanvas({
                     shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                     onTap={() => setSelectedId(n.id)}
                     onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "move")}
                     onMouseLeave={(e) => setCursor(e, "default")}
@@ -2461,7 +2570,7 @@ export default function EditorCanvas({
                     shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                     shadowEnabled={Boolean(n.shadow)}
                     draggable={!n.locked}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                     onTap={() => setSelectedId(n.id)}
                     onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "move")}
                     onMouseLeave={(e) => setCursor(e, "default")}
