@@ -71,6 +71,67 @@ import { TEMPLATES, type TemplateSpec } from "@/data/templates";
 import { layoutsFor, type Layout } from "@/lib/content/layouts";
 import { applyReplace } from "@/lib/editor/findReplace";
 
+/**
+ * WHICH SECTIONS EACH KIND OF OBJECT HAS.
+ *
+ * The old bar put every control for every kind in one wrapping row and then
+ * repeated itself in a panel underneath. Naming the sections is most of the
+ * fix: somebody looking for "line height" looks under Font, and the row they
+ * are reading is never more than one row deep.
+ *
+ * Where each control went:
+ *   Content  the text itself, the style presets, lists, the curve
+ *   Font     family, size, bold, italic, underline, caps, line height, tracking
+ *   Colour   fill, the pill behind text, a shape's stroke
+ *   Shape    corner radius
+ *   Crop     crop mode, its zoom, recentre, whole picture
+ *   Adjust   flips, grey, logo swap, replace, brightness, contrast, blur, mask
+ *   Rows     a table's rows / Chart: a chart's type and its values
+ *   Effects  outline, drop shadow
+ *   Arrange  rotation, opacity, group, align, distribute, forward and back
+ *
+ * Duplicate, lock and delete are in no section: they apply to anything, so
+ * they sit in the header where they never move.
+ */
+type SectionKey =
+  | "content" | "font" | "colour" | "shape" | "crop" | "adjust" | "data" | "effects" | "arrange";
+
+const ARRANGE = { key: "arrange" as const, label: "Arrange" };
+const EFFECTS = { key: "effects" as const, label: "Effects" };
+const COLOUR = { key: "colour" as const, label: "Colour" };
+
+function sectionsFor(kind: string | null): { key: SectionKey; label: string }[] {
+  // Two or more objects: the only questions are where they sit relative to
+  // each other and whether they travel together. Both are Arrange.
+  if (kind === "multi" || kind === null) return [ARRANGE];
+  if (kind === "text") {
+    return [
+      { key: "content", label: "Content" },
+      { key: "font", label: "Font" },
+      COLOUR,
+      EFFECTS,
+      ARRANGE,
+    ];
+  }
+  if (kind === "image") {
+    return [
+      { key: "crop", label: "Crop" },
+      { key: "adjust", label: "Adjust" },
+      { key: "shape", label: "Shape" },
+      EFFECTS,
+      ARRANGE,
+    ];
+  }
+  if (kind === "table" || kind === "chart") {
+    return [{ key: "data", label: kind === "chart" ? "Chart" : "Rows" }, ARRANGE];
+  }
+  // A rectangle has a corner radius; an ellipse, an arrow and a scrim do not,
+  // and a Shape tab that opens on nothing is worse than no tab.
+  return kind === "rect"
+    ? [COLOUR, { key: "shape", label: "Shape" }, EFFECTS, ARRANGE]
+    : [COLOUR, EFFECTS, ARRANGE];
+}
+
 /* ── palette & canvas presets ── */
 
 const BRAND_COLORS = ["#ed1b2f", "#274e64", "#1a1d21", "#ffffff", "#f5f6f8", "#1e7e45", "#c77700"];
@@ -1703,6 +1764,38 @@ export default function EditorCanvas({
   const layerLabel = (n: NodeSpec) =>
     n.groupId ? `${baseLayerLabel(n)} · grouped` : baseLayerLabel(n);
 
+  /**
+   * What the selection bar is describing.
+   *
+   * "multi" is a real state. The old bar read selected, which is null unless
+   * exactly one node is selected, so two objects selected showed "select an
+   * element to style it" - and align, distribute and group, which exist ONLY
+   * for a multi-selection, could not be reached at all.
+   */
+  const selKind = selectedIds.length > 1 ? "multi" : selected ? selected.kind : null;
+  const sections = sectionsFor(selKind);
+  const [section, setSection] = useState<SectionKey>("content");
+  /**
+   * The section actually shown.
+   *
+   * Derived rather than corrected in an effect: clicking from a text node to
+   * an image would otherwise render one frame with Content still chosen and
+   * nothing underneath it, which reads as the panel having broken.
+   */
+  const sec: SectionKey = sections.some((x) => x.key === section)
+    ? section
+    : sections[0]?.key ?? "arrange";
+
+  const selectionTitle =
+    selectedIds.length > 1
+      ? selectedIds.length + (grouped ? " objects, grouped" : " objects")
+      : selected
+        ? baseLayerLabel(selected)
+        : "";
+  const selectionIcon = selected
+    ? layerIcon(selected.kind)
+    : <CategoryOutlinedIcon sx={{ fontSize: 15, color: "#5b6470" }} />;
+
   const swatch = (c: string, active: boolean, onPick: () => void, size = 20) => (
     <Box
       key={c}
@@ -2204,331 +2297,14 @@ export default function EditorCanvas({
       {/* ── center: stage ── */}
       <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0 }}>
         {/* selection toolbar */}
-        <Card sx={{ mb: 1.5 }}>
-          <Box sx={{ p: 1.25, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", minHeight: 52 }}>
-            {selected ? (
-              <>
-                {selected.kind === "text" && (
-                  <>
-                    <TextField
-                      select
-                      size="small"
-                      value={selected.fontKey ?? "inter"}
-                      onChange={(e) => patch(selected.id, { fontKey: e.target.value as FontKey })}
-                      sx={{ width: 110 }}
-                    >
-                      <MenuItem value="outfit">Outfit</MenuItem>
-                      <MenuItem value="inter">Inter</MenuItem>
-                      <MenuItem value="georgia">Georgia</MenuItem>
-                      <MenuItem value="mono">Mono</MenuItem>
-                    </TextField>
-                    <TextField
-                      type="number"
-                      size="small"
-                      value={selected.fontSize ?? 24}
-                      onChange={(e) => patch(selected.id, { fontSize: Math.max(8, Number(e.target.value) || 24) }, `size-${selected.id}`)}
-                      sx={{ width: 84 }}
-                    />
-                    <Button
-                      size="small"
-                      variant={selected.fontStyle?.includes("bold") ? "contained" : "outlined"}
-                      onClick={() => {
-                        const bold = selected.fontStyle?.includes("bold");
-                        const italic = selected.fontStyle?.includes("italic");
-                        const next = [bold ? "" : "bold", italic ? "italic" : ""].filter(Boolean).join(" ") || "normal";
-                        patch(selected.id, { fontStyle: next });
-                      }}
-                      sx={{ fontWeight: 800, minWidth: 40 }}
-                    >
-                      B
-                    </Button>
-                    <TextField
-                      select
-                      size="small"
-                      value={selected.align ?? "left"}
-                      onChange={(e) => patch(selected.id, { align: e.target.value as NodeSpec["align"] })}
-                      sx={{ width: 100 }}
-                    >
-                      <MenuItem value="left">Left</MenuItem>
-                      <MenuItem value="center">Center</MenuItem>
-                      <MenuItem value="right">Right</MenuItem>
-                    </TextField>
-                  </>
-                )}
-                {(selected.kind === "text" || isShape(selected.kind)) && (
-                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                    {BRAND_COLORS.map((c) => swatch(c, selected.fill === c, () => patch(selected.id, { fill: c })))}
-                    <input type="color" value={selected.fill.startsWith("#") ? selected.fill : "#000000"} onChange={(e) => patch(selected.id, { fill: e.target.value }, `fill-${selected.id}`)} style={colorInputStyle} title="Custom colour" />
-                  </Box>
-                )}
-                {selected.kind === "text" && (
-                  <>
-                    <Button
-                      size="small"
-                      variant={selected.fontStyle?.includes("italic") ? "contained" : "outlined"}
-                      onClick={() => {
-                        const bold = selected.fontStyle?.includes("bold");
-                        const italic = selected.fontStyle?.includes("italic");
-                        const next = [bold ? "bold" : "", italic ? "" : "italic"].filter(Boolean).join(" ") || "normal";
-                        patch(selected.id, { fontStyle: next });
-                      }}
-                      sx={{ fontStyle: "italic", fontWeight: 700, minWidth: 40 }}
-                    >
-                      I
-                    </Button>
-                    <Tooltip title="Underline">
-                      <Button
-                        size="small"
-                        variant={selected.underline ? "contained" : "outlined"}
-                        onClick={() => patch(selected.id, { underline: !selected.underline })}
-                        sx={{ minWidth: 40, px: 0 }}
-                      >
-                        <FormatUnderlinedIcon sx={{ fontSize: 16 }} />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="Uppercase (the stored text stays as typed)">
-                      <Button
-                        size="small"
-                        variant={selected.upper ? "contained" : "outlined"}
-                        onClick={() => patch(selected.id, { upper: !selected.upper })}
-                        sx={{ minWidth: 44, fontWeight: 800, letterSpacing: "0.05em" }}
-                      >
-                        AA
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="Line height">
-                      <TextField
-                        type="number"
-                        size="small"
-                        value={selected.lineHeight ?? 1.25}
-                        onChange={(e) => patch(selected.id, { lineHeight: Math.min(3, Math.max(0.8, Number(e.target.value) || 1.25)) }, `lh-${selected.id}`)}
-                        inputProps={{ step: 0.05 }}
-                        sx={{ width: 78 }}
-                      />
-                    </Tooltip>
-                    <Tooltip title="Background pill behind the text">
-                      <Button
-                        size="small"
-                        variant={selected.background ? "contained" : "outlined"}
-                        onClick={() => patch(selected.id, { background: !selected.background })}
-                        sx={{ fontWeight: 700, minWidth: 44 }}
-                      >
-                        Pill
-                      </Button>
-                    </Tooltip>
-                    {selected.background && (
-                      <input
-                        type="color"
-                        value={selected.backgroundFill ?? autoPillFill(selected.fill)}
-                        onChange={(e) => patch(selected.id, { backgroundFill: e.target.value }, `pill-${selected.id}`)}
-                        style={colorInputStyle}
-                        title="Pill colour"
-                      />
-                    )}
-                  </>
-                )}
-                {isShape(selected.kind) && (
-                  <>
-                    <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
-                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470" }}>Stroke</Typography>
-                    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                      {BRAND_COLORS.slice(0, 4).map((c) =>
-                        swatch(c, selected.stroke === c, () => patch(selected.id, { stroke: c, strokeWidth: selected.strokeWidth || 4 }), 18)
-                      )}
-                      <input
-                        type="color"
-                        value={selected.stroke ?? "#1a1d21"}
-                        onChange={(e) => patch(selected.id, { stroke: e.target.value, strokeWidth: selected.strokeWidth || 4 }, `stroke-${selected.id}`)}
-                        style={colorInputStyle}
-                        title="Custom stroke colour"
-                      />
-                    </Box>
-                    <Tooltip title="Stroke width (0 = none)">
-                      <TextField
-                        type="number"
-                        size="small"
-                        value={selected.strokeWidth ?? 0}
-                        onChange={(e) => patch(selected.id, { strokeWidth: Math.max(0, Number(e.target.value) || 0) }, `sw-${selected.id}`)}
-                        inputProps={{ step: 1 }}
-                        sx={{ width: 78 }}
-                      />
-                    </Tooltip>
-                  </>
-                )}
-                {(selected.kind === "image" || selected.kind === "rect") && (
-                  <Tooltip title="Corner radius">
-                    <TextField
-                      type="number"
-                      size="small"
-                      value={selected.cornerRadius ?? 0}
-                      onChange={(e) => patch(selected.id, { cornerRadius: Math.max(0, Number(e.target.value) || 0) }, `cr-${selected.id}`)}
-                      inputProps={{ step: 2 }}
-                      sx={{ width: 78 }}
-                    />
-                  </Tooltip>
-                )}
-                {selected.kind === "text" && (
-                  <Tooltip title="Letter spacing">
-                    <TextField
-                      type="number"
-                      size="small"
-                      value={selected.letterSpacing ?? 0}
-                      onChange={(e) => patch(selected.id, { letterSpacing: Math.min(40, Math.max(-2, Number(e.target.value) || 0)) }, `ls-${selected.id}`)}
-                      inputProps={{ step: 0.5 }}
-                      sx={{ width: 78 }}
-                    />
-                  </Tooltip>
-                )}
-                <Tooltip title="Rotation (degrees)">
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={Math.round(selected.rotation ?? 0)}
-                    onChange={(e) => patch(selected.id, { rotation: Number(e.target.value) || 0 }, `rot-${selected.id}`)}
-                    inputProps={{ step: 5 }}
-                    sx={{ width: 78 }}
-                  />
-                </Tooltip>
-                {/* An outline, not a shadow. A blurred shadow under white type
-                    is what made the seeded headlines read as fuzzy; a hard
-                    edge is what actually survives a busy photograph. */}
-                <Tooltip title={selected.stroke ? "Remove the outline" : "Outline — for type over a photograph"}>
-                  <IconButton
-                    size="small"
-                    onClick={() =>
-                      patch(selected.id, selected.stroke
-                        ? { stroke: undefined, strokeWidth: 0 }
-                        // Dark outline under light type, light under dark:
-                        // an outline the same colour as the letter does
-                        // nothing except thicken it.
-                        : { stroke: isLightHex(selected.fill) ? "#15223a" : "#ffffff",
-                            strokeWidth: Math.max(1, Math.round((selected.fontSize ?? 24) / 14)) })
-                    }
-                    sx={{ color: selected.stroke ? "#2459d1" : "#8a93a0" }}
-                  >
-                    <FormatColorTextIcon sx={{ fontSize: 17 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Drop shadow">
-                  <Button
-                    size="small"
-                    variant={selected.shadow ? "contained" : "outlined"}
-                    onClick={() => patch(selected.id, { shadow: !selected.shadow })}
-                    sx={{ minWidth: 44, fontWeight: 700 }}
-                  >
-                    Sh
-                  </Button>
-                </Tooltip>
-                <Tooltip title={selected.locked ? "Unlock" : "Lock position"}>
-                  <IconButton size="small" onClick={() => patch(selected.id, { locked: !selected.locked })} sx={{ color: selected.locked ? "#ed1b2f" : "#5b6470" }}>
-                    {selected.locked ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Opacity">
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={Math.round((selected.opacity ?? 1) * 100)}
-                    onChange={(e) => patch(selected.id, { opacity: Math.min(100, Math.max(5, Number(e.target.value) || 100)) / 100 }, `op-${selected.id}`)}
-                    inputProps={{ step: 5 }}
-                    sx={{ width: 78 }}
-                  />
-                </Tooltip>
-                <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
-                {/* A headline, its kicker and the button under it are one
-                    thing. Without this, moving that thing means selecting
-                    three objects every time - and the first time somebody
-                    misses one the layout is broken in a way they will not see
-                    until it is printed. */}
-                {grouped ? (
-                  <Tooltip title="Ungroup — move these separately again">
-                    <IconButton size="small" onClick={ungroupSelected}>
-                      <CallSplitIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </Tooltip>
-                ) : (
-                  <Tooltip title="Group — move and copy them as one">
-                    <IconButton size="small" onClick={groupSelected}>
-                      <MergeTypeIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
-                <Tooltip title="Align left edge">
-                  <IconButton size="small" onClick={() => alignSelected("left")}>
-                    <AlignHorizontalLeftIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Center horizontally">
-                  <IconButton size="small" onClick={() => alignSelected("centerH")}>
-                    <AlignHorizontalCenterIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Align right edge">
-                  <IconButton size="small" onClick={() => alignSelected("right")}>
-                    <AlignHorizontalRightIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                {/* Only offered when it can do something: distributing fewer
-                    than three has no meaning, and a live-but-inert button is
-                    a worse answer than no button. */}
-                {selectedIds.length > 2 && (
-                  <>
-                    <Tooltip title="Space them evenly across">
-                      <IconButton size="small" onClick={() => distributeSelected("h")}>
-                        <HorizontalDistributeIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Space them evenly down">
-                      <IconButton size="small" onClick={() => distributeSelected("v")}>
-                        <VerticalDistributeIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                )}
-                <Tooltip title="Align top edge">
-                  <IconButton size="small" onClick={() => alignSelected("top")}>
-                    <AlignVerticalTopIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Center vertically">
-                  <IconButton size="small" onClick={() => alignSelected("centerV")}>
-                    <AlignVerticalCenterIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Align bottom edge">
-                  <IconButton size="small" onClick={() => alignSelected("bottom")}>
-                    <AlignVerticalBottomIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
-                <Tooltip title="Duplicate (Ctrl+D)">
-                  <IconButton size="small" onClick={duplicateSelected}>
-                    <ContentCopyIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Bring forward">
-                  <IconButton size="small" onClick={() => moveLayer(1)}>
-                    <FlipToFrontIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Send back">
-                  <IconButton size="small" onClick={() => moveLayer(-1)}>
-                    <FlipToBackIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete (Del)">
-                  <IconButton size="small" onClick={removeSelected} sx={{ color: "#c5221f" }}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            ) : (
-              <Typography sx={{ fontSize: 12.5, color: "#5b6470" }}>
-                Select an element to style it · double-click or press Enter on text to edit in place · Ctrl+Z undo · Ctrl+D duplicate
-              </Typography>
-            )}
-            <Box sx={{ flex: 1 }} />
+        {/* ── the document's own bar ──
+            Undo, the zoom and Download used to sit at the END of the
+            selection toolbar, so they moved sideways whenever the
+            selection changed the width of anything to their left. They are
+            the document's buttons, not the object's, so they have their own
+            row and never move. */}
+        <Card sx={{ mb: 1 }}>
+          <Box sx={{ p: 1, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
             <Tooltip title="Undo (Ctrl+Z)">
               <span>
                 <IconButton size="small" onClick={undo} disabled={histSizes.past === 0}>
@@ -2638,10 +2414,71 @@ export default function EditorCanvas({
               ))}
             </Menu>
           </Box>
+        </Card>
 
-          {/* always-visible text editor for the selected text node */}
-          {selected?.kind === "text" && (
-            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", flexDirection: "column", gap: 0.75 }}>
+        {/* ── the selection's bar ── */}
+        <Card sx={{ mb: 1.5 }}>
+          {selectedIds.length === 0 ? (
+            <Box sx={{ p: 1.25, minHeight: 52, display: "flex", alignItems: "center" }}>
+              <Typography sx={{ fontSize: 12.5, color: "#5b6470" }}>
+                Select an element to style it · double-click or press Enter on text to edit in place · Ctrl+Z undo · Ctrl+D duplicate
+              </Typography>
+            </Box>
+          ) : (
+            <>
+            {/* What is selected, what can be done to it, and the three
+                actions that apply to anything at all. Always this shape, so
+                the eye does not have to re-find them per object. */}
+            <Box sx={{
+              px: 1.25, py: 0.75, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap",
+              borderBottom: "1px solid #eceef1",
+            }}>
+              {selectionIcon}
+              <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: "#1a1d21", mr: 0.5 }}>
+                {selectionTitle}
+              </Typography>
+              {sections.map((s) => (
+                <Box
+                  key={s.key}
+                  component="button"
+                  type="button"
+                  onClick={() => setSection(s.key)}
+                  sx={{
+                    border: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                    px: 1.1, py: 0.5, borderRadius: "8px",
+                    bgcolor: sec === s.key ? "#1a1d21" : "transparent",
+                    color: sec === s.key ? "#ffffff" : "#5b6470",
+                    fontWeight: sec === s.key ? 700 : 500,
+                    "&:hover": { bgcolor: sec === s.key ? "#1a1d21" : "#f0f1f3" },
+                  }}
+                >
+                  {s.label}
+                </Box>
+              ))}
+              <Box sx={{ flex: 1 }} />
+                <Tooltip title="Duplicate (Ctrl+D)">
+                  <IconButton size="small" onClick={duplicateSelected}>
+                    <ContentCopyIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              {selected && (
+                <Tooltip title={selected.locked ? "Unlock" : "Lock position"}>
+                  <IconButton size="small" onClick={() => patch(selected.id, { locked: !selected.locked })} sx={{ color: selected.locked ? "#ed1b2f" : "#5b6470" }}>
+                    {selected.locked ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              )}
+                <Tooltip title="Delete (Del)">
+                  <IconButton size="small" onClick={removeSelected} sx={{ color: "#c5221f" }}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+            </Box>
+
+            <Box sx={{ p: 1.25, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", minHeight: 52 }}>
+              {sec === "content" && selected && (
+                <>
+                  <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 0.75 }}>
               <TextField
                 fullWidth
                 multiline
@@ -2734,117 +2571,191 @@ export default function EditorCanvas({
                   </Button>
                 ) : null}
               </Box>
-            </Box>
-          )}
-
-          {selected?.kind === "table" && (
-            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", flexDirection: "column", gap: 0.75 }}>
-              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
-                One row per line. Paste straight from Excel &mdash; tabs, semicolons or commas.
-              </Typography>
-              <TextField
-                fullWidth
-                multiline
-                minRows={3}
-                maxRows={10}
-                size="small"
-                placeholder={"Property\tValue\nMaterial\tFKM 70"}
-                value={(selected.rows ?? []).map((r) => r.join("\t")).join("\n")}
-                onChange={(e) => patch(selected.id, { rows: parseTable(e.target.value) }, `rows-${selected.id}`)}
-                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
-              />
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
-                  {(selected.rows?.length ?? 0) > 0
-                    ? `${(selected.rows?.length ?? 1) - 1} row${(selected.rows?.length ?? 1) - 1 === 1 ? "" : "s"} under a header`
-                    : "Nothing in it yet"}
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  // Equal columns again. The only fix for a table dragged into
-                  // a shape nobody meant, and it is one click.
-                  disabled={!selected.colFractions}
-                  onClick={() => patch(selected.id, { colFractions: undefined })}
-                  sx={{ fontWeight: 700 }}
-                >
-                  Even columns
-                </Button>
-              </Box>
-            </Box>
-          )}
-
-          {selected?.kind === "chart" && (
-            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", flexDirection: "column", gap: 0.75 }}>
-              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                {([
-                  { key: "column" as const, label: "Columns", note: "How much, by year" },
-                  { key: "bar" as const, label: "Bars", note: "How much, by name" },
-                  { key: "line" as const, label: "Line", note: "How it moved" },
-                  { key: "donut" as const, label: "Ring", note: "Share of the whole" },
-                ]).map((k) => (
-                  <Tooltip key={k.key} title={k.note}>
+                  </Box>
+                </>
+              )}
+              {sec === "font" && selected && (
+                <>
+                {selected.kind === "text" && (
+                  <>
+                    <TextField
+                      select
+                      size="small"
+                      value={selected.fontKey ?? "inter"}
+                      onChange={(e) => patch(selected.id, { fontKey: e.target.value as FontKey })}
+                      sx={{ width: 110 }}
+                    >
+                      <MenuItem value="outfit">Outfit</MenuItem>
+                      <MenuItem value="inter">Inter</MenuItem>
+                      <MenuItem value="georgia">Georgia</MenuItem>
+                      <MenuItem value="mono">Mono</MenuItem>
+                    </TextField>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={selected.fontSize ?? 24}
+                      onChange={(e) => patch(selected.id, { fontSize: Math.max(8, Number(e.target.value) || 24) }, `size-${selected.id}`)}
+                      sx={{ width: 84 }}
+                    />
                     <Button
                       size="small"
-                      variant={(selected.chartKind ?? "column") === k.key ? "contained" : "outlined"}
-                      onClick={() => patch(selected.id, { chartKind: k.key })}
-                      sx={{ fontWeight: 700 }}
+                      variant={selected.fontStyle?.includes("bold") ? "contained" : "outlined"}
+                      onClick={() => {
+                        const bold = selected.fontStyle?.includes("bold");
+                        const italic = selected.fontStyle?.includes("italic");
+                        const next = [bold ? "" : "bold", italic ? "italic" : ""].filter(Boolean).join(" ") || "normal";
+                        patch(selected.id, { fontStyle: next });
+                      }}
+                      sx={{ fontWeight: 800, minWidth: 40 }}
                     >
-                      {k.label}
+                      B
                     </Button>
-                  </Tooltip>
-                ))}
-              </Box>
-              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
-                One &ldquo;label: number&rdquo; per line. 1&rsquo;234.5 and 1.234,5 both read as the same amount.
-              </Typography>
-              <TextField
-                fullWidth
-                multiline
-                minRows={3}
-                maxRows={10}
-                size="small"
-                placeholder={"2025: 31\n2026: 44"}
-                value={(selected.series ?? []).map((d) => `${d.label}: ${d.value}`).join("\n")}
-                onChange={(e) => patch(selected.id, { series: parseSeries(e.target.value) }, `series-${selected.id}`)}
-                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
-              />
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                <Button
-                  size="small"
-                  variant={selected.showValues !== false ? "contained" : "outlined"}
-                  onClick={() => patch(selected.id, { showValues: selected.showValues === false })}
-                  sx={{ fontWeight: 700 }}
-                >
-                  Numbers on it
-                </Button>
-                {/* Only offered where it means something. On a ring the
-                    categories ARE the subject and are always coloured; on a
-                    single measure across years, a colour per bar would be
-                    saying something the data does not. */}
-                {(selected.chartKind ?? "column") !== "donut" && (
-                  <Tooltip title="A colour per category. Leave it off when the bars are one measure over time.">
+                    <TextField
+                      select
+                      size="small"
+                      value={selected.align ?? "left"}
+                      onChange={(e) => patch(selected.id, { align: e.target.value as NodeSpec["align"] })}
+                      sx={{ width: 100 }}
+                    >
+                      <MenuItem value="left">Left</MenuItem>
+                      <MenuItem value="center">Center</MenuItem>
+                      <MenuItem value="right">Right</MenuItem>
+                    </TextField>
+                  </>
+                )}
                     <Button
                       size="small"
-                      variant={selected.multicolour ? "contained" : "outlined"}
-                      onClick={() => patch(selected.id, { multicolour: !selected.multicolour })}
-                      sx={{ fontWeight: 700 }}
+                      variant={selected.fontStyle?.includes("italic") ? "contained" : "outlined"}
+                      onClick={() => {
+                        const bold = selected.fontStyle?.includes("bold");
+                        const italic = selected.fontStyle?.includes("italic");
+                        const next = [bold ? "bold" : "", italic ? "" : "italic"].filter(Boolean).join(" ") || "normal";
+                        patch(selected.id, { fontStyle: next });
+                      }}
+                      sx={{ fontStyle: "italic", fontWeight: 700, minWidth: 40 }}
                     >
-                      Colour each
+                      I
                     </Button>
+                    <Tooltip title="Underline">
+                      <Button
+                        size="small"
+                        variant={selected.underline ? "contained" : "outlined"}
+                        onClick={() => patch(selected.id, { underline: !selected.underline })}
+                        sx={{ minWidth: 40, px: 0 }}
+                      >
+                        <FormatUnderlinedIcon sx={{ fontSize: 16 }} />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Uppercase (the stored text stays as typed)">
+                      <Button
+                        size="small"
+                        variant={selected.upper ? "contained" : "outlined"}
+                        onClick={() => patch(selected.id, { upper: !selected.upper })}
+                        sx={{ minWidth: 44, fontWeight: 800, letterSpacing: "0.05em" }}
+                      >
+                        AA
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Line height">
+                      <TextField
+                        type="number"
+                        size="small"
+                        value={selected.lineHeight ?? 1.25}
+                        onChange={(e) => patch(selected.id, { lineHeight: Math.min(3, Math.max(0.8, Number(e.target.value) || 1.25)) }, `lh-${selected.id}`)}
+                        inputProps={{ step: 0.05 }}
+                        sx={{ width: 78 }}
+                      />
+                    </Tooltip>
+                {selected.kind === "text" && (
+                  <Tooltip title="Letter spacing">
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={selected.letterSpacing ?? 0}
+                      onChange={(e) => patch(selected.id, { letterSpacing: Math.min(40, Math.max(-2, Number(e.target.value) || 0)) }, `ls-${selected.id}`)}
+                      inputProps={{ step: 0.5 }}
+                      sx={{ width: 78 }}
+                    />
                   </Tooltip>
                 )}
-                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
-                  {selected.series?.length ?? 0} value{(selected.series?.length ?? 0) === 1 ? "" : "s"}
-                </Typography>
-              </Box>
-            </Box>
-          )}
-
-          {/* image adjustments for the selected image node */}
-          {selected?.kind === "image" && (
-            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+                </>
+              )}
+              {sec === "colour" && selected && (
+                <>
+                {(selected.kind === "text" || isShape(selected.kind)) && (
+                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                    {BRAND_COLORS.map((c) => swatch(c, selected.fill === c, () => patch(selected.id, { fill: c })))}
+                    <input type="color" value={selected.fill.startsWith("#") ? selected.fill : "#000000"} onChange={(e) => patch(selected.id, { fill: e.target.value }, `fill-${selected.id}`)} style={colorInputStyle} title="Custom colour" />
+                  </Box>
+                )}
+                    <Tooltip title="Background pill behind the text">
+                      <Button
+                        size="small"
+                        variant={selected.background ? "contained" : "outlined"}
+                        onClick={() => patch(selected.id, { background: !selected.background })}
+                        sx={{ fontWeight: 700, minWidth: 44 }}
+                      >
+                        Pill
+                      </Button>
+                    </Tooltip>
+                    {selected.background && (
+                      <input
+                        type="color"
+                        value={selected.backgroundFill ?? autoPillFill(selected.fill)}
+                        onChange={(e) => patch(selected.id, { backgroundFill: e.target.value }, `pill-${selected.id}`)}
+                        style={colorInputStyle}
+                        title="Pill colour"
+                      />
+                    )}
+                {isShape(selected.kind) && (
+                  <>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470" }}>Stroke</Typography>
+                    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                      {BRAND_COLORS.slice(0, 4).map((c) =>
+                        swatch(c, selected.stroke === c, () => patch(selected.id, { stroke: c, strokeWidth: selected.strokeWidth || 4 }), 18)
+                      )}
+                      <input
+                        type="color"
+                        value={selected.stroke ?? "#1a1d21"}
+                        onChange={(e) => patch(selected.id, { stroke: e.target.value, strokeWidth: selected.strokeWidth || 4 }, `stroke-${selected.id}`)}
+                        style={colorInputStyle}
+                        title="Custom stroke colour"
+                      />
+                    </Box>
+                    <Tooltip title="Stroke width (0 = none)">
+                      <TextField
+                        type="number"
+                        size="small"
+                        value={selected.strokeWidth ?? 0}
+                        onChange={(e) => patch(selected.id, { strokeWidth: Math.max(0, Number(e.target.value) || 0) }, `sw-${selected.id}`)}
+                        inputProps={{ step: 1 }}
+                        sx={{ width: 78 }}
+                      />
+                    </Tooltip>
+                  </>
+                )}
+                </>
+              )}
+              {sec === "shape" && selected && (
+                <>
+                {(selected.kind === "image" || selected.kind === "rect") && (
+                  <Tooltip title="Corner radius">
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={selected.cornerRadius ?? 0}
+                      onChange={(e) => patch(selected.id, { cornerRadius: Math.max(0, Number(e.target.value) || 0) }, `cr-${selected.id}`)}
+                      inputProps={{ step: 2 }}
+                      sx={{ width: 78 }}
+                    />
+                  </Tooltip>
+                )}
+                </>
+              )}
+              {sec === "crop" && selected && (
+                <>
+                  <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
               {/* Crop. Every photograph is the wrong shape for the box it has
                   to go in, and before this the only moves were "squash it" and
                   "leave a gap". People pick squash. */}
@@ -2936,6 +2847,12 @@ export default function EditorCanvas({
                   </Typography>
                 </>
               )}
+                  </Box>
+                </>
+              )}
+              {sec === "adjust" && selected && (
+                <>
+                  <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
               <Button size="small" variant={selected.flipH ? "contained" : "outlined"} onClick={() => patch(selected.id, { flipH: !selected.flipH })} sx={{ fontWeight: 700 }}>
                 Flip H
               </Button>
@@ -3031,7 +2948,251 @@ export default function EditorCanvas({
                   })}
                 </Box>
               </Box>
+                  </Box>
+                </>
+              )}
+              {sec === "data" && selected && (
+                <>
+                  <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 0.75 }}>
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                One row per line. Paste straight from Excel &mdash; tabs, semicolons or commas.
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                maxRows={10}
+                size="small"
+                placeholder={"Property\tValue\nMaterial\tFKM 70"}
+                value={(selected.rows ?? []).map((r) => r.join("\t")).join("\n")}
+                onChange={(e) => patch(selected.id, { rows: parseTable(e.target.value) }, `rows-${selected.id}`)}
+                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
+              />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                  {(selected.rows?.length ?? 0) > 0
+                    ? `${(selected.rows?.length ?? 1) - 1} row${(selected.rows?.length ?? 1) - 1 === 1 ? "" : "s"} under a header`
+                    : "Nothing in it yet"}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  // Equal columns again. The only fix for a table dragged into
+                  // a shape nobody meant, and it is one click.
+                  disabled={!selected.colFractions}
+                  onClick={() => patch(selected.id, { colFractions: undefined })}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Even columns
+                </Button>
+              </Box>
+                  </Box>
+                  <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 0.75 }}>
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                {([
+                  { key: "column" as const, label: "Columns", note: "How much, by year" },
+                  { key: "bar" as const, label: "Bars", note: "How much, by name" },
+                  { key: "line" as const, label: "Line", note: "How it moved" },
+                  { key: "donut" as const, label: "Ring", note: "Share of the whole" },
+                ]).map((k) => (
+                  <Tooltip key={k.key} title={k.note}>
+                    <Button
+                      size="small"
+                      variant={(selected.chartKind ?? "column") === k.key ? "contained" : "outlined"}
+                      onClick={() => patch(selected.id, { chartKind: k.key })}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      {k.label}
+                    </Button>
+                  </Tooltip>
+                ))}
+              </Box>
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                One &ldquo;label: number&rdquo; per line. 1&rsquo;234.5 and 1.234,5 both read as the same amount.
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                maxRows={10}
+                size="small"
+                placeholder={"2025: 31\n2026: 44"}
+                value={(selected.series ?? []).map((d) => `${d.label}: ${d.value}`).join("\n")}
+                onChange={(e) => patch(selected.id, { series: parseSeries(e.target.value) }, `series-${selected.id}`)}
+                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
+              />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Button
+                  size="small"
+                  variant={selected.showValues !== false ? "contained" : "outlined"}
+                  onClick={() => patch(selected.id, { showValues: selected.showValues === false })}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Numbers on it
+                </Button>
+                {/* Only offered where it means something. On a ring the
+                    categories ARE the subject and are always coloured; on a
+                    single measure across years, a colour per bar would be
+                    saying something the data does not. */}
+                {(selected.chartKind ?? "column") !== "donut" && (
+                  <Tooltip title="A colour per category. Leave it off when the bars are one measure over time.">
+                    <Button
+                      size="small"
+                      variant={selected.multicolour ? "contained" : "outlined"}
+                      onClick={() => patch(selected.id, { multicolour: !selected.multicolour })}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      Colour each
+                    </Button>
+                  </Tooltip>
+                )}
+                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                  {selected.series?.length ?? 0} value{(selected.series?.length ?? 0) === 1 ? "" : "s"}
+                </Typography>
+              </Box>
+                  </Box>
+                </>
+              )}
+              {sec === "effects" && selected && (
+                <>
+                {/* An outline, not a shadow. A blurred shadow under white type
+                    is what made the seeded headlines read as fuzzy; a hard
+                    edge is what actually survives a busy photograph. */}
+                <Tooltip title={selected.stroke ? "Remove the outline" : "Outline — for type over a photograph"}>
+                  <IconButton
+                    size="small"
+                    onClick={() =>
+                      patch(selected.id, selected.stroke
+                        ? { stroke: undefined, strokeWidth: 0 }
+                        // Dark outline under light type, light under dark:
+                        // an outline the same colour as the letter does
+                        // nothing except thicken it.
+                        : { stroke: isLightHex(selected.fill) ? "#15223a" : "#ffffff",
+                            strokeWidth: Math.max(1, Math.round((selected.fontSize ?? 24) / 14)) })
+                    }
+                    sx={{ color: selected.stroke ? "#2459d1" : "#8a93a0" }}
+                  >
+                    <FormatColorTextIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Drop shadow">
+                  <Button
+                    size="small"
+                    variant={selected.shadow ? "contained" : "outlined"}
+                    onClick={() => patch(selected.id, { shadow: !selected.shadow })}
+                    sx={{ minWidth: 44, fontWeight: 700 }}
+                  >
+                    Sh
+                  </Button>
+                </Tooltip>
+                </>
+              )}
+              {sec === "arrange" && (
+                <>
+                  {selected && (
+                    <>
+                <Tooltip title="Rotation (degrees)">
+                  <TextField
+                    type="number"
+                    size="small"
+                    value={Math.round(selected.rotation ?? 0)}
+                    onChange={(e) => patch(selected.id, { rotation: Number(e.target.value) || 0 }, `rot-${selected.id}`)}
+                    inputProps={{ step: 5 }}
+                    sx={{ width: 78 }}
+                  />
+                </Tooltip>
+                <Tooltip title="Opacity">
+                  <TextField
+                    type="number"
+                    size="small"
+                    value={Math.round((selected.opacity ?? 1) * 100)}
+                    onChange={(e) => patch(selected.id, { opacity: Math.min(100, Math.max(5, Number(e.target.value) || 100)) / 100 }, `op-${selected.id}`)}
+                    inputProps={{ step: 5 }}
+                    sx={{ width: 78 }}
+                  />
+                </Tooltip>
+                    </>
+                  )}
+                {/* A headline, its kicker and the button under it are one
+                    thing. Without this, moving that thing means selecting
+                    three objects every time - and the first time somebody
+                    misses one the layout is broken in a way they will not see
+                    until it is printed. */}
+                {grouped ? (
+                  <Tooltip title="Ungroup — move these separately again">
+                    <IconButton size="small" onClick={ungroupSelected}>
+                      <CallSplitIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Group — move and copy them as one">
+                    <IconButton size="small" onClick={groupSelected}>
+                      <MergeTypeIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Align left edge">
+                  <IconButton size="small" onClick={() => alignSelected("left")}>
+                    <AlignHorizontalLeftIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Center horizontally">
+                  <IconButton size="small" onClick={() => alignSelected("centerH")}>
+                    <AlignHorizontalCenterIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Align right edge">
+                  <IconButton size="small" onClick={() => alignSelected("right")}>
+                    <AlignHorizontalRightIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                {/* Only offered when it can do something: distributing fewer
+                    than three has no meaning, and a live-but-inert button is
+                    a worse answer than no button. */}
+                {selectedIds.length > 2 && (
+                  <>
+                    <Tooltip title="Space them evenly across">
+                      <IconButton size="small" onClick={() => distributeSelected("h")}>
+                        <HorizontalDistributeIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Space them evenly down">
+                      <IconButton size="small" onClick={() => distributeSelected("v")}>
+                        <VerticalDistributeIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                )}
+                <Tooltip title="Align top edge">
+                  <IconButton size="small" onClick={() => alignSelected("top")}>
+                    <AlignVerticalTopIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Center vertically">
+                  <IconButton size="small" onClick={() => alignSelected("centerV")}>
+                    <AlignVerticalCenterIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Align bottom edge">
+                  <IconButton size="small" onClick={() => alignSelected("bottom")}>
+                    <AlignVerticalBottomIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Bring forward">
+                  <IconButton size="small" onClick={() => moveLayer(1)}>
+                    <FlipToFrontIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Send back">
+                  <IconButton size="small" onClick={() => moveLayer(-1)}>
+                    <FlipToBackIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                </>
+              )}
             </Box>
+            </>
           )}
         </Card>
 
