@@ -24,6 +24,7 @@ import TextFieldsIcon from "@mui/icons-material/TextFields";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
+import FormatColorTextIcon from "@mui/icons-material/FormatColorText";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import SaveIcon from "@mui/icons-material/Save";
 import FlipToFrontIcon from "@mui/icons-material/FlipToFront";
@@ -2171,6 +2172,26 @@ export default function EditorCanvas({
                     sx={{ width: 78 }}
                   />
                 </Tooltip>
+                {/* An outline, not a shadow. A blurred shadow under white type
+                    is what made the seeded headlines read as fuzzy; a hard
+                    edge is what actually survives a busy photograph. */}
+                <Tooltip title={selected.stroke ? "Remove the outline" : "Outline — for type over a photograph"}>
+                  <IconButton
+                    size="small"
+                    onClick={() =>
+                      patch(selected.id, selected.stroke
+                        ? { stroke: undefined, strokeWidth: 0 }
+                        // Dark outline under light type, light under dark:
+                        // an outline the same colour as the letter does
+                        // nothing except thicken it.
+                        : { stroke: isLightHex(selected.fill) ? "#15223a" : "#ffffff",
+                            strokeWidth: Math.max(1, Math.round((selected.fontSize ?? 24) / 14)) })
+                    }
+                    sx={{ color: selected.stroke ? "#2459d1" : "#8a93a0" }}
+                  >
+                    <FormatColorTextIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Drop shadow">
                   <Button
                     size="small"
@@ -2600,6 +2621,14 @@ export default function EditorCanvas({
                       shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
                       shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
                       shadowEnabled={Boolean(n.shadow)}
+                      stroke={n.stroke}
+                      strokeWidth={n.strokeWidth ?? 0}
+                      // Konva strokes a glyph centred on its outline by
+                      // default, which eats into the letterform and makes
+                      // light type look bolder and muddier. Painting the fill
+                      // after the stroke keeps the letter its own shape and
+                      // puts the outline entirely outside it.
+                      fillAfterStrokeEnabled
                       draggable={!n.locked}
                       onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                       onTap={() => setSelectedId(n.id)}
