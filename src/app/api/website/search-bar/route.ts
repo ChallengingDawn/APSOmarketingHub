@@ -4,7 +4,7 @@
 // reason), or the data. Customer feedback left the hub completely (SARCLA 17.10.2026).
 //   GET ?part=overview&days=30 | report&days= | report-xlsx&days= (the Excel file) | logs&limit=&locale=&tier=
 //       | gaps&window= | ai&archived=0|1 | brands | features | stock&q=&state=&published=&limit=&offset=
-//       &sort=&dir= | jobs | setup
+//       &sort=&dir= | jobs | hubspot (the search bar's HubSpot jobs) | setup
 // The switches and the brand list (SARCLA 17.10.2026: "maintenance button doesn't really work", "on brands
 // allow to add brands") - admins only, as DirectUP's settings, each change logged with who made it:
 //   POST { action: "kill-switch" | "same-tab", on } | { action: "buttons", ai?, feedback? }
@@ -13,6 +13,8 @@
 //        | { action: "feature-save", feature } | { action: "feature-delete", id } | { action: "feature-reset" }
 //        | { action: "sweep-run", scope, hubspot } | { action: "sweep-stop" } | { action: "sweep-schedule", on }
 //        | { action: "order-watch", on } | { action: "ai-archive", conversation_id, archived } | { action: "migration-run", num }
+// and the search bar's HubSpot jobs, which stay on the gateway (SARCLA 17.10.2026: switches on the hub's page):
+//        | { action: "hubspot-job", job, on } | { action: "hubspot-job-run", job }
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
@@ -20,7 +22,7 @@ import { requireUser } from "@/lib/auth/guard";
 import {
   adminToken, gateway, gatewaySetting,
   type AiConversations, type Brands, type Feature, type Gaps, type Health, type LogRow, type Metrics, type Migration,
-  type OrderWatch, type Report, type Stock, type StockCalls, type SweepRun, type SweepStatus, type Switches,
+  type OrderWatch, type Report, type Stock, type StockCalls, type SweepRun, type SweepStatus, type Switches, type HubspotJobs,
 } from "@/lib/searchbar/gateway";
 
 export const runtime = "nodejs";
@@ -32,6 +34,7 @@ const fail = (err: unknown) => NextResponse.json({
   configured: true, ok: false, error: String((err as Error)?.message ?? err), status: (err as { status?: number })?.status ?? null,
 });
 const FEATURE_LANGS = ["en", "de", "fr", "it", "nl", "pl"];
+const HUBSPOT_JOBS = ["live_on_shop", "stock_copy", "ads_buckets", "shop_activity"];
 const int = (v: string | null, def: number, min: number, max: number) => Math.min(max, Math.max(min, parseInt(v || String(def), 10) || def));
 const pick = (v: string | null, allowed: string[], def: string) => (v && allowed.includes(v) ? v : def);
 
@@ -120,6 +123,7 @@ export async function GET(req: NextRequest) {
       ]);
       return ok({ sweep, runs: runs.runs ?? [], orders, calls, health: h, isAdmin });
     }
+    if (part === "hubspot") return ok({ ...(await gateway<HubspotJobs>("/api/smart-bar/admin/hubspot-jobs")), isAdmin });
     if (part === "setup") {
       const [migrations, switches, h, setting] = await Promise.all([
         gateway<{ migrations: Migration[] }>("/api/smart-bar/admin/migrations"),
@@ -230,6 +234,13 @@ export async function POST(req: NextRequest) {
       const cid = ref(body.conversation_id);
       if (!cid || typeof body.archived !== "boolean") return NextResponse.json({ ok: false, error: "Which conversation?" }, { status: 400 });
       return done(await gateway("/api/smart-bar/ai-conversations/archive", { method: "POST", body: { conversation_id: cid, archived: body.archived } }), `AI conversation ${cid} ${body.archived ? "archived" : "brought back"}`);
+    }
+    if (body.action === "hubspot-job" || body.action === "hubspot-job-run") {
+      const job = str(body.job, 20);
+      if (!HUBSPOT_JOBS.includes(job)) return NextResponse.json({ ok: false, error: "Which job?" }, { status: 400 });
+      if (body.action === "hubspot-job-run") return done(await gateway(`/api/smart-bar/admin/hubspot-jobs/${job}/run`, { method: "POST" }), `HubSpot job ${job} run now`);
+      if (typeof body.on !== "boolean") return NextResponse.json({ ok: false, error: "On or off?" }, { status: 400 });
+      return done(await gateway(`/api/smart-bar/admin/hubspot-jobs/${job}`, { method: "POST", body: { on: body.on } }), `HubSpot job ${job} switched ${body.on ? "on" : "off"}`);
     }
     if (body.action === "migration-run") {
       const num = str(body.num, 4);

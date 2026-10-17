@@ -103,3 +103,17 @@ export type Health = {
   };
 };
 export type Migration = { num: string; name: string; description: string; applied?: boolean; applied_at?: string | null };
+
+/** The search bar's HubSpot jobs (gateway hubspot-jobs.js): their switches and what each last did. */
+export type HubspotJobName = "live_on_shop" | "stock_copy" | "ads_buckets" | "shop_activity";
+export type JobSwitch = { label: string; on: boolean; set: boolean; set_at: string | null; default: boolean };
+export type HubspotJobs = {
+  switches: Record<HubspotJobName, JobSwitch>;
+  live_on_shop: { pending: number | null; live: number | null; sync: { running: boolean; since: string | null; last: { at: string; done?: number; wrote?: number; batches?: number; error?: string; skipped?: string } | null } };
+  stock_copy: { running: boolean; every_min: number; watermark: string | null; last: { at: string; pages?: number; seen?: number; updated?: number; watermark?: string; error?: string } | null };
+  ads_buckets: { building: boolean; keys_in_memory: number; built_at: string | null; age_hours: number | null; stale_hours: number;
+    last_build: { started_at: string | null; finished_at: string | null; ok: boolean | null; keys: number | null; companies: number | null; buckets: Record<string, number> | null; error: string | null; duration_s: number | null } };
+  shop_activity: { accepted: number; unknown_buyer: number; bad_body: number; flushes: number; companies_written: number; write_errors: number;
+    last_error: string | null; deferred: number; last_flush_at: string | null; pending_companies: number; switched_off?: number;
+    retry_in_s: number; consecutive_failures: number; cached_companies: number; flush_ms: number };
+};

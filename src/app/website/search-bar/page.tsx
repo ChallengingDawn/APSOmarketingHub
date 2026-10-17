@@ -27,15 +27,16 @@ import ViewsTab from "./ViewsTab";
 import AiTab from "./AiTab";
 import StockTab from "./StockTab";
 import JobsTab from "./JobsTab";
+import HubspotTab from "./HubspotTab";
 import BrandsTab from "./BrandsTab";
 import FeaturesTab from "./FeaturesTab";
 import SetupTab from "./SetupTab";
 
-type View = "overview" | "report" | "searches" | "gaps" | "views" | "ai" | "stock" | "jobs" | "brands" | "featured" | "setup";
+type View = "overview" | "report" | "searches" | "gaps" | "views" | "ai" | "stock" | "jobs" | "hubspot" | "brands" | "featured" | "setup";
 /** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
 const VIEW_HASH: Record<View, string> = {
   overview: "#overview", report: "#report", searches: "#searches", gaps: "#gaps", views: "#views", ai: "#ai",
-  stock: "#stock", jobs: "#jobs", brands: "#brands", featured: "#featured", setup: "#setup",
+  stock: "#stock", jobs: "#jobs", hubspot: "#hubspot", brands: "#brands", featured: "#featured", setup: "#setup",
 };
 /** The tabs the hub-wide period applies to - it sits in the header, as on the UC reports. */
 const DATED: View[] = ["overview", "report"];
@@ -58,6 +59,7 @@ export default function SearchBarPage() {
     : view === "ai" ? <AiTab key={n} />
     : view === "stock" ? <StockTab key={n} />
     : view === "jobs" ? <JobsTab key={n} />
+    : view === "hubspot" ? <HubspotTab key={n} />
     : view === "brands" ? <BrandsTab key={n} />
     : view === "featured" ? <FeaturesTab key={n} />
     : view === "setup" ? <SetupTab key={n} />
@@ -87,6 +89,7 @@ export default function SearchBarPage() {
           { id: "ai", label: "AI chat", count: null },
           { id: "stock", label: "Stock", count: null },
           { id: "jobs", label: "Stock jobs", count: null },
+          { id: "hubspot", label: "HubSpot jobs", count: null },
           { id: "brands", label: "Brands", count: null },
           { id: "featured", label: "Featured", count: null },
           { id: "setup", label: "Setup", count: null },
