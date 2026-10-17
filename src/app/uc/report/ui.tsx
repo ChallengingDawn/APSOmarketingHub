@@ -71,7 +71,14 @@ export function Badge({ icon, tint = "blue", size = 36 }: { icon: React.ReactNod
 
 /** A card's title: tinted badge, title, one line saying what it answers, controls on the right. */
 export function CardTitle({ icon, tint = "blue", title, note, right }: {
-  icon: React.ReactNode; tint?: Tint; title: string; note?: string; right?: React.ReactNode;
+  icon: React.ReactNode; tint?: Tint;
+  /**
+   * Usually a string. A node when the title is editable in place — renaming a
+   * version swaps the heading for a field, and sending it through a dialog
+   * instead is enough friction that people leave a bad label alone.
+   */
+  title: React.ReactNode;
+  note?: string; right?: React.ReactNode;
 }) {
   return (
     <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, mb: 2.25, flexWrap: "wrap" }}>

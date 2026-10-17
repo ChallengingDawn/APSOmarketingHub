@@ -7,7 +7,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
-import { addComment, addVariant, attachVariant, chooseVariant, getProject } from "@/lib/content/projects";
+import {
+  addComment, addVariant, archiveProject, attachVariant, chooseVariant, duplicateVariant,
+  getProject, labelVariant, removeVariant, updateProject,
+} from "@/lib/content/projects";
 import { accessFor, membersOf } from "@/lib/content/sharing";
 
 export const runtime = "nodejs";
@@ -65,6 +68,49 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       by: me.username,
     });
     return NextResponse.json({ ok: true, variant });
+  }
+
+  if (action === "rename") {
+    const title = str("title")?.trim();
+    if (!title) return NextResponse.json({ ok: false, error: "A project needs a name." }, { status: 400 });
+    await updateProject(id, { title });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "brief") {
+    // An empty brief is a real answer — "there isn't one" — so it is stored
+    // as null rather than refused.
+    const brief = str("brief");
+    await updateProject(id, { brief: brief && brief.trim() ? brief.trim() : null });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "archive") {
+    await archiveProject(id, body.archived !== false);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "label-variant") {
+    const variantId = typeof body.variantId === "number" ? body.variantId : null;
+    if (variantId === null) return NextResponse.json({ ok: false, error: "Which version?" }, { status: 400 });
+    await labelVariant(variantId, str("label") ?? "", me.username);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "remove-variant") {
+    const variantId = typeof body.variantId === "number" ? body.variantId : null;
+    if (variantId === null) return NextResponse.json({ ok: false, error: "Which version?" }, { status: 400 });
+    await removeVariant(id, variantId);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "duplicate-variant") {
+    const variantId = typeof body.variantId === "number" ? body.variantId : null;
+    if (variantId === null) return NextResponse.json({ ok: false, error: "Which version?" }, { status: 400 });
+    const made = await duplicateVariant(id, variantId, me.username);
+    return made
+      ? NextResponse.json({ ok: true, variant: made })
+      : NextResponse.json({ ok: false, error: "That version is not in this project." }, { status: 404 });
   }
 
   if (action === "attach") {

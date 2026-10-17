@@ -270,6 +270,104 @@ export async function addComment(
  * Choosing does not delete the others, and the project stays readable: the
  * argument for the chosen one is the comments under the ones that lost.
  */
+/** Rename a project, or fix the brief it was started with. */
+export async function updateProject(
+  id: number,
+  fields: { title?: string; brief?: string | null },
+): Promise<void> {
+  await ensureSchema();
+  const sets: string[] = [];
+  const values: unknown[] = [id];
+  if (fields.title !== undefined) {
+    values.push(fields.title.slice(0, 200));
+    sets.push(`title = ${values.length}`);
+  }
+  if (fields.brief !== undefined) {
+    values.push(fields.brief);
+    sets.push(`brief = ${values.length}`);
+  }
+  if (sets.length === 0) return;
+  await query(
+    `UPDATE apsomh_content_projects SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1`,
+    values,
+  );
+}
+
+/**
+ * Put a project away, or bring it back.
+ *
+ * Archived, never deleted. A finished project is the record of why the thing
+ * that shipped looks the way it does, and deleting it to tidy a list throws
+ * that away permanently to save one row of screen.
+ */
+export async function archiveProject(id: number, archived: boolean): Promise<void> {
+  await ensureSchema();
+  await query(
+    `UPDATE apsomh_content_projects
+        SET status = $2, updated_at = NOW()
+      WHERE id = $1`,
+    [id, archived ? "archived" : "open"],
+  );
+}
+
+/** Rename one version, so a column of six reads without opening any. */
+export async function labelVariant(variantId: number, label: string, by: string): Promise<void> {
+  await ensureSchema();
+  await query(
+    `UPDATE apsomh_content SET label = $2, updated_by = $3, updated_at = NOW() WHERE id = $1`,
+    [variantId, label.slice(0, 120) || null, by],
+  );
+}
+
+/**
+ * Take a version out of a project.
+ *
+ * It leaves the project rather than being destroyed: project_id goes null and
+ * the row stays in the library. Somebody removing the wrong one from a list
+ * of six near-identical drafts is a question of when, not if, and a DELETE
+ * would make that unrecoverable.
+ */
+export async function removeVariant(projectId: number, variantId: number): Promise<void> {
+  await ensureSchema();
+  await query(
+    `UPDATE apsomh_content SET project_id = NULL, updated_at = NOW()
+      WHERE id = $1 AND project_id = $2`,
+    [variantId, projectId],
+  );
+  // A chosen version that has just left cannot still be the chosen one.
+  await query(
+    `UPDATE apsomh_content_projects SET chosen_variant_id = NULL, status = 'open'
+      WHERE id = $1 AND chosen_variant_id = $2`,
+    [projectId, variantId],
+  );
+  await touch(projectId);
+}
+
+/** Copy a version, as the starting point for a variation on it. */
+export async function duplicateVariant(
+  projectId: number,
+  variantId: number,
+  by: string,
+): Promise<Variant | null> {
+  await ensureSchema();
+  const r = await query<VariantRow>(
+    `INSERT INTO apsomh_content
+       (channel, content_type, language, label, title, body, image_url, design_document, pages,
+        project_id, created_by, updated_by)
+     SELECT channel, content_type, language,
+            COALESCE(label, 'Version') || ' (copy)',
+            title, body, image_url, design_document, pages,
+            project_id, $3, $3
+       FROM apsomh_content
+      WHERE id = $1 AND project_id = $2
+     RETURNING *`,
+    [variantId, projectId, by],
+  );
+  if (r.rows.length === 0) return null;
+  await touch(projectId);
+  return toVariant(r.rows[0]);
+}
+
 export async function chooseVariant(projectId: number, variantId: number | null): Promise<void> {
   await ensureSchema();
   await query(

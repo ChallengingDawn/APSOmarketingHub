@@ -18,6 +18,11 @@ import { useCallback, useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import DriveFileRenameOutlineIcon from "@mui/icons-material/DriveFileRenameOutline";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -98,6 +103,12 @@ export default function ProjectBoard({ id }: { id: number }) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [editingBrief, setEditingBrief] = useState(false);
+  const [briefDraft, setBriefDraft] = useState("");
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const [labelDraft, setLabelDraft] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [me, setMe] = useState<string | null>(null);
@@ -120,6 +131,13 @@ export default function ProjectBoard({ id }: { id: number }) {
 
   useEffect(load, [load]);
 
+  // Seed the editable fields from the project, but never while somebody is
+  // typing in them — a reload landing mid-edit would wipe the sentence.
+  useEffect(() => {
+    if (project && !editingTitle) setTitleDraft(project.title);
+    if (project && !editingBrief) setBriefDraft(project.brief ?? "");
+  }, [project, editingTitle, editingBrief]);
+
   const post = async (payload: Record<string, unknown>) => {
     await fetch(`/api/content/projects/${id}`, {
       method: "POST",
@@ -132,6 +150,7 @@ export default function ProjectBoard({ id }: { id: number }) {
   if (error) return <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>{error}</Typography>;
   if (!project) return <Typography sx={{ fontSize: "0.9rem", color: FAINT }}>Opening the project…</Typography>;
 
+  const canEdit = access?.canEdit !== false;
   const general = comments.filter((c) => c.variantId === null);
 
   return (
@@ -140,9 +159,40 @@ export default function ProjectBoard({ id }: { id: number }) {
         {/* Who is in it and the way to bring someone in, top right - where
             Adobe Express and every shared-document tool keeps it. */}
         <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, flexWrap: "wrap" }}>
-          <Typography sx={{ flex: 1, minWidth: 220, fontSize: "1.3rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em" }}>
+          {editingTitle ? (
+          <TextField
+            autoFocus
+            size="small"
+            fullWidth
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              setEditingTitle(false);
+              const next = titleDraft.trim();
+              // An empty name is a slip, not an instruction. Put the old one
+              // back rather than storing "" and leaving an unnamed row.
+              if (next && next !== project.title) void post({ action: "rename", title: next });
+              else setTitleDraft(project.title);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") { setTitleDraft(project.title); setEditingTitle(false); }
+            }}
+            sx={{ "& .MuiOutlinedInput-root": { fontSize: "1.3rem", fontWeight: 700, color: INK } }}
+          />
+        ) : (
+          <Typography
+            onClick={() => canEdit && setEditingTitle(true)}
+            title={canEdit ? "Click to rename" : undefined}
+            sx={{
+              fontSize: "1.3rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em",
+              cursor: canEdit ? "text" : "default", borderRadius: "6px",
+              "&:hover": canEdit ? { bgcolor: "rgba(21,34,58,.04)" } : {},
+            }}
+          >
             {project.title}
           </Typography>
+        )}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
             <Box component="button" onClick={() => setSharing(true)} aria-label="People in this project"
               sx={{ display: "flex", border: 0, background: "none", p: 0, cursor: "pointer", "& > *:not(:first-of-type)": { ml: "-8px" } }}>
@@ -160,9 +210,34 @@ export default function ProjectBoard({ id }: { id: number }) {
           {variants.length} variation{variants.length === 1 ? "" : "s"}
           {project.chosenVariantId ? " · one chosen" : ""}
         </Typography>
-        {project.brief && (
-          <Typography sx={{ mt: 1.5, fontSize: "0.88rem", color: MUTED, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
-            {project.brief}
+        {editingBrief ? (
+          <TextField
+            autoFocus
+            size="small"
+            fullWidth
+            multiline
+            minRows={3}
+            placeholder="Who it is for, what it has to do, anything already decided."
+            value={briefDraft}
+            onChange={(e) => setBriefDraft(e.target.value)}
+            onBlur={() => {
+              setEditingBrief(false);
+              if (briefDraft !== (project.brief ?? "")) void post({ action: "brief", brief: briefDraft });
+            }}
+            sx={{ mt: 1.5 }}
+          />
+        ) : (
+          <Typography
+            onClick={() => canEdit && setEditingBrief(true)}
+            title={canEdit ? "Click to edit the brief" : undefined}
+            sx={{
+              mt: 1.5, fontSize: "0.88rem", lineHeight: 1.65, whiteSpace: "pre-wrap",
+              color: project.brief ? MUTED : FAINT,
+              cursor: canEdit ? "text" : "default", borderRadius: "6px",
+              "&:hover": canEdit ? { bgcolor: "rgba(21,34,58,.04)" } : {},
+            }}
+          >
+            {project.brief || (canEdit ? "Add a brief — the assistant reads it every time it writes." : "")}
           </Typography>
         )}
         {access && !access.canEdit && (
@@ -225,16 +300,61 @@ export default function ProjectBoard({ id }: { id: number }) {
                 <CardTitle
                   icon={chosen ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
                   tint={chosen ? "green" : "slate"}
-                  title={v.label || type?.label || v.channel}
+                  title={
+                    renaming === v.id ? (
+                      <TextField
+                        autoFocus
+                        size="small"
+                        variant="standard"
+                        placeholder="Shorter hero, Marc's version…"
+                        value={labelDraft}
+                        onChange={(e) => setLabelDraft(e.target.value)}
+                        onBlur={() => {
+                          setRenaming(null);
+                          if (labelDraft.trim() !== (v.label ?? "")) {
+                            void post({ action: "label-variant", variantId: v.id, label: labelDraft.trim() });
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          if (e.key === "Escape") setRenaming(null);
+                        }}
+                        sx={{ "& .MuiInput-input": { fontSize: "1.02rem", fontWeight: 600 } }}
+                      />
+                    ) : (
+                      v.label || type?.label || v.channel
+                    )
+                  }
                   note={`${v.createdBy ?? "somebody"} · ${when(v.createdAt)}${v.language ? ` · ${v.language}` : ""}`}
-                  right={access?.canEdit && (
-                    <Button
-                      size="small"
-                      onClick={() => post({ action: "choose", variantId: chosen ? null : v.id })}
-                      sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}
-                    >
-                      {chosen ? "Unchoose" : "Choose this"}
-                    </Button>
+                  right={canEdit && (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+                      <Button
+                        size="small"
+                        onClick={() => post({ action: "choose", variantId: chosen ? null : v.id })}
+                        sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}
+                      >
+                        {chosen ? "Unchoose" : "Choose this"}
+                      </Button>
+                      <Tooltip title="Rename this version">
+                        <IconButton size="small" onClick={() => { setRenaming(v.id); setLabelDraft(v.label ?? ""); }}>
+                          <DriveFileRenameOutlineIcon sx={{ fontSize: 17, color: FAINT }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Duplicate it, to try a change without losing this one">
+                        <IconButton size="small" onClick={() => post({ action: "duplicate-variant", variantId: v.id })}>
+                          <ContentCopyIcon sx={{ fontSize: 16, color: FAINT }} />
+                        </IconButton>
+                      </Tooltip>
+                      {/* "Take out", not "delete". It leaves the project and
+                          stays in the library, because removing the wrong one
+                          from six near-identical drafts is a question of when,
+                          not if. */}
+                      <Tooltip title="Take it out of this project — it stays in the library">
+                        <IconButton size="small" onClick={() => post({ action: "remove-variant", variantId: v.id })}>
+                          <RemoveCircleOutlineIcon sx={{ fontSize: 17, color: FAINT }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   )}
                 />
 
