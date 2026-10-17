@@ -165,10 +165,12 @@ export default function JobsTab() {
                     right={d.isAdmin ? <OrderSwitch on={o.on} reload={reload} /> : undefined} />
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1.25 }}>
                     <Chip tint={o.on ? "green" : "slate"}>{o.on ? "On" : "Off"}</Chip>
-                    <Chip tint="slate">Orders read from {o.source === "hubspot" ? "HubSpot (the hub's Magento connector)" : o.source}</Chip>
+                    <Chip tint={o.source === "hub" ? "green" : "slate"}>{o.source === "hub" ? "Sent by the hub's Magento connector" : "Read from HubSpot (the hub has sent nothing in the last hour)"}</Chip>
+                    {o.poll_every_min ? <Chip tint="slate">HubSpot checked every {o.poll_every_min} min as the safety net</Chip> : null}
                   </Box>
                   <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-                    {o.last ? `Last: ${when(o.last.at)} - ${full(o.last.orders)} ${o.last.orders === 1 ? "order" : "orders"}, ${full(o.last.skus)} articles refreshed, ${full(o.last.hs)} sent to HubSpot.` : "No order handled since the gateway started."}
+                    {o.push?.received_at ? `From the hub: ${when(o.push.received_at)} - ${full(o.push.sent ?? 0)} articles of ${full(o.push.orders ?? 0)} ${o.push.orders === 1 ? "order" : "orders"}, ${full(o.push.refreshed ?? 0)} refreshed${o.push.error ? ` (failed: ${o.push.error})` : ""}. ` : ""}
+                    {o.last ? `From HubSpot: ${when(o.last.at)} - ${full(o.last.orders)} ${o.last.orders === 1 ? "order" : "orders"}, ${full(o.last.skus)} articles refreshed, ${full(o.last.hs)} sent to HubSpot.` : "No order handled since the gateway started."}
                   </Typography>
                 </GlassCard>
               </Grid>

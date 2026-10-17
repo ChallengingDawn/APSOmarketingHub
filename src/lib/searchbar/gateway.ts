@@ -92,7 +92,10 @@ export type SweepRun = {
   id: number; started_at: string; finished_at: string | null; scope: string; hubspot: boolean; trigger: string;
   target: number; processed: number; applied_rows: number; with_qty: number; errors: number; elapsed_sec: number; status: string; hs_pushed: number;
 };
-export type OrderWatch = { on: boolean; stock_enabled: boolean; source: string; cursor: string; last: { at: string; orders: number; skus: number; refreshed: number; hs: number } | null };
+export type OrderWatch = { on: boolean; stock_enabled: boolean; source: string; cursor: string; poll_every_min?: number;
+  last: { at: string; orders: number; skus: number; refreshed: number; hs: number } | null;
+  /** what the hub's Magento connector last sent (17.10.2026) */
+  push?: { at?: string; received_at?: string; orders?: number; sent?: number; queued?: number; refreshed?: number; hs?: number; error?: string | null } | null };
 export type StockCalls = { calls: { id: string; called_at: string; skus: string[]; n: number; locale: string }[]; total: number };
 export type Health = {
   status: string; db: boolean;

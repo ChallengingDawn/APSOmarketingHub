@@ -19,6 +19,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { magentoConfigured } from "@/lib/doc/config";
 import { magentoGet } from "@/lib/doc/magento";
+import { notifyOrderStock } from "@/lib/searchbar/orderStock";
 import { magentoTs, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
 
 export type Mode = "off" | "stage" | "active";
@@ -379,6 +380,8 @@ async function sweep(mode: Mode, signal?: AbortSignal): Promise<SweepResult> {
     const orders = await ordersChangedSince(magentoTs(since.toISOString()), { signal });
     out.found = orders.length;
     await stage(orders);
+    // the search bar re-reads these articles' stock at once (shop -> bar -> HubSpot), SARCLA 17.10.2026
+    if (orders.length) notifyOrderStock(orders.flatMap((o) => orderSkus(o)), orders.length);
     // PROCESS - Active only
     if (mode === "active") {
       const cap = caps();
