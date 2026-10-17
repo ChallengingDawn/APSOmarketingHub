@@ -24,6 +24,7 @@ import TextFieldsIcon from "@mui/icons-material/TextFields";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import SaveIcon from "@mui/icons-material/Save";
 import FlipToFrontIcon from "@mui/icons-material/FlipToFront";
 import FlipToBackIcon from "@mui/icons-material/FlipToBack";
@@ -336,6 +337,7 @@ export default function EditorCanvas({
    * need a set read the set.
    */
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   /** Replace the selection, or add to it when shift is held. */
@@ -1295,7 +1297,7 @@ export default function EditorCanvas({
   }, [nodes, fonts]);
 
   /* ── export ── */
-  const exportDataUrl = (): string | null => {
+  const exportDataUrl = (mimeType: "image/png" | "image/jpeg" = "image/png"): string | null => {
     const stage = stageRef.current;
     if (!stage) return null;
     if ((bgSrc && !bgImage) || nodes.some((n) => n.kind === "image" && !n.hidden && n.src && !imgEls[n.src])) {
@@ -1316,22 +1318,66 @@ export default function EditorCanvas({
     const prev = { x: stage.scaleX(), y: stage.scaleY() };
     stage.scale({ x: 1, y: 1 });
     try {
-      return stage.toDataURL({ x: 0, y: 0, width: canvas.w, height: canvas.h, pixelRatio: 1, mimeType: "image/png" });
+      return stage.toDataURL({
+        x: 0, y: 0, width: canvas.w, height: canvas.h, pixelRatio: 1,
+        mimeType,
+        // JPG has no transparency, so an unset background would come out black
+        // rather than white. 0.92 is the point where artefacts stop showing on
+        // flat colour, which is most of what these designs are.
+        ...(mimeType === "image/jpeg" ? { quality: 0.92 } : {}),
+      });
     } finally {
       stage.scale(prev);
       stage.batchDraw();
     }
   };
 
-  const download = () => {
-    // allow transformer detach to paint
-    requestAnimationFrame(() => {
+  const saveBlob = (url: string, name: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+  };
+
+  /**
+   * Export the artboard.
+   *
+   * PNG for anything going on a screen, JPG for anything going in an email —
+   * a page of flat colour and type is several times larger as PNG, and these
+   * get mailed. PDF for anything going to a person or a printer, which is
+   * most of what a landing-page hero or a spec sheet is for.
+   */
+  const download = (format: "png" | "jpg" | "pdf" = "png") => {
+    // Let the transformer detach and paint, or its handles end up in the file.
+    requestAnimationFrame(async () => {
+      const stem = `apso-design-${canvas.w}x${canvas.h}`;
+
+      if (format !== "pdf") {
+        const url = exportDataUrl(format === "jpg" ? "image/jpeg" : "image/png");
+        if (url) saveBlob(url, `${stem}.${format}`);
+        return;
+      }
+
       const url = exportDataUrl();
       if (!url) return;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `apso-design-${canvas.w}x${canvas.h}.png`;
-      a.click();
+      try {
+        // Loaded here rather than imported: ~350KB that nobody who never
+        // exports a PDF should be made to download to open the editor.
+        const { jsPDF } = await import("jspdf");
+        const doc = new jsPDF({
+          orientation: canvas.w >= canvas.h ? "landscape" : "portrait",
+          unit: "px",
+          // The page IS the artboard. Letting it default to A4 would letterbox
+          // a 1200x627 banner inside a portrait page, which is not what anybody
+          // means by "download this".
+          format: [canvas.w, canvas.h],
+          compress: true,
+        });
+        doc.addImage(url, "PNG", 0, 0, canvas.w, canvas.h, undefined, "FAST");
+        doc.save(`${stem}.pdf`);
+      } catch {
+        setNotice("The PDF could not be made. The PNG download still works.");
+      }
     });
   };
 
@@ -2216,9 +2262,38 @@ export default function EditorCanvas({
                 Use design
               </Button>
             )}
-            <Button onClick={download} startIcon={<DownloadIcon />} variant="contained" sx={{ bgcolor: "#ed1b2f", fontWeight: 700 }}>
-              Download PNG
+            {/* A menu, not a button: PNG for a screen, JPG for an email, PDF
+                for a person or a printer. One format hard-coded into the only
+                way out was answering a third of the cases. */}
+            <Button
+              onClick={(e) => setDownloadAnchor(e.currentTarget)}
+              startIcon={<DownloadIcon />}
+              endIcon={<ExpandMoreIcon />}
+              variant="contained"
+              sx={{ bgcolor: "#ed1b2f", fontWeight: 700 }}
+            >
+              Download
             </Button>
+            <Menu
+              open={Boolean(downloadAnchor)}
+              anchorEl={downloadAnchor}
+              onClose={() => setDownloadAnchor(null)}
+            >
+              {([
+                { f: "png" as const, label: "PNG", note: "Screens, slides, the web" },
+                { f: "jpg" as const, label: "JPG", note: "Email — a fraction of the size" },
+                { f: "pdf" as const, label: "PDF", note: "Sending to a person, or printing" },
+              ]).map((opt) => (
+                <MenuItem
+                  key={opt.f}
+                  onClick={() => { setDownloadAnchor(null); download(opt.f); }}
+                  sx={{ display: "block", py: 0.75 }}
+                >
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#15223a" }}>{opt.label}</Typography>
+                  <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>{opt.note}</Typography>
+                </MenuItem>
+              ))}
+            </Menu>
           </Box>
 
           {/* always-visible text editor for the selected text node */}
