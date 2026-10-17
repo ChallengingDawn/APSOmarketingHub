@@ -36,6 +36,8 @@ export type StripVariant = {
   body: string;
   createdBy: string | null;
   createdAt: string;
+  /** Present once the assistant or the studio has drawn one. */
+  imageUrl?: string | null;
 };
 
 const INK = "#15223a";
@@ -83,7 +85,7 @@ export default function VariationStrip({
   useEffect(load, [load, refreshKey]);
 
   return (
-    <Box sx={{ width: 132, flexShrink: 0, display: { xs: "none", lg: "block" } }}>
+    <Box sx={{ width: 168, flexShrink: 0, display: { xs: "none", lg: "block" } }}>
       <Box sx={{
         position: "sticky", top: 8, p: 1, borderRadius: "16px",
         bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, maxHeight: "calc(100vh - 32px)", overflowY: "auto",
@@ -124,15 +126,30 @@ export default function VariationStrip({
                   "&:hover": { borderColor: ACCENT },
                 }}
               >
-                {/* A real preview of the words, small. Not a rendered image:
-                    we do not have one, and a grey rectangle pretending to be
-                    a thumbnail tells you less than the actual first line. */}
-                <Box sx={{
-                  height: 72, p: 0.75, bgcolor: "#f7f8fa", borderBottom: `1px solid ${HAIRLINE}`,
-                  fontSize: 7.5, lineHeight: 1.45, color: MUTED, overflow: "hidden",
-                }}>
-                  {firstLine(v.body).slice(0, 140)}
-                </Box>
+                {/* The picture when there is one, the words when there is not.
+                    Never a grey rectangle pretending to be a thumbnail — the
+                    actual first line tells you more than a placeholder. */}
+                {v.imageUrl ? (
+                  <Box
+                    component="img"
+                    src={v.imageUrl}
+                    alt=""
+                    sx={{
+                      display: "block", width: "100%", height: 94, objectFit: "cover",
+                      borderBottom: `1px solid ${HAIRLINE}`,
+                    }}
+                  />
+                ) : (
+                  <Box sx={{
+                    height: 94, p: 1, bgcolor: "#f7f8fa", borderBottom: `1px solid ${HAIRLINE}`,
+                    fontSize: 8.5, lineHeight: 1.5, color: MUTED, overflow: "hidden",
+                    // The first line set as a headline, so the column reads as
+                    // a set of pages rather than a list of paragraphs.
+                    fontWeight: 600,
+                  }}>
+                    {firstLine(v.body).slice(0, 150)}
+                  </Box>
+                )}
                 <Box sx={{ px: 0.75, py: 0.6, display: "flex", alignItems: "center", gap: 0.4 }}>
                   <Typography sx={{
                     fontSize: 10.5, fontWeight: on ? 700 : 600, color: INK, flex: 1,

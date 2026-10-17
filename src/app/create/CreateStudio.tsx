@@ -1566,8 +1566,33 @@ export default function CreateStudio({
       {projectId && (
         <FloatingAssistant
           projectId={projectId}
-          onApplied={() => setStripKey((n) => n + 1)}
           settings={aiSettings}
+          onApplied={async () => {
+            setStripKey((n) => n + 1);
+            // Pull what the assistant just made onto the canvas. Without this
+            // it produced a version and the artboard kept showing the old one,
+            // which is the assistant working and the page ignoring it.
+            try {
+              const j = await fetch(`/api/content/projects/${projectId}`).then((r) => r.json());
+              if (!j.ok) return;
+              const fresh =
+                j.variants.find((v: { id: number }) => v.id === j.project.chosenVariantId) ??
+                j.variants[j.variants.length - 1];
+              if (!fresh) return;
+              setDraft({
+                content: fresh.body,
+                draftId: fresh.id,
+                revision: 1,
+                imageUrl: fresh.imageUrl ?? undefined,
+              });
+              setDesigning({ target: "draft" });
+              // The canvas keys off this, so a new background actually paints
+              // instead of being held behind the mounted editor.
+              setCanvasEpoch((n) => n + 1);
+            } catch {
+              /* the strip still refreshed; the canvas simply did not follow */
+            }
+          }}
         />
       )}
     </Box>
