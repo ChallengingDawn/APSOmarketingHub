@@ -20,7 +20,7 @@ import { ASSOC_PIPELINES, ESO, PP_OBJ, TSA, articleCandidates, positionArticles,
 import { hubPublicUrl } from "@/lib/content/shareMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
 import { renderOrderAlert } from "./mail";
-import { alertArticles, msOf, nextSince } from "./rules";
+import { alertArticles, alertsPlan, msOf, nextSince } from "./rules";
 
 export type AlertMode = "off" | "preview" | "link" | "mail";
 export type AlertRun = { at: string; seconds: number; mode: AlertMode; read: number; withArticles: number; matched: number; created: number; promoted: number; linked: number; mailed: number; error?: string };
@@ -28,7 +28,7 @@ export type AlertRun = { at: string; seconds: number; mode: AlertMode; read: num
 const PORTAL = "26492587";
 const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-5/${id}`;
 const KV = { since: "ticketAssoc:orders:since", last: "ticketAssoc:orders:last" };
-const MAX_READ = 300;
+export const MAX_READ = 300;
 const OVERLAP_MS = 5 * 60_000;
 const TPROPS = ["subject", "content", "order_number", "order_id", "article", "article_number", "articles_on_the_ticket", "hs_pipeline", "hs_pipeline_stage", "createdate", "hubspot_owner_id"];
 
@@ -158,7 +158,9 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
   const t0 = Date.now();
   const out: AlertRun = { at: new Date().toISOString(), seconds: 0, mode, read: 0, withArticles: 0, matched: 0, created: 0, promoted: 0, linked: 0, mailed: 0 };
   const stored = (await kvGet<number>(KV.since)) ?? null;
-  let since = stored && Date.now() - stored < 3 * 86_400_000 ? stored : Date.now() - 86_400_000;
+  const { overlapMs } = alertsPlan((await kvGet<AlertRun>(KV.last)) ?? null, Date.now(), 0, MAX_READ, OVERLAP_MS);
+  // a look back (lookBack) may set it up to 14 days back; anything older, or nothing, starts one day back
+  let since = stored && Date.now() - stored <= 15 * 86_400_000 ? stored : Date.now() - 86_400_000;
   const changes: number[] = [];
   const tickets = new Map<string, Obj>();
   const companies = new Map<string, Obj>();
@@ -172,7 +174,7 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
       const page = await hs<{ results?: Obj[]; paging?: { next?: { after?: string } } }>("/crm/v3/objects/orders/search", "POST", {
         filterGroups: [{ filters: [
           { propertyName: "order_order_number", operator: "HAS_PROPERTY" },
-          { propertyName: "hs_lastmodifieddate", operator: "GTE", value: String(since - OVERLAP_MS) },
+          { propertyName: "hs_lastmodifieddate", operator: "GTE", value: String(since - overlapMs) },
         ] }],
         sorts: [{ propertyName: "hs_lastmodifieddate", direction: "ASCENDING" }],
         properties: ["order_order_number", "order_order_date", "order_positions_json", "hs_createdate", "hs_lastmodifieddate"], limit: 100, ...(after ? { after } : {}),
@@ -240,7 +242,8 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
       if (!after) break;
     }
     since = nextSince(since, changes);
-    await kvSet(KV.since, since);
+    // a look back set while this check ran wins over the mark this check reached
+    if (((await kvGet<number>(KV.since)) ?? null) === stored) await kvSet(KV.since, since);
   } catch (e) {
     out.error = (e as Error).message.slice(0, 300);
   }
@@ -248,6 +251,17 @@ export async function runOrderAlerts(mode: AlertMode, signal?: AbortSignal): Pro
   await kvSet(KV.last, out);
   if (out.error || out.created || out.promoted) console.log(`[ticket-assoc] order alerts (${mode}): ${out.read} orders read, ${out.matched} matched, ${out.created} new, ${out.promoted} listed before and acted on, ${out.linked} linked, ${out.mailed} mailed${out.error ? ` - ${out.error}` : ""}`);
   return out;
+}
+
+/**
+ * Look back: the next checks read the orders of the last `days` again (SARCLA 17.10.2026: "still only
+ * 2 alerts" - the watcher only sees orders as they get their A-number, and looked back one day when it
+ * started). Alerts already made are never made twice; in mail mode every new match mails its owner.
+ */
+export async function lookBack(days = 14): Promise<number> {
+  const since = Date.now() - Math.max(1, Math.min(days, 14)) * 86_400_000;
+  await kvSet(KV.since, since);
+  return since;
 }
 
 export async function lastAlertRun(): Promise<AlertRun | null> {

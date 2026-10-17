@@ -49,14 +49,18 @@ import type { SecretFlows } from "@/lib/ticketAssoc/workflows";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
-  offer_orders: string[]; new_orders: number; new_articles: number; filled: string[]; c2s: boolean; ok: boolean; error: string | null;
+  offer_orders: string[]; new_orders: number; new_articles: number; filled: string[]; c2s: boolean; ok: boolean; error: string | null; sources: string[];
 };
 type Pipe = { pipeline: string | null; tickets: number; orders: number; articles: number; filled: number; c2s: number; failed: number };
 type OrderRow = { ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; offer_orders: string[]; new_orders: number; filled: string[]; ok: boolean };
-type ArtRow = { ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] };
+type ArtRow = { ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[]; sources: string[] };
+/** Where the hub found an order or article beyond the ticket's own fields. */
+const SOURCE: Record<string, string> = { email: "in an e-mail", shop: "via a shop link" };
+const Sources = ({ s }: { s: string[] }) => <>{s.map((k) => <Chip key={k} tint="slate">{SOURCE[k] ?? k}</Chip>)}</>;
 type Data = {
-  settings: Settings; mode: "preview" | "live"; pipeline: string | null; backfill: Backfill; byPipeline: Pipe[]; recent: Row[]; from: string; to: string;
-  articles: ArtRow[]; orderRows: OrderRow[]; alerts: AlertRow[]; lastAlerts: AlertRun | null; alertsEveryMinutes: number;
+  settings: Settings; mode: "preview" | "live"; pipeline: string | null; backfill: Backfill; byPipeline: Pipe[]; recent: Row[]; nothingFound: number; from: string; to: string;
+  articles: ArtRow[]; orderRows: OrderRow[]; alerts: AlertRow[];
+  totals: { order_tickets: number; named: number; offer: number; new_links: number; order_number: number; article_tickets: number; distinct_articles: number; rejected_tickets: number; article_filled: number }; lastAlerts: AlertRun | null; alertsEveryMinutes: number;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
 type View = "overview" | "articles" | "orders" | "alerts" | "settings";
@@ -120,12 +124,12 @@ function Overview({ d }: { d: Data }) {
 
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Latest tickets" note={would ? "What the hub would write - nothing is written in preview" : "What the hub wrote"} />
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Latest tickets" note={`${would ? "What the hub would write - nothing is written in preview" : "What the hub wrote"}. ${full(d.nothingFound)} tickets in the period named no order and no article (a newsletter, an invoice) - counted, not listed.`} />
         </Box>
         <Table size="small">
           <TableHead><TableRow>{["Ticket", "Pipeline", "Why", "Orders", "Articles", "Filled", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
-            {!d.recent.length && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>Nothing yet in this period.</TableCell></TableRow>}
+            {!d.recent.length && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No ticket in this period named an order or an article yet.</TableCell></TableRow>}
             {slice.map((r) => (
               <TableRow key={`${r.ticket_id}-${r.at}`} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
@@ -137,7 +141,7 @@ function Overview({ d }: { d: Data }) {
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{WHY[r.why] ?? r.why}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.orders.length ? `${r.orders.join(", ")}${r.new_orders ? ` (+${r.new_orders})` : ""}` : "-"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.length ? `${r.articles.slice(0, 3).join(", ")}${r.articles.length > 3 ? ` +${r.articles.length - 3}` : ""}${r.new_articles ? ` (+${r.new_articles})` : ""}` : "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.length ? `${r.articles.slice(0, 3).join(", ")}${r.articles.length > 3 ? ` +${r.articles.length - 3}` : ""}${r.new_articles ? ` (+${r.new_articles})` : ""}` : "-"} <Sources s={r.sources ?? []} /></TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{[...r.filled.map((f) => FIELD[f] ?? f), ...(r.c2s && !r.filled.includes("c2s_ticket") ? ["C2S"] : [])].join(", ") || "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
               </TableRow>
@@ -166,23 +170,17 @@ function TicketCell({ id, subject }: { id: string; subject: string | null }) {
 function ArticlesTab({ d }: { d: Data }) {
   const rows = d.articles;
   const { slice, pager } = usePaged(rows, 15);
-  const withArt = rows.filter((r) => r.articles.length).length;
-  const distinct = new Set(rows.flatMap((r) => r.articles)).size;
-  const rejected = rows.filter((r) => r.rejected.length).length;
-  const filledArt = rows.filter((r) => r.filled.includes("article")).length;
+  const t = d.totals;
+  const withArt = t.article_tickets;
+  const distinct = t.distinct_articles;
+  const rejected = t.rejected_tickets;
+  const filledArt = t.article_filled;
   return (
     <>
-      <Info>
-        An article is found in the ticket&apos;s subject, description and reference fields - ten digits in one piece or in groups
-        (&quot;1120 030 724&quot;, &quot;1120-030-724&quot;, &quot;1120.030.724&quot;) - and from the lines of the orders the ticket names; Products &amp; Pricing confirms each one.
-        The articles found go into <b>Article(s)</b> and <b>Articles on the ticket</b> while those are empty, and are linked to the ticket.
-        &quot;Not in the catalogue&quot; shows what looked like an article but is not one. An 8-digit number is a shop product (page), not an article: one product holds many articles (11400711 holds 919 O-ring sizes), so it is shown, not linked.
-        This tab lists the tickets the hub processed in the period - new ones, ones that moved stage, and the older ones the re-check (Settings) goes through.
-      </Info>
       <Grid container spacing={2}>
         {[
           { icon: <Inventory2OutlinedIcon />, tint: "green" as const, label: "Tickets with an article", value: withArt, note: "confirmed by Products & Pricing" },
-          { icon: <ReceiptLongOutlinedIcon />, tint: "blue" as const, label: "Tickets with an order", value: rows.filter((r) => r.orders.length).length, note: `${full(distinct)} different articles` },
+          { icon: <PinOutlinedIcon />, tint: "blue" as const, label: "Different articles", value: distinct, note: "across those tickets" },
           { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Tickets with unknown numbers", value: rejected, note: "looked like an article, are not" },
           { icon: <EditNoteOutlinedIcon />, tint: "purple" as const, label: d.mode === "preview" ? "Article(s) to fill" : "Article(s) filled", value: filledArt, note: "only when it was empty" },
         ].map((k) => (
@@ -191,7 +189,7 @@ function ArticlesTab({ d }: { d: Data }) {
       </Grid>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<Inventory2OutlinedIcon />} tint="green" title="What the detection saw" note="Every processed ticket in the period that named a number" />
+          <CardTitle icon={<Inventory2OutlinedIcon />} tint="green" title="What the detection saw" note={rows.length >= 200 ? "The latest 200 tickets of the period that named a number" : "Every processed ticket in the period that named a number"} />
         </Box>
         <Table size="small">
           <TableHead><TableRow>{["Ticket", "Pipeline", "Articles found", "Order linked", "Not in the catalogue", "8-digit numbers", "Article(s)", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
@@ -201,7 +199,7 @@ function ArticlesTab({ d }: { d: Data }) {
               <TableRow key={`${r.ticket_id}-${r.at}`} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketCell id={r.ticket_id} subject={r.subject} /></TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.length ? <><Chip tint="green">article found</Chip> {r.articles.join(", ")}</> : "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.length ? <><Chip tint="green">article found</Chip> {r.articles.join(", ")} <Sources s={r.sources ?? []} /></> : "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.orders.length ? <><Chip tint="purple">order linked</Chip> {r.orders.join(", ")}</> : "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: r.rejected.length ? "#a96a12" : MUTED }}>{r.rejected.join(", ") || "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{r.products.join(", ") || "-"}</TableCell>
@@ -226,10 +224,7 @@ function ArticlesTab({ d }: { d: Data }) {
 function OrdersTab({ d }: { d: Data }) {
   const rows = d.orderRows;
   const { slice, pager } = usePaged(rows, 15);
-  const named = rows.filter((r) => r.orders.length).length;
-  const offers = rows.filter((r) => r.offer_orders.length).length;
-  const newLinks = rows.reduce((a, r) => a + (r.new_orders ?? 0), 0);
-  const filledNum = rows.filter((r) => r.filled.includes("order_number")).length;
+  const t = d.totals;
   return (
     <>
       <Info>
@@ -239,17 +234,17 @@ function OrdersTab({ d }: { d: Data }) {
       </Info>
       <Grid container spacing={2}>
         {[
-          { icon: <ReceiptLongOutlinedIcon />, tint: "purple" as const, label: "Tickets with an order", value: rows.length, note: "named, or offer to order" },
-          { icon: <AltRouteOutlinedIcon />, tint: "blue" as const, label: d.mode === "preview" ? "Links to write" : "Links written", value: newLinks, note: "the rest were already there" },
-          { icon: <PinOutlinedIcon />, tint: "green" as const, label: "Offer to order", value: offers, note: `${full(named)} named the A-number` },
-          { icon: <EditNoteOutlinedIcon />, tint: "amber" as const, label: d.mode === "preview" ? "Order Number to fill" : "Order Number filled", value: filledNum, note: "only when it was empty" },
+          { icon: <ReceiptLongOutlinedIcon />, tint: "purple" as const, label: "Tickets linked to an order", value: t.order_tickets, note: "in the period, each ticket once" },
+          { icon: <AltRouteOutlinedIcon />, tint: "blue" as const, label: d.mode === "preview" ? "New links to write" : "New links written", value: t.new_links, note: "order links the ticket did not have" },
+          { icon: <PinOutlinedIcon />, tint: "green" as const, label: "Found by A-number", value: t.named, note: `${full(t.offer)} by offer → order (a ticket can be both)` },
+          { icon: <EditNoteOutlinedIcon />, tint: "amber" as const, label: d.mode === "preview" ? "Order Number to fill" : "Order Number filled", value: t.order_number, note: "only when it was empty" },
         ].map((k) => (
           <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
         ))}
       </Grid>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<ReceiptLongOutlinedIcon />} tint="purple" title="Tickets linked to orders" note="Every processed ticket in the period with an order" />
+          <CardTitle icon={<ReceiptLongOutlinedIcon />} tint="purple" title="Tickets linked to orders" note={rows.length >= 200 ? `The latest 200 of the period's ${full(t.order_tickets)}` : "Every processed ticket in the period with an order"} />
         </Box>
         <Table size="small">
           <TableHead><TableRow>{["Ticket", "Pipeline", "Order", "How", "Link", "Order Number", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
@@ -259,7 +254,7 @@ function OrdersTab({ d }: { d: Data }) {
               <TableRow key={`${r.ticket_id}-${r.at}`} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketCell id={r.ticket_id} subject={r.subject} /></TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{[...r.orders, ...r.offer_orders].join(", ")}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{[...new Set([...r.orders, ...r.offer_orders])].join(", ")}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
                   {r.orders.length ? <Chip tint="purple">named in the ticket</Chip> : null}{r.orders.length && r.offer_orders.length ? " " : null}
                   {r.offer_orders.length ? <Chip tint="green">offer to order</Chip> : null}
@@ -274,6 +269,34 @@ function OrdersTab({ d }: { d: Data }) {
         <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
       </GlassCard>
     </>
+  );
+}
+
+/**
+ * The watcher sees orders as they get their A-number; this makes the next checks read the last 14
+ * days' orders again (SARCLA 17.10.2026: "still only 2 alerts"). Alerts already made are never made
+ * twice; in mail mode every new match mails its ticket's owner.
+ */
+function LookBack({ admin, mode }: { admin: boolean; mode: AlertMode }) {
+  const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+  if (!admin) return null;
+  const go = async () => {
+    setState("busy");
+    try {
+      const res = await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alertsLookBack: 14 }) });
+      setState(res.ok ? "done" : "idle");
+    } catch { setState("idle"); }
+  };
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
+      <Button size="small" variant="outlined" onClick={() => void go()} disabled={state !== "idle"} sx={{ borderRadius: "999px", textTransform: "none" }}>
+        {state === "busy" ? <CircularProgress size={14} /> : state === "done" ? "Looking back - the next checks read 14 days" : "Look back 14 days"}
+      </Button>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+        Reads the last 14 days&apos; orders again, 300 every 3 minutes until it has caught up.
+        {mode === "mail" ? " Every new match mails its ticket's owner." : ""}
+      </Typography>
+    </Box>
   );
 }
 
@@ -294,6 +317,7 @@ function AlertsTab({ d }: { d: Data }) {
       {a === "off" && <Info>Order alerts are off. Settings &gt; Order alerts turns them on.</Info>}
       {a === "preview" && <Info>Preview - every {d.alertsEveryMinutes} minutes the hub matches the orders that just got their A-number to open ESO / TSA tickets of the same customer that name one of the order&apos;s articles, and lists them here. Nothing is linked and nobody is mailed until Settings &gt; Order alerts says so.</Info>}
       {a === "link" && <Info>Linking - a matched order is linked to the ticket; nobody is mailed.</Info>}
+      {a !== "off" && <LookBack admin={d.admin} mode={a} />}
       <Grid container spacing={2}>
         {[
           { icon: <NotificationsActiveOutlinedIcon />, tint: "blue" as const, label: a === "preview" ? "Alerts it would send" : "Alerts", value: rows.length, note: "one per ticket and order" },
@@ -506,10 +530,10 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
             <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Evidence</Typography>
             {d.admin ? (
               <Choice<"fields" | "extended"> value={d.settings.extended ? "extended" : "fields"} onChange={(v) => void save({ extended: v === "extended" })} options={[
-                { key: "fields", label: "The ticket's fields - as the HubSpot workflow" },
-                { key: "extended", label: "Also its e-mails, and ESO / TSA offers to the order that followed" },
+                { key: "fields", label: "The ticket, its e-mails and shop links" },
+                { key: "extended", label: "Also ESO / TSA offers to the order that followed" },
               ]} />
-            ) : <Chip tint="slate">{d.settings.extended ? "extended" : "the ticket's fields"}</Chip>}
+            ) : <Chip tint="slate">{d.settings.extended ? "extended" : "the ticket, its e-mails and shop links"}</Chip>}
           </Box>
           <Box>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Order alerts - an order with a ticket&apos;s article, on an open ESO / TSA ticket (every {d.alertsEveryMinutes} minutes)</Typography>
@@ -609,7 +633,7 @@ export default function TicketAssociations() {
         <ReportTabs name="ticketassoc" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
           { id: "articles", label: "Articles", count: null },
-          { id: "orders", label: "Orders", count: r?.state === "ok" && r.data.orderRows.length ? full(r.data.orderRows.length) : null },
+          { id: "orders", label: "Orders", count: r?.state === "ok" && r.data.totals.order_tickets ? full(r.data.totals.order_tickets) : null },
           { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },
           { id: "settings", label: "Settings", count: null },
         ]} />

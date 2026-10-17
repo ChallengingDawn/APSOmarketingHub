@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { firstSince, nextSince, reason } from "../src/lib/ticketAssoc/rules";
+import { alertsPlan, firstSince, nextSince, reason } from "../src/lib/ticketAssoc/rules";
 
 test("the workflow's two triggers: a ticket new to the hub, or one that moved stage", () => {
   assert.equal(reason("1", undefined), "new");
@@ -16,6 +16,17 @@ test("the window moves on to the newest change read, never back", () => {
   assert.equal(nextSince(2000, [1500]), 2000);
   assert.equal(nextSince(2000, []), 2000);
   assert.equal(nextSince(2000, [NaN, 0]), 2000);
+});
+
+test("order alerts: every 15 minutes, on the next tick while a backlog waits - and a backlog drops the overlap", () => {
+  const at = "2026-10-17T06:00:00Z";
+  const t = Date.parse(at);
+  const MIN = 60_000;
+  assert.deepEqual(alertsPlan(null, t, 15 * MIN, 300, 5 * MIN), { due: true, overlapMs: 5 * MIN });
+  assert.deepEqual(alertsPlan({ at, read: 12 }, t + 3 * MIN, 15 * MIN, 300, 5 * MIN), { due: false, overlapMs: 5 * MIN });
+  assert.deepEqual(alertsPlan({ at, read: 12 }, t + 15 * MIN, 15 * MIN, 300, 5 * MIN), { due: true, overlapMs: 5 * MIN });
+  // the chain changed more than 300 orders: the next check comes at once and starts at the mark itself
+  assert.deepEqual(alertsPlan({ at, read: 300 }, t + 3 * MIN, 15 * MIN, 300, 5 * MIN), { due: true, overlapMs: 0 });
 });
 
 test("after a start or a long stop the first look goes back half an hour, not days", () => {

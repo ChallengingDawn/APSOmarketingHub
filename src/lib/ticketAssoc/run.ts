@@ -21,8 +21,8 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { flush, gather, newStats, type Evidence, type Gathered } from "@/lib/connectors/steps/tickets";
 import { ASSOC_FIELDS, ASSOC_PIPELINES, BO, ESO, TSA } from "@/lib/connectors/steps/ticketRules";
-import { firstSince, nextSince, reason, type Seen } from "./rules";
-import { alertRows, lastAlertRun, runOrderAlerts, type AlertMode } from "./orderAlerts";
+import { alertsPlan, firstSince, nextSince, reason, type Seen } from "./rules";
+import { alertRows, lastAlertRun, MAX_READ as ALERTS_MAX_READ, runOrderAlerts, type AlertMode } from "./orderAlerts";
 
 export type Mode = "off" | "preview" | "live";
 /** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail. */
@@ -49,7 +49,7 @@ const BACKFILL_PER_RUN = 100;
 /** HubSpot's search index trails a write by a little: each window starts this much earlier. */
 const OVERLAP_MS = 3 * 60_000;
 const RETENTION_DAYS = 180;
-/** The order alerts run inside the same scheduler and lock, every 15 minutes. */
+/** The order alerts run inside the same scheduler and lock, every 15 minutes - every 3 while a backlog waits. */
 const ALERTS_EVERY_MS = 15 * 60_000;
 const KV = {
   settings: "ticketAssoc:settings",
@@ -99,7 +99,9 @@ export async function setBackfill(from: string | null, by: string): Promise<Back
   return b;
 }
 
-const evidence = (s: Settings): Evidence => (s.extended ? { emails: true, offers: true } : { emails: false, offers: false });
+// the ticket's e-mails are always read (SARCLA 17.10.2026: "it should detect from mails and shop links
+// as well"); the extended evidence adds the ESO / TSA offer matched to the order that followed
+const evidence = (s: Settings): Evidence => ({ emails: true, offers: s.extended });
 
 /* ── the hub's own tables (created on first use, never in ensureSchema) ── */
 
@@ -119,6 +121,8 @@ function ensureTables(): Promise<void> {
     await q("CREATE INDEX IF NOT EXISTS apsomh_ticket_assoc_log_at ON apsomh_ticket_assoc_log (mode, at DESC)");
     // the Articles tab (17.10.2026): numbers the catalogue did not know, eight-digit numbers seen
     await q("ALTER TABLE apsomh_ticket_assoc_log ADD COLUMN IF NOT EXISTS rejected text[], ADD COLUMN IF NOT EXISTS products text[]");
+    // where an order or article came from beyond the ticket's fields: email, shop (17.10.2026)
+    await q("ALTER TABLE apsomh_ticket_assoc_log ADD COLUMN IF NOT EXISTS sources text[]");
   })().catch((e) => { tables = null; throw e; });
   return tables;
 }
@@ -162,11 +166,11 @@ async function record(mode: "preview" | "live", live: boolean, rows: { g: Gather
     const d = g.detail;
     const filled = live ? d.filled : g.plan?.filled ?? [];
     await q(
-      `INSERT INTO apsomh_ticket_assoc_log (mode, ticket_id, pipeline, stage, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error, rejected, products)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+      `INSERT INTO apsomh_ticket_assoc_log (mode, ticket_id, pipeline, stage, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error, rejected, products, sources)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [mode, g.tid, ASSOC_PIPELINES[g.p.hs_pipeline ?? ""] ?? null, stage, why, (g.p.subject ?? "").slice(0, 120) || null,
         d.orders, d.articles, d.offer_orders, d.new_orders ?? 0, d.new_articles ?? 0, filled, !!g.plan?.props?.c2s_ticket, ok, error ?? null,
-        d.rejected ?? [], d.products ?? []]);
+        d.rejected ?? [], d.products ?? [], d.sources ?? []]);
     await q(
       `INSERT INTO apsomh_ticket_assoc_seen (mode, ticket_id, stage, ok, at) VALUES ($1,$2,$3,$4,now())
        ON CONFLICT (mode, ticket_id) DO UPDATE SET stage=EXCLUDED.stage, ok=EXCLUDED.ok, at=now()`,
@@ -272,7 +276,7 @@ export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promis
       // the order alerts: every 15 minutes (or now, from the page)
       if (settings.alerts !== "off") {
         const last = await lastAlertRun();
-        if (forceAlerts || !last || Date.now() - Date.parse(last.at) >= ALERTS_EVERY_MS) await runOrderAlerts(settings.alerts, signal);
+        if (forceAlerts || alertsPlan(last, Date.now(), ALERTS_EVERY_MS, ALERTS_MAX_READ, 0).due) await runOrderAlerts(settings.alerts, signal);
       }
       return res;
     } finally {
@@ -369,38 +373,75 @@ export async function report(from: string, to: string, pipeline: string | null =
   const mode = settings.mode === "live" ? "live" : "preview";
   // the page's pipeline filter: BO / ESO / TSA, or all
   const pipe = pipeline && ["BO", "ESO", "TSA"].includes(pipeline) ? pipeline : null;
-  const [byPipeline, recent, lastPreview, lastLive] = await Promise.all([
+  const [byPipeline, recent, lastPreview, lastLive, nothing] = await Promise.all([
     q<{ pipeline: string | null; tickets: number; orders: number; articles: number; filled: number; c2s: number; failed: number }>(
-      `SELECT pipeline, count(*)::int AS tickets, sum(new_orders)::int AS orders, sum(new_articles)::int AS articles,
+      `SELECT pipeline, count(DISTINCT ticket_id)::int AS tickets, sum(new_orders)::int AS orders, sum(new_articles)::int AS articles,
               sum(coalesce(cardinality(filled), 0))::int AS filled, count(*) FILTER (WHERE c2s)::int AS c2s, count(*) FILTER (WHERE NOT ok)::int AS failed
          FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4) GROUP BY pipeline ORDER BY pipeline`, [mode, from, to, pipe]),
     q<{ ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[]; offer_orders: string[]; new_orders: number; new_articles: number; filled: string[]; c2s: boolean; ok: boolean; error: string | null }>(
-      `SELECT ticket_id, at, pipeline, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error
-         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4) ORDER BY at DESC LIMIT 60`, [mode, from, to, pipe]),
+      // the tickets where something was found, or that failed - a ticket that names no order and no
+      // article (a newsletter, an invoice) is counted below, not listed (SARCLA 17.10.2026: "how can
+      // you backfill without data on columns")
+      `SELECT ticket_id, at, pipeline, why, subject, orders, articles, offer_orders, new_orders, new_articles, filled, c2s, ok, error, coalesce(sources, '{}') AS sources
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4)
+          AND (NOT ok OR c2s OR cardinality(orders) > 0 OR cardinality(articles) > 0 OR cardinality(offer_orders) > 0 OR cardinality(filled) > 0)
+        ORDER BY at DESC LIMIT 60`, [mode, from, to, pipe]),
     kvGet<LastRun>(KV.last("preview")),
     kvGet<LastRun>(KV.last("live")),
+    q<{ n: number }>(
+      `SELECT count(*)::int AS n FROM (SELECT ticket_id FROM apsomh_ticket_assoc_log
+          WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4) GROUP BY ticket_id
+         HAVING bool_and(ok AND NOT c2s AND coalesce(cardinality(orders), 0) = 0 AND coalesce(cardinality(articles), 0) = 0
+                         AND coalesce(cardinality(offer_orders), 0) = 0 AND coalesce(cardinality(filled), 0) = 0)) x`,
+      [mode, from, to, pipe]),
   ]);
   // the Articles tab: every processed ticket that named an article, a number the catalogue did not
   // know, or an eight-digit number - what the detection saw, ticket by ticket
-  const [articles, alerts, lastAlerts, orderRows] = await Promise.all([
+  const [articles, alerts, lastAlerts, orderRows, totals] = await Promise.all([
     q<{ ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] }>(
-      `SELECT ticket_id, at, pipeline, subject, articles, coalesce(rejected, '{}') AS rejected, coalesce(products, '{}') AS products, filled, orders
-         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
-          AND (cardinality(articles) > 0 OR cardinality(coalesce(rejected, '{}')) > 0 OR cardinality(coalesce(products, '{}')) > 0)
-          AND ($4::text IS NULL OR pipeline = $4)
-        ORDER BY at DESC LIMIT 200`, [mode, from, to, pipe]),
+      // one row per ticket - its latest processing; Article(s) "filled" when any processing filled it
+      `WITH p AS (SELECT * FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
+                    AND (cardinality(articles) > 0 OR cardinality(coalesce(rejected, '{}')) > 0 OR cardinality(coalesce(products, '{}')) > 0)
+                    AND ($4::text IS NULL OR pipeline = $4)),
+            s AS (SELECT ticket_id, coalesce(bool_or('article' = ANY(filled)), false) AS art FROM p GROUP BY ticket_id),
+            l AS (SELECT DISTINCT ON (ticket_id) * FROM p ORDER BY ticket_id, at DESC)
+       SELECT l.ticket_id, l.at, l.pipeline, l.subject, l.articles, coalesce(l.rejected, '{}') AS rejected, coalesce(l.products, '{}') AS products,
+              CASE WHEN s.art AND NOT coalesce('article' = ANY(l.filled), false) THEN array_append(coalesce(l.filled, '{}'), 'article') ELSE coalesce(l.filled, '{}') END AS filled,
+              l.orders, coalesce(l.sources, '{}') AS sources
+         FROM l JOIN s USING (ticket_id) ORDER BY l.at DESC LIMIT 200`, [mode, from, to, pipe]),
     alertRows(from, to, pipe),
     lastAlertRun(),
     // the Orders tab (SARCLA 17.10.2026: "I don't see the order association, only the alerts"):
     // every processed ticket linked to an order - named in it, or an ESO / TSA offer's order
     q<{ ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; offer_orders: string[]; new_orders: number; filled: string[]; ok: boolean }>(
-      `SELECT ticket_id, at, pipeline, why, subject, orders, offer_orders, new_orders, filled, ok
-         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
-          AND (cardinality(orders) > 0 OR cardinality(offer_orders) > 0) AND ($4::text IS NULL OR pipeline = $4)
-        ORDER BY at DESC LIMIT 200`, [mode, from, to, pipe]),
+      // one row per ticket - its latest processing, with the links and the Order Number all of them wrote
+      `WITH p AS (SELECT * FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
+                    AND (cardinality(orders) > 0 OR cardinality(offer_orders) > 0) AND ($4::text IS NULL OR pipeline = $4)),
+            s AS (SELECT ticket_id, coalesce(sum(new_orders), 0)::int AS new_orders, coalesce(bool_or('order_number' = ANY(filled)), false) AS num FROM p GROUP BY ticket_id),
+            l AS (SELECT DISTINCT ON (ticket_id) * FROM p ORDER BY ticket_id, at DESC)
+       SELECT l.ticket_id, l.at, l.pipeline, l.why, l.subject, l.orders, l.offer_orders, s.new_orders,
+              CASE WHEN s.num THEN ARRAY['order_number']::text[] ELSE '{}'::text[] END AS filled, l.ok
+         FROM l JOIN s USING (ticket_id) ORDER BY l.at DESC LIMIT 200`, [mode, from, to, pipe]),
+    // the tabs' tiles: counted over the whole period, each ticket once - the tables show only the
+    // latest 200 tickets (SARCLA 17.10.2026: "I don't understand the top number logic" - every tile
+    // read 200, the table's cap, and a ticket processed twice counted twice)
+    q<{ order_tickets: number; named: number; offer: number; new_links: number; order_number: number;
+        article_tickets: number; distinct_articles: number; rejected_tickets: number; article_filled: number }>(
+      `SELECT count(DISTINCT ticket_id) FILTER (WHERE cardinality(orders) > 0 OR cardinality(offer_orders) > 0)::int AS order_tickets,
+              count(DISTINCT ticket_id) FILTER (WHERE cardinality(orders) > 0)::int AS named,
+              count(DISTINCT ticket_id) FILTER (WHERE cardinality(offer_orders) > 0)::int AS offer,
+              coalesce(sum(new_orders), 0)::int AS new_links,
+              count(DISTINCT ticket_id) FILTER (WHERE 'order_number' = ANY(filled))::int AS order_number,
+              count(DISTINCT ticket_id) FILTER (WHERE cardinality(articles) > 0)::int AS article_tickets,
+              (SELECT count(DISTINCT a)::int FROM apsomh_ticket_assoc_log l2, unnest(l2.articles) a
+                 WHERE l2.mode=$1 AND l2.at >= $2::date AND l2.at < ($3::date + 1) AND ($4::text IS NULL OR l2.pipeline = $4)) AS distinct_articles,
+              count(DISTINCT ticket_id) FILTER (WHERE cardinality(coalesce(rejected, '{}')) > 0)::int AS rejected_tickets,
+              count(DISTINCT ticket_id) FILTER (WHERE 'article' = ANY(filled))::int AS article_filled
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1) AND ($4::text IS NULL OR pipeline = $4)`,
+      [mode, from, to, pipe]),
   ]);
   const backfillState = await getBackfill();
-  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, articles, orderRows, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
+  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, nothingFound: nothing[0]?.n ?? 0, articles, orderRows, totals: totals[0], alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
 }
 
 /* ── the schedule ──────────────────────────────────────────────────────── */

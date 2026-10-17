@@ -417,6 +417,25 @@ export function articleCandidates(text: string): Set<string> {
   return out;
 }
 
+/** An APSOparts shop address: www.apsoparts.com/<locale>[/<currency>]/... (with or without https://). */
+export const SHOP_URL_RE = /(?:https?:\/\/)?(?:www\.)?apsoparts\.[a-z]{2,3}(?:\.[a-z]{2})?\/[^\s"'<>()[\]]*/giu;
+
+/**
+ * Shop links (SARCLA 17.10.2026: "it should detect from mails and shop links as well"). A product
+ * page carries the 8-digit product - /de-CH/eur/06555127-universal-food-drink-upe-mit-spirale.html -
+ * and a chosen size its 10-digit article, anywhere in the address (?sku=0111104030, product_0111104030).
+ */
+export function shopLinks(text: string): { articles: string[]; products: string[] } {
+  const articles = new Set<string>();
+  const products = new Set<string>();
+  for (const m of text.matchAll(SHOP_URL_RE)) {
+    for (const a of m[0].matchAll(/(?<![0-9])([0-9]{10})(?![0-9])/g)) articles.add(a[1]);
+    const page = /\/([0-9]{8})-[^/?#]*\.html/.exec(m[0]);
+    if (page) products.add(page[1]);
+  }
+  return { articles: pySorted(articles).slice(0, 6), products: pySorted(products).slice(0, 3) };
+}
+
 /** Eight-digit numbers in the text - possible product numbers, for the page only. */
 export const productCandidates = (text: string): string[] => pySorted(new Set([...text.matchAll(PRODUCT_RE)].map((m) => m[1]))).slice(0, 6);
 

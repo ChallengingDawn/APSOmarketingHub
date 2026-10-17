@@ -14,10 +14,10 @@ import { hubspotRetry as hubspotFetchJson } from "./hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import type { StepResult } from "./companyFacts";
 import {
-  ASSOC_FIELDS, ASSOC_PIPELINES, BO, DEPUTY_PIPELINE, DEPUTY_STAGES, ESO, ORDER_PROPS, PIPE_NAME, PP_ASSOC_TYPE, PP_OBJ, TSA, USER_PROPS,
+  ASSOC_FIELDS, ASSOC_PIPELINES, BO, DEPUTY_PIPELINE, DEPUTY_STAGES, ESO, ORDER_PROPS, PIPE_NAME, PP_ASSOC_TYPE, PP_OBJ, SHOP_URL_RE, TSA, USER_PROPS,
   WRONG_OWNER_PROPS, absorbArticles, addOwners, articleCandidates, articleSearchValues, articlesFromCache, articlesToCheck, assocPlan,
   companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch, productCandidates,
-  orderRefs, pySlice, pySorted, rememberMissing, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
+  orderRefs, pySlice, pySorted, rememberMissing, shopLinks, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
   wrongOwnerSearch, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
 } from "./ticketRules";
 
@@ -275,14 +275,16 @@ async function emailText(tid: string): Promise<[string, number]> {
   let res: Obj[];
   try {
     res = (await tix<{ results?: Obj[] }>("/crm/v3/objects/emails/batch/read", "POST", {
-      inputs: ids.map((id) => ({ id })), properties: ["hs_email_text", "hs_email_subject"],
+      inputs: ids.map((id) => ({ id })), properties: ["hs_email_text", "hs_email_subject", "hs_email_html"],
     })).results ?? [];
   } catch (e) {
     if (statusOf(e) === 403) emailScopeOk = false;
     return ["", -1];
   }
   emailScopeOk = true;
-  return [res.map((o) => `${o.properties?.hs_email_subject || ""}\n${pySlice(o.properties?.hs_email_text || "", 6000)}`).join("\n"), ids.length];
+  // a shop link behind a word ("this O-ring") is only in the HTML: its addresses are added to the text
+  const links = (o: Obj) => [...(o.properties?.hs_email_html || "").matchAll(SHOP_URL_RE)].map((m) => m[0]).slice(0, 20).join("\n");
+  return [res.map((o) => `${o.properties?.hs_email_subject || ""}\n${pySlice(o.properties?.hs_email_text || "", 6000)}\n${links(o)}`).join("\n"), ids.length];
 }
 
 async function resolveOrders(numbers: string[]): Promise<Map<string, FoundOrder>> {
@@ -336,6 +338,22 @@ async function resolveArticles(arts: string[], cache: Map<string, string | null>
 const firstTo = (j: { results?: { toObjectId: string | number }[] }): string | null =>
   j.results?.length ? String(j.results[0].toObjectId) : null;
 
+/**
+ * A shop product page that holds exactly one article stands for that article; a product of many
+ * sizes (11400711: 919 O-rings) stays a product - shown, never linked.
+ */
+async function singleArticleProducts(products: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of products) {
+    const j = await crm<Page & { total?: number }>(`/crm/v3/objects/${PP_OBJ}/search`, "POST", {
+      filterGroups: [{ filters: [{ propertyName: "product_number", operator: "EQ", value: p }] }], properties: ["article_number"], limit: 2,
+    });
+    const a = j.total === 1 ? j.results?.[0]?.properties?.article_number : null;
+    if (a) out.push(a);
+  }
+  return out;
+}
+
 /** The ticket's company - or its first contact's. */
 async function companyOf(tid: string): Promise<string | null> {
   const co = firstTo(await tix(`/crm/v4/objects/tickets/${tid}/associations/companies`));
@@ -380,6 +398,8 @@ export type Detail = {
   new_orders?: number; new_articles?: number;
   /** Numbers in the text that looked like articles but Products & Pricing does not know; eight-digit numbers seen. */
   rejected?: string[]; products?: string[];
+  /** Where an order or article came from beyond the ticket's own fields: "email", "shop". */
+  sources?: string[];
 };
 export type Gathered = { tid: string; p: Props; detail: Detail; plan: AssocPlan | null; error?: string };
 /**
@@ -408,10 +428,19 @@ export async function gather(tid: string, p: Props, name: string, stats: Stats, 
     const refs = orderRefs(all);
     const orders = refs.length ? await resolveOrders(wantedOrderNumbers(refs)) : new Map<string, FoundOrder>();
     const fromText = articleCandidates(all);
-    const cands = articlesToCheck(fromText, orders);
+    // shop links: the article in the address, or the one article of a single-article product page
+    const shop = shopLinks(all);
+    const viaShop = new Set([...shop.articles, ...(shop.products.length ? await singleArticleProducts(shop.products) : [])]);
+    const cands = articlesToCheck(new Set([...fromText, ...viaShop]), orders);
     const arts = cands.length ? await resolveArticles(cands, pp) : new Map<string, string>();
     detail.rejected = pySorted([...fromText].filter((a) => !arts.has(a))).slice(0, 8);
-    detail.products = productCandidates(all);
+    detail.products = pySorted(new Set([...productCandidates(all), ...shop.products])).slice(0, 6);
+    // found beyond the ticket's own fields: in its e-mails, or through a shop link
+    const inFields = articleCandidates(blob);
+    const fieldOrders = new Set(orderRefs(blob).map(([b]) => b));
+    const fromMail = [...arts.keys()].some((a) => !inFields.has(a) && articleCandidates(etext).has(a))
+      || orderRefs(etext).some(([b]) => !fieldOrders.has(b) && [...orders.keys()].some((n) => n.startsWith(b)));
+    detail.sources = [...(fromMail ? ["email"] : []), ...([...arts.keys()].some((a) => viaShop.has(a)) ? ["shop"] : [])];
     let c2s = mentionsC2S(all) || [...orders.values()].some((o) => o.c2s);
     // ESO / TSA: the article -> an order of the ticket's company in the time frame
     const offer: [string, string, boolean][] = [];

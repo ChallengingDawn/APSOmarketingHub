@@ -33,6 +33,17 @@ export function firstSince(stored: number | null, now: number, maxBackMs = 30 * 
 
 /* ── order alerts (SARCLA, 17.10.2026) ──────────────────────────────────── */
 
+/**
+ * When the order alerts look again: every `everyMs` - or on the next tick while a backlog waits (the
+ * last check read its full `maxRead`: the chain's morning load, or a look back). After a full check the
+ * next one also starts at the mark itself, without the overlap: more than `maxRead` orders changed inside
+ * the overlap would otherwise be read again and again, and the mark never move.
+ */
+export function alertsPlan(last: { at: string; read: number } | null, now: number, everyMs: number, maxRead: number, overlapMs: number): { due: boolean; overlapMs: number } {
+  const backlog = !!last && last.read >= maxRead;
+  return { due: !last || backlog || now - Date.parse(last.at) >= everyMs, overlapMs: backlog ? 0 : overlapMs };
+}
+
 /** An article number as Products & Pricing writes it: digits only, ten long (order lines may drop the leading zero). */
 export const normArticle = (a: string): string => {
   const d = String(a ?? "").replace(/\D/g, "");
