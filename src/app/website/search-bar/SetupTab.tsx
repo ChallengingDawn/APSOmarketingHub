@@ -1,9 +1,14 @@
 "use client";
 
-// Search bar > Setup: how the bar is installed on the shop, the maintenance switch's state, and its database
-// (the dashboard's "Install" and "Data model" pages). The switches move here last (SARCLA 16.10.2026).
+// Search bar > Setup: how the bar is installed on the shop, its switches, and its database (the dashboard's
+// "Install", "Maintenance" and "Data model" pages). The switches work from here (SARCLA 17.10.2026: "the
+// maintenance button doesn't really work" - it was only a state): the maintenance switch, same-tab links and
+// the bar's two buttons, admins only; each answer is the gateway's database, read back after the change.
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
 import Grid from "@mui/material/Grid";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -15,12 +20,72 @@ import CodeOutlinedIcon from "@mui/icons-material/CodeOutlined";
 import PowerSettingsNewOutlinedIcon from "@mui/icons-material/PowerSettingsNewOutlined";
 import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import { full } from "@/app/charts/format";
-import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip } from "@/app/connectors/parts";
-import type { GatewaySetting, Health, Migration } from "@/lib/searchbar/gateway";
-import { Empty, Loaded } from "./shared";
+import type { GatewaySetting, Health, Migration, Switches } from "@/lib/searchbar/gateway";
+import { Empty, Loaded, post, when } from "./shared";
 
-type Setup = { migrations: (Migration & { creates_table?: string; row_count?: number })[]; config: { killSwitch: boolean; sameTab: boolean }; health: Health | null; setting: GatewaySetting };
+type Setup = { migrations: (Migration & { creates_table?: string; row_count?: number })[]; switches: Switches; health: Health | null; setting: GatewaySetting; isAdmin: boolean };
+
+type Key = "bar" | "sameTab" | "ai" | "feedback";
+/** The four switches, in words. `on` is what the switch shows; `body` is the change it asks for. */
+const SWITCHES: { key: Key; label: string; note: string; on: (s: Switches) => boolean; body: (next: boolean) => Record<string, unknown>; confirmOff?: string }[] = [
+  {
+    key: "bar", label: "Search bar on the shop",
+    note: "Off = maintenance: the shop's own search box comes back on every page opened from then on (within about 15 seconds). If the bar's server cannot be reached, the bar stays on.",
+    on: (s) => !s.killSwitch, body: (next) => ({ action: "kill-switch", on: !next }),
+    confirmOff: "Switch the search bar OFF on apsoparts.com?\n\nCustomers get the shop's own search box until you switch it back on.",
+  },
+  { key: "sameTab", label: "Product links open in the same tab", note: "Off: a click on a result opens the product in a new tab.", on: (s) => s.sameTab, body: (next) => ({ action: "same-tab", on: next }) },
+  { key: "ai", label: "CHAT AI button", note: "The pill on the right of the bar that opens the AI assistant.", on: (s) => s.buttons.ai, body: (next) => ({ action: "buttons", ai: next }) },
+  { key: "feedback", label: "Feedback button", note: "The speech bubble that opens the feedback form.", on: (s) => s.buttons.feedback, body: (next) => ({ action: "buttons", feedback: next }) },
+];
+
+function Maintenance({ initial, isAdmin, health }: { initial: Switches; isAdmin: boolean; health: boolean }) {
+  const [sw, setSw] = useState(initial);
+  const [busy, setBusy] = useState<Key | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const flip = async (k: (typeof SWITCHES)[number], next: boolean) => {
+    if (!next && k.confirmOff && !confirm(k.confirmOff)) return;
+    setBusy(k.key); setMsg(null);
+    const r = await post<Switches>(k.body(next));
+    setBusy(null);
+    if (r.ok && r.data) {
+      setSw(r.data);
+      const now = k.on(r.data);
+      setMsg(now === next
+        ? { ok: true, text: k.key === "bar" ? (next ? "The search bar is back on the shop." : "The search bar is OFF on the shop - the shop's own search box shows.") : `${k.label}: ${next ? "on" : "off"}.` }
+        : { ok: false, text: "The gateway did not keep the change - try again." });
+    } else setMsg({ ok: false, text: r.error ?? "Did not work." });
+  };
+  return (
+    <GlassCard sx={{ height: "100%" }}>
+      <CardTitle icon={<PowerSettingsNewOutlinedIcon />} tint={sw.killSwitch ? "pink" : "green"} title="Maintenance"
+        note={sw.killSwitch ? `The bar is OFF on the shop${sw.killSwitchAt ? ` since ${when(sw.killSwitchAt)}` : ""}` : "The bar is live on the shop"} />
+      {sw.killSwitch && <Box sx={{ mb: 1.25 }}><Notice tone="warn">Customers see the shop's own search box. Switch the bar back on when the maintenance is done.</Notice></Box>}
+      <Box sx={{ display: "grid", gap: 1.25 }}>
+        {SWITCHES.map((k) => (
+          <Box key={k.key} sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, justifyContent: "space-between" }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{k.label}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{k.note}</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+              {busy === k.key && <CircularProgress size={14} />}
+              <Switch checked={k.on(sw)} disabled={!isAdmin || busy !== null} onChange={(e) => void flip(k, e.target.checked)}
+                color={k.key === "bar" ? "success" : "primary"} inputProps={{ "aria-label": k.label }} />
+            </Box>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1.5, alignItems: "center" }}>
+        <Chip tint={health ? "green" : "pink"}>{health ? "Gateway answering" : "Gateway not answering"}</Chip>
+        {!isAdmin && <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Only an admin can change these.</Typography>}
+        {msg && (msg.ok ? <Typography sx={{ fontSize: "0.8rem", color: GREEN }}>{msg.text}</Typography> : <Notice tone="bad">{msg.text}</Notice>)}
+      </Box>
+    </GlassCard>
+  );
+}
 
 /** What the bar reads, in words: the database tables and the files shipped with the gateway. */
 const MODEL: { name: string; kind: string; what: string }[] = [
@@ -49,15 +114,7 @@ export default function SetupTab() {
                 </GlassCard>
               </Grid>
               <Grid size={{ xs: 12, md: 5 }}>
-                <GlassCard sx={{ height: "100%" }}>
-                  <CardTitle icon={<PowerSettingsNewOutlinedIcon />} tint={d.config.killSwitch ? "pink" : "green"} title="Maintenance" note="The kill switch hides the bar on the shop and brings back the shop's own search box" />
-                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                    <Chip tint={d.config.killSwitch ? "pink" : "green"}>{d.config.killSwitch ? "Bar switched OFF on the shop" : "Bar live on the shop"}</Chip>
-                    <Chip tint="slate">{d.config.sameTab ? "Product links open in the same tab" : "Product links open a new tab"}</Chip>
-                    <Chip tint={d.health ? "green" : "pink"}>{d.health ? "Gateway answering" : "Gateway not answering"}</Chip>
-                  </Box>
-                  <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>The switch itself moves here last; until then it is on the old dashboard.</Typography>
-                </GlassCard>
+                <Maintenance initial={d.switches} isAdmin={d.isAdmin} health={!!d.health} />
               </Grid>
             </Grid>
 

@@ -181,10 +181,10 @@ const navSections: NavSection[] = [
       // with Tracking health rather than among the use cases.
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
       // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
+      { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DirectUP", href: "/website/directup", icon: <UploadFileOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
       { group: "Microservices", label: "O-Ring Expert", href: "/website/oring-expert", icon: <TripOriginOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "Shaft-seal expert", href: "/website/shaft-seal-expert", icon: <AdjustOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "Compatibility table", href: "/website/compatibility-table", icon: <ScienceOutlinedIcon fontSize="small" /> },

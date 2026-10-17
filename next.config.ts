@@ -3,12 +3,14 @@ import type { NextConfig } from "next";
 // CSP is intentionally pragmatic — Next.js + MUI need 'unsafe-inline' for
 // emotion styles, and Anthropic/Google calls are server-side so we don't
 // need to widen connect-src for them. Images allow data: URLs because
-// Gemini returns base64-encoded image data we render inline.
+// Gemini returns base64-encoded image data we render inline, and the shop's
+// own image host: the search bar's featured products show their shop picture
+// (SARCLA 17.10.2026: "feature pictures are broken").
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://www.apsoparts.com",
   "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",

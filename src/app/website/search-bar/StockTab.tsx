@@ -1,7 +1,7 @@
 "use client";
 
 // Search bar > Stock: every article's stock as the bar knows it (the dashboard's Stock page) - Performis'
-// availability in the SALES unit, the partner stock, and whether the shop lists the article (a page lists it;
+// availability in the SALES unit, Anyseals' stock, and whether the shop lists the article (a page lists it;
 // the page alone counts only while it has not been read). Pages of 50, read from the gateway.
 
 import { useState } from "react";
@@ -33,7 +33,7 @@ const qty = (n: number | null) => (n == null ? "–" : Number.isInteger(n) ? ful
 
 function stateChip(r: StockRow) {
   if (r.state === "in") return <Chip tint="green">in stock</Chip>;
-  if (r.state === "ext") return <Chip tint="blue">partner stock</Chip>;
+  if (r.state === "ext") return <Chip tint="blue">Anyseals stock</Chip>;
   if (r.state === "nodata") return <Chip tint="slate">no data</Chip>;
   return <Chip tint="amber">none</Chip>;
 }
@@ -43,7 +43,7 @@ function Rows({ d, page, setPage }: { d: Stock; page: number; setPage: (p: numbe
     <>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 900 }}>
-          <TableHead><TableRow>{["Article", "Product page", "Description", "Stock", "Sales unit", "Partner", "On the shop", "Refreshed"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Article", "Product page", "Description", "Stock", "Sales unit", "Anyseals", "On the shop", "Refreshed"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
             {d.rows.length === 0 && <TableRow><TableCell colSpan={8} sx={bodyCell}><Empty>No article matches.</Empty></TableCell></TableRow>}
             {d.rows.map((r) => (
@@ -87,7 +87,7 @@ export default function StockTab() {
             <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<Inventory2OutlinedIcon />} tint="blue" label="Articles" value={full(d.summary.total)} note={`${full(d.summary.with_stock)} with a stock figure`} /></Grid>
             <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<CheckCircleOutlineIcon />} tint="green" label="In stock" value={full(d.summary.in_stock)} note="Performis, in the sales unit" /></Grid>
             <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<RemoveCircleOutlineIcon />} tint="amber" label="No stock" value={full(d.summary.no_stock)} note={`${full(d.summary.no_data)} without any figure`} /></Grid>
-            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HandshakeOutlinedIcon />} tint="purple" label="Partner stock only" value={full(d.summary.external)} note="shown as external stock" /></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HandshakeOutlinedIcon />} tint="purple" label="Anyseals stock only" value={full(d.summary.external)} note="the shop shows it as external stock, never the name" /></Grid>
           </Grid>
           <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
             <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -98,7 +98,7 @@ export default function StockTab() {
                   </Box>
                 } />
               <Box sx={{ display: "grid", gap: 1, mb: 1.5 }}>
-                <Choice<State> value={state} onChange={set(setState)} options={[{ key: "", label: "Any stock" }, { key: "in", label: "In stock" }, { key: "out", label: "No stock" }, { key: "nodata", label: "No data" }, { key: "ext", label: "Partner stock only" }]} />
+                <Choice<State> value={state} onChange={set(setState)} options={[{ key: "", label: "Any stock" }, { key: "in", label: "In stock" }, { key: "out", label: "No stock" }, { key: "nodata", label: "No data" }, { key: "ext", label: "Anyseals stock only" }]} />
                 <Choice<Pub> value={pub} onChange={set(setPub)} options={[{ key: "", label: "Listed or not" }, { key: "1", label: "Listed on the shop" }, { key: "0", label: "Not listed" }]} />
               </Box>
             </Box>

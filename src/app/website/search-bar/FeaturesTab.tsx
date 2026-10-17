@@ -16,7 +16,7 @@ function Card({ f }: { f: Feature }) {
   const langs = Object.keys(f.i18n ?? {});
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, display: "flex", gap: 1.5, height: "100%", bgcolor: "rgba(255,255,255,.6)" }}>
-      {f.photo_url && <Box component="img" src={f.photo_url} alt="" loading="lazy" sx={{ width: 72, height: 72, objectFit: "contain", flexShrink: 0, borderRadius: "10px", bgcolor: "#fff" }} />}
+      {f.photo_url && <Box component="img" src={f.photo_url} alt="" loading="lazy" onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.visibility = "hidden"; }} sx={{ width: 72, height: 72, objectFit: "contain", flexShrink: 0, borderRadius: "10px", bgcolor: "#fff" }} />}
       <Box sx={{ minWidth: 0, display: "grid", gap: 0.4, alignContent: "start" }}>
         <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>{f.title}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{f.sku} · {f.hf}{f.code ? ` · ${f.code}` : ""}</Typography>

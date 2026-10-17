@@ -60,16 +60,18 @@ export type LogRow = {
   fallback_reason: string | null; created_at: string;
 };
 export type Gaps = { window: string; total: number; gaps: { query_norm: string; count: number; last_seen: string; reason?: string; locale?: string }[] };
-export type FeedbackRow = {
-  id: string; created_at: string; name: string | null; email: string | null; feedback: string; rating: number | null;
-  locale: string | null; bar_query: string | null; page_url: string | null; status: string;
-  hs_ticket_id: string | null; hs_ticket_subject: string | null; reply: string | null;
-};
-export type Feedback = { total: number; rows: FeedbackRow[] };
 export type AiTurn = { role: "user" | "assistant" | string; text: string; ts: string };
 export type AiConversation = { query_id: string; ts: string; locale: string; turns: AiTurn[] };
 export type AiConversations = { total: number; conversations: AiConversation[] };
-export type Brand = { brand: string; material: string; vendor: string; notes: string };
+export type Brand = { brand: string; material: string; vendor: string; notes: string; added?: boolean; added_by?: string | null; added_at?: string | null };
+/** The materials a brand can stand for (the bar's material keys). */
+export type BrandMaterial = { key: string; label: string };
+export type Brands = { total: number; brands: Brand[]; materials?: BrandMaterial[] };
+/** The shop-side switches: the maintenance switch, same-tab links, the bar's two buttons. */
+export type Switches = {
+  killSwitch: boolean; killSwitchAt: string | null; sameTab: boolean;
+  buttons: { ai: boolean; feedback: boolean };
+};
 export type Feature = {
   id: string; sku: string; title: string; code: string; hf: string; tag: string; spec: string; photo_url: string;
   link_url: string; copy: string; i18n?: Record<string, Record<string, string>>;

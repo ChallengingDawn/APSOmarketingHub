@@ -23,7 +23,7 @@ import OverviewTab, { Problems, type OverviewData } from "./OverviewTab";
 import ReportTab from "./ReportTab";
 import SearchesTab from "./SearchesTab";
 import GapsTab from "./GapsTab";
-import FeedbackTab from "./FeedbackTab";
+import ViewsTab from "./ViewsTab";
 import AiTab from "./AiTab";
 import StockTab from "./StockTab";
 import JobsTab from "./JobsTab";
@@ -31,10 +31,10 @@ import BrandsTab from "./BrandsTab";
 import FeaturesTab from "./FeaturesTab";
 import SetupTab from "./SetupTab";
 
-type View = "overview" | "report" | "searches" | "gaps" | "feedback" | "ai" | "stock" | "jobs" | "brands" | "featured" | "setup";
+type View = "overview" | "report" | "searches" | "gaps" | "views" | "ai" | "stock" | "jobs" | "brands" | "featured" | "setup";
 /** The open tab lives in the #fragment, as on the UC reports, so a link lands on it. */
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", report: "#report", searches: "#searches", gaps: "#gaps", feedback: "#feedback", ai: "#ai",
+  overview: "#overview", report: "#report", searches: "#searches", gaps: "#gaps", views: "#views", ai: "#ai",
   stock: "#stock", jobs: "#jobs", brands: "#brands", featured: "#featured", setup: "#setup",
 };
 /** The tabs the hub-wide period applies to - it sits in the header, as on the UC reports. */
@@ -51,7 +51,7 @@ export default function SearchBarPage() {
     view === "report" ? <Loaded<Report> url={`/api/website/search-bar?part=report&days=${days}&r=${n}`} what="the report">{(r) => <ReportTab r={r} label={label} />}</Loaded>
     : view === "searches" ? <SearchesTab key={n} />
     : view === "gaps" ? <GapsTab key={n} />
-    : view === "feedback" ? <FeedbackTab key={n} />
+    : view === "views" ? <ViewsTab key={n} />
     : view === "ai" ? <AiTab key={n} />
     : view === "stock" ? <StockTab key={n} />
     : view === "jobs" ? <JobsTab key={n} />
@@ -66,7 +66,7 @@ export default function SearchBarPage() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Search bar"
-        subtitle="The shop's search bar: what customers search, what they find, the gaps, their feedback and the stock it shows"
+        subtitle="The shop's search bar: what customers search, what they find, the gaps, the views it shows, its stock and brands"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {DATED.includes(view) && <WindowPicker />}
@@ -80,7 +80,7 @@ export default function SearchBarPage() {
           { id: "report", label: "Report", count: null },
           { id: "searches", label: "Searches", count: null },
           { id: "gaps", label: "Gaps", count: null },
-          { id: "feedback", label: "Feedback", count: null },
+          { id: "views", label: "Dynamic views", count: null },
           { id: "ai", label: "AI chat", count: null },
           { id: "stock", label: "Stock", count: null },
           { id: "jobs", label: "Stock jobs", count: null },
