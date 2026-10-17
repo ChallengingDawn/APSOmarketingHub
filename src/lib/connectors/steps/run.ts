@@ -155,6 +155,8 @@ async function previewFiles(file: string): Promise<string> {
 export async function runStepInside(key: HubStep, mode: Mode, by: string, beat: () => Promise<void>, opts: { full?: boolean; dir?: string | null } = {}): Promise<HubRun> {
   const def = stepDef(key);
   const run: HubRun = { key, mode, by, started: new Date().toISOString() };
+  // a line at the start too: a long run is visible to whoever deploys next, not only once it has finished
+  console.log(`[connectors] ${key} ${mode} by ${by}: started`);
   try {
     if (!def) throw new Error(`unknown step ${key}`);
     // a live run re-checks the switch at the last moment: never write while the connector does
