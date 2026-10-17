@@ -8,7 +8,11 @@
 // keeps every run it has read, so the months build up (SARCLA: "have the data in our
 // database moving forward").
 
-export type AeoPrompt = { id: string; prompt: string; language: string | null; phase: string | null; assistants: string[]; createdAt: string | null };
+export type AeoPrompt = {
+  id: string; prompt: string; language: string | null; phase: string | null; assistants: string[]; createdAt: string | null;
+  /** HubSpot's own visibility score for the prompt, 0-1 ("0.05" in the API) */
+  visibility: number | null;
+};
 export type AeoRun = {
   id: string;
   promptId: string;
@@ -21,13 +25,22 @@ export type AeoRun = {
   citations: number;
   /** the answer's citations that are our own pages; null while its detail has not been read */
   ownCited: number | null;
+  /** the sites the answer cited, once each (www. dropped) - who the assistants rely on (SARCLA 17.10: "a graph with the competitors") */
+  domains?: string[];
 };
 export type AeoRecommendation = {
   id: string; promptIds: string[]; engine: string | null; type: string | null; action: string | null; channel: string | null;
   contentType: string | null; topic: string | null; domain: string | null; url: string | null; priority: string | null;
   status: string | null; summary: string | null; justification: string | null; startDate: string | null; endDate: string | null;
+  /** the pages that shaped the recommendation - the ones to beat */
+  influencing: string[];
+  /** our page the recommendation is about, when HubSpot names one */
+  associatedUrl: string | null;
 };
+/** Bumped when the read gains fields: a stored read of an older shape is read again at once. */
+export const AEO_SHAPE = 2;
 export type AeoData = {
+  shape?: number;
   generatedAt: string;
   prompts: AeoPrompt[];
   runs: AeoRun[];
@@ -37,6 +50,12 @@ export type AeoData = {
   /** answers whose citations are still to be read (read a few hundred at a time) */
   pendingDetails: number;
 };
+
+/** A URL's site, without "www." - null when it is not a URL. */
+export function hostOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch { return null; }
+}
 
 /** Our own domains: an answer citing one of them cites us. */
 export const OWN_DOMAINS = ["apsoparts.com", "angst-pfister.com"];
@@ -151,4 +170,68 @@ export function r10Series(runs: AeoRun[], year: number): { R10: Monthly; R10N: M
   }
   for (const side of ["months", "py"] as const) share[side] = all[side].map((n, i) => (n ? (named[side][i] ?? 0) / n : null));
   return { R10: share, R10N: named, R10D: all };
+}
+
+export type CitedSite = { domain: string; answers: number; share: number; own: boolean };
+/**
+ * Who the assistants cite between two instants: per site, the answers citing it and
+ * their share of the answers whose sources are read - our own sites marked. The
+ * competitors as the assistants see them.
+ */
+export function citedSites(runs: AeoRun[], from: string, to: string, model?: string): { sites: CitedSite[]; read: number } {
+  const count = new Map<string, number>();
+  let read = 0;
+  for (const r of runs) {
+    if (r.at < from || r.at >= to || !r.domains || (model && r.model !== model)) continue;
+    read += 1;
+    for (const d of new Set(r.domains)) count.set(d, (count.get(d) ?? 0) + 1);
+  }
+  const sites = [...count.entries()].map(([domain, answers]) => ({ domain, answers, share: read ? answers / read : 0, own: isOwnUrl(`https://${domain}/`) }))
+    .sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain));
+  return { sites, read };
+}
+
+/** The Content Studio type a recommendation is best made as. */
+export function contentTypeFor(r: AeoRecommendation): string | null {
+  if (r.action === "UPDATE_CONTENT") return "page-refresh";
+  if (r.action !== "CREATE_CONTENT") return null;
+  if (/PRODUCT/i.test(r.contentType ?? "")) return "product-page";
+  if (/LANDING|COMPARISON|COMMERCIAL/i.test(r.contentType ?? "")) return "landing-page";
+  return "blog-article";
+}
+
+/** The line a project made from a recommendation carries, so the page finds it again. */
+export const recMarker = (id: string) => `[AEO recommendation ${id}]`;
+/**
+ * A Content Studio project from a recommendation (SARCLA 17.10: "create the advised
+ * point directly"): the topic as its title, and a brief with what to do, why, the
+ * questions the content must answer and the pages the assistants cite today - kept
+ * well under the hub's 8 KB request body.
+ */
+export function projectFor(r: AeoRecommendation, prompts: AeoPrompt[]): { title: string; brief: string; contentType: string | null } {
+  const asked = r.promptIds.map((id) => prompts.find((p) => p.id === id)?.prompt).filter((x): x is string => !!x).slice(0, 10);
+  const lines = [
+    `Recommended by HubSpot's AEO${r.priority ? ` (${r.priority.toLowerCase()} priority)` : ""}: content the AI assistants (ChatGPT, Gemini, Perplexity) should find and cite when buyers ask them.`,
+    r.topic ? `Topic: ${r.topic}` : null,
+    r.summary ? `What to do: ${r.summary}` : null,
+    r.justification ? `Why: ${r.justification}` : null,
+    asked.length ? `The questions it must answer:\n${asked.map((q) => `- ${q}`).join("\n")}` : null,
+    r.influencing.length ? `The pages the assistants cite today - do better than these:\n${r.influencing.slice(0, 12).map((u) => `- ${u}`).join("\n")}` : null,
+    r.associatedUrl || r.url ? `Our page this is about: ${r.associatedUrl ?? r.url}` : null,
+    recMarker(r.id),
+  ].filter(Boolean) as string[];
+  let brief = lines.join("\n\n");
+  if (brief.length > 6000) brief = `${brief.slice(0, 5900 - recMarker(r.id).length)}…\n\n${recMarker(r.id)}`;
+  const title = (r.topic ?? r.summary ?? "AEO recommendation").replace(/\s+/g, " ").trim().slice(0, 200);
+  return { title, brief, contentType: contentTypeFor(r) };
+}
+
+/** Prompt by prompt between two instants (ISO, `from` included, `to` excluded). */
+export function byPrompt(runs: AeoRun[], from: string, to: string): Record<string, Sums> {
+  const out: Record<string, Sums> = {};
+  for (const r of runs) {
+    if (r.at < from || r.at >= to) continue;
+    add((out[r.promptId] ??= zero()), r);
+  }
+  return out;
 }

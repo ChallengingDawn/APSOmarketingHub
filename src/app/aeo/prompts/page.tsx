@@ -14,7 +14,7 @@ import QuestionAnswerOutlinedIcon from "@mui/icons-material/QuestionAnswerOutlin
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { assistantName, assistantsIn, isOwnUrl, latestByPrompt, type AeoRun } from "@/lib/aeo/model";
-import { AeoHeader, AeoWaiting, Note, day, int, useAeo } from "../AeoUi";
+import { AeoHeader, AeoWaiting, Note, day, int, pct, useAeo } from "../AeoUi";
 
 type Detail = { responseText: string | null; citations: { url: string; title: string | null }[]; searchQueries: string[] };
 
@@ -65,7 +65,7 @@ export default function AeoPrompts() {
   if (!d) return (<><AeoHeader title="Prompts and answers" data={null} /><AeoWaiting computing={computing} progress={progress} error={error} /></>);
   const used = assistantsIn(d.runs);
   const rows = d.prompts.filter((p) => !q || p.prompt.toLowerCase().includes(q.toLowerCase()));
-  const cols = `minmax(260px, 2.4fr) repeat(${used.length}, minmax(130px, 1fr)) 28px`;
+  const cols = `minmax(260px, 2.4fr) 96px repeat(${used.length}, minmax(130px, 1fr)) 28px`;
   return (
     <>
       <AeoHeader title="Prompts and answers" data={d} />
@@ -78,8 +78,9 @@ export default function AeoPrompts() {
           </Box>
         </Box>
         <Box sx={{ overflowX: "auto" }}>
-          <Box sx={{ minWidth: 260 + used.length * 140, display: "grid", gridTemplateColumns: cols, columnGap: 1.5, alignItems: "center" }}>
+          <Box sx={{ minWidth: 370 + used.length * 140, display: "grid", gridTemplateColumns: cols, columnGap: 1.5, alignItems: "center" }}>
             <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", pb: 0.75 }}>Prompt</Typography>
+            <Typography title="HubSpot's own visibility score for the prompt" sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", pb: 0.75 }}>Visibility</Typography>
             {used.map((a) => <Typography key={a} sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", pb: 0.75 }}>{assistantName(a)}</Typography>)}
             <Box />
             {rows.map((p) => {
@@ -93,6 +94,7 @@ export default function AeoPrompts() {
                       <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, lineHeight: 1.35 }}>{p.prompt}</Typography>
                       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{[p.phase, p.language].filter(Boolean).join(" · ")}</Typography>
                     </Box>
+                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: p.visibility ? INK : FAINT, fontVariantNumeric: "tabular-nums" }}>{p.visibility == null ? "—" : pct(p.visibility)}</Typography>
                     {used.map((a) => {
                       const r = l?.get(a);
                       return (
@@ -119,7 +121,7 @@ export default function AeoPrompts() {
           </Box>
         </Box>
       </GlassCard>
-      <Note>The latest answer per assistant. Our own pages (apsoparts.com, angst-pfister.com) are marked green among the sources.</Note>
+      <Note>The latest answer per assistant. Visibility is HubSpot&apos;s own score for the prompt. Our own pages (apsoparts.com, angst-pfister.com) are marked green among the sources.</Note>
     </>
   );
 }

@@ -58,6 +58,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Views & inputs" },
         ],
       },
+      // SARCLA 17.10: "with this data can we now build on the advanced reporting" - the AEO answers the hub keeps
+      { name: "AI visibility (AEO)", href: "/reporting/ai-visibility", note: "What ChatGPT, Gemini and Perplexity say about us", icon: "brain" },
       { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
     ],
   },

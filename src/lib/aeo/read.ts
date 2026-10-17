@@ -8,17 +8,17 @@
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { isOwnUrl, runOf, type AeoData, type AeoPrompt, type AeoRecommendation, type AeoRun } from "./model";
+import { AEO_SHAPE, hostOf, isOwnUrl, runOf, type AeoData, type AeoPrompt, type AeoRecommendation, type AeoRun } from "./model";
 
 const KEY = "aeo:read:v1";
 const RUNS_KEY = "aeo:runs:v1";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const BASE = "/marketing/aeo/2027-03-beta";
 /** Detail calls per read - the citations of the newest answers first. */
-const DETAILS_PER_READ = 300;
+const DETAILS_PER_READ = 600;
 
 export function aeoData(): Promise<SlowState<AeoData>> {
-  return slowReport(KEY, TTL_MS, build);
+  return slowReport(KEY, (v: AeoData) => (v?.shape !== AEO_SHAPE ? 0 : TTL_MS), build);
 }
 
 type Page = { results?: Record<string, unknown>[]; paging?: { next?: { after?: string } } };
@@ -53,8 +53,16 @@ async function build(): Promise<AeoData> {
   const prompts: AeoPrompt[] = (await listAll(`${BASE}/prompts`)).map((p) => ({
     id: String(p.id ?? ""), prompt: String(p.prompt ?? ""), language: s(p.language), phase: s(p.buyingJourneyPhase),
     assistants: Array.isArray(p.aiAssistants) ? (p.aiAssistants as unknown[]).map((x) => String(x).toUpperCase()) : [],
-    createdAt: s(p.createdAt),
+    createdAt: s(p.createdAt), visibility: null,
   })).filter((p) => p.id);
+  // HubSpot's own visibility score comes with each prompt read on its own
+  for (const p of prompts) {
+    try {
+      const one = await hubspotFetchJson<Record<string, unknown>>({ path: `${BASE}/prompts/${encodeURIComponent(p.id)}` });
+      const v = Number(one.visibility);
+      p.visibility = Number.isFinite(v) ? v : null;
+    } catch { /* the score stays empty */ }
+  }
 
   // every answer the hub has kept, then the new ones
   let kept: Record<string, AeoRun> = {};
@@ -66,17 +74,17 @@ async function build(): Promise<AeoData> {
       const run = runOf({ promptId: p.id, ...r });
       if (!run || !r.completedAt) continue;
       const before = kept[run.id];
-      kept[run.id] = { ...run, ownCited: before?.ownCited ?? null };
+      kept[run.id] = { ...run, ownCited: before?.ownCited ?? null, ...(before?.domains ? { domains: before.domains } : {}) };
     }
   }
   // the citations: the newest answers first, a few hundred per read
-  const todo = Object.values(kept).filter((r) => r.ownCited == null).sort((a, b) => (a.at < b.at ? 1 : -1));
+  const todo = Object.values(kept).filter((r) => r.ownCited == null || !r.domains).sort((a, b) => (a.at < b.at ? 1 : -1));
   let n = 0;
   for (const r of todo.slice(0, DETAILS_PER_READ)) {
     if (++n % 25 === 0) reportProgress(KEY, `reading the answers' citations: ${n} of ${Math.min(todo.length, DETAILS_PER_READ)}`);
     try {
       const d = await aeoRunDetail(r.id);
-      kept[r.id] = { ...r, ownCited: d.citations.filter((c) => isOwnUrl(c.url)).length };
+      kept[r.id] = { ...r, ownCited: d.citations.filter((c) => isOwnUrl(c.url)).length, domains: [...new Set(d.citations.map((c) => hostOf(c.url)).filter((x): x is string => !!x))] };
     } catch { /* read again next time */ }
   }
   try { await kvSet(RUNS_KEY, kept); } catch { /* kept next time */ }
@@ -87,11 +95,13 @@ async function build(): Promise<AeoData> {
     engine: s(x.answerEngine), type: s(x.recommendationType), action: s(x.actionCategory), channel: s(x.actionChannel),
     contentType: s(x.contentType), topic: s(x.contentTopic), domain: s(x.domain), url: s(x.url), priority: s(x.priority),
     status: s(x.status), summary: s(x.recommendationSummary), justification: s(x.justification), startDate: s(x.startDate), endDate: s(x.endDate),
+    influencing: Array.isArray(x.influencingCitations) ? [...new Set((x.influencingCitations as unknown[]).map(String))] : [],
+    associatedUrl: s(x.associatedContentUrl),
   }));
 
   const runs = Object.values(kept).sort((a, b) => (a.at < b.at ? -1 : 1));
   return {
-    generatedAt: new Date().toISOString(), prompts, runs, recommendations,
+    shape: AEO_SHAPE, generatedAt: new Date().toISOString(), prompts, runs, recommendations,
     since: runs[0]?.at ?? null, pendingDetails: Math.max(0, todo.length - DETAILS_PER_READ),
   };
 }

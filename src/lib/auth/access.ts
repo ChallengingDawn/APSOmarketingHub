@@ -172,6 +172,7 @@ const ROUTES: [string, AppKey][] = [
   ["/personality", "marketing"],
   ["/seo", "marketing"],
   ["/geo", "marketing"],
+  ["/aeo", "marketing"],
   ["/content", "marketing"],
   ["/editor", "marketing"],
   ["/blog", "marketing"],
