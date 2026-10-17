@@ -22,7 +22,7 @@ import { ADDITIONAL_TRACKING, JOURNEY, KPIS, PLANNED, STAGES, type KpiStage } fr
 import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import {
-  Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, journeyAdditionsIn, journeyExtrasIn, measuredIn, nameOf, notConnectedIn, periodOf,
+  Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, nameOf, periodOf, stageKpis,
   stageHref, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState,
 } from "./data";
 import { CustomersSummary } from "./Customers";
@@ -82,9 +82,8 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
   const live = state.live?.value;
   const year = new Date().getFullYear();
   const tint = stageTint(s.slug);
-  const ids = [...measuredIn(s.id).map((k) => k.id), ...journeyExtrasIn(s.id), ...(s.id === "7" ? ["X01"] : [])];
+  const { ids, missing } = stageKpis(s.id, live);
   const tiles = ids.map((id) => views[id]).filter(Boolean);
-  const missing = [...notConnectedIn(s.id), ...journeyAdditionsIn(s.id)];
   const all = KPIS.filter((k) => k.stage === s.id).length;
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
   const geo = JOURNEY.some((j) => j.note === "GEO" && KPIS.find((k) => k.id === j.id)?.stage === s.id);

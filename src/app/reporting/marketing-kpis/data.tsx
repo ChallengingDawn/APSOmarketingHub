@@ -4,6 +4,7 @@
 // last year or its target, a card, a monthly chart, and the "not connected
 // yet" list that keeps every catalogue KPI visible, measured or not.
 
+import type { AssistantWindows } from "@/lib/aeo/model";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -28,7 +29,7 @@ import type { LiveKpis } from "@/lib/marketingKpis/live";
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 type Live = { value?: LiveKpis; computing?: boolean; progress?: string; computedAt?: string; error?: string };
-export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: boolean; error?: string };
+export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: boolean; error?: string; aeoAssistants?: AssistantWindows | null };
 
 /**
  * JSON from one of the hub's own routes. During a deployment the load balancer
@@ -226,8 +227,20 @@ export const measuredIn = (stage: string) => KPIS.filter((k) => k.stage === stag
 export const notConnectedIn = (stage: string) => KPIS.filter((k) => k.stage === stage && !measures(k));
 /** Journey KPIs measured under an id the catalogue uses for something else (L02 "Leads to sales"). */
 export const journeyExtrasIn = (stage: string) =>
-  Object.values(MEASURES).filter((m) => m.notCatalogue && KPIS.find((k) => k.id === m.id)?.stage === stage).map((m) => m.id);
+  Object.values(MEASURES).filter((m) => m.notCatalogue && (m.extraIn === stage || KPIS.find((k) => k.id === m.id)?.stage === stage)).map((m) => m.id);
 export const stageHref = (slug: string) => `/reporting/marketing-kpis/${slug}`;
+
+/**
+ * A stage's measured KPIs (with the journey's extras) and the ones not connected - a live
+ * KPI whose source is not open to the hub yet (R11 until HubSpot lets the hub read marketing
+ * email) counts as not connected, with what it waits for, rather than as an empty card.
+ */
+export function stageKpis(stage: string, live?: LiveKpis): { ids: string[]; missing: CatalogueKpi[] } {
+  const waiting = live?.waiting ?? {};
+  const ids = [...measuredIn(stage).map((k) => k.id), ...journeyExtrasIn(stage), ...(stage === "7" ? ["X01"] : [])].filter((id) => !waiting[id]);
+  const held = measuredIn(stage).filter((k) => waiting[k.id]).map((k) => ({ ...k, inHub: "Not yet", where: waiting[k.id] }));
+  return { ids, missing: [...held, ...notConnectedIn(stage), ...journeyAdditionsIn(stage)] };
+}
 
 /** "↑ 12.3% vs last year", "86% of target" - the direction in words; colour only agrees. */
 export function Compare({ v, size = "0.78rem" }: { v: KpiView; size?: string }) {

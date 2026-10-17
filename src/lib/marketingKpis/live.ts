@@ -8,7 +8,10 @@
 //   customers        companies by sales priority, all and invoiced this year
 //   logged in        companies with a shop login this year (Datatracker)
 //   traffic origin   GA4 sessions by channel and by country, year to date
-//   search country   Search Console clicks by country, year to date
+//   search country   Search Console clicks and impressions by country, month by month this
+//                    year and last (R09: clicks from the focus markets); every whole month kept
+//   email (R11)      HubSpot's marketing emails per month: delivered, opens, clicks
+//   SEA networks     Google Ads by network (Search, Performance Max...), this year and the same months last
 //   reach (SEO)      Search Console day by day, folded into months this year and
 //                    last: impressions, clicks, CTR, position, brand share (R04-R08);
 //                    every whole month kept in the hub, beyond Google's 16 months
@@ -23,11 +26,14 @@ import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
 import { fetchGscDaily, fetchGscQueries } from "@/lib/integrations/gsc";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMonths, type MonthAcc } from "./searchMonthly";
+import { countryTable, mergeCountryMonths, r09Series, type CountryMonths, type CountryRow } from "./countryMonths";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
 /** Every whole month of Google Ads impressions and clicks the hub has read (SARCLA 17.10: "have the data in our database"). */
 const SEA_HISTORY_KEY = "marketingKpis:seaMonths:v1";
+/** Every whole month of Search Console by country (R09). */
+const COUNTRY_HISTORY_KEY = "marketingKpis:searchCountryMonths:v1";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 
 const KEY = "marketingKpis:live:v1";
@@ -50,13 +56,25 @@ export type LiveKpis = {
   breakdowns: {
     channels: { label: string; sessions: number; newUsers: number }[];
     countries: { label: string; sessions: number }[];
-    searchCountries: { label: string; clicks: number; impressions: number }[];
+    /** by country, this year so far; pyClicks/sameClicks on the whole months both years have (`searchSame`) */
+    searchCountries: (CountryRow | { label: string; clicks: number; impressions: number; pyClicks?: undefined; sameClicks?: undefined; focus?: undefined })[];
+    /** the months (0-11) the country comparison is made on */
+    searchSame?: number[];
+    /** Google Ads by network, the whole months this year against the same months last year */
+    seaNetworks?: { label: string; impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number }[];
+    seaUpTo?: number;
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
   };
   /** how far Search Console's days reach: Google keeps 16 months and lags a day or two */
   search?: { firstDay: string | null; lastDay: string | null };
   errors: Record<string, string>;
+  /**
+   * Live KPIs whose source is not open to the hub yet, with what they wait for (R11 until the
+   * hub's HubSpot app may read marketing email) - listed as not connected, not as empty cards,
+   * and not read again every half hour as a failure would be.
+   */
+  waiting?: Record<string, string>;
 };
 
 /** A read with a failed source is asked again after this, not after 6 hours (12.10.2026: a GA4 403 stayed on the page after its fix). */
@@ -65,7 +83,9 @@ const RETRY_FAILED_MS = 30 * 60 * 1000;
 export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // a read stored before Reach came from Search Console (17.10.2026) has neither its months nor its error:
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
-  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : !v?.series?.R04 || !v?.series?.R01 ? 0 : TTL_MS), build);
+  // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -188,18 +208,16 @@ async function build(): Promise<LiveKpis> {
   // Traffic origin and countries (GA4), clicks by country (Search Console), year to date.
   const channels: LiveKpis["breakdowns"]["channels"] = [];
   const countries: LiveKpis["breakdowns"]["countries"] = [];
-  const searchCountries: LiveKpis["breakdowns"]["searchCountries"] = [];
+  let searchCountries: LiveKpis["breakdowns"]["searchCountries"] = [];
+  let searchSame: number[] | undefined;
+  let seaNetworks: LiveKpis["breakdowns"]["seaNetworks"];
+  const waiting: Record<string, string> = {};
   await guard("ga4", async () => {
     reportProgress(KEY, "reading GA4 channels and countries");
     const ch = await fetchGa4Report({ name: "acquisitionChannels", from: `${year}-01-01`, to: iso(now) });
     for (const r of ch.rows) channels.push({ label: r.keys[0] || "(not set)", sessions: r.values[0] ?? 0, newUsers: r.values[1] ?? 0 });
     const co = await fetchGa4Report({ name: "countries", from: `${year}-01-01`, to: iso(now) });
     for (const r of co.rows) countries.push({ label: r.keys[0] || "(not set)", sessions: r.values[0] ?? 0 });
-  });
-  await guard("searchConsole", async () => {
-    reportProgress(KEY, "reading Search Console countries");
-    const g = await fetchGscQueries({ dimension: "country", from: `${year}-01-01`, to: iso(now), rowLimit: 15 });
-    for (const r of g.rows) searchCountries.push({ label: r.key.toUpperCase(), clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 });
   });
 
   // Reach (SEO) month by month from Search Console, this year and last - the
@@ -218,6 +236,97 @@ async function build(): Promise<LiveKpis> {
     Object.assign(series, seriesFromMonths(months, year, now));
     const dates = all.days.map((d) => d.date).sort();
     search = { firstDay: dates[0] ?? null, lastDay: dates[dates.length - 1] ?? null };
+  });
+
+  // Search visibility by country (R09): a Search Console read per month, from January last
+  // year - Google keeps 16 months, the hub every whole month it has read
+  await guard("searchConsole", async () => {
+    const fresh: CountryMonths = {};
+    const thisMonth = iso(now).slice(0, 7);
+    // a month that starts before Google's first day is only partly there: shown, never kept
+    const first = search?.firstDay ?? iso(new Date(Date.UTC(year, now.getUTCMonth() - 15, 1)));
+    for (let k = 0; k <= 12 + now.getUTCMonth(); k++) {
+      const start = new Date(Date.UTC(py, k, 1)), end = new Date(Date.UTC(py, k + 1, 0));
+      const m = iso(start).slice(0, 7);
+      if (iso(end) < first) continue;
+      reportProgress(KEY, `reading Search Console countries ${m}`);
+      const g = await fetchGscQueries({ dimension: "country", from: iso(start), to: m === thisMonth ? iso(now) : iso(end), rowLimit: 300 });
+      fresh[m] = Object.fromEntries(g.rows.map((r) => [r.key.toLowerCase(), [r.clicks ?? 0, r.impressions ?? 0] as [number, number]]));
+    }
+    let kept: CountryMonths = {};
+    try { kept = (await kvGet<CountryMonths>(COUNTRY_HISTORY_KEY)) ?? {}; } catch { /* no database: Google's months only */ }
+    const { months, keep } = mergeCountryMonths(kept, fresh, (m) => m < thisMonth && `${m}-01` >= first);
+    try { await kvSet(COUNTRY_HISTORY_KEY, keep); } catch { /* kept next time */ }
+    series.R09 = r09Series(months, year);
+    // a month only partly there is no month to compare
+    for (const side of ["months", "py"] as const) {
+      for (let i = 0; i < 12; i++) {
+        const m = `${side === "py" ? py : year}-${String(i + 1).padStart(2, "0")}`;
+        if (m < thisMonth && `${m}-01` < first && !kept[m]) series.R09[side][i] = null;
+      }
+    }
+    const t = countryTable(Object.fromEntries(Object.entries(months).filter(([m]) => m >= thisMonth || `${m}-01` >= first || kept[m])), year, monthsDone);
+    searchCountries = t.rows;
+    searchSame = t.same;
+  });
+
+  // Email reach (R11): HubSpot's marketing emails per month - delivered, opens, clicks
+  await guard("email", async () => {
+    reportProgress(KEY, "reading HubSpot marketing email statistics");
+    type Counters = Record<string, number | undefined>;
+    type Bucket = { interval?: { start?: string | number }; aggregations?: { counters?: Counters }; counters?: Counters };
+    let r: { results?: Bucket[] };
+    try {
+      r = await hubspotFetchJson<{ results?: Bucket[] }>({
+        path: `/marketing/v3/emails/statistics/histogram?interval=MONTH&startTimestamp=${encodeURIComponent(`${py}-01-01T00:00:00Z`)}&endTimestamp=${encodeURIComponent(now.toISOString())}`,
+      });
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (/MISSING_SCOPES|required scopes/i.test(msg)) {
+        const why = "Waiting for the hub's HubSpot app to be allowed to read marketing email (marketing.email.read)";
+        for (const id of ["R11", "R11O", "R11C"]) waiting[id] = why;
+        return;
+      }
+      throw e;
+    }
+    const s = { R11: empty(), R11OP: empty(), R11CL: empty(), R11O: empty(), R11C: empty() };
+    for (const b of r.results ?? []) {
+      const at = b.interval?.start;
+      if (at == null) continue;
+      // the interval starts at midnight in the portal's time zone: half a day on lands in its month either way
+      const d = new Date((typeof at === "number" ? at : Date.parse(at)) + 12 * 3600 * 1000);
+      const y = d.getUTCFullYear(), m = d.getUTCMonth();
+      const side = y === year ? "months" : y === py ? "py" : null;
+      if (!side) continue;
+      const c = b.aggregations?.counters ?? b.counters ?? {};
+      s.R11[side][m] = (s.R11[side][m] ?? 0) + (c.delivered ?? 0);
+      s.R11OP[side][m] = (s.R11OP[side][m] ?? 0) + (c.open ?? c.opened ?? 0);
+      s.R11CL[side][m] = (s.R11CL[side][m] ?? 0) + (c.click ?? c.clicked ?? 0);
+    }
+    for (const side of ["months", "py"] as const) {
+      s.R11[side] = notBeforeFirst(s.R11[side]);
+      for (const k of ["R11OP", "R11CL"] as const) s[k][side] = s[k][side].map((v, i) => (s.R11[side][i] == null ? null : v));
+      s.R11O[side] = s.R11[side].map((n, i) => (n ? (s.R11OP[side][i] ?? 0) / n : null));
+      s.R11C[side] = s.R11[side].map((n, i) => (n ? (s.R11CL[side][i] ?? 0) / n : null));
+    }
+    Object.assign(series, s);
+  });
+
+  // SEA by network: the whole months this year against the same months last year
+  await guard("googleAdsNetworks", async () => {
+    reportProgress(KEY, "reading Google Ads by network");
+    if (!monthsDone) return;
+    const acc: Record<string, { impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number }> = {};
+    const lastDay = (y: number) => iso(new Date(Date.UTC(y, monthsDone, 0)));
+    for (const [y, cy] of [[year, true], [py, false]] as const) {
+      const r = await fetchGa4Report({ name: "adsNetworkDaily", from: `${y}-01-01`, to: lastDay(y) });
+      for (const row of r.rows) {
+        const a = (acc[row.keys[1] || "(not set)"] ??= { impr: 0, clicks: 0, cost: 0, pyImpr: 0, pyClicks: 0, pyCost: 0 });
+        if (cy) { a.impr += row.values[0] ?? 0; a.clicks += row.values[1] ?? 0; a.cost += row.values[2] ?? 0; }
+        else { a.pyImpr += row.values[0] ?? 0; a.pyClicks += row.values[1] ?? 0; a.pyCost += row.values[2] ?? 0; }
+      }
+    }
+    seaNetworks = Object.entries(acc).map(([label, v]) => ({ label, ...v })).sort((a, b) => b.impr + b.pyImpr - (a.impr + a.pyImpr));
   });
 
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)
@@ -257,8 +366,9 @@ async function build(): Promise<LiveKpis> {
   return {
     generatedAt: new Date().toISOString(), year, monthsDone,
     series, ytd,
-    breakdowns: { channels, countries, searchCountries, prio, handover },
+    breakdowns: { channels, countries, searchCountries, searchSame, seaNetworks, seaUpTo: monthsDone, prio, handover },
     search,
     errors,
+    waiting,
   };
 }

@@ -235,3 +235,11 @@ export function byPrompt(runs: AeoRun[], from: string, to: string): Record<strin
   }
   return out;
 }
+
+export type AssistantWindows = { cur: Record<string, Sums>; prev: Record<string, Sums>; models: string[]; since: string | null };
+/** Each assistant over the last 30 days and the 30 before - the "By assistant" table on AI answers and on Reach. */
+export function assistantWindows(runs: AeoRun[], now: Date): AssistantWindows {
+  const to = now.toISOString(), from = new Date(now.getTime() - 30 * 86_400_000).toISOString(), before = new Date(now.getTime() - 60 * 86_400_000).toISOString();
+  const since = runs.reduce<string | null>((a, r) => (!a || r.at < a ? r.at : a), null);
+  return { cur: sumsBetween(runs, from, to).by, prev: sumsBetween(runs, before, from).by, models: assistantsIn(runs), since };
+}

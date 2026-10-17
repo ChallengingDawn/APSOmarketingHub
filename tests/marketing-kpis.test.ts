@@ -58,16 +58,16 @@ test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, tags, notes 
 });
 
 test("every measured KPI is in the catalogue (SEA cost is the journey's extra), and typing covers the sheet", () => {
-  // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of
-  for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
+  // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of; R11's open and click rates and their parts sit beside it
+  for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D", "R11O", "R11C", "R11OP", "R11CL"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
   // Reach is live since 17.10.2026 - SEO from Search Console, SEA from Google Ads: R01, R02, R04-R07 are no longer typed
   assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "V01", "X01"]);
 });
 
 test("formats", () => {
   assert.equal(fmtValue("pct", 0.2916), "29.2%");
-  assert.equal(fmtValue("chf", 4136195), "CHF 4.14M");
-  assert.equal(fmtValue("chf", 182669), "CHF 183K");
+  assert.equal(fmtValue("chf", 4136195), "CHF 4,136,195");
+  assert.equal(fmtValue("chf", 182669), "CHF 182,669");
   assert.equal(fmtValue("int", 129855), "129,855");
   assert.equal(fmtValue("x", 22.643), "22.6");
   assert.equal(fmtValue("int", null), "—");

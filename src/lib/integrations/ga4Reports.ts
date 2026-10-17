@@ -43,6 +43,7 @@ export type Ga4ReportName =
   | "landingSessions"
   | "organicValue"
   | "adsDaily"
+  | "adsNetworkDaily"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -164,6 +165,14 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     // SEA on Reach (SARCLA 17.10: "make SEA live"): impressions, clicks and cost per day and
     // campaign, summed by the hub into months - never yearMonth, which inflates advertiser metrics.
     dimensions: ["date", "sessionGoogleAdsCampaignName"],
+    metrics: ["advertiserAdImpressions", "advertiserAdClicks", "advertiserAdCost"],
+    orderBy: { dimension: "date" },
+    limit: 25000,
+  },
+  adsNetworkDaily: {
+    // SEA by Google Ads network (SARCLA 18.10: "is this data about impressions right?"): Search,
+    // Search partners, Performance Max / cross-network, YouTube and other Google channels - per day, summed by the hub.
+    dimensions: ["date", "sessionGoogleAdsAdNetworkType"],
     metrics: ["advertiserAdImpressions", "advertiserAdClicks", "advertiserAdCost"],
     orderBy: { dimension: "date" },
     limit: 25000,

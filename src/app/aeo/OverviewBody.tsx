@@ -1,6 +1,5 @@
 "use client";
-// AI ANSWERS (AEO) - THE OVERVIEW'S BODY, shared by Marketing & Content > AI answers and by
-// Advanced reporting > Digital Growth Reports > AI visibility: how often the AI assistants (ChatGPT, Gemini, Perplexity) name APSO when asked
+// AI ANSWERS (AEO) - THE OVERVIEW'S BODY (Marketing & Content > AI answers): how often the AI assistants (ChatGPT, Gemini, Perplexity) name APSO when asked
 // the prompts set up in HubSpot's AEO, against competitors, and how often they cite our
 // pages - the last 30 days against the 30 before, per assistant, and month by month.
 
@@ -17,8 +16,8 @@ import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED } from "@/app/uc/report/ui";
-import { assistantName, assistantsIn, byMonth, citeRate, citedSites, mentionRate, shareOfVoice, sumsBetween, type AeoData, type Sums } from "@/lib/aeo/model";
-import { Note, int, pct } from "./AeoUi";
+import { assistantName, assistantWindows, assistantsIn, byMonth, citeRate, citedSites, mentionRate, shareOfVoice, sumsBetween, type AeoData, type AssistantWindows, type Sums } from "@/lib/aeo/model";
+import { Note, day, int, pct } from "./AeoUi";
 
 const COLOR: Record<string, string> = { CHATGPT: "#10a37f", GEMINI: "#4285f4", PERPLEXITY: "#20808d", CLAUDE: "#d97757" };
 const iso = (d: Date) => d.toISOString();
@@ -58,37 +57,7 @@ export function AeoOverviewBody({ d, computing, progress }: { d: AeoData; comput
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="amber" label="Answers read, last 30 days" value={int(c.answers)} note={`${int(p.answers)} the 30 days before · ${int(d.prompts.length)} prompts`} /></Grid>
       </Grid>
 
-      <GlassCard sx={{ display: "grid", gap: 1.5 }}>
-        <CardTitle icon={<SmartToyOutlinedIcon />} tint="purple" title="By assistant, last 30 days" note="How each AI answers the same prompts" />
-        <Box sx={{ overflowX: "auto" }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(120px, 1fr))", columnGap: 2, rowGap: 1, minWidth: 640, alignItems: "baseline" }}>
-            {["Assistant", "Answers", "Naming APSO", "Share of voice", "Citing our pages"].map((h, i) => (
-              <Typography key={h} sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: i ? "right" : "left" }}>{h}</Typography>
-            ))}
-            {used.map((a) => {
-              const s: Sums | undefined = w.cur.by[a], sp: Sums | undefined = w.prev.by[a];
-              const cell = (v: string, prev?: string) => (
-                <Box sx={{ textAlign: "right", borderTop: `1px solid ${HAIRLINE}`, pt: 0.75 }}>
-                  <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{v}</Typography>
-                  {prev != null && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>before: {prev}</Typography>}
-                </Box>
-              );
-              return (
-                <Box key={a} sx={{ display: "contents" }}>
-                  <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 0.75, display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: COLOR[a] ?? MUTED }} />
-                    <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{assistantName(a)}</Typography>
-                  </Box>
-                  {cell(int(s?.answers ?? 0), int(sp?.answers ?? 0))}
-                  {cell(pct(s ? mentionRate(s) : null), pct(sp ? mentionRate(sp) : null))}
-                  {cell(pct(s ? shareOfVoice(s) : null), pct(sp ? shareOfVoice(sp) : null))}
-                  {cell(pct(s ? citeRate(s) : null), pct(sp ? citeRate(sp) : null))}
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>
-      </GlassCard>
+      <ByAssistant w={assistantWindows(d.runs, now)} />
 
       <GlassCard sx={{ display: "grid", gap: 1 }}>
         <CardTitle icon={<InsightsOutlinedIcon />} tint="green" title="Answers naming APSO, month by month" note="The share of each assistant's answers that named APSO" />
@@ -167,6 +136,54 @@ function CitedSites({ d, now }: { d: AeoData; now: Date }) {
       <Note>
         Share of the {int(read)} answers{model ? ` by ${assistantName(model)}` : ""} whose sources are read, last 30 days, that cite the site at least once. {own.length || rows.some((x) => x.own) ? "" : "Our own sites are not cited in these answers."}
       </Note>
+    </GlassCard>
+  );
+}
+
+/**
+ * Each assistant, the last 30 days against the 30 before - on AI answers and on Advanced
+ * reporting's Reach (SARCLA 18.10: "on advanced report we keep this"). A "before" only
+ * where there were answers before: the AEO answers start on a day, not with a history.
+ */
+export function ByAssistant({ w }: { w: AssistantWindows }) {
+  const anyBefore = w.models.some((a) => (w.prev[a]?.answers ?? 0) > 0);
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+      <CardTitle icon={<SmartToyOutlinedIcon />} tint="purple" title="By assistant, last 30 days" note="How each AI answers the same prompts" />
+      <Box sx={{ overflowX: "auto" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(120px, 1fr))", columnGap: 2, rowGap: 1, minWidth: 640, alignItems: "baseline" }}>
+          {["Assistant", "Answers", "Naming APSO", "Share of voice", "Citing our pages"].map((h, i) => (
+            <Typography key={h} sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: i ? "right" : "left" }}>{h}</Typography>
+          ))}
+          {w.models.map((a) => {
+            const s: Sums | undefined = w.cur[a], sp: Sums | undefined = w.prev[a];
+            const had = (sp?.answers ?? 0) > 0;
+            const cell = (v: string, prev?: string) => (
+              <Box sx={{ textAlign: "right", borderTop: `1px solid ${HAIRLINE}`, pt: 0.75 }}>
+                <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{v}</Typography>
+                {had && prev != null && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>before: {prev}</Typography>}
+              </Box>
+            );
+            return (
+              <Box key={a} sx={{ display: "contents" }}>
+                <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 0.75, display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: COLOR[a] ?? MUTED }} />
+                  <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{assistantName(a)}</Typography>
+                </Box>
+                {cell(int(s?.answers ?? 0), int(sp?.answers ?? 0))}
+                {cell(pct(s ? mentionRate(s) : null), pct(sp ? mentionRate(sp) : null))}
+                {cell(pct(s ? shareOfVoice(s) : null), pct(sp ? shareOfVoice(sp) : null))}
+                {cell(pct(s ? citeRate(s) : null), pct(sp ? citeRate(sp) : null))}
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+      {!anyBefore && w.since && (
+        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
+          The AI answers start on {day(w.since)}, so there are no 30 days before to compare with yet.
+        </Typography>
+      )}
     </GlassCard>
   );
 }

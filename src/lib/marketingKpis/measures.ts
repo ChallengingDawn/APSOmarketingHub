@@ -42,6 +42,8 @@ export type Measure = {
   /** what the KPI counts, when the catalogue's own words no longer fit the source (SEA: Google Ads only) */
   definition?: string;
   note?: string;
+  /** a figure outside the catalogue shown as a card of its own in this stage (the email open and click rates beside R11) */
+  extraIn?: string;
 };
 
 const M = (m: Measure) => m;
@@ -72,6 +74,14 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "R08", label: "Brand share of search clicks", fmt: "pct", agg: { kind: "ratio", num: "R08B", den: "R05" }, origin: "live", likeForLike: true, liveSource: "Search Console", definition: "Share of Google search clicks from searches naming APSO, Angst or Pfister" }),
   // GEO: the share of AI answers naming APSO, from HubSpot's AEO prompts as the hub keeps them (SARCLA 17.10)
   M({ id: "R10", label: "AI search visibility (GEO)", fmt: "pct", agg: { kind: "ratio", num: "R10N", den: "R10D" }, origin: "live", liveSource: "HubSpot AEO", definition: "Share of the AI assistants' answers to the AEO prompts (ChatGPT, Gemini, Perplexity) that named APSO", note: "Details on Marketing & Content > AI answers (AEO)" }),
+  // R09: Search Console clicks from the focus markets, month by month (SARCLA 18.10: "we need to build this as well")
+  M({ id: "R09", label: "Search clicks from our focus markets", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", definition: "Google search clicks from Switzerland, Germany, Italy, France, Austria, the Netherlands, Liechtenstein and Poland", note: "Every country below" }),
+  // R11: HubSpot's marketing emails, delivered and their open and click rates (SARCLA 18.10)
+  M({ id: "R11", label: "Emails delivered", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "HubSpot marketing email", definition: "Marketing emails delivered by HubSpot, newsletters and automated emails" }),
+  M({ id: "R11O", label: "Email open rate", fmt: "pct", agg: { kind: "ratio", num: "R11OP", den: "R11" }, origin: "live", notCatalogue: true, extraIn: "1", liveSource: "HubSpot marketing email", definition: "Opens / emails delivered", note: "Apple Mail opens every email it receives, so this reads high" }),
+  M({ id: "R11C", label: "Email click rate", fmt: "pct", agg: { kind: "ratio", num: "R11CL", den: "R11" }, origin: "live", notCatalogue: true, extraIn: "1", liveSource: "HubSpot marketing email", definition: "Clicks / emails delivered" }),
+  M({ id: "R11OP", label: "Email opens", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "R11CL", label: "Email clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10N", label: "AI answers naming APSO", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10D", label: "AI answers", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", notCatalogue: true }),
@@ -135,7 +145,8 @@ export function fmtValue(fmt: Fmt, v: number | null | undefined): string {
   switch (fmt) {
     case "int": return Math.round(v).toLocaleString("en");
     case "pct": return `${(v * 100).toFixed(1)}%`;
-    case "chf": return Math.abs(v) >= 1e6 ? `CHF ${(v / 1e6).toFixed(2)}M` : Math.abs(v) >= 1e4 ? `CHF ${Math.round(v / 1e3).toLocaleString("en")}K` : `CHF ${Math.round(v).toLocaleString("en")}`;
+    // in full, never "CHF 4.14M" (SARCLA 18.10: abbreviations make the pages hard to read)
+    case "chf": return `CHF ${Math.round(v).toLocaleString("en")}`;
     case "dec1": return v.toFixed(1);
     case "dec2": return v.toFixed(2);
     case "x": return v.toFixed(1);
