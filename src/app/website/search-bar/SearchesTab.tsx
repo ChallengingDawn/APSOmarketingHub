@@ -21,14 +21,14 @@ import { Empty, Loaded, Num, tierLabel, when } from "./shared";
 function LogTable({ rows }: { rows: LogRow[] }) {
   const [tier, setTier] = useState("all");
   const [loc, setLoc] = useState("all");
-  const tiers = useMemo(() => [...new Set(rows.map((r) => r.tier))].sort(), [rows]);
+  const tiers = useMemo(() => [...new Set(rows.map((r) => tierLabel(r.tier)))].sort(), [rows]);
   const locs = useMemo(() => [...new Set(rows.map((r) => r.locale))].sort(), [rows]);
-  const shown = rows.filter((r) => (tier === "all" || r.tier === tier) && (loc === "all" || r.locale === loc));
+  const shown = rows.filter((r) => (tier === "all" || tierLabel(r.tier) === tier) && (loc === "all" || r.locale === loc));
   const { slice, pager } = usePaged(shown, 20);
   return (
     <>
       <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1, mb: 1.5 }}>
-        <Choice value={tier} onChange={setTier} options={[{ key: "all", label: "Every answer", count: rows.length }, ...tiers.map((t) => ({ key: t, label: tierLabel(t), count: rows.filter((r) => r.tier === t).length }))]} />
+        <Choice value={tier} onChange={setTier} options={[{ key: "all", label: "Every answer", count: rows.length }, ...tiers.map((t) => ({ key: t, label: t, count: rows.filter((r) => tierLabel(r.tier) === t).length }))]} />
         <Choice value={loc} onChange={setLoc} options={[{ key: "all", label: "Every language" }, ...locs.map((l) => ({ key: l, label: l, count: rows.filter((r) => r.locale === l).length }))]} />
       </Box>
       <Box sx={{ overflowX: "auto" }}>

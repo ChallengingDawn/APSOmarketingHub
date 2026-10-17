@@ -29,6 +29,7 @@ const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(
 
 function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
   const n = s.nightly;
+  const { slice, pager } = usePaged(runs, 7);
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -45,7 +46,7 @@ function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
           <TableHead><TableRow>{["Started", "How", "Articles", "Stock found", "In stock", "Sent to HubSpot", "Errors", "Took"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
             {runs.length === 0 && <TableRow><TableCell colSpan={8} sx={bodyCell}><Empty>No run recorded.</Empty></TableCell></TableRow>}
-            {runs.map((r) => (
+            {slice.map((r) => (
               <TableRow key={r.id} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{when(r.started_at)}</TableCell>
                 <TableCell sx={bodyCell}><Chip tint={r.trigger === "nightly" ? "blue" : "slate"}>{r.trigger}</Chip></TableCell>
@@ -60,6 +61,7 @@ function Sweep({ s, runs }: { s: SweepStatus; runs: SweepRun[] }) {
           </TableBody>
         </Table>
       </Box>
+      {pager}
     </GlassCard>
   );
 }

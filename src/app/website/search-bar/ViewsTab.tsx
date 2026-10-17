@@ -14,7 +14,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { Chip, Choice } from "@/app/connectors/parts";
+import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { GROUPS, VIEWS, tryUrl, type ViewGroup } from "./views";
 
 const STORES = ["de-CH", "fr-CH", "it-CH", "en-CH", "de-DE", "fr-FR", "it-IT", "nl-NL", "pl-PL", "en-INT"] as const;
@@ -28,6 +28,9 @@ export default function ViewsTab() {
   const rows = VIEWS.filter((v) => (group === "all" || v.group === group)
     && (!f || [v.name, v.what, ...v.examples].join(" ").toLowerCase().includes(f)));
   const count = (g: ViewGroup) => VIEWS.filter((v) => v.group === g).length;
+  // nine cards a page (SARCLA 17.10.2026: "put the dynamic views in pagination"); a new filter starts on page 1
+  const { slice, pager, setPage } = usePaged(rows, 9);
+  const pick = (g: ViewGroup | "all") => { setGroup(g); setPage(0); };
 
   return (
     <>
@@ -35,10 +38,10 @@ export default function ViewsTab() {
         <CardTitle icon={<ViewQuiltOutlinedIcon />} tint="purple" title="The bar's dynamic views"
           note={`${full(VIEWS.length)} views: what the bar shows depends on what the customer types. A search below opens the shop with the bar searching it.`} />
         <Box sx={{ display: "grid", gap: 1.25 }}>
-          <Choice<ViewGroup | "all"> value={group} onChange={setGroup}
+          <Choice<ViewGroup | "all"> value={group} onChange={pick}
             options={[{ key: "all", label: "All", count: VIEWS.length }, ...GROUPS.map((g) => ({ key: g, label: g, count: count(g) }))]} />
           <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-            <TextField size="small" placeholder="Find a view or a search…" value={find} onChange={(e) => setFind(e.target.value)} sx={{ width: 280 }} />
+            <TextField size="small" placeholder="Find a view or a search…" value={find} onChange={(e) => { setFind(e.target.value); setPage(0); }} sx={{ width: 280 }} />
             <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
               <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Open in</Typography>
               <Choice<Store> value={store} onChange={setStore} options={STORES.map((s) => ({ key: s, label: s }))} />
@@ -49,7 +52,7 @@ export default function ViewsTab() {
 
       {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No view matches.</Typography>}
       <Grid container spacing={2}>
-        {rows.map((v) => (
+        {slice.map((v) => (
           <Grid key={v.id} size={{ xs: 12, sm: 6, lg: 4 }}>
             <GlassCard sx={{ height: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
               <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}>
@@ -76,6 +79,7 @@ export default function ViewsTab() {
           </Grid>
         ))}
       </Grid>
+      {pager && <GlassCard sx={{ p: 0 }}>{pager}</GlassCard>}
     </>
   );
 }
