@@ -4,6 +4,7 @@ import { coverCrop, cropToPixels, isWholeImage, panCrop, zoomCrop, zoomOf } from
 import { arcPath } from "@/lib/editor/curvedText";
 import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
 import { expandSelection, groupNodes, isWholeGroup, moveGroup, groupSiblings, ungroupNodes } from "@/lib/editor/grouping";
+import { reflow, sizeLabel } from "@/lib/editor/resize";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
 import { ChartNode, TableNode } from "./DataNodes";
 
@@ -412,6 +413,7 @@ export default function EditorCanvas({
    */
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
+  const [sizeAnchor, setSizeAnchor] = useState<HTMLElement | null>(null);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
@@ -1169,6 +1171,24 @@ export default function EditorCanvas({
    * block can only sensibly mean "to the page"; aligning three means "to each
    * other", and doing it to the page instead would stack them.
    */
+  /**
+   * Change the board's size AND move the design onto it.
+   *
+   * Changing the size used to be setCanvas on its own, which left a 1200x627
+   * layout clustered in the top-left corner of a 1080x1920 board. The design
+   * was not resized, it was stranded, and nothing said so. Both entry points
+   * - the Canvas panel and the size button on the document bar - come here.
+   *
+   * One commit, so Ctrl+Z undoes the resize in a single press rather than one
+   * object at a time.
+   */
+  const applyCanvasSize = (w: number, h: number) => {
+    const from = canvas;
+    if (from.w === w && from.h === h) return;
+    commit((cur) => reflow(cur, from, { w, h }));
+    setCanvas({ w, h });
+  };
+
   /** The selection, when it is exactly one whole group. */
   const grouped = isWholeGroup(nodes, selectedIds);
 
@@ -2041,7 +2061,7 @@ export default function EditorCanvas({
         value={Object.entries(CANVAS_PRESETS).find(([, p]) => p.w === canvas.w && p.h === canvas.h)?.[0] ?? "custom"}
         onChange={(e) => {
           const p = CANVAS_PRESETS[e.target.value];
-          if (p) setCanvas({ w: p.w, h: p.h });
+          if (p) applyCanvasSize(p.w, p.h);
         }}
         sx={{ mb: 1.25 }}
       >
@@ -2319,6 +2339,36 @@ export default function EditorCanvas({
                 </IconButton>
               </span>
             </Tooltip>
+            <Tooltip title="The board's size — the design is re-laid out to fit">
+              <Button
+                size="small"
+                onClick={(e) => setSizeAnchor(e.currentTarget)}
+                endIcon={<ExpandMoreIcon />}
+                sx={{ textTransform: "none", fontWeight: 600, color: "#1a1d21" }}
+              >
+                {sizeLabel(canvas)}
+              </Button>
+            </Tooltip>
+            <Menu open={Boolean(sizeAnchor)} anchorEl={sizeAnchor} onClose={() => setSizeAnchor(null)}>
+              {Object.entries(CANVAS_PRESETS).map(([k, preset]) => (
+                <MenuItem
+                  key={k}
+                  selected={preset.w === canvas.w && preset.h === canvas.h}
+                  onClick={() => { setSizeAnchor(null); applyCanvasSize(preset.w, preset.h); }}
+                  sx={{ display: "block", py: 0.75 }}
+                >
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#15223a" }}>{preset.label}</Typography>
+                </MenuItem>
+              ))}
+              {/* Said out loud, because a resize that silently moves somebody's
+                  layout is worse than one they were warned about. */}
+              <MenuItem disabled sx={{ display: "block", py: 0.75, opacity: 1 }}>
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470", maxWidth: 230, whiteSpace: "normal" }}>
+                  Everything is scaled by one factor and re-centred, so nothing stretches. Ctrl+Z undoes it in one press.
+                </Typography>
+              </MenuItem>
+            </Menu>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
             <Tooltip title="Zoom (Ctrl+wheel on the canvas)">
               <TextField
                 select
