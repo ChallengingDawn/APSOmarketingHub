@@ -13,7 +13,9 @@
 //                    last: impressions, clicks, CTR, position, brand share (R04-R08);
 //                    every whole month kept in the hub, beyond Google's 16 months
 //   reach (SEA)      Google Ads impressions and clicks through GA4's Ads link, per
-//                    day summed into months, this year and the whole of last (R01-R03)
+//                    day summed into months, this year and the whole of last (R01-R03);
+//                    every whole month kept in the hub too
+//   (R10, AI search visibility, is added by the KPI route from the AEO answers the hub keeps)
 
 import { hubspotFetchJson, searchTotal } from "@/lib/integrations/hubspot";
 import { fetchContactRequests } from "@/lib/integrations/contactRequests";
@@ -24,6 +26,8 @@ import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMont
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
+/** Every whole month of Google Ads impressions and clicks the hub has read (SARCLA 17.10: "have the data in our database"). */
+const SEA_HISTORY_KEY = "marketingKpis:seaMonths:v1";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 
 const KEY = "marketingKpis:live:v1";
@@ -229,6 +233,18 @@ async function build(): Promise<LiveKpis> {
         s.R02[side][m] = (s.R02[side][m] ?? 0) + (row.values[1] ?? 0);
       }
     }
+    // the whole months go into the hub's keep; a month GA4 no longer gives comes from it
+    let kept: Record<string, { impr: number; clicks: number }> = {};
+    try { kept = (await kvGet<Record<string, { impr: number; clicks: number }>>(SEA_HISTORY_KEY)) ?? {}; } catch { /* no database */ }
+    const thisMonth = iso(now).slice(0, 7);
+    for (const [side, y] of [["py", py], ["months", year]] as const) {
+      for (let m = 0; m < 12; m++) {
+        const ym = `${y}-${String(m + 1).padStart(2, "0")}`;
+        if (s.R01[side][m] != null && ym < thisMonth) kept[ym] = { impr: s.R01[side][m]!, clicks: s.R02[side][m] ?? 0 };
+        else if (s.R01[side][m] == null && kept[ym]) { s.R01[side][m] = kept[ym].impr; s.R02[side][m] = kept[ym].clicks; }
+      }
+    }
+    try { await kvSet(SEA_HISTORY_KEY, kept); } catch { /* kept next time */ }
     for (const side of ["months", "py"] as const) {
       // before the Ads link answered, a month is nothing rather than zero
       s.R01[side] = notBeforeFirst(s.R01[side]);

@@ -45,6 +45,9 @@ import ArticleIcon from "@mui/icons-material/Article";
 import PublicIcon from "@mui/icons-material/Public";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
+import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
+import QuestionAnswerOutlinedIcon from "@mui/icons-material/QuestionAnswerOutlined";
+import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
 import BarChartIcon from "@mui/icons-material/BarChart";
@@ -227,6 +230,10 @@ const navSections: NavSection[] = [
       { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
       { group: "GEO", label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
       { group: "GEO", label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+      // HubSpot's AEO, read by the hub (SARCLA 17.10)
+      { group: "AEO", label: "AI answers", href: "/aeo", icon: <SmartToyOutlinedIcon fontSize="small" /> },
+      { group: "AEO", label: "Prompts and answers", href: "/aeo/prompts", icon: <QuestionAnswerOutlinedIcon fontSize="small" /> },
+      { group: "AEO", label: "Recommendations", href: "/aeo/recommendations", icon: <TipsAndUpdatesOutlinedIcon fontSize="small" /> },
     ],
   },
   {

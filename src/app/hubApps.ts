@@ -113,6 +113,8 @@ export const APPS: HubApp[] = [
       { name: "Quick wins", note: "Pages one step from ranking", href: "/seo/quick-wins", icon: "bolt", ...AMBER },
       { name: "Did it work", note: "What happened after the work was done", href: "/seo/impact", icon: "health", ...GREEN },
       { name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN },
+      // HubSpot's AEO prompts and every answer the assistants gave (SARCLA 17.10: "a complete sub-app after GEO")
+      { name: "AI answers (AEO)", note: "What ChatGPT, Gemini and Claude say about us", href: "/aeo", icon: "brain", ...PURPLE },
     ],
   },
   {

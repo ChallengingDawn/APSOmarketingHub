@@ -5,6 +5,8 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { readInputs, saveMonths, saveTarget } from "@/lib/marketingKpis/inputs";
 import { marketingKpisLive } from "@/lib/marketingKpis/live";
+import { aeoData } from "@/lib/aeo/read";
+import { r10Series } from "@/lib/aeo/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +16,11 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("reporting")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [inputs, live] = await Promise.all([readInputs(), marketingKpisLive()]);
+    const [inputs, live, aeo] = await Promise.all([readInputs(), marketingKpisLive(), aeoData().catch(() => null)]);
+    // R10 "AI search visibility (GEO)" from the AEO answers the hub keeps, as current as that read (SARCLA 17.10)
+    if (live.value && aeo?.value?.runs.length) {
+      live.value = { ...live.value, series: { ...live.value.series, ...r10Series(aeo.value.runs, live.value.year) } };
+    }
     return NextResponse.json({ ok: true, inputs, live, canEdit: access.canWrite("reporting") });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String((e as Error)?.message ?? e) }, { status: 500 });

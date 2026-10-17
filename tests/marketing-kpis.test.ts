@@ -59,7 +59,7 @@ test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, tags, notes 
 
 test("every measured KPI is in the catalogue (SEA cost is the journey's extra), and typing covers the sheet", () => {
   // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of
-  for (const id of Object.keys(MEASURES)) if (id !== "X01" && id !== "R08B") assert.ok(KPIS.some((k) => k.id === id), id);
+  for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
   // Reach is live since 17.10.2026 - SEO from Search Console, SEA from Google Ads: R01, R02, R04-R07 are no longer typed
   assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "V01", "X01"]);
 });
