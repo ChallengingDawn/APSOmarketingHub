@@ -32,6 +32,11 @@ export type Measure = {
    * catalogue's L02 is still "Leads by country" - which stays not connected.
    */
   notCatalogue?: boolean;
+  /**
+   * Last year is compared on the same months only, where both years have a
+   * figure: Search Console keeps 16 months, so last year starts mid-year.
+   */
+  likeForLike?: boolean;
   note?: string;
 };
 
@@ -52,10 +57,14 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "X01", label: "SEA cost", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", goodWhenUp: false }),
   M({ id: "P05", label: "SEA revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "P06", label: "ROAS (SEA)", fmt: "x", agg: { kind: "ratio", num: "P05", den: "X01" }, origin: "sheet", derived: true }),
-  M({ id: "R04", label: "SEO impressions", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
-  M({ id: "R05", label: "SEO clicks", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
-  M({ id: "R06", label: "SEO CTR", fmt: "pct", agg: { kind: "ratio", num: "R05", den: "R04" }, origin: "sheet" }),
-  M({ id: "R07", label: "SEO average position", fmt: "dec1", agg: { kind: "wavg", weight: "R04" }, origin: "sheet", goodWhenUp: false, note: "Lower is better" }),
+  // Reach (SEO): live from Search Console since 17.10.2026 (SARCLA: "this should update live, last year against
+  // this year"); the typed months stay as the fallback while Google is not connected
+  M({ id: "R04", label: "SEO impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true }),
+  M({ id: "R05", label: "SEO clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true }),
+  M({ id: "R06", label: "SEO CTR", fmt: "pct", agg: { kind: "ratio", num: "R05", den: "R04" }, origin: "live", likeForLike: true }),
+  M({ id: "R07", label: "SEO average position", fmt: "dec1", agg: { kind: "wavg", weight: "R04" }, origin: "live", likeForLike: true, goodWhenUp: false, note: "Lower is better" }),
+  M({ id: "R08", label: "Brand share of search clicks", fmt: "pct", agg: { kind: "ratio", num: "R08B", den: "R05" }, origin: "live", likeForLike: true, note: "Clicks from searches naming APSO, Angst or Pfister" }),
+  M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, notCatalogue: true }),
   M({ id: "P07", label: "SEO revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "F01", label: "Paid revenue (SEA) vs SMEC target", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", derived: true, note: "SEA revenue against the year's SMEC target" }),
   // live - read by the hub
@@ -89,17 +98,17 @@ export function derive(id: string, get: (id: string) => Series): Series {
   return out;
 }
 
-/** The year so far, the way the KPI adds up. */
-export function total(id: string, s: Series, side: "months" | "py", get: (id: string) => Series, upTo = 12): number | null {
+/** The year so far, the way the KPI adds up - over the months `only` keeps, when given (like for like). */
+export function total(id: string, s: Series, side: "months" | "py", get: (id: string) => Series, upTo = 12, only?: boolean[]): number | null {
   const m = MEASURES[id];
-  const vals = s[side].slice(0, upTo);
+  const vals = s[side].slice(0, upTo).map((v, i) => (only && !only[i] ? null : v));
   const have = vals.filter((v): v is number => v != null);
   if (!m || !have.length) return null;
   switch (m.agg.kind) {
     case "sum": case "ytd": return have.reduce((a, b) => a + b, 0);
     case "avg": return have.reduce((a, b) => a + b, 0) / have.length;
     case "ratio": {
-      const a = total(m.agg.num, get(m.agg.num), side, get, upTo), b = total(m.agg.den, get(m.agg.den), side, get, upTo);
+      const a = total(m.agg.num, get(m.agg.num), side, get, upTo, only), b = total(m.agg.den, get(m.agg.den), side, get, upTo, only);
       return a != null && b ? a / b : null;
     }
     case "wavg": {

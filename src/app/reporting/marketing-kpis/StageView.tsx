@@ -36,11 +36,11 @@ function Breakdowns({ slug, live }: { slug: string; live?: LiveKpis }) {
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
         <GlassCard>
           <CardTitle icon={<AltRouteIcon />} tint="blue" title="Traffic origin" note={`GA4 sessions by channel, ${live.year} so far`} />
-          <BarList rows={b.channels.map((c) => ({ label: c.label, value: c.sessions, secondary: `${pct(c.sessions, sessions)} · ${n0(c.newUsers)} new users` }))} />
+          <BarList format={(v) => (v == null ? "—" : n0(v))} rows={b.channels.map((c) => ({ label: c.label, value: c.sessions, secondary: `${pct(c.sessions, sessions)} · ${n0(c.newUsers)} new users` }))} />
         </GlassCard>
         <GlassCard>
           <CardTitle icon={<PublicIcon />} tint="blue" title="Visitors by country" note={`GA4 sessions, ${live.year} so far - top 10`} />
-          <BarList rows={b.countries.map((c) => ({ label: c.label, value: c.sessions }))} />
+          <BarList format={(v) => (v == null ? "—" : n0(v))} rows={b.countries.map((c) => ({ label: c.label, value: c.sessions }))} />
         </GlassCard>
       </Box>
     );
@@ -49,7 +49,8 @@ function Breakdowns({ slug, live }: { slug: string; live?: LiveKpis }) {
     return (
       <GlassCard>
         <CardTitle icon={<TravelExploreIcon />} tint="blue" title="Search visibility by country" note={`Search Console clicks, ${live.year} so far`} />
-        <BarList rows={b.searchCountries.map((c) => ({ label: c.label, value: c.clicks, secondary: `${n0(c.impressions)} impressions` }))} />
+        {/* in full - no "52.0K" (SARCLA: "no abbreviation") */}
+        <BarList format={(v) => (v == null ? "—" : `${n0(v)} clicks`)} rows={b.searchCountries.map((c) => ({ label: c.label, value: c.clicks, secondary: `${n0(c.impressions)} impressions` }))} />
       </GlassCard>
     );
   }

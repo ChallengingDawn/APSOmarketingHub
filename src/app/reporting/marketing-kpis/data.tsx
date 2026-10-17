@@ -95,14 +95,15 @@ export function useMarketingKpis(): [MkState | null, () => void] {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (tries = 0) => hubJson<MkState>("/api/reporting/marketing-kpis")
-      .then((j) => { if (!alive) return; setState(j); if (j.live?.computing) timer = setTimeout(load, RETRY_MS); })
+      .then((j) => { if (!alive) return; setState(j); timer = j.live?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined; })
       .catch((e) => {
         if (!alive) return;
         if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
         setState((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
       });
     load();
-    return () => { alive = false; if (timer) clearTimeout(timer); };
+    const stop = everyWhileSeen(() => { if (!timer) load(); });
+    return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
   }, [tick]);
   return [state, () => setTick((t) => t + 1)];
 }
@@ -119,6 +120,10 @@ export type KpiView = {
   target: number | null;
   /** the running month, live only - drawn, never added to the year so far */
   partial: number | null;
+  /** this year over the same months as `pyYtd`, when last year covers fewer months (like for like) */
+  sameYtd?: number | null;
+  /** a live KPI shown from its typed months because its source did not answer */
+  fellBack?: boolean;
 };
 
 /** Every measured KPI for one year, from the inputs and the live read. */
@@ -129,11 +134,17 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
     py: MONTHS.map((_, i) => inputs.months[id]?.[key(year - 1, i)] ?? null),
   });
   const cache: Record<string, Series> = {};
+  // a live KPI whose source did not answer (Search Console's borrowed login lapses every 7 days)
+  // falls back to its typed months, when there are any, rather than to nothing
+  const fellBack = new Set<string>();
   const get = (id: string): Series => {
     if (cache[id]) return cache[id];
     const m = MEASURES[id];
+    const liveS = m?.origin === "live" ? live?.series[id] : undefined;
+    const liveHas = !!liveS?.months.some((v) => v != null);
+    if (m?.origin === "live" && !liveHas && inputs.months[id]) fellBack.add(id);
     const s = !m ? { months: Array(12).fill(null), py: Array(12).fill(null) }
-      : m.origin === "live" ? (live?.series[id] ?? { months: Array(12).fill(null), py: Array(12).fill(null) })
+      : m.origin === "live" ? (liveHas ? liveS! : inputs.months[id] ? typed(id) : (liveS ?? { months: Array(12).fill(null), py: Array(12).fill(null) }))
         : m.derived ? derive(id, get) : typed(id);
     return (cache[id] = s);
   };
@@ -141,23 +152,36 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
   for (const m of Object.values(MEASURES)) {
     const s = get(m.id);
     const lastTyped = s.months.reduce<number>((n, v, i) => (v != null ? i + 1 : n), 0);
-    const upTo = m.origin === "live" ? (live?.monthsDone ?? 0) : lastTyped;
+    const upTo = m.origin === "live" && !fellBack.has(m.id) ? (live?.monthsDone ?? 0) : lastTyped;
     const target = inputs.targets[m.id]?.[String(year)] ?? null;
     if (m.agg.kind === "ytd") {
       const y = live?.ytd[m.id];
       out[m.id] = { id: m.id, measure: m, series: s, upTo, ytd: y?.cy ?? null, pyYtd: y?.py ?? null, pyNote: y?.pyNote, target, partial: null };
       continue;
     }
+    // like for like: only the months both years have (Search Console keeps 16 months)
+    const both = m.likeForLike ? s.months.map((v, i) => i < upTo && v != null && s.py[i] != null) : undefined;
     const ytd = total(m.id, s, "months", get, upTo);
-    let pyYtd = total(m.id, s, "py", get, upTo);
+    let pyYtd = both ? (both.some(Boolean) ? total(m.id, s, "py", get, upTo, both) : null) : total(m.id, s, "py", get, upTo);
     let pyNote: string | undefined;
+    if (both && pyYtd != null && both.slice(0, upTo).some((x) => !x)) {
+      const on = both.map((x, i) => (x ? i : -1)).filter((i) => i >= 0);
+      const ytdSame = total(m.id, s, "months", get, upTo, both);
+      // the change is measured on the same months; the note says which
+      pyNote = `same months ${MONTHS[on[0]]}–${MONTHS[on[on.length - 1]]}`;
+      out[m.id] = {
+        id: m.id, measure: m, series: s, upTo, ytd, pyYtd, pyNote, target, sameYtd: ytdSame,
+        partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id),
+      };
+      continue;
+    }
     // A count whose last year is a fraction of this year measures the source
     // filling up (the ESO and TSA pipelines took forms and chat from mid-2025),
     // not marketing: no percentage on it.
     if (m.origin === "live" && m.agg.kind === "sum" && ytd != null && pyYtd != null && pyYtd < 0.3 * ytd) { pyYtd = null; pyNote = "too thin to compare"; }
     out[m.id] = {
       id: m.id, measure: m, series: s, upTo, ytd, pyYtd, pyNote, target,
-      partial: m.origin === "live" && live ? live.monthsDone : null,
+      partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id),
     };
   }
   return out;
@@ -225,14 +249,22 @@ export function Compare({ v, size = "0.78rem" }: { v: KpiView; size?: string }) 
     return <Typography component="span" sx={{ fontSize: size, color: MUTED }}>{v.pyNote}: {fmtValue(v.measure.fmt, v.pyYtd)}</Typography>;
   }
   if (v.pyYtd != null && v.ytd != null && v.pyYtd !== 0) {
+    // last year shorter than this year (Search Console keeps 16 months): both on the same months
+    const same = v.sameYtd != null && v.pyNote?.startsWith("same months");
+    const cur = same ? v.sameYtd! : v.ytd;
+    const versus = same ? `last year, ${v.pyNote}` : v.pyNote ?? "last year";
     if (v.measure.fmt === "pct") {
-      const d = (v.ytd - v.pyYtd) * 100;
-      return <Typography component="span" sx={{ fontSize: size, fontWeight: 700, color: Math.abs(d) < 0.05 ? MUTED : (d > 0) === good ? GREEN : RED }}>{d > 0 ? "↑" : "↓"} {Math.abs(d).toFixed(1)} pts vs last year</Typography>;
+      const d = (cur - v.pyYtd) * 100;
+      return <Typography component="span" sx={{ fontSize: size, fontWeight: 700, color: Math.abs(d) < 0.05 ? MUTED : (d > 0) === good ? GREEN : RED }}>{d > 0 ? "↑" : "↓"} {Math.abs(d).toFixed(1)} pts vs {versus}</Typography>;
     }
-    const c = (v.ytd - v.pyYtd) / Math.abs(v.pyYtd);
+    if (v.measure.fmt === "dec1" || v.measure.fmt === "dec2") {
+      const d = cur - v.pyYtd;
+      return <Typography component="span" sx={{ fontSize: size, fontWeight: 700, color: Math.abs(d) < 0.05 ? MUTED : (d > 0) === good ? GREEN : RED }}>{d > 0 ? "↑" : "↓"} {Math.abs(d).toFixed(1)} vs {versus} ({fmtValue(v.measure.fmt, v.pyYtd)})</Typography>;
+    }
+    const c = (cur - v.pyYtd) / Math.abs(v.pyYtd);
     return (
       <Typography component="span" sx={{ fontSize: size, fontWeight: 700, color: Math.abs(c) < 0.0005 ? MUTED : (c > 0) === good ? GREEN : RED }}>
-        {c > 0 ? "↑" : "↓"} {Math.abs(c * 100).toFixed(1)}% vs {v.pyNote ?? "last year"}
+        {c > 0 ? "↑" : "↓"} {Math.abs(c * 100).toFixed(1)}% vs {versus}
       </Typography>
     );
   }
@@ -267,6 +299,7 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
   const day = (d: Date) => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   if (v.measure.agg.kind === "ytd") return read ? `Up to ${day(new Date(read))} · read by the hub` : "";
   if (!v.upTo) return "No month in yet";
+  if (v.fellBack) return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · monthly input - Search Console not connected`;
   return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · ${v.measure.origin === "live" ? `read ${read ? day(new Date(read)) : ""}` : "monthly input"}`;
 }
 

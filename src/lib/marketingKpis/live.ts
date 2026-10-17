@@ -9,11 +9,14 @@
 //   logged in        companies with a shop login this year (Datatracker)
 //   traffic origin   GA4 sessions by channel and by country, year to date
 //   search country   Search Console clicks by country, year to date
+//   reach (SEO)      Search Console day by day, folded into months this year and
+//                    last: impressions, clicks, CTR, position, brand share (R04-R08)
 
 import { hubspotFetchJson, searchTotal } from "@/lib/integrations/hubspot";
 import { fetchContactRequests } from "@/lib/integrations/contactRequests";
 import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
-import { fetchGscQueries } from "@/lib/integrations/gsc";
+import { fetchGscDaily, fetchGscQueries } from "@/lib/integrations/gsc";
+import { BRAND_QUERY, monthlyFromDaily } from "./searchMonthly";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 
 const KEY = "marketingKpis:live:v1";
@@ -40,6 +43,8 @@ export type LiveKpis = {
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
   };
+  /** how far Search Console's days reach: Google keeps 16 months and lags a day or two */
+  search?: { firstDay: string | null; lastDay: string | null };
   errors: Record<string, string>;
 };
 
@@ -184,10 +189,24 @@ async function build(): Promise<LiveKpis> {
     for (const r of g.rows) searchCountries.push({ label: r.key.toUpperCase(), clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 });
   });
 
+  // Reach (SEO) month by month from Search Console, this year and last - the
+  // Monthly inputs no longer carry R04-R07 (SARCLA 17.10: "update live")
+  let search: LiveKpis["search"];
+  await guard("searchConsoleMonthly", async () => {
+    reportProgress(KEY, "reading Search Console day by day");
+    const from = `${py}-01-01`, to = iso(now);
+    const all = await fetchGscDaily({ from, to });
+    const brand = await fetchGscDaily({ from, to, queryRegex: BRAND_QUERY });
+    const m = monthlyFromDaily(all.days, brand.days, year, now);
+    Object.assign(series, m.series);
+    search = { firstDay: m.firstDay, lastDay: m.lastDay };
+  });
+
   return {
     generatedAt: new Date().toISOString(), year, monthsDone,
     series, ytd,
     breakdowns: { channels, countries, searchCountries, prio, handover },
+    search,
     errors,
   };
 }

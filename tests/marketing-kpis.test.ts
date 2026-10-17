@@ -58,8 +58,10 @@ test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, tags, notes 
 });
 
 test("every measured KPI is in the catalogue (SEA cost is the journey's extra), and typing covers the sheet", () => {
-  for (const id of Object.keys(MEASURES)) if (id !== "X01") assert.ok(KPIS.some((k) => k.id === id), id);
-  assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "R01", "R02", "R04", "R05", "R06", "R07", "V01", "X01"]);
+  // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of
+  for (const id of Object.keys(MEASURES)) if (id !== "X01" && id !== "R08B") assert.ok(KPIS.some((k) => k.id === id), id);
+  // Reach from Search Console is live since 17.10.2026: R04-R07 are no longer typed
+  assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "R01", "R02", "V01", "X01"]);
 });
 
 test("formats", () => {

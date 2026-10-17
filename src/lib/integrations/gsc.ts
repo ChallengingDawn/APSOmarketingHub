@@ -105,6 +105,34 @@ export async function fetchGscQueries(params: {
   return { siteUrl, dimension, days, range, rows };
 }
 
+/**
+ * Search Console day by day for the property: clicks, impressions and average
+ * position per date, optionally only for queries matching an RE2 expression
+ * (brand searches). "all" data, so the freshest days come too - the Reach KPIs
+ * update as Google does (SARCLA 17.10). Google keeps 16 months; earlier dates
+ * simply return no rows.
+ */
+export async function fetchGscDaily(params: { from: string; to: string; queryRegex?: string; signal?: AbortSignal }): Promise<{ siteUrl: string; days: { date: string; clicks: number; impressions: number; position: number | null }[] }> {
+  const siteUrl = gscSiteUrl();
+  const res = await googleFetchJson<QueryResponse>({
+    url: `${SEARCH_CONSOLE_API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+    scope: GSC_SCOPE,
+    label: "Search Console",
+    method: "POST",
+    body: {
+      startDate: params.from, endDate: params.to, dimensions: ["date"], rowLimit: 25000, dataState: "all",
+      ...(params.queryRegex ? { dimensionFilterGroups: [{ filters: [{ dimension: "query", operator: "includingRegex", expression: params.queryRegex }] }] } : {}),
+    },
+    signal: params.signal,
+  });
+  const days = (res.rows ?? []).flatMap((r) => {
+    const date = r.keys?.[0];
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    return [{ date, clicks: num(r.clicks) ?? 0, impressions: num(r.impressions) ?? 0, position: num(r.position) }];
+  });
+  return { siteUrl, days };
+}
+
 export type GscPairRow = {
   query: string;
   page: string;

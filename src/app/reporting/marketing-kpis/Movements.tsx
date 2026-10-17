@@ -118,10 +118,10 @@ export function MovementsView({ cube, win, filtered }: { cube: Cube; win: Win; f
         })}
       </Box>
 
-      {/* which moves they were, as a grid: from down the side, to across the top (SARCLA 17.10) */}
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "minmax(0, 2fr) minmax(0, 3fr)" }, alignItems: "start" }}>
+      {/* where they went: per value, how many left and how many arrived - and the biggest moves (SARCLA 17.10: "simplify") */}
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, alignItems: "start" }}>
         {(["prio", "segment"] as const).map((kind) => (
-          <MoveMatrix key={kind} kind={kind} title={`${KIND[kind].name}: who moved where, ${w}`} sum={movesIn(m, cube, months, kind)} />
+          <MoveBalance key={kind} kind={kind} title={`${KIND[kind].name}: in and out, ${w}`} sum={movesIn(m, cube, months, kind)} />
         ))}
       </Box>
 
@@ -133,78 +133,78 @@ export function MovementsView({ cube, win, filtered }: { cube: Cube; win: Win; f
   );
 }
 
-/**
- * The moves as a grid: where companies came from (rows) and went to (columns),
- * both in rank order, so the cells above the diagonal are moves up (green) and
- * the ones below are moves down (red); the deeper the colour, the more moves.
- * Each row ends with how many left that value, the last row says how many arrived.
- */
-/** The fifteen "ESO-Customer 08 … 26" values are one row and one column in the grid - they rank as APSOcore does. */
+/** The fifteen "ESO-Customer 08 … 26" values count as one, "ESO customers" - they rank as APSOcore does. */
 const gridLabel = (kind: "prio" | "segment", l: string) => (kind === "segment" && /^ESO/i.test(l) ? "ESO customers" : l);
 
-function MoveMatrix({ kind, title, sum: raw }: { kind: "prio" | "segment"; title: string; sum: Record<string, number> }) {
+/**
+ * Per value, in rank order: the companies that left it (red, to the left) and
+ * the ones that arrived (green, to the right), and what that leaves - the net.
+ * Under it, the five biggest moves in words. The fifteen "ESO-Customer 08 … 26"
+ * values count as one, "ESO customers".
+ */
+function MoveBalance({ kind, title, sum: raw }: { kind: "prio" | "segment"; title: string; sum: Record<string, number> }) {
   const sum: Record<string, number> = {};
   for (const [t, n] of Object.entries(raw)) {
     const [from, to] = t.split(" → ");
     if (!from || !to) continue;
-    const k = `${gridLabel(kind, from)} → ${gridLabel(kind, to)}`;
+    const f = gridLabel(kind, from), tt = gridLabel(kind, to);
+    if (f === tt) continue;
+    const k = `${f} → ${tt}`;
     sum[k] = (sum[k] ?? 0) + n;
   }
-  const pairs = Object.entries(sum).map(([t, n]) => { const [from, to] = t.split(" → "); return { from, to, n }; }).filter((x) => x.from && x.to && x.from !== x.to);
-  const labels = [...new Set(pairs.flatMap((x) => [x.from, x.to]))].sort((a, b) => rankOf(kind, a) - rankOf(kind, b) || a.localeCompare(b));
-  const cell = new Map(pairs.map((x) => [`${x.from}|${x.to}`, x.n]));
-  const max = Math.max(1, ...pairs.map((x) => x.n));
   const io = inOut(sum);
-  const total = pairs.reduce((t, x) => t + x.n, 0);
-  const up = pairs.filter((x) => rankOf(kind, x.to) < rankOf(kind, x.from)).reduce((t, x) => t + x.n, 0);
-  const cols = `minmax(96px, 1.3fr) repeat(${labels.length}, minmax(52px, 1fr)) minmax(56px, .8fr)`;
-  const head = { fontSize: "0.7rem", fontWeight: 700, color: MUTED, lineHeight: 1.2, textAlign: "center" as const, alignSelf: "end", px: 0.25, pb: 0.5, overflowWrap: "break-word" as const };
-  const side = { fontSize: "0.76rem", fontWeight: 700, color: INK, lineHeight: 1.2, alignSelf: "center", pr: 1, overflowWrap: "break-word" as const };
-  const tot = { fontSize: "0.78rem", fontWeight: 700, color: MUTED, textAlign: "center" as const, alignSelf: "center", fontVariantNumeric: "tabular-nums" as const };
+  const labels = [...io.keys()].sort((a, b) => rankOf(kind, a) - rankOf(kind, b) || a.localeCompare(b));
+  const max = Math.max(1, ...[...io.values()].flatMap((x) => [x.in, x.out]));
+  const top = Object.entries(sum).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const total = Object.values(sum).reduce((t, n) => t + n, 0);
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", mb: 1.25 }}>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, flex: 1, minWidth: 200 }}>{title}</Typography>
-        {total > 0 && (
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-            <b style={{ color: GREEN }}>↑ {int(up)} up</b> · <b style={{ color: RED }}>↓ {int(total - up)} down</b>
-          </Typography>
-        )}
-      </Box>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25 }}>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
       {total === 0 ? <Typography sx={{ fontSize: "0.85rem", color: FAINT }}>No moves in these months.</Typography> : (
-        <Box sx={{ overflowX: "auto" }}>
-          <Box role="table" aria-label={title} sx={{ display: "grid", gridTemplateColumns: cols, gap: "4px", minWidth: 96 + labels.length * 56 + 60 }}>
-            <Box role="columnheader" sx={{ ...head, textAlign: "left", color: FAINT }}>from ↓ · to →</Box>
-            {labels.map((l) => <Box key={l} role="columnheader" sx={head}>{l}</Box>)}
-            <Box role="columnheader" sx={{ ...head, color: FAINT }}>Left</Box>
-            {labels.map((from) => (
-              <Box key={from} role="row" sx={{ display: "contents" }}>
-                <Box role="rowheader" sx={side}>{from}</Box>
-                {labels.map((to) => {
-                  if (from === to) return <Box key={to} sx={{ borderRadius: "8px", bgcolor: "rgba(21,34,58,.035)" }} />;
-                  const n = cell.get(`${from}|${to}`) ?? 0;
-                  const isUp = rankOf(kind, to) < rankOf(kind, from);
-                  const a = n ? 0.1 + 0.75 * Math.sqrt(n / max) : 0;
-                  const rgb = isUp ? "46,125,50" : "198,40,40";
-                  return (
-                    <Box key={to} role="cell" title={n ? `${from} → ${to}: ${int(n)} ${isUp ? "up" : "down"}` : `${from} → ${to}: none`}
-                      sx={{
-                        borderRadius: "8px", minHeight: 38, display: "grid", placeItems: "center",
-                        bgcolor: n ? `rgba(${rgb},${a.toFixed(3)})` : "rgba(255,255,255,.7)", border: n ? "none" : "1px dashed rgba(21,34,58,.08)",
-                        fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: a > 0.5 ? "#fff" : n ? INK : FAINT,
-                      }}>
-                      {n ? int(n) : ""}
-                    </Box>
-                  );
-                })}
-                <Box role="cell" sx={tot}>{int(io.get(from)?.out ?? 0)}</Box>
-              </Box>
-            ))}
-            <Box role="rowheader" sx={{ ...side, color: FAINT, fontSize: "0.7rem" }}>Arrived</Box>
-            {labels.map((l) => <Box key={l} role="cell" sx={tot}>{int(io.get(l)?.in ?? 0)}</Box>)}
+        <>
+          <Box sx={{ display: "grid", gridTemplateColumns: "minmax(110px, 1fr) minmax(0, 1.4fr) 2px minmax(0, 1.4fr) 72px", columnGap: 1, rowGap: 0.9, alignItems: "center" }}>
             <Box />
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: RED, textAlign: "right" }}>moved out</Typography>
+            <Box />
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: GREEN }}>moved in</Typography>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textAlign: "right" }}>net</Typography>
+            {labels.map((l) => {
+              const x = io.get(l)!;
+              const net = x.in - x.out;
+              return (
+                <Box key={l} role="row" sx={{ display: "contents" }}>
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>{l}</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.6 }}>
+                    <Typography component="span" sx={{ fontSize: "0.76rem", fontWeight: 700, color: x.out ? RED : FAINT, fontVariantNumeric: "tabular-nums" }}>{int(x.out)}</Typography>
+                    <Box sx={{ height: 12, borderRadius: "99px 0 0 99px", bgcolor: RED, opacity: 0.8, width: `${(100 * x.out) / max}%`, maxWidth: "70%" }} />
+                  </Box>
+                  <Box sx={{ height: 20, bgcolor: "rgba(21,34,58,.18)" }} />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                    <Box sx={{ height: 12, borderRadius: "0 99px 99px 0", bgcolor: GREEN, opacity: 0.85, width: `${(100 * x.in) / max}%`, maxWidth: "70%" }} />
+                    <Typography component="span" sx={{ fontSize: "0.76rem", fontWeight: 700, color: x.in ? GREEN : FAINT, fontVariantNumeric: "tabular-nums" }}>{int(x.in)}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, textAlign: "right", fontVariantNumeric: "tabular-nums", color: net > 0 ? GREEN : net < 0 ? RED : FAINT }}>
+                    {net > 0 ? "+" : net < 0 ? "−" : ""}{int(Math.abs(net))}
+                  </Typography>
+                </Box>
+              );
+            })}
           </Box>
-        </Box>
+          <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 1, display: "grid", gap: 0.5 }}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>The biggest moves</Typography>
+            {top.map(([t, n]) => {
+              const [from, to] = t.split(" → ");
+              const up = rankOf(kind, to) < rankOf(kind, from);
+              return (
+                <Box key={t} sx={{ display: "flex", alignItems: "baseline", gap: 1, fontSize: "0.84rem", color: INK }}>
+                  <Box component="span" sx={{ fontWeight: 800, color: up ? GREEN : RED, width: 14 }}>{up ? "↑" : "↓"}</Box>
+                  <Box component="span" sx={{ flex: 1, minWidth: 0 }}>{from} <Box component="span" sx={{ color: FAINT }}>→</Box> {to}</Box>
+                  <Box component="span" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{int(n)}</Box>
+                </Box>
+              );
+            })}
+          </Box>
+        </>
       )}
     </Box>
   );
