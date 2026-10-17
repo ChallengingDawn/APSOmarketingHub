@@ -190,6 +190,16 @@ export function ensureSchema(): Promise<void> {
       `ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS content_type VARCHAR(48)`,
     );
 
+    // When it is due to go out. A DATE and not a timestamp: "the 20th" is a
+    // day, and giving it a time of day invents a precision nobody meant and
+    // then loses a day to the time zone.
+    await query(
+      `ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS due_date DATE`,
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_apsomh_content_projects_due ON apsomh_content_projects(due_date)`,
+    );
+
     // The folder it is filed under - a name, not a foreign key. See the
     // reasoning above setFolder() in src/lib/content/projects.ts.
     await query(

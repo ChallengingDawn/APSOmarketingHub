@@ -27,6 +27,8 @@ export type Project = {
   /** The content type this project is for, from CONTENT_TYPES. */
   contentType: string | null;
   status: ProjectStatus;
+  /** When it is due to go out: "YYYY-MM-DD", or null. */
+  dueDate: string | null;
   chosenVariantId: number | null;
   createdBy: string | null;
   createdAt: string;
@@ -66,6 +68,16 @@ export type Comment = {
 type ProjectRow = {
   id: number; title: string; brief: string | null; status: string;
   chosen_variant_id: number | null; created_by: string | null; content_type: string | null;
+  folder: string | null;
+  /**
+   * The due date already rendered by TO_CHAR.
+   *
+   * NOT the due_date column itself: node-postgres turns a DATE into a Date at
+   * local midnight, and the first thing anybody does with one of those is
+   * toISOString(), which hands back the day before in every positive offset.
+   * As a string it never gets the chance.
+   */
+  due_iso: string | null;
   created_at: Date; updated_at: Date;
   variant_count?: string; comment_count?: string; languages?: (string | null)[];
 };
@@ -77,6 +89,7 @@ function toProject(r: ProjectRow): Project {
     brief: r.brief,
     contentType: r.content_type ?? null,
     status: (r.status as ProjectStatus) ?? "open",
+    dueDate: r.due_iso ?? null,
     chosenVariantId: r.chosen_variant_id,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),
@@ -117,6 +130,7 @@ export async function listProjects(limit = 50): Promise<Project[]> {
   await ensureSchema();
   const r = await query<ProjectRow>(
     `SELECT p.*,
+            TO_CHAR(p.due_date, 'YYYY-MM-DD')         AS due_iso,
             COUNT(DISTINCT c.id)                      AS variant_count,
             COUNT(DISTINCT m.id)                      AS comment_count,
             ARRAY_AGG(DISTINCT c.language)            AS languages
@@ -147,11 +161,73 @@ export async function createProject(
   return toProject(r.rows[0]);
 }
 
+/**
+ * Copy a project: its brief, its type, its folder, and optionally its drafts.
+ *
+ * What is DELIBERATELY not copied:
+ *   - the comments. They are a conversation about those drafts at that time,
+ *     and carrying them over makes the new project look like it has already
+ *     been discussed.
+ *   - the chosen version. Nothing has been decided in the new one yet, and a
+ *     green tick on an untouched copy is a lie that travels.
+ *   - the members. Who should see the Italian campaign is a question, not an
+ *     inheritance; the copy starts owned by whoever made it.
+ */
+export async function duplicateProject(
+  id: number,
+  by: string,
+  opts: { title?: string; withVariants?: boolean } = {},
+): Promise<Project | null> {
+  await ensureSchema();
+  const src = await query<ProjectRow>(
+    `SELECT * FROM apsomh_content_projects WHERE id = $1`,
+    [id],
+  );
+  if (src.rows.length === 0) return null;
+  const from = src.rows[0];
+
+  const made = await query<ProjectRow>(
+    `INSERT INTO apsomh_content_projects (title, brief, created_by, content_type, folder)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [
+      (opts.title?.trim() || `${from.title} (copy)`).slice(0, 200),
+      from.brief,
+      by,
+      from.content_type,
+      from.folder,
+    ],
+  );
+  const project = toProject(made.rows[0]);
+
+  if (opts.withVariants) {
+    // created_by stays the ORIGINAL author on a copied draft: the person who
+    // duplicated a project did not write the words in it, and a copy that
+    // reassigns authorship quietly erases who to ask about a sentence.
+    await query(
+      `INSERT INTO apsomh_content
+         (channel, content_type, language, label, title, body, image_url, design_document, pages,
+          project_id, created_by, updated_by)
+       SELECT channel, content_type, language, label, title, body, image_url, design_document, pages,
+              $2, created_by, $3
+         FROM apsomh_content
+        WHERE project_id = $1
+        ORDER BY created_at ASC`,
+      [id, project.id, by],
+    );
+  }
+
+  return project;
+}
+
 export async function getProject(
   id: number,
 ): Promise<{ project: Project; variants: Variant[]; comments: Comment[] } | null> {
   await ensureSchema();
-  const p = await query<ProjectRow>(`SELECT * FROM apsomh_content_projects WHERE id = $1`, [id]);
+  const p = await query<ProjectRow>(
+    `SELECT *, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_iso
+       FROM apsomh_content_projects WHERE id = $1`,
+    [id],
+  );
   if (p.rows.length === 0) return null;
 
   const v = await query<VariantRow>(
@@ -349,6 +425,22 @@ export async function starProject(id: number, username: string, starred: boolean
       [id, username],
     );
   }
+}
+
+/**
+ * When the project is due to go out, as "YYYY-MM-DD", or null for no date.
+ *
+ * The string is handed straight to Postgres as a DATE. Building a Date here
+ * to "validate" it is how a calendar day becomes a timestamp and then the
+ * day before.
+ */
+export async function setDueDate(id: number, iso: string | null): Promise<void> {
+  await ensureSchema();
+  const clean = iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  await query(
+    `UPDATE apsomh_content_projects SET due_date = $2::date, updated_at = NOW() WHERE id = $1`,
+    [id, clean],
+  );
 }
 
 /** Rename one version, so a column of six reads without opening any. */

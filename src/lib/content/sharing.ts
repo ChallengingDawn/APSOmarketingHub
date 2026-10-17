@@ -201,6 +201,8 @@ export type ListedProject = {
   folder: string | null;
   /** Starred by the person asking - not by anyone else. */
   starred: boolean;
+  /** "YYYY-MM-DD" or null. A string, deliberately: see src/lib/content/calendar.ts. */
+  dueDate: string | null;
   /**
    * The version LABELS and TITLES, joined, so searching the list finds a
    * project by what is inside it: "shorter hero" lands on the project that
@@ -211,7 +213,10 @@ export type ListedProject = {
   variantText: string;
 };
 
-export type ProjectScope = "mine" | "shared" | "all" | "editable" | "starred" | "archived";
+// "visible" is everything this person may open, theirs and shared alike. The
+// calendar needs it: a content plan with your own projects missing from half
+// the squares is not a plan.
+export type ProjectScope = "mine" | "shared" | "all" | "editable" | "starred" | "archived" | "visible";
 
 /**
  * The projects this person may open: "mine" they own, "shared" were shared
@@ -231,7 +236,7 @@ export async function listProjectsFor(me: Me, scope: ProjectScope): Promise<List
         : scope === "editable" ? "(p.created_by = $1 OR EXISTS (SELECT 1 FROM apsomh_content_project_members x WHERE x.project_id = p.id AND x.username = $1 AND x.role = 'editor'))"
           : scope === "starred"
             ? `${visible} AND EXISTS (SELECT 1 FROM apsomh_content_project_stars s WHERE s.project_id = p.id AND s.username = $1)`
-            : scope === "archived" ? visible
+            : scope === "archived" || scope === "visible" ? visible
               : "p.created_by = $1";
   // Archived is its own view. Every other view hides them, which is the whole
   // point of putting one away.
@@ -240,11 +245,14 @@ export async function listProjectsFor(me: Me, scope: ProjectScope): Promise<List
     id: number; title: string; brief: string | null; status: string; chosen_variant_id: number | null; created_by: string | null;
     owner_name: string | null; updated_at: Date; variant_count: string; comment_count: string; languages: (string | null)[] | null;
     my_role: string | null; members: { username: string; name: string }[] | null;
-    folder: string | null; starred: boolean; variant_text: string | null;
+    folder: string | null; starred: boolean; variant_text: string | null; due_date: string | null;
   }>(
     `SELECT p.id, p.title, p.brief, p.status, p.chosen_variant_id, p.created_by, p.updated_at, p.folder,
             ou.full_name AS owner_name,
             EXISTS (SELECT 1 FROM apsomh_content_project_stars s WHERE s.project_id = p.id AND s.username = $1) AS starred,
+            -- TO_CHAR, not the DATE itself: a DATE read back as a Date lands
+            -- at midnight UTC and reads as the previous day in Zurich.
+            TO_CHAR(p.due_date, 'YYYY-MM-DD') AS due_date,
             (SELECT STRING_AGG(CONCAT_WS(' ', c.label, c.title), ' ') FROM apsomh_content c WHERE c.project_id = p.id) AS variant_text,
             (SELECT COUNT(*) FROM apsomh_content c WHERE c.project_id = p.id) AS variant_count,
             (SELECT COUNT(*) FROM apsomh_content_comments k WHERE k.project_id = p.id) AS comment_count,
@@ -267,6 +275,7 @@ export async function listProjectsFor(me: Me, scope: ProjectScope): Promise<List
     languages: (p.languages ?? []).filter((l): l is string => !!l),
     folder: p.folder,
     starred: !!p.starred,
+    dueDate: p.due_date ?? null,
     variantText: p.variant_text ?? "",
     myRole: p.created_by === me.username ? "owner" : p.my_role === "commenter" ? "commenter" : p.my_role === "editor" ? "editor" : "admin",
     members: p.members ?? [],

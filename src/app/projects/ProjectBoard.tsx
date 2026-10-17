@@ -29,6 +29,11 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import ArchiveOutlinedIcon from "@mui/icons-material/ArchiveOutlined";
+import FileCopyOutlinedIcon from "@mui/icons-material/FileCopyOutlined";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
 import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import AddIcon from "@mui/icons-material/Add";
 import Menu from "@mui/material/Menu";
@@ -42,6 +47,7 @@ import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import TranslateIcon from "@mui/icons-material/Translate";
 import FloatingAssistant from "./FloatingAssistant";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app/uc/report/ui";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
@@ -60,6 +66,8 @@ type Comment = { id: number; variantId: number | null; author: string; body: str
 type Project = {
   id: number; title: string; brief: string | null; status: string; contentType?: string | null;
   chosenVariantId: number | null; createdBy: string | null; createdAt: string;
+  /** "YYYY-MM-DD" or null. Already a string when it leaves the database. */
+  dueDate: string | null;
 };
 type Access = { role: string; canEdit: boolean; canComment: boolean; canShare: boolean };
 type Member = { username: string; name: string; role: "owner" | "editor" | "commenter" };
@@ -132,6 +140,12 @@ export default function ProjectBoard({ id }: { id: number }) {
   // NOT setError: that one is an early return and replaces the whole board.
   // A failed export is a passing remark, not the end of the page.
   const [notice, setNotice] = useState<string | null>(null);
+  const router = useRouter();
+  const [copying, setCopying] = useState(false);
+  const [copyTitle, setCopyTitle] = useState("");
+  const [copyDrafts, setCopyDrafts] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [dueDate, setDueDate] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -161,6 +175,13 @@ export default function ProjectBoard({ id }: { id: number }) {
     if (project && !editingTitle) setTitleDraft(project.title);
     if (project && !editingBrief) setBriefDraft(project.brief ?? "");
   }, [project, editingTitle, editingBrief]);
+
+  // A DATE from the API is already "YYYY-MM-DD", which is exactly what a date
+  // input wants. Nothing here builds a Date out of it: that is how a day
+  // becomes the day before in a +02:00 office.
+  useEffect(() => {
+    setDueDate(project?.dueDate ?? "");
+  }, [project?.dueDate]);
 
   const post = async (payload: Record<string, unknown>) => {
     await fetch(`/api/content/projects/${id}`, {
@@ -331,6 +352,11 @@ export default function ProjectBoard({ id }: { id: number }) {
               onClick={() => setSharing(true)} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>
               {access?.canShare ? "Share" : "People"}
             </Button>
+            <Tooltip title="Start another project from this one">
+              <IconButton onClick={() => { setCopyTitle(`${project.title} `); setCopyDrafts(false); setCopying(true); }}>
+                <FileCopyOutlinedIcon sx={{ fontSize: 18, color: FAINT }} />
+              </IconButton>
+            </Tooltip>
             {canEdit && (
               <Tooltip title={archived
                 ? "Bring it back, so it shows in the lists again"
@@ -344,7 +370,33 @@ export default function ProjectBoard({ id }: { id: number }) {
             )}
           </Box>
         </Box>
-        <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.25 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Due</Typography>
+          <TextField
+            type="date"
+            size="small"
+            value={dueDate}
+            disabled={!canEdit}
+            onChange={(e) => {
+              setDueDate(e.target.value);
+              void post({ action: "due", dueDate: e.target.value });
+            }}
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: "10px", fontSize: "0.82rem" }, width: 165 }}
+          />
+          {dueDate && canEdit && (
+            <Button
+              size="small"
+              onClick={() => { setDueDate(""); void post({ action: "due", dueDate: "" }); }}
+              sx={{ textTransform: "none", borderRadius: "10px", color: MUTED }}
+            >
+              No date
+            </Button>
+          )}
+          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+            {dueDate ? <Link href="/projects/calendar" style={{ color: "inherit" }}>See it on the calendar</Link> : "Give it a date and it appears on the calendar"}
+          </Typography>
+        </Box>
+        <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.75 }}>
           Owner {members.find((m) => m.role === "owner")?.name ?? project.createdBy ?? "somebody"} · started {when(project.createdAt)} ·{" "}
           {variants.length} variation{variants.length === 1 ? "" : "s"}
           {project.chosenVariantId ? " · one chosen" : ""}
@@ -438,6 +490,58 @@ export default function ProjectBoard({ id }: { id: number }) {
           </MenuItem>
         ))}
       </Menu>
+
+      <Dialog open={copying} onClose={() => setCopying(false)} fullWidth maxWidth="xs"
+        PaperProps={{ sx: { borderRadius: "18px" } }}>
+        <DialogContent sx={{ p: 2.5, display: "grid", gap: 1.25 }}>
+          <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: INK }}>Use this again</Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.6 }}>
+            The brief, the type and the folder come across. The comments and the chosen version do not &mdash;
+            nothing has been decided in the new one yet.
+          </Typography>
+          <TextField
+            autoFocus size="small" label="Name" placeholder="e.g. DirectCut landing page, Italy"
+            value={copyTitle} onChange={(e) => setCopyTitle(e.target.value)}
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: "10px" } }}
+          />
+          <FormControlLabel
+            control={<Checkbox size="small" checked={copyDrafts} onChange={(e) => setCopyDrafts(e.target.checked)} />}
+            label={
+              <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
+                Bring the {variants.length} version{variants.length === 1 ? "" : "s"} across too, to edit rather than start again
+              </Typography>
+            }
+          />
+          <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+            <Button onClick={() => setCopying(false)} sx={{ textTransform: "none", borderRadius: "10px" }}>Cancel</Button>
+            <Button
+              variant="contained" disableElevation disabled={copyBusy || !copyTitle.trim()}
+              onClick={async () => {
+                setCopyBusy(true);
+                try {
+                  const j = await fetch("/api/content/projects", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ copyOf: id, title: copyTitle.trim(), withVariants: copyDrafts }),
+                  }).then((r) => r.json());
+                  // Straight into the copy: the next thing anybody does is
+                  // change the brief, and that happens in the new project.
+                  if (j.ok && j.project?.id) router.push(`/projects/${j.project.id}`);
+                  else setNotice(j.error || "The copy could not be made.");
+                } catch {
+                  setNotice("The copy could not be made.");
+                } finally {
+                  setCopyBusy(false);
+                  setCopying(false);
+                }
+              }}
+              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}
+            >
+              {copyBusy ? "Copying\u2026" : "Make the copy"}
+            </Button>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       <ShareDialog projectId={id} title={project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={me} />
 

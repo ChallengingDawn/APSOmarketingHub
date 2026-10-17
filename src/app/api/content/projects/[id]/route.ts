@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import {
   addComment, addVariant, archiveProject, attachVariant, chooseVariant, duplicateVariant,
-  getProject, labelVariant, removeVariant, setFolder, starProject, updateProject,
+  getProject, labelVariant, removeVariant, setDueDate, setFolder, starProject, updateProject,
 } from "@/lib/content/projects";
 import { getAnthropic } from "@/lib/ai/claude";
 import { translateVariant } from "@/lib/content/translate";
@@ -153,6 +153,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (action === "folder") {
     // An empty name means "out of every folder", which is a real answer.
     await setFolder(id, str("folder") ?? null);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "due") {
+    // An empty value clears it. "No date yet" is the normal state of half a
+    // content plan and has to be reachable without deleting the project.
+    await setDueDate(id, str("dueDate") || null);
     return NextResponse.json({ ok: true });
   }
 
