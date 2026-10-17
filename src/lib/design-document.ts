@@ -27,6 +27,12 @@ export const designNodeSchema = z.object({
   opacity: number.min(0).max(1).optional(),
   src: imageSource.optional(),
   letterSpacing: number.min(-1000).max(1000).optional(),
+  /**
+   * Type on a curve: -100 hangs under the circle, 0 is a straight line, 100
+   * arches over it. Stored as the bow rather than an angle - see
+   * src/lib/editor/curvedText.ts.
+   */
+  curve: number.min(-100).max(100).optional(),
   shadow: z.boolean().optional(), locked: z.boolean().optional(), hidden: z.boolean().optional(),
   rotation: number.min(-36000).max(36000).optional(),
   background: z.boolean().optional(), backgroundFill: color.optional(),
@@ -41,6 +47,16 @@ export const designNodeSchema = z.object({
    * it is the default and costs nothing to store.
    */
   mask: z.enum(["circle", "rounded"]).optional(),
+  /**
+   * The part of the photograph that is shown, as FRACTIONS of the source.
+   * Not pixels: the same design is opened against a 1200px web render and a
+   * 4000px original, and a crop in pixels would be a different picture in
+   * each. See src/lib/editor/crop.ts.
+   */
+  crop: z.object({
+    x: number.min(0).max(1), y: number.min(0).max(1),
+    w: number.min(0.001).max(1), h: number.min(0.001).max(1),
+  }).strict().optional(),
   contrastVal: number.min(-100).max(100).optional(), grayscale: z.boolean().optional(),
 }).strict();
 

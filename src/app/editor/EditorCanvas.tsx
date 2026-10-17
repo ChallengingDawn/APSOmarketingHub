@@ -1,9 +1,11 @@
 "use client";
 import { canonicalDesign, designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
+import { coverCrop, cropToPixels, isWholeImage, panCrop, zoomCrop, zoomOf } from "@/lib/editor/crop";
+import { arcPath } from "@/lib/editor/curvedText";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Stage, Layer, Rect, Text as KText, Image as KImage, Ellipse as KEllipse, Arrow as KArrow, Transformer, Line } from "react-konva";
+import { Stage, Layer, Rect, Text as KText, TextPath as KTextPath, Image as KImage, Ellipse as KEllipse, Arrow as KArrow, Transformer, Line } from "react-konva";
 import Konva from "konva";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
@@ -22,6 +24,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import TitleIcon from "@mui/icons-material/Title";
 import TextFieldsIcon from "@mui/icons-material/TextFields";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
+import CropIcon from "@mui/icons-material/Crop";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import FormatColorTextIcon from "@mui/icons-material/FormatColorText";
@@ -353,6 +356,8 @@ export default function EditorCanvas({
     });
   }, []);
   const [guides, setGuides] = useState<Guides>({});
+  /** The image being cropped, if any. One at a time, by id. */
+  const [cropping, setCropping] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const revisionRef = useRef(initialRevision);
@@ -654,6 +659,33 @@ export default function EditorCanvas({
 
   /* uploaded/imported image elements cache */
   const [imgEls, setImgEls] = useState<Record<string, HTMLImageElement>>({});
+  useEffect(() => {
+    if (cropping && !selectedIds.includes(cropping)) setCropping(null);
+  }, [cropping, selectedIds]);
+
+  /**
+   * Drag inside the frame: the picture moves, the frame does not.
+   *
+   * Konva has already moved the node by the time this runs, so the delta is
+   * read off it and then undone - the node goes back where it was and the
+   * crop absorbs the movement.
+   */
+  const panImage = useCallback(
+    (n: NodeSpec, target: Konva.Node) => {
+      const el = imgEls[n.src ?? ""];
+      const boxW = n.width ?? 0;
+      const boxH = n.height ?? 0;
+      const dx = target.x() - n.x;
+      const dy = target.y() - n.y;
+      target.x(n.x);
+      target.y(n.y);
+      if (!el || !boxW || !boxH || (!dx && !dy)) return;
+      const from = n.crop ?? coverCrop(el.naturalWidth, el.naturalHeight, boxW, boxH);
+      patch(n.id, { crop: panCrop(from, dx, dy, boxW, boxH) }, `crop-${n.id}`);
+    },
+    [imgEls, patch],
+  );
+
   const [logoMenu, setLogoMenu] = useState<HTMLElement | null>(null);
   const loadNodeImage = useCallback((_id: string, src: string) => {
     const el = new window.Image();
@@ -2488,12 +2520,132 @@ export default function EditorCanvas({
                   <Chip key={p.id} label={p.label} size="small" onClick={() => applyTextPreset(p.id)} sx={{ fontWeight: 600, bgcolor: "#f0f1f3" }} />
                 ))}
               </Box>
+              {/* Curve. Zero is in the middle of the track and snaps, because
+                  "almost straight" is never what anybody wants. */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                <Typography sx={{ fontSize: 11.5, color: "#5b6470", minWidth: 86 }}>
+                  Curve · {selected.curve ?? 0}
+                </Typography>
+                <Slider
+                  size="small"
+                  min={-100}
+                  max={100}
+                  step={5}
+                  marks={[{ value: 0 }]}
+                  value={selected.curve ?? 0}
+                  onChange={(_, v) => {
+                    const raw = Array.isArray(v) ? v[0] : v;
+                    // A curve of 0 is stored as nothing: a straight line is
+                    // the absence of a curve, and keeping a 0 would make every
+                    // old document differ from an identical new one.
+                    const next = Math.abs(raw) < 5 ? undefined : raw;
+                    patch(selected.id, { curve: next }, `curve-${selected.id}`);
+                  }}
+                  sx={{ flex: 1 }}
+                />
+                {selected.curve ? (
+                  <Button size="small" onClick={() => patch(selected.id, { curve: undefined })} sx={{ fontWeight: 700 }}>
+                    Straight
+                  </Button>
+                ) : null}
+              </Box>
             </Box>
           )}
 
           {/* image adjustments for the selected image node */}
           {selected?.kind === "image" && (
             <Box sx={{ px: 1.25, pb: 1.25, display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+              {/* Crop. Every photograph is the wrong shape for the box it has
+                  to go in, and before this the only moves were "squash it" and
+                  "leave a gap". People pick squash. */}
+              <Button
+                size="small"
+                variant={cropping === selected.id ? "contained" : "outlined"}
+                startIcon={<CropIcon />}
+                onClick={() => {
+                  const next = cropping === selected.id ? null : selected.id;
+                  setCropping(next);
+                  // Entering crop on an uncropped image fills the frame, so
+                  // the first drag has somewhere to go.
+                  if (next && !selected.crop) {
+                    const el = imgEls[selected.src ?? ""];
+                    if (el && selected.width && selected.height) {
+                      patch(selected.id, {
+                        crop: coverCrop(el.naturalWidth, el.naturalHeight, selected.width, selected.height),
+                      });
+                    }
+                  }
+                }}
+                sx={{ fontWeight: 700 }}
+              >
+                {cropping === selected.id ? "Done" : "Crop"}
+              </Button>
+              {cropping === selected.id && (
+                <>
+                  <Box sx={{ width: 150 }}>
+                    <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                      Zoom · {zoomOf(
+                        selected.crop,
+                        imgEls[selected.src ?? ""]?.naturalWidth ?? 0,
+                        imgEls[selected.src ?? ""]?.naturalHeight ?? 0,
+                        selected.width ?? 0,
+                        selected.height ?? 0,
+                      ).toFixed(2)}&times;
+                    </Typography>
+                    <Slider
+                      size="small"
+                      min={1}
+                      max={4}
+                      step={0.05}
+                      value={zoomOf(
+                        selected.crop,
+                        imgEls[selected.src ?? ""]?.naturalWidth ?? 0,
+                        imgEls[selected.src ?? ""]?.naturalHeight ?? 0,
+                        selected.width ?? 0,
+                        selected.height ?? 0,
+                      )}
+                      onChange={(_, v) => {
+                        const el = imgEls[selected.src ?? ""];
+                        if (!el || !selected.width || !selected.height) return;
+                        const z = Array.isArray(v) ? v[0] : v;
+                        const from = selected.crop ?? coverCrop(el.naturalWidth, el.naturalHeight, selected.width, selected.height);
+                        patch(
+                          selected.id,
+                          { crop: zoomCrop(from, el.naturalWidth, el.naturalHeight, selected.width, selected.height, z) },
+                          `cropz-${selected.id}`,
+                        );
+                      }}
+                    />
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      const el = imgEls[selected.src ?? ""];
+                      if (el && selected.width && selected.height) {
+                        patch(selected.id, {
+                          crop: coverCrop(el.naturalWidth, el.naturalHeight, selected.width, selected.height),
+                        });
+                      }
+                    }}
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Recentre
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={isWholeImage(selected.crop)}
+                    onClick={() => patch(selected.id, { crop: undefined })}
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Whole picture
+                  </Button>
+                  <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                    Drag the photo to move it inside the frame.
+                  </Typography>
+                </>
+              )}
               <Button size="small" variant={selected.flipH ? "contained" : "outlined"} onClick={() => patch(selected.id, { flipH: !selected.flipH })} sx={{ fontWeight: 700 }}>
                 Flip H
               </Button>
@@ -2663,7 +2815,56 @@ export default function EditorCanvas({
               {visibleNodes.map((n) =>
                 n.kind === "text" ? (
                   <Fragment key={n.id}>
-                    {n.background && pillRect(n)}
+                    {/* No pill behind curved text: the pill is a rectangle
+                        measured from straight text metrics, and behind an arch
+                        it is visibly the wrong shape. */}
+                    {n.background && !n.curve && pillRect(n)}
+                    {n.curve ? (
+                      <KTextPath
+                        id={n.id}
+                        x={n.x}
+                        y={n.y}
+                        rotation={n.rotation ?? 0}
+                        // One line, by definition: a wrapped paragraph on a
+                        // curve has nowhere to put its second line.
+                        text={(n.upper ? (n.text ?? "").toUpperCase() : (n.text ?? "")).replace(/\s*\n\s*/g, " ")}
+                        data={arcPath(n.width ?? 300, n.curve).d}
+                        fontSize={n.fontSize}
+                        fontFamily={fontFamilyOf(n)}
+                        fontStyle={n.fontStyle}
+                        fill={n.fill}
+                        align={n.align}
+                        letterSpacing={n.letterSpacing ?? 0}
+                        opacity={n.opacity ?? 1}
+                        shadowColor={DROP_SHADOW.color}
+                        shadowBlur={n.shadow ? DROP_SHADOW.blur : 0}
+                        shadowOffsetY={n.shadow ? DROP_SHADOW.offsetY : 0}
+                        shadowEnabled={Boolean(n.shadow)}
+                        stroke={n.stroke}
+                        strokeWidth={n.strokeWidth ?? 0}
+                        fillAfterStrokeEnabled
+                        draggable={!n.locked}
+                        onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
+                        onTap={() => setSelectedId(n.id)}
+                        onDblClick={() => editTextInline(n)}
+                        onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "text")}
+                        onMouseLeave={(e) => setCursor(e, "default")}
+                        onDragMove={onDragMove}
+                        onDragEnd={(e) => onDragEnd(e, n.id)}
+                        onTransformEnd={(e) => {
+                          const t = e.target;
+                          patch(n.id, {
+                            x: t.x(),
+                            y: t.y(),
+                            rotation: t.rotation(),
+                            width: Math.max(40, (n.width ?? 300) * Math.abs(t.scaleX())),
+                            fontSize: Math.max(8, Math.round((n.fontSize ?? 24) * Math.abs(t.scaleY()))),
+                          });
+                          t.scaleX(1);
+                          t.scaleY(1);
+                        }}
+                      />
+                    ) : (
                     <KText
                       id={n.id}
                       x={n.x}
@@ -2714,6 +2915,7 @@ export default function EditorCanvas({
                         t.scaleY(1);
                       }}
                     />
+                    )}
                   </Fragment>
                 ) : n.kind === "image" ? (
                   <KImage
@@ -2729,6 +2931,14 @@ export default function EditorCanvas({
                     offsetX={n.flipH ? n.width ?? 0 : 0}
                     offsetY={n.flipV ? n.height ?? 0 : 0}
                     image={imgEls[n.src ?? ""]}
+                    // The crop is fractions of the source; Konva wants source
+                    // pixels, so the conversion happens here, where the real
+                    // image is and its natural size is finally known.
+                    crop={cropToPixels(
+                      n.crop,
+                      imgEls[n.src ?? ""]?.naturalWidth ?? 0,
+                      imgEls[n.src ?? ""]?.naturalHeight ?? 0,
+                    )}
                     // Konva has no mask on an image, so the shape IS the corner
                     // radius: half the shorter side draws a circle, a twelfth
                     // draws the rounded card the rest of the hub uses. A node
@@ -2752,10 +2962,13 @@ export default function EditorCanvas({
                     draggable={!n.locked}
                     onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
                     onTap={() => setSelectedId(n.id)}
-                    onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "move")}
+                    onMouseEnter={(e) => setCursor(e, n.locked ? "default" : cropping === n.id ? "grab" : "move")}
                     onMouseLeave={(e) => setCursor(e, "default")}
-                    onDragMove={onDragMove}
-                    onDragEnd={(e) => onDragEnd(e, n.id)}
+                    // In crop mode the drag moves the PICTURE inside the frame
+                    // rather than the frame across the page. That is what a
+                    // crop is for: the subject is almost never centred.
+                    onDragMove={cropping === n.id ? (e) => panImage(n, e.target) : onDragMove}
+                    onDragEnd={cropping === n.id ? (e) => panImage(n, e.target) : (e) => onDragEnd(e, n.id)}
                     onTransformEnd={(e) => {
                       const t = e.target;
                       patch(n.id, {
