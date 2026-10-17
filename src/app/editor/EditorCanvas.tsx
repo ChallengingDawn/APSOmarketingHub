@@ -672,9 +672,38 @@ export default function EditorCanvas({
       const el = new window.Image();
       el.onload = () => {
         const id = nid();
+        setImgEls((cur) => ({ ...cur, [id]: el }));
+
+        // A selected shape is a FRAME: the picture takes its box and its
+        // corner radius and replaces it. Without this, every import landed
+        // top-left at 35% width whatever the layout wanted, and a careful
+        // grid fell apart the moment anybody dropped a photograph into it.
+        const frame = nodesRef.current.find(
+          (n) => n.id === selectedId && isShape(n.kind) && !n.locked,
+        );
+
+        if (frame) {
+          const box = {
+            x: frame.x,
+            y: frame.y,
+            width: frame.width ?? canvas.w * 0.3,
+            height: frame.height ?? canvas.h * 0.3,
+          };
+          commit((cur) => [
+            ...cur.filter((n) => n.id !== frame.id),
+            {
+              id, kind: "image", ...box, fill: "#fff", src, opacity: 1,
+              // The frame's shape survives it: a circular placeholder gives a
+              // circular picture, which is the whole point of placing one.
+              ...(frame.cornerRadius ? { cornerRadius: frame.cornerRadius } : {}),
+            },
+          ]);
+          setSelectedId(id);
+          return;
+        }
+
         const maxW = canvas.w * 0.35;
         const sc = Math.min(1, maxW / el.width);
-        setImgEls((cur) => ({ ...cur, [id]: el }));
         commit((cur) => [
           ...cur,
           { id, kind: "image", x: canvas.w * 0.06, y: canvas.h * 0.06, width: el.width * sc, height: el.height * sc, fill: "#fff", src, opacity: 1 },
@@ -684,6 +713,34 @@ export default function EditorCanvas({
       el.src = src;
     };
     reader.readAsDataURL(file);
+  };
+
+  /**
+   * Drop a row of evenly spaced frames.
+   *
+   * Somewhere for pictures to go before anybody has a picture — which is the
+   * order people actually work in. Sized off the canvas so the same grid is
+   * the same grid on a banner and on a story.
+   */
+  const addGrid = (count: 2 | 3 | 4) => {
+    const margin = canvas.w * 0.06;
+    const gap = canvas.w * 0.02;
+    const w = (canvas.w - margin * 2 - gap * (count - 1)) / count;
+    const h = Math.min(canvas.h * 0.42, w);
+    const y = (canvas.h - h) / 2;
+    const made: NodeSpec[] = Array.from({ length: count }, (_, i) => ({
+      id: nid(),
+      kind: "rect" as const,
+      x: Math.round(margin + i * (w + gap)),
+      y: Math.round(y),
+      width: Math.round(w),
+      height: Math.round(h),
+      // A placeholder reads as empty, not as a design decision somebody made.
+      fill: "#e9edf2",
+      cornerRadius: 10,
+    }));
+    commit((cur) => [...cur, ...made]);
+    setSelectedIds(made.map((m) => m.id));
   };
 
   /** Relative luminance (0 dark, 1 light) behind a canvas rectangle: the photo when there is one, else the gradient or colour. */
@@ -1559,6 +1616,35 @@ export default function EditorCanvas({
               }}
             >
               {sh.el}
+            </Box>
+          </Tooltip>
+        ))}
+      </Box>
+
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
+        Picture frames
+      </Typography>
+      {/* Somewhere for pictures to go before anybody has a picture, which is
+          the order people actually work in. Select one, import an image, and
+          the image takes its place and its shape. */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.75, mb: 2 }}>
+        {([2, 3, 4] as const).map((count) => (
+          <Tooltip key={count} title={`${count} frames across`}>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => addGrid(count)}
+              aria-label={`Add ${count} frames`}
+              sx={{
+                cursor: "pointer", height: 42, display: "flex", alignItems: "center",
+                justifyContent: "center", gap: "3px", px: 0.75,
+                borderRadius: "10px", border: "1px solid #e3e6ea", bgcolor: "#fff",
+                "&:hover": { borderColor: "#2459d1", bgcolor: "#f7f9ff" },
+              }}
+            >
+              {Array.from({ length: count }, (_, i) => (
+                <Box key={i} sx={{ flex: 1, height: 20, borderRadius: "2px", bgcolor: "#c8d2de" }} />
+              ))}
             </Box>
           </Tooltip>
         ))}
