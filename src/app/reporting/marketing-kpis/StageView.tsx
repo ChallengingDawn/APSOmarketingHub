@@ -22,6 +22,7 @@ import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, upToOf, journeyAdditionsIn, journeyExtrasIn, measuredIn, notConnectedIn, stageTint, type MkState } from "./data";
 import { CustomersExplorer } from "./Customers";
+import { SearchCustomersCard } from "./SearchCustomers";
 
 const n0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("en"));
 const pct = (a: number | null | undefined, b: number | null | undefined) => (a == null || !b ? "—" : `${((a / b) * 100).toFixed(1)}%`);
@@ -45,13 +46,16 @@ function Breakdowns({ slug, live }: { slug: string; live?: LiveKpis }) {
       </Box>
     );
   }
-  if (slug === "reach" && b.searchCountries.length) {
+  if (slug === "reach") {
     return (
-      <GlassCard>
+      <Box sx={{ display: "grid", gap: 2 }}>
+      <SearchCustomersCard />
+      {b.searchCountries.length > 0 && <GlassCard>
         <CardTitle icon={<TravelExploreIcon />} tint="blue" title="Search visibility by country" note={`Search Console clicks, ${live.year} so far`} />
         {/* in full - no "52.0K" (SARCLA: "no abbreviation") */}
         <BarList format={(v) => (v == null ? "—" : `${n0(v)} clicks`)} rows={b.searchCountries.map((c) => ({ label: c.label, value: c.clicks, secondary: `${n0(c.impressions)} impressions` }))} />
-      </GlassCard>
+      </GlassCard>}
+      </Box>
     );
   }
   if (slug === "handover") {

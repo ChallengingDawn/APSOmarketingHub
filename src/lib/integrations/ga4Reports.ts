@@ -41,7 +41,9 @@ export type Ga4ReportName =
   | "eventTotals"
   | "sessionTotals"
   | "landingSessions"
-  | "organicValue";
+  | "organicValue"
+  | "adsDaily"
+  | "transactionsChannel";
 
 type ReportSpec = {
   dimensions: string[];
@@ -157,6 +159,21 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     filter: { field: "newVsReturning", value: "new" },
     orderBy: { dimension: "date" },
     limit: 4000,
+  },
+  adsDaily: {
+    // SEA on Reach (SARCLA 17.10: "make SEA live"): impressions, clicks and cost per day and
+    // campaign, summed by the hub into months - never yearMonth, which inflates advertiser metrics.
+    dimensions: ["date", "sessionGoogleAdsCampaignName"],
+    metrics: ["advertiserAdImpressions", "advertiserAdClicks", "advertiserAdCost"],
+    orderBy: { dimension: "date" },
+    limit: 25000,
+  },
+  transactionsChannel: {
+    // Each web order GA4 saw, by its order number and the channel of the session it came in:
+    // the hub matches the number to the HubSpot order and its company (customers from search).
+    dimensions: ["transactionId", "sessionDefaultChannelGroup", "date"],
+    metrics: ["transactions"],
+    limit: 100000,
   },
   adsClicksDaily: {
     // GA4 answers Google Ads metrics only alongside a campaign dimension; the client sums per day.

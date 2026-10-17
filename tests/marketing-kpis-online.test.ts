@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DIMS, type Dim } from "../src/lib/marketingKpis/cube";
-import { foldOnline, groupOrders, onlineBy, onlineShare, splitNumber, webMark, type OrderRec } from "../src/lib/marketingKpis/onlineShare";
+import { classifySearchCustomers, foldOnline, groupOrders, onlineBy, onlineShare, splitNumber, webMark, type OrderRec } from "../src/lib/marketingKpis/onlineShare";
 
 const rec = (id: string, number: string, month: string, value: number, web = false, cancelled = false): OrderRec => ({ id, number, month, value, web, cancelled });
 
@@ -80,4 +80,36 @@ test("fold and slice: share by segment, the year earlier, and the filters", () =
   // several values: either passes
   assert.deepEqual([...onlineBy(o, { prio: ["Prio 1", "Prio 2"] }, sep26, "segment").keys()].sort(), ["APSOcore", "APSOgrowth"]);
   assert.equal(onlineBy(o, { prio: ["Prio 2", "Prio 9"] }, sep26).get("")!.all, 500);
+});
+
+test("customers from search: new, reactivated and active per channel, matched by the shop's order number", () => {
+  const orders: Record<string, { company: string; month: string }> = {
+    "6000000001": { company: "A", month: "2026-03" },   // A: first order ever, through SEO
+    "6000000002": { company: "B", month: "2026-04" },   // B: back after a year and more, through SEA
+    "6000000003": { company: "C", month: "2026-05" },   // C: a regular, through SEO
+    "6000000004": { company: "A", month: "2026-06" },   // A again, SEA: active there, not new
+    "6000000005": { company: "D", month: "2025-03" },   // last year: D new through SEO
+  };
+  const companyMonths = new Map([
+    ["A", new Set(["2026-03", "2026-06"])], ["B", new Set(["2024-11", "2026-04"])],
+    ["C", new Set(["2026-01", "2026-05"])], ["D", new Set(["2025-03"])],
+  ]);
+  const firstOrder = new Map([["A", "2026-03"], ["B", "2023-05"], ["C", "2019-02"], ["D", "2025-03"]]);
+  const r = classifySearchCustomers({
+    ga4: [
+      { tid: "6000000001", channel: "Organic Search", date: "2026-03-04" },
+      { tid: "6000000002", channel: "Paid Search", date: "2026-04-10" },
+      { tid: "6000000003", channel: "Organic Search", date: "2026-05-02" },
+      { tid: "6000000004", channel: "Paid Search", date: "2026-06-20" },
+      { tid: "6000000004", channel: "Paid Search", date: "2026-06-20" },   // the same order twice: once
+      { tid: "6000000005", channel: "Organic Search", date: "2025-03-15" },
+      { tid: "9999999999", channel: "Organic Search", date: "2026-07-01" },  // not in HubSpot
+      { tid: "6000000003", channel: "Direct", date: "2026-11-01" },          // after the window
+    ],
+    orderOf: (t) => orders[t] ?? null, companyMonths, firstOrder, year: 2026, upTo: 9, webOrdersCy: 20,
+  });
+  assert.deepEqual(r.cy.organic, { new: 1, react: 0, active: 2 });
+  assert.deepEqual(r.cy.paid, { new: 0, react: 1, active: 2 });
+  assert.deepEqual(r.py.organic, { new: 1, react: 0, active: 1 });
+  assert.deepEqual(r.coverage, { ga4: 5, matched: 4, webOrders: 20 });
 });

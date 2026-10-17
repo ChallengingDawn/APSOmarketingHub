@@ -299,7 +299,7 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
   const day = (d: Date) => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   if (v.measure.agg.kind === "ytd") return read ? `Up to ${day(new Date(read))} · read by the hub` : "";
   if (!v.upTo) return "No month in yet";
-  if (v.fellBack) return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · monthly input - Search Console not connected`;
+  if (v.fellBack) return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · monthly input - ${v.measure.liveSource ?? "the live source"} not connected`;
   return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · ${v.measure.origin === "live" ? `read ${read ? day(new Date(read)) : ""}` : "monthly input"}`;
 }
 
@@ -335,7 +335,7 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo }: { v: KpiView; kpi
         </ChartFrame>
       )}
       <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
-        {kpi?.audienceAsk ? `${kpi.audienceAsk} · ` : ""}{v.measure.notCatalogue ? "" : kpi?.definition ?? ""}{v.measure.note ? `${v.measure.notCatalogue ? "" : " · "}${v.measure.note}` : ""}{v.partial != null && v.measure.agg.kind !== "ytd" ? ` · ${MONTHS[v.partial]} is still running and not in the year so far` : ""}
+        {kpi?.audienceAsk ? `${kpi.audienceAsk} · ` : ""}{v.measure.notCatalogue ? "" : v.measure.definition ?? kpi?.definition ?? ""}{v.measure.note ? `${v.measure.notCatalogue ? "" : " · "}${v.measure.note}` : ""}{v.partial != null && v.measure.agg.kind !== "ytd" ? ` · ${MONTHS[v.partial]} is still running and not in the year so far` : ""}
       </Typography>
     </GlassCard>
   );

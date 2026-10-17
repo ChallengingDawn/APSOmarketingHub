@@ -37,6 +37,10 @@ export type Measure = {
    * figure: Search Console keeps 16 months, so last year starts mid-year.
    */
   likeForLike?: boolean;
+  /** where a live KPI is read - named when it does not answer and the typed months stand in */
+  liveSource?: string;
+  /** what the KPI counts, when the catalogue's own words no longer fit the source (SEA: Google Ads only) */
+  definition?: string;
   note?: string;
 };
 
@@ -51,20 +55,22 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "K03", label: "Check-out abandonment rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false }),
   M({ id: "P01", label: "Purchases (online orders)", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "P02", label: "Conversion rate users", fmt: "pct", agg: { kind: "ratio", num: "P01", den: "V01" }, origin: "sheet", derived: true }),
-  M({ id: "R01", label: "SEA impressions", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
-  M({ id: "R02", label: "SEA clicks", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
-  M({ id: "R03", label: "SEA CTR", fmt: "pct", agg: { kind: "ratio", num: "R02", den: "R01" }, origin: "sheet", derived: true }),
+  // SEA: live from Google Ads through GA4's Ads link since 17.10.2026 (SARCLA: "make SEA live"), the whole
+  // of last year too; Microsoft Ads is not in GA4, so these are Google Ads only. Typed months as the fallback.
+  M({ id: "R01", label: "SEA impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Impressions from Google Ads", note: "Through GA4's Google Ads link - Microsoft Ads not included" }),
+  M({ id: "R02", label: "SEA clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Clicks from Google Ads", note: "Through GA4's Google Ads link - Microsoft Ads not included" }),
+  M({ id: "R03", label: "SEA CTR", fmt: "pct", agg: { kind: "ratio", num: "R02", den: "R01" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Google Ads clicks / Google Ads impressions" }),
   M({ id: "X01", label: "SEA cost", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", goodWhenUp: false }),
   M({ id: "P05", label: "SEA revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "P06", label: "ROAS (SEA)", fmt: "x", agg: { kind: "ratio", num: "P05", den: "X01" }, origin: "sheet", derived: true }),
   // Reach (SEO): live from Search Console since 17.10.2026 (SARCLA: "this should update live, last year against
   // this year"); the typed months stay as the fallback while Google is not connected
-  M({ id: "R04", label: "SEO impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true }),
-  M({ id: "R05", label: "SEO clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true }),
-  M({ id: "R06", label: "SEO CTR", fmt: "pct", agg: { kind: "ratio", num: "R05", den: "R04" }, origin: "live", likeForLike: true }),
-  M({ id: "R07", label: "SEO average position", fmt: "dec1", agg: { kind: "wavg", weight: "R04" }, origin: "live", likeForLike: true, goodWhenUp: false, note: "Lower is better" }),
-  M({ id: "R08", label: "Brand share of search clicks", fmt: "pct", agg: { kind: "ratio", num: "R08B", den: "R05" }, origin: "live", likeForLike: true, note: "Clicks from searches naming APSO, Angst or Pfister" }),
-  M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, notCatalogue: true }),
+  M({ id: "R04", label: "SEO impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console" }),
+  M({ id: "R05", label: "SEO clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console" }),
+  M({ id: "R06", label: "SEO CTR", fmt: "pct", agg: { kind: "ratio", num: "R05", den: "R04" }, origin: "live", likeForLike: true, liveSource: "Search Console" }),
+  M({ id: "R07", label: "SEO average position", fmt: "dec1", agg: { kind: "wavg", weight: "R04" }, origin: "live", likeForLike: true, liveSource: "Search Console", goodWhenUp: false, note: "Lower is better" }),
+  M({ id: "R08", label: "Brand share of search clicks", fmt: "pct", agg: { kind: "ratio", num: "R08B", den: "R05" }, origin: "live", likeForLike: true, liveSource: "Search Console", note: "Clicks from searches naming APSO, Angst or Pfister" }),
+  M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", notCatalogue: true }),
   M({ id: "P07", label: "SEO revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "F01", label: "Paid revenue (SEA) vs SMEC target", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", derived: true, note: "SEA revenue against the year's SMEC target" }),
   // live - read by the hub

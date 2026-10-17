@@ -10,13 +10,20 @@
 //   traffic origin   GA4 sessions by channel and by country, year to date
 //   search country   Search Console clicks by country, year to date
 //   reach (SEO)      Search Console day by day, folded into months this year and
-//                    last: impressions, clicks, CTR, position, brand share (R04-R08)
+//                    last: impressions, clicks, CTR, position, brand share (R04-R08);
+//                    every whole month kept in the hub, beyond Google's 16 months
+//   reach (SEA)      Google Ads impressions and clicks through GA4's Ads link, per
+//                    day summed into months, this year and the whole of last (R01-R03)
 
 import { hubspotFetchJson, searchTotal } from "@/lib/integrations/hubspot";
 import { fetchContactRequests } from "@/lib/integrations/contactRequests";
 import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
 import { fetchGscDaily, fetchGscQueries } from "@/lib/integrations/gsc";
-import { BRAND_QUERY, monthlyFromDaily } from "./searchMonthly";
+import { kvGet, kvSet } from "@/lib/db/init";
+import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMonths, type MonthAcc } from "./searchMonthly";
+
+/** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
+const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 
 const KEY = "marketingKpis:live:v1";
@@ -54,7 +61,7 @@ const RETRY_FAILED_MS = 30 * 60 * 1000;
 export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // a read stored before Reach came from Search Console (17.10.2026) has neither its months nor its error:
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
-  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : !v?.series?.R04 ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : !v?.series?.R04 || !v?.series?.R01 ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -199,9 +206,36 @@ async function build(): Promise<LiveKpis> {
     const from = `${py}-01-01`, to = iso(now);
     const all = await fetchGscDaily({ from, to });
     const brand = await fetchGscDaily({ from, to, queryRegex: BRAND_QUERY });
-    const m = monthlyFromDaily(all.days, brand.days, year, now);
-    Object.assign(series, m.series);
-    search = { firstDay: m.firstDay, lastDay: m.lastDay };
+    // the months the hub kept, with what Google still has; the whole months go back into the keep
+    let kept: Record<string, MonthAcc> = {};
+    try { kept = (await kvGet<Record<string, MonthAcc>>(SEARCH_HISTORY_KEY)) ?? {}; } catch { /* no database: Google's months only */ }
+    const months = mergeHistory(kept, monthsFromDays(all.days, brand.days));
+    try { await kvSet(SEARCH_HISTORY_KEY, completeOnly(months)); } catch { /* kept next time */ }
+    Object.assign(series, seriesFromMonths(months, year, now));
+    const dates = all.days.map((d) => d.date).sort();
+    search = { firstDay: dates[0] ?? null, lastDay: dates[dates.length - 1] ?? null };
+  });
+
+  // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)
+  await guard("googleAds", async () => {
+    reportProgress(KEY, "reading Google Ads through GA4");
+    const s = { R01: empty(), R02: empty(), R03: empty() };
+    for (const [side, y, to] of [["py", py, `${py}-12-31`], ["months", year, iso(now)]] as const) {
+      const r = await fetchGa4Report({ name: "adsDaily", from: `${y}-01-01`, to });
+      for (const row of r.rows) {
+        const m = Number(row.keys[0]?.slice(5, 7)) - 1;
+        if (!(m >= 0 && m < 12)) continue;
+        s.R01[side][m] = (s.R01[side][m] ?? 0) + (row.values[0] ?? 0);
+        s.R02[side][m] = (s.R02[side][m] ?? 0) + (row.values[1] ?? 0);
+      }
+    }
+    for (const side of ["months", "py"] as const) {
+      // before the Ads link answered, a month is nothing rather than zero
+      s.R01[side] = notBeforeFirst(s.R01[side]);
+      s.R02[side] = s.R02[side].map((v, i) => (s.R01[side][i] == null ? null : v));
+      s.R03[side] = s.R01[side].map((imp, i) => (imp ? (s.R02[side][i] ?? 0) / imp : null));
+    }
+    Object.assign(series, s);
   });
 
   return {

@@ -69,6 +69,9 @@ export type OnlineCube = {
   through: string;
   /** orders counted, of them through the shop; and orders without a company (left out) */
   orders: { all: number; web: number; noCompany: number };
+  /** new, reactivated and active companies from organic and paid search (GA4 matched to the orders) */
+  searchCustomers?: SearchCustomers;
+  searchCustomersError?: string;
 };
 
 /** Orders with their company's labels into cells; months outside the three years are left out. */
@@ -135,4 +138,77 @@ export function onlineBy(o: OnlineCube, filters: Filters, win: Win, groupBy?: Di
     out.set(label, a);
   }
   return out;
+}
+
+/* ── customers from search (SARCLA 17.10: "new / reactivated / active customers for SEO and SEA") ── */
+
+export type ChannelKey = "organic" | "paid";
+export type ChannelCounts = { new: number; react: number; active: number };
+export type SearchCustomers = {
+  /** the whole months this year the counts cover (9 = Jan-Sep); last year the same months */
+  upTo: number;
+  cy: Record<ChannelKey, ChannelCounts>;
+  py: Record<ChannelKey, ChannelCounts>;
+  /** this year's months: the web orders GA4 saw, how many of them matched a HubSpot order with a company, and all web orders */
+  coverage: { ga4: number; matched: number; webOrders: number };
+};
+
+const CHANNEL: Record<string, ChannelKey> = { "Organic Search": "organic", "Paid Search": "paid" };
+const shiftYm = (ym: string, back: number) => {
+  const t = Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1 - back;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
+};
+
+/**
+ * GA4's web orders, each with the channel of the session it came in (last click),
+ * matched by order number to the HubSpot order and its company. Per channel, in the
+ * months this year so far and the same months last year, companies:
+ *   new          their first order ever came in that month, through that channel
+ *   reactivated  ordered through that channel after 12 months or more without an order
+ *   active       at least one order through that channel
+ * Only the orders GA4 saw - visitors who accepted statistics cookies - so a floor.
+ */
+export function classifySearchCustomers(p: {
+  ga4: { tid: string; channel: string; date: string }[];
+  /** the HubSpot order behind a shop order number: its company and month, or nothing */
+  orderOf: (tid: string) => { company: string; month: string } | null;
+  /** every month each company ordered in, through any channel */
+  companyMonths: Map<string, Set<string>>;
+  /** each company's first order ever, "YYYY-MM" */
+  firstOrder: Map<string, string>;
+  year: number;
+  upTo: number;
+  webOrdersCy: number;
+}): SearchCustomers {
+  const sets = () => ({ new: new Set<string>(), react: new Set<string>(), active: new Set<string>() });
+  const win = { cy: { organic: sets(), paid: sets() }, py: { organic: sets(), paid: sets() } };
+  let ga4 = 0, matched = 0;
+  const seen = new Set<string>();
+  for (const r of p.ga4) {
+    if (!r.tid || r.tid === "(not set)" || seen.has(r.tid)) continue;
+    seen.add(r.tid);
+    const month = r.date.slice(0, 7);
+    const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7)) - 1;
+    const side = y === p.year ? "cy" : y === p.year - 1 ? "py" : null;
+    if (!side || m >= p.upTo) continue;
+    const o = p.orderOf(r.tid);
+    if (side === "cy") { ga4++; if (o) matched++; }
+    const ch = CHANNEL[r.channel];
+    if (!o || !ch) continue;
+    const c = o.company, first = p.firstOrder.get(c);
+    const s = win[side][ch];
+    s.active.add(c);
+    if (first === month) { s.new.add(c); continue; }
+    const had = p.companyMonths.get(c) ?? new Set<string>();
+    let gap = true;
+    for (let k = 1; k <= 12 && gap; k++) if (had.has(shiftYm(month, k))) gap = false;
+    if (gap && first && first < month) s.react.add(c);
+  }
+  const counts = (x: ReturnType<typeof sets>): ChannelCounts => ({ new: x.new.size, react: x.react.size, active: x.active.size });
+  return {
+    upTo: p.upTo,
+    cy: { organic: counts(win.cy.organic), paid: counts(win.cy.paid) },
+    py: { organic: counts(win.py.organic), paid: counts(win.py.paid) },
+    coverage: { ga4, matched, webOrders: p.webOrdersCy },
+  };
 }

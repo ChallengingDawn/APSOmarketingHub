@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { monthlyFromDaily, type SearchDay } from "../src/lib/marketingKpis/searchMonthly";
+import { completeOnly, mergeHistory, monthlyFromDaily, seriesFromMonths, type SearchDay } from "../src/lib/marketingKpis/searchMonthly";
 import { total, type Series } from "../src/lib/marketingKpis/measures";
 
 /** Every day from `from` to `to`, each with the same figures. */
@@ -47,4 +47,19 @@ test("like for like: last year's figure and this year's on the same months only"
   assert.equal(total("R05", s, "months", get, 4), 40);
   assert.equal(total("R05", s, "months", get, 4, both), 20);
   assert.equal(total("R05", s, "py", get, 4, both), 10);
+});
+
+test("the hub keeps the months Google drops: a whole month kept beats a part re-read; a re-read whole month wins", () => {
+  const kept = { "2025-06": { days: 30, clicks: 100, impr: 1000, posW: 10000, brand: 10 }, "2025-07": { days: 31, clicks: 50, impr: 500, posW: 5000, brand: 5 } };
+  const fresh = { "2025-06": { days: 12, clicks: 40, impr: 400, posW: 4000, brand: 4 }, "2025-07": { days: 31, clicks: 55, impr: 550, posW: 5500, brand: 6 } };
+  const m = mergeHistory(kept, fresh);
+  assert.equal(m["2025-06"].clicks, 100);   // Google has begun to drop June: the kept whole month stays
+  assert.equal(m["2025-07"].clicks, 55);    // July read again whole: Google's revision wins
+  // only whole months are kept
+  const c = completeOnly({ ...m, "2026-10": { days: 15, clicks: 1, impr: 10, posW: 10, brand: 0 } });
+  assert.deepEqual(Object.keys(c).sort(), ["2025-06", "2025-07"]);
+  // and they make last year's months
+  const s = seriesFromMonths(m, 2026, new Date("2026-10-17T00:00:00Z"));
+  assert.equal(s.R05.py[5], 100);
+  assert.equal(s.R05.py[6], 55);
 });

@@ -26,6 +26,7 @@ import {
   stageHref, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState,
 } from "./data";
 import { CustomersSummary } from "./Customers";
+import { SearchCustomersCard } from "./SearchCustomers";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 
@@ -123,6 +124,8 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
           {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} />)}
           {traffic && <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}><TrafficOrigin live={live!} /></Box>}
+          {/* SEO and SEA in customers: new, reactivated, active (SARCLA 17.10) */}
+          {s.slug === "reach" && <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><SearchCustomersCard /></Box>}
         </Box>
       ) : (
         <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
