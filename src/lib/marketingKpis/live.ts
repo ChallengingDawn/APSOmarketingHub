@@ -52,7 +52,9 @@ export type LiveKpis = {
 const RETRY_FAILED_MS = 30 * 60 * 1000;
 
 export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
-  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), build);
+  // a read stored before Reach came from Search Console (17.10.2026) has neither its months nor its error:
+  // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : !v?.series?.R04 ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
