@@ -49,6 +49,8 @@ export type BrokenLine = {
 export type BrokenOrder = {
   orderNo: string | null;
   erpNo: string | null;
+  /** the e-mail the line was reserved under — how the customer is found */
+  customer?: string | null;
   articles: string[];
   lines: BrokenLine[];
   pieces: number;
@@ -72,6 +74,8 @@ export type TicketOutcome = {
   outcome: string;
   ticketId?: string;
   error?: string;
+  /** who it was put on: the company and contact the subject is built from */
+  linkedTo?: { company: string | null; contact: string | null; customer: string | null };
 };
 export type RunReport = {
   dry: boolean;
@@ -91,7 +95,7 @@ export async function fetchBroken(): Promise<Broken> {
   return gateway<Broken>("/admin/promises", 40_000);
 }
 
-async function ticketsRequest<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<T> {
+async function ticketsRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> {
   const token = ticketsToken() ?? hubspotToken();
   if (!token) throw new IntegrationError("No HubSpot token is set, so no ticket can be created.");
   const res = await fetch(`https://api.hubapi.com${path}`, {
@@ -122,6 +126,44 @@ async function alreadyRaised(orders: string[]): Promise<Set<string>> {
     }
   }
   return found;
+}
+
+/* WHO THE TICKET IS FOR, from the e-mail the cut was reserved under.
+ *
+ * THIS IS NOT COSMETIC, and the first ticket proved it. Raised without associations, the Back Office
+ * rename automation turned its subject into "BO |   |  " — it builds the subject from the ticket's
+ * associated COMPANY, and every one of V1's 68 tickets carried one company and two contacts ("C2S PROBLEM
+ * PLEASE REACT FAST | 10000154675 | BMK Bearbeitungstechnologien GmbH"). Worse than the blank subject: a
+ * ticket with no company is not on the customer's record, which is where the Back Office works it.
+ *
+ * The contact's own primary company is used rather than looking the order up: the contact is who reserved
+ * the cut, and associatedcompanyid is the company HubSpot already believes they belong to, so this cannot
+ * invent a different one. Nothing is ever created — a customer we cannot find leaves the ticket unlinked
+ * and says so in the report, which is visible and fixable, unlike a company conjured out of an e-mail
+ * domain (see feedback_orders_missing_companies: never auto-create). */
+async function findCustomer(email: string): Promise<{ contact: string | null; company: string | null }> {
+  const res = await ticketsRequest<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>(
+    "/crm/v3/objects/contacts/search", "POST", {
+      limit: 1,
+      properties: ["email", "associatedcompanyid"],
+      filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }],
+    });
+  const hit = (res.results ?? [])[0];
+  if (!hit?.id) return { contact: null, company: null };
+  const company = hit.properties?.associatedcompanyid;
+  return { contact: String(hit.id), company: company ? String(company) : null };
+}
+
+/** Put the ticket on the customer's record. A failure here never undoes the ticket. */
+async function link(ticketId: string, who: { contact: string | null; company: string | null }): Promise<void> {
+  if (who.company) {
+    await ticketsRequest(`/crm/v4/objects/tickets/${ticketId}/associations/default/companies/${who.company}`, "PUT")
+      .catch((e) => console.warn(`[c2s-tickets] ${ticketId}: company ${who.company} not linked — ${(e as Error)?.message ?? e}`));
+  }
+  if (who.contact) {
+    await ticketsRequest(`/crm/v4/objects/tickets/${ticketId}/associations/default/contacts/${who.contact}`, "PUT")
+      .catch((e) => console.warn(`[c2s-tickets] ${ticketId}: contact ${who.contact} not linked — ${(e as Error)?.message ?? e}`));
+  }
 }
 
 /* The sentence a human reads. One fact per line, a blank line between positions — the layout SARCLA asked
@@ -187,8 +229,17 @@ export async function runPromiseTickets({ dry = true }: { dry?: boolean } = {}):
       outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "exists" });
       continue;
     }
+    // who it would go on — looked up on a rehearsal too, because "no company found" is exactly the
+    // thing worth knowing BEFORE a ticket exists
+    let who: { contact: string | null; company: string | null } = { contact: null, company: null };
+    if (o.customer) {
+      try { who = await findCustomer(o.customer); }
+      catch (e) { console.warn(`[c2s-tickets] ${key}: could not look up ${o.customer} — ${(e as Error)?.message ?? e}`); }
+    }
+    const linkedTo = { ...who, customer: o.customer ?? null };
+
     if (dry) {
-      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "created" });
+      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "created", linkedTo });
       continue;
     }
     try {
@@ -204,8 +255,10 @@ export async function runPromiseTickets({ dry = true }: { dry?: boolean } = {}):
           source_type: "AUTOMATION",
         },
       });
-      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "created", ticketId: created.id });
-      console.log(`[c2s-tickets] order ${key}: ticket ${created.id} raised (${o.pieces} piece(s) that cannot be cut)`);
+      if (created.id) await link(created.id, who);
+      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "created", ticketId: created.id, linkedTo });
+      console.log(`[c2s-tickets] order ${key}: ticket ${created.id} raised (${o.pieces} piece(s) that cannot be cut)` +
+        `${who.company ? `, on company ${who.company}` : ", NOT on a company — the subject will come out blank"}`);
     } catch (err) {
       outcomes.push({
         orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles,

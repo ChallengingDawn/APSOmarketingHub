@@ -18,33 +18,19 @@ import TableRow from "@mui/material/TableRow";
 import Tooltip from "@mui/material/Tooltip";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import { useMemo, useState } from "react";
-import { Choice, usePaged } from "@/app/connectors/parts";
+import { usePaged } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, INK, MUTED, bodyCell, headCell, clip } from "@/app/uc/report/ui";
 import { full } from "@/app/charts/format";
 import type { StockRow } from "./shared";
 
-type Filter = "all" | "withStock" | "committed" | "unknown";
-
 const num = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums" as const, textAlign: "right" as const };
 
 export default function ShelfTab({ stock }: { stock: StockRow[] }) {
-  const [filter, setFilter] = useState<Filter>("all");
-
-  const counts = useMemo(() => ({
-    all: stock.length,
-    withStock: stock.filter((a) => a.offered > 0).length,
-    committed: stock.filter((a) => a.held + a.pinned > 0).length,
-    unknown: stock.filter((a) => !a.known).length,
-  }), [stock]);
-
-  const shown = useMemo(() => {
-    const rows = filter === "withStock" ? stock.filter((a) => a.offered > 0)
-      : filter === "committed" ? stock.filter((a) => a.held + a.pinned > 0)
-      : filter === "unknown" ? stock.filter((a) => !a.known)
-      : stock;
-    // the ones with work on them first, then the fullest shelf
-    return [...rows].sort((a, b) => (b.held + b.pinned) - (a.held + a.pinned) || b.offered - a.offered);
-  }, [stock, filter]);
+  /* NO FILTER (SARCLA, 17.10.2026: "i dont want the shelf filter"). The rows that matter sort to the
+     top on their own - most spoken for first, then the fullest shelf - so a pill row was a second way of
+     doing what the order already does. */
+  const shown = useMemo(() =>
+    [...stock].sort((a, b) => (b.held + b.pinned) - (a.held + a.pinned) || b.offered - a.offered), [stock]);
 
   const { slice, pager } = usePaged(shown, 25);
   const offered = stock.reduce((s, a) => s + a.offered, 0);
@@ -57,27 +43,6 @@ export default function ShelfTab({ stock }: { stock: StockRow[] }) {
         title="The shelf"
         note={`${stock.length} article(s) with work on them · ${full(offered)} plate(s) the widget may currently offer`}
       />
-
-      <Box sx={{ mb: 2 }}>
-        <Choice<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { key: "all", label: "All", count: counts.all },
-            { key: "withStock", label: "Something to offer", count: counts.withStock },
-            { key: "committed", label: "Spoken for", count: counts.committed },
-            { key: "unknown", label: "Not in woodStore", count: counts.unknown },
-          ]}
-        />
-      </Box>
-
-      {counts.unknown > 0 && (
-        <Typography sx={{ fontSize: "0.78rem", color: FAINT, mb: 1.5 }}>
-          {counts.unknown} article(s) are not carried by woodStore at all — a rod, a profile or a tube sold by the
-          metre. A sheet store has no opinion on those, so an empty shelf against them is the wrong store, not a
-          shortage.
-        </Typography>
-      )}
 
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 820 }}>

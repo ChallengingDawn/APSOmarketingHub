@@ -75,16 +75,6 @@ export function Pill({ text, bg, fg, title }: { text: string; bg: string; fg: st
   );
 }
 
-/** "700 × 320 mm", with the mm muted as in the widget. */
-export function Size({ l, w }: { l: number; w: number }) {
-  if (!(l > 0) || !(w > 0)) return <Typography component="span" sx={{ fontSize: "0.84rem", color: FAINT }}>no size</Typography>;
-  return (
-    <Typography component="span" sx={{ fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-      {l} × {w}<Box component="span" sx={{ color: FAINT, ml: 0.4, fontSize: "0.74rem" }}>mm</Box>
-    </Typography>
-  );
-}
-
 /** The A-number if the ERP has reconciled the order, else the shop's own number, said as such. */
 export function OrderRef({ l }: { l: Line }) {
   if (l.erpNo) return <Typography component="span" sx={{ fontSize: "0.84rem", color: INK, whiteSpace: "nowrap" }}>{l.erpNo}</Typography>;

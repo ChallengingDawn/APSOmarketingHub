@@ -37,15 +37,15 @@ import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/an
 import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { DoneTab, OpenTab } from "./LinesTab";
+import KanbanTab from "./KanbanTab";
 import ShelfTab from "./ShelfTab";
 import ShortagesTab from "./ShortagesTab";
 import type { Broken } from "@/lib/directcut/tickets";
 import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
 
-type View = "overview" | "open" | "shortages" | "done" | "shelf" | "status";
+type View = "overview" | "kanban" | "shortages" | "shelf" | "status";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", open: "#open", shortages: "#shortages", done: "#done", shelf: "#shelf", status: "#status",
+  overview: "#overview", kanban: "#kanban", shortages: "#shortages", shelf: "#shelf", status: "#status",
 };
 
 type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
@@ -231,13 +231,6 @@ function StatusTab({ s, onSaved }: { s: Status; onSaved: () => void }) {
             note={s.shelf?.workingDaysSince !== null && s.shelf?.workingDaysSince !== undefined
               ? `${Number(s.shelf.workingDaysSince)} working day(s) ago · stale after ${Number(s.shelf.maxWorkingDays) || 3}` : undefined} />
           <Fact label="Decided by" value={String(s.shelf?.from ?? "–")} />
-          {/* Not installed, by decision (SARCLA, 17.10.2026). Said without alarm, but said: it is the only
-              signal that can tell a dead File Agent from a workshop that simply is not cutting, because the
-              write stamps above only move when stock moves. */}
-          <Fact label="woodStore heartbeat" value={s.heartbeat.reporting ? `${s.heartbeat.hosts} host(s)` : "not installed"}
-            tone={s.heartbeat.reporting ? "good" : undefined}
-            note={s.heartbeat.reporting ? (s.heartbeat.verdict ?? undefined)
-              : "by decision — the agent autostarts. Without it, a quiet spell past the threshold above reads as a stale shelf"} />
         </GlassCard>
       </Grid>
 
@@ -310,9 +303,10 @@ export default function DirectCutPage() {
   const work = b ? countWork(b.open) : null;
   const tabs = [
     { id: "overview" as View, label: "Overview", count: null },
-    { id: "open" as View, label: "Open work", count: b ? String(b.open.length) : null },
+    /* ONE BOARD, NOT TWO LISTS (SARCLA, 17.10.2026: "Open work and cut done should be only one TAB Cut
+       Kanban and where we should see the dates"). */
+    { id: "kanban" as View, label: "Cut Kanban", count: b ? String(b.open.length) : null },
     { id: "shortages" as View, label: "Shortages", count: bro ? String(bro.broken.orders.length) : null },
-    { id: "done" as View, label: "Cut done", count: b ? String(b.doneTotal) : null },
     { id: "shelf" as View, label: "The shelf", count: b ? String(b.stock.length) : null },
     { id: "status" as View, label: "Status", count: null },
   ];
@@ -329,13 +323,12 @@ export default function DirectCutPage() {
         <ReportTabs name="directcut" tab={tab} onSelect={setTab} tabs={tabs} />
         <Box sx={{ mt: 3 }}>
           {tab === "overview" && <Overview b={board} s={s} />}
-          {tab === "open" && <OpenTab open={board.open} />}
+          {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal} />}
           {tab === "shortages" && (bro
             ? <ShortagesTab broken={bro.broken} isAdmin={bro.isAdmin} onDone={reload} />
             : brokenHeld.result?.state === "error"
               ? <UpstreamPanel source="C2S middleware" error={brokenHeld.result.error} status={brokenHeld.result.status} onRetry={reload} />
               : <LoadingPanel label="Asking the shelf what it can no longer cover…" />)}
-          {tab === "done" && <DoneTab done={board.done} total={board.doneTotal} />}
           {tab === "shelf" && <ShelfTab stock={board.stock} />}
           {tab === "status" && (s
             ? <StatusTab s={s} onSaved={reload} />
