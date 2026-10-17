@@ -14,6 +14,8 @@ export type ContentItem = {
   revision: number;
   updatedBy: string | null;
   designDocument?: DesignDocument | null;
+  /** Every page, when the piece has more than one. */
+  pages?: DesignDocument[] | null;
   hasDesign: boolean;
   id: number;
   channel: string;
@@ -49,6 +51,7 @@ type ContentRow = {
   revision: number;
   updated_by: string | null;
   design_document: DesignDocument | null;
+  pages: DesignDocument[] | null;
   id: number;
   channel: string;
   title: string | null;
@@ -102,6 +105,9 @@ function toListItem(row: ListRow): ContentItem {
 function toItem(row: ContentRow): ContentItem {
   return {
     revision: row.revision, updatedBy: row.updated_by, designDocument: row.design_document, hasDesign: Boolean(row.design_document),
+    // Null for every piece made before pages existed, which the editor reads
+    // as "one page, and it is the design document".
+    pages: row.pages ?? null,
     id: row.id,
     channel: row.channel,
     title: row.title,

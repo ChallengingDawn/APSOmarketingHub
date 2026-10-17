@@ -198,6 +198,9 @@ export function ensureSchema(): Promise<void> {
       // it, so a column of six drafts is readable without opening them.
       "label TEXT",
       "updated_by VARCHAR(255)",
+      // A multi-page design. design_document keeps page one, so every reader
+      // that predates pages still shows the right artboard.
+      "pages JSONB",
     ]) {
       await query(`ALTER TABLE apsomh_content ADD COLUMN IF NOT EXISTS ${col}`);
     }

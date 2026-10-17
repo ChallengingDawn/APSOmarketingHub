@@ -7,6 +7,18 @@ export const contentPatchSchema = z.object({
   body: z.string().max(200000).refine((s) => s.trim().length > 0, "Content cannot be empty").optional(),
   imageUrl: z.string().max(8 * 1024 * 1024).nullable().optional(),
   designDocument: designDocumentSchema.nullable().optional(),
+  /**
+   * A multi-page design: a carousel, a two-slide post, a three-page brief.
+   *
+   * Kept BESIDE design_document rather than replacing it. Every existing row,
+   * reader and export path treats a piece as one artboard, and rewriting all
+   * of them to take a list would have been the change rather than the feature.
+   * design_document stays the first page, so anything that has not learned
+   * about pages still shows the right thing instead of nothing.
+   *
+   * Capped at 30: past that the page strip is unusable and the row is enormous.
+   */
+  pages: z.array(designDocumentSchema).max(30).nullable().optional(),
   status: z.enum(["draft", "approved", "published", "archived"]).optional(),
   scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
 }).strict().refine((p) => Object.keys(p).length > 1, "Nothing to update");
@@ -18,7 +30,7 @@ export function canEditContent(role: string): boolean {
 }
 
 export function changesCreative(patch: Omit<ContentEdit, "expectedRevision">): boolean {
-  return ["title", "body", "imageUrl", "designDocument"].some((key) => key in patch);
+  return ["title", "body", "imageUrl", "designDocument", "pages"].some((key) => key in patch);
 }
 
 // Kept independent of Next.js so the real PostgreSQL update can be exercised in
@@ -35,6 +47,14 @@ export function contentUpdateStatement(id: number, edit: ContentEdit, actor: str
   if (edit.body !== undefined) add("body", edit.body);
   if (edit.imageUrl !== undefined) add("image_url", edit.imageUrl);
   if (edit.designDocument !== undefined) add("design_document", JSON.stringify(edit.designDocument), "::jsonb");
+  if (edit.pages !== undefined) {
+    add("pages", JSON.stringify(edit.pages), "::jsonb");
+    // The first page IS the design document, so a reader that knows nothing
+    // about pages keeps working and cannot disagree with page one.
+    if (edit.pages && edit.pages.length > 0 && edit.designDocument === undefined) {
+      add("design_document", JSON.stringify(edit.pages[0]), "::jsonb");
+    }
+  }
   if (edit.scheduledFor !== undefined) add("scheduled_for", edit.scheduledFor, "::timestamptz");
   // A creative edit always requires fresh approval, including edits to a piece
   // previously marked published. Its previous approved/published state is kept

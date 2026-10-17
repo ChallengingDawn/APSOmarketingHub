@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, useCallback } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
@@ -59,6 +59,8 @@ import SaveToProject from "./SaveToProject";
 import VariationStrip, { type StripVariant } from "./VariationStrip";
 import FloatingAssistant from "@/app/projects/FloatingAssistant";
 import StudioChrome from "./StudioChrome";
+import PageStrip from "./PageStrip";
+import type { DesignDocument } from "@/lib/design-document";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { layoutsFor } from "@/lib/content/layouts";
 
@@ -380,6 +382,100 @@ export default function CreateStudio({
   // Shown in the chrome. Express puts the page size where you can read it
   // without opening a panel, and ours was only ever visible inside one.
   const [canvasSize, setCanvasSize] = useState<{ w: number; h: number } | null>(null);
+
+  /**
+   * The pages of the design being edited.
+   *
+   * Empty means "this piece has one page and it is whatever the canvas is
+   * showing" — every piece made before pages existed, which is all of them.
+   * The strip appears once there is more than one, so nothing changes for
+   * somebody who never wanted a carousel.
+   */
+  const [pages, setPages] = useState<DesignDocument[]>([]);
+  const [activePage, setActivePage] = useState(0);
+
+  /** Pull the current artboard into the list before switching away from it. */
+  const capturePage = useCallback((doc: DesignDocument) => {
+    setPages((cur) => {
+      if (cur.length === 0) return cur;
+      const next = [...cur];
+      next[activePage] = doc;
+      return next;
+    });
+  }, [activePage]);
+
+  /**
+   * Save the page list onto the piece.
+   *
+   * Debounced by being called from the page operations rather than on every
+   * keystroke: a page add or reorder is a deliberate act, and the canvas
+   * already persists the artboard itself on its own schedule.
+   */
+  const persistPages = useCallback(async (next: DesignDocument[], revision?: number) => {
+    const id = draft?.draftId;
+    if (!id || next.length === 0) return;
+    try {
+      await fetch(`/api/content/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRevision: revision ?? draft?.revision ?? 1, pages: next }),
+      });
+    } catch {
+      /* the list is still correct on screen; the next save carries it */
+    }
+  }, [draft?.draftId, draft?.revision]);
+
+  // Any change to the list is written through. The canvas owns the artboard;
+  // the studio owns the order, and the order is the thing that would otherwise
+  // be lost on a reload.
+  useEffect(() => {
+    if (pages.length > 1) void persistPages(pages);
+  }, [pages, persistPages]);
+
+  const addPage = () => {
+    setPages((cur) => {
+      const base = cur.length > 0 ? cur[activePage] : draft?.designDocument;
+      if (!base) return cur;
+      // A new page inherits the artboard and the background, not the content:
+      // same size and colour, nothing to delete before you start.
+      const blank: DesignDocument = { ...base, nodes: [] };
+      const next = cur.length > 0 ? [...cur, blank] : [base, blank];
+      setActivePage(next.length - 1);
+      return next;
+    });
+  };
+
+  const duplicatePage = (i: number) => {
+    setPages((cur) => {
+      if (cur.length === 0) return cur;
+      const copy = JSON.parse(JSON.stringify(cur[i])) as DesignDocument;
+      // Ids must be unique across the document or the schema refuses it.
+      copy.nodes = copy.nodes.map((n, k) => ({ ...n, id: `${n.id}-c${Date.now().toString(36)}${k}` }));
+      const next = [...cur.slice(0, i + 1), copy, ...cur.slice(i + 1)];
+      setActivePage(i + 1);
+      return next;
+    });
+  };
+
+  const deletePage = (i: number) => {
+    setPages((cur) => {
+      if (cur.length <= 1) return cur;
+      const next = cur.filter((_, k) => k !== i);
+      setActivePage(Math.max(0, Math.min(i, next.length - 1)));
+      return next;
+    });
+  };
+
+  const movePage = (i: number, dir: -1 | 1) => {
+    setPages((cur) => {
+      const j = i + dir;
+      if (j < 0 || j >= cur.length) return cur;
+      const next = [...cur];
+      [next[i], next[j]] = [next[j], next[i]];
+      setActivePage(j);
+      return next;
+    });
+  };
   const openSections: Record<SectionKey, boolean> = {
     setup: activePanel === "setup",
     personas: activePanel === "personas",
@@ -1274,7 +1370,9 @@ export default function CreateStudio({
                     itemId={designing.target === "draft" ? draft?.draftId : undefined}
                     initialRevision={designing.target === "draft" ? draft?.revision : undefined}
                     initialDocument={
-                      designing.target === "draft"
+                      pages.length > 0
+                        ? pages[activePage]
+                        : designing.target === "draft"
                         ? draft?.designDocument
                         // A canvas type with nothing written opens ON the first
                         // layout for it, not on a white rectangle. The gallery
@@ -1286,6 +1384,10 @@ export default function CreateStudio({
                     }
                     onSaved={(revision, designDocument) => {
                       if (designing.target === "draft") setDraft((d) => d ? { ...d, revision, designDocument } : d);
+                      // The canvas only ever edits ONE page. Keep the list in
+                      // step, or switching pages would discard the edit that
+                      // was just saved.
+                      capturePage(designDocument);
                     }}
                     toolsContainers={toolHosts}
                     contentTypeKey={contentType}
@@ -1321,6 +1423,20 @@ export default function CreateStudio({
                     </Typography>
                   )}
                 </Box>
+
+                {/* One page needs no strip; the moment there are two, the
+                    document has an order and the order has to be visible. */}
+                {pages.length > 1 && (
+                  <PageStrip
+                    pages={pages}
+                    active={activePage}
+                    onSelect={setActivePage}
+                    onAdd={addPage}
+                    onDuplicate={duplicatePage}
+                    onDelete={deletePage}
+                    onMove={movePage}
+                  />
+                )}
               </Box>
 
               {/* ── Content & refine — collapsible panel below the canvas ── */}
