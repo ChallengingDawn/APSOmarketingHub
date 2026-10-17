@@ -29,7 +29,6 @@ import Slider from "@mui/material/Slider";
 import CircularProgress from "@mui/material/CircularProgress";
 import TitleIcon from "@mui/icons-material/Title";
 import TextFieldsIcon from "@mui/icons-material/TextFields";
-import CropSquareIcon from "@mui/icons-material/CropSquare";
 import CropIcon from "@mui/icons-material/Crop";
 import MergeTypeIcon from "@mui/icons-material/MergeType";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
@@ -37,6 +36,7 @@ import ColorizeIcon from "@mui/icons-material/Colorize";
 import FormatPaintIcon from "@mui/icons-material/FormatPaint";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import KeyboardIcon from "@mui/icons-material/KeyboardOutlined";
+import FindReplaceIcon from "@mui/icons-material/FindReplace";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -49,10 +49,6 @@ import FlipToBackIcon from "@mui/icons-material/FlipToBack";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import BrandingWatermarkIcon from "@mui/icons-material/BrandingWatermark";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
-import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
-import PanoramaFishEyeIcon from "@mui/icons-material/PanoramaFishEye";
-import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
-import HorizontalRuleIcon from "@mui/icons-material/HorizontalRule";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import UndoIcon from "@mui/icons-material/Undo";
@@ -451,6 +447,7 @@ export default function EditorCanvas({
   const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
   const [sizeAnchor, setSizeAnchor] = useState<HTMLElement | null>(null);
   const [keysAnchor, setKeysAnchor] = useState<HTMLElement | null>(null);
+  const [replaceAnchor, setReplaceAnchor] = useState<HTMLElement | null>(null);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
@@ -1973,47 +1970,6 @@ export default function EditorCanvas({
         ))}
       </Box>
 
-      {/* Not "find" — "we are not calling it that any more". A product
-          renamed, a claim corrected, a price changed: without this it means
-          clicking every block on every page and hoping none was missed. */}
-      <Box sx={{ display: "flex", gap: 0.5, mb: 2, alignItems: "center" }}>
-        <TextField
-          size="small"
-          placeholder="Find"
-          value={findText}
-          onChange={(e) => setFindText(e.target.value)}
-          sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
-        />
-        <TextField
-          size="small"
-          placeholder="Replace"
-          value={replaceText}
-          onChange={(e) => setReplaceText(e.target.value)}
-          sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
-        />
-        <Tooltip title="Replace it everywhere on this page">
-          <span>
-            <Button
-              size="small"
-              disabled={!findText.trim()}
-              onClick={() => {
-                const n = replaceEverywhere(findText, replaceText);
-                // Say what happened. A replace that silently matched nothing
-                // looks identical to one that worked.
-                setNotice(
-                  n === 0
-                    ? `Nothing on this page says "${findText}".`
-                    : `Replaced in ${n} block${n === 1 ? "" : "s"}.`,
-                );
-              }}
-              sx={{ fontWeight: 700, flexShrink: 0, minWidth: 0, px: 1 }}
-            >
-              Go
-            </Button>
-          </span>
-        </Tooltip>
-      </Box>
-
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Shapes
       </Typography>
@@ -2088,33 +2044,6 @@ export default function EditorCanvas({
       <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
         Brand
       </Typography>
-      <Box sx={{ display: "flex", gap: 0.75, mb: 2, flexWrap: "wrap" }}>
-        <Tooltip title="Colour block / badge">
-          <IconButton onClick={addBadge} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-            <CropSquareIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Circle">
-          <IconButton onClick={addCircle} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-            <CircleOutlinedIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Ellipse">
-          <IconButton onClick={addEllipse} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-            <PanoramaFishEyeIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Arrow">
-          <IconButton onClick={addArrow} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-            <ArrowRightAltIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Divider line">
-          <IconButton onClick={addLine} size="small" sx={{ border: "1px solid #c9ced6", borderRadius: 1 }}>
-            <HorizontalRuleIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
       <Box sx={{ display: "flex", gap: 0.5, mb: 1, alignItems: "center" }}>
         <Tooltip describeChild title="Place the APSOparts logo top left: white on a dark background, colour on a light one">
           <Button onClick={() => addBrandLogo("auto")} size="small" variant="contained" startIcon={<BrandingWatermarkIcon />} sx={{ fontWeight: 700 }}>
@@ -2471,6 +2400,70 @@ export default function EditorCanvas({
                   Everything is scaled by one factor and re-centred, so nothing stretches. Ctrl+Z undoes it in one press.
                 </Typography>
               </MenuItem>
+            </Menu>
+            <Tooltip title="Replace a word everywhere on this page">
+              <Button
+                size="small"
+                onClick={(e) => setReplaceAnchor(e.currentTarget)}
+                startIcon={<FindReplaceIcon />}
+                sx={{ textTransform: "none", fontWeight: 600, color: "#5b6470" }}
+              >
+                Replace
+              </Button>
+            </Tooltip>
+            <Menu
+              open={Boolean(replaceAnchor)}
+              anchorEl={replaceAnchor}
+              onClose={() => setReplaceAnchor(null)}
+              slotProps={{ paper: { sx: { p: 1.25, width: 330 } } }}
+            >
+              {/* It rewrites text across the whole page, so it belongs with
+                  the document's actions rather than under "Add to the
+                  canvas", where it used to sit offering to add nothing. */}
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470", px: 0.5, pb: 1 }}>
+                A product renamed, a claim corrected, a price changed &mdash; across every text block on this page.
+              </Typography>
+              {/* Not "find" — "we are not calling it that any more". A product
+                  renamed, a claim corrected, a price changed: without this it means
+                  clicking every block on every page and hoping none was missed. */}
+              <Box sx={{ display: "flex", gap: 0.5, mb: 2, alignItems: "center" }}>
+                <TextField
+                  size="small"
+                  placeholder="Find"
+                  value={findText}
+                  onChange={(e) => setFindText(e.target.value)}
+                  sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
+                />
+                <TextField
+                  size="small"
+                  placeholder="Replace"
+                  value={replaceText}
+                  onChange={(e) => setReplaceText(e.target.value)}
+                  sx={{ flex: 1, "& .MuiOutlinedInput-root": { fontSize: 12 } }}
+                />
+                <Tooltip title="Replace it everywhere on this page">
+                  <span>
+                    <Button
+                      size="small"
+                      disabled={!findText.trim()}
+                      onClick={() => {
+                        const n = replaceEverywhere(findText, replaceText);
+                        // Say what happened. A replace that silently matched nothing
+                        // looks identical to one that worked.
+                        setNotice(
+                          n === 0
+                            ? `Nothing on this page says "${findText}".`
+                            : `Replaced in ${n} block${n === 1 ? "" : "s"}.`,
+                        );
+                      }}
+                      sx={{ fontWeight: 700, flexShrink: 0, minWidth: 0, px: 1 }}
+                    >
+                      Go
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+
             </Menu>
             <Menu open={Boolean(keysAnchor)} anchorEl={keysAnchor} onClose={() => setKeysAnchor(null)}>
               {SHORTCUTS.map((k) => (
