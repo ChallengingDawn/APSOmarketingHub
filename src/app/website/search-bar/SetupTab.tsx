@@ -1,7 +1,7 @@
 "use client";
 
 // Search bar > Setup: how the bar is installed on the shop, its switches, and its database (the dashboard's
-// "Install", "Maintenance", "Feedback" and "Data model" pages). The switches work from here (SARCLA 17.10.2026: "the
+// "Install", "Maintenance" and "Data model" pages; customer feedback left the hub, SARCLA 17.10.2026). The switches work from here (SARCLA 17.10.2026: "the
 // maintenance button doesn't really work" - it was only a state): the maintenance switch, same-tab links and
 // the bar's two buttons, admins only; each answer is the gateway's database, read back after the change.
 
@@ -24,7 +24,6 @@ import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, bodyC
 import { Chip, usePaged } from "@/app/connectors/parts";
 import type { GatewaySetting, Health, Migration, Switches } from "@/lib/searchbar/gateway";
 import { Empty, Loaded, pill, post, when } from "./shared";
-import FeedbackCard from "./FeedbackCard";
 import Button from "@mui/material/Button";
 
 type Setup = { migrations: (Migration & { creates_table?: string; row_count?: number })[]; switches: Switches; health: Health | null; setting: GatewaySetting; isAdmin: boolean };
@@ -158,8 +157,6 @@ export default function SetupTab() {
                 <Maintenance initial={d.switches} isAdmin={d.isAdmin} health={!!d.health} />
               </Grid>
             </Grid>
-
-            <FeedbackCard />
 
             <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
               <Box sx={{ px: { xs: 2, md: 2.75 } }}>

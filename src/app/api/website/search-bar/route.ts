@@ -1,9 +1,9 @@
 // SEARCH BAR: what the smart-bar gateway on Railway says about the shop's search bar - searches, gaps,
 // AI conversations, stock, brands, featured products, its setup - read for the hub's page (Website's
 // grant). Same three answers as every integration route: not configured, upstream failed (with the
-// reason), or the data. The Feedback tab left the page (SARCLA 17.10.2026).
+// reason), or the data. Customer feedback left the hub completely (SARCLA 17.10.2026).
 //   GET ?part=overview&days=30 | report&days= | report-xlsx&days= (the Excel file) | logs&limit=&locale=&tier=
-//       | gaps&window= | ai&archived=0|1 | brands | features | feedback | stock&q=&state=&published=&limit=&offset=
+//       | gaps&window= | ai&archived=0|1 | brands | features | stock&q=&state=&published=&limit=&offset=
 //       &sort=&dir= | jobs | setup
 // The switches and the brand list (SARCLA 17.10.2026: "maintenance button doesn't really work", "on brands
 // allow to add brands") - admins only, as DirectUP's settings, each change logged with who made it:
@@ -11,7 +11,6 @@
 //        | { action: "brand-add", brand, material, vendor?, notes? } | { action: "brand-remove", brand }
 // and the old dashboard's last controls, moved so its search-bar pages can go (SARCLA 17.10.2026):
 //        | { action: "feature-save", feature } | { action: "feature-delete", id } | { action: "feature-reset" }
-//        | { action: "feedback-status", id, status } | { action: "feedback-ticket", id } | { action: "feedback-reply", id, reply }
 //        | { action: "sweep-run", scope, hubspot } | { action: "sweep-stop" } | { action: "sweep-schedule", on }
 //        | { action: "order-watch", on } | { action: "ai-archive", conversation_id, archived } | { action: "migration-run", num }
 
@@ -20,7 +19,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import {
   adminToken, gateway, gatewaySetting,
-  type AiConversations, type Brands, type Feature, type Feedback, type Gaps, type Health, type LogRow, type Metrics, type Migration,
+  type AiConversations, type Brands, type Feature, type Gaps, type Health, type LogRow, type Metrics, type Migration,
   type OrderWatch, type Report, type Stock, type StockCalls, type SweepRun, type SweepStatus, type Switches,
 } from "@/lib/searchbar/gateway";
 
@@ -33,8 +32,6 @@ const fail = (err: unknown) => NextResponse.json({
   configured: true, ok: false, error: String((err as Error)?.message ?? err), status: (err as { status?: number })?.status ?? null,
 });
 const FEATURE_LANGS = ["en", "de", "fr", "it", "nl", "pl"];
-const FEEDBACK_STATUSES = ["open", "positive", "implemented", "refused", "company"];
-const FEEDBACK_REPLIES = ["under_resolution", "implemented", "taking_time", "thanks"];
 const int = (v: string | null, def: number, min: number, max: number) => Math.min(max, Math.max(min, parseInt(v || String(def), 10) || def));
 const pick = (v: string | null, allowed: string[], def: string) => (v && allowed.includes(v) ? v : def);
 
@@ -92,7 +89,6 @@ export async function GET(req: NextRequest) {
     }
     if (part === "gaps") return ok(await gateway<Gaps>(`/api/smart-bar/gaps?window=${pick(q.get("window"), ["24h", "7d", "30d"], "7d")}`));
     if (part === "ai") return ok({ ...(await gateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=100&archived=${q.get("archived") === "1" ? 1 : 0}`)), isAdmin });
-    if (part === "feedback") return ok({ ...(await gateway<Feedback>("/api/smart-bar/feedback?limit=500")), isAdmin });
     if (part === "report-xlsx") {
       // the gateway's Excel file, passed through (the old dashboard's "Download"); the key stays on the server
       const days = int(q.get("days"), 30, 1, 365);
@@ -180,7 +176,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, data });
     }
     const done = (data: unknown, what: string) => {
-      // the gateway's feedback routes answer 200 with { ok: false, error|detail } when HubSpot said no
+      // a gateway route may answer 200 with { ok: false, error|detail }
       const d = data as { ok?: boolean; error?: string; detail?: string } | null;
       if (d && typeof d === "object" && d.ok === false) return NextResponse.json({ ok: false, error: d.detail || d.error || "The gateway said no." }, { status: 502 });
       console.log(`[search-bar] ${what} by ${who}`);
@@ -218,19 +214,6 @@ export async function POST(req: NextRequest) {
       return done(await gateway(`/api/smart-bar/features/${id}`, { method: "DELETE" }), `featured card ${id} deleted`);
     }
     if (body.action === "feature-reset") return done(await gateway("/api/smart-bar/features/reset", { method: "POST" }), "featured cards reset to the original six");
-    if (body.action === "feedback-status" || body.action === "feedback-ticket" || body.action === "feedback-reply") {
-      const id = ref(body.id);
-      if (!id) return NextResponse.json({ ok: false, error: "Which feedback?" }, { status: 400 });
-      if (body.action === "feedback-status") {
-        const status = str(body.status, 20);
-        if (!FEEDBACK_STATUSES.includes(status)) return NextResponse.json({ ok: false, error: "Unknown status." }, { status: 400 });
-        return done(await gateway("/api/smart-bar/feedback/status", { method: "POST", body: { id, status } }), `feedback ${id} -> ${status}`);
-      }
-      if (body.action === "feedback-ticket") return done(await gateway("/api/smart-bar/feedback/ticket", { method: "POST", body: { id }, timeoutMs: 45_000 }), `HubSpot ticket for feedback ${id}`);
-      const reply = str(body.reply, 30);
-      if (!FEEDBACK_REPLIES.includes(reply)) return NextResponse.json({ ok: false, error: "Unknown reply." }, { status: 400 });
-      return done(await gateway("/api/smart-bar/feedback/reply", { method: "POST", body: { id, reply }, timeoutMs: 60_000 }), `feedback ${id} reply "${reply}"`);
-    }
     if (body.action === "sweep-run") {
       const scope = str(body.scope, 20);
       if (!["published", "standard", "all"].includes(scope)) return NextResponse.json({ ok: false, error: "Which articles?" }, { status: 400 });
