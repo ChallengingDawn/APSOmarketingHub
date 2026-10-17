@@ -53,6 +53,25 @@ export const designNodeSchema = z.object({
   listStyle: z.enum(["bullet", "number", "check", "dash"]).optional(),
   stroke: color.optional(), strokeWidth: number.nonnegative().max(1000).optional(),
   flipH: z.boolean().optional(), flipV: z.boolean().optional(),
+  /**
+   * A gradient instead of a flat fill.
+   *
+   * Only on shapes. Konva fills text with a gradient quite happily and the
+   * result is unreadable at body size every time, so styleFor() refuses to
+   * paste one onto type.
+   */
+  gradient: z.object({
+    from: color, to: color,
+    /** Degrees. 0 is left to right, 90 is top to bottom. */
+    angle: number.min(0).max(360),
+  }).strict().optional(),
+  /**
+   * How this layer mixes with what is under it.
+   *
+   * The five that are actually useful over a photograph. "normal" is the
+   * absence of a blend mode and is stored as nothing.
+   */
+  blend: z.enum(["multiply", "screen", "overlay", "soft-light", "darken", "lighten"]).optional(),
   brightness: number.min(-100).max(100).optional(),
   /** Softens a photograph so text over it stays readable. 0-60px. */
   blur: number.min(0).max(60).optional(),

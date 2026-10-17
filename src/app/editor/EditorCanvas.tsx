@@ -5,6 +5,7 @@ import { arcPath } from "@/lib/editor/curvedText";
 import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
 import { expandSelection, groupNodes, isWholeGroup, moveGroup, groupSiblings, ungroupNodes } from "@/lib/editor/grouping";
 import { reflow, sizeLabel } from "@/lib/editor/resize";
+import { describeStyle, readStyle, styleFor, type Style } from "@/lib/editor/styleClipboard";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
 import { ChartNode, TableNode } from "./DataNodes";
 
@@ -32,6 +33,8 @@ import CropSquareIcon from "@mui/icons-material/CropSquare";
 import CropIcon from "@mui/icons-material/Crop";
 import MergeTypeIcon from "@mui/icons-material/MergeType";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
+import ColorizeIcon from "@mui/icons-material/Colorize";
+import FormatPaintIcon from "@mui/icons-material/FormatPaint";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -1189,6 +1192,15 @@ export default function EditorCanvas({
     setCanvas({ w, h });
   };
 
+  /**
+   * The look picked up from one object, to put on others.
+   *
+   * In state rather than on the system clipboard: the system clipboard is for
+   * the things a person moves between applications, and quietly replacing
+   * whatever they had copied with a blob of our own JSON is rude.
+   */
+  const [copiedStyle, setCopiedStyle] = useState<Style | null>(null);
+
   /** The selection, when it is exactly one whole group. */
   const grouped = isWholeGroup(nodes, selectedIds);
 
@@ -1773,6 +1785,44 @@ export default function EditorCanvas({
       height: t.height() * t.scaleY() + py * 2,
     });
   };
+
+  /**
+   * The props that paint a gradient, or nothing at all.
+   *
+   * Konva wants two points and a list of stops rather than an angle, so the
+   * angle is turned into points across the node's own box: 0 is left to
+   * right, 90 is top to bottom, which is how a person reads a gradient
+   * control everywhere else.
+   */
+  const gradientProps = (n: NodeSpec, centred = false) => {
+    const g = n.gradient;
+    if (!g) return {};
+    const w = n.width ?? 0;
+    const h = n.height ?? 0;
+    const rad = ((g.angle ?? 90) * Math.PI) / 180;
+    // Half the diagonal in the angle's direction, from the centre, so the
+    // gradient always spans the whole shape whatever the angle.
+    const dx = (Math.cos(rad) * w) / 2;
+    const dy = (Math.sin(rad) * h) / 2;
+    // An ellipse draws from its centre; a rectangle from its top-left corner.
+    const cx = centred ? 0 : w / 2;
+    const cy = centred ? 0 : h / 2;
+    return {
+      fillLinearGradientStartPoint: { x: cx - dx, y: cy - dy },
+      fillLinearGradientEndPoint: { x: cx + dx, y: cy + dy },
+      fillLinearGradientColorStops: [0, g.from, 1, g.to],
+    };
+  };
+
+  /**
+   * How the layer mixes with what is under it.
+   *
+   * Konva calls it globalCompositeOperation. "normal" is the absence of a
+   * blend, and is stored as nothing rather than as "source-over" so an old
+   * document and a new one with no blend are the same document.
+   */
+  const blendProps = (n: NodeSpec) =>
+    n.blend ? ({ globalCompositeOperation: n.blend } as const) : {};
 
   const layerIcon = (kind: NodeSpec["kind"]) =>
     kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "table" ? <TableChartOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "chart" ? <BarChartIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
@@ -2512,6 +2562,33 @@ export default function EditorCanvas({
                   </IconButton>
                 </Tooltip>
               {selected && (
+                <Tooltip title={"Copy this look \u2014 " + describeStyle(readStyle(selected))}>
+                  <IconButton size="small" onClick={() => setCopiedStyle(readStyle(selected))}>
+                    <ColorizeIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {copiedStyle && (
+                <Tooltip title={"Paste that look onto " + (selectedIds.length > 1 ? "these" : "this")}>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      const style = copiedStyle;
+                      // One commit for the whole selection, so pasting a look
+                      // onto four headings is one press of Ctrl+Z.
+                      commit((cur) =>
+                        cur.map((n) =>
+                          selectedIds.includes(n.id) ? { ...n, ...styleFor(n.kind, style) } : n,
+                        ),
+                      );
+                    }}
+                    sx={{ color: "#274e64" }}
+                  >
+                    <FormatPaintIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {selected && (
                 <Tooltip title={selected.locked ? "Unlock" : "Lock position"}>
                   <IconButton size="small" onClick={() => patch(selected.id, { locked: !selected.locked })} sx={{ color: selected.locked ? "#ed1b2f" : "#5b6470" }}>
                     {selected.locked ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />}
@@ -2732,6 +2809,74 @@ export default function EditorCanvas({
               )}
               {sec === "colour" && selected && (
                 <>
+                  {/* A gradient, on shapes only. Konva fills text with one
+                      quite happily and the result is unreadable at body size
+                      every time, which is why styleFor() refuses to paste one
+                      onto type either. */}
+                  {(selected.kind === "rect" || selected.kind === "ellipse") && (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+                      <Button
+                        size="small"
+                        variant={selected.gradient ? "contained" : "outlined"}
+                        onClick={() =>
+                          patch(selected.id, {
+                            // Seeded FROM the flat fill it already has, so
+                            // turning it on is a change of one shade rather
+                            // than a jump to two colours nobody chose.
+                            gradient: selected.gradient
+                              ? undefined
+                              : { from: selected.fill || "#274e64", to: "#16303f", angle: 90 },
+                          })
+                        }
+                        sx={{ fontWeight: 700 }}
+                      >
+                        Gradient
+                      </Button>
+                      {selected.gradient && (
+                        <>
+                          <input
+                            type="color"
+                            value={selected.gradient.from}
+                            onChange={(e) =>
+                              patch(selected.id, {
+                                gradient: { ...selected.gradient!, from: e.target.value },
+                              }, `gf-${selected.id}`)
+                            }
+                            style={colorInputStyle}
+                            title="Gradient from"
+                          />
+                          <input
+                            type="color"
+                            value={selected.gradient.to}
+                            onChange={(e) =>
+                              patch(selected.id, {
+                                gradient: { ...selected.gradient!, to: e.target.value },
+                              }, `gt-${selected.id}`)
+                            }
+                            style={colorInputStyle}
+                            title="Gradient to"
+                          />
+                          <Box sx={{ width: 108 }}>
+                            <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                              Angle · {selected.gradient.angle}&deg;
+                            </Typography>
+                            <Slider
+                              size="small"
+                              min={0}
+                              max={360}
+                              step={15}
+                              value={selected.gradient.angle}
+                              onChange={(_, v) =>
+                                patch(selected.id, {
+                                  gradient: { ...selected.gradient!, angle: Array.isArray(v) ? v[0] : v },
+                                }, `ga-${selected.id}`)
+                              }
+                            />
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  )}
                 {(selected.kind === "text" || isShape(selected.kind)) && (
                   <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
                     {BRAND_COLORS.map((c) => swatch(c, selected.fill === c, () => patch(selected.id, { fill: c })))}
@@ -3106,6 +3251,30 @@ export default function EditorCanvas({
               )}
               {sec === "effects" && selected && (
                 <>
+                  {/* Five modes, not the twenty-six the canvas supports. The
+                      rest are there for compositing software and would be a
+                      menu nobody can predict the result of. Multiply over a
+                      photograph is the one people actually want. */}
+                  <TextField
+                    select
+                    size="small"
+                    label="Blend"
+                    value={selected.blend ?? "normal"}
+                    onChange={(e) =>
+                      patch(selected.id, {
+                        blend: e.target.value === "normal" ? undefined : (e.target.value as NodeSpec["blend"]),
+                      })
+                    }
+                    sx={{ width: 150 }}
+                  >
+                    <MenuItem value="normal">Normal</MenuItem>
+                    <MenuItem value="multiply">Multiply</MenuItem>
+                    <MenuItem value="screen">Screen</MenuItem>
+                    <MenuItem value="overlay">Overlay</MenuItem>
+                    <MenuItem value="soft-light">Soft light</MenuItem>
+                    <MenuItem value="darken">Darken</MenuItem>
+                    <MenuItem value="lighten">Lighten</MenuItem>
+                  </TextField>
                 {/* An outline, not a shadow. A blurred shadow under white type
                     is what made the seeded headlines read as fuzzy; a hard
                     edge is what actually survives a busy photograph. */}
@@ -3446,6 +3615,7 @@ export default function EditorCanvas({
                 ) : n.kind === "image" ? (
                   <KImage
                     key={n.id}
+                    {...blendProps(n)}
                     id={n.id}
                     x={n.x}
                     y={n.y}
@@ -3510,6 +3680,8 @@ export default function EditorCanvas({
                   />
                 ) : n.kind === "ellipse" ? (
                   <KEllipse
+                    {...gradientProps(n, true)}
+                    {...blendProps(n)}
                     key={n.id}
                     id={n.id}
                     x={n.x}
@@ -3609,6 +3781,11 @@ export default function EditorCanvas({
                     rotation={n.rotation ?? 0}
                     width={n.width}
                     height={n.height}
+                    {...gradientProps(n)}
+                    {...blendProps(n)}
+                    // The flat fill is still passed: Konva uses the gradient
+                    // when the gradient props are there and falls back to this
+                    // the moment they are taken away again.
                     fill={n.fill}
                     stroke={n.strokeWidth ? n.stroke ?? "#1a1d21" : undefined}
                     strokeWidth={n.strokeWidth ?? 0}
