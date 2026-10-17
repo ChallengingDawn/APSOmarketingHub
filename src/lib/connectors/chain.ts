@@ -20,7 +20,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { commitManifest, forgetManifest, pullDelta } from "./sftp";
+import { commitManifest, fetchFiles, forgetManifest, pullDelta } from "./sftp";
 import { deliverySig, nextTry, type ChainTry } from "./chainTry";
 import { addChainDay, hubChain, setHubChain, type HubChain } from "./chainStatus";
 import { writtenCount } from "./summary";
@@ -126,12 +126,21 @@ export async function runHubChain(by: string): Promise<HubChain | null> {
       revenue_kpi: touched,
       erp_revenue: got.has("revenue_profit_center.xlsx") || (touched && erpOnDisk),
       revenue_history: touched,
+      // the order lines' internal ids, learnt (with dim_article), then the lines still on one repaired
+      article_ids: got.has("fct_orderlinehist.csv"),
       orders_daily: got.has("fct_orderlinehist.csv"),
+      article_repair: got.has("fct_orderlinehist.csv") || got.has("dim_article.csv"),
       stages_new_orders: got.has("fct_orderlinehist.csv") && dimOrder,
       order_sync: orderFiles,
       company_stats: orderFiles && live.has("order_sync"),
       contact_shipment: orderFiles && live.has("order_sync"),
     };
+    // the steps that read the articles need dim_article on THIS copy's disk: a delivery without a new
+    // one, after a restart, left none - and every line fell back to the ERP's internal id (17.10.2026)
+    if (["article_ids", "orders_daily", "stock_load"].some((k) => live.has(k) && due[k]) && !(await onDisk("dim_article.csv"))) {
+      const f = await fetchFiles(INCOMING, ["dim_article.csv"]);
+      console.log(`[connectors] chain: dim_article.csv was not on this copy's disk - fetched again: ${f.pulled.length ? `${f.pulled[0].mb} MB` : `nothing${f.error ? ` (${f.error})` : ""}`}`);
+    }
     for (const def of REGISTRY) {
       if (def.cadence !== "chain" || !live.has(def.key) || !due[def.key]) continue;
       chain.step = def.key;

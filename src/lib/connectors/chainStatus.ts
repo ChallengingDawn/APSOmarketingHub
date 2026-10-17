@@ -10,7 +10,7 @@ const KV_LIVE = "connectors:hub:live";
 /** The chain steps (steps/registry.ts, cadence "chain") - listed here so this file stays light; a test holds the two together. */
 export const CHAIN_KEYS = [
   "magento_stamp", "articles", "stock_load", "stages", "revenue", "customer_agents", "revenue_kpi", "erp_revenue", "revenue_history",
-  "orders_daily", "stages_new_orders", "order_sync", "company_stats", "contact_shipment",
+  "article_ids", "orders_daily", "article_repair", "stages_new_orders", "order_sync", "company_stats", "contact_shipment",
 ];
 
 /** Does the hub run any chain step live? */

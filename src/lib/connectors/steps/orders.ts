@@ -38,6 +38,8 @@ import { kvGet as dbKvGet, kvSet as dbKvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
+import { stat } from "node:fs/promises";
+import { addPending, knownArticles } from "../articleIds";
 import fixmapJson from "../data/article_fixmap.json";
 import type { StepResult } from "./companyFacts";
 import {
@@ -45,8 +47,8 @@ import {
 } from "./orderFiles";
 import {
   PIPELINE, WEB_CARRY, baseOf000, candidates, dedupDecision, deliveryBases, detailUpdate, enrichPayload, fnum, hsDate,
-  isDeliveryOf, orderPayload, pyRepr, pyStrip, stageUpdate, unpackDetail, webCarry,
-  type FctOrder, type FixMap,
+  isDeliveryOf, orderPayload, pyRepr, pyStrip, stageUpdate, unpackDetail, unresolvedIds, webCarry,
+  type ArtInfo, type FctOrder, type FixMap,
 } from "./orderRules";
 
 const FIXMAP = fixmapJson as unknown as FixMap;
@@ -206,8 +208,13 @@ export const pgStore: OrderStore = {
   },
 };
 
-type Deps = { store: OrderStore; sleep: (ms: number) => Promise<void>; now: () => number };
-const DEFAULT_DEPS: Deps = { store: pgStore, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now() };
+/** The hub's memory of the ERP's internal article ids (connectors/articleIds.ts). */
+type ArticleMemory = { known(ids: string[]): Promise<Map<string, ArtInfo>>; pending(rows: [orderId: string, id: string][]): Promise<number> };
+type Deps = { store: OrderStore; sleep: (ms: number) => Promise<void>; now: () => number; memory: ArticleMemory };
+const DEFAULT_DEPS: Deps = {
+  store: pgStore, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(),
+  memory: { known: knownArticles, pending: addPending },
+};
 let deps: Deps = DEFAULT_DEPS;
 /** Tests and the parity harness only: an in-memory store, no waiting. null restores the defaults. */
 export function setOrderDeps(d: Partial<Deps> | null): void {
@@ -695,14 +702,28 @@ export async function ordersDaily(live: boolean, beat: Beat, opts: { file: strin
     for (const l of o.lines.values()) if (!l.gone) keys.add(l.key);
   }
   const art = await articleLookup(opts.articleFile, keys, tick);
+  // keys today's dim_article lacks - a made-to-order article is created the day it is ordered:
+  // the hub's memory of internal ids answers what an earlier delivery taught it (17.10.2026)
+  const lacking = new Set<string>();
+  for (const o of [...missing.values(), ...[...emptyExist.values()].map(([, o]) => o)]) {
+    for (const l of o.lines.values()) if (!l.gone && !art.has(l.key)) lacking.add(pyStrip(l.artno));
+  }
+  let known = new Map<string, ArtInfo>();
+  try { known = lacking.size ? await deps.memory.known([...lacking]) : known; } catch (e) { rep.memory_error = errText(e); }
+  if (keys.size && !(opts.articleFile && (await stat(opts.articleFile).then(() => true, () => false)))) {
+    // loud: without the file every line falls back to the ERP's internal id, with no profit centre
+    rep.WARNING = "dim_article.csv is not on this copy's disk - lines get the ERP's internal ids; the repair step fixes them later";
+  }
+  const actx = { art, fixmap: FIXMAP, known };
   const uns = [...new Set([...missing.values()].map((o) => o.custuniq).filter((u) => u))].sort(cmpStr);
   const cm = await customerMap(uns);
   const cname = await companyNames([...new Set(uns.map((u) => cm.map.get(u)).filter((x): x is string => !!x))].sort(cmpStr));
   const payload = (full: string, o: FctOrder) =>
-    orderPayload(full, o, { art, fixmap: FIXMAP, companyName: cname.get(cm.map.get(o.custuniq) ?? "") ?? "" });
+    orderPayload(full, o, { ...actx, companyName: cname.get(cm.map.get(o.custuniq) ?? "") ?? "" });
   const items = [...missing.entries()].sort((a, b) => cmpStr(a[0], b[0]));
   Object.assign(rep, {
-    articles_found: art.size, articles_asked: keys.size, customers: uns.length, customers_looked_up: cm.looked_up,
+    articles_found: art.size, articles_asked: keys.size, articles_from_memory: [...lacking].filter((x) => known.has(x)).length,
+    customers: uns.length, customers_looked_up: cm.looked_up,
     customers_not_found: cm.not_found.length, ...(cm.not_found.length ? { customers_not_found_samples: cm.not_found.slice(0, 10) } : {}),
   });
   const bases = deliveryBases(missing.keys());
@@ -776,6 +797,13 @@ export async function ordersDaily(live: boolean, beat: Beat, opts: { file: strin
     await deps.sleep(120);
   }
 
+  // ---- lines still on the ERP's internal id: noted for the repair step (article_repair) ----
+  const left: [string, string][] = [];
+  for (const [num, d] of justCreated) for (const id of unresolvedIds(missing.get(num)!.lines.values(), actx)) left.push([d.id, id]);
+  for (const [, [id, o]] of eitems) for (const x of unresolvedIds(o.lines.values(), actx)) left.push([id, x]);
+  let leftNoted = 0;
+  try { leftNoted = left.length ? await deps.memory.pending(left) : 0; } catch (e) { rep.memory_error = errText(e); }
+
   // ---- the ledger: this file is done (the newest 60 kept) ----
   led.files[sha] = { ts: Math.floor(deps.now() / 1000), created, enriched };
   const keep = Object.entries(led.files).sort((a, b) => b[1].ts - a[1].ts).slice(0, 60);
@@ -783,7 +811,7 @@ export async function ordersDaily(live: boolean, beat: Beat, opts: { file: strin
   led.last = { last_run: new Date(deps.now()).toISOString().slice(0, 10), created, enriched, to_create: missing.size, already_in_hs: rep.already_in_hs };
   await store.kvSet(KV_DAILY, led);
   return {
-    ...rep, created, enriched, errors: err, company_assocs: adone, company_assocs_failed: afail, ...guard.report,
+    ...rep, created, enriched, errors: err, company_assocs: adone, company_assocs_failed: afail, lines_left_for_repair: leftNoted, ...guard.report,
     ...(createErrors.length ? { error_samples: createErrors } : {}), dedup_examples: guard.examples,
     seconds: Math.round((deps.now() - t0) / 1000),
   };

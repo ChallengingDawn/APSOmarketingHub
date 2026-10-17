@@ -269,6 +269,20 @@ export const OTHER_STEPS: Step[] = [
     ],
   },
   {
+    key: "article_ids", name: "Order lines' articles remembered", group: "orders", phase: "hub",
+    what: "Every ERP order line carries the ERP's internal article id and a key into the article master. The hub remembers each internal id with the real 10-digit article, its profit centre and text - a made-to-order article missing from the day it was ordered is learnt from the next day's article file.",
+    when: "With each ERP delivery that brings the order lines, before Order lines",
+    reads: "fct_orderlinehist.csv · dim_article.csv (fetched again when this copy no longer has it)",
+    writes: [{ object: "Hub database (apsomh_article_ids)", props: ["internal id → article, profit centre, text"] }],
+  },
+  {
+    key: "article_repair", name: "Order lines get their real article and profit centre", group: "orders", phase: "hub",
+    what: "HubSpot order lines that still carry the ERP's internal id (no profit centre) get the real article number, its profit centre and the order's main profit centre, as soon as the hub knows the article. The first run reads every order since January 2025.",
+    when: "With each ERP delivery, after Order lines - preview until switched on",
+    reads: "Orders (order_positions_json) · the hub's memory of internal ids",
+    writes: [{ object: OBJECTS.order, props: ["order_line_NN_article", "order_line_NN_pc", "order_positions_json", "order_profit_center"], how: "only the lines still on an internal id" }],
+  },
+  {
     key: "magento_link", name: "Web orders get their A-number from the shop", group: "orders", phase: "hub",
     what: "A web order waiting for its ERP number is looked up in the shop: the shop keeps the A-number its transfer module writes back, and answers yes/no questions about it (about 23 per order). Found numbers are stamped like the export does. Replaces the manual export.xml, which stays as a backup.",
     when: "Every 15 minutes, beside the chain (never during it) - preview until switched on",

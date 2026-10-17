@@ -226,6 +226,17 @@ export function fetchLatest(dest: string): Promise<PullReport> {
 }
 
 /**
+ * These files of the ERP's folder, whatever the manifest says, into `dest` - for a chain step
+ * that needs a file this delivery did not bring and the copy no longer has (it restarted since):
+ * dim_article.csv for the order lines' articles (17.10.2026). Manifest and last-pull record untouched.
+ */
+export function fetchFiles(dest: string, names: string[]): Promise<PullReport> {
+  const run = chain.then(() => pullOnce({ dest, ignoreManifest: true, only: names }));
+  chain = run.catch(() => {});
+  return run;
+}
+
+/**
  * Forget what was pulled (13.10.2026): the next pull takes every file in the ERP's folder
  * again - the current delivery - as if it were new. For "Run this delivery again" after
  * the chain gave up on a delivery whose runs were cut short (chain.ts rerunDelivery).
@@ -239,7 +250,7 @@ export async function commitManifest(m: Manifest): Promise<void> {
   await kvSet(KV_MANIFEST, m);
 }
 
-async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = false }: { dest: string; dry?: boolean; ignoreManifest?: boolean; defer?: boolean }): Promise<PullReport> {
+async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = false, only }: { dest: string; dry?: boolean; ignoreManifest?: boolean; defer?: boolean; only?: string[] }): Promise<PullReport> {
   const t0 = Date.now();
   const rep: PullReport = { pulled: [], skipped: 0, renamed: {}, ts: Math.floor(Date.now() / 1000), ...(dry ? { dry: true } : {}) };
   const c = config();
@@ -254,6 +265,7 @@ async function pullOnce({ dest, dry = false, ignoreManifest = false, defer = fal
     rep.skipped = plan.skipped;
     if (plan.folders) rep.folders = plan.folders;
     for (const f of plan.todo) {
+      if (only && !only.includes(f.as)) continue;
       if (!dry) {
         const dst = path.join(dest, f.as);
         const tmp = `${dst}.part`;

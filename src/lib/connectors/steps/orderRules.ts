@@ -296,7 +296,11 @@ export function candidates(orders: Map<string, FctOrder>): { cand: Map<string, F
 export type ArtInfo = readonly [pc: string, artno: string, text: string];
 export type FixEntry = { n: string; t: string; pc: string; conf?: string; src?: string };
 export type FixMap = Readonly<Record<string, FixEntry>>;
-export type PayloadCtx = { art: ReadonlyMap<string, ArtInfo>; fixmap: FixMap; companyName: string };
+export type PayloadCtx = {
+  art: ReadonlyMap<string, ArtInfo>; fixmap: FixMap; companyName: string;
+  /** the hub's memory of internal ids (connectors/articleIds.ts), for keys today's dim_article lacks */
+  known?: ReadonlyMap<string, ArtInfo>;
+};
 
 /**
  * _fix_split_qty: a split delivery repeats the line's OrderQty on every position of the
@@ -323,10 +327,12 @@ export function fixSplitQty(lines: [string, LiveLine][]): number[] {
 
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** The article behind a line: dim_article, else the mined fixmap, else the raw number. */
-export function articleOf(l: LiveLine, ctx: Pick<PayloadCtx, "art" | "fixmap">): ArtInfo {
+/** The article behind a line: dim_article, else the hub's memory, else the mined fixmap, else the raw number. */
+export function articleOf(l: LiveLine, ctx: Pick<PayloadCtx, "art" | "fixmap" | "known">): ArtInfo {
   const a = ctx.art.get(l.key);
   if (a) return a;
+  const k = ctx.known?.get(pyStrip(l.artno));
+  if (k) return k;
   const fm = Object.prototype.hasOwnProperty.call(ctx.fixmap, pyStrip(l.artno)) ? ctx.fixmap[pyStrip(l.artno)] : undefined;
   return fm ? [fm.pc, fm.n, fm.t] : ["", l.artno, ""];
 }
@@ -612,3 +618,74 @@ export function unpackDetail(s: string | undefined): DetailTarget | undefined {
 
 /** A HubSpot order as the snapshot keeps it: the pipeline filter both steps apply. */
 export const inPipeline = (pipeline: string | null | undefined): boolean => !pipeline || pipeline === PIPELINE;
+
+
+/* ── order lines left with the ERP's internal id (SARCLA 17.10.2026) ─────── */
+
+/** A real article number: ten digits. Anything else on a line is the ERP's internal id. */
+export const isArticleNumber = (a: string): boolean => /^\d{10}$/.test(a.trim());
+
+/** The internal ids of the lines the hub cannot resolve - dim_article, memory and fixmap all silent. */
+export function unresolvedIds(lines: Iterable<FctLine>, ctx: Pick<PayloadCtx, "art" | "fixmap" | "known">): string[] {
+  const out = new Set<string>();
+  for (const l of lines) {
+    if (l.gone) continue;
+    const a = articleOf(l, ctx);
+    if (!a[0] && !isArticleNumber(a[1] || l.artno) && pyStrip(l.artno)) out.add(pyStrip(l.artno));
+  }
+  return [...out];
+}
+
+/**
+ * The repair of one HubSpot order whose lines carry internal ids the hub now knows: the
+ * positions (article, profit centre, text), the per-line properties of the first 80 lines and
+ * the order's main profit centre - the same rules as orderPayload. Lines already resolved are
+ * never touched. Nothing to fix -> an empty patch.
+ */
+export function repairOrder(positionsJsonText: string | null | undefined, known: ReadonlyMap<string, ArtInfo>): { patch: Record<string, string>; fixed: string[] } {
+  let pos: PosRow[];
+  try {
+    const parsed = JSON.parse(positionsJsonText || "[]") as Partial<PosRow>[];
+    if (!Array.isArray(parsed)) return { patch: {}, fixed: [] };
+    pos = parsed.map((p) => ({ a: String(p.a ?? ""), q: Number(p.q ?? 0), r: Number(p.r ?? 0), gm: p.gm === null || p.gm === undefined ? null : Number(p.gm), pc: String(p.pc ?? ""), t: String(p.t ?? "") }));
+  } catch {
+    return { patch: {}, fixed: [] };
+  }
+  const patch: Record<string, string> = {};
+  const fixed = new Set<string>();
+  pos.forEach((p, j) => {
+    if (p.pc) return;
+    const k = known.get(pyStrip(p.a));
+    if (!k || !k[1]) return;
+    fixed.add(pyStrip(p.a));
+    p.a = k[1];
+    p.pc = k[0];
+    p.t = cpSlice(k[2] || p.t, 0, 80);
+    if (j < MAX_LINE_PROPS) {
+      const pad = String(j + 1).padStart(2, "0");
+      patch[`order_line_${pad}_article`] = k[1];
+      if (k[0]) patch[`order_line_${pad}_pc`] = k[0];
+    }
+  });
+  if (!fixed.size) return { patch: {}, fixed: [] };
+  const pcrev = new Map<string, number>();
+  for (const p of pos) if (p.pc) pcrev.set(p.pc, (pcrev.get(p.pc) ?? 0) + Math.abs(p.r));
+  if (pcrev.size) {
+    let top = "", best = 0, first = true;
+    for (const [pc, v] of pcrev) if (first || v > best) { top = pc; best = v; first = false; }
+    patch.order_profit_center = PC_OK.has(top) ? top : "Unknown";
+  }
+  patch.order_positions_json = positionsJson(pos);
+  return { patch, fixed: [...fixed] };
+}
+
+/** Lines on an order still carrying an internal id: no profit centre, not a 10-digit number. */
+export function internalIdsOn(positionsJsonText: string | null | undefined): string[] {
+  try {
+    const pos = JSON.parse(positionsJsonText || "[]") as { a?: unknown; pc?: unknown }[];
+    if (!Array.isArray(pos)) return [];
+    return [...new Set(pos.filter((p) => !String(p.pc ?? "") && String(p.a ?? "").trim() && !isArticleNumber(String(p.a))).map((p) => pyStrip(String(p.a))))];
+  } catch {
+    return [];
+  }
+}

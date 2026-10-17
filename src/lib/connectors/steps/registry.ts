@@ -19,6 +19,7 @@ import { deputySweep, ticketAssoc, wrongOwners } from "./tickets";
 import { stockLoad } from "./stock";
 import { FCT_FILE } from "./stockRules";
 import { ownerRulesSweep } from "../../ownerRules/sweep";
+import { learnArticleIds, repairArticleLines } from "./articleMemory";
 
 export type Beat = () => Promise<void>;
 export type StepCtx = { live: boolean; beat: Beat; full?: boolean; dir: string | null };
@@ -62,8 +63,14 @@ export const REGISTRY: StepDef[] = [
   { key: "revenue_history", cadence: "chain", run: (c) => revenueHistory(c.live, c.beat) },
   { key: "mandant_sweep", cadence: "30min", run: (c) => mandantSweep(c.live, c.beat) },
   { key: "wrong_owners", cadence: "30min", run: (c) => wrongOwners(c.live, c.beat) },
+  // HUB ONLY: the order lines' internal ids, remembered with what dim_article says - before orders_daily,
+  // which reads that memory for the made-to-order articles the day's dim_article lacks (SARCLA 17.10.2026)
+  { key: "article_ids", cadence: "chain", file: "fct_orderlinehist.csv", hubOnly: true,
+    run: (c) => learnArticleIds(c.live, c.beat, { file: at(c, "fct_orderlinehist.csv"), articleFile: at(c, "dim_article.csv") }) },
   { key: "orders_daily", cadence: "chain", file: "fct_orderlinehist.csv",
     run: (c) => ordersDaily(c.live, c.beat, { file: at(c, "fct_orderlinehist.csv"), articleFile: c.dir ? path.join(c.dir, "dim_article.csv") : undefined }) },
+  // HUB ONLY: the HubSpot order lines still on an internal id get the real article and profit centre
+  { key: "article_repair", cadence: "chain", hubOnly: true, run: (c) => repairArticleLines(c.live, c.beat, { full: c.full }) },
   { key: "stages_new_orders", cadence: "chain", file: "dim_order.csv", run: (c) => stageLoad(c.live, c.beat, { file: at(c, "dim_order.csv"), onlyChanged: true }) },
   { key: "order_sync", cadence: "chain", file: "dim_order.csv", run: (c) => orderSync(c.live, c.beat, { file: at(c, "dim_order.csv") }) },
   { key: "company_stats", cadence: "chain", run: (c) => companyStats(c.live, c.beat, c.full) },
