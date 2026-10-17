@@ -40,12 +40,13 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import KanbanTab from "./KanbanTab";
 import ShelfTab from "./ShelfTab";
 import ShortagesTab from "./ShortagesTab";
-import type { Broken } from "@/lib/directcut/tickets";
+import RegistryTab from "./RegistryTab";
+import type { BrokenWithTickets, Holds, Registry } from "./shared";
 import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
 
-type View = "overview" | "kanban" | "shortages" | "shelf" | "status";
+type View = "overview" | "kanban" | "shortages" | "shelf" | "numbers" | "status";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", kanban: "#kanban", shortages: "#shortages", shelf: "#shelf", status: "#status",
+  overview: "#overview", kanban: "#kanban", shortages: "#shortages", shelf: "#shelf", numbers: "#numbers", status: "#status",
 };
 
 type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
@@ -58,7 +59,7 @@ const countWork = (open: Line[]) => {
 
 /* ── what needs doing, shown on every tab ─────────────────────────────────── */
 
-function Problems({ s }: { s: Status | null }) {
+function Problems({ s, bro }: { s: Status | null; bro: { broken: BrokenWithTickets } | null }) {
   if (!s) return null;
   const out: React.ReactNode[] = [];
 
@@ -71,13 +72,18 @@ function Problems({ s }: { s: Status | null }) {
     Every cut is being answered as production, so no stock is being promised.
   </>);
 
-  const broken = Number(s.promiseSweep?.articlesBroken) || 0;
+  /* A SHORTAGE THAT HAS A TICKET IS NOT AN ALERT (SARCLA, 17.10.2026: "this alert we can take out,
+     ticket has been raised"). The Back Office has it; repeating it at the top of every tab only teaches
+     people to ignore the banner. So this counts the orders with NO ticket, from the same data the
+     Shortages tab reads, instead of the middleware's count of what is broken - which cannot know whether
+     anybody has been told. */
+  const untick = (bro?.broken.orders ?? []).filter((o) => !o.orderNo || !(bro?.broken.ticketed ?? {})[o.orderNo]);
+  const broken = untick.length;
   if (broken > 0) out.push(<>
-    <b>{Number(s.promiseSweep?.piecesBroken) || 0} piece(s)</b> are promised on {broken} article(s) the shelf can no
-    longer cover{Array.isArray(s.promiseSweep?.lastBroken) ? null : null}
-    {(s.promiseSweep?.lastBroken as { orders?: string[] } | null)?.orders?.length
-      ? <> — order {(s.promiseSweep!.lastBroken as { orders: string[] }).orders.join(", ")}</> : null}.
-    Somebody has to source the material or tell the customer.
+    <b>{full(untick.reduce((n, o) => n + o.pieces, 0))} piece(s)</b> on {broken} order(s) cannot be cut from the
+    shelf as it stands and have no Back Office ticket yet
+    {untick.some((o) => o.erpNo || o.orderNo)
+      ? <> — {untick.map((o) => o.erpNo || o.orderNo).filter(Boolean).join(", ")}</> : null}.
   </>);
 
   /* THE HEARTBEAT IS NOT WARNED ABOUT ANY MORE (SARCLA, 17.10.2026: "we are not going to install
@@ -293,11 +299,14 @@ export default function DirectCutPage() {
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&n=${nonce}`, [nonce]);
-  const brokenHeld = useHeld<{ broken: Broken; isAdmin: boolean }>(`/api/website/directcut?part=promises&n=${nonce}`, [nonce]);
+  const [regQ, setRegQ] = useState("");
+  const regHeld = useHeld<{ registry: Registry; holds: Holds }>(`/api/website/directcut?part=registry&q=${encodeURIComponent(regQ)}&n=${nonce}`, [nonce, regQ]);
+  const brokenHeld = useHeld<{ broken: BrokenWithTickets; isAdmin: boolean }>(`/api/website/directcut?part=promises&n=${nonce}`, [nonce]);
   const statusHeld = useHeld<Status>(`/api/website/directcut?part=status&n=${nonce}`, [nonce]);
   const r = boardHeld.result;
   const s = statusHeld.result?.state === "ok" ? statusHeld.result.data : null;
   const bro = brokenHeld.result?.state === "ok" ? brokenHeld.result.data : null;
+  const reg = regHeld.result?.state === "ok" ? regHeld.result.data : null;
   const b = r?.state === "ok" ? r.data.board : null;
 
   const work = b ? countWork(b.open) : null;
@@ -308,6 +317,7 @@ export default function DirectCutPage() {
     { id: "kanban" as View, label: "Cut Kanban", count: b ? String(b.open.length) : null },
     { id: "shortages" as View, label: "Shortages", count: bro ? String(bro.broken.orders.length) : null },
     { id: "shelf" as View, label: "The shelf", count: b ? String(b.stock.length) : null },
+    { id: "numbers" as View, label: "Articles & holds", count: reg ? String(reg.registry.total) : null },
     { id: "status" as View, label: "Status", count: null },
   ];
 
@@ -319,7 +329,7 @@ export default function DirectCutPage() {
     const board = r.data.board;
     body = (
       <>
-        <Problems s={s} />
+        <Problems s={s} bro={bro} />
         <ReportTabs name="directcut" tab={tab} onSelect={setTab} tabs={tabs} />
         <Box sx={{ mt: 3 }}>
           {tab === "overview" && <Overview b={board} s={s} />}
@@ -330,6 +340,11 @@ export default function DirectCutPage() {
               ? <UpstreamPanel source="C2S middleware" error={brokenHeld.result.error} status={brokenHeld.result.status} onRetry={reload} />
               : <LoadingPanel label="Asking the shelf what it can no longer cover…" />)}
           {tab === "shelf" && <ShelfTab stock={board.stock} />}
+          {tab === "numbers" && (reg
+            ? <RegistryTab reg={reg.registry} hold={reg.holds} q={regQ} setQ={setRegQ} />
+            : regHeld.result?.state === "error"
+              ? <UpstreamPanel source="C2S middleware" error={regHeld.result.error} status={regHeld.result.status} onRetry={reload} />
+              : <LoadingPanel label="Reading the registry and the holds…" />)}
           {tab === "status" && (s
             ? <StatusTab s={s} onSaved={reload} />
             : statusHeld.result?.state === "error"

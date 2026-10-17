@@ -12,7 +12,11 @@ import Typography from "@mui/material/Typography";
 import { FAINT, INK, MUTED } from "@/app/uc/report/ui";
 import type { Line } from "@/lib/directcut/gateway";
 
-export type { Board, Line, StockRow, Status } from "@/lib/directcut/gateway";
+export type { Board, Line, StockRow, Status, Registry, RegistryRow, Holds, Hold } from "@/lib/directcut/gateway";
+export type { Broken, BrokenOrder, BrokenLine } from "@/lib/directcut/tickets";
+import type { Broken } from "@/lib/directcut/tickets";
+/** the shortages, with each order's existing ticket id - so the page can say so without a rehearsal */
+export type BrokenWithTickets = Broken & { ticketed?: Record<string, string> };
 
 /** "16.10.2026 07:12" in local time. */
 export function when(iso: string | null | undefined, seconds = false): string {

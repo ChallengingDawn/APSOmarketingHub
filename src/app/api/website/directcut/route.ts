@@ -7,7 +7,7 @@
 // the Back Office ticket for a promise the shelf cannot keep - that writes to HubSpot, not to the shelf.
 //
 // Same three answers as every integration route: not configured, upstream failed (with the reason), or data.
-//   GET  ?part=board | status | promises
+//   GET  ?part=board | status | promises | registry
 //   POST { action: "gateway", url } | { action: "tickets", dry }
 //
 // The ticket action is the one thing here that writes anywhere, and it writes to HubSpot, not to the
@@ -17,8 +17,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
-import { adminKey, board, gatewaySetting, setGateway, status } from "@/lib/directcut/gateway";
-import { fetchBroken, runPromiseTickets } from "@/lib/directcut/tickets";
+import { adminKey, board, gatewaySetting, holds, registry, setGateway, status } from "@/lib/directcut/gateway";
+import { brokenWithTickets, runPromiseTickets } from "@/lib/directcut/tickets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +50,13 @@ export async function GET(req: NextRequest) {
     }
     if (part === "promises") {
       /* what the shelf can no longer cover, computed on the shelf as it stands */
-      return NextResponse.json({ configured: true, ok: true, data: { broken: await fetchBroken(), isAdmin } });
+      return NextResponse.json({ configured: true, ok: true, data: { broken: await brokenWithTickets(), isAdmin } });
+    }
+    if (part === "registry") {
+      /* the numbers we minted, and the area a basket is sitting on - both were on the Railway dashboard */
+      const q = (req.nextUrl.searchParams.get("q") || "").slice(0, 80);
+      const [reg, hold] = await Promise.all([registry(q), holds()]);
+      return NextResponse.json({ configured: true, ok: true, data: { registry: reg, holds: hold } });
     }
     return NextResponse.json({ configured: true, ok: false, error: "Unknown part.", status: 400 });
   } catch (err) {

@@ -44,6 +44,8 @@ const OPEN: Stage[] = ["reserved", "ordered", "to-cut"];
 
 export type Line = {
   key: string; stage: Stage; basis: string | null; name: string;
+  /** the 8001 number the shop ordered - the only identifier a "by number only" line has */
+  cutArticle: string | null;
   l: number; w: number; qty: number; held: number; produced: number;
   orderNo: string | null; erpNo: string | null; date: string | null;
   sawNeeded: boolean | null; kind: string | null; customer: string | null;
@@ -68,6 +70,7 @@ export type Board = {
 
 const line = (r: RawLine): Line => ({
   key: String(r.key),
+  cutArticle: r.cutArticle ?? null,
   stage: r.stage,
   basis: r.basis ?? null,
   name: r.basisName ?? "",

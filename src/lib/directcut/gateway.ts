@@ -83,6 +83,45 @@ export async function board(): Promise<Board> {
   return slim(await gateway<RawPipeline>("/admin/pipeline", 40_000));
 }
 
+/* ── the registry, and the area actually held ────────────────────────────────
+   Both of these existed on the Railway dashboard and were missing here (SARCLA, 17.10.2026: "we dont have
+   anymore the article that are created and the holding of na article since basket"). They answer two
+   different questions that the board cannot:
+
+     the registry  - every cut-article number this ledger ever MINTED, so a number arriving on an order can
+                     be recognised at all. A line in "ordered by number only" is precisely a number that is
+                     NOT in here.
+     the holds     - the plate area a basket is sitting on right now, with whose basket it is and when it
+                     lapses. A hold is why a plate the shelf shows is not actually free.
+
+   The `size` string the middleware sends is mis-encoded ("304Ã—95"), so the size is rebuilt from l and w. */
+
+export type RegistryRow = {
+  cutArticle: string; basisArticle: string; l: number; w: number; thickness: number | null;
+  firstSeen: string | null; lastSeen: string | null; seenCount: number;
+  lastOrderNo: string | null; lastLineId: string | null;
+};
+export type Registry = { total: number; rows: RegistryRow[] };
+
+export async function registry(q = "", limit = 300): Promise<Registry> {
+  const qs = new URLSearchParams({ limit: String(Math.min(1000, Math.max(1, limit))) });
+  if (q) qs.set("q", q);
+  const r = await gateway<{ total?: number; rows?: RegistryRow[] }>(`/cut-articles?${qs}`, 30_000);
+  return { total: Number(r.total) || (r.rows ?? []).length, rows: r.rows ?? [] };
+}
+
+export type HoldLine = { article: string; plate: string; parts: number; areaMm2: number };
+export type Hold = {
+  orderId: string; status: string; expiresAt: string | null; secondsLeft: number; expired: boolean;
+  lines: HoldLine[]; totalParts: number; customer: string | null; source: string | null;
+};
+export type Holds = { orders: Hold[] };
+
+export async function holds(): Promise<Holds> {
+  const r = await gateway<{ orders?: Hold[] }>("/reservations", 30_000);
+  return { orders: r.orders ?? [] };
+}
+
 /* ── status: the four questions worth asking about the chain ─────────────────── */
 
 type RawHealth = {

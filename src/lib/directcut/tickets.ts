@@ -109,12 +109,15 @@ async function ticketsRequest<T>(path: string, method: "GET" | "POST" | "PUT", b
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-/** Which of these orders already have a ticket. Dedup without a state file. */
-async function alreadyRaised(orders: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
+/** Which of these orders already have a ticket, and WHICH ticket. Dedup without a state file.
+ *  The id is kept, not only the fact: SARCLA clicked Raise, came back later and could not tell from the
+ *  page whether anything had happened - "I've clicked earlier, has the ticket been created or not". A
+ *  screen that knows the answer should say it without being asked to rehearse for it. */
+export async function alreadyRaised(orders: string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
   for (let i = 0; i < orders.length; i += 100) {
     // through the ticket token, so a missing scope fails HERE, before anything is created
-    const res = await ticketsRequest<{ results?: { properties?: Record<string, string | null> }[] }>(
+    const res = await ticketsRequest<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>(
       "/crm/v3/objects/tickets/search", "POST", {
         filterGroups: [{ filters: [{ propertyName: "c2s_problem_order", operator: "IN", values: orders.slice(i, i + 100) }] }],
         properties: ["c2s_problem_order"],
@@ -122,7 +125,7 @@ async function alreadyRaised(orders: string[]): Promise<Set<string>> {
       });
     for (const r of res.results ?? []) {
       const k = r.properties?.c2s_problem_order;
-      if (k) found.add(String(k));
+      if (k && r.id) found.set(String(k), String(r.id));
     }
   }
   return found;
@@ -193,6 +196,22 @@ export function describe(o: BrokenOrder): string {
   return `${positions}\n${why}`;
 }
 
+/** The broken promises with each order's existing ticket attached, so the page says it straight away. */
+export async function brokenWithTickets(): Promise<Broken & { ticketed: Record<string, string> }> {
+  const broken = await fetchBroken();
+  const orders = broken.orders.map((o) => o.orderNo).filter((o): o is string => !!o);
+  let ticketed: Record<string, string> = {};
+  if (orders.length) {
+    try {
+      ticketed = Object.fromEntries(await alreadyRaised(orders));
+    } catch (err) {
+      // the shortages are still worth showing; this only costs the page its ticket column
+      console.warn(`[c2s-tickets] could not read existing tickets - ${(err as Error)?.message ?? err}`);
+    }
+  }
+  return { ...broken, ticketed };
+}
+
 /**
  * One run. `dry` reports exactly what it would do and writes nothing — which is how this should be looked
  * at the first few times, because the thing it mails about cannot be unmailed.
@@ -210,7 +229,7 @@ export async function runPromiseTickets({ dry = true }: { dry?: boolean } = {}):
     }
   }
 
-  let existing = new Set<string>();
+  let existing = new Map<string, string>();
   if (withOrder.length) {
     try {
       existing = await alreadyRaised(withOrder.map((o) => String(o.orderNo)));
@@ -226,7 +245,7 @@ export async function runPromiseTickets({ dry = true }: { dry?: boolean } = {}):
   for (const o of withOrder) {
     const key = String(o.orderNo);
     if (existing.has(key)) {
-      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "exists" });
+      outcomes.push({ orderNo: key, erpNo: o.erpNo, pieces: o.pieces, articles: o.articles, outcome: "exists", ticketId: existing.get(key) });
       continue;
     }
     // who it would go on — looked up on a rehearsal too, because "no company found" is exactly the
