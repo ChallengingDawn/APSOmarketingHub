@@ -56,7 +56,7 @@ export function toneOf(slug: string): Tone {
 }
 
 /**
- * A category as a small tile: its glyph, name and line, and how many reports it
+ * A category as a tile: its glyph, name and line, and how many reports it
  * holds - the reports themselves are not listed (SARCLA, 16.10.2026: "smaller
  * tiles, don't list every sub-report"). The whole tile is one link, straight
  * into the first report this person may open (categoryEntry); a category with
@@ -72,28 +72,28 @@ export function CategoryTile({ c, reports, i }: { c: ReportCategory; reports: Re
     : c.reports.length ? "Not opened to you - an admin can grant it" : "No report yet";
   return (
     <Box component={Link} href={entry} sx={{
-      ...glass, backdropFilter: "none", borderRadius: "18px", p: { xs: 1.5, md: 1.6 }, height: "100%", boxSizing: "border-box",
-      display: "flex", flexDirection: "column", gap: 0.9, textDecoration: "none", color: INK, ...focusRing,
+      ...glass, backdropFilter: "none", borderRadius: "22px", p: { xs: 2, md: 2.75 }, height: "100%", minHeight: { md: 188 }, boxSizing: "border-box",
+      display: "flex", flexDirection: "column", gap: 1.25, textDecoration: "none", color: INK, ...focusRing,
       background: `linear-gradient(170deg, ${tone.tint}, rgba(255,255,255,.64) 62%)`,
       transition: "box-shadow .2s ease, border-color .2s ease",
       "&:hover": { borderColor: `${tone.fg}55`, boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 18px 40px rgba(31,45,78,.11)" },
       "&:hover .chev": { transform: "translateX(3px)" },
       ...rise(i + 1),
     }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.1 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
         <Box sx={{
-          width: 36, height: 36, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
+          width: { xs: 44, md: 52 }, height: { xs: 44, md: 52 }, borderRadius: "15px", flexShrink: 0, display: "grid", placeItems: "center",
           background: `linear-gradient(140deg, ${tone.fg}b3, ${tone.fg})`, color: "#fff",
-          boxShadow: `0 6px 14px ${tone.tint}`,
-        }}><HubIconGlyph name={tone.icon} fontSize={19} /></Box>
+          boxShadow: `0 8px 18px ${tone.tint}`,
+        }}><HubIconGlyph name={tone.icon} fontSize={26} /></Box>
         <Typography component="span" sx={{
           fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-          fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.02em", lineHeight: "22px", minWidth: 0,
+          fontSize: { xs: "1.15rem", md: "1.3rem" }, fontWeight: 600, letterSpacing: "-0.02em", lineHeight: { xs: "26px", md: "30px" }, minWidth: 0,
         }}>{c.name}</Typography>
-        <ChevronRightIcon className="chev" sx={{ fontSize: 18, color: tone.fg, ml: "auto", flexShrink: 0, transition: "transform .18s ease" }} />
+        <ChevronRightIcon className="chev" sx={{ fontSize: 24, color: tone.fg, ml: "auto", flexShrink: 0, transition: "transform .18s ease" }} />
       </Box>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: "18px" }}>{c.line}</Typography>
-      <Typography sx={{ fontSize: "0.74rem", color: reports.length ? tone.fg : FAINT, fontWeight: 600, mt: "auto", lineHeight: "16px" }}>{count}</Typography>
+      <Typography sx={{ fontSize: { xs: "0.9rem", md: "0.98rem" }, color: MUTED, lineHeight: { xs: "21px", md: "23px" } }}>{c.line}</Typography>
+      <Typography sx={{ fontSize: "0.85rem", color: reports.length ? tone.fg : FAINT, fontWeight: 600, mt: "auto", lineHeight: "20px" }}>{count}</Typography>
     </Box>
   );
 }

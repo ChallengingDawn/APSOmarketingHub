@@ -43,6 +43,21 @@ export async function hubJson<T>(url: string): Promise<T> {
 /** Asks again every 5 s while the hub is busy or restarting; says so only after 2 minutes of failing. */
 export const RETRY_MS = 5000, RETRIES = 24;
 
+/** How often an open page asks again - a new ERP delivery or a new read shows without a reload (SARCLA 17.10). */
+export const REFRESH_MS = 10 * 60 * 1000;
+/**
+ * Calls `fn` every REFRESH_MS while the page is in view, and at once when it
+ * comes back into view (another tab, a laptop woken up). Returns the stop.
+ */
+export function everyWhileSeen(fn: () => void): () => void {
+  const seen = () => document.visibilityState === "visible";
+  const t = setInterval(() => { if (seen()) fn(); }, REFRESH_MS);
+  const back = () => { if (seen()) fn(); };
+  document.addEventListener("visibilitychange", back);
+  window.addEventListener("focus", back);
+  return () => { clearInterval(t); document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
+}
+
 /**
  * A background read the hub keeps (slowReport): asked until it is done, and asked
  * again through a deployment's error page. The page shows what it has meanwhile,
@@ -58,7 +73,7 @@ export function useSlow<T>(url: string, field: string): { value: T | null; compu
         if (!alive) return;
         const state = j?.[field] as SlowState<T> | undefined;
         setSt({ state, error: typeof j?.error === "string" ? j.error : undefined });
-        if (state?.computing) timer = setTimeout(load, RETRY_MS);
+        timer = state?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined;
       })
       .catch((e) => {
         if (!alive) return;
@@ -66,7 +81,9 @@ export function useSlow<T>(url: string, field: string): { value: T | null; compu
         setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
       });
     load();
-    return () => { alive = false; if (timer) clearTimeout(timer); };
+    // and again while the page stays open, so it moves on by itself
+    const stop = everyWhileSeen(() => { if (!timer) load(); });
+    return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
   }, [url, field]);
   return { value: st?.state?.value ?? null, computing: !!st?.state?.computing || st === null, progress: st?.state?.progress, error: st?.error ?? st?.state?.error };
 }

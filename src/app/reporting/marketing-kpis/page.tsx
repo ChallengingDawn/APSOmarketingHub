@@ -99,16 +99,22 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>{s.name}</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT[tint].fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-            Stage {s.id}{geo ? " · + GEO" : ""}{s.note ? ` · ${s.note}` : ""}
-          </Typography>
+          {/* no stage number (SARCLA 17.10: "take out stage, there are no stages") - only what the section carries */}
+          {(geo || s.note) && (
+            <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
+              {[geo ? "+ GEO" : "", s.note ?? ""].filter(Boolean).join(" · ")}
+            </Typography>
+          )}
         </Box>
-        <Box sx={{ minWidth: 170 }}>
-          <Box sx={{ height: 6, borderRadius: 99, bgcolor: "rgba(21,34,58,.08)", overflow: "hidden" }}>
-            <Box sx={{ width: `${all ? (measured / all) * 100 : 0}%`, height: "100%", bgcolor: TINT[tint].fg, borderRadius: 99 }} />
+        {/* how far the stage is measured - gone once it is complete (SARCLA 17.10: "8 of 8 measured: it is complete, the indication should go") */}
+        {measured < all && (
+          <Box sx={{ minWidth: 170 }}>
+            <Box sx={{ height: 6, borderRadius: 99, bgcolor: "rgba(21,34,58,.08)", overflow: "hidden" }}>
+              <Box sx={{ width: `${all ? (measured / all) * 100 : 0}%`, height: "100%", bgcolor: TINT[tint].fg, borderRadius: 99 }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.5, textAlign: "right" }}>{measured} of {all} KPIs measured</Typography>
           </Box>
-          <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.5, textAlign: "right" }}>{measured} of {all} KPIs measured</Typography>
-        </Box>
+        )}
       </Box>
 
       {customers ? (
@@ -119,7 +125,7 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
           {traffic && <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}><TrafficOrigin live={live!} /></Box>}
         </Box>
       ) : (
-        <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing in this stage is measured yet.</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
       )}
 
       {missing.length > 0 && (
@@ -143,11 +149,11 @@ export default function MarketingKpisMacro() {
   const measured = KPIS.filter((k) => isMeasured(k.id)).length;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Marketing KPIs" subtitle={`Every KPI, stage by stage · ${year} · ${measured} of ${KPIS.length} measured`} />
+      <PageHeader title="Digital Growth KPIs" subtitle={`Every KPI · ${year} · ${measured} of ${KPIS.length} measured`} />
       {!views && (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
           {!state?.error && <CircularProgress size={18} />}
-          <Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>{state?.error ? `Could not load: ${state.error}` : "Loading the marketing KPIs…"}</Typography>
+          <Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>{state?.error ? `Could not load: ${state.error}` : "Loading the Digital Growth KPIs…"}</Typography>
         </Box></GlassCard>
       )}
       {views && state && (

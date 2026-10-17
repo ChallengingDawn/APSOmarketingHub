@@ -52,7 +52,10 @@ export type Cube = {
  * the same months a year earlier, so it may start no earlier than 12.
  */
 export type Win = { start: number; end: number };
-export type Filters = Partial<Record<Dim, string>>;
+/** The values chosen per dimension: a company passes when it holds any of them (SARCLA 17.10: "two sales reps"). */
+export type Filters = Partial<Record<Dim, string[]>>;
+/** The dimensions with at least one value chosen. */
+export const chosenDims = (f: Filters): Dim[] => DIMS.filter((d) => (f[d]?.length ?? 0) > 0);
 export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number; newC: number; newCPy: number };
 /** A row of one breakdown; the online share (KPI C06) joins it on the page once its own read is in. */
 export type Row = Agg & { label: string; online?: number | null; onlinePy?: number | null };
@@ -157,13 +160,14 @@ const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 
  * dimension's own filter out, so the clicked view still shows all its values.
  */
 function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<number, Agg> {
-  const f: [number, number][] = [];
+  // a value the cube does not know matches nothing, so a filter of only such values leaves nothing
+  const f: [number, Set<number>][] = [];
   DIMS.forEach((d, i) => {
-    const v = filters[d];
-    if (v != null && d !== groupBy) f.push([i, cube.labels[d].indexOf(v)]);
+    const vs = filters[d];
+    if (vs?.length && d !== groupBy) f.push([i, new Set(vs.map((v) => cube.labels[d].indexOf(v)).filter((x) => x >= 0))]);
   });
   const gi = groupBy ? DIMS.indexOf(groupBy) : -1;
-  const ok = cube.cells.map((c) => f.every(([i, v]) => c[i] === v));
+  const ok = cube.cells.map((c) => f.every(([i, vs]) => vs.has(c[i])));
   const out = new Map<number, Agg>();
   const at = (ci: number) => {
     const g = gi < 0 ? 0 : cube.cells[ci][gi];

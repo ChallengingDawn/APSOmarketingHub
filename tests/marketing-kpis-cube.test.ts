@@ -76,12 +76,23 @@ test("a quarter, last year whole, and the months a window may reach", () => {
 });
 
 test("a click filters every other breakdown, and its own dimension still shows all its values", () => {
-  const f = { prio: "Prio 1" };
+  const f = { prio: ["Prio 1"] };
   assert.deepEqual(sortRows(breakdown(cube, "country", f, ytd), "label", "country").map((r) => [r.label, r.n]), [["Germany", 1], ["Switzerland", 1]]);
   assert.deepEqual(breakdown(cube, "prio", f, ytd).map((r) => r.label), ["Prio 1", "Prio 2", "Prio 3", "No priority"]);
-  assert.equal(totals(cube, { prio: "Prio 2", country: "Switzerland" }, ytd).n, 2);
-  assert.equal(totals(cube, { owner: "Anna", segment: "APSOcore" }, ytd).rev, 64_000);
-  assert.equal(totals(cube, { country: "Nowhere" }, ytd).n, 0);
+  assert.equal(totals(cube, { prio: ["Prio 2"], country: ["Switzerland"] }, ytd).n, 2);
+  assert.equal(totals(cube, { owner: ["Anna"], segment: ["APSOcore"] }, ytd).rev, 64_000);
+  assert.equal(totals(cube, { country: ["Nowhere"] }, ytd).n, 0);
+});
+
+test("several values in one filter: a company passes with any of them", () => {
+  const one = totals(cube, { prio: ["Prio 1"] }, ytd), two = totals(cube, { prio: ["Prio 2"] }, ytd);
+  const both = totals(cube, { prio: ["Prio 1", "Prio 2"] }, ytd);
+  assert.equal(both.n, one.n + two.n);
+  assert.equal(both.rev, one.rev + two.rev);
+  // an unknown value beside a known one changes nothing; on its own it leaves nothing
+  assert.equal(totals(cube, { prio: ["Prio 1", "Prio 9"] }, ytd).n, one.n);
+  // the breakdown of that dimension still shows all its values
+  assert.equal(breakdown(cube, "prio", { prio: ["Prio 1", "Prio 2"] }, ytd).length, 4);
 });
 
 test("any column sorts, both ways; priority and potential keep their order until asked", () => {
@@ -106,10 +117,10 @@ test("potential bands follow the sales-priority thresholds", () => {
 });
 
 test("share of wallet: revenue in the window against the potential for as many months", () => {
-  const a = totals(cube, { prio: "Prio 1" }, ytd);
+  const a = totals(cube, { prio: ["Prio 1"] }, ytd);
   // (60k + 30k) / ((120k + 40k) * 9/12)
   assert.equal(Math.round(shareOfWallet(a, ytd)! * 1000) / 1000, 0.75);
-  assert.equal(shareOfWallet(totals(cube, { country: "Nowhere" }, ytd), ytd), null);
+  assert.equal(shareOfWallet(totals(cube, { country: ["Nowhere"] }, ytd), ytd), null);
 });
 
 test("the month in progress: year and month to date reach the last delivery, last year's same month pro rata", () => {
@@ -140,7 +151,7 @@ test("the month in progress: year and month to date reach the last delivery, las
   assert.match(proRataNote(c, ytdW)!, /October 2025 counted pro rata, 12 of 31 days/);
   assert.equal(proRataNote(c, presets(c)[2].win), null);
   // share of wallet over 9 months and 12 days
-  assert.equal(Math.round(shareOfWallet(totals(c, { prio: "Prio 1" }, ytdW), ytdW, c)! * 10000) / 10000,
+  assert.equal(Math.round(shareOfWallet(totals(c, { prio: ["Prio 1"] }, ytdW), ytdW, c)! * 10000) / 10000,
     Math.round((13_100 / (120_000 * ((9 + 12 / 31) / 12))) * 10000) / 10000);
 });
 

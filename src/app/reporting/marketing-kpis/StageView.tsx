@@ -103,7 +103,7 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
             </Box>
           )}
           <Breakdowns slug={s.slug} live={state.live?.value} />
-          {!measured.length && <Typography sx={{ fontSize: "0.88rem", color: FAINT }}>Nothing in this stage is measured yet - below is what each KPI needs.</Typography>}
+          {!measured.length && <Typography sx={{ fontSize: "0.88rem", color: FAINT }}>Nothing here is measured yet - below is what each KPI needs.</Typography>}
           <NotConnected list={missing} />
           <LiveNote state={state} />
         </>
@@ -112,5 +112,6 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   );
 }
 
-export const stageLine = (id: string, measured: number, missing: number, year: number) =>
-  `Stage ${id} · ${measured} of ${measured + missing} KPIs measured · ${year}`;
+// no stage number (SARCLA 17.10: "there are no stages"), and no count once all are measured
+export const stageLine = (_id: string, measured: number, missing: number, year: number) =>
+  missing ? `${measured} of ${measured + missing} KPIs measured · ${year}` : `${measured} KPIs · ${year}`;

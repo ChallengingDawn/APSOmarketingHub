@@ -72,9 +72,12 @@ test("fold and slice: share by segment, the year earlier, and the filters", () =
   assert.deepEqual(seg.get("APSOcore"), { all: 1000, web: 900, allPy: 800, webPy: 400 });
   assert.deepEqual(seg.get("APSOgrowth"), { all: 500, web: 500, allPy: 0, webPy: 0 });
   // a filter on another dimension narrows; the grouped dimension's own filter does not
-  assert.deepEqual([...onlineBy(o, { prio: "Prio 2" }, sep26, "segment").keys()], ["APSOgrowth"]);
-  assert.equal(onlineBy(o, { segment: "APSOcore" }, sep26, "segment").size, 2);
+  assert.deepEqual([...onlineBy(o, { prio: ["Prio 2"] }, sep26, "segment").keys()], ["APSOgrowth"]);
+  assert.equal(onlineBy(o, { segment: ["APSOcore"] }, sep26, "segment").size, 2);
   // a label the orders do not know gives nothing, not everything
-  assert.equal(onlineBy(o, { country: "Atlantis" }, sep26).size, 0);
+  assert.equal(onlineBy(o, { country: ["Atlantis"] }, sep26).size, 0);
   assert.equal(onlineShare(0, 0), null);
+  // several values: either passes
+  assert.deepEqual([...onlineBy(o, { prio: ["Prio 1", "Prio 2"] }, sep26, "segment").keys()].sort(), ["APSOcore", "APSOgrowth"]);
+  assert.equal(onlineBy(o, { prio: ["Prio 2", "Prio 9"] }, sep26).get("")!.all, 500);
 });

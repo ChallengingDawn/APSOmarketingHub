@@ -8,18 +8,13 @@
 import { useMemo } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
 import SwapVertIcon from "@mui/icons-material/SwapVert";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, glass } from "@/app/uc/report/ui";
 import { MONTH_NAMES, windowLabel, yearOfMonth, type Cube, type Win } from "@/lib/marketingKpis/cube";
-import type { MoveKind, Movements, MonthCount } from "@/lib/marketingKpis/moves";
+import { PRIO_RANK, segmentRank, type MoveKind, type Movements, type MonthCount } from "@/lib/marketingKpis/moves";
 import { useSlow } from "./data";
 
 export const useMovements = () => {
@@ -35,6 +30,26 @@ const KIND: Record<MoveKind, { name: string; up: string; down: string }> = {
 const int = (n: number) => Math.round(n).toLocaleString("en");
 const keyOf = (cube: Cube, k: number) => `${yearOfMonth(cube, k)}-${String((k % 12) + 1).padStart(2, "0")}`;
 const zero = (): MonthCount => ({ up: 0, down: 0, set: 0, upPerson: 0, downPerson: 0 });
+/** The from -> to moves of priority or segment in the given months, summed. */
+export function movesIn(m: Movements, cube: Cube, months: number[], kind: "prio" | "segment"): Record<string, number> {
+  const sum: Record<string, number> = {};
+  for (const k of months) for (const [t, n] of Object.entries(m.transitions[kind][keyOf(cube, k)] ?? {})) sum[t] = (sum[t] ?? 0) + n;
+  return sum;
+}
+/** Per value: how many moves arrived in it and how many left it - the nutshell's graph. */
+export function inOut(sum: Record<string, number>): Map<string, { in: number; out: number }> {
+  const out = new Map<string, { in: number; out: number }>();
+  const at = (l: string) => { let x = out.get(l); if (!x) { x = { in: 0, out: 0 }; out.set(l, x); } return x; };
+  for (const [t, n] of Object.entries(sum)) {
+    const [from, to] = t.split(" → ");
+    if (!from || !to) continue;
+    at(from).out += n;
+    at(to).in += n;
+  }
+  return out;
+}
+const rankOf = (kind: "prio" | "segment", l: string) => (kind === "prio" ? PRIO_RANK[l] ?? 9 : l === "ESO customers" ? 1 : segmentRank(l) ?? 9);
+
 const add = (a: MonthCount, b?: MonthCount) => { if (b) { a.up += b.up; a.down += b.down; a.set += b.set; a.upPerson += b.upPerson; a.downPerson += b.downPerson; } return a; };
 
 export function MovementsView({ cube, win, filtered }: { cube: Cube; win: Win; filtered?: boolean }) {
@@ -103,32 +118,11 @@ export function MovementsView({ cube, win, filtered }: { cube: Cube; win: Win; f
         })}
       </Box>
 
-      {/* which moves they were */}
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "repeat(2, minmax(0, 1fr))" } }}>
-        {(["prio", "segment"] as const).map((kind) => {
-          const sum: Record<string, number> = {};
-          for (const k of months) for (const [t, n] of Object.entries(m.transitions[kind][keyOf(cube, k)] ?? {})) sum[t] = (sum[t] ?? 0) + n;
-          const rows = Object.entries(sum).sort((a, b) => b[1] - a[1]).slice(0, 15);
-          const head = { fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE };
-          const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const };
-          return (
-            <Box key={kind} sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>{KIND[kind].name}: the moves, {w}</Typography>
-              {rows.length ? (
-                <Table size="small">
-                  <TableHead><TableRow>
-                    <TableCell sx={head}>From → to</TableCell><TableCell align="right" sx={head}>Moves</TableCell>
-                  </TableRow></TableHead>
-                  <TableBody>
-                    {rows.map(([t, n]) => (
-                      <TableRow key={t}><TableCell sx={body}>{t}</TableCell><TableCell align="right" sx={{ ...body, fontWeight: 700 }}>{int(n)}</TableCell></TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : <Typography sx={{ fontSize: "0.85rem", color: FAINT }}>No moves in these months.</Typography>}
-            </Box>
-          );
-        })}
+      {/* which moves they were, as a grid: from down the side, to across the top (SARCLA 17.10) */}
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "minmax(0, 2fr) minmax(0, 3fr)" }, alignItems: "start" }}>
+        {(["prio", "segment"] as const).map((kind) => (
+          <MoveMatrix key={kind} kind={kind} title={`${KIND[kind].name}: who moved where, ${w}`} sum={movesIn(m, cube, months, kind)} />
+        ))}
       </Box>
 
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
@@ -136,5 +130,82 @@ export function MovementsView({ cube, win, filtered }: { cube: Cube; win: Win; f
         Up: Prio 1 is the top priority; APSOcore (with ESO, DS and Growth Engine customers) &gt; APSOgrowth &gt; APSOprospect &gt; APSOmicro &gt; APSOlost; a larger potential.
       </Typography>
     </GlassCard>
+  );
+}
+
+/**
+ * The moves as a grid: where companies came from (rows) and went to (columns),
+ * both in rank order, so the cells above the diagonal are moves up (green) and
+ * the ones below are moves down (red); the deeper the colour, the more moves.
+ * Each row ends with how many left that value, the last row says how many arrived.
+ */
+/** The fifteen "ESO-Customer 08 … 26" values are one row and one column in the grid - they rank as APSOcore does. */
+const gridLabel = (kind: "prio" | "segment", l: string) => (kind === "segment" && /^ESO/i.test(l) ? "ESO customers" : l);
+
+function MoveMatrix({ kind, title, sum: raw }: { kind: "prio" | "segment"; title: string; sum: Record<string, number> }) {
+  const sum: Record<string, number> = {};
+  for (const [t, n] of Object.entries(raw)) {
+    const [from, to] = t.split(" → ");
+    if (!from || !to) continue;
+    const k = `${gridLabel(kind, from)} → ${gridLabel(kind, to)}`;
+    sum[k] = (sum[k] ?? 0) + n;
+  }
+  const pairs = Object.entries(sum).map(([t, n]) => { const [from, to] = t.split(" → "); return { from, to, n }; }).filter((x) => x.from && x.to && x.from !== x.to);
+  const labels = [...new Set(pairs.flatMap((x) => [x.from, x.to]))].sort((a, b) => rankOf(kind, a) - rankOf(kind, b) || a.localeCompare(b));
+  const cell = new Map(pairs.map((x) => [`${x.from}|${x.to}`, x.n]));
+  const max = Math.max(1, ...pairs.map((x) => x.n));
+  const io = inOut(sum);
+  const total = pairs.reduce((t, x) => t + x.n, 0);
+  const up = pairs.filter((x) => rankOf(kind, x.to) < rankOf(kind, x.from)).reduce((t, x) => t + x.n, 0);
+  const cols = `minmax(96px, 1.3fr) repeat(${labels.length}, minmax(52px, 1fr)) minmax(56px, .8fr)`;
+  const head = { fontSize: "0.7rem", fontWeight: 700, color: MUTED, lineHeight: 1.2, textAlign: "center" as const, alignSelf: "end", px: 0.25, pb: 0.5, overflowWrap: "break-word" as const };
+  const side = { fontSize: "0.76rem", fontWeight: 700, color: INK, lineHeight: 1.2, alignSelf: "center", pr: 1, overflowWrap: "break-word" as const };
+  const tot = { fontSize: "0.78rem", fontWeight: 700, color: MUTED, textAlign: "center" as const, alignSelf: "center", fontVariantNumeric: "tabular-nums" as const };
+  return (
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, flexWrap: "wrap", mb: 1.25 }}>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, flex: 1, minWidth: 200 }}>{title}</Typography>
+        {total > 0 && (
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+            <b style={{ color: GREEN }}>↑ {int(up)} up</b> · <b style={{ color: RED }}>↓ {int(total - up)} down</b>
+          </Typography>
+        )}
+      </Box>
+      {total === 0 ? <Typography sx={{ fontSize: "0.85rem", color: FAINT }}>No moves in these months.</Typography> : (
+        <Box sx={{ overflowX: "auto" }}>
+          <Box role="table" aria-label={title} sx={{ display: "grid", gridTemplateColumns: cols, gap: "4px", minWidth: 96 + labels.length * 56 + 60 }}>
+            <Box role="columnheader" sx={{ ...head, textAlign: "left", color: FAINT }}>from ↓ · to →</Box>
+            {labels.map((l) => <Box key={l} role="columnheader" sx={head}>{l}</Box>)}
+            <Box role="columnheader" sx={{ ...head, color: FAINT }}>Left</Box>
+            {labels.map((from) => (
+              <Box key={from} role="row" sx={{ display: "contents" }}>
+                <Box role="rowheader" sx={side}>{from}</Box>
+                {labels.map((to) => {
+                  if (from === to) return <Box key={to} sx={{ borderRadius: "8px", bgcolor: "rgba(21,34,58,.035)" }} />;
+                  const n = cell.get(`${from}|${to}`) ?? 0;
+                  const isUp = rankOf(kind, to) < rankOf(kind, from);
+                  const a = n ? 0.1 + 0.75 * Math.sqrt(n / max) : 0;
+                  const rgb = isUp ? "46,125,50" : "198,40,40";
+                  return (
+                    <Box key={to} role="cell" title={n ? `${from} → ${to}: ${int(n)} ${isUp ? "up" : "down"}` : `${from} → ${to}: none`}
+                      sx={{
+                        borderRadius: "8px", minHeight: 38, display: "grid", placeItems: "center",
+                        bgcolor: n ? `rgba(${rgb},${a.toFixed(3)})` : "rgba(255,255,255,.7)", border: n ? "none" : "1px dashed rgba(21,34,58,.08)",
+                        fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: a > 0.5 ? "#fff" : n ? INK : FAINT,
+                      }}>
+                      {n ? int(n) : ""}
+                    </Box>
+                  );
+                })}
+                <Box role="cell" sx={tot}>{int(io.get(from)?.out ?? 0)}</Box>
+              </Box>
+            ))}
+            <Box role="rowheader" sx={{ ...side, color: FAINT, fontSize: "0.7rem" }}>Arrived</Box>
+            {labels.map((l) => <Box key={l} role="cell" sx={tot}>{int(io.get(l)?.in ?? 0)}</Box>)}
+            <Box />
+          </Box>
+        </Box>
+      )}
+    </Box>
   );
 }

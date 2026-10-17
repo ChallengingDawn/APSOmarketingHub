@@ -103,7 +103,7 @@ export default function MonthlyInputs() {
   const canEdit = !!state?.canEdit;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Monthly inputs" subtitle="The marketing KPIs no connector reads yet - typed once a month, then everywhere in Marketing KPIs" />
+      <PageHeader title="Monthly inputs" subtitle="The Digital Growth KPIs no connector reads yet - typed once a month, then everywhere in Marketing KPIs" />
       {!inputs && <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>{!state?.error && <CircularProgress size={18} />}<Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>{state?.error ?? "Loading…"}</Typography></Box></GlassCard>}
       {inputs && (
         <>

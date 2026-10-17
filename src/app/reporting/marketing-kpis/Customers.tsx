@@ -11,7 +11,7 @@
 // SARCLA, on the version before: "way too confusing"; "the table should be
 // wider so we can see the data clearly"; "no abbreviation".
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keyframes } from "@mui/system";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -58,13 +58,13 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContai
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import {
-  DIMS, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
+  DIMS, chosenDims, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
   upToDate, windowLabel, yearOfMonth, type Agg, type Cube, type Dim, type Filters, type Row, type SortKey, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { RETRY_MS, RETRIES, hubJson, stageHref, useSlow } from "./data";
+import { RETRY_MS, RETRIES, everyWhileSeen, hubJson, stageHref, useSlow } from "./data";
 import { onlineBy, onlineShare, type OnlineAgg, type OnlineCube } from "@/lib/marketingKpis/onlineShare";
-import { MovementsView } from "./Movements";
+import { MovementsView, inOut, movesIn, useMovements } from "./Movements";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -75,14 +75,16 @@ export function useCustomersCube(): { cube: Cube | null; computing: boolean; pro
     let timer: ReturnType<typeof setTimeout> | undefined;
     // a deployment's error page is a moment, not an answer: ask again, keep what is shown
     const load = (tries = 0) => hubJson<{ ok?: boolean; cube?: SlowState<Cube>; error?: string }>("/api/reporting/marketing-kpis/customers")
-      .then((j) => { if (!alive) return; setSt(j); if (j?.cube?.computing) timer = setTimeout(load, RETRY_MS); })
+      .then((j) => { if (!alive) return; setSt(j); timer = j?.cube?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined; })
       .catch((e) => {
         if (!alive) return;
         if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
         setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
       });
     load();
-    return () => { alive = false; if (timer) clearTimeout(timer); };
+    // an open page moves on by itself: a newer ERP delivery shows without a reload (SARCLA 17.10)
+    const stop = everyWhileSeen(() => { if (!timer) load(); });
+    return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
   }, []);
   const cube = st?.cube?.value ?? null;
   return { cube, computing: !!st?.cube?.computing || st === null, progress: st?.cube?.progress, error: st?.error ?? st?.cube?.error, computedAt: st?.cube?.computedAt ?? cube?.generatedAt };
@@ -151,6 +153,51 @@ function Period({ cube, win, onChange }: { cube: Cube; win: Win; onChange: (w: W
 
 /* ── the four figures ─────────────────────────────────────────────────── */
 
+/** Unknown industries are not an industry: left out of "the top APIC". */
+const NO_APIC = new Set(["Not set", "NO INFORMATION FOUND"]);
+/**
+ * The industry that brings the most revenue in the window, its change and its
+ * share, and the two after it (SARCLA 17.10: "instead of Companies in HubSpot,
+ * use APIC - the top APIC").
+ */
+function TopApic({ cube, a, win }: { cube: Cube; a: Agg; win: Win }) {
+  const top = sortRows(breakdown(cube, "apic", {}, win), "rev", "apic").filter((r) => !NO_APIC.has(r.label) && r.rev > 0);
+  const first = top[0];
+  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const c = first ? change(first.rev, first.revPy) : null;
+  return (
+    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 0.9, minWidth: 0, overflow: "hidden" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+        <Badge icon={<FactoryOutlinedIcon />} tint="purple" size={32} />
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED }}>Top APIC, {w}</Typography>
+      </Box>
+      {first ? (
+        <>
+          <Typography sx={{ fontSize: "1.08rem", fontWeight: 700, color: INK, lineHeight: 1.25 }}>{first.label}</Typography>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.8, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "1.45rem", fontWeight: 700, color: INK, lineHeight: 1.1, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{eur(first.rev)}</Typography>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: c == null || Math.abs(c) < 0.0005 ? MUTED : c > 0 ? GREEN : RED }}>{first.revPy ? signedPct(c) : "new"}</Typography>
+          </Box>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.4 }}>
+            {a.rev > 0 ? `${pct(first.rev / a.rev)} of all revenue · ` : ""}{int(first.bought)} companies bought · {pw}: {eur(first.revPy)}
+          </Typography>
+          {top.length > 1 && (
+            <Box sx={{ mt: "auto", pt: 0.75, borderTop: "1px solid rgba(21,34,58,.07)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.35 }}>
+              {top.slice(1, 3).map((r, i) => (
+                <Box key={r.label} sx={{ display: "flex", gap: 1, fontSize: "0.76rem", color: MUTED }}>
+                  <Box component="span" sx={{ fontWeight: 700, color: FAINT }}>{i + 2}.</Box>
+                  <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.label}>{r.label}</Box>
+                  <Box component="span" sx={{ fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{eur(r.rev)}</Box>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </>
+      ) : <Typography sx={{ fontSize: "0.9rem", color: FAINT }}>No APIC with revenue in these months.</Typography>}
+    </Box>
+  );
+}
+
 function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg; win: Win; readIso?: string }) {
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const upTo = `Up to ${upToDate(cube, win)}`;
@@ -158,8 +205,7 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
   return (
     <Grid container spacing={1.5}>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-        <KpiTile icon={<ApartmentOutlinedIcon />} tint="purple" label="Companies in HubSpot" value={int(a.n)}
-          note={`${a.n !== all.n ? `${pct(a.n / all.n)} of all ${int(all.n)} · ` : ""}as of ${readAt(readIso)}`} />
+        <TopApic cube={cube} a={a} win={win} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
         <KpiTile icon={<ShoppingCartOutlinedIcon />} tint="green" label={`Companies that bought, ${w}`} value={int(a.bought)}
@@ -181,7 +227,7 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
 
 function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false }: {
   title: string; rows: Row[]; cur: (r: Row) => number; prev: (r: Row) => number; curLabel: string; prevLabel: string;
-  fmt: (n: number) => string; selected?: string; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
+  fmt: (n: number) => string; selected?: string[]; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
   /** priority and potential keep their own order; every other chart ranks by what it shows */
   fixedOrder?: boolean;
 }) {
@@ -203,7 +249,7 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-            Click a bar to show only that one{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""}
+            Click bars to show only them{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""}
           </Typography>
         </Box>
         {pages > 1 && (
@@ -213,7 +259,7 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
           </Box>
         )}
         {onFilter && (
-          <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...nav, color: selected ? TINT.blue.fg : MUTED, bgcolor: selected ? TINT.blue.bg : "transparent" }}>
+          <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...nav, color: selected?.length ? TINT.blue.fg : MUTED, bgcolor: selected?.length ? TINT.blue.bg : "transparent" }}>
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         )}
@@ -228,11 +274,11 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
             contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
           <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
           <Bar dataKey="cur" name={curLabel} fill={THIS} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
-            {data.map((d) => <Cell key={d.label} fill={THIS} fillOpacity={selected && selected !== d.label ? 0.3 : 1} />)}
+            {data.map((d) => <Cell key={d.label} fill={THIS} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
             <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
           </Bar>
           <Bar dataKey="prev" name={prevLabel} fill={BEFORE} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
-            {data.map((d) => <Cell key={d.label} fill={BEFORE} fillOpacity={selected && selected !== d.label ? 0.3 : 1} />)}
+            {data.map((d) => <Cell key={d.label} fill={BEFORE} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
             <LabelList dataKey="prev" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 11.5, fill: MUTED }} />
           </Bar>
         </BarChart>
@@ -242,6 +288,11 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
 }
 
 const byBought = (r: Row) => r.bought, byRev = (r: Row) => r.rev, byNew = (r: Row) => r.newC;
+/**
+ * Our focus markets (SARCLA 17.10: the online share "should only focus on our focus markets"):
+ * the eight countries that make 97% of the revenue. Only the online share chart by country keeps to them.
+ */
+export const FOCUS_MARKETS = ["Switzerland", "Germany", "Italy", "France", "Austria", "Netherlands", "Liechtenstein", "Poland"];
 // a row without orders a year earlier draws no grey bar, rather than a false 0%
 const byOnline = (r: Row) => r.online ?? 0, byOnlinePy = (r: Row) => r.onlinePy ?? NaN;
 
@@ -285,7 +336,7 @@ function OnlineWaiting({ progress, error }: { progress?: string; error?: string 
 type Col = { key: SortKey; head: string; tip: string; cell: (r: Row, sum: number) => React.ReactNode };
 
 function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false, onlineTotal }: {
-  cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string; onPick: (label: string) => void; withNew?: boolean;
+  cube: Cube; dim: Dim; rows: Row[]; win: Win; selected?: string[]; onPick: (label: string) => void; withNew?: boolean;
   /** the online share of all the rows' orders; the column shows once the online read is in */
   onlineTotal?: OnlineAgg | null;
 }) {
@@ -362,10 +413,10 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false, onl
           </TableHead>
           <TableBody>
             {shown.map((r) => {
-              const on = selected === r.label;
+              const on = !!selected?.includes(r.label);
               return (
                 <TableRow key={r.label} hover onClick={() => onPick(r.label)} selected={on} aria-selected={on}
-                  sx={{ cursor: "pointer", opacity: selected && !on ? 0.5 : 1, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: TINT[DIM[dim].tint].bg } }}>
+                  sx={{ cursor: "pointer", opacity: selected?.length && !on ? 0.5 : 1, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: TINT[DIM[dim].tint].bg } }}>
                   <TableCell sx={{ ...body, fontWeight: 600, whiteSpace: "normal", maxWidth: 150 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>{on && <CheckIcon sx={{ fontSize: 16, color: TINT[DIM[dim].tint].fg }} />}{r.label}</Box>
                   </TableCell>
@@ -407,15 +458,26 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 export function CustomersExplorer() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const params = useSearchParams();
-  const [filters, setFilters] = useState<Filters>(() => Object.fromEntries(DIMS.flatMap((d) => (params.get(d) ? [[d, params.get(d)!]] : []))));
+  // several values per breakdown (SARCLA 17.10: "multi-selection, for example 2 sales reps"), each its own ?owner=… in the address
+  const [filters, setFilters] = useState<Filters>(() => Object.fromEntries(DIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))));
   // the breakdowns, and after them the movements (KPI C08)
   const [view, setView] = useState<Dim | "moves">(() => ([...ORDER, "moves"] as string[]).includes(params.get("view") ?? "") ? (params.get("view") as Dim | "moves") : "prio");
   const dimView: Dim = view === "moves" ? "prio" : view;
   const [win, setWin] = useState<Win | null>(null);
+  const shownDefault = useRef<Win | null>(null);
   useEffect(() => {
-    if (!cube || win) return;
-    const s = fromYm(cube, params.get("from")), e = fromYm(cube, params.get("to"));
-    setWin(s != null && e != null ? clampWindow(cube, { start: s, end: e }) : defaultWindow(cube));
+    if (!cube) return;
+    const def = defaultWindow(cube);
+    if (!win) {
+      const s = fromYm(cube, params.get("from")), e = fromYm(cube, params.get("to"));
+      setWin(s != null && e != null ? clampWindow(cube, { start: s, end: e }) : def);
+      shownDefault.current = def;
+      return;
+    }
+    // a newer delivery moved "year to date" on (into a new month): the page follows, unless a window was chosen
+    const was = shownDefault.current;
+    if (was && (was.start !== def.start || was.end !== def.end) && win.start === was.start && win.end === was.end) setWin(def);
+    shownDefault.current = def;
   }, [cube, win, params]);
 
   // the view lives in the address: a drill-down can be sent on
@@ -423,15 +485,19 @@ export function CustomersExplorer() {
     if (!cube || !win) return;
     const q = new URLSearchParams();
     if (view !== "prio") q.set("view", view);
-    for (const d of DIMS) if (filters[d]) q.set(d, filters[d]!);
+    for (const d of DIMS) for (const v of filters[d] ?? []) q.append(d, v);
     const def = defaultWindow(cube);
     if (win.start !== def.start || win.end !== def.end) { q.set("from", ym(cube, win.start)); q.set("to", ym(cube, win.end)); }
     const s = q.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
   }, [filters, win, view, cube]);
 
-  const toggle = (d: Dim, label: string) => setFilters((f) => { const n = { ...f }; if (n[d] === label) delete n[d]; else n[d] = label; return n; });
-  const clear = (d: Dim) => setFilters((f) => { const n = { ...f }; delete n[d]; return n; });
+  const toggle = (d: Dim, label: string) => setFilters((f) => {
+    const cur = f[d] ?? [], next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
+    const n = { ...f };
+    if (next.length) n[d] = next; else delete n[d];
+    return n;
+  });
   const a = useMemo(() => (cube && win ? totals(cube, filters, win) : null), [cube, filters, win]);
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
   const rows = useMemo(() => (cube && win ? breakdown(cube, dimView, filters, win) : []), [cube, dimView, filters, win]);
@@ -457,7 +523,8 @@ export function CustomersExplorer() {
   const fromChart = (dim: Dim) => (label: string) => { toggle(dim, label); openOn(dim); };
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const pro = proRataNote(cube, win);
-  const active = DIMS.filter((x) => filters[x]);
+  const active = chosenDims(filters);
+  const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // each tab shows its own breakdown only (SARCLA 14.10: "information not belonging to the table");
   // customer type and APIC also count their new customers
   const withNew = view === "type" || view === "apic";
@@ -474,8 +541,8 @@ export function CustomersExplorer() {
           </Typography>
           {active.length > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {active.map((x) => (
-                <Chip key={x} size="small" label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => clear(x)}
+              {chosen.map(([x, v]) => (
+                <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
                   sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
               ))}
               <Button size="small" onClick={() => setFilters({})} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
@@ -492,13 +559,13 @@ export function CustomersExplorer() {
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
           <ReportTabs name="customers" tab={view} onSelect={setView}
-            tabs={[...ORDER.map((x) => ({ id: x as Dim | "moves", label: DIM[x].name, count: filters[x] ? "1" : null })), { id: "moves" as const, label: "Movements", count: null }]} />
+            tabs={[...ORDER.map((x) => ({ id: x as Dim | "moves", label: DIM[x].name, count: filters[x]?.length ? String(filters[x]!.length) : null })), { id: "moves" as const, label: "Movements", count: null }]} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Button onClick={() => (panel ? setPanel(false) : view === "moves" ? setPanel(true) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
-          Filters{active.length ? ` · ${active.length}` : ""}
+          Filters{chosen.length ? ` · ${chosen.length}` : ""}
         </Button>
       </Box>
 
@@ -522,7 +589,8 @@ export function CustomersExplorer() {
           {/* the odd chart out takes the whole row */}
           <Box sx={{ minWidth: 0, gridColumn: { lg: withNew ? "auto" : "1 / -1" } }}>
           {onlineGroups ? (
-            <DimChart key={`o-${dimView}`} title={`Online share of order value, by ${d.lower}`} rows={withOnline(chartRows, onlineGroups).filter((r) => r.online != null)}
+            <DimChart key={`o-${dimView}`} title={dimView === "country" ? "Online share of order value, our focus markets" : `Online share of order value, by ${d.lower}`}
+              rows={withOnline(chartRows, onlineGroups).filter((r) => r.online != null && (dimView !== "country" || FOCUS_MARKETS.includes(r.label)))}
               cur={byOnline} prev={byOnlinePy} pageSize={12} fixedOrder={fixedView}
               curLabel={w} prevLabel={pw} fmt={pct} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
           ) : <OnlineWaiting progress={onl.progress} error={onl.error} />}
@@ -594,7 +662,7 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
 function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
-  const active = DIMS.filter((x) => filters[x]);
+  const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   const [shut, setShut] = useState<Partial<Record<Dim | "period", boolean>>>({});
   useEffect(() => {
     if (!open) return;
@@ -605,7 +673,7 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
   // a breakdown opens by itself when it holds a choice; the first two are open to begin with
   const isOpen = (k: Dim | "period") => {
     if (shut[k] !== undefined) return !shut[k];
-    return k === "period" || k === "prio" || k === "segment" || !!filters[k];
+    return k === "period" || k === "prio" || k === "segment" || !!filters[k]?.length;
   };
   const flip = (k: Dim | "period") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
   // opened from a chart: that breakdown unfolds, comes into view and lights up for a moment
@@ -640,18 +708,18 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
         <Badge icon={<TuneIcon />} tint="blue" size={34} />
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>Filters</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{active.length ? `${active.length} chosen - click again to let go` : "Click a value to show only it"}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}</Typography>
         </Box>
-        {active.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 700 }}>Clear all</Button>}
+        {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 700 }}>Clear all</Button>}
         <IconButton aria-label="Close the filters" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}>
           <CloseIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Box>
 
-      {active.length > 0 && (
+      {chosen.length > 0 && (
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", px: 2.25, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "#fbfcfe" }}>
-          {active.map((x) => (
-            <Chip key={x} size="small" label={<span><b>{DIM[x].name}:</b> {filters[x]}</span>} onDelete={() => toggle(x, filters[x]!)}
+          {chosen.map(([x, v]) => (
+            <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
               sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
           ))}
         </Box>
@@ -666,7 +734,7 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
           </Typography>
         </Section>
         {ORDER.map((dim, i) => (
-          <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={filters[dim] ?? "All"} chosen={!!filters[dim]}>
+          <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
             <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
           </Section>
         ))}
@@ -712,11 +780,11 @@ function Facet({ cube, dim, win, filters, onPick }: { cube: Cube; dim: Dim; win:
     const r = breakdown(cube, dim, filters, win);
     return dim === "prio" || dim === "potential" ? r : sortRows(r, "rev", dim);
   }, [cube, dim, filters, win]);
-  const sel = filters[dim];
+  const sel = filters[dim] ?? [];
   const found = q ? rows.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : rows;
   const LIMIT = 8;
   // the chosen value always shows, even when it is not among the first ones
-  const shown = all || q ? found : [...found.slice(0, LIMIT), ...found.slice(LIMIT).filter((r) => r.label === sel)];
+  const shown = all || q ? found : [...found.slice(0, LIMIT), ...found.slice(LIMIT).filter((r) => sel.includes(r.label))];
   const max = Math.max(1, ...rows.map((r) => r.bought));
   const t = TINT[DIM[dim].tint];
   return (
@@ -732,13 +800,13 @@ function Facet({ cube, dim, win, filters, onPick }: { cube: Cube; dim: Dim; win:
         <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Bought</Typography>
       </Box>
       {shown.map((r) => {
-        const on = sel === r.label;
+        const on = sel.includes(r.label);
         return (
-          <Box key={r.label} component="button" type="button" onClick={() => onPick(r.label)} aria-pressed={on} title={on ? "Click again to let it go" : `Show only ${r.label}`}
+          <Box key={r.label} component="button" type="button" onClick={() => onPick(r.label)} aria-pressed={on} title={on ? "Click again to let it go" : sel.length ? `Add ${r.label}` : `Show only ${r.label}`}
             sx={{
               display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto", alignItems: "center", columnGap: 1, width: "100%", border: 0, font: "inherit", textAlign: "left", cursor: "pointer",
               px: 1, py: 0.6, borderRadius: "9px", bgcolor: on ? t.bg : "#fff", color: INK, boxShadow: on ? `inset 0 0 0 1.5px ${t.fg}` : "inset 0 0 0 1px rgba(21,34,58,.06)",
-              opacity: sel && !on ? 0.7 : 1, "&:hover": { boxShadow: `inset 0 0 0 1.5px ${t.fg}`, opacity: 1 }, "&:focus-visible": { outline: `2px solid ${t.fg}`, outlineOffset: 1 },
+              opacity: sel.length && !on ? 0.7 : 1, "&:hover": { boxShadow: `inset 0 0 0 1.5px ${t.fg}`, opacity: 1 }, "&:focus-visible": { outline: `2px solid ${t.fg}`, outlineOffset: 1 },
             }}>
             <Box sx={{ width: 18, height: 18, borderRadius: "5px", display: "grid", placeItems: "center", bgcolor: on ? t.fg : "#fff", border: on ? "none" : "1.5px solid rgba(21,34,58,.28)" }}>
               {on && <CheckIcon sx={{ fontSize: 14, color: "#fff" }} />}
@@ -768,12 +836,7 @@ export function CustomersSummary() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const win = useMemo(() => (cube ? defaultWindow(cube) : null), [cube]);
   const a = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
-  const onl = useOnline();
   if (!cube || !win || !a) return <Waiting computing={computing} progress={progress} error={error} />;
-  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
-  const href = (d: Dim, label: string) => `${stageHref("customers")}?${new URLSearchParams({ view: d, [d]: label }).toString()}`;
-  const head = { fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, whiteSpace: "nowrap" as const };
-  const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const };
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
       {/* a newer ERP delivery is being read: say so, rather than show the old date as if current (SARCLA 16.10) */}
@@ -786,35 +849,112 @@ export function CustomersSummary() {
         </Box>
       )}
       <Figures cube={cube} a={a} all={a} win={win} readIso={computedAt} />
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "repeat(2, minmax(0, 1fr))" } }}>
-        {(["prio", "segment"] as Dim[]).map((d) => (
-          <Box key={d} sx={{ ...glass, borderRadius: "20px", p: 2, minWidth: 0 }}>
-            <CardTitle icon={DIM[d].icon} tint={DIM[d].tint} title={`By ${DIM[d].lower}`} note={`${w} against ${pw} · click a row to open it`} />
-            <Box sx={{ overflowX: "auto" }}>
-              <Table size="small">
-                <TableHead><TableRow>
-                  {[DIM[d].name, "Companies", `Bought in ${w}`, `Revenue ${w}`, "Change in %", "Online share of orders"].map((h, i) => <TableCell key={h} align={i ? "right" : "left"} sx={head}>{h}</TableCell>)}
-                </TableRow></TableHead>
-                <TableBody>
-                  {withOnline(breakdown(cube, d, {}, win), onl.value ? onlineBy(onl.value, {}, win, d) : null).map((r) => {
-                    const c = change(r.rev, r.revPy);
-                    return (
-                      <TableRow key={r.label} hover component={Link} href={href(d, r.label)} sx={{ textDecoration: "none", cursor: "pointer" }}>
-                        <TableCell sx={{ ...body, fontWeight: 600 }}>{r.label}</TableCell>
-                        <TableCell align="right" sx={body}>{int(r.n)}</TableCell>
-                        <TableCell align="right" sx={body}>{int(r.bought)}</TableCell>
-                        <TableCell align="right" sx={body}>{eur(r.rev)}</TableCell>
-                        <TableCell align="right" sx={{ ...body, fontWeight: 700, color: c == null ? FAINT : c > 0 ? GREEN : RED }}>{r.revPy ? signedPct(c) : "—"}</TableCell>
-                        <TableCell align="right" sx={body}>{onl.value ? pct(r.online ?? null) : "…"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </Box>
-          </Box>
-        ))}
-      </Box>
+      <CustomersGraph cube={cube} win={win} />
     </Box>
+  );
+}
+
+/**
+ * Who our customers are, in one graph (SARCLA 17.10: "this should be only one
+ * graph, with the movement changes in both"): by sales priority or by APSO
+ * customer - one switch - each row its revenue against a year earlier, the
+ * companies that bought, the online share of their orders, and how many
+ * companies moved into it and out of it in the same months. A row opens the
+ * customers page on that value.
+ */
+function CustomersGraph({ cube, win }: { cube: Cube; win: Win }) {
+  const [dim, setDim] = useState<"prio" | "segment">("prio");
+  const onl = useOnline();
+  const { m: moves } = useMovements();
+  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const rows = useMemo(() => {
+    const r = breakdown(cube, dim, {}, win);
+    return withOnline(dim === "prio" ? r : sortRows(r, "rev", dim), onl.value ? onlineBy(onl.value, {}, win, dim) : null);
+  }, [cube, dim, win, onl.value]);
+  const months = useMemo(() => Array.from({ length: win.end - win.start + 1 }, (_, i) => win.start + i), [win]);
+  const io = useMemo(() => (moves ? inOut(movesIn(moves, cube, months, dim)) : null), [moves, cube, months, dim]);
+  const maxRev = Math.max(1, ...rows.map((r) => Math.max(r.rev, r.revPy)));
+  const maxMove = Math.max(1, ...[...(io?.values() ?? [])].flatMap((x) => [x.in, x.out]));
+  const href = (label: string) => `${stageHref("customers")}?${new URLSearchParams({ view: dim, [dim]: label }).toString()}`;
+  const cols = "minmax(130px, 1.1fr) minmax(260px, 2.6fr) minmax(124px, .9fr) minmax(84px, .7fr) minmax(210px, 1.7fr)";
+  const head = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.04em", lineHeight: 1.3 };
+  const D = DIM[dim];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+        <Box sx={{ flex: 1, minWidth: 220 }}>
+          <CardTitle icon={D.icon} tint={D.tint} title={`Our customers by ${D.lower}`} note={`${w} against ${pw} · click a row to open it`} />
+        </Box>
+        <Box role="tablist" aria-label="By" sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "12px", bgcolor: "rgba(21,34,58,.05)" }}>
+          {(["prio", "segment"] as const).map((x) => (
+            <Box key={x} component="button" type="button" role="tab" aria-selected={dim === x} onClick={() => setDim(x)}
+              sx={{ border: 0, font: "inherit", cursor: "pointer", px: 1.5, py: 0.7, borderRadius: "9px", fontSize: "0.84rem", fontWeight: 700,
+                bgcolor: dim === x ? "#fff" : "transparent", color: dim === x ? INK : MUTED, boxShadow: dim === x ? "0 1px 3px rgba(21,34,58,.12)" : "none" }}>
+              {DIM[x].name}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      <Box sx={{ overflowX: "auto" }}>
+        <Box sx={{ minWidth: 820, display: "grid", gridTemplateColumns: cols, columnGap: 2, alignItems: "center" }}>
+          <Box sx={head}>{D.name}</Box>
+          <Box sx={head}>Revenue {w} <span style={{ textTransform: "none", fontWeight: 600 }}>(grey: {pw})</span></Box>
+          <Box sx={{ ...head, textAlign: "right" }}>Bought</Box>
+          <Box sx={{ ...head, textAlign: "right" }}>Online share</Box>
+          <Box sx={{ ...head, textAlign: "center" }}>Moved out · moved in</Box>
+          {rows.map((r) => {
+            const c = change(r.rev, r.revPy);
+            const mv = io?.get(r.label);
+            return (
+              <Box key={r.label} component={Link} href={href(r.label)} sx={{
+                display: "contents", color: INK, textDecoration: "none",
+                "&:hover > *": { bgcolor: "rgba(21,34,58,.035)" },
+              }}>
+                <Box sx={{ py: 1.1, pl: 1, borderRadius: "10px 0 0 10px", fontSize: "0.88rem", fontWeight: 700 }}>{r.label}</Box>
+                <Box sx={{ py: 1.1, display: "grid", gridTemplateColumns: "minmax(0, 1fr) 128px", columnGap: 1.25, alignItems: "center" }}>
+                  <Box sx={{ display: "grid", gap: 0.4 }}>
+                    <Box sx={{ height: 12, borderRadius: 99, bgcolor: THIS, width: `${(100 * Math.max(0, r.rev)) / maxRev}%`, minWidth: r.rev > 0 ? 3 : 0 }} />
+                    <Box sx={{ height: 5, borderRadius: 99, bgcolor: BEFORE, width: `${(100 * Math.max(0, r.revPy)) / maxRev}%`, minWidth: r.revPy > 0 ? 3 : 0 }} />
+                  </Box>
+                  <Box sx={{ textAlign: "right", lineHeight: 1.2 }}>
+                    <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(r.rev)}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, whiteSpace: "nowrap", color: c == null || Math.abs(c) < 0.0005 ? FAINT : c > 0 ? GREEN : RED }}>
+                      {r.revPy ? signedPct(c) : r.rev > 0 ? "new" : ""}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ py: 1.1, textAlign: "right", fontSize: "0.84rem", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                  <b>{int(r.bought)}</b><Box component="span" sx={{ color: FAINT, fontSize: "0.76rem" }}> of {int(r.n)}</Box>
+                </Box>
+                <Box sx={{ py: 1.1, textAlign: "right", fontSize: "0.84rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: onl.value ? INK : FAINT }}>
+                  {onl.value ? pct(r.online ?? null) : "…"}
+                </Box>
+                {/* moved out to the left in red, moved in to the right in green */}
+                <Box sx={{ py: 1.1, pr: 1, borderRadius: "0 10px 10px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr) 2px minmax(0, 1fr)", alignItems: "center", columnGap: 0.75 }}>
+                  {io ? (
+                    <>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.6 }}>
+                        <Typography component="span" sx={{ fontSize: "0.76rem", fontWeight: 700, color: mv?.out ? RED : FAINT, fontVariantNumeric: "tabular-nums" }}>{mv?.out ? `−${int(mv.out)}` : "0"}</Typography>
+                        <Box sx={{ height: 10, borderRadius: "99px 0 0 99px", bgcolor: RED, opacity: 0.8, width: `${(100 * (mv?.out ?? 0)) / maxMove}%`, maxWidth: "62%" }} />
+                      </Box>
+                      <Box sx={{ height: 18, bgcolor: "rgba(21,34,58,.18)" }} />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                        <Box sx={{ height: 10, borderRadius: "0 99px 99px 0", bgcolor: GREEN, opacity: 0.85, width: `${(100 * (mv?.in ?? 0)) / maxMove}%`, maxWidth: "62%" }} />
+                        <Typography component="span" sx={{ fontSize: "0.76rem", fontWeight: 700, color: mv?.in ? GREEN : FAINT, fontVariantNumeric: "tabular-nums" }}>{mv?.in ? `+${int(mv.in)}` : "0"}</Typography>
+                      </Box>
+                    </>
+                  ) : <Typography sx={{ gridColumn: "1 / -1", textAlign: "center", fontSize: "0.76rem", color: FAINT }}>…</Typography>}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+        Bought = companies with invoiced revenue in the months, of all in that {D.lower}. Online share = of their orders&apos; net value, the part through the shop.
+        Moves = companies whose {D.lower} changed in these months, into this one and out of it{moves ? "" : " - reading the history"}.
+      </Typography>
+    </GlassCard>
   );
 }

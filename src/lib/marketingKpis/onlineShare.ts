@@ -108,18 +108,16 @@ export const onlineShare = (all: number, web: number) => (all > 0 ? web / all : 
  * cube: 0 = January of the year before last.
  */
 export function onlineBy(o: OnlineCube, filters: Filters, win: Win, groupBy?: Dim): Map<string, OnlineAgg> {
-  const f: [number, number][] = [];
-  let none = false;
+  const f: [number, Set<number>][] = [];
   DIMS.forEach((d, i) => {
-    const v = filters[d];
-    if (v == null || d === groupBy) return;
-    const j = o.labels[d].indexOf(v);
-    if (j < 0) none = true; else f.push([i, j]);
+    const vs = filters[d];
+    if (vs?.length && d !== groupBy) f.push([i, new Set(vs.map((v) => o.labels[d].indexOf(v)).filter((x) => x >= 0))]);
   });
   const out = new Map<string, OnlineAgg>();
-  if (none) return out;
+  // a filter whose values the orders do not know gives nothing, not everything
+  if (f.some(([, vs]) => vs.size === 0)) return out;
   const gi = groupBy ? DIMS.indexOf(groupBy) : -1;
-  const ok = o.cells.map((c) => f.every(([i, v]) => c[i] === v));
+  const ok = o.cells.map((c) => f.every(([i, vs]) => vs.has(c[i])));
   const { start, end } = win, ps = start - 12, pe = end - 12;
   for (const r of o.value) {
     if (!ok[r[0]]) continue;

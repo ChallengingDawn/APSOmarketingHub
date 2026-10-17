@@ -29,17 +29,17 @@ export default function AdvancedReporting() {
 
       {/* The name alone (SARCLA 16.10: the line "Every report in the hub, by team." goes). */}
       <Typography component="h1" sx={{
-        mt: { xs: 2, md: 2.5 },
+        mt: { xs: 2, md: 3 },
         fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-        fontSize: { xs: "1.3rem", md: "1.45rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: "28px",
+        fontSize: { xs: "1.45rem", md: "1.75rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: { xs: "30px", md: "34px" },
       }}>Advanced reporting</Typography>
 
-      {/* Small tiles, all the same size (SARCLA 16.10): as many as fit across
-          at 240 px or more - five on a wide screen - and every row as tall as the
-          tallest. On a phone, two across. */}
+      {/* Tiles all the same size, every row as tall as the tallest. SARCLA 17.10:
+          "bigger the tiles, it's too small now" - three across from a laptop up (the
+          nine categories make a square), two on a tablet, one on a phone. */}
       <Box sx={{
-        display: "grid", gap: 1.5, alignItems: "stretch", mt: { xs: 1.5, md: 1.75 },
-        gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(auto-fill, minmax(240px, 1fr))" },
+        display: "grid", gap: { xs: 1.5, md: 2 }, alignItems: "stretch", mt: { xs: 1.75, md: 2.25 },
+        gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" },
         gridAutoRows: "1fr",
       }}>
         {REPORT_CATEGORIES.map((c, i) => (

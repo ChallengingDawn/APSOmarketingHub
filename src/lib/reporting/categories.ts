@@ -49,7 +49,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       // alone (SARCLA 12.10). A click on the report opens "Who are our
       // customers" (SARCLA 13.10: "this should be the initial page").
       {
-        name: "Marketing KPIs", href: "/reporting/marketing-kpis/customers", note: "Our customers, then every marketing KPI by stage", icon: "bar",
+        // SARCLA 17.10: "Marketing KPIs is Digital Growth KPIs" - the name only; the addresses stay
+        name: "Digital Growth KPIs", href: "/reporting/marketing-kpis/customers", note: "Our customers, then every marketing KPI by stage", icon: "bar",
         overview: "In a nutshell", overviewHref: "/reporting/marketing-kpis",
         children: [
           ...STAGES.map((s) => ({ name: s.name.replace(/\s*\(.*\)\s*$/, ""), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
