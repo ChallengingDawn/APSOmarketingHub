@@ -12,7 +12,7 @@ const imageSource = z.string().max(8 * 1024 * 1024).refine(
 
 export const designNodeSchema = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(["text", "rect", "image", "ellipse", "arrow", "scrim"]),
+  kind: z.enum(["text", "rect", "image", "ellipse", "arrow", "scrim", "table", "chart"]),
   x: number.min(-100000).max(100000), y: number.min(-100000).max(100000),
   fill: color,
   text: z.string().max(200000).optional(),
@@ -37,6 +37,12 @@ export const designNodeSchema = z.object({
   rotation: number.min(-36000).max(36000).optional(),
   background: z.boolean().optional(), backgroundFill: color.optional(),
   underline: z.boolean().optional(), upper: z.boolean().optional(),
+  /**
+   * Drawn as a list: one item per line, markers added at render time. A
+   * property of the text rather than a new kind of node, so a list stays
+   * editable as the words somebody wrote - see src/lib/editor/lists.ts.
+   */
+  listStyle: z.enum(["bullet", "number", "check", "dash"]).optional(),
   stroke: color.optional(), strokeWidth: number.nonnegative().max(1000).optional(),
   flipH: z.boolean().optional(), flipV: z.boolean().optional(),
   brightness: number.min(-100).max(100).optional(),
@@ -58,6 +64,28 @@ export const designNodeSchema = z.object({
     w: number.min(0.001).max(1), h: number.min(0.001).max(1),
   }).strict().optional(),
   contrastVal: number.min(-100).max(100).optional(), grayscale: z.boolean().optional(),
+
+  /* ── a table ── */
+  /**
+   * The cells, first row the header. Plain strings: a spec table holds
+   * "-20 °C to +120 °C" and "on request" as often as it holds a number, and
+   * typing a dimension into a cell that insists on being numeric is the
+   * reason people go back to pasting a screenshot.
+   */
+  rows: z.array(z.array(z.string().max(500)).max(12)).max(60).optional(),
+  /** Column widths as fractions. Normalised at layout, never trusted. */
+  colFractions: z.array(number.min(0).max(1)).max(12).optional(),
+
+  /* ── a chart ── */
+  chartKind: z.enum(["column", "bar", "line", "donut"]).optional(),
+  series: z.array(z.object({
+    label: z.string().max(60),
+    value: number.min(-1e12).max(1e12),
+  }).strict()).max(40).optional(),
+  /** Whether each category gets its own colour, or the series gets one. */
+  multicolour: z.boolean().optional(),
+  /** The number on each mark. Off for a chart that is a shape, not a table. */
+  showValues: z.boolean().optional(),
 }).strict();
 
 export const designDocumentSchema = z.object({

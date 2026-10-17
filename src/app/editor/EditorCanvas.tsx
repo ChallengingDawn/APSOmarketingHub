@@ -2,6 +2,9 @@
 import { canonicalDesign, designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
 import { coverCrop, cropToPixels, isWholeImage, panCrop, zoomCrop, zoomOf } from "@/lib/editor/crop";
 import { arcPath } from "@/lib/editor/curvedText";
+import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
+import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
+import { ChartNode, TableNode } from "./DataNodes";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -25,6 +28,8 @@ import TitleIcon from "@mui/icons-material/Title";
 import TextFieldsIcon from "@mui/icons-material/TextFields";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
 import CropIcon from "@mui/icons-material/Crop";
+import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import FormatColorTextIcon from "@mui/icons-material/FormatColorText";
@@ -982,6 +987,53 @@ export default function EditorCanvas({
     setSelectedId(id);
   };
 
+  /**
+   * A table arrives WITH EXAMPLE ROWS, not empty.
+   *
+   * An empty three-by-three grid is a shape somebody has to understand before
+   * they can use it; a filled one is a thing they correct. The example is a
+   * spec table because that is what this is for.
+   */
+  const addTable = () => {
+    const id = nid();
+    commit((cur) => [
+      ...cur,
+      {
+        id, kind: "table",
+        x: Math.round(canvas.w * 0.08), y: Math.round(canvas.h * 0.3),
+        width: Math.round(canvas.w * 0.5), height: Math.round(canvas.h * 0.26),
+        fill: "#1a1d21", backgroundFill: "#ffffff", cornerRadius: 10,
+        rows: [
+          ["Property", "Value"],
+          ["Material", "FKM 70"],
+          ["Temperature", "-20 \u00b0C to +200 \u00b0C"],
+          ["Hardness", "70 \u00b1 5 Shore A"],
+        ],
+      },
+    ]);
+    setSelectedId(id);
+  };
+
+  const addChart = (chartKind: "column" | "bar" | "line" | "donut") => {
+    const id = nid();
+    commit((cur) => [
+      ...cur,
+      {
+        id, kind: "chart", chartKind,
+        x: Math.round(canvas.w * 0.08), y: Math.round(canvas.h * 0.28),
+        width: Math.round(canvas.w * 0.42), height: Math.round(canvas.h * 0.3),
+        fill: "#1a1d21", showValues: true,
+        series: [
+          { label: "2023", value: 18 },
+          { label: "2024", value: 24 },
+          { label: "2025", value: 31 },
+          { label: "2026", value: 44 },
+        ],
+      },
+    ]);
+    setSelectedId(id);
+  };
+
   const moveNode = (id: string, dir: 1 | -1) => {
     commit((cur) => {
       const i = cur.findIndex((n) => n.id === id);
@@ -1588,10 +1640,10 @@ export default function EditorCanvas({
   };
 
   const layerIcon = (kind: NodeSpec["kind"]) =>
-    kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
+    kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "table" ? <TableChartOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "chart" ? <BarChartIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
 
   const layerLabel = (n: NodeSpec) =>
-    n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : "Shape";
+    n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : n.kind === "table" ? `Table · ${Math.max(0, (n.rows?.length ?? 1) - 1)} rows` : n.kind === "chart" ? `Chart · ${n.series?.length ?? 0} values` : "Shape";
 
   const swatch = (c: string, active: boolean, onPick: () => void, size = 20) => (
     <Box
@@ -1698,6 +1750,18 @@ export default function EditorCanvas({
           { key: "ell",    title: "Ellipse",       add: addEllipse, el: <Box sx={{ width: 26, height: 16, borderRadius: "50%", bgcolor: "#274e64" }} /> },
           { key: "arrow",  title: "Arrow",         add: addArrow,  el: <Box sx={{ width: 26, height: 2, bgcolor: "#1a1d21", position: "relative", "&::after": { content: '""', position: "absolute", right: -1, top: -3, borderLeft: "7px solid #1a1d21", borderTop: "4px solid transparent", borderBottom: "4px solid transparent" } }} /> },
           { key: "line",   title: "Line",          add: addLine,   el: <Box sx={{ width: 26, height: 2, bgcolor: "#1a1d21" }} /> },
+          // A spec table and a column chart, because the alternative was a
+          // screenshot from Excel that nobody can fix a typo in.
+          { key: "table",  title: "Table",         add: addTable,  el: (
+            <Box sx={{ width: 26, height: 18, border: "1px solid #8a929c", borderRadius: "2px", display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "6px 1fr", "& > *": { borderRight: "1px solid #c9ced6", borderBottom: "1px solid #c9ced6" } }}>
+              <Box sx={{ bgcolor: "#e9ebef" }} /><Box sx={{ bgcolor: "#e9ebef" }} /><Box /><Box />
+            </Box>
+          ) },
+          { key: "chart",  title: "Chart",         add: () => addChart("column"), el: (
+            <Box sx={{ display: "flex", alignItems: "flex-end", gap: "2px", height: 18 }}>
+              {[8, 13, 18].map((h) => <Box key={h} sx={{ width: 6, height: h, borderRadius: "2px 2px 0 0", bgcolor: "#2d6fa8" }} />)}
+            </Box>
+          ) },
         ].map((sh) => (
           <Tooltip key={sh.key} title={sh.title}>
             <Box
@@ -2520,6 +2584,50 @@ export default function EditorCanvas({
                   <Chip key={p.id} label={p.label} size="small" onClick={() => applyTextPreset(p.id)} sx={{ fontWeight: 600, bgcolor: "#f0f1f3" }} />
                 ))}
               </Box>
+              {/* Lists. Most of what marketing writes is a list, and without
+                  this people type "- " by hand and align the dash column by
+                  eye with the space bar. */}
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mr: 0.5 }}>
+                  List
+                </Typography>
+                {LIST_STYLES.map((l) => (
+                  <Button
+                    key={l.key}
+                    size="small"
+                    variant={selected.listStyle === l.key ? "contained" : "outlined"}
+                    // Pressing the style it already has turns the list off,
+                    // which is where everybody reaches for it.
+                    onClick={() => patch(selected.id, { listStyle: selected.listStyle === l.key ? undefined : l.key })}
+                    sx={{ fontWeight: 700, minWidth: 0, px: 1 }}
+                  >
+                    {l.sample} {l.label}
+                  </Button>
+                ))}
+                {/* A paragraph is the usual starting point: the assistant
+                    writes prose, and somebody then wants it as three proofs. */}
+                {itemCount(selected.text ?? "") <= 1 && (selected.text ?? "").trim().length > 0 && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      const items = splitIntoItems(selected.text ?? "");
+                      if (items.length > 1) {
+                        patch(selected.id, { text: items.join("\n"), listStyle: selected.listStyle ?? "bullet" });
+                      }
+                    }}
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Split into items
+                  </Button>
+                )}
+                {selected.listStyle && (
+                  <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                    {itemCount(selected.text ?? "")} item{itemCount(selected.text ?? "") === 1 ? "" : "s"} · one per line
+                  </Typography>
+                )}
+              </Box>
+
               {/* Curve. Zero is in the middle of the track and snaps, because
                   "almost straight" is never what anybody wants. */}
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
@@ -2548,6 +2656,111 @@ export default function EditorCanvas({
                     Straight
                   </Button>
                 ) : null}
+              </Box>
+            </Box>
+          )}
+
+          {selected?.kind === "table" && (
+            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", flexDirection: "column", gap: 0.75 }}>
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                One row per line. Paste straight from Excel &mdash; tabs, semicolons or commas.
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                maxRows={10}
+                size="small"
+                placeholder={"Property\tValue\nMaterial\tFKM 70"}
+                value={(selected.rows ?? []).map((r) => r.join("\t")).join("\n")}
+                onChange={(e) => patch(selected.id, { rows: parseTable(e.target.value) }, `rows-${selected.id}`)}
+                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
+              />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                  {(selected.rows?.length ?? 0) > 0
+                    ? `${(selected.rows?.length ?? 1) - 1} row${(selected.rows?.length ?? 1) - 1 === 1 ? "" : "s"} under a header`
+                    : "Nothing in it yet"}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  // Equal columns again. The only fix for a table dragged into
+                  // a shape nobody meant, and it is one click.
+                  disabled={!selected.colFractions}
+                  onClick={() => patch(selected.id, { colFractions: undefined })}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Even columns
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {selected?.kind === "chart" && (
+            <Box sx={{ px: 1.25, pb: 1.25, display: "flex", flexDirection: "column", gap: 0.75 }}>
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                {([
+                  { key: "column" as const, label: "Columns", note: "How much, by year" },
+                  { key: "bar" as const, label: "Bars", note: "How much, by name" },
+                  { key: "line" as const, label: "Line", note: "How it moved" },
+                  { key: "donut" as const, label: "Ring", note: "Share of the whole" },
+                ]).map((k) => (
+                  <Tooltip key={k.key} title={k.note}>
+                    <Button
+                      size="small"
+                      variant={(selected.chartKind ?? "column") === k.key ? "contained" : "outlined"}
+                      onClick={() => patch(selected.id, { chartKind: k.key })}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      {k.label}
+                    </Button>
+                  </Tooltip>
+                ))}
+              </Box>
+              <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>
+                One &ldquo;label: number&rdquo; per line. 1&rsquo;234.5 and 1.234,5 both read as the same amount.
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                maxRows={10}
+                size="small"
+                placeholder={"2025: 31\n2026: 44"}
+                value={(selected.series ?? []).map((d) => `${d.label}: ${d.value}`).join("\n")}
+                onChange={(e) => patch(selected.id, { series: parseSeries(e.target.value) }, `series-${selected.id}`)}
+                sx={{ "& textarea": { fontFamily: "var(--font-mono), monospace", fontSize: 12 } }}
+              />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Button
+                  size="small"
+                  variant={selected.showValues !== false ? "contained" : "outlined"}
+                  onClick={() => patch(selected.id, { showValues: selected.showValues === false })}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Numbers on it
+                </Button>
+                {/* Only offered where it means something. On a ring the
+                    categories ARE the subject and are always coloured; on a
+                    single measure across years, a colour per bar would be
+                    saying something the data does not. */}
+                {(selected.chartKind ?? "column") !== "donut" && (
+                  <Tooltip title="A colour per category. Leave it off when the bars are one measure over time.">
+                    <Button
+                      size="small"
+                      variant={selected.multicolour ? "contained" : "outlined"}
+                      onClick={() => patch(selected.id, { multicolour: !selected.multicolour })}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      Colour each
+                    </Button>
+                  </Tooltip>
+                )}
+                <Typography sx={{ fontSize: 11.5, color: "#8a929c" }}>
+                  {selected.series?.length ?? 0} value{(selected.series?.length ?? 0) === 1 ? "" : "s"}
+                </Typography>
               </Box>
             </Box>
           )}
@@ -2813,7 +3026,27 @@ export default function EditorCanvas({
                 <Rect x={0} y={0} width={canvas.w} height={canvas.h} fill="#000000" opacity={bgScrim / 100} listening={false} />
               )}
               {visibleNodes.map((n) =>
-                n.kind === "text" ? (
+                n.kind === "table" || n.kind === "chart" ? (
+                  (() => {
+                    // Both take the same props, so the element is built once
+                    // and only the component differs. key belongs on the
+                    // element, which is why this is JSX and not a call.
+                    const Node = n.kind === "table" ? TableNode : ChartNode;
+                    return (
+                      <Node
+                        key={n.id}
+                        node={n}
+                        fontFamily={fontFamilyOf(n)}
+                        onSelect={(e) => setSelectedId(n.id, e.evt.shiftKey)}
+                        onTap={() => setSelectedId(n.id)}
+                        onDragMove={onDragMove}
+                        onDragEnd={(e) => onDragEnd(e, n.id)}
+                        onCursor={setCursor}
+                        onResize={(box) => patch(n.id, box)}
+                      />
+                    );
+                  })()
+                ) : n.kind === "text" ? (
                   <Fragment key={n.id}>
                     {/* No pill behind curved text: the pill is a rectangle
                         measured from straight text metrics, and behind an arch
@@ -2870,7 +3103,12 @@ export default function EditorCanvas({
                       x={n.x}
                       y={n.y}
                       rotation={n.rotation ?? 0}
-                      text={n.upper ? (n.text ?? "").toUpperCase() : n.text}
+                      text={(() => {
+                        // The markers go on BEFORE the uppercasing, so a list
+                        // of shouted items still reads 1. 2. 3. and not I. II.
+                        const t = listify(n.text ?? "", n.listStyle);
+                        return n.upper ? t.toUpperCase() : t;
+                      })()}
                       width={n.width}
                       fontSize={n.fontSize}
                       fontFamily={fontFamilyOf(n)}
