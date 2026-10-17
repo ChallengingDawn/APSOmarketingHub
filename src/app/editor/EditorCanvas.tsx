@@ -3,6 +3,7 @@ import { canonicalDesign, designDocumentSchema, type DesignDocument, type Design
 import { coverCrop, cropToPixels, isWholeImage, panCrop, zoomCrop, zoomOf } from "@/lib/editor/crop";
 import { arcPath } from "@/lib/editor/curvedText";
 import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
+import { expandSelection, groupNodes, isWholeGroup, moveGroup, groupSiblings, ungroupNodes } from "@/lib/editor/grouping";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
 import { ChartNode, TableNode } from "./DataNodes";
 
@@ -28,6 +29,8 @@ import TitleIcon from "@mui/icons-material/Title";
 import TextFieldsIcon from "@mui/icons-material/TextFields";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
 import CropIcon from "@mui/icons-material/Crop";
+import MergeTypeIcon from "@mui/icons-material/MergeType";
+import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -356,8 +359,11 @@ export default function EditorCanvas({
   const setSelectedId = useCallback((id: string | null, additive = false) => {
     setSelectedIds((cur) => {
       if (id === null) return [];
-      if (!additive) return [id];
-      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      // Clicking one member of a group selects the group: that is what makes
+      // a group a thing rather than a label on three objects.
+      if (!additive) return expandSelection(nodesRef.current, [id]);
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return expandSelection(nodesRef.current, next);
     });
   }, []);
   const [guides, setGuides] = useState<Guides>({});
@@ -1102,6 +1108,20 @@ export default function EditorCanvas({
    * block can only sensibly mean "to the page"; aligning three means "to each
    * other", and doing it to the page instead would stack them.
    */
+  /** The selection, when it is exactly one whole group. */
+  const grouped = isWholeGroup(nodes, selectedIds);
+
+  const groupSelected = () => {
+    // The group id comes from the same generator as a node id: unique in this
+    // document, and it travels with the document when it is copied.
+    const gid = `g${nid()}`;
+    commit((cur) => groupNodes(cur, selectedIds, gid));
+  };
+
+  const ungroupSelected = () => {
+    commit((cur) => ungroupNodes(cur, selectedIds));
+  };
+
   const alignSelected = (mode: "left" | "centerH" | "right" | "top" | "centerV" | "bottom") => {
     const chosen = nodes.filter((n) => selectedIds.includes(n.id) && !n.locked);
     if (chosen.length === 0) return;
@@ -1229,10 +1249,37 @@ export default function EditorCanvas({
     }
   }, [initialTemplateId, initialDocument, loadTemplate]);
 
+  /**
+   * Drag the siblings along with the node under the cursor.
+   *
+   * Written straight onto the Konva nodes rather than through state: this
+   * runs on every mouse move, and a React commit per frame would make
+   * dragging a group of six feel like dragging through treacle. The real
+   * positions are committed once, on release.
+   */
+  const dragGroupPreview = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const id = e.target.id();
+    const me = nodesRef.current.find((n) => n.id === id);
+    if (!me?.groupId) return;
+    const dx = e.target.x() - me.x;
+    const dy = e.target.y() - me.y;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    for (const sib of groupSiblings(nodesRef.current, id)) {
+      if (sib.locked) continue;
+      const node = stage.findOne(`#${sib.id}`);
+      if (node) node.position({ x: sib.x + dx, y: sib.y + dy });
+    }
+  };
+
   /* ── snapping: canvas center/edges, 4% safe margin, other nodes' edges/centers ── */
   const onDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
     const id = node.id();
+    // The rest of the group comes along. Last, after snapping has settled
+    // this node, so the siblings follow the position it actually ended at
+    // rather than the raw pointer.
+    queueMicrotask(() => dragGroupPreview(e));
     const w = Math.abs(node.width() * node.scaleX());
     const h = Math.abs(node.height() * node.scaleY());
     const thr = 8 / scale;
@@ -1301,8 +1348,15 @@ export default function EditorCanvas({
 
   const onDragEnd = (e: Konva.KonvaEventObject<DragEvent>, id: string) => {
     setGuides({});
-    patch(id, { x: e.target.x(), y: e.target.y() });
+    const me = nodesRef.current.find((n) => n.id === id);
+    const dx = me ? e.target.x() - me.x : 0;
+    const dy = me ? e.target.y() - me.y : 0;
+    // One commit for the whole group, so Ctrl+Z puts all of it back.
+    commit((cur) =>
+      moveGroup(cur, id, dx, dy).map((n) => (n.id === id ? { ...n, x: e.target.x(), y: e.target.y() } : n)),
+    );
   };
+
 
   const setCursor = (e: Konva.KonvaEventObject<MouseEvent>, cursor: string) => {
     const container = e.target.getStage()?.container();
@@ -1642,8 +1696,12 @@ export default function EditorCanvas({
   const layerIcon = (kind: NodeSpec["kind"]) =>
     kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "table" ? <TableChartOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "chart" ? <BarChartIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
 
-  const layerLabel = (n: NodeSpec) =>
+  const baseLayerLabel = (n: NodeSpec) =>
     n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : n.kind === "table" ? `Table · ${Math.max(0, (n.rows?.length ?? 1) - 1)} rows` : n.kind === "chart" ? `Chart · ${n.series?.length ?? 0} values` : "Shape";
+
+  /** Grouped rows say so. A group nobody can see is one somebody breaks. */
+  const layerLabel = (n: NodeSpec) =>
+    n.groupId ? `${baseLayerLabel(n)} · grouped` : baseLayerLabel(n);
 
   const swatch = (c: string, active: boolean, onPick: () => void, size = 20) => (
     <Box
@@ -2376,6 +2434,25 @@ export default function EditorCanvas({
                     sx={{ width: 78 }}
                   />
                 </Tooltip>
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+                {/* A headline, its kicker and the button under it are one
+                    thing. Without this, moving that thing means selecting
+                    three objects every time - and the first time somebody
+                    misses one the layout is broken in a way they will not see
+                    until it is printed. */}
+                {grouped ? (
+                  <Tooltip title="Ungroup — move these separately again">
+                    <IconButton size="small" onClick={ungroupSelected}>
+                      <CallSplitIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Group — move and copy them as one">
+                    <IconButton size="small" onClick={groupSelected}>
+                      <MergeTypeIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
                 <Tooltip title="Align left edge">
                   <IconButton size="small" onClick={() => alignSelected("left")}>

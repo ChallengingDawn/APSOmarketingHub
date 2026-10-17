@@ -34,6 +34,14 @@ export const designNodeSchema = z.object({
    */
   curve: number.min(-100).max(100).optional(),
   shadow: z.boolean().optional(), locked: z.boolean().optional(), hidden: z.boolean().optional(),
+  /**
+   * The group this node belongs to, if any.
+   *
+   * A shared id rather than a nested tree, so everything that already works
+   * on a flat node - the layer list, align, lock, find-and-replace, z-order -
+   * keeps working. See src/lib/editor/grouping.ts.
+   */
+  groupId: z.string().min(1).max(100).optional(),
   rotation: number.min(-36000).max(36000).optional(),
   background: z.boolean().optional(), backgroundFill: color.optional(),
   underline: z.boolean().optional(), upper: z.boolean().optional(),
