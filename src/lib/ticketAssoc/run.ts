@@ -26,13 +26,12 @@ import { alertRows, lastAlertRun, MAX_READ as ALERTS_MAX_READ, runOrderAlerts, t
 
 export type Mode = "off" | "preview" | "live";
 /** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail. */
-/** copyArticles: fill an empty Article(s) from Articles on the ticket on older tickets - a bulk write, so a switch. */
-export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; copyArticles: boolean; by: string | null; at: string | null };
+export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; by: string | null; at: string | null };
 export type LastRun = {
   at: string; seconds: number; mode: "preview" | "live"; read: number; processed: number; skipped: number; retried: number;
   newOrders: number; newArticles: number; filled: number; c2s: number; failed: number; error?: string;
-  /** Article(s) copied from Articles on the ticket; older tickets re-checked by the backfill. */
-  copied?: number; backfilled?: number;
+  /** Older tickets re-checked by the backfill. */
+  backfilled?: number;
 };
 /** The re-check of older tickets (SARCLA 17.10.2026: "these tickets are old, it is not running"). */
 export type Backfill = { from: string | null; cursor: number | null; processed: number; done: boolean; startedAt: string | null; by: string | null };
@@ -43,8 +42,7 @@ const EVERY_MS = 3 * 60_000;
 const LIMIT_MS = 10 * 60_000;
 /** Tickets read per run; the rest come in the next one, oldest change first. */
 const MAX_READ = 300;
-/** Article(s) copied from Articles on the ticket per run, and older tickets re-checked per run. */
-const COPY_PER_RUN = 500;
+/** Older tickets re-checked per run. */
 const BACKFILL_PER_RUN = 100;
 /** HubSpot's search index trails a write by a little: each window starts this much earlier. */
 const OVERLAP_MS = 3 * 60_000;
@@ -71,14 +69,14 @@ const tix = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
 /** Until somebody chooses: preview, fields only, order alerts listed but not sent - the hub watches. */
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings).catch(() => undefined);
-  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", copyArticles: !!s?.copyArticles, by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
 }
 
-export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; copyArticles?: boolean }, by: string): Promise<Settings> {
+export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const mode = change.mode && ["off", "preview", "live"].includes(change.mode) ? change.mode : cur.mode;
   const alerts = change.alerts && ["off", "preview", "link", "mail"].includes(change.alerts) ? change.alerts : cur.alerts;
-  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, copyArticles: change.copyArticles ?? cur.copyArticles, by, at: new Date().toISOString() };
+  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, by, at: new Date().toISOString() };
   // going live: the live window starts at the last half hour, not at whenever live last ran
   if (mode === "live" && cur.mode !== "live") await kvSet(KV.since("live"), Date.now() - 30 * 60_000);
   await kvSet(KV.settings, next);
@@ -237,7 +235,6 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
     since = nextSince(since, changes);
     await kvSet(KV.since(mode), since);
     if (live) {
-      if (settings.copyArticles) out.copied = await copyArticles(signal);
       out.backfilled = await backfill(handleForced, signal);
     }
   } catch (e) {
@@ -252,7 +249,7 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
   out.seconds = Math.round((Date.now() - t0) / 1000);
   await kvSet(KV.last(mode), out);
   if (Math.random() < 0.02) await q(`DELETE FROM apsomh_ticket_assoc_log WHERE at < now() - interval '${RETENTION_DAYS} days'`);
-  if (out.error || out.processed || out.copied) console.log(`[ticket-assoc] ${mode}: ${out.read} read, ${out.processed} processed (${out.retried} again, ${out.backfilled ?? 0} older), ${out.newOrders} order and ${out.newArticles} article links, ${out.filled} fields, ${out.c2s} C2S, ${out.copied ?? 0} Article(s) copied${out.error ? ` - ${out.error}` : ""}`);
+  if (out.error || out.processed) console.log(`[ticket-assoc] ${mode}: ${out.read} read, ${out.processed} processed (${out.retried} again, ${out.backfilled ?? 0} older), ${out.newOrders} order and ${out.newArticles} article links, ${out.filled} fields, ${out.c2s} C2S${out.error ? ` - ${out.error}` : ""}`);
   return out;
 }
 
@@ -286,39 +283,6 @@ export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promis
     signal?.removeEventListener("abort", drop);
     if (!dropped) client.release();
   }
-}
-
-/**
- * Article(s) for the tickets the HubSpot workflow handled before the hub: it filled Articles on the
- * ticket only. Every Back Office / ESO / TSA ticket with Articles on the ticket and an empty Article(s)
- * gets the same articles copied over - never over a value somebody typed.
- */
-async function copyArticles(signal?: AbortSignal): Promise<number> {
-  let copied = 0;
-  // the search trails the writes by a few seconds: what this run wrote may come back once more
-  const done = new Set<string>();
-  while (copied < COPY_PER_RUN) {
-    stopIfOver(signal);
-    const j = await tix<Page>("/crm/v3/objects/tickets/search", "POST", {
-      filterGroups: [{ filters: [
-        { propertyName: "hs_pipeline", operator: "IN", values: [BO, ESO, TSA] },
-        { propertyName: "articles_on_the_ticket", operator: "HAS_PROPERTY" },
-        { propertyName: "article", operator: "NOT_HAS_PROPERTY" },
-      ] }],
-      properties: ["articles_on_the_ticket"], limit: 100,
-    });
-    const found = j.results ?? [];
-    const rows = found
-      .filter((t) => !done.has(t.id))
-      .map((t) => ({ id: t.id, properties: { article: (t.properties?.articles_on_the_ticket ?? "").trim().slice(0, 500) } }))
-      .filter((r) => r.properties.article);
-    if (!rows.length) break;
-    await tix("/crm/v3/objects/tickets/batch/update", "POST", { inputs: rows });
-    for (const r of rows) done.add(r.id);
-    copied += rows.length;
-    if (found.length < 100) break;
-  }
-  return copied;
 }
 
 /** The re-check of older tickets: the next 50, newest first, down to the chosen day; done when none is left. */

@@ -33,7 +33,6 @@ import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
-import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import PinOutlinedIcon from "@mui/icons-material/PinOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -45,7 +44,6 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Backfill, LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
 import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
-import type { SecretFlows } from "@/lib/ticketAssoc/workflows";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
@@ -358,69 +356,10 @@ function AlertsTab({ d }: { d: Data }) {
   );
 }
 
-/** The ticket workflows that look at Article(s) - what could start when the copy fills it. */
-function ArticleFlows() {
-  const [data, setData] = useState<SecretFlows | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/uc/ticket-associations?articleFlows=1")
-      .then((r) => r.json())
-      .then((j: { ok: boolean; data?: SecretFlows; error?: string }) => { if (alive) setData(j.ok && j.data ? j.data : { ok: false, error: j.error ?? "could not be read", at: new Date().toISOString() }); })
-      .catch((e) => { if (alive) setData({ ok: false, error: String((e as Error).message), at: new Date().toISOString() }); });
-    return () => { alive = false; };
-  }, []);
-  if (data === null) return <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.75 }}>Reading which ticket workflows look at Article(s)…</Typography>;
-  if (!data.ok) return <Typography sx={{ fontSize: "0.8rem", color: RED, mt: 0.75 }}>{data.error}</Typography>;
-  if (!data.flows.length) return <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.75 }}>No ticket workflow looks at Article(s).</Typography>;
-  return (
-    <Box sx={{ mt: 0.75 }}>
-      <Typography sx={{ fontSize: "0.8rem", color: INK, fontWeight: 600 }}>Ticket workflows that look at Article(s):</Typography>
-      {data.flows.map((f) => (
-        <Box key={f.id} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.4 }}>
-          <Chip tint={f.enabled ? "amber" : "slate"}>{f.enabled ? "on" : "off"}</Chip>
-          <Box component="a" href={f.url} target="_blank" rel="noopener" sx={{ fontSize: "0.84rem", color: INK }}>{f.name}</Box>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-
-/** The HubSpot workflows whose custom code still reads the Tickets app's secret. */
-function Workflows() {
-  const [n, setN] = useState(0);
-  const [data, setData] = useState<SecretFlows | null>(null);
-  useEffect(() => {
-    let alive = true;
-    setData(null);
-    fetch(`/api/uc/ticket-associations?workflows=1${n ? "&refresh=1" : ""}`)
-      .then((r) => r.json())
-      .then((j: { ok: boolean; data?: SecretFlows; error?: string }) => { if (alive) setData(j.ok && j.data ? j.data : { ok: false, error: j.error ?? "could not be read", at: new Date().toISOString() }); })
-      .catch((e) => { if (alive) setData({ ok: false, error: String((e as Error).message), at: new Date().toISOString() }); });
-    return () => { alive = false; };
-  }, [n]);
-  return (
-    <GlassCard>
-      <CardTitle icon={<AccountTreeOutlinedIcon />} tint="slate" title="HubSpot workflows still using TICKETS_TOKEN"
-        note="The Tickets app (sarcla-tickets) can be deleted once none of these is on - switch off the Ticket associations workflow first"
-        right={<Tooltip title="Ask HubSpot again"><IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Check again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>} />
-      {data === null && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading HubSpot&apos;s workflows…</Typography>}
-      {data && !data.ok && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{data.error}</Typography>}
-      {data && data.ok && !data.flows.length && <Typography sx={{ fontSize: "0.84rem", color: INK }}>None of HubSpot&apos;s {full(data.checked)} workflows reads TICKETS_TOKEN - nothing stands in the way of deleting the Tickets app.</Typography>}
-      {data && data.ok && data.flows.map((f) => (
-        <Box key={f.id} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, borderTop: "1px solid rgba(21,34,58,.10)" }}>
-          <Chip tint={f.enabled ? "pink" : "slate"}>{f.enabled ? "on" : "off"}</Chip>
-          <Box component="a" href={f.url} target="_blank" rel="noopener" sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>{f.name}</Box>
-        </Box>
-      ))}
-    </GlassCard>
-  );
-}
-
 /**
- * Older tickets (SARCLA 17.10.2026: "these tickets are old, it is not running"). Every run already
- * copies Articles on the ticket into an empty Article(s); this re-checks older tickets with today's
- * detection - links, empty fields, Article(s) - 50 a run, newest first, down to the chosen day.
+ * Older tickets (SARCLA 17.10.2026: "these tickets are old, it is not running"): a re-check with
+ * today's detection - links, empty fields, Article(s) - 100 a run, newest first, down to the chosen day.
+ * The one-time copy of Articles on the ticket into Article(s) finished on 17.10 and is gone (18.10).
  */
 function BackfillCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const b = d.backfill;
@@ -434,26 +373,11 @@ function BackfillCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
       onChanged();
     } finally { setBusy(false); }
   };
-  const saveCopy = async (on: boolean) => {
-    setBusy(true);
-    try {
-      await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ copyArticles: on }) });
-      onChanged();
-    } finally { setBusy(false); }
-  };
   const at = b.cursor ? new Date(b.cursor).toISOString().slice(0, 10) : null;
   return (
     <GlassCard>
       <CardTitle icon={<HistoryOutlinedIcon />} tint="amber" title="Older tickets"
-        note="Two catch-ups for tickets the hub never processed: the copy below, and a re-check with today's detection (100 a run, newest first)." />
-      <Box sx={{ mb: 1.5 }}>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Copy Articles on the ticket into an empty Article(s), on every older Back Office / ESO / TSA ticket (500 a run)</Typography>
-        {d.admin ? (
-          <Choice<"off" | "on"> value={d.settings.copyArticles ? "on" : "off"} onChange={(v) => void saveCopy(v === "on")} options={[{ key: "off", label: "Off" }, { key: "on", label: "On" }]} />
-        ) : <Chip tint="slate">{d.settings.copyArticles ? "on" : "off"}</Chip>}
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>About 12,000 tickets wait for it. Before switching it on, check the workflows below that look at Article(s): one that starts when Article(s) gets a value would start for each of them.</Typography>
-        <ArticleFlows />
-      </Box>
+        note="A re-check of tickets the hub never processed, with today's detection - e-mails and shop links included (100 a run, newest first)." />
       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
         <TextField size="small" type="date" value={from} onChange={(e) => setFrom(e.target.value)} disabled={!d.admin || running} inputProps={{ "aria-label": "Re-check tickets created since" }} />
         {d.admin && (running
@@ -559,8 +483,6 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
       </GlassCard>
 
       <BackfillCard d={d} onChanged={onChanged} />
-
-      <Workflows />
 
       <GlassCard>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Check a ticket" note="Read and planned, never written - what the hub finds on it and would write now" />
