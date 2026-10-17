@@ -47,8 +47,11 @@ export default function SearchBarPage() {
   const days = Math.min(365, Math.max(1, spanDays(win.from, isoDate(new Date()))));
   const [n, setN] = useState(0);
 
+  // Overview and Report both read through <Loaded>, and a loader keeps its last answer on screen while it asks
+  // again: without a key of their own the Report tab drew the Overview's answer on the first click and the page
+  // crashed (SARCLA 17.10.2026: "Application error" on the first click on Report, fine after a reload).
   const panel =
-    view === "report" ? <Loaded<Report> url={`/api/website/search-bar?part=report&days=${days}&r=${n}`} what="the report">{(r) => <ReportTab r={r} label={label} />}</Loaded>
+    view === "report" ? <Loaded<Report> key="report" url={`/api/website/search-bar?part=report&days=${days}&r=${n}`} what="the report">{(r) => <ReportTab r={r} label={label} />}</Loaded>
     : view === "searches" ? <SearchesTab key={n} />
     : view === "gaps" ? <GapsTab key={n} />
     : view === "views" ? <ViewsTab key={n} />
@@ -58,7 +61,7 @@ export default function SearchBarPage() {
     : view === "brands" ? <BrandsTab key={n} />
     : view === "featured" ? <FeaturesTab key={n} />
     : view === "setup" ? <SetupTab key={n} />
-    : <Loaded<OverviewData> url={`/api/website/search-bar?part=overview&days=${days}&r=${n}`} what="the overview">
+    : <Loaded<OverviewData> key="overview" url={`/api/website/search-bar?part=overview&days=${days}&r=${n}`} what="the overview">
         {(d) => <><Problems d={d} /><OverviewTab d={d} label={label} /></>}
       </Loaded>;
 

@@ -9,6 +9,8 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { MUTED } from "@/app/uc/report/ui";
 
+import { Bars } from "@/app/website/directup/shared";
+import { usePaged } from "@/app/connectors/parts";
 export { Bars, pct, when } from "@/app/website/directup/shared";
 import { viewForTier } from "./views";
 
@@ -44,6 +46,18 @@ export async function post<T = unknown>(body: unknown): Promise<{ ok: boolean; e
 
 /** A pill button, as on the UC apps. */
 export const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
+
+/** Bars a page at a time (SARCLA 17.10.2026: "use pagination as much as possible"); rows with the same
+ *  label are added up first (several answer types read as one view). */
+export function PagedBars({ rows, colour, per = 8 }: { rows: { label: string; n: number; note?: string }[]; colour?: string; per?: number }) {
+  const merged = Object.values(rows.reduce<Record<string, { label: string; n: number; note?: string }>>((acc, r) => {
+    const cur = acc[r.label];
+    acc[r.label] = cur ? { label: r.label, n: cur.n + r.n, note: undefined } : { ...r };
+    return acc;
+  }, {})).sort((a, b) => b.n - a.n);
+  const { slice, pager } = usePaged(merged, per);
+  return <>{colour ? <Bars rows={slice} colour={colour} /> : <Bars rows={slice} />}{pager && <Box sx={{ mt: 1 }}>{pager}</Box>}</>;
+}
 
 export function Empty({ children }: { children: React.ReactNode }) {
   return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 1 }}>{children}</Typography>;

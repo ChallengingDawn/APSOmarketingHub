@@ -20,7 +20,7 @@ import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
 import { Chip } from "@/app/connectors/parts";
 import type { Health, Metrics, Report, GatewaySetting } from "@/lib/searchbar/gateway";
-import { Bars, pct, tierLabel, when } from "./shared";
+import { Bars, pct, tierLabel, when, PagedBars } from "./shared";
 
 export type OverviewData = { metrics: Metrics; report: Report; health: Health | null; setting: GatewaySetting };
 
@@ -50,9 +50,9 @@ export default function OverviewTab({ d, label }: { d: OverviewData; label: stri
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: -1 }}>Last 24 hours</Typography>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SearchOutlinedIcon />} tint="blue" label="Searches" value={full(m.total)} note="every language, typing counted per search" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Answered by the bar" value={pct(m.direct_count, m.total)} note={`${full(m.direct_count)} searches showed products`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Answered by the bar" value={pct(m.direct_count, m.total)} note={`${full(m.direct_count)} searches got one of the bar's views, not the AI`} /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="purple" label="Went to the AI assistant" value={pct(m.assistant_count, m.total)} note={`${full(m.assistant_count)} searches`} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<GpsNotFixedOutlinedIcon />} tint="amber" label="Not placed" value={full(m.gap_count)} note="neither the bar nor the assistant found it" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<GpsNotFixedOutlinedIcon />} tint="amber" label="Not placed" value={full(m.gap_count)} note="handed to the AI assistant, or the AI failed" /></Grid>
       </Grid>
 
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: -1 }}>{label}</Typography>
@@ -88,13 +88,13 @@ export default function OverviewTab({ d, label }: { d: OverviewData; label: stri
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
             <CardTitle icon={<TranslateOutlinedIcon />} tint="purple" title="By shop language" note={`${label} · searches, and how many found something`} />
-            <Bars rows={r.by_locale.map((l) => ({ label: l.locale, n: l.searches, note: `${l.success_pct}% found something` }))} />
+            <PagedBars rows={r.by_locale.map((l) => ({ label: l.locale, n: l.searches, note: `${l.success_pct}% found something` }))} />
           </GlassCard>
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
             <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What answered" note="Last 24 hours · the kind of result the bar showed" />
-            <Bars rows={tiers} colour={ACCENT} />
+            <PagedBars rows={tiers} colour={ACCENT} />
           </GlassCard>
         </Grid>
       </Grid>

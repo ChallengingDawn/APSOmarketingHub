@@ -8,7 +8,7 @@ import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { Chip } from "@/app/connectors/parts";
+import { Chip, usePaged } from "@/app/connectors/parts";
 import type { Feature } from "@/lib/searchbar/gateway";
 import { Empty, Loaded } from "./shared";
 
@@ -28,6 +28,19 @@ function Card({ f }: { f: Feature }) {
   );
 }
 
+/** Six cards a page. */
+function Cards({ features }: { features: Feature[] }) {
+  const { slice, pager } = usePaged(features, 6);
+  return (
+    <>
+      <Grid container spacing={1.5}>
+        {slice.map((f) => <Grid key={f.id} size={{ xs: 12, md: 6, xl: 4 }}><Card f={f} /></Grid>)}
+      </Grid>
+      {pager && <Box sx={{ mt: 1.5 }}>{pager}</Box>}
+    </>
+  );
+}
+
 export default function FeaturesTab() {
   return (
     <Loaded<{ features: Feature[] }> url="/api/website/search-bar?part=features" what="the featured products">
@@ -35,9 +48,7 @@ export default function FeaturesTab() {
         <GlassCard>
           <CardTitle icon={<StarOutlineIcon />} tint="amber" title="Featured when the bar opens" note="Each with its tag line in the shop's languages. Editing stays on the old dashboard for now." />
           {!d.features?.length ? <Empty>No featured product.</Empty> : (
-            <Grid container spacing={1.5}>
-              {d.features.map((f) => <Grid key={f.id} size={{ xs: 12, md: 6, xl: 4 }}><Card f={f} /></Grid>)}
-            </Grid>
+            <Cards features={d.features} />
           )}
         </GlassCard>
       )}

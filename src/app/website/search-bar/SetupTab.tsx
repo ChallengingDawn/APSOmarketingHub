@@ -21,7 +21,7 @@ import PowerSettingsNewOutlinedIcon from "@mui/icons-material/PowerSettingsNewOu
 import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { Chip } from "@/app/connectors/parts";
+import { Chip, usePaged } from "@/app/connectors/parts";
 import type { GatewaySetting, Health, Migration, Switches } from "@/lib/searchbar/gateway";
 import { Empty, Loaded, post, when } from "./shared";
 
@@ -73,7 +73,7 @@ function Maintenance({ initial, isAdmin, health }: { initial: Switches; isAdmin:
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
               {busy === k.key && <CircularProgress size={14} />}
               <Switch checked={k.on(sw)} disabled={!isAdmin || busy !== null} onChange={(e) => void flip(k, e.target.checked)}
-                color={k.key === "bar" ? "success" : "primary"} inputProps={{ "aria-label": k.label }} />
+                color={k.key === "bar" ? "success" : "primary"} slotProps={{ input: { "aria-label": k.label } }} />
             </Box>
           </Box>
         ))}
@@ -96,6 +96,31 @@ const MODEL: { name: string; kind: string; what: string }[] = [
   { name: "smart_bar_feedback", kind: "table", what: "What customers wrote with the feedback button." },
   { name: "data/*-families.json, *-articles.json", kind: "files", what: "The product lists behind the bar's views (plates, rods, hoses …), June snapshots kept current against the shop's pages." },
 ];
+
+/** The database changes, a page at a time. */
+function Migrations({ rows }: { rows: Setup["migrations"] }) {
+  const { slice, pager } = usePaged(rows, 8);
+  return (
+    <>
+      <Table size="small">
+        <TableHead><TableRow>{["#", "Change", "What for", "Applied", "Rows"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+        <TableBody>
+          {rows.length === 0 && <TableRow><TableCell colSpan={5} sx={bodyCell}><Empty>None recorded.</Empty></TableCell></TableRow>}
+          {slice.map((m) => (
+            <TableRow key={m.num}>
+              <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.num}</TableCell>
+              <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", fontFamily: "monospace" }}>{m.name}</TableCell>
+              <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{m.description}</TableCell>
+              <TableCell sx={bodyCell}><Chip tint={m.applied ? "green" : "amber"}>{m.applied ? "yes" : "no"}</Chip></TableCell>
+              <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.row_count != null ? full(m.row_count) : "–"}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {pager}
+    </>
+  );
+}
 
 export default function SetupTab() {
   return (
@@ -137,21 +162,7 @@ export default function SetupTab() {
               <Box sx={{ px: { xs: 2, md: 2.75 }, pt: 2 }}>
                 <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, mb: 1 }}>Database changes applied</Typography>
               </Box>
-              <Table size="small">
-                <TableHead><TableRow>{["#", "Change", "What for", "Applied", "Rows"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
-                <TableBody>
-                  {d.migrations.length === 0 && <TableRow><TableCell colSpan={5} sx={bodyCell}><Empty>None recorded.</Empty></TableCell></TableRow>}
-                  {d.migrations.map((m) => (
-                    <TableRow key={m.num}>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.num}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", fontFamily: "monospace" }}>{m.name}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{m.description}</TableCell>
-                      <TableCell sx={bodyCell}><Chip tint={m.applied ? "green" : "amber"}>{m.applied ? "yes" : "no"}</Chip></TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{m.row_count != null ? full(m.row_count) : "–"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <Migrations rows={d.migrations} />
             </GlassCard>
           </>
         );
