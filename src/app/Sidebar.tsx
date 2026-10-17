@@ -27,6 +27,7 @@ import HandshakeIcon from "@mui/icons-material/Handshake";
 import GroupsIcon from "@mui/icons-material/Groups";
 import RouteIcon from "@mui/icons-material/Route";
 import QueryStatsIcon from "@mui/icons-material/QueryStats";
+import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
@@ -88,6 +89,7 @@ import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
 import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
+import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -187,6 +189,7 @@ const navSections: NavSection[] = [
       { group: "Microservices", label: "Shaft-seal expert", href: "/website/shaft-seal-expert", icon: <AdjustOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "Compatibility table", href: "/website/compatibility-table", icon: <ScienceOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "Vulcanised O-rings", href: "/website/vulcanised-o-rings", icon: <AllInclusiveOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "DirectCut", href: "/website/directcut", icon: <ContentCutOutlinedIcon fontSize="small" /> },
     ],
   },
   {
@@ -318,6 +321,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
       // replaces the HubSpot project sarcla-france-owner, with more than one rule (SARCLA, 12.10.2026)
       { group: "HubSpot apps", label: "Owner Redirection", href: "/uc/owner-redirection", icon: <CompareArrowsIcon fontSize="small" /> },
+      // the "Ticket associations" workflow of the Tickets app, run by the hub (SARCLA, 17.10.2026)
+      { group: "HubSpot apps", label: "Ticket Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
