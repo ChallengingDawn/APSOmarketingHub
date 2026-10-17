@@ -121,9 +121,16 @@ function StepPanel({ step, info, admin, busy, act }: { step: Step; info: HubStep
             onClick={() => { if (!info.file || confirm(`This test run downloads the ERP's files and reads ${info.file}. It writes nothing. Start now?`)) act(info.key, "preview"); }}>
             Test run
           </Button>
+          {/* a live step can be run at once, not only at its rhythm (SARCLA 17.10.2026) */}
+          {info.live && !info.file && (
+            <Button size="small" variant="contained" disableElevation disabled={busy}
+              onClick={() => { if (confirm(`Run "${step.name}" now? It writes to HubSpot like its regular runs.`)) act(info.key, "run"); }}>
+              Run now
+            </Button>
+          )}
           {info.live
             ? <Button size="small" variant="outlined" color="warning" disabled={busy} onClick={() => { if (confirm(`Switch "${step.name}" off? The hub stops writing it until it is switched on again.`)) act(info.key, "live-off"); }}>Switch off</Button>
-            : <Button size="small" variant="contained" disableElevation disabled={busy || (!info.connectorSkips && info.cadence !== "manual")}
+            : <Button size="small" variant="contained" disableElevation disabled={busy || (!info.connectorSkips && !info.hubOnly && info.cadence !== "manual")}
               onClick={() => { if (confirm(`Switch "${step.name}" on? The hub then writes it to HubSpot ${RHYTHM[info.cadence ?? ""] ?? ""}.`)) act(info.key, "live-on"); }}>Switch on</Button>}
         </Box>
       )}

@@ -26,6 +26,8 @@ export type { Snapshot };
 /** The hub's side of one step (GET /api/connectors/steps). */
 export type HubStepInfo = {
   key: string; live: boolean; connectorSkips: boolean | null; file: string | null; cadence: string | null;
+  /** a step the old connector never had: nothing to hand over, it can be switched on here at once */
+  hubOnly?: boolean;
   preview: HubRun | null; run: HubRun | null;
 };
 export type StepsData = {

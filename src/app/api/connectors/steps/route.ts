@@ -36,7 +36,7 @@ export async function GET() {
   try {
     const [live, skips, running] = await Promise.all([liveSteps(), connectorSkips(), busy()]);
     const steps = await Promise.all(HUB_STEPS.map(async (k) => ({
-      key: k, live: live.has(k), connectorSkips: skips ? skips.has(k) : null,
+      key: k, live: live.has(k), connectorSkips: skips ? skips.has(k) : null, hubOnly: !!stepDef(k)?.hubOnly,
       file: stepDef(k)?.file ?? null, cadence: stepDef(k)?.cadence ?? null,
       preview: await lastRun("preview", k), run: await lastRun("live", k),
     })));
