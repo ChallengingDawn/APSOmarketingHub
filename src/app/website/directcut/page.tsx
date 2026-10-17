@@ -39,11 +39,13 @@ import { CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice } from 
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { DoneTab, OpenTab } from "./LinesTab";
 import ShelfTab from "./ShelfTab";
+import ShortagesTab from "./ShortagesTab";
+import type { Broken } from "@/lib/directcut/tickets";
 import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
 
-type View = "overview" | "open" | "done" | "shelf" | "status";
+type View = "overview" | "open" | "shortages" | "done" | "shelf" | "status";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", open: "#open", done: "#done", shelf: "#shelf", status: "#status",
+  overview: "#overview", open: "#open", shortages: "#shortages", done: "#done", shelf: "#shelf", status: "#status",
 };
 
 type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
@@ -298,15 +300,18 @@ export default function DirectCutPage() {
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&n=${nonce}`, [nonce]);
+  const brokenHeld = useHeld<{ broken: Broken; isAdmin: boolean }>(`/api/website/directcut?part=promises&n=${nonce}`, [nonce]);
   const statusHeld = useHeld<Status>(`/api/website/directcut?part=status&n=${nonce}`, [nonce]);
   const r = boardHeld.result;
   const s = statusHeld.result?.state === "ok" ? statusHeld.result.data : null;
+  const bro = brokenHeld.result?.state === "ok" ? brokenHeld.result.data : null;
   const b = r?.state === "ok" ? r.data.board : null;
 
   const work = b ? countWork(b.open) : null;
   const tabs = [
     { id: "overview" as View, label: "Overview", count: null },
     { id: "open" as View, label: "Open work", count: b ? String(b.open.length) : null },
+    { id: "shortages" as View, label: "Shortages", count: bro ? String(bro.broken.orders.length) : null },
     { id: "done" as View, label: "Cut done", count: b ? String(b.doneTotal) : null },
     { id: "shelf" as View, label: "The shelf", count: b ? String(b.stock.length) : null },
     { id: "status" as View, label: "Status", count: null },
@@ -325,6 +330,11 @@ export default function DirectCutPage() {
         <Box sx={{ mt: 3 }}>
           {tab === "overview" && <Overview b={board} s={s} />}
           {tab === "open" && <OpenTab open={board.open} />}
+          {tab === "shortages" && (bro
+            ? <ShortagesTab broken={bro.broken} isAdmin={bro.isAdmin} onDone={reload} />
+            : brokenHeld.result?.state === "error"
+              ? <UpstreamPanel source="C2S middleware" error={brokenHeld.result.error} status={brokenHeld.result.status} onRetry={reload} />
+              : <LoadingPanel label="Asking the shelf what it can no longer cover…" />)}
           {tab === "done" && <DoneTab done={board.done} total={board.doneTotal} />}
           {tab === "shelf" && <ShelfTab stock={board.stock} />}
           {tab === "status" && (s
