@@ -14,7 +14,7 @@
 import { stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getPool } from "@/lib/db/client";
+import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
 import { fetchLatest } from "../sftp";
@@ -95,8 +95,28 @@ export async function lastRun(mode: Mode, key: HubStep): Promise<HubRun | null> 
 
 export async function busy(lane: Lane = "erp"): Promise<{ key: string; mode: Mode; started: string; heartbeat: string } | null> {
   const b = await kvGet<{ key: string; mode: Mode; started: string; heartbeat: string }>(KV.busy[lane]);
-  if (!b || Date.now() - Date.parse(b.heartbeat) > 2 * 3_600_000) return null;
+  const age = b ? Date.now() - Date.parse(b.heartbeat) : Infinity;
+  if (!b || age > 2 * 3_600_000) return null;
+  // a copy of the hub replaced mid-run (a deploy) leaves the marker behind; its lock went with
+  // it - so nobody holding the lock means nothing runs, and the page may start a step again
+  if (age > 60_000 && (await lockHeld(lane)) === false) {
+    await kvSet(KV.busy[lane], null).catch(() => {});
+    return null;
+  }
   return b;
+}
+
+/** Whether a run holds the lane's lock now, on either copy of the hub; null when it cannot be asked. */
+async function lockHeld(lane: Lane): Promise<boolean | null> {
+  try {
+    const r = await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid::bigint = $1::bigint AND objsubid = 1 AND granted`,
+      [LOCK[lane]],
+    );
+    return Number(r.rows[0]?.n ?? 0) > 0;
+  } catch {
+    return null;
+  }
 }
 
 /** Under the step lock, across both copies of the hub; null when another run holds it. */
