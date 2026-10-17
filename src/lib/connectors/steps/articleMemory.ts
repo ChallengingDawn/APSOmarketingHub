@@ -9,6 +9,13 @@
 //                   January 2025 is read; then the lines orders_daily notes) get the real article,
 //                   its profit centre and the order's main profit centre, as soon as the hub knows
 //                   them (orderRules.repairOrder)
+// The second gap (17.10.2026): a line the old fixmap resolved carries its real 10-digit article
+// but no profit centre - 1,346 of the fixmap's ids have none (530 lines in Sep-Oct 2026 alone).
+// The day's dim_article does not have them (not one of the 1,346 was in July's 867,000 rows);
+// Products & Pricing, which keeps the articles the ERP sent over the years, has 846 of them -
+// and all 287 on the orders of Sep-Oct 2026 (FT, AT, ST, WS, DT). Both steps
+// look them up there by NUMBER and remember them: the article for the repair, the fixmap id for
+// orders_daily.
 // Preview reads and counts; it writes neither HubSpot nor the memory.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
@@ -16,19 +23,27 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { kvGet, kvSet } from "@/lib/db/init";
 import type { StepResult } from "./companyFacts";
 import { articleLookup, readCsvFile } from "./orderFiles";
-import { FCT, internalIdsOn, pyStrip, repairOrder, type ArtInfo } from "./orderRules";
-import { addPending, clearPending, knownArticles, memoryCounts, rememberArticles, resolvablePending } from "../articleIds";
+import { FCT, isArticleNumber, linePc, linesWithoutPcOn, pyStrip, repairOrder, type ArtInfo, type FixMap } from "./orderRules";
+import { addPending, clearPending, knownArticles, memoryCounts, pendingArticleNumbers, rememberArticles, resolvablePending } from "../articleIds";
 import seedJson from "../data/article_ids_seed.json";
+import fixmapJson from "../data/article_fixmap.json";
 
 type Beat = () => Promise<void>;
 type Req = Parameters<typeof hubspotFetchJson>[0];
 type Obj = { id: string; properties?: Record<string, string | null> };
 
-const KV_SCAN = "connectors:hub:article_scan";
+// v2: scanned again once for the lines on a real article with no profit centre (17.10.2026)
+const KV_SCAN = "connectors:hub:article_scan:v2";
 const KV_SEED = "connectors:hub:article_seed";
 const SCAN_FROM = "2025-01";
 const REPAIR_BUDGET_MS = 10 * 60_000;
 const msg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 200);
+const PP = "2-200042439"; // Products & Pricing
+
+/** The fixmap's ids that give a 10-digit article but no profit centre: fixmap id -> article. */
+const FIX_NO_PC: ReadonlyMap<string, string> = new Map(
+  Object.entries(fixmapJson as unknown as FixMap).filter(([, e]) => !e.pc && isArticleNumber(e.n || "")).map(([id, e]) => [id, e.n.trim()]),
+);
 
 async function hs<T>(req: Req, tries = 5): Promise<T> {
   for (let i = 1; ; i++) {
@@ -79,7 +94,9 @@ export async function learnArticleIds(live: boolean, beat: Beat, opts: { file: s
     else unknown.push(id);
   }
   const remembered = live ? await rememberArticles(learnt) : 0;
+  const nums = await learnByNumber(live, beat);
   return {
+    ...nums,
     rows, internal_ids: keyOf.size, resolved_by_dim_article: learnt.length, not_in_dim_article: unknown.length,
     ...(unknown.length ? { not_in_dim_article_samples: unknown.slice(0, 10) } : {}),
     ...(art.size === 0 && keyOf.size ? { WARNING: "dim_article.csv gave nothing - is it on this copy's disk?" } : {}),
@@ -88,12 +105,50 @@ export async function learnArticleIds(live: boolean, beat: Beat, opts: { file: s
   };
 }
 
+/* ── articles by number ───────────────────────────────────────────────── */
+
+async function byNumber(articles: string[], beat: Beat): Promise<Map<string, ArtInfo>> {
+  const out = new Map<string, ArtInfo>();
+  for (let i = 0; i < articles.length; i += 100) {
+    const j = await hs<{ results?: Obj[] }>({
+      path: `/crm/v3/objects/${PP}/search`, method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: articles.slice(i, i + 100) }] }], properties: ["article_number", "profit_center", "article_description"], limit: 200 },
+    });
+    for (const r of j.results ?? []) {
+      const a = pyStrip(r.properties?.article_number ?? "");
+      const pc = linePc(r.properties?.profit_center);
+      if (a && pc) out.set(a, [pc, a, pyStrip(r.properties?.article_description ?? "")]);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    await beat();
+  }
+  return out;
+}
+
+/**
+ * The fixmap's articles the memory does not know yet, and the waiting article-number lines, looked
+ * up by number: remembered as the article (for the repair) and as each fixmap id pointing at it
+ * (for orders_daily, which asks the memory before the fixmap).
+ */
+async function learnByNumber(live: boolean, beat: Beat): Promise<StepResult> {
+  const waiting = await pendingArticleNumbers().catch(() => [] as string[]);
+  const knownFix = await knownArticles([...FIX_NO_PC.keys()]).catch(() => new Map<string, ArtInfo>());
+  const fixLeft = [...FIX_NO_PC].filter(([id]) => !knownFix.has(id));
+  const wanted = [...new Set([...fixLeft.map(([, a]) => a), ...waiting])];
+  if (!wanted.length) return {};
+  const found = await byNumber(wanted, beat);
+  const rows: [string, ArtInfo][] = [...found.entries()];
+  for (const [id, a] of fixLeft) { const f = found.get(a); if (f) rows.push([id, f]); }
+  const remembered = live ? await rememberArticles(rows) : 0;
+  return { by_number_asked: wanted.length, by_number_waiting: waiting.length, by_number_found: found.size, by_number_remembered: remembered };
+}
+
 /* ── repair ────────────────────────────────────────────────────────────── */
 
 const monthStart = (ym: string) => Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
 const nextYm = (ym: string) => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`; };
 
-/** Every order since January 2025, month by month: the lines still on an internal id. */
+/** Every order since January 2025, month by month: the lines still without a profit centre. */
 async function scanOrders(beat: Beat): Promise<{ orders: number; found: [string, string][] }> {
   const found: [string, string][] = [];
   let orders = 0;
@@ -114,7 +169,7 @@ async function scanOrders(beat: Beat): Promise<{ orders: number; found: [string,
       });
       for (const o of j.results ?? []) {
         orders += 1;
-        for (const id of internalIdsOn(o.properties?.order_positions_json)) found.push([String(o.id), id]);
+        for (const id of linesWithoutPcOn(o.properties?.order_positions_json)) found.push([String(o.id), id]);
       }
       after = j.paging?.next?.after;
       if (!after) break;
@@ -136,8 +191,10 @@ export async function repairArticleLines(live: boolean, beat: Beat, opts: { full
     const s = await scanOrders(beat);
     const ids = [...new Set(s.found.map((f) => f[1]))];
     const known = await knownArticles(ids).catch(() => new Map<string, ArtInfo>());
+    const onNumber = s.found.filter((f) => isArticleNumber(f[1])).length;
     Object.assign(out, {
-      scanned_orders: s.orders, lines_on_internal_id: s.found.length, orders_with_such_lines: new Set(s.found.map((f) => f[0])).size,
+      scanned_orders: s.orders, lines_without_pc: s.found.length, of_them_on_internal_id: s.found.length - onNumber, of_them_on_real_article: onNumber,
+      orders_with_such_lines: new Set(s.found.map((f) => f[0])).size,
       internal_ids: ids.length, of_them_known: ids.filter((x) => known.has(x)).length,
       ...(ids.length ? { internal_id_samples: ids.filter((x) => !known.has(x)).slice(0, 10) } : {}),
     });
@@ -146,6 +203,8 @@ export async function repairArticleLines(live: boolean, beat: Beat, opts: { full
       await kvSet(KV_SCAN, { at: new Date().toISOString(), orders: s.orders, lines: s.found.length });
     }
   }
+  // the waiting 10-digit articles (and the fixmap's): their profit centre from Products & Pricing
+  if (live) Object.assign(out, await learnByNumber(true, beat));
   if (!live) return { ...out, ...(await memoryCounts().catch(() => ({}))), seconds: Math.round((Date.now() - t0) / 1000) };
 
   // repair what the hub now knows, 100 orders at a time, for at most 10 minutes a run

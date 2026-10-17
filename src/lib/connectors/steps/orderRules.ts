@@ -21,6 +21,18 @@ export const SMAP: Readonly<Record<string, string>> = {
 };
 /** Profit centres the order_profit_center enum accepts; anything else is "Unknown". */
 export const PC_OK: ReadonlySet<string> = new Set(["AT", "DT", "FT", "KT", "SP", "ST", "WS"]);
+
+/**
+ * Products & Pricing's profit centre for an article, as an order line writes it (the code as the
+ * ERP gives it, like every other line; the order's main one still goes through PC_OK). It keeps
+ * the ERP's NEW profit centre, the lines the old one, and the two differ in one way only - ASW is
+ * the new name of part of FT (all 4,861 such articles in July's dim_article).
+ */
+export function linePc(ppProfitCenter: string | null | undefined): string {
+  const v = (ppProfitCenter ?? "").trim().toUpperCase();
+  return v === "ASW" ? "FT" : v === "UNKNOWN" ? "" : v;
+}
+
 /** What a web order knows and its ERP delivery does not - carried before the .000 is archived. */
 export const WEB_CARRY = ["order_web_order_number", "order_doc_request", "order_doc_status"] as const;
 /** The order_order_status enum. "completed" is deliberately absent here (order_sync leaves it blank). */
@@ -625,13 +637,19 @@ export const inPipeline = (pipeline: string | null | undefined): boolean => !pip
 /** A real article number: ten digits. Anything else on a line is the ERP's internal id. */
 export const isArticleNumber = (a: string): boolean => /^\d{10}$/.test(a.trim());
 
-/** The internal ids of the lines the hub cannot resolve - dim_article, memory and fixmap all silent. */
+/**
+ * What the lines left without a profit centre carry, for the repair step: the internal id when
+ * dim_article, memory and fixmap are all silent - or the 10-digit article when only the old
+ * fixmap answered (it knows the article but, for 1,346 of its ids, not its profit centre).
+ */
 export function unresolvedIds(lines: Iterable<FctLine>, ctx: Pick<PayloadCtx, "art" | "fixmap" | "known">): string[] {
   const out = new Set<string>();
   for (const l of lines) {
     if (l.gone) continue;
     const a = articleOf(l, ctx);
-    if (!a[0] && !isArticleNumber(a[1] || l.artno) && pyStrip(l.artno)) out.add(pyStrip(l.artno));
+    if (a[0]) continue;
+    if (isArticleNumber(a[1] || "")) out.add(pyStrip(a[1]));
+    else if (pyStrip(l.artno)) out.add(pyStrip(l.artno));
   }
   return [...out];
 }
@@ -656,7 +674,8 @@ export function repairOrder(positionsJsonText: string | null | undefined, known:
   pos.forEach((p, j) => {
     if (p.pc) return;
     const k = known.get(pyStrip(p.a));
-    if (!k || !k[1]) return;
+    // a line on its real article with no profit centre: fixed only by a profit centre
+    if (!k || !k[1] || (!k[0] && k[1] === pyStrip(p.a))) return;
     fixed.add(pyStrip(p.a));
     p.a = k[1];
     p.pc = k[0];
@@ -677,6 +696,17 @@ export function repairOrder(positionsJsonText: string | null | undefined, known:
   }
   patch.order_positions_json = positionsJson(pos);
   return { patch, fixed: [...fixed] };
+}
+
+/** What an order's lines without a profit centre carry: an internal id, or a 10-digit article. */
+export function linesWithoutPcOn(positionsJsonText: string | null | undefined): string[] {
+  try {
+    const pos = JSON.parse(positionsJsonText || "[]") as { a?: unknown; pc?: unknown }[];
+    if (!Array.isArray(pos)) return [];
+    return [...new Set(pos.filter((p) => !String(p.pc ?? "") && String(p.a ?? "").trim()).map((p) => pyStrip(String(p.a))))];
+  } catch {
+    return [];
+  }
 }
 
 /** Lines on an order still carrying an internal id: no profit centre, not a 10-digit number. */

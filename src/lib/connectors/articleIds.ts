@@ -9,6 +9,10 @@
 // centre and never came back. So the hub keeps here every internal id it has resolved, and
 // the HubSpot orders whose lines it could not resolve yet; steps/articleMemory.ts repairs them
 // once a later delivery knows the article. Two small tables, created on first use.
+//
+// A key is what an order line carries: the ERP's internal id - or, for a line the old fixmap
+// resolved to its 10-digit article without a profit centre, that article number (an internal id
+// is never 10 digits), answered by dim_article's own row for the article.
 
 import { query } from "@/lib/db/client";
 import type { ArtInfo } from "./steps/orderRules";
@@ -109,6 +113,16 @@ export async function resolvablePending(limit: number): Promise<{ orderId: strin
     by.set(x.order_id, m);
   }
   return [...by.entries()].map(([orderId, known]) => ({ orderId, known }));
+}
+
+/** The 10-digit articles waiting for their profit centre that the memory does not know yet. */
+export async function pendingArticleNumbers(): Promise<string[]> {
+  await ensure();
+  const r = await query<{ id: string }>(
+    `SELECT DISTINCT p.internal_id AS id FROM ${PENDING} p LEFT JOIN ${IDS} a ON a.internal_id = p.internal_id
+     WHERE a.internal_id IS NULL AND p.internal_id ~ '^[0-9]{10}$'`,
+  );
+  return r.rows.map((x) => x.id);
 }
 
 export async function clearPending(orderId: string, ids: string[]): Promise<void> {
