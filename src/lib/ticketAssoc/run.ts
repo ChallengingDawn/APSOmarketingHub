@@ -382,7 +382,7 @@ export async function report(from: string, to: string, pipeline: string | null =
   ]);
   // the Articles tab: every processed ticket that named an article, a number the catalogue did not
   // know, or an eight-digit number - what the detection saw, ticket by ticket
-  const [articles, alerts, lastAlerts] = await Promise.all([
+  const [articles, alerts, lastAlerts, orderRows] = await Promise.all([
     q<{ ticket_id: string; at: string; pipeline: string | null; subject: string | null; articles: string[]; rejected: string[]; products: string[]; filled: string[]; orders: string[] }>(
       `SELECT ticket_id, at, pipeline, subject, articles, coalesce(rejected, '{}') AS rejected, coalesce(products, '{}') AS products, filled, orders
          FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
@@ -391,9 +391,16 @@ export async function report(from: string, to: string, pipeline: string | null =
         ORDER BY at DESC LIMIT 200`, [mode, from, to, pipe]),
     alertRows(from, to, pipe),
     lastAlertRun(),
+    // the Orders tab (SARCLA 17.10.2026: "I don't see the order association, only the alerts"):
+    // every processed ticket linked to an order - named in it, or an ESO / TSA offer's order
+    q<{ ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; offer_orders: string[]; new_orders: number; filled: string[]; ok: boolean }>(
+      `SELECT ticket_id, at, pipeline, why, subject, orders, offer_orders, new_orders, filled, ok
+         FROM apsomh_ticket_assoc_log WHERE mode=$1 AND at >= $2::date AND at < ($3::date + 1)
+          AND (cardinality(orders) > 0 OR cardinality(offer_orders) > 0) AND ($4::text IS NULL OR pipeline = $4)
+        ORDER BY at DESC LIMIT 200`, [mode, from, to, pipe]),
   ]);
   const backfillState = await getBackfill();
-  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, articles, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
+  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, articles, orderRows, alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
 }
 
 /* ── the schedule ──────────────────────────────────────────────────────── */
