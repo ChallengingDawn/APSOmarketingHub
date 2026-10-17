@@ -111,6 +111,14 @@ export const designNodeSchema = z.object({
   }).strict()).max(40).optional(),
   /** Whether each category gets its own colour, or the series gets one. */
   multicolour: z.boolean().optional(),
+  /**
+   * The colour of the MARKS - the bars, the line, the ring.
+   *
+   * Its own key rather than backgroundFill, which means "the fill behind the
+   * content" everywhere else here. A key named background that paints the
+   * foreground is a trap for the next reader.
+   */
+  accent: color.optional(),
   /** The number on each mark. Off for a chart that is a shape, not a table. */
   showValues: z.boolean().optional(),
 }).strict();

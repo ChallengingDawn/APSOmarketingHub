@@ -140,7 +140,7 @@ export function ChartNode(p: DataNodeProps) {
   const data = n.series ?? [];
   const kind = n.chartKind ?? "column";
   const ink = n.fill || CHROME.ink;
-  const mark = n.backgroundFill || SERIES[0];
+  const mark = n.accent || SERIES[0];
   const label = CHROME.label;
   const fontSize = n.fontSize ?? 11;
   const showValues = n.showValues !== false;
@@ -166,9 +166,17 @@ export function ChartNode(p: DataNodeProps) {
       onDragEnd={p.onDragEnd}
       onTransformEnd={resizeHandler(n, p.onResize)}
     >
-      {/* An invisible surface, so the whole box is a hit target: a chart you
-          can only grab by one of its bars is a chart you cannot move. */}
-      <Rect width={w} height={h} fill={n.backgroundFill && kind !== "donut" ? "transparent" : "transparent"} />
+      {/* The surface. Transparent unless somebody has chosen one, but always
+          PRESENT, so the whole box is a hit target - a chart you can only
+          grab by one of its bars is a chart you cannot move. (This line used
+          to be a ternary returning "transparent" in both branches, which is
+          what made the surface colour unreachable.) */}
+      <Rect
+        width={w}
+        height={h}
+        fill={n.backgroundFill || "transparent"}
+        cornerRadius={n.cornerRadius ?? 0}
+      />
 
       {kind === "column" && (() => {
         const l = columnLayout(data, w, h, { valueRoom: showValues ? fontSize + 7 : 4 });

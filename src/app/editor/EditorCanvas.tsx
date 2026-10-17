@@ -35,6 +35,8 @@ import MergeTypeIcon from "@mui/icons-material/MergeType";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import ColorizeIcon from "@mui/icons-material/Colorize";
 import FormatPaintIcon from "@mui/icons-material/FormatPaint";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import KeyboardIcon from "@mui/icons-material/KeyboardOutlined";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -98,7 +100,7 @@ import { applyReplace } from "@/lib/editor/findReplace";
  * they sit in the header where they never move.
  */
 type SectionKey =
-  | "content" | "font" | "colour" | "shape" | "crop" | "adjust" | "data" | "effects" | "arrange";
+  | "content" | "font" | "colour" | "shape" | "crop" | "adjust" | "data" | "look" | "effects" | "arrange";
 
 const ARRANGE = { key: "arrange" as const, label: "Arrange" };
 const EFFECTS = { key: "effects" as const, label: "Effects" };
@@ -127,7 +129,12 @@ function sectionsFor(kind: string | null): { key: SectionKey; label: string }[] 
     ];
   }
   if (kind === "table" || kind === "chart") {
-    return [{ key: "data", label: kind === "chart" ? "Chart" : "Rows" }, ARRANGE];
+    return [
+      { key: "data", label: kind === "chart" ? "Chart" : "Rows" },
+      { key: "look", label: "Look" },
+      EFFECTS,
+      ARRANGE,
+    ];
   }
   // A rectangle has a corner radius; an ellipse, an arrow and a scrim do not,
   // and a Shape tab that opens on nothing is worse than no tab.
@@ -135,6 +142,32 @@ function sectionsFor(kind: string | null): { key: SectionKey; label: string }[] 
     ? [COLOUR, { key: "shape", label: "Shape" }, EFFECTS, ARRANGE]
     : [COLOUR, EFFECTS, ARRANGE];
 }
+
+/** Which way each arrow key moves a selection, in canvas pixels. */
+const NUDGE: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
+/**
+ * The keys the editor answers to.
+ *
+ * Listed in one place so the sheet in the toolbar cannot drift from the
+ * handler - a shortcut list that lies is worse than none.
+ */
+const SHORTCUTS: { keys: string; does: string }[] = [
+  { keys: "Click", does: "Select. Shift-click adds to the selection" },
+  { keys: "Drag", does: "Move it. Snaps to the centre, the edges and the margin" },
+  { keys: "Arrows", does: "Nudge by 1px. Shift+Arrows by 10px" },
+  { keys: "Double-click / Enter", does: "Edit text in place" },
+  { keys: "Ctrl+D", does: "Duplicate" },
+  { keys: "Delete", does: "Remove it" },
+  { keys: "Ctrl+Z", does: "Undo. Ctrl+Shift+Z or Ctrl+Y redoes" },
+  { keys: "Escape", does: "Deselect" },
+  { keys: "Ctrl+wheel", does: "Zoom the board" },
+];
 
 /* ── palette & canvas presets ── */
 
@@ -417,6 +450,7 @@ export default function EditorCanvas({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
   const [sizeAnchor, setSizeAnchor] = useState<HTMLElement | null>(null);
+  const [keysAnchor, setKeysAnchor] = useState<HTMLElement | null>(null);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
@@ -1582,11 +1616,31 @@ export default function EditorCanvas({
         setSelectedId(null);
         return;
       }
+      // Nudging. Dragging is for roughly; the arrow keys are for the last
+      // two pixels, and a design tool without them makes people zoom to 400%
+      // to drag something straight.
+      const step = NUDGE[e.key];
+      if (step && selectedIds.length > 0) {
+        e.preventDefault();
+        const far = e.shiftKey ? 10 : 1;
+        const dx = step[0] * far;
+        const dy = step[1] * far;
+        // Coalesced, so holding an arrow down is ONE entry in the history
+        // rather than forty - and a locked node still does not move.
+        commit(
+          (cur) =>
+            cur.map((n) =>
+              selectedIds.includes(n.id) && !n.locked ? { ...n, x: n.x + dx, y: n.y + dy } : n,
+            ),
+          "nudge",
+        );
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") removeSelected();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, duplicateSelected, removeSelected, selectedId]);
+  }, [undo, redo, duplicateSelected, removeSelected, selectedId, selectedIds, commit]);
 
   /* ── measure rendered text boxes for background pills ── */
   useEffect(() => {
@@ -2418,6 +2472,19 @@ export default function EditorCanvas({
                 </Typography>
               </MenuItem>
             </Menu>
+            <Menu open={Boolean(keysAnchor)} anchorEl={keysAnchor} onClose={() => setKeysAnchor(null)}>
+              {SHORTCUTS.map((k) => (
+                <MenuItem key={k.keys} disabled sx={{ display: "flex", gap: 1.5, opacity: 1, py: 0.5 }}>
+                  <Typography sx={{
+                    fontSize: 11.5, fontWeight: 700, color: "#15223a", minWidth: 150,
+                    fontFamily: "var(--font-mono), monospace",
+                  }}>
+                    {k.keys}
+                  </Typography>
+                  <Typography sx={{ fontSize: 12, color: "#5b6470" }}>{k.does}</Typography>
+                </MenuItem>
+              ))}
+            </Menu>
             <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
             <Tooltip title="Zoom (Ctrl+wheel on the canvas)">
               <TextField
@@ -2520,9 +2587,21 @@ export default function EditorCanvas({
         <Card sx={{ mb: 1.5 }}>
           {selectedIds.length === 0 ? (
             <Box sx={{ p: 1.25, minHeight: 52, display: "flex", alignItems: "center" }}>
-              <Typography sx={{ fontSize: 12.5, color: "#5b6470" }}>
-                Select an element to style it · double-click or press Enter on text to edit in place · Ctrl+Z undo · Ctrl+D duplicate
+              {/* This used to be four tips run together on one line, which is
+                  the shape text takes when nobody has decided what it is for.
+                  One sentence saying what to do, and the rest behind a button
+                  for the person who wants it. */}
+              <Typography sx={{ fontSize: 12.5, color: "#5b6470", flex: 1 }}>
+                Nothing selected — click something on the board, or add one from the left.
               </Typography>
+              <Button
+                size="small"
+                onClick={(e) => setKeysAnchor(e.currentTarget)}
+                startIcon={<KeyboardIcon />}
+                sx={{ textTransform: "none", fontWeight: 600, color: "#5b6470" }}
+              >
+                Shortcuts
+              </Button>
             </Box>
           ) : (
             <>
@@ -3247,6 +3326,84 @@ export default function EditorCanvas({
                 </Typography>
               </Box>
                   </Box>
+                </>
+              )}
+              {sec === "look" && selected && (
+                <>
+                  {/* Each colour is named for what it DOES to this object, not
+                      for the property it writes. The same backgroundFill is a
+                      table's paper and a chart's background, and calling both
+                      "backgroundFill" in front of somebody is how a control
+                      goes unused. */}
+                  {([
+                    { key: "fill" as const, label: "Text", fallback: "#1a1d21" },
+                    { key: "backgroundFill" as const, label: selected.kind === "table" ? "Surface" : "Background", fallback: "#ffffff" },
+                    ...(selected.kind === "table"
+                      ? [{ key: "stroke" as const, label: "Rules", fallback: "#e9ebef" }]
+                      : [{
+                          key: "accent" as const,
+                          label: (selected.chartKind ?? "column") === "line"
+                            ? "Line"
+                            : (selected.chartKind ?? "column") === "donut" ? "Ring" : "Bars",
+                          fallback: "#2d6fa8",
+                        }]),
+                  ]).map((f) => (
+                    <Box key={f.key} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography sx={{ fontSize: 11.5, color: "#5b6470" }}>{f.label}</Typography>
+                      <input
+                        type="color"
+                        value={selected[f.key] ?? f.fallback}
+                        onChange={(e) => patch(selected.id, { [f.key]: e.target.value }, f.key + "-" + selected.id)}
+                        style={colorInputStyle}
+                        title={f.label}
+                      />
+                      {selected[f.key] !== undefined && (
+                        <Tooltip title={"Back to the default " + f.label.toLowerCase()}>
+                          <IconButton size="small" onClick={() => patch(selected.id, { [f.key]: undefined })}>
+                            <RestartAltIcon sx={{ fontSize: 15, color: "#8a929c" }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  ))}
+                  <Tooltip title="Text size inside it">
+                    <TextField
+                      type="number"
+                      size="small"
+                      label="Text"
+                      value={selected.fontSize ?? 12}
+                      onChange={(e) => patch(selected.id, { fontSize: Math.max(7, Number(e.target.value) || 12) }, `fs-${selected.id}`)}
+                      inputProps={{ step: 1 }}
+                      sx={{ width: 92 }}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Corner radius">
+                    <TextField
+                      type="number"
+                      size="small"
+                      label="Corners"
+                      value={selected.cornerRadius ?? 0}
+                      onChange={(e) => patch(selected.id, { cornerRadius: Math.max(0, Number(e.target.value) || 0) }, `cr-${selected.id}`)}
+                      inputProps={{ step: 1 }}
+                      sx={{ width: 96 }}
+                    />
+                  </Tooltip>
+                  {/* A chart on a dark layout needs its labels light, and
+                      going field by field to do it is four clicks. */}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() =>
+                      patch(selected.id, {
+                        fill: "#ffffff",
+                        backgroundFill: undefined,
+                        ...(selected.kind === "table" ? { stroke: "rgba(255,255,255,.28)" } : {}),
+                      })
+                    }
+                    sx={{ fontWeight: 700 }}
+                  >
+                    For a dark background
+                  </Button>
                 </>
               )}
               {sec === "effects" && selected && (
