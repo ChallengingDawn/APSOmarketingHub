@@ -12,6 +12,8 @@ export type SecretFlows = { ok: true; flows: SecretFlow[]; checked: number; at: 
 
 const PORTAL = "26492587";
 const CACHE_MS = 20 * 60_000;
+/** HubSpot reads at most 25 workflows per batch request (it refused 50, 17.10.2026). */
+const BATCH = 25;
 let cache: { key: string; at: number; value: SecretFlows } | null = null;
 
 type Flow = { id: string | number; name?: string; isEnabled?: boolean; objectTypeId?: string; actions?: { type?: string; actionTypeId?: string; secretNames?: string[] }[] };
@@ -29,10 +31,10 @@ export async function flowsUsingSecret(secret = "TICKETS_TOKEN", refresh = false
       after = j.paging?.next?.after;
     } while (after && ids.length < 5000);
     const flows: SecretFlow[] = [];
-    for (let i = 0; i < ids.length; i += 50) {
+    for (let i = 0; i < ids.length; i += BATCH) {
       const j = await hubspotFetchJson<{ results?: Flow[] }>({
         path: "/automation/v4/flows/batch/read", method: "POST",
-        body: { inputs: ids.slice(i, i + 50).map((flowId) => ({ flowId, type: "FLOW_ID" })) },
+        body: { inputs: ids.slice(i, i + BATCH).map((flowId) => ({ flowId, type: "FLOW_ID" })) },
       });
       for (const f of j.results ?? []) {
         if (!(f.actions ?? []).some((a) => (a.secretNames ?? []).includes(secret))) continue;
@@ -77,10 +79,10 @@ export async function flowsUsingProperty(property: string, refresh = false): Pro
       after = j.paging?.next?.after;
     } while (after && ids.length < 5000);
     const flows: SecretFlow[] = [];
-    for (let i = 0; i < ids.length; i += 50) {
+    for (let i = 0; i < ids.length; i += BATCH) {
       const j = await hubspotFetchJson<{ results?: Flow[] }>({
         path: "/automation/v4/flows/batch/read", method: "POST",
-        body: { inputs: ids.slice(i, i + 50).map((flowId) => ({ flowId, type: "FLOW_ID" })) },
+        body: { inputs: ids.slice(i, i + BATCH).map((flowId) => ({ flowId, type: "FLOW_ID" })) },
       });
       for (const f of j.results ?? []) {
         if (f.objectTypeId && f.objectTypeId !== "0-5") continue; // ticket workflows only
