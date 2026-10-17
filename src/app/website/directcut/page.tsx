@@ -35,18 +35,21 @@ import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
+import { AMBER, CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice, RED } from "@/app/uc/report/ui";
+import { Bars } from "@/app/website/directup/shared";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import KanbanTab from "./KanbanTab";
 import ShelfTab from "./ShelfTab";
 import ShortagesTab from "./ShortagesTab";
 import RegistryTab from "./RegistryTab";
+import LeftoversTab from "./LeftoversTab";
+import type { Leftovers, SentLog } from "@/lib/directcut/leftovers";
 import type { BrokenWithTickets, Holds, Registry } from "./shared";
 import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
 
-type View = "overview" | "kanban" | "shortages" | "shelf" | "numbers" | "status";
+type View = "overview" | "kanban" | "leftovers" | "shortages" | "shelf" | "numbers" | "status";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", kanban: "#kanban", shortages: "#shortages", shelf: "#shelf", numbers: "#numbers", status: "#status",
+  overview: "#overview", kanban: "#kanban", leftovers: "#leftovers", shortages: "#shortages", shelf: "#shelf", numbers: "#numbers", status: "#status",
 };
 
 type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
@@ -105,6 +108,29 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
   /* FROM THE PIPELINE VIEW, NOT FROM HEALTH (SARCLA: "A-numbers resolved 0"). health.erpRefs describes
      the SWEEPER — runs, asked, written — and has no coverage figure in it at all, so reading `known` off
      it gave 0 while 1094 of 1095 lines actually carried an A-number. The view counts the lines. */
+  /* open work by WHEN it was promised — late, today, this week, later, undated. A board tells you what
+     there is; this tells you how much of it is already behind. */
+  const due = (() => {
+    const t = new Date().toISOString().slice(0, 10);
+    const week = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+    const n = { late: 0, today: 0, week: 0, later: 0, none: 0 };
+    for (const l of b.open) {
+      const d = l.date ? String(l.date).slice(0, 10) : null;
+      if (!d) n.none++;
+      else if (d < t) n.late++;
+      else if (d === t) n.today++;
+      else if (d <= week) n.week++;
+      else n.later++;
+    }
+    return [
+      { label: "Past its day", n: n.late, colour: RED },
+      { label: "Today", n: n.today, colour: AMBER },
+      { label: "Within a week", n: n.week },
+      { label: "Later", n: n.later },
+      { label: "No date", n: n.none, colour: FAINT },
+    ];
+  })();
+
   const refs = b.erpRefs;
   const pctRefs = refs.withOrderNo ? Math.round((100 * refs.known) / refs.withOrderNo) : null;
 
@@ -146,22 +172,33 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
         </Grid>
       </Grid>
 
+      {/* THE "WHERE THIS COMES FROM" CARD IS GONE (SARCLA, 17.10.2026: "go out completely"). It explained
+          why the tool stays on Railway and why this page is read-only — true, and worth knowing once, but
+          it is not information about the work and it took the bottom half of the first screen every time.
+          It lives in the commit history and in src/lib/directcut/gateway.ts instead. */}
+
       <Box sx={{ mt: 3 }}>
-        <GlassCard>
-          <CardTitle icon={<DnsOutlinedIcon fontSize="small" />} tint="slate" title="Where this comes from"
-            note="The cut-to-size tool runs on Railway and stays there; this page reads it." />
-          <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.75 }}>
-            The widget is framed by the shop, so it needs an address anonymous customers can reach — and this hub
-            answers only on the A+P network. The middleware is also the <b>reservation authority</b>: its holds and
-            its cut ledger live in memory and are rehydrated from Postgres at boot, so a second copy of it would
-            promise the same plate area to two customers with nothing to catch it.
-          </Typography>
-          <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.75, mt: 1.5 }}>
-            That is why this page is read-only. It shows what the tool is doing; <b>acting</b> on a line — a stage
-            move, a cancellation — stays in the Railway dashboard.
-          </Typography>
-        </GlassCard>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <GlassCard>
+              <CardTitle icon={<HandymanOutlinedIcon fontSize="small" />} tint="blue" title="What the workshop is holding"
+                note="open work by what has to be done to it" />
+              <Bars rows={[
+                { label: "Sent to machine", n: work.saw, note: "cut from a plate" },
+                { label: "Leftover", n: work.pick, note: "picked whole off the shelf", colour: GREEN },
+              ]} />
+            </GlassCard>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <GlassCard>
+              <CardTitle icon={<ContentCutOutlinedIcon fontSize="small" />} tint="slate" title="When it was promised"
+                note="open lines by the day the customer was given" />
+              <Bars rows={due} />
+            </GlassCard>
+          </Grid>
+        </Grid>
       </Box>
+
     </>
   );
 }
@@ -303,12 +340,14 @@ export default function DirectCutPage() {
   const boardHeld = useHeld<BoardPayload>(`/api/website/directcut?part=board&done=${doneShown}&n=${nonce}`, [nonce, doneShown]);
   const [regQ, setRegQ] = useState("");
   const regHeld = useHeld<{ registry: Registry; holds: Holds }>(`/api/website/directcut?part=registry&q=${encodeURIComponent(regQ)}&n=${nonce}`, [nonce, regQ]);
+  const leftHeld = useHeld<Leftovers & { sent: SentLog; canMail: boolean; isAdmin: boolean }>(`/api/website/directcut?part=leftovers&n=${nonce}`, [nonce]);
   const brokenHeld = useHeld<{ broken: BrokenWithTickets; isAdmin: boolean }>(`/api/website/directcut?part=promises&n=${nonce}`, [nonce]);
   const statusHeld = useHeld<Status>(`/api/website/directcut?part=status&n=${nonce}`, [nonce]);
   const r = boardHeld.result;
   const s = statusHeld.result?.state === "ok" ? statusHeld.result.data : null;
   const bro = brokenHeld.result?.state === "ok" ? brokenHeld.result.data : null;
   const reg = regHeld.result?.state === "ok" ? regHeld.result.data : null;
+  const left = leftHeld.result?.state === "ok" ? leftHeld.result.data : null;
   const b = r?.state === "ok" ? r.data.board : null;
 
   const work = b ? countWork(b.open) : null;
@@ -317,6 +356,7 @@ export default function DirectCutPage() {
     /* ONE BOARD, NOT TWO LISTS (SARCLA, 17.10.2026: "Open work and cut done should be only one TAB Cut
        Kanban and where we should see the dates"). */
     { id: "kanban" as View, label: "Cut Kanban", count: b ? String(b.open.length) : null },
+    { id: "leftovers" as View, label: "Leftovers to pack", count: left ? String(left.ready) : null },
     { id: "shortages" as View, label: "Shortages", count: bro ? String(bro.broken.orders.length) : null },
     { id: "shelf" as View, label: "The shelf", count: b ? String(b.stock.length) : null },
     { id: "numbers" as View, label: "Articles & holds", count: reg ? String(reg.registry.total) : null },
@@ -337,6 +377,11 @@ export default function DirectCutPage() {
           {tab === "overview" && <Overview b={board} s={s} />}
           {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal}
             onMore={() => setDoneShown((n) => Math.min(2000, n + 400))} loadingMore={boardHeld.stale} />}
+          {tab === "leftovers" && (left
+            ? <LeftoversTab data={left} isAdmin={left.isAdmin} onDone={reload} />
+            : leftHeld.result?.state === "error"
+              ? <UpstreamPanel source="C2S middleware" error={leftHeld.result.error} status={leftHeld.result.status} onRetry={reload} />
+              : <LoadingPanel label="Looking for orders that are a leftover on their own…" />)}
           {tab === "shortages" && (bro
             ? <ShortagesTab broken={bro.broken} isAdmin={bro.isAdmin} onDone={reload} />
             : brokenHeld.result?.state === "error"

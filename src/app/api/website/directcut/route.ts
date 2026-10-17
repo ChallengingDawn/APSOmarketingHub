@@ -7,7 +7,7 @@
 // the Back Office ticket for a promise the shelf cannot keep - that writes to HubSpot, not to the shelf.
 //
 // Same three answers as every integration route: not configured, upstream failed (with the reason), or data.
-//   GET  ?part=board | status | promises | registry
+//   GET  ?part=board | status | promises | registry | leftovers
 //   POST { action: "gateway", url } | { action: "tickets", dry }
 //
 // The ticket action is the one thing here that writes anywhere, and it writes to HubSpot, not to the
@@ -19,6 +19,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { adminKey, board, gatewaySetting, holds, registry, setGateway, status } from "@/lib/directcut/gateway";
 import { brokenWithTickets, runPromiseTickets } from "@/lib/directcut/tickets";
+import { fetchLeftovers, mailLeftovers } from "@/lib/directcut/leftovers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,10 @@ export async function GET(req: NextRequest) {
       /* what the shelf can no longer cover, computed on the shelf as it stands */
       return NextResponse.json({ configured: true, ok: true, data: { broken: await brokenWithTickets(), isAdmin } });
     }
+    if (part === "leftovers") {
+      /* orders that are a leftover and nothing else, with the Lagerplatz and the mail AVOR would get */
+      return NextResponse.json({ configured: true, ok: true, data: { ...(await fetchLeftovers()), isAdmin } });
+    }
     if (part === "registry") {
       /* the numbers we minted, and the area a basket is sitting on - both were on the Railway dashboard */
       const q = (req.nextUrl.searchParams.get("q") || "").slice(0, 80);
@@ -69,7 +74,7 @@ export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
-  const body = (await req.json().catch(() => ({}))) as { action?: string; url?: unknown; dry?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { action?: string; url?: unknown; dry?: unknown; erpNo?: unknown };
   const me = await requireUser();
   const who = me.full_name || me.username;
   try {
@@ -78,6 +83,16 @@ export async function POST(req: NextRequest) {
       const setting = await setGateway(body.url, who);
       console.log(`[directcut] gateway address set to ${setting.url} by ${who}`);
       return NextResponse.json({ ok: true, data: { setting } });
+    }
+    if (body.action === "avor") {
+      /* DRY UNLESS ASKED OTHERWISE: this reaches a shared mailbox a person reads, and a mail cannot be
+         unsent. An order already told is never told twice (the kv remembers by A-number). */
+      const dry = body.dry !== false;
+      const erpNo = typeof body.erpNo === "string" ? body.erpNo : undefined;
+      const data = await mailLeftovers({ dry, erpNo, who });
+      console.log(`[directcut] AVOR mail ${dry ? "rehearsed" : "sent"} by ${who}: ` +
+        `${data.sent} sent, ${data.already} already, ${data.skipped} skipped, ${data.failed} failed`);
+      return NextResponse.json({ ok: true, data });
     }
     if (body.action === "tickets") {
       /* DRY UNLESS ASKED OTHERWISE. The thing this mails about cannot be unmailed, so a run that was
