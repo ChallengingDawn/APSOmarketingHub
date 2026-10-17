@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { byMonth, citeRate, isOwnUrl, latestByPrompt, mentionRate, r10Series, runOf, shareOfVoice, sumsBetween, type AeoRun } from "../src/lib/aeo/model";
+import { assistantName, assistantsIn, byMonth, citeRate, isOwnUrl, latestByPrompt, mentionRate, namesIn, r10Series, runOf, shareOfVoice, sumsBetween, type AeoRun } from "../src/lib/aeo/model";
 
 test("our pages: apsoparts.com and angst-pfister.com, sub-domains too - not look-alikes", () => {
   assert.equal(isOwnUrl("https://www.apsoparts.com/de-ch/o-rings"), true);
@@ -54,4 +54,12 @@ test("R10: answers, those naming APSO and the share per month, this year and las
   assert.equal(s.R10.months[9], 0.5);
   assert.equal(s.R10.py[9], 1);
   assert.equal(s.R10.months[0], null);
+});
+
+test("the assistants that answered, Perplexity among them, in the pages' order", () => {
+  const r = (model: string) => ({ id: model, promptId: "p", model, at: "2026-10-01T00:00:00Z", owned: 0, competitor: 0, citations: 0, ownCited: null });
+  const runs = [r("PERPLEXITY"), r("CHATGPT"), r("GEMINI"), r("COPILOT")];
+  assert.deepEqual(assistantsIn(runs), ["CHATGPT", "GEMINI", "PERPLEXITY", "COPILOT"]);
+  assert.equal(namesIn(runs.slice(0, 3)), "ChatGPT, Gemini and Perplexity");
+  assert.equal(assistantName("COPILOT"), "Copilot");
 });

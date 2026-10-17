@@ -2,7 +2,7 @@
 // AEO sub-app and the Reach KPI R10 draw (SARCLA 17.10: "integrate the AEO, then bring
 // the GEO positions to the reports").
 //
-// HubSpot's AEO tool asks ChatGPT, Gemini and Claude the questions (prompts) set up in
+// HubSpot's AEO tool asks the AI assistants (ChatGPT, Gemini, Perplexity) the questions set up in
 // it, again and again. Each answer is a run: whether it named APSO (owned mentions),
 // named competitors, and which pages it cited. The API keeps them for a while; the hub
 // keeps every run it has read, so the months build up (SARCLA: "have the data in our
@@ -48,9 +48,20 @@ export function isOwnUrl(url: string | null | undefined): boolean {
   } catch { return false; }
 }
 
-export const ASSISTANTS = ["CHATGPT", "GEMINI", "CLAUDE"] as const;
-export const ASSISTANT_NAME: Record<string, string> = { CHATGPT: "ChatGPT", GEMINI: "Gemini", CLAUDE: "Claude" };
-export const assistantName = (m: string) => ASSISTANT_NAME[m?.toUpperCase()] ?? m;
+/** The assistants in the order the pages show them; any other HubSpot adds comes after. */
+export const ASSISTANTS = ["CHATGPT", "GEMINI", "PERPLEXITY", "CLAUDE"] as const;
+export const ASSISTANT_NAME: Record<string, string> = { CHATGPT: "ChatGPT", GEMINI: "Gemini", PERPLEXITY: "Perplexity", CLAUDE: "Claude" };
+export const assistantName = (m: string) => ASSISTANT_NAME[m?.toUpperCase()] ?? m.charAt(0) + m.slice(1).toLowerCase();
+/** The assistants that answered (SARCLA 17.10: the prompts run on Perplexity too). */
+export function assistantsIn(runs: AeoRun[]): string[] {
+  const seen = new Set(runs.map((r) => r.model).filter(Boolean));
+  return [...ASSISTANTS.filter((a) => seen.has(a)), ...[...seen].filter((m) => !(ASSISTANTS as readonly string[]).includes(m)).sort()];
+}
+/** "ChatGPT, Gemini and Perplexity" */
+export function namesIn(runs: AeoRun[]): string {
+  const n = assistantsIn(runs).map(assistantName);
+  return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n[0] ?? "the AI assistants";
+}
 
 /** HubSpot's run, as the hub keeps it. */
 export function runOf(r: Record<string, unknown>, ownCited: number | null = null): AeoRun | null {

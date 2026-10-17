@@ -1,5 +1,5 @@
 "use client";
-// AI ANSWERS (AEO) - OVERVIEW: how often ChatGPT, Gemini and Claude name APSO when asked
+// AI ANSWERS (AEO) - OVERVIEW: how often the AI assistants (ChatGPT, Gemini, Perplexity) name APSO when asked
 // the prompts set up in HubSpot's AEO, against competitors, and how often they cite our
 // pages - the last 30 days against the 30 before, per assistant, and month by month.
 
@@ -15,10 +15,10 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED } from "@/app/uc/report/ui";
-import { ASSISTANTS, assistantName, byMonth, citeRate, mentionRate, shareOfVoice, sumsBetween, type Sums } from "@/lib/aeo/model";
+import { assistantName, assistantsIn, byMonth, citeRate, mentionRate, shareOfVoice, sumsBetween, type Sums } from "@/lib/aeo/model";
 import { AeoHeader, AeoWaiting, Note, int, pct, useAeo } from "./AeoUi";
 
-const COLOR: Record<string, string> = { CHATGPT: "#10a37f", GEMINI: "#4285f4", CLAUDE: "#d97757" };
+const COLOR: Record<string, string> = { CHATGPT: "#10a37f", GEMINI: "#4285f4", PERPLEXITY: "#20808d", CLAUDE: "#d97757" };
 const iso = (d: Date) => d.toISOString();
 const points = (a: number | null, b: number | null) => (a == null || b == null ? null : a - b);
 
@@ -35,7 +35,7 @@ export default function AeoOverview() {
     const m = byMonth(d.runs);
     return Object.keys(m).sort().slice(-12).map((k) => ({
       month: new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" }),
-      ...Object.fromEntries(ASSISTANTS.map((a) => [assistantName(a), m[k].by[a] ? Math.round((mentionRate(m[k].by[a]) ?? 0) * 1000) / 10 : null])),
+      ...Object.fromEntries(assistantsIn(d.runs).map((a) => [assistantName(a), m[k].by[a] ? Math.round((mentionRate(m[k].by[a]) ?? 0) * 1000) / 10 : null])),
     }));
   }, [d]);
 
@@ -45,7 +45,7 @@ export default function AeoOverview() {
     const x = points(a, b);
     return x == null ? "no 30 days before to compare" : `${x > 0 ? "↑" : x < 0 ? "↓" : "±"} ${Math.abs(x * 100).toFixed(1)} pts against the 30 days before (${pct(b)})`;
   };
-  const used = ASSISTANTS.filter((a) => d.runs.some((r) => r.model === a));
+  const used = assistantsIn(d.runs);
   return (
     <>
       <AeoHeader title="AI answers (AEO)" data={d} />

@@ -9,9 +9,10 @@ import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 
 import PageHeader from "@/app/PageHeader";
-import { FAINT, GlassCard, INK, MUTED, RED } from "@/app/uc/report/ui";
+import { FAINT, GlassCard, MUTED, RED } from "@/app/uc/report/ui";
+import { HAIRLINE as SEO_HAIRLINE, INK as SEO_INK, MUTED as SEO_MUTED, NAVY, SURFACE } from "@/app/seo/ui";
 import { useSlow } from "@/app/reporting/marketing-kpis/data";
-import type { AeoData } from "@/lib/aeo/model";
+import { namesIn, type AeoData } from "@/lib/aeo/model";
 
 export const useAeo = () => useSlow<AeoData>("/api/aeo", "aeo");
 
@@ -30,19 +31,21 @@ const PAGES = [
 export function AeoHeader({ title, data }: { title: string; data: AeoData | null }) {
   const path = usePathname();
   const sub = data
-    ? `What ChatGPT, Gemini and Claude answer to the ${int(data.prompts.length)} prompts in HubSpot's AEO · ${int(data.runs.length)} answers kept in the hub${data.since ? ` since ${day(data.since)}` : ""} · read ${day(data.generatedAt)}`
-    : "What ChatGPT, Gemini and Claude answer to the prompts in HubSpot's AEO";
+    ? `What ${namesIn(data.runs)} answer to the ${int(data.prompts.length)} prompts in HubSpot's AEO · ${int(data.runs.length)} answers kept in the hub${data.since ? ` since ${day(data.since)}` : ""} · read ${day(data.generatedAt)}`
+    : "What the AI assistants answer to the prompts in HubSpot's AEO";
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
       <PageHeader title={title} subtitle={sub} />
-      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+      {/* the same strip the SEO sub-apps use (seo/Shell.tsx SubNav) - SARCLA 17.10: "tabs are different than in SEO" */}
+      <Box component="nav" aria-label="AEO pages" sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, p: 0.75, borderRadius: 2.5, bgcolor: SURFACE, border: `1px solid ${SEO_HAIRLINE}` }}>
         {PAGES.map((p) => {
           const on = path === p.href;
           return (
-            <Box key={p.href} component={Link} href={p.href} sx={{
-              px: 1.75, py: 0.8, borderRadius: "12px", fontSize: "0.86rem", fontWeight: 600, textDecoration: "none",
-              color: on ? "#2459d1" : MUTED, bgcolor: on ? "#e6edfd" : "rgba(255,255,255,.7)", border: "1px solid rgba(21,34,58,.08)",
-              "&:hover": { color: on ? "#2459d1" : INK },
+            <Box key={p.href} component={Link} href={p.href} aria-current={on ? "page" : undefined} sx={{
+              display: "flex", alignItems: "center", px: { xs: 1.5, md: 2 }, py: 1.05, borderRadius: 2, textDecoration: "none", whiteSpace: "nowrap",
+              fontSize: "0.875rem", fontWeight: 600, color: on ? "#fff" : SEO_MUTED, bgcolor: on ? NAVY : "transparent",
+              boxShadow: on ? "0 1px 3px rgba(26,29,33,0.18)" : "none", transition: "background-color 120ms, color 120ms",
+              "&:hover": { bgcolor: on ? NAVY : "rgba(255,255,255,0.85)", color: on ? "#fff" : SEO_INK },
             }}>{p.label}</Box>
           );
         })}
@@ -52,7 +55,9 @@ export function AeoHeader({ title, data }: { title: string; data: AeoData | null
 }
 
 /** While the first read runs, or why it could not. */
-export function AeoWaiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
+export function AeoWaiting({ computing, progress, error: lastError }: { computing: boolean; progress?: string; error?: string }) {
+  // while the hub reads again, an earlier failure is not the answer (17.10: the refusal from before the app was re-authorised stayed up)
+  const error = computing ? undefined : lastError;
   const scope = error && /scope|403|MISSING_SCOPES/i.test(error);
   return (
     <GlassCard>

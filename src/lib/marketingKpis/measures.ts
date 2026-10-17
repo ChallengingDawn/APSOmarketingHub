@@ -71,7 +71,7 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "R07", label: "SEO average position", fmt: "dec1", agg: { kind: "wavg", weight: "R04" }, origin: "live", likeForLike: true, liveSource: "Search Console", goodWhenUp: false, note: "Lower is better" }),
   M({ id: "R08", label: "Brand share of search clicks", fmt: "pct", agg: { kind: "ratio", num: "R08B", den: "R05" }, origin: "live", likeForLike: true, liveSource: "Search Console", definition: "Share of Google search clicks from searches naming APSO, Angst or Pfister" }),
   // GEO: the share of AI answers naming APSO, from HubSpot's AEO prompts as the hub keeps them (SARCLA 17.10)
-  M({ id: "R10", label: "AI search visibility (GEO)", fmt: "pct", agg: { kind: "ratio", num: "R10N", den: "R10D" }, origin: "live", liveSource: "HubSpot AEO", definition: "Share of the answers by ChatGPT, Gemini and Claude to the AEO prompts that named APSO", note: "Details on Marketing & Content > AI answers (AEO)" }),
+  M({ id: "R10", label: "AI search visibility (GEO)", fmt: "pct", agg: { kind: "ratio", num: "R10N", den: "R10D" }, origin: "live", liveSource: "HubSpot AEO", definition: "Share of the AI assistants' answers to the AEO prompts (ChatGPT, Gemini, Perplexity) that named APSO", note: "Details on Marketing & Content > AI answers (AEO)" }),
   M({ id: "R10N", label: "AI answers naming APSO", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10D", label: "AI answers", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", notCatalogue: true }),

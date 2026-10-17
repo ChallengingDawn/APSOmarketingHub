@@ -13,7 +13,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import QuestionAnswerOutlinedIcon from "@mui/icons-material/QuestionAnswerOutlined";
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { ASSISTANTS, assistantName, isOwnUrl, latestByPrompt, type AeoRun } from "@/lib/aeo/model";
+import { assistantName, assistantsIn, isOwnUrl, latestByPrompt, type AeoRun } from "@/lib/aeo/model";
 import { AeoHeader, AeoWaiting, Note, day, int, useAeo } from "../AeoUi";
 
 type Detail = { responseText: string | null; citations: { url: string; title: string | null }[]; searchQueries: string[] };
@@ -63,7 +63,7 @@ export default function AeoPrompts() {
   const [open, setOpen] = useState<string | null>(null);
   const latest = useMemo(() => (d ? latestByPrompt(d.runs) : new Map<string, Map<string, AeoRun>>()), [d]);
   if (!d) return (<><AeoHeader title="Prompts and answers" data={null} /><AeoWaiting computing={computing} progress={progress} error={error} /></>);
-  const used = ASSISTANTS.filter((a) => d.runs.some((r) => r.model === a));
+  const used = assistantsIn(d.runs);
   const rows = d.prompts.filter((p) => !q || p.prompt.toLowerCase().includes(q.toLowerCase()));
   const cols = `minmax(260px, 2.4fr) repeat(${used.length}, minmax(130px, 1fr)) 28px`;
   return (
