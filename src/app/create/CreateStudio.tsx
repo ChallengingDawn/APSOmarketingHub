@@ -61,6 +61,7 @@ import FloatingAssistant from "@/app/projects/FloatingAssistant";
 import StudioChrome from "./StudioChrome";
 import PageStrip from "./PageStrip";
 import type { DesignDocument } from "@/lib/design-document";
+import { LANGUAGES } from "@/lib/content/languages";
 import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { layoutsFor } from "@/lib/content/layouts";
 
@@ -120,7 +121,7 @@ const CHANNELS = [
   { key: "seo", label: "SEO", icon: <TravelExploreIcon fontSize="small" /> },
 ];
 
-const LANGS = ["EN", "DE", "FR", "IT", "NL", "PL", "ES"];
+
 const NAVY = "#274e64";
 const RED = "#ed1b2f";
 
@@ -850,8 +851,10 @@ export default function CreateStudio({
                   <Grid container spacing={1.25} sx={{ mb: 1.5 }}>
                     <Grid size={6}>
                       <TextField select fullWidth size="small" label="Language" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                        {LANGS.map((l) => (
-                          <MenuItem key={l} value={l}>{l}</MenuItem>
+                        {/* One list, shared with the translator: two lists
+                            disagree the first time somebody adds a language. */}
+                        {LANGUAGES.map((l) => (
+                          <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
                         ))}
                       </TextField>
                     </Grid>

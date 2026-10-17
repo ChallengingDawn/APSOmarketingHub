@@ -31,11 +31,24 @@ import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import ArchiveOutlinedIcon from "@mui/icons-material/ArchiveOutlined";
 import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import AddIcon from "@mui/icons-material/Add";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
+import CircularProgress from "@mui/material/CircularProgress";
+import Snackbar from "@mui/material/Snackbar";
+import Alert from "@mui/material/Alert";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import TranslateIcon from "@mui/icons-material/Translate";
 import FloatingAssistant from "./FloatingAssistant";
 import Link from "next/link";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app/uc/report/ui";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
+import { LANGUAGES, languageLabel } from "@/lib/content/languages";
+import {
+  markdownFor, pdfLinesFor, plainTextFor, slugFor, wordHtmlFor, type ExportVariant,
+} from "@/lib/content/exportVariant";
 import ShareDialog, { Face } from "./ShareDialog";
 
 type Variant = {
@@ -110,6 +123,15 @@ export default function ProjectBoard({ id }: { id: number }) {
   const [editingBrief, setEditingBrief] = useState(false);
   const [briefDraft, setBriefDraft] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
+  const [exporting, setExporting] = useState<{ id: number; at: HTMLElement } | null>(null);
+  const [translating, setTranslating] = useState<{ id: number; at: HTMLElement } | null>(null);
+  // Which version is in the middle of a translation. One at a time, by the
+  // card rather than globally, so the other versions stay usable.
+  const [busyVariant, setBusyVariant] = useState<number | null>(null);
+  const [copied, setCopied] = useState<number | null>(null);
+  // NOT setError: that one is an early return and replaces the whole board.
+  // A failed export is a passing remark, not the end of the page.
+  const [notice, setNotice] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -155,6 +177,98 @@ export default function ProjectBoard({ id }: { id: number }) {
   const canEdit = access?.canEdit !== false;
   const archived = project?.status === "archived";
   const general = comments.filter((c) => c.variantId === null);
+
+  const translatingSource = variants.find((v) => v.id === translating?.id) ?? null;
+
+  /** The browser's own download, from a blob we made here. */
+  const saveFile = (name: string, mime: string, text: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    // Revoked on the next tick, not immediately: Safari has not started
+    // reading the blob yet when click() returns.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const runExport = async (format: "copy" | "md" | "doc" | "pdf") => {
+    const v = variants.find((x) => x.id === exporting?.id);
+    setExporting(null);
+    if (!v) return;
+    const payload: ExportVariant = {
+      label: v.label, title: v.title, body: v.body,
+      language: v.language, channel: v.channel, createdBy: v.createdBy,
+    };
+    const stem = slugFor(project.title, v.label ?? v.language);
+
+    if (format === "copy") {
+      try {
+        await navigator.clipboard.writeText(plainTextFor(payload));
+        // A copy with no feedback is indistinguishable from a click that
+        // missed, so the icon says so for a moment.
+        setCopied(v.id);
+        setTimeout(() => setCopied((c) => (c === v.id ? null : c)), 1600);
+      } catch {
+        setNotice("The browser would not let the hub write to the clipboard.");
+      }
+      return;
+    }
+    if (format === "md") return saveFile(`${stem}.md`, "text/markdown", markdownFor(project.title, payload));
+    if (format === "doc") {
+      return saveFile(`${stem}.doc`, "application/msword", wordHtmlFor(project.title, payload));
+    }
+
+    try {
+      // Loaded here rather than imported: nobody who never exports a PDF
+      // should download the PDF writer to open a project.
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "pt", format: "a4", compress: true });
+      const margin = 56;
+      const width = doc.internal.pageSize.getWidth() - margin * 2;
+      const bottom = doc.internal.pageSize.getHeight() - margin;
+      let y = margin;
+      for (const line of pdfLinesFor(project.title, payload)) {
+        doc.setFont("helvetica", line.bold ? "bold" : "normal");
+        doc.setFontSize(line.size);
+        y += line.gapBefore;
+        // Wrapped by the writer, which knows the real glyph widths.
+        for (const row of doc.splitTextToSize(line.text, width) as string[]) {
+          if (y > bottom) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.text(row, margin, y);
+          y += line.size * 1.35;
+        }
+      }
+      doc.save(`${stem}.pdf`);
+    } catch {
+      setNotice("The PDF could not be made. Markdown and Word still work.");
+    }
+  };
+
+  const translate = async (code: string) => {
+    const vid = translating?.id;
+    setTranslating(null);
+    if (!vid) return;
+    setBusyVariant(vid);
+    try {
+      const j = await fetch(`/api/content/projects/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "translate", variantId: vid, language: code }),
+      }).then((r) => r.json());
+      // A failed translation says why. "Nothing happened" after twenty
+      // seconds of a spinner is the worst of the possible outcomes.
+      if (!j.ok) setNotice(j.error || `The ${languageLabel(code)} version could not be made.`);
+      else load();
+    } catch {
+      setNotice(`The ${languageLabel(code)} version could not be made.`);
+    } finally {
+      setBusyVariant(null);
+    }
+  };
 
   return (
     <Box>
@@ -289,6 +403,42 @@ export default function ProjectBoard({ id }: { id: number }) {
           </Button>
         )}
       </GlassCard>
+      <Snackbar open={!!notice} autoHideDuration={6000} onClose={() => setNotice(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        <Alert severity="warning" variant="filled" onClose={() => setNotice(null)}
+          sx={{ borderRadius: "12px", fontSize: "0.84rem" }}>{notice}</Alert>
+      </Snackbar>
+
+      <Menu open={!!exporting} anchorEl={exporting?.at ?? null} onClose={() => setExporting(null)}
+        slotProps={{ paper: { sx: { borderRadius: "12px", minWidth: 210 } } }}>
+        <MenuItem onClick={() => runExport("copy")} sx={{ fontSize: "0.85rem" }}>
+          <ListItemText primary="Copy the text" secondary="To paste into the next tool"
+            slotProps={{ primary: { fontSize: "0.85rem" }, secondary: { fontSize: "0.72rem" } }} />
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => runExport("md")} sx={{ fontSize: "0.85rem" }}>
+          <ListItemText primary="Markdown (.md)" secondary="For the CMS"
+            slotProps={{ primary: { fontSize: "0.85rem" }, secondary: { fontSize: "0.72rem" } }} />
+        </MenuItem>
+        <MenuItem onClick={() => runExport("doc")} sx={{ fontSize: "0.85rem" }}>
+          <ListItemText primary="Word (.doc)" secondary="Opens in Word, with the headings"
+            slotProps={{ primary: { fontSize: "0.85rem" }, secondary: { fontSize: "0.72rem" } }} />
+        </MenuItem>
+        <MenuItem onClick={() => runExport("pdf")} sx={{ fontSize: "0.85rem" }}>
+          <ListItemText primary="PDF" secondary="To send to somebody who should not edit it"
+            slotProps={{ primary: { fontSize: "0.85rem" }, secondary: { fontSize: "0.72rem" } }} />
+        </MenuItem>
+      </Menu>
+
+      <Menu open={!!translating} anchorEl={translating?.at ?? null} onClose={() => setTranslating(null)}
+        slotProps={{ paper: { sx: { borderRadius: "12px", minWidth: 190 } } }}>
+        {LANGUAGES.filter((l) => l.code !== (translatingSource?.language ?? "").toUpperCase()).map((l) => (
+          <MenuItem key={l.code} onClick={() => void translate(l.code)} sx={{ fontSize: "0.85rem" }}>
+            {l.label}
+          </MenuItem>
+        ))}
+      </Menu>
+
       <ShareDialog projectId={id} title={project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={me} />
 
       {/* The assistant is a window now, not a region. It was a panel here, a
@@ -374,6 +524,21 @@ export default function ProjectBoard({ id }: { id: number }) {
                           stays in the library, because removing the wrong one
                           from six near-identical drafts is a question of when,
                           not if. */}
+                      <Tooltip title="Export it — copy, Markdown, Word or PDF">
+                        <IconButton size="small" onClick={(e) => setExporting({ id: v.id, at: e.currentTarget })}>
+                          {copied === v.id
+                            ? <CheckCircleIcon sx={{ fontSize: 17, color: "#1b7a55" }} />
+                            : <FileDownloadOutlinedIcon sx={{ fontSize: 17, color: FAINT }} />}
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Translate it into another language, as a new version beside this one">
+                        <IconButton size="small" disabled={busyVariant === v.id}
+                          onClick={(e) => setTranslating({ id: v.id, at: e.currentTarget })}>
+                          {busyVariant === v.id
+                            ? <CircularProgress size={14} sx={{ color: FAINT }} />
+                            : <TranslateIcon sx={{ fontSize: 17, color: FAINT }} />}
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Take it out of this project — it stays in the library">
                         <IconButton size="small" onClick={() => post({ action: "remove-variant", variantId: v.id })}>
                           <RemoveCircleOutlineIcon sx={{ fontSize: 17, color: FAINT }} />

@@ -11,6 +11,9 @@ import {
   addComment, addVariant, archiveProject, attachVariant, chooseVariant, duplicateVariant,
   getProject, labelVariant, removeVariant, setFolder, starProject, updateProject,
 } from "@/lib/content/projects";
+import { getAnthropic } from "@/lib/ai/claude";
+import { translateVariant } from "@/lib/content/translate";
+import { LANGUAGE_BY_CODE, translatedLabel } from "@/lib/content/languages";
 import { accessFor, membersOf } from "@/lib/content/sharing";
 
 export const runtime = "nodejs";
@@ -90,6 +93,61 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (action === "archive") {
     await archiveProject(id, body.archived !== false);
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "translate") {
+    const variantId = typeof body.variantId === "number" ? body.variantId : null;
+    const to = (str("language") ?? "").toUpperCase();
+    if (variantId === null) return NextResponse.json({ ok: false, error: "Which version?" }, { status: 400 });
+    if (!LANGUAGE_BY_CODE[to]) {
+      return NextResponse.json({ ok: false, error: "That is not one of the languages we write in." }, { status: 400 });
+    }
+
+    const found = await getProject(id);
+    const source = found?.variants.find((v) => v.id === variantId);
+    if (!source) {
+      return NextResponse.json({ ok: false, error: "That version is not in this project." }, { status: 404 });
+    }
+    // Translating a version into the language it is already in produces a
+    // duplicate that reads as a second opinion. Refuse, and say which.
+    if ((source.language ?? "").toUpperCase() === to) {
+      return NextResponse.json(
+        { ok: false, error: `That version is already in ${LANGUAGE_BY_CODE[to].label}.` },
+        { status: 400 },
+      );
+    }
+
+    const client = getAnthropic();
+    if (!client) {
+      return NextResponse.json({ ok: false, error: "No API key is configured for generation." }, { status: 503 });
+    }
+
+    const out = await translateVariant({
+      client,
+      channel: source.channel,
+      targetCode: to,
+      sourceLanguage: source.language,
+      title: source.title,
+      body: source.body,
+    });
+    if (!out.ok) {
+      return NextResponse.json({ ok: false, error: out.failure.error }, { status: out.failure.status });
+    }
+
+    const made = await addVariant({
+      projectId: id,
+      channel: source.channel,
+      contentType: source.contentType,
+      language: to,
+      label: translatedLabel(source.label, to),
+      title: out.result.title,
+      body: out.result.body,
+      // The image is the same image: a translation of the copy is not a
+      // reason to generate a second picture of the same product.
+      imageUrl: source.imageUrl,
+      by: me.username,
+    });
+    return NextResponse.json({ ok: true, variant: made });
   }
 
   if (action === "folder") {
