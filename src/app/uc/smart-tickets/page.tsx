@@ -32,13 +32,14 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, usePaged, when } from "@/app/connectors/parts";
 import type { SubTicket } from "@/lib/smartTickets/report";
+import FormEditor from "./FormEditor";
 
 type Data = {
   totals: { created: number; capped: boolean; gqs: number; gqsComplete: number; hubApp: number; oldApp: number; people: number };
   byPipeline: Record<string, number>; rows: SubTicket[]; from: string; to: string;
 };
-type View = "overview" | "cards";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", cards: "#cards" };
+type View = "overview" | "form" | "cards";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", form: "#create-form", cards: "#cards" };
 
 /** The cards, where they sit in HubSpot (all in the app "SARCLA - APSOMarketingHub"). */
 const CARDS: [string, string, string][] = [
@@ -146,7 +147,8 @@ export default function SmartTickets() {
   const r = held.result;
 
   let body: React.ReactNode;
-  if (view === "cards") body = <Box id="smarttickets-panel-cards" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Cards /></Box>;
+  if (view === "form") body = <Box id="smarttickets-panel-form" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><FormEditor /></Box>;
+  else if (view === "cards") body = <Box id="smarttickets-panel-cards" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Cards /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the sub-tickets…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Smart sub-tickets" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   else body = <Box id="smarttickets-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} /></Box>;
@@ -169,6 +171,7 @@ export default function SmartTickets() {
       <Box>
         <ReportTabs name="smarttickets" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: r?.state === "ok" ? full(r.data.totals.created) : null },
+          { id: "form", label: "Create form", count: null },
           { id: "cards", label: "Cards & rules", count: null },
         ]} />
       </Box>
