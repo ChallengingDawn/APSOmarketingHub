@@ -45,6 +45,7 @@ import { FilterPanel, FilterSection } from "./FilterPanel";
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
 import { kpiSummary } from "./tiles/summary";
+import { WithActions } from "./tiles/WithActions";
 import type { TileSpec } from "./tiles/registry";
 import { useMarketingKpis } from "./data";
 
@@ -169,11 +170,11 @@ function CountryVisibility({ live, v, win, chosen, actions }: { live: LiveKpis; 
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf("R09")}</Typography>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Which markets see us?</Typography>
         </Box>
-        {actions && <Box sx={{ flex: "0 0 auto" }}>{actions}</Box>}
         <Box sx={{ textAlign: "right" }}>
           <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)} · clicks from the {chosen.length ? "chosen countries" : "focus markets"}</Typography>
         </Box>
+        {actions && <Box sx={{ flex: "0 0 auto" }}>{actions}</Box>}
       </Box>
       <Compare v={v} />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -549,9 +550,8 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
     <TileActions where="tab" start={ids.includes(id) ? "nutshell" : "tab"}
       tile={{ key: `reach::${id}`, page: "reach", tab, kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), filters: country, ...months, kind: "kpi" }} />
   );
-  const act = (key: string, title: string) => (
-    <TileActions where="tab" start="tab" tile={{ key: `reach:${tab}:${key}`, page: "reach", tab, title, summary: `${monthsLabel(win)} ${year}`, filters: country, ...months, kind: "card" }} />
-  );
+  const tileOf = (key: string, title: string) => ({ key: `reach:${tab}:${key}`, page: "reach", tab, title, summary: `${monthsLabel(win)} ${year}`, filters: country, ...months, kind: "card" as const });
+  const act = (key: string, title: string) => <TileActions where="tab" start="tab" tile={tileOf(key, title)} />;
   const card = (id: string) => {
     const v = views[id];
     if (!v || (!ids.includes(id) && !MICROSOFT_LIVE.includes(id) && !MICROSOFT_TYPED.includes(id))) return null;
@@ -655,8 +655,8 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         : card("R09"))}
       {tab === "countries" && (live.breakdowns.searchCountries.length > 0 || live.breakdowns.searchCountryMonths) && <SearchCountries live={live} win={win} chosen={countries} onPick={toggleCountry} actions={act("search-countries", "Search visibility by country")} />}
       {/* where we stand against the sites the assistants rely on, then each assistant (SARCLA 18.10) */}
-      {tab === "ai" && state.aeoCited && <CitedSitesCard data={state.aeoCited} />}
-      {tab === "ai" && (state.aeoAssistants ? <ByAssistant w={state.aeoAssistants} /> : null)}
+      {tab === "ai" && state.aeoCited && <WithActions tile={tileOf("cited-sites", "Who the assistants cite")}><CitedSitesCard data={state.aeoCited} /></WithActions>}
+      {tab === "ai" && (state.aeoAssistants ? <WithActions tile={tileOf("by-assistant", "By assistant")}><ByAssistant w={state.aeoAssistants} /></WithActions> : null)}
       {tab === "email" && waiting.R11 && (
         <BeingBuilt id="R11" icon={<MailOutlineIcon />}
           waits="HubSpot to let the hub's app read the marketing email statistics - the read-only permission is not offered to this app yet."
@@ -667,7 +667,8 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
           waits="LinkedIn's approval of its page statistics API (Community Management) for the company page, then one sign-in by a page admin."
           meanwhile="LinkedIn's own page export (Analytics → Export) can be uploaded here once a month - send one export to set it up." />
       )}
-      {tab === "customers" && <SearchCustomersCard />}
+      {/* on the nutshell too, from the start - the same tile there */}
+      {tab === "customers" && <WithActions start="nutshell" tile={{ ...tileOf("search-customers", "Customers from search"), key: "reach:customers:search-customers" }}><SearchCustomersCard /></WithActions>}
       {tab !== "search" && tab !== "countries" && countries.length > 0 && (
         <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>The country choice narrows the Search Console figures (Search and Countries); ads, AI answers, email and customers are for every country.</Typography>
       )}
@@ -719,6 +720,19 @@ export function ReachPromoted({ spec, actions }: { spec: TileSpec; actions?: Rea
     case "google-networks": return <SeaNetworks live={live} win={win} actions={actions} />;
     case "microsoft-kinds": return <MsKinds live={live} win={win} actions={actions} />;
     case "search-countries": return <SearchCountries live={live} win={win} chosen={chosen} onPick={() => undefined} actions={actions} />;
+    case "cited-sites": return state?.aeoCited ? <Pinned actions={actions}><CitedSitesCard data={state.aeoCited} /></Pinned> : null;
+    case "by-assistant": return state?.aeoAssistants ? <Pinned actions={actions}><ByAssistant w={state.aeoAssistants} /></Pinned> : null;
+    case "search-customers": return <Pinned actions={actions}><SearchCustomersCard /></Pinned>;
     default: return null;
   }
+}
+
+/** A card with no slot of its own, its Actions tab pinned on its right edge (as WithActions does). */
+function Pinned({ actions, children }: { actions?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Box sx={{ position: "relative", minWidth: 0 }}>
+      {children}
+      {actions && <Box sx={{ position: "absolute", top: { xs: 16, md: 22 }, right: 0, zIndex: 1, "& > button": { mr: 0 } }}>{actions}</Box>}
+    </Box>
+  );
 }

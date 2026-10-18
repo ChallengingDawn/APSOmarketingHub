@@ -15,7 +15,6 @@ import CircularProgress from "@mui/material/CircularProgress";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import UpcomingIcon from "@mui/icons-material/Upcoming";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
-import VerticalAlignTopIcon from "@mui/icons-material/VerticalAlignTop";
 
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
@@ -34,6 +33,7 @@ import { SearchCustomersCard } from "./SearchCustomers";
 import { TileActions } from "./tiles/TileActions";
 import { LinkCard, rendererOf } from "./tiles/registry";
 import { kpiSummary } from "./tiles/summary";
+import { WithActions } from "./tiles/WithActions";
 import { placementOf, useActions, type ActionsState } from "./tiles/store";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
@@ -97,30 +97,34 @@ function KpiActions({ v, slug }: { v: KpiView; slug: string }) {
   );
 }
 
-/** The cards promoted from the pages - every KPI already in its panel stays there. */
-function Promoted({ views, state, acts }: { views: Record<string, KpiView>; state: MkState; acts: ActionsState | null }) {
+/** The cards the nutshell draws on its own, from the start - not "promoted". */
+const OWN = new Set(["customers::summary", "visit::traffic-origin", "reach:customers:search-customers"]);
+
+/**
+ * What was promoted from a page into its own panel (SARCLA 18.10: "they should go into their
+ * placeholder"): a KPI joins the panel's tiles, a chart or a table takes a whole row of it - drawn
+ * as it is on its page (Reach and Who are our customers draw theirs; another page's shows the way to it).
+ */
+function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>, state: MkState, acts: ActionsState | null) {
   const year = new Date().getFullYear();
-  const inPanels = new Set(STAGES.flatMap((st) => stageKpis(st.id, state.live?.value).ids.map((id) => kpiKey(st.slug, id))));
-  const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && !inPanels.has(p.spec.key));
-  if (!list.length) return null;
-  return (
-    <GlassCard sx={{ display: "grid", gap: 1.5 }}>
-      <CardTitle icon={<VerticalAlignTopIcon />} tint="blue" title="Promoted" note="Brought here from the pages - demote one to send it back to its tab" />
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
-        {list.map(({ spec }) => {
-          const tint = stageTint(spec.page);
-          const tile = { key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind };
-          const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
-          if (v) return <KpiTileChart key={spec.key} v={v} slug={spec.page} tint={tint} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />;
-          // the real chart, as it is on its page (Reach and Who are our customers draw theirs; another page's shows the way to it)
-          if (spec.page === "reach") return <Box key={spec.key} sx={{ minWidth: 0, gridColumn: "span 2" }}><ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} /></Box>;
-          if (spec.page === "customers") return <Box key={spec.key} sx={{ minWidth: 0, gridColumn: "span 2" }}><CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} /></Box>;
-          const draw = rendererOf(spec.page);
-          return <Box key={spec.key} sx={{ minWidth: 0 }}>{draw ? draw(spec) : <LinkCard spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />}</Box>;
-        })}
-      </Box>
-    </GlassCard>
-  );
+  const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN]);
+  const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && p.spec.page === slug && !own.has(p.spec.key));
+  const tiles: React.ReactNode[] = [];
+  const rows: React.ReactNode[] = [];
+  for (const { spec } of list) {
+    const tile = { key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind };
+    const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
+    if (v) { tiles.push(<KpiTileChart key={spec.key} v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />); continue; }
+    const draw = rendererOf(spec.page);
+    rows.push(
+      <Box key={spec.key} sx={{ minWidth: 0 }}>
+        {spec.page === "reach" ? <ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />
+          : spec.page === "customers" ? <CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} />
+            : draw ? draw(spec) : <LinkCard spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />}
+      </Box>,
+    );
+  }
+  return { tiles, rows };
 }
 
 function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<string, KpiView>; state: MkState; acts: ActionsState | null }) {
@@ -134,6 +138,7 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
   const customers = s.slug === "customers";
   const traffic = s.slug === "visit" && !!live?.breakdowns.channels.length;
+  const promoted = promotedOf(s.slug, ids, views, state, acts);
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       {/* the stage, as a UC card title: badge, name (the way in), one line */}
@@ -160,17 +165,30 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
       </Box>
 
       {customers ? (
-        <CustomersSummary />
-      ) : (tiles.length > 0 || traffic) ? (
+        placementOf(acts, "customers::summary", "nutshell") === "nutshell"
+          ? <WithActions where="nutshell" start="nutshell" tile={{ key: "customers::summary", page: "customers", title: "Our customers", kind: "card", href: stageHref("customers") }}><CustomersSummary /></WithActions>
+          : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Moved to its page.</Typography>
+      ) : (tiles.length > 0 || traffic || promoted.tiles.length > 0) ? (
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
           {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />} />)}
-          {traffic && <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}><TrafficOrigin live={live!} /></Box>}
+          {promoted.tiles}
+          {traffic && placementOf(acts, "visit::traffic-origin", "nutshell") === "nutshell" && (
+            <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}>
+              <WithActions where="nutshell" start="nutshell" top={18} tile={{ key: "visit::traffic-origin", page: "visit", title: "Traffic origin", kind: "card", href: stageHref("visit") }}><TrafficOrigin live={live!} /></WithActions>
+            </Box>
+          )}
           {/* SEO and SEA in customers: new, reactivated, active (SARCLA 17.10) */}
-          {s.slug === "reach" && <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><SearchCustomersCard /></Box>}
+          {s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" && (
+            <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}>
+              <WithActions where="nutshell" start="nutshell" tile={{ key: "reach:customers:search-customers", page: "reach", tab: "customers", title: "Customers from search", kind: "card", href: stageHref("reach") }}><SearchCustomersCard /></WithActions>
+            </Box>
+          )}
         </Box>
-      ) : (
+      ) : !promoted.rows.length ? (
         <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
-      )}
+      ) : null}
+      {/* the charts and tables promoted from this page, a whole row each */}
+      {promoted.rows.length > 0 && <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>{promoted.rows}</Box>}
 
       {missing.length > 0 && (
         <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center" }}>
@@ -203,7 +221,6 @@ export default function MarketingKpisMacro() {
       )}
       {views && state && (
         <>
-          <Promoted views={views} state={state} acts={acts} />
           {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} />)}
           {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
             <GlassCard key={title}>

@@ -56,6 +56,7 @@ import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTE
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
 import type { TileSpec } from "./tiles/registry";
+import { WithActions } from "./tiles/WithActions";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import {
   DIMS, chosenDims, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
@@ -579,7 +580,12 @@ export function CustomersExplorer() {
         </Button>
       </Box>
 
-      {view === "moves" ? <MovementsView cube={cube} win={win} filtered={active.length > 0} /> : (
+      {view === "moves" ? (
+        <WithActions tile={{ key: "customers:moves:movements", page: "customers", tab: "moves", title: "Movements", summary: `${w} against ${pw}`,
+          filters: Object.fromEntries(active.map((x) => [x, filters[x] ?? []])), ...(cube && win ? { from: ym(cube, win.start), to: ym(cube, win.end) } : {}), kind: "card" }}>
+          <MovementsView cube={cube} win={win} filtered={active.length > 0} />
+        </WithActions>
+      ) : (
       /* minmax(0, 1fr): a chart may not widen its card past the column */
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={d.icon} tint={d.tint} title={`Our customers by ${d.lower}`} note={d.note}
@@ -928,6 +934,7 @@ export function CustomersPromoted({ spec, actions }: { spec: TileSpec; actions?:
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const common = { rows, curLabel: w, prevLabel: pw, selected: filters[dim], onPick: () => undefined, pageSize: 10, fixedOrder: fixed, actions };
   switch (spec.key.split(":")[2]) {
+    case "movements": return <Box sx={{ position: "relative", minWidth: 0 }}><MovementsView cube={cube} win={win} filtered={Object.values(filters).some((x) => x?.length)} />{actions && <Box sx={{ position: "absolute", top: { xs: 16, md: 22 }, right: 0, zIndex: 1, "& > button": { mr: 0 } }}>{actions}</Box>}</Box>;
     case "bought": return <DimChart title={`Companies that bought, by ${d.lower}`} cur={byBought} prev={(r) => r.boughtPy} fmt={int} {...common} />;
     case "revenue": return <DimChart title={`Revenue, by ${d.lower}`} cur={byRev} prev={(r) => r.revPy} fmt={eur} {...common} />;
     case "new": return <DimChart title={`New customers, by ${d.lower}`} cur={byNew} prev={(r) => r.newCPy} fmt={int} {...common} />;
