@@ -347,7 +347,11 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
 export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.period ?? (v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet"));
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
-export function KpiCard({ v, kpi, icon, tint = "blue", upTo }: { v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string }) {
+export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
+  v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string;
+  /** the card's own tools, right of the figure (9f's tile toolbar: filter, tasks, ticket, promote, 18.10.2026) */
+  actions?: React.ReactNode;
+}) {
   const L = MONTHS;
   const hasMonths = v.series.months.some((x) => x != null);
   const hasPy = v.series.py.some((x) => x != null);
@@ -366,6 +370,7 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo }: { v: KpiView; kpi
           <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)}</Typography>
           {upTo && <Typography sx={{ fontSize: "0.7rem", color: FAINT, fontWeight: 600 }}>{upTo}</Typography>}
         </Box>
+        {actions && <Box sx={{ flex: "0 0 auto", alignSelf: "flex-start" }}>{actions}</Box>}
       </Box>
       <Compare v={v} />
       {hasMonths && v.measure.agg.kind !== "ytd" && (
