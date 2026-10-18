@@ -4,7 +4,7 @@
 // last year or its target, a card, a monthly chart, and the "not connected
 // yet" list that keeps every catalogue KPI visible, measured or not.
 
-import type { AssistantWindows } from "@/lib/aeo/model";
+import type { AssistantWindows, CitedData } from "@/lib/aeo/model";
 import { chfToEur } from "@/lib/marketingKpis/fxRates";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -30,7 +30,7 @@ import type { LiveKpis } from "@/lib/marketingKpis/live";
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 type Live = { value?: LiveKpis; computing?: boolean; progress?: string; computedAt?: string; error?: string };
-export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: boolean; error?: string; aeoAssistants?: AssistantWindows | null };
+export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: boolean; error?: string; aeoAssistants?: AssistantWindows | null; aeoCited?: CitedData | null };
 
 /**
  * JSON from one of the hub's own routes. During a deployment the load balancer

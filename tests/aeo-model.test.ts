@@ -130,3 +130,25 @@ test("a recommendation as a project: the topic as title, a brief with the questi
   assert.ok(long.brief.endsWith(recMarker("r9")));
   assert.equal(projectFor(rec({ topic: null }), prompts).title, "Publish a guide comparing NBR, FKM and EPDM");
 });
+
+import { citedWindows } from "../src/lib/aeo/model";
+
+test("where we stand among the sites the assistants cite: places shared on a tie, our own kept beyond the first", () => {
+  const now = new Date("2026-10-18T00:00:00Z");
+  const at = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
+  const r = (id: string, model: string, d: number, domains: string[]): AeoRun => ({ id, promptId: "p", model, at: at(d), owned: 0, competitor: 0, citations: 0, ownCited: null, domains });
+  const runs = [
+    r("1", "CHATGPT", 1, ["a.de", "b.de", "apsoparts.com"]),
+    r("2", "CHATGPT", 2, ["a.de", "b.de"]),
+    r("3", "GEMINI", 3, ["a.de", "c.de"]),
+    r("4", "GEMINI", 40, ["old.de"]),                      // outside the 30 days
+  ];
+  const w = citedWindows(runs, now, 2);
+  assert.equal(w.all.read, 3);
+  assert.equal(w.all.total, 4);
+  assert.deepEqual(w.all.sites.map((x) => [x.domain, x.rank]), [["a.de", 1], ["b.de", 2], ["apsoparts.com", 3]]);
+  assert.equal(w.by.GEMINI.sites.some((x) => x.own), false);
+  assert.deepEqual(w.models, ["CHATGPT", "GEMINI"]);
+  const tie = citedWindows([r("5", "CHATGPT", 1, ["x.de", "apsoparts.com"])], now);
+  assert.deepEqual(tie.all.sites.map((x) => x.rank), [1, 1]);
+});

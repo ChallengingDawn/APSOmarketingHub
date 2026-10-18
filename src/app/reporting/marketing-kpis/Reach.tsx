@@ -24,26 +24,33 @@ import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
+import ConstructionOutlinedIcon from "@mui/icons-material/ConstructionOutlined";
+import LinkedInIcon from "@mui/icons-material/LinkedIn";
 
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { ByAssistant } from "@/app/aeo/OverviewBody";
+import { ByAssistant, CitedSitesCard } from "@/app/aeo/OverviewBody";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
-import { countryName } from "@/lib/marketingKpis/countries";
+import { FOCUS_A3, countryName } from "@/lib/marketingKpis/countries";
 import { countryTable, seriesForCountries, type CountryRow } from "@/lib/marketingKpis/countryMonths";
-import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, stageKpis, stageTint, upToOf, type KpiView, type MkState, type MonthWindow } from "./data";
+import { Compare, KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, type KpiView, type MkState, type MonthWindow } from "./data";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 
-type Tab = "search" | "ads" | "countries" | "ai" | "email" | "customers";
+type Tab = "search" | "ads" | "countries" | "ai" | "email" | "linkedin" | "customers";
 const TABS: { id: Tab; label: string; kpis: string[] }[] = [
   { id: "search", label: "Search (SEO)", kpis: ["R04", "R05", "R06", "R07", "R08"] },
   { id: "ads", label: "Ads (SEA)", kpis: ["R01", "R02", "R03"] },
-  { id: "countries", label: "Countries", kpis: ["R09"] },
+  // R09 has a card of its own there: the countries side by side (SARCLA 18.10: "this graph is not correct")
+  { id: "countries", label: "Countries", kpis: [] },
   { id: "ai", label: "AI answers", kpis: ["R10"] },
   { id: "email", label: "Email", kpis: ["R11", "R11O", "R11C"] },
+  // being built until LinkedIn opens the page statistics (SARCLA 18.10: "create a tab for LinkedIn and put under building")
+  { id: "linkedin", label: "LinkedIn", kpis: [] },
   { id: "customers", label: "Customers from search", kpis: [] },
 ];
 /** the KPIs a country choice narrows: Search Console's impressions, clicks and click rate, and the clicks by country */
@@ -118,6 +125,103 @@ function SearchCountries({ live, win, chosen, onPick }: { live: LiveKpis; win: M
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
         The focus markets are always listed; the others are the largest by clicks. Google keeps 16 months of Search Console, so last year is compared on the months it still has; the hub keeps every whole month from now on.
       </Typography>
+    </GlassCard>
+  );
+}
+
+/**
+ * R09, search visibility by country: the countries side by side, this year against last
+ * on the months both years have - not one monthly total under a "by country" title
+ * (SARCLA 18.10: "this graph is not correct"). Clicks or impressions.
+ */
+function CountryVisibility({ live, v, win, chosen }: { live: LiveKpis; v: KpiView; win: MonthWindow; chosen: string[] }) {
+  const [by, setBy] = useState<"clicks" | "impressions">("clicks");
+  const cm = live.breakdowns.searchCountryMonths!;
+  const key = (y: number, i: number) => `${y}-${String(i + 1).padStart(2, "0")}`;
+  // the months both years have, within the chosen ones (Google keeps 16 months)
+  const same: number[] = [];
+  for (let i = win.start; i <= Math.min(win.end, live.monthsDone - 1); i++) if (cm[key(live.year, i)] && cm[key(live.year - 1, i)]) same.push(i);
+  const chosenMonths = Array.from({ length: Math.max(0, Math.min(win.end, live.monthsDone - 1) - win.start + 1) }, (_, k) => win.start + k);
+  const months = same.length ? same : chosenMonths;
+  const sum = (y: number, c: string) => months.reduce((a, i) => { const r = cm[key(y, i)]?.[c]; return [a[0] + (r?.[0] ?? 0), a[1] + (r?.[1] ?? 0)]; }, [0, 0]);
+  const pick = new Set(chosen);
+  const codes = [...new Set([...FOCUS_A3, ...chosen])];
+  const k = by === "clicks" ? 0 : 1;
+  const rows = codes.map((c) => ({ c, cur: sum(live.year, c)[k], prev: same.length ? sum(live.year - 1, c)[k] : null }))
+    .sort((a, b) => b.cur - a.cur);
+  const w = months.length ? (months.length === 1 ? MONTHS[months[0]] : `${MONTHS[months[0]]}–${MONTHS[months[months.length - 1]]}`) : "";
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+        <Badge icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>R09 · live in the hub</Typography>
+          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf("R09")}</Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Which markets see us?</Typography>
+        </Box>
+        <Box sx={{ textAlign: "right" }}>
+          <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)} · clicks from the {chosen.length ? "chosen countries" : "focus markets"}</Typography>
+        </Box>
+      </Box>
+      <Compare v={v} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={{ flex: 1, minWidth: 220, fontSize: "0.86rem", fontWeight: 700, color: INK }}>
+          {by === "clicks" ? "Clicks" : "Impressions"} by country, {w} {live.year}{same.length ? ` against ${w} ${live.year - 1}` : ""}
+          {same.length > 0 && same.length < chosenMonths.length && <Box component="span" sx={{ fontWeight: 500, color: FAINT }}> - the months both years have</Box>}
+        </Typography>
+        <Box sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "12px", bgcolor: "rgba(21,34,58,.05)" }}>
+          {(["clicks", "impressions"] as const).map((m) => (
+            <Box key={m} component="button" type="button" onClick={() => setBy(m)} aria-pressed={by === m}
+              sx={{ border: 0, font: "inherit", cursor: "pointer", px: 1.25, py: 0.6, borderRadius: "9px", fontSize: "0.8rem", fontWeight: 700,
+                bgcolor: by === m ? "#fff" : "transparent", color: by === m ? INK : MUTED, boxShadow: by === m ? "0 1px 3px rgba(21,34,58,.12)" : "none" }}>
+              {m === "clicks" ? "Clicks" : "Impressions"}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+      <ChartFrame table={{ columns: ["Country", String(live.year), String(live.year - 1)], rows: rows.map((r) => [countryName(r.c), r.cur, r.prev ?? ""]), numeric: [1, 2] }}>
+        <GroupedColumns height={240} format={(x) => n0(x)}
+          data={rows.map((r) => ({ x: countryName(r.c), current: r.cur, prior: r.prev }))}
+          currentLabel={String(live.year)} priorLabel={String(live.year - 1)} />
+      </ChartFrame>
+      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+        Google Search Console. The focus markets{pick.size ? " and the countries chosen" : ""}; every country is in the table below.
+        {!same.length ? " Google keeps 16 months, so these months have no last year to compare with." : ""}
+      </Typography>
+    </GlassCard>
+  );
+}
+
+/**
+ * A KPI the hub is still building - what it will show, what it waits for, what happens
+ * meanwhile (SARCLA 18.10: the email statistics are not in the app's scope; LinkedIn "under building").
+ */
+function BeingBuilt({ id, icon, waits, meanwhile }: { id: string; icon: React.ReactNode; waits: string; meanwhile: string }) {
+  const k = KPIS.find((x) => x.id === id);
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, border: `1px dashed ${TINT.amber.fg}` }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+        <Badge icon={icon} tint="amber" />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>{id} · being built</Typography>
+          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{k?.name ?? id}</Typography>
+          {k?.question && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{k.question}</Typography>}
+        </Box>
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, fontSize: "0.74rem", fontWeight: 700, color: TINT.amber.fg, bgcolor: TINT.amber.bg, px: 1, py: 0.4, borderRadius: "999px" }}>
+          <ConstructionOutlinedIcon sx={{ fontSize: 16 }} /> Being built
+        </Box>
+      </Box>
+      <Box sx={{ display: "grid", gap: 0.75, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "160px minmax(0, 1fr)" }, fontSize: "0.86rem" }}>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>It will show</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{k?.definition ?? ""} By {k?.breakdowns?.toLowerCase().replace(/ · /g, ", ") || "month"}.</Typography>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>From</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{k?.source ?? ""}</Typography>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>Waiting for</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{waits}</Typography>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>Meanwhile</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{meanwhile}</Typography>
+      </Box>
     </GlassCard>
   );
 }
@@ -410,17 +514,30 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>
       )}
       {tab === "ads" && <SeaNetworks live={live} win={win} />}
+      {tab === "countries" && views.R09 && (live.breakdowns.searchCountryMonths
+        ? <CountryVisibility live={live} v={views.R09} win={win} chosen={countries} />
+        : card("R09"))}
       {tab === "countries" && (live.breakdowns.searchCountries.length > 0 || live.breakdowns.searchCountryMonths) && <SearchCountries live={live} win={win} chosen={countries} onPick={toggleCountry} />}
+      {/* where we stand against the sites the assistants rely on, then each assistant (SARCLA 18.10) */}
+      {tab === "ai" && state.aeoCited && <CitedSitesCard data={state.aeoCited} />}
       {tab === "ai" && (state.aeoAssistants ? <ByAssistant w={state.aeoAssistants} /> : null)}
       {tab === "email" && waiting.R11 && (
-        <GlassCard><Typography sx={{ fontSize: "0.88rem", color: MUTED }}>{waiting.R11}.</Typography></GlassCard>
+        <BeingBuilt id="R11" icon={<MailOutlineIcon />}
+          waits="HubSpot to let the hub's app read the marketing email statistics - the read-only permission is not offered to this app yet."
+          meanwhile="HubSpot's own email reports; the hub fills this tab by itself once the permission is there." />
+      )}
+      {tab === "linkedin" && (
+        <BeingBuilt id="R12" icon={<LinkedInIcon />}
+          waits="LinkedIn's approval of its page statistics API (Community Management) for the company page, then one sign-in by a page admin."
+          meanwhile="LinkedIn's own page export (Analytics → Export) can be uploaded here once a month - send one export to set it up." />
       )}
       {tab === "customers" && <SearchCustomersCard />}
       {tab !== "search" && tab !== "countries" && countries.length > 0 && (
         <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>The country choice narrows the Search Console figures (Search and Countries); ads, AI answers, email and customers are for every country.</Typography>
       )}
 
-      <NotConnected list={missing} />
+      {/* every Reach KPI has its tab now - email and LinkedIn as "being built"; anything else not connected is still listed */}
+      <NotConnected list={missing.filter((k) => !["R11", "R11O", "R11C", "R12"].includes(k.id))} />
       <LiveNote state={state} />
 
       <FilterPanel id="reach-filters" open={panel} onClose={() => setPanel(false)}

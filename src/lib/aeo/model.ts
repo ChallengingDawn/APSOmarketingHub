@@ -172,7 +172,7 @@ export function r10Series(runs: AeoRun[], year: number): { R10: Monthly; R10N: M
   return { R10: share, R10N: named, R10D: all };
 }
 
-export type CitedSite = { domain: string; answers: number; share: number; own: boolean };
+export type CitedSite = { domain: string; answers: number; share: number; own: boolean; /** 1 = the most cited */ rank: number };
 /**
  * Who the assistants cite between two instants: per site, the answers citing it and
  * their share of the answers whose sources are read - our own sites marked. The
@@ -186,8 +186,10 @@ export function citedSites(runs: AeoRun[], from: string, to: string, model?: str
     read += 1;
     for (const d of new Set(r.domains)) count.set(d, (count.get(d) ?? 0) + 1);
   }
-  const sites = [...count.entries()].map(([domain, answers]) => ({ domain, answers, share: read ? answers / read : 0, own: isOwnUrl(`https://${domain}/`) }))
+  const sites = [...count.entries()].map(([domain, answers]) => ({ domain, answers, share: read ? answers / read : 0, own: isOwnUrl(`https://${domain}/`), rank: 0 }))
     .sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain));
+  // the same count, the same place
+  sites.forEach((x, i) => { x.rank = i && sites[i - 1].answers === x.answers ? sites[i - 1].rank : i + 1; });
   return { sites, read };
 }
 
@@ -242,4 +244,20 @@ export function assistantWindows(runs: AeoRun[], now: Date): AssistantWindows {
   const to = now.toISOString(), from = new Date(now.getTime() - 30 * 86_400_000).toISOString(), before = new Date(now.getTime() - 60 * 86_400_000).toISOString();
   const since = runs.reduce<string | null>((a, r) => (!a || r.at < a ? r.at : a), null);
   return { cur: sumsBetween(runs, from, to).by, prev: sumsBetween(runs, before, from).by, models: assistantsIn(runs), since };
+}
+
+export type CitedWindow = { sites: CitedSite[]; read: number; /** every site cited, not only those kept */ total: number };
+export type CitedData = { models: string[]; all: CitedWindow; by: Record<string, CitedWindow> };
+/**
+ * Who the assistants cite over the last 30 days, all assistants and each - the first
+ * `keep` sites and our own wherever they stand (SARCLA 18.10: "the AI answers tab should
+ * also show competitor positioning"). Small enough to send with the KPI page.
+ */
+export function citedWindows(runs: AeoRun[], now: Date, keep = 15): CitedData {
+  const to = now.toISOString(), from = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  const cut = (w: { sites: CitedSite[]; read: number }): CitedWindow => ({
+    sites: w.sites.filter((x, i) => i < keep || x.own), read: w.read, total: w.sites.length,
+  });
+  const models = assistantsIn(runs);
+  return { models, all: cut(citedSites(runs, from, to)), by: Object.fromEntries(models.map((m) => [m, cut(citedSites(runs, from, to, m))])) };
 }

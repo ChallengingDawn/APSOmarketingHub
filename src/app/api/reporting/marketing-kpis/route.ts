@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { readInputs, saveMonths, saveTarget } from "@/lib/marketingKpis/inputs";
 import { marketingKpisLive } from "@/lib/marketingKpis/live";
 import { aeoData } from "@/lib/aeo/read";
-import { assistantWindows, r10Series } from "@/lib/aeo/model";
+import { assistantWindows, citedWindows, r10Series } from "@/lib/aeo/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +23,9 @@ export async function GET() {
     }
     // each assistant, last 30 days against the 30 before - on Reach (SARCLA 18.10: "on advanced report we keep this")
     const aeoAssistants = aeo?.value?.runs.length ? assistantWindows(aeo.value.runs, new Date()) : null;
-    return NextResponse.json({ ok: true, inputs, live, aeoAssistants, canEdit: access.canWrite("reporting") });
+    // and who the assistants cite - where we stand against the sites they rely on (SARCLA 18.10)
+    const aeoCited = aeo?.value?.runs.length ? citedWindows(aeo.value.runs, new Date()) : null;
+    return NextResponse.json({ ok: true, inputs, live, aeoAssistants, aeoCited, canEdit: access.canWrite("reporting") });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String((e as Error)?.message ?? e) }, { status: 500 });
   }

@@ -16,7 +16,7 @@ import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED } from "@/app/uc/report/ui";
-import { assistantName, assistantWindows, assistantsIn, byMonth, citeRate, citedSites, mentionRate, shareOfVoice, sumsBetween, type AeoData, type AssistantWindows, type Sums } from "@/lib/aeo/model";
+import { assistantName, assistantWindows, assistantsIn, byMonth, citeRate, citedWindows, mentionRate, shareOfVoice, sumsBetween, type AeoData, type AssistantWindows, type CitedData, type Sums } from "@/lib/aeo/model";
 import { Note, day, int, pct } from "./AeoUi";
 
 const COLOR: Record<string, string> = { CHATGPT: "#10a37f", GEMINI: "#4285f4", PERPLEXITY: "#20808d", CLAUDE: "#d97757" };
@@ -75,7 +75,7 @@ export function AeoOverviewBody({ d, computing, progress }: { d: AeoData; comput
         ) : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No answers yet.</Typography>}
       </GlassCard>
 
-      <CitedSites d={d} now={now} />
+      <CitedSitesCard data={citedWindows(d.runs, now)} />
 
       <Note>
         From HubSpot&apos;s AEO (beta): the prompts set up there, asked to each assistant again and again. Every answer is kept in the hub, so the months build up beyond what HubSpot keeps.
@@ -89,18 +89,16 @@ export function AeoOverviewBody({ d, computing, progress }: { d: AeoData; comput
 
 /**
  * Who the assistants cite, last 30 days: the sites in their answers' sources, by the
- * share of answers citing them - our own in green, and shown even when it is not among
- * the first. One assistant or all.
+ * share of answers citing them - our own in green, shown even when not among the first,
+ * and where we stand among them. One assistant or all. On AI answers and on Reach.
  */
-function CitedSites({ d, now }: { d: AeoData; now: Date }) {
+export function CitedSitesCard({ data }: { data: CitedData }) {
   const [model, setModel] = useState<string>("");
-  const used = assistantsIn(d.runs);
-  const to = now.toISOString(), from = new Date(now.getTime() - 30 * 86_400_000).toISOString();
-  const { sites, read } = citedSites(d.runs, from, to, model || undefined);
-  const top = sites.slice(0, 15);
-  const own = sites.filter((x) => x.own && !top.includes(x));
-  const rows = [...top, ...own];
+  const w = model ? data.by[model] ?? { sites: [], read: 0, total: 0 } : data.all;
+  const rows = w.sites;
   const max = Math.max(0.0001, ...rows.map((x) => x.share));
+  const ours = rows.filter((x) => x.own).sort((x, y) => x.rank - y.rank)[0];
+  const nth = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -108,7 +106,7 @@ function CitedSites({ d, now }: { d: AeoData; now: Date }) {
           <CardTitle icon={<TravelExploreOutlinedIcon />} tint="blue" title="Who the assistants cite, last 30 days" note="The sites in the answers' sources - the competitors as the assistants see them" />
         </Box>
         <Box sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "12px", bgcolor: "rgba(21,34,58,.05)" }}>
-          {["", ...used].map((m) => (
+          {["", ...data.models].map((m) => (
             <Box key={m || "all"} component="button" type="button" onClick={() => setModel(m)} aria-pressed={model === m}
               sx={{ border: 0, font: "inherit", cursor: "pointer", px: 1.25, py: 0.6, borderRadius: "9px", fontSize: "0.8rem", fontWeight: 700,
                 bgcolor: model === m ? "#fff" : "transparent", color: model === m ? INK : MUTED, boxShadow: model === m ? "0 1px 3px rgba(21,34,58,.12)" : "none" }}>
@@ -117,10 +115,18 @@ function CitedSites({ d, now }: { d: AeoData; now: Date }) {
           ))}
         </Box>
       </Box>
-      {read === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>The answers&apos; sources are still being read.</Typography> : (
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(140px, 220px) minmax(0, 1fr) 110px", columnGap: 1.5, rowGap: 0.6, alignItems: "center" }}>
+      {w.read > 0 && (
+        <Typography sx={{ fontSize: "0.92rem", color: INK }}>
+          {ours
+            ? <>Our position: <b style={{ color: GREEN }}>{ours.domain}</b> is the <b>{nth(ours.rank)}</b> most cited of {int(w.total)} sites - in {pct(ours.share)} of the answers{model ? ` by ${assistantName(model)}` : ""}.</>
+            : <>Our sites are not cited in these {int(w.read)} answers - the {int(w.total)} sites below are.</>}
+        </Typography>
+      )}
+      {w.read === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>The answers&apos; sources are still being read.</Typography> : (
+        <Box sx={{ display: "grid", gridTemplateColumns: "28px minmax(140px, 220px) minmax(0, 1fr) 110px", columnGap: 1.5, rowGap: 0.6, alignItems: "center" }}>
           {rows.map((x) => (
             <Box key={x.domain} sx={{ display: "contents" }}>
+              <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: x.own ? GREEN : FAINT, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{x.rank}</Typography>
               <Box component="a" href={`https://${x.domain}/`} target="_blank" rel="noreferrer"
                 sx={{ fontSize: "0.84rem", fontWeight: x.own ? 800 : 600, color: x.own ? GREEN : INK, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>
                 {x.domain}
@@ -134,7 +140,8 @@ function CitedSites({ d, now }: { d: AeoData; now: Date }) {
         </Box>
       )}
       <Note>
-        Share of the {int(read)} answers{model ? ` by ${assistantName(model)}` : ""} whose sources are read, last 30 days, that cite the site at least once. {own.length || rows.some((x) => x.own) ? "" : "Our own sites are not cited in these answers."}
+        Share of the {int(w.read)} answers{model ? ` by ${assistantName(model)}` : ""} whose sources are read, last 30 days, that cite the site at least once; the number on the left is the site&apos;s place.
+        HubSpot&apos;s AEO names no competitors - the sites the assistants rely on are where they stand.
       </Note>
     </GlassCard>
   );

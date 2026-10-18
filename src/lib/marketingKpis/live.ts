@@ -302,7 +302,8 @@ async function build(): Promise<LiveKpis> {
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
       if (/MISSING_SCOPES|required scopes/i.test(msg)) {
-        const why = "Waiting for the hub's HubSpot app to be allowed to read marketing email (marketing.email.read)";
+        // HubSpot does not offer marketing.email.read to the hub's app (18.10.2026: the upload was refused)
+        const why = "HubSpot does not yet let the hub's app read marketing email statistics";
         for (const id of ["R11", "R11O", "R11C"]) waiting[id] = why;
         return;
       }
