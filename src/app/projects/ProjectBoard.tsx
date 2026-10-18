@@ -53,7 +53,7 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Kicker } from "@/app
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
 import { LANGUAGES, languageLabel } from "@/lib/content/languages";
 import {
-  markdownFor, pdfLinesFor, plainTextFor, slugFor, wordHtmlFor, type ExportVariant,
+  bodyToHtml, markdownFor, pdfLinesFor, plainTextFor, slugFor, wordHtmlFor, type ExportVariant,
 } from "@/lib/content/exportVariant";
 import ShareDialog, { Face } from "./ShareDialog";
 
@@ -652,15 +652,26 @@ export default function ProjectBoard({ id }: { id: number }) {
                   )}
                 />
 
+                {/* Rendered, not shown as source. A draft read as "## The
+                    claim" is a draft nobody can judge: the reader is doing the
+                    markdown in their head while deciding whether the words
+                    work. bodyToHtml is the export renderer - it ESCAPES first
+                    and then applies the studio's own subset, so there is
+                    nothing a body could contain that becomes markup. */}
                 <Box
                   sx={{
                     maxHeight: 420, overflowY: "auto", p: 1.5, borderRadius: "12px",
                     bgcolor: "rgba(21,34,58,.03)", fontSize: "0.84rem", color: INK,
-                    lineHeight: 1.7, whiteSpace: "pre-wrap",
+                    lineHeight: 1.7,
+                    "& h1, & h2, & h3, & h4": { fontSize: "0.95rem", fontWeight: 700, margin: "0 0 .4em" },
+                    "& p": { margin: "0 0 .7em" },
+                    "& ul": { margin: "0 0 .7em", paddingLeft: "1.2em", listStyle: "disc" },
+                    "& ol": { margin: "0 0 .7em", paddingLeft: "1.2em", listStyle: "decimal" },
+                    "& li": { margin: "0 0 .25em" },
+                    "& :last-child": { marginBottom: 0 },
                   }}
-                >
-                  {v.body}
-                </Box>
+                  dangerouslySetInnerHTML={{ __html: bodyToHtml(v.body) }}
+                />
 
                 <Box sx={{ mt: 1.5 }}>
                   <Typography sx={{ display: "flex", alignItems: "center", gap: 0.5, fontSize: "0.74rem", color: FAINT }}>

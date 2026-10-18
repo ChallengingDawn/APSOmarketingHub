@@ -1,4 +1,3 @@
-import PageHeader from "@/app/PageHeader";
 import Box from "@mui/material/Box";
 import ProjectBoard from "../ProjectBoard";
 import ProjectNav from "../ProjectNav";
@@ -15,7 +14,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           then be stuck in it - no way back to the list, none across to the
           next one, none to the calendar. */}
       {ok && <ProjectNav id={id} />}
-      <PageHeader title="Content project" subtitle="One brief, every variation, and the conversation about them" />
       {ok ? (
         <ProjectBoard id={id} />
       ) : (

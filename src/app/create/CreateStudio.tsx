@@ -377,7 +377,11 @@ export default function CreateStudio({
   /* layout: collapsible sidebar, accordion sections, content panel */
   // Exactly one panel, or none. Null is a real state — it gives the canvas
   // the whole width, which is what you want once the writing is done.
-  const [activePanel, setActivePanel] = useState<SectionKey | null>("setup");
+  // Opens on NOTHING. It used to open on "setup", whose contents moved into
+  // the assistant window - so every load reserved 344px, a quarter of a
+  // 1680px screen, for a panel with nothing in it. Measured in a browser:
+  // the column was there, 344px wide, drawing white.
+  const [activePanel, setActivePanel] = useState<SectionKey | null>(null);
   // Bumped when a version is saved, so the strip shows it without a reload.
   const [stripKey, setStripKey] = useState(0);
   // Shown in the chrome. Express puts the page size where you can read it

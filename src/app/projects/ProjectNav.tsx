@@ -59,6 +59,19 @@ export default function ProjectNav({ id }: { id: number }) {
     if (at) load();
   }, [at, load]);
 
+  // The name of THIS project, fetched on mount. The list of the others
+  // stays lazy, but the breadcrumb saying "This project" until somebody
+  // opens a menu they had no reason to open is just a label that is wrong.
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/content/projects/${id}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive && j.ok) setTitle(j.project?.title ?? null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [id]);
+
   const here = rows?.find((r) => r.id === id) ?? null;
   const others = (rows ?? []).filter((r) => r.id !== id);
 
@@ -89,7 +102,7 @@ export default function ProjectNav({ id }: { id: number }) {
         sx={{ textTransform: "none", fontWeight: 700, color: INK, borderRadius: "10px", maxWidth: 360 }}
       >
         <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {here?.title ?? "This project"}
+          {here?.title ?? title ?? "This project"}
         </Box>
       </Button>
 
