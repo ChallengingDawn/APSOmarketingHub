@@ -27,7 +27,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, clip } from "@/app/uc/report/ui";
 import { full } from "@/app/charts/format";
-import { Pill, STAGE_LABEL, WORK_LABEL, WORK_TONE, day, when, workOf, type Line, type Work } from "./shared";
+import { Pill, STAGE_LABEL, WORK_LABEL, WORK_TONE, day, when, workLabelOf, workOf, type Line, type Work } from "./shared";
 
 /* NO "NOT RECORDED" COLUMN (SARCLA, 17.10.2026: "then take them out"). Those lines carry a real order and
    a real cut-article number and nothing else - no basis, no size, no quantity - because the number was
@@ -124,7 +124,7 @@ function Detail({ l, onClose, isAdmin, onMoved }:
           </Box>
 
           <Box sx={{ display: "flex", gap: 0.75, mb: 2, flexWrap: "wrap" }}>
-            <Pill text={WORK_LABEL[work]} bg={WORK_TONE[work].bg} fg={WORK_TONE[work].fg} />
+            <Pill text={l ? workLabelOf(l) : WORK_LABEL[work]} bg={WORK_TONE[work].bg} fg={WORK_TONE[work].fg} />
             <Pill text={STAGE_LABEL[l.stage] ?? l.stage} bg={(STAGE_TONE[l.stage] ?? STAGE_TONE.closed).bg} fg={(STAGE_TONE[l.stage] ?? STAGE_TONE.closed).fg} />
             {isLate(l, done) && <Pill text="past its promised day" bg="#fdeaea" fg="#c5221f" />}
           </Box>

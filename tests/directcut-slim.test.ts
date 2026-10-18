@@ -142,3 +142,28 @@ test("the A-number coverage comes through, because reading it off health gave 0"
   const none = slim({ at: "2026-10-17T06:00:00.000Z", counts: {}, stages: {}, stockImpact: [] });
   assert.deepEqual(none.erpRefs, { known: 0, withOrderNo: 0 });
 });
+
+test("sawWhy survives the cut, so 'not recorded' can say which kind of not-recorded it is", () => {
+  // SARCLA, 18.10, after the accuracy review: that column was one label doing two jobs. 13 of the 14
+  // lines in it were Elastomerplatte, PTFE film 0.05 mm and PTFE-glass fabric 30 m long - soft goods no
+  // panel saw would touch, which is a FINAL answer, not a data gap. The 14th was PEEK 40 mm, real saw
+  // material HOMAG does not list, which was hidden among the rubber. The middleware now says which
+  // (cut-ledger.sawWhyFor); if the projection drops it the page is back to one word for both.
+  const b = slim(pipeline({
+    stages: {
+      ...pipeline().stages,
+      "to-cut": [
+        card({ key: "why-rubber", basis: "1010212306", basisName: "", sawNeeded: null, sawWhy: "not-a-saw-material", kind: null }),
+        card({ key: "why-gap", basis: null, basisName: null, l: 0, w: 0, sawNeeded: null, sawWhy: "no-basis", kind: null }),
+        card({ key: "why-none", sawNeeded: true, sawWhy: null }),
+      ],
+    },
+  }));
+  const by = (k: string) => b.open.find((x) => x.key === k);
+  assert.equal(by("why-rubber")?.sawWhy, "not-a-saw-material", "the rubber keeps its reason");
+  assert.equal(by("why-gap")?.sawWhy, "no-basis", "and so does our own data gap");
+  assert.equal(by("why-none")?.sawWhy, null, "an answerable line has nothing to explain");
+  // an OLDER gateway sends no sawWhy at all: null, never undefined, or the label falls through to ""
+  const old = slim(pipeline({ stages: { ...pipeline().stages, "to-cut": [{ ...card({ key: "why-old" }), sawWhy: undefined }] } }));
+  assert.equal(old.open.find((x) => x.key === "why-old")?.sawWhy, null);
+});

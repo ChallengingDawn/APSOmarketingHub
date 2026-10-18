@@ -56,6 +56,28 @@ export const WORK_TONE: Record<Work, { bg: string; fg: string }> = {
   unknown: { bg: "#f4f1e8", fg: "#8a6d1f" },
 };
 
+/* "NOT RECORDED" WAS ONE LABEL DOING TWO JOBS (18.10.2026).
+   A line we cannot place is either OUR data gap — nothing on the line — or a material the saw shop has
+   never had on its books, which is a final answer and not a fault. Of the 14 lines left in that column
+   after the empty-shelf rule, 13 were Elastomerplatte 1-6 mm, PTFE film five hundredths of a millimetre
+   thick and PTFE-coated glass fabric thirty metres long: soft goods no panel saw would touch, cut by
+   other means. The 14th was PEEK 40 mm, which IS saw material and which HOMAG does not list — a real gap
+   that was hidden among the rubber.
+
+   The COLUMNS do not change: SARCLA asked for three and a fourth was already removed once. Only the pill
+   on the card, so the same column reads as an answer where it is one. `sawWhy` comes from the middleware
+   (cut-ledger.sawWhyFor) and is absent on an older gateway, which falls back to the plain label. */
+export function workLabelOf(l: Line): string {
+  if (workOf(l) !== "unknown") return WORK_LABEL[workOf(l)];
+  if (l.sawWhy === "not-a-saw-material") return "Not on the saw's books";
+  if (l.sawWhy === "no-basis") return "No article on the line";
+  if (l.sawWhy === "no-size") return "No size on the line";
+  return WORK_LABEL.unknown;
+}
+
+/** true where the column is a final answer rather than something to go and fix */
+export const isOffSaw = (l: Line) => workOf(l) === "unknown" && l.sawWhy === "not-a-saw-material";
+
 export const STAGE_LABEL: Record<string, string> = {
   reserved: "In a cart",
   lapsed: "Cart expired",

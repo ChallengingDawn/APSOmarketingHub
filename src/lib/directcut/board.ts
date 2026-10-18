@@ -19,7 +19,7 @@ type RawLine = {
   key: string; basis?: string | null; basisName?: string | null; cutArticle?: string | null;
   l?: number; w?: number; qty?: number; heldQty?: number; producedQty?: number;
   stage: Stage; orderNo?: string | null; erpNo?: string | null; date?: string | null;
-  sawNeeded?: boolean | null; kind?: string | null; customer?: string | null;
+  sawNeeded?: boolean | null; sawWhy?: string | null; kind?: string | null; customer?: string | null;
   enteredStageAt?: string | null; createdAt?: string | null; originBackend?: boolean;
 };
 type RawStock = {
@@ -65,7 +65,10 @@ export type Line = {
   cutArticle: string | null;
   l: number; w: number; qty: number; held: number; produced: number;
   orderNo: string | null; erpNo: string | null; date: string | null;
-  sawNeeded: boolean | null; kind: string | null; customer: string | null;
+  /* why sawNeeded is null, so the board can tell its own data gap from a material the saw shop has
+     never had on its books: no-basis | no-size | not-a-saw-material | unknown. Absent on an older
+     gateway, which is why every reader falls back to the plain label. */
+  sawNeeded: boolean | null; sawWhy: string | null; kind: string | null; customer: string | null;
   at: string | null; fromShop: boolean;
 };
 export type StockRow = {
@@ -102,6 +105,7 @@ const line = (r: RawLine): Line => ({
   erpNo: r.erpNo ?? null,
   date: r.date ?? null,
   sawNeeded: r.sawNeeded ?? null,
+  sawWhy: r.sawWhy ?? null,
   kind: r.kind ?? null,
   customer: r.customer ?? null,
   at: r.enteredStageAt ?? r.createdAt ?? null,

@@ -45,7 +45,7 @@ import RegistryTab from "./RegistryTab";
 import LeftoversTab from "./LeftoversTab";
 import type { Leftovers, SentLog } from "@/lib/directcut/leftovers";
 import type { BrokenWithTickets, Holds, Registry } from "./shared";
-import { WORK_LABEL, post, when, workOf, type Board, type Line, type Status } from "./shared";
+import { WORK_LABEL, isOffSaw, post, when, workOf, type Board, type Line, type Status } from "./shared";
 
 type View = "overview" | "kanban" | "leftovers" | "shortages" | "shelf" | "numbers" | "status";
 const VIEW_HASH: Record<View, string> = {
@@ -55,8 +55,10 @@ const VIEW_HASH: Record<View, string> = {
 type BoardPayload = { board: Board; setting: { url: string; by: string | null; at: string | null; fromDefault: boolean }; isAdmin: boolean };
 
 const countWork = (open: Line[]) => {
-  const n = { saw: 0, pick: 0, unknown: 0 };
-  for (const l of open) n[workOf(l)]++;
+  /* `offSaw` is a SUBSET of unknown, not a fourth bucket: the columns stay three, and this only lets the
+     tile say how much of "not recorded" is a material the saw shop never had rather than a data gap. */
+  const n = { saw: 0, pick: 0, unknown: 0, offSaw: 0 };
+  for (const l of open) { n[workOf(l)]++; if (isOffSaw(l)) n.offSaw++; }
   return n;
 };
 
@@ -151,7 +153,8 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<ContentCutOutlinedIcon fontSize="small" />} tint="slate" label={WORK_LABEL.saw}
-            value={full(work.saw)} note={`of ${full(b.open.length)} open · ${full(work.pick)} leftover`} />
+            value={full(work.saw)} note={`of ${full(b.open.length)} open · ${full(work.pick)} leftover`
+              + (work.offSaw ? ` · ${full(work.offSaw)} not on the saw's books` : "")} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiTile icon={<DoneAllOutlinedIcon fontSize="small" />} tint="green" label="Cut done"
