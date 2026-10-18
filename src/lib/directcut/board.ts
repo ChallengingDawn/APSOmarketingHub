@@ -24,6 +24,8 @@ type RawLine = {
 };
 type RawStock = {
   basis: string; name?: string; thickness?: number | null; known?: boolean;
+  /** the Lagerplatz of each plate, stamped by the middleware from HOMAG's inventory */
+  locations?: string[];
   physicalPieces?: number; physical?: number; shownNet?: number;
   heldParts?: number; pinnedParts?: number; producedParts?: number;
   plates?: unknown[];
@@ -58,6 +60,8 @@ export type Line = {
 export type StockRow = {
   basis: string; name: string; thickness: number | null; known: boolean;
   plates: number; physical: number; offered: number; held: number; pinned: number; produced: number;
+  /** which shelves this article's plates are on — one article's offcuts can sit on several */
+  locations: string[];
 };
 export type Board = {
   at: string;
@@ -118,6 +122,7 @@ export function slim(p: RawPipeline, doneShown = DONE_DEFAULT): Board {
       held: Number(a.heldParts) || 0,
       pinned: Number(a.pinnedParts) || 0,
       produced: Number(a.producedParts) || 0,
+      locations: Array.isArray(a.locations) ? a.locations.filter(Boolean).map(String) : [],
     })),
   };
 }

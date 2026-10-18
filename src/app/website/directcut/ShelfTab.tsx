@@ -49,6 +49,9 @@ export default function ShelfTab({ stock }: { stock: StockRow[] }) {
           <TableHead>
             <TableRow>
               <TableCell sx={headCell}>Article</TableCell>
+              <Tooltip title="The shelf each plate sits on, from HOMAG's own inventory" placement="top">
+                <TableCell sx={headCell}>Lagerplatz</TableCell>
+              </Tooltip>
               <TableCell sx={{ ...headCell, textAlign: "right" }}>Plate sizes</TableCell>
               <Tooltip title="Plates HOMAG says are on the shelf, with its own allocations already taken off" placement="top">
                 <TableCell sx={{ ...headCell, textAlign: "right" }}>On the shelf</TableCell>
@@ -76,6 +79,14 @@ export default function ShelfTab({ stock }: { stock: StockRow[] }) {
                     {a.name || "not a woodStore article"}
                     {a.thickness ? ` · ${a.thickness} mm` : ""}
                   </Typography>
+                </TableCell>
+                <TableCell sx={bodyCell}>
+                  {a.locations.length
+                    ? <Typography sx={{ fontSize: "0.84rem", color: INK, fontWeight: 600, whiteSpace: "nowrap" }}
+                        title={a.locations.length > 2 ? a.locations.join(", ") : undefined}>
+                        {a.locations.slice(0, 2).join(", ")}{a.locations.length > 2 ? ` +${a.locations.length - 2}` : ""}
+                      </Typography>
+                    : <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>–</Typography>}
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, ...num, color: MUTED }}>{a.plates || "–"}</TableCell>
                 <TableCell sx={{ ...bodyCell, ...num }}>{a.physical}</TableCell>

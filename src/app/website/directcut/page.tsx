@@ -110,9 +110,13 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
      it gave 0 while 1094 of 1095 lines actually carried an A-number. The view counts the lines. */
   /* open work by WHEN it was promised — late, today, this week, later, undated. A board tells you what
      there is; this tells you how much of it is already behind. */
+  /* how many open lines are already past the day their customer was promised - the one figure on this
+     tab somebody would act on today */
+  const late = b.open.filter((l) => l.date && String(l.date).slice(0, 10) < new Date().toISOString().slice(0, 10)).length;
   const due = (() => {
     const t = new Date().toISOString().slice(0, 10);
     const week = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+    const fmt = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.`;
     const n = { late: 0, today: 0, week: 0, later: 0, none: 0 };
     for (const l of b.open) {
       const d = l.date ? String(l.date).slice(0, 10) : null;
@@ -122,12 +126,16 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
       else if (d <= week) n.week++;
       else n.later++;
     }
+    /* SARCLA, 18.10.2026: "don't understand this graph". Fair — "Past its day / Today / Within a week"
+       are only meaningful if you already know the bars count OPEN LINES against the day the customer was
+       promised. Each label now says what the bar is and what it means, and the note says what to do with
+       the top one. A chart nobody can read is worse than the number it replaced. */
     return [
-      { label: "Past its day", n: n.late, colour: RED },
-      { label: "Today", n: n.today, colour: AMBER },
-      { label: "Within a week", n: n.week },
-      { label: "Later", n: n.later },
-      { label: "No date", n: n.none, colour: FAINT },
+      { label: "Late", n: n.late, note: "the promised day has already passed", colour: RED },
+      { label: "Due today", n: n.today, note: fmt(t), colour: AMBER },
+      { label: "Due this week", n: n.week, note: `up to ${fmt(week)}` },
+      { label: "Due later", n: n.later, note: `after ${fmt(week)}` },
+      { label: "No promised day", n: n.none, note: "nothing was quoted", colour: FAINT },
     ];
   })();
 
@@ -191,8 +199,10 @@ function Overview({ b, s }: { b: Board; s: Status | null }) {
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <GlassCard>
-              <CardTitle icon={<ContentCutOutlinedIcon fontSize="small" />} tint="slate" title="When it was promised"
-                note="open lines by the day the customer was given" />
+              <CardTitle icon={<ContentCutOutlinedIcon fontSize="small" />} tint={late ? "amber" : "slate"}
+                title="Is the work on time?"
+                note={`every line still to do, counted by the day its customer was promised`
+                  + (late ? ` — ${full(late)} of them is already past it` : " — none is late")} />
               <Bars rows={due} />
             </GlassCard>
           </Grid>
