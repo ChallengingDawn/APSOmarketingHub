@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Portal from "@mui/material/Portal";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
@@ -102,7 +103,10 @@ export function ActionsPanel({ tile, open, onClose, placed, onMove, canWrite }: 
   const openCount = (tasks ?? []).filter((k) => k.status !== "done").length;
 
   return (
-    <>
+    // on the page's own level (a portal to <body>): inside a card, its blur (backdrop-filter) makes the
+    // card the frame of anything "fixed" - the window was clipped to the card and covered by the next
+    // one (SARCLA 18.10: "modal is completely broken"; the fixed + transform trap)
+    <Portal>
       {/* the page behind dims a little: this window is the work, not a side note */}
       <Box onClick={onClose} sx={{ position: "fixed", inset: 0, zIndex: 1299, bgcolor: "rgba(21,34,58,.18)" }} />
       <Box role="dialog" aria-modal="true" aria-label={`Actions for ${tile.title}`}
@@ -156,7 +160,7 @@ export function ActionsPanel({ tile, open, onClose, placed, onMove, canWrite }: 
           </Box>
         </Box>
       </Box>
-    </>
+    </Portal>
   );
 }
 
