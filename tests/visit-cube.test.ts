@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cubeTable, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeOf, storeTable, usersAbroad, visitSeries, visitYtd, type VisitData } from "../src/lib/marketingKpis/visitCube";
+import { cubeTable, groupOf, groupsByMonth, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeOf, storeTable, usersAbroad, visitSeries, visitYtd, type VisitData } from "../src/lib/marketingKpis/visitCube";
 
 const d: VisitData = {
   generatedAt: "2026-10-18T00:00:00Z", year: 2026, monthsDone: 9,
@@ -109,4 +109,16 @@ test("stores, landing pages and the year-so-far KPIs", () => {
   assert.equal(y.V07.pyNote, "2025 whole year");
   assert.equal(y.V08.cy, 900 + 400 + 50 + 20);       // without the 300 visits that had no page
   assert.equal(y.V08.pyNote, "same months Jan–Sep");
+});
+
+test("visits per month by channel group: organic, paid, direct, AI and the rest", () => {
+  assert.equal(groupOf("Organic Search"), "Organic");
+  assert.equal(groupOf("Cross-network"), "Paid");
+  assert.equal(groupOf("AI Assistant"), "AI assistants");
+  assert.equal(groupOf("Referral"), "Other");
+  const g = groupsByMonth(d, 2026, [8]);
+  assert.deepEqual(g[0].groups, { Direct: 610, Organic: 700, Paid: 500 });
+  assert.equal(g[0].total, 1810);
+  assert.equal(g[0].pyTotal, 1500);
+  assert.deepEqual(groupsByMonth(d, 2026, [8], { country: ["CH"] })[0].groups, { Direct: 600 });
 });

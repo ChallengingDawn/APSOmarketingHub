@@ -391,6 +391,8 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, 
       </Box>
       <Compare v={v} />
       {children}
+      {/* a count of the year so far: the nutshell's two bars, this year against last (SARCLA 18.10: the nutshell's graphs inside the pages) */}
+      {!children && v.measure.agg.kind === "ytd" && (v.ytd != null || v.pyYtd != null) && <YtdBars v={v} tint={tint} />}
       {!children && hasMonths && v.measure.agg.kind !== "ytd" && (
         <ChartFrame table={{ columns: ["Month", "This year", "Last year"], rows: L.map((x, i) => [x, v.series.months[i] ?? "", v.series.py[i] ?? ""]), numeric: [1, 2] }}>
           <GroupedColumns height={180} format={(x) => fmtValue(v.measure.fmt, x)}
@@ -402,6 +404,24 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, 
         {kpi?.audienceAsk ? `${kpi.audienceAsk} · ` : ""}{v.measure.notCatalogue ? "" : v.measure.definition ?? kpi?.definition ?? ""}{v.measure.note ? `${v.measure.notCatalogue ? "" : " · "}${v.measure.note}` : ""}{v.partial != null && v.measure.agg.kind !== "ytd" ? ` · ${MONTHS[v.partial]} is still running and not in the year so far` : ""}
       </Typography>
     </GlassCard>
+  );
+}
+
+/** This year so far against last year (whole or the same months), as two bars - as the nutshell draws it. */
+export function YtdBars({ v, tint = "blue" }: { v: KpiView; tint?: Tint }) {
+  const max = Math.max(v.ytd ?? 0, v.pyYtd ?? 0) || 1;
+  return (
+    <Box sx={{ display: "grid", gap: 0.9 }}>
+      {([["This year so far", v.ytd, TINT[tint].fg], [v.pyNote ? `${v.pyNote.charAt(0).toUpperCase()}${v.pyNote.slice(1)}` : "Last year", v.pyYtd, "#d3d8e0"]] as const).map(([label, x, color]) => (
+        <Box key={label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1.5, rowGap: 0.4, alignItems: "center" }}>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{label}</Typography>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, x)}</Typography>
+          <Box sx={{ gridColumn: "1 / -1", height: 14, borderRadius: 99, bgcolor: "rgba(21,34,58,.05)" }}>
+            <Box sx={{ height: 14, borderRadius: 99, bgcolor: color, width: `${((x ?? 0) / max) * 100}%`, minWidth: x ? 4 : 0 }} />
+          </Box>
+        </Box>
+      ))}
+    </Box>
   );
 }
 

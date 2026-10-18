@@ -175,6 +175,40 @@ export function visitSeries(d: VisitData, year: number, f: VisitFilters = {}): R
   return out;
 }
 
+/** GA4's channels in the four groups the catalogue names (V03: "organic / paid / direct / AI"), the rest "Other". */
+export const CHANNEL_GROUPS = ["Organic", "Paid", "Direct", "AI assistants"] as const;
+export function groupOf(channel: string): string {
+  if (channel === "Direct") return "Direct";
+  if (channel === "AI Assistant") return "AI assistants";
+  if (/^Organic /.test(channel)) return "Organic";
+  if (/^Paid /.test(channel) || channel === "Cross-network" || channel === "Display") return "Paid";
+  return "Other";
+}
+
+export type MonthGroups = { month: number; total: number; pyTotal: number; groups: Record<string, number> };
+/**
+ * Visits per month by channel group, the months chosen, and each month a year earlier (SARCLA 18.10:
+ * the traffic origin card "I don't understand" - one total per month under a "by channel" name).
+ */
+export function groupsByMonth(d: VisitData, year: number, months: number[], f: VisitFilters = {}): MonthGroups[] {
+  const pickC = f.country?.length ? new Set(f.country.map((c) => c.toUpperCase())) : null;
+  const pickH = f.channel?.length ? new Set(f.channel) : null;
+  const out = months.map((i) => ({ month: i, total: 0, pyTotal: 0, groups: {} as Record<string, number> }));
+  // "YYYY-MM" -> [the row, 0 this year / 1 a year earlier]
+  const at = new Map<string, [number, 0 | 1]>();
+  months.forEach((i, k) => { at.set(ym(year, i), [k, 0]); at.set(ym(year - 1, i), [k, 1]); });
+  for (const [m, c, h, s] of d.cube) {
+    const hit = at.get(m);
+    if (!hit || (pickC && !pickC.has(c)) || (pickH && !pickH.has(d.channels[h]))) continue;
+    const r = out[hit[0]];
+    if (hit[1] === 1) { r.pyTotal += s; continue; }
+    r.total += s;
+    const g = groupOf(d.channels[h]);
+    r.groups[g] = (r.groups[g] ?? 0) + s;
+  }
+  return out;
+}
+
 export type CountryUsersRow = { code: string; label: string; users: number; pyUsers: number };
 /**
  * Users by country outside Switzerland over the months chosen, against the same months a year

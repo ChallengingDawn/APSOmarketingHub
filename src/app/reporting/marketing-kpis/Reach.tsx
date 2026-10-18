@@ -39,7 +39,7 @@ import type { LiveKpis } from "@/lib/marketingKpis/live";
 import { FOCUS_A3, countryName } from "@/lib/marketingKpis/countries";
 import { countryTable, seriesForCountries, type CountryRow } from "@/lib/marketingKpis/countryMonths";
 import { roasRows } from "@/lib/marketingKpis/roas";
-import { Compare, KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, type KpiView, type MkState, type MonthWindow } from "./data";
+import { Compare, KpiCard, LiveNote, MiniBars, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, type KpiView, type MkState, type MonthWindow } from "./data";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 // the tile toolbar and saved views (9f, SARCLA 18.10: "they should be on the main one then visible on the nutshell")
@@ -354,6 +354,28 @@ function Roas({ live, win, actions }: { live: LiveKpis; win: MonthWindow; action
         ROAS = revenue ÷ ad cost. Revenue is GA4&apos;s: the orders of the visits each channel brought (last click), only from visitors who accepted statistics cookies - a floor, below what
         Google Ads and Microsoft Advertising report with their own conversion tracking. Cost from Google Ads through GA4 and from the Microsoft Advertising script; all in euros at each
         month&apos;s ECB rate. SEO has no ad cost, so no ROAS - its revenue shows what organic search brings.
+      </Typography>
+    </GlassCard>
+  );
+}
+
+/** A KPI as a small tile: the figure, the comparison, its months as small bars - as the nutshell draws one. */
+function SmallKpi({ v, upTo, actions }: { v: KpiView; upTo: string; actions?: React.ReactNode }) {
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1, alignContent: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25 }}>
+        <Badge icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} size={32} />
+        <Typography data-kpi={v.id} sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, lineHeight: 1.3, flex: 1, minWidth: 0, pt: 0.5 }}>{nameOf(v.id)}</Typography>
+        {actions && <Box sx={{ flex: "0 0 auto" }}>{actions}</Box>}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(v)}</Typography>
+      </Box>
+      <Compare v={v} size="0.78rem" />
+      <MiniBars v={v} height={64} />
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.4 }}>
+        Of the AI assistants&apos; answers to our prompts (ChatGPT, Gemini, Perplexity), the share that names APSO · {upTo}
       </Typography>
     </GlassCard>
   );
@@ -743,7 +765,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         </Button>
       </Box>
 
-      {kpis.length > 0 && tab !== "ads" && (
+      {kpis.length > 0 && tab !== "ads" && tab !== "ai" && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>
       )}
       {/* SARCLA 18.10: the return on ad spend on top; SEA Google and SEA Microsoft, each with its graphs, and the mix */}
@@ -800,8 +822,14 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         : card("R09"))}
       {tab === "countries" && (live.breakdowns.searchCountries.length > 0 || live.breakdowns.searchCountryMonths) && <SearchCountries live={live} win={win} chosen={countries} onPick={toggleCountry} actions={act("search-countries", "Search visibility by country")} />}
       {/* where we stand against the sites the assistants rely on, then each assistant (SARCLA 18.10) */}
+      {/* AI visibility as a small tile beside each assistant (SARCLA 18.10: "a simpler one, small like the others"), then who they cite */}
+      {tab === "ai" && (views.R10 || state.aeoAssistants) && (
+        <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(250px, 320px) minmax(0, 1fr)" } }}>
+          {views.R10 && <SmallKpi v={views.R10} upTo={upToOf(views.R10, state, year)} actions={kpiActs("R10", views.R10)} />}
+          {state.aeoAssistants ? <WithActions tile={tileOf("by-assistant", "By assistant")}><ByAssistant w={state.aeoAssistants} /></WithActions> : null}
+        </Box>
+      )}
       {tab === "ai" && state.aeoCited && <WithActions tile={tileOf("cited-sites", "Who the assistants cite")}><CitedSitesCard data={state.aeoCited} /></WithActions>}
-      {tab === "ai" && (state.aeoAssistants ? <WithActions tile={tileOf("by-assistant", "By assistant")}><ByAssistant w={state.aeoAssistants} /></WithActions> : null)}
       {tab === "email" && waiting.R11 && (
         <BeingBuilt id="R11" icon={<MailOutlineIcon />}
           waits="HubSpot to let the hub's app read the marketing email statistics - the read-only permission is not offered to this app yet."

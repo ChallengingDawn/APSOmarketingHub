@@ -30,11 +30,13 @@ import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { StackedColumns } from "@/app/charts/StackedColumns";
+import { BarList } from "@/app/charts/BarList";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { countryName } from "@/lib/marketingKpis/countries";
-import { CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type UnlinkedRow, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
+import { CHANNEL_GROUPS, CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, groupsByMonth, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type UnlinkedRow, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useSlow, type KpiView, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -139,13 +141,19 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
   const d = vis.value;
   const w = monthsLabel(months.length ? { start: months[0], end: months[months.length - 1] } : win);
   // each tab's own chart in its KPI card, once GA4 is read (SARCLA 18.10: by country, the stores' and pages' channels)
-  const charts: Record<string, React.ReactNode> = !d ? {} : {
+  const charts: Record<string, React.ReactNode> = {
+    ...(views.V01 && views.V02N ? { V01: <NewReturning users={views.V01} fresh={views.V02N} months={months} year={year} /> } : {}),
+    ...(views.V01 && views.V02N ? { V02: <NewReturningBars users={views.V01} fresh={views.V02N} year={year} w={w} /> } : {}),
+  };
+  if (d) Object.assign(charts, {
+    V03: <MixChart title={`Visits each month by where they came from, ${w} ${year}`} order={CHANNEL_GROUPS} otherLabel="Other (links, e-mail, unknown)"
+      rows={groupsByMonth(d, year, months, filters).map((g) => ({ key: String(g.month), label: `${MONTHS[g.month]} ${year}`, total: g.total, py: g.pyTotal, channels: g.groups }))} />,
     V04: <AbroadChart d={d} year={year} months={months} filters={filters} chosen={countries} w={w} />,
     V05: <MixChart title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
       rows={storeChannels(d, filters).slice(0, 16).map((r) => ({ key: r.code, label: r.label, sub: `/${r.code}`, total: r.total, py: r.pyTotal, channels: r.channels }))} />,
     V08: <MixChart title={`The top landing pages by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
       rows={landingTable(d, filters, 12).map((r) => ({ key: r.page, label: r.page, sub: r.store ? storeName(r.store) ?? undefined : undefined, total: r.sessions, py: null, channels: r.channels }))} />,
-  };
+  });
   const kpis = TABS.find((t) => t.id === tab)!.kpis.map((id) => card(id, charts[id])).filter(Boolean);
   const tileFor = (cardId: string, title: string) => (
     <TileActions where="tab" start="tab" tile={{ key: `visit:${tab}:${cardId}`, page: "visit", tab, title, kind: "card", ...(filtered ? { filters: { country: countries, channel: channels } } : {}), ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }) }} />
@@ -240,6 +248,9 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
           <GlassCard sx={{ display: "grid", gap: 1.25 }}>
             <CardTitle icon={<AltRouteIcon />} tint="blue" title="Traffic origin - where the visits come from"
               note={`GA4 channels, ${w} ${year} against ${w} ${year - 1}${countries.length ? ` · ${names(countries, countryName)} only` : ""} · click a channel to filter by it`} right={tileFor("channels", "Traffic origin by channel")} />
+            {/* the nutshell's graph, here too (SARCLA 18.10: "graphs on the nutshell ... should be inside") */}
+            <BarList rows={rows.slice(0, 8).map((r) => ({ label: r.label, value: r.sessions, secondary: ratio(r.sessions, total) }))} labelWidth={130} format={(x) => n0(x)}
+              onSelect={(label) => toggleChannel(label)} selectedLabel={channels.length === 1 ? channels[0] : null} />
             <Table firstWidth="minmax(380px, 3fr)"
               head={["Channel - what it is", "Sessions", "Share", `Sessions ${year - 1}`, "Users", "New users"]}
               rows={rows.map((r) => ({
@@ -377,6 +388,54 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
   );
 }
 
+/**
+ * The visitors each month, new and returning, stacked (SARCLA 18.10: "I don't understand these
+ * graphs ... we should have a bar for new / returning"); last year's users are in the table.
+ */
+function NewReturning({ users, fresh, months, year }: { users: KpiView; fresh: KpiView; months: number[]; year: number }) {
+  const rows = months.map((i) => {
+    const u = users.series.months[i], n = fresh.series.months[i];
+    return { i, u, n, back: u != null && n != null ? Math.max(0, u - n) : null, py: users.series.py[i] };
+  });
+  if (!rows.some((r) => r.u != null)) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Visitors each month - new and returning</Typography>
+      <ChartFrame table={{ columns: ["Month", "New users", "Returning users", "Users", `Users ${year - 1}`], rows: rows.map((r) => [`${MONTHS[r.i]} ${year}`, r.n ?? "", r.back ?? "", r.u ?? "", r.py ?? ""]), numeric: [1, 2, 3, 4] }}>
+        <StackedColumns height={210} format={(x) => n0(x)} parts={[{ key: "fresh", label: "New users" }, { key: "back", label: "Returning users" }]}
+          data={rows.map((r) => ({ x: MONTHS[r.i], fresh: r.n, back: r.back }))} />
+      </ChartFrame>
+    </Box>
+  );
+}
+
+/** New against returning visitors as one bar each - this year and the same months a year earlier. */
+function NewReturningBars({ users, fresh, year, w }: { users: KpiView; fresh: KpiView; year: number; w: string }) {
+  const rows = ([[`${w} ${year}`, fresh.ytd, users.ytd], [`${w} ${year - 1}`, fresh.pyYtd, users.pyYtd]] as const).filter(([, , u]) => u);
+  if (!rows.length) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 1.25 }}>
+      {rows.map(([label, n, u]) => {
+        const sNew = (n ?? 0) / (u ?? 1), sBack = 1 - sNew;
+        return (
+          <Box key={label} sx={{ display: "grid", gap: 0.5 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{label}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{n0(u)} users</Typography>
+            </Box>
+            <Box role="img" aria-label={`${label}: new ${(sNew * 100).toFixed(1)}%, returning ${(sBack * 100).toFixed(1)}%`} sx={{ display: "flex", height: 26, borderRadius: "8px", overflow: "hidden", gap: "2px" }}>
+              <Box sx={{ flex: `${sNew} 0 0`, bgcolor: SERIES[0], color: "#fff", fontSize: "0.76rem", fontWeight: 700, display: "flex", alignItems: "center", px: 1, whiteSpace: "nowrap" }}>{sNew > 0.15 ? `New ${(sNew * 100).toFixed(1)}%` : ""}</Box>
+              <Box sx={{ flex: `${sBack} 0 0`, bgcolor: SERIES[1], color: "#fff", fontSize: "0.76rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "flex-end", px: 1, whiteSpace: "nowrap" }}>{sBack > 0.15 ? `Returning ${(sBack * 100).toFixed(1)}%` : ""}</Box>
+            </Box>
+            <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontVariantNumeric: "tabular-nums" }}>{n0(n)} new · {n0((u ?? 0) - (n ?? 0))} returning</Typography>
+          </Box>
+        );
+      })}
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>New = the visitor&apos;s first visit falls in the month (GA4); returning = had come before. Users added up month by month.</Typography>
+    </Box>
+  );
+}
+
 /** Users outside Switzerland by country, against a year earlier (SARCLA 18.10: "should be viewed by country"). */
 function AbroadChart({ d, year, months, filters, chosen, w }: { d: VisitData; year: number; months: number[]; filters: VisitFilters; chosen: string[]; w: string }) {
   const rows = usersAbroad(d, year, months, filters);
@@ -398,14 +457,14 @@ type MixRow = { key: string; label: string; sub?: string; total: number; py: num
  * brings more visitors to it"): the four biggest channels in colour, the rest grey; the bar is the
  * visits - or, switched to shares, every bar is a whole, to compare the mix.
  */
-function MixChart({ title, rows }: { title: string; rows: MixRow[] }) {
+function MixChart({ title, rows, order, otherLabel = "Other channels" }: { title: string; rows: MixRow[]; order?: readonly string[]; otherLabel?: string }) {
   const [shares, setShares] = useState(false);
   const all: Record<string, number> = {};
   for (const r of rows) for (const [c, n] of Object.entries(r.channels)) all[c] = (all[c] ?? 0) + n;
-  const top = Object.entries(all).sort((a, b) => b[1] - a[1]).slice(0, SERIES.length).map(([c]) => c);
+  const top = order ? order.slice(0, SERIES.length) : Object.entries(all).sort((a, b) => b[1] - a[1]).slice(0, SERIES.length).map(([c]) => c);
   const parts = (r: MixRow) => {
     const other = Object.entries(r.channels).filter(([c]) => !top.includes(c)).reduce((a, [, n]) => a + n, 0);
-    return [...top.map((c, i) => ({ c, n: r.channels[c] ?? 0, color: SERIES[i] })), { c: "Other channels", n: other, color: DEEMPHASIS }].filter((p) => p.n > 0);
+    return [...top.map((c, i) => ({ c, n: r.channels[c] ?? 0, color: SERIES[i] })), { c: otherLabel, n: other, color: DEEMPHASIS }].filter((p) => p.n > 0);
   };
   const max = Math.max(1, ...rows.map((r) => r.total));
   if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visits in the choice.</Typography>;
@@ -424,7 +483,7 @@ function MixChart({ title, rows }: { title: string; rows: MixRow[] }) {
         </Box>
       </Box>
       <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
-        {[...top.map((c, i) => ({ c, color: SERIES[i] })), { c: "Other channels", color: DEEMPHASIS }].map((x) => (
+        {[...top.map((c, i) => ({ c, color: SERIES[i] })), { c: otherLabel, color: DEEMPHASIS }].map((x) => (
           <Box key={x.c} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, fontSize: "0.76rem", color: MUTED }}>
             <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: x.color }} />{x.c}
           </Box>
@@ -433,7 +492,7 @@ function MixChart({ title, rows }: { title: string; rows: MixRow[] }) {
       <Box sx={{ display: "grid", gap: 0.6 }}>
         {rows.map((r) => {
           const ps = parts(r);
-          const main = ps.filter((p) => p.c !== "Other channels").sort((a, b) => b.n - a.n)[0];
+          const main = ps.filter((p) => p.c !== otherLabel).sort((a, b) => b.n - a.n)[0];
           const c = r.py != null ? change(r.total, r.py) : null;
           return (
             <Box key={r.key} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(180px, 260px) minmax(0, 1fr) 92px 64px minmax(150px, 190px)" }, gap: { xs: 0.4, md: 1.25 }, alignItems: "center", py: 0.4, borderBottom: `1px solid ${HAIRLINE}` }}>
