@@ -93,6 +93,7 @@ import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
 import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
+import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -187,6 +188,7 @@ const navSections: NavSection[] = [
       { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
       { group: "Microservices", label: "Google Ads buckets", href: "/website/ads-buckets", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DirectCut", href: "/website/directcut", icon: <ContentCutOutlinedIcon fontSize="small" /> },
+      { group: "Microservices", label: "Chat", href: "/website/chat", icon: <ForumOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
       { group: "Microservices", label: "DirectUP", href: "/website/directup", icon: <UploadFileOutlinedIcon fontSize="small" /> },

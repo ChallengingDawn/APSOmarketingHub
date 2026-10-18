@@ -28,6 +28,7 @@ import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
 import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
+import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 
 import type { IconKey } from "./hubApps";
 
@@ -58,6 +59,7 @@ const MAP: Record<IconKey, React.ElementType> = {
   shaft: AdjustOutlinedIcon,
   science: ScienceOutlinedIcon,
   loop: AllInclusiveOutlinedIcon,
+  chat: ForumOutlinedIcon,
 };
 
 export default function HubIcon({ name, fontSize = 18 }: { name: IconKey; fontSize?: number }) {
