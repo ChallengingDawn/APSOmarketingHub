@@ -237,7 +237,11 @@ export const journeyAdditionsIn = (stage: string): CatalogueKpi[] =>
  * Names the hub corrects: R08 counts Google search clicks only, not GEO (SARCLA 18.10: "this graph is
  * still wrong" - the Journey tab calls it "Brand share of SEO & GEO clicks").
  */
-const NAME_FIX: Record<string, string> = { R08: "Brand share of search clicks" };
+const NAME_FIX: Record<string, string> = {
+  R08: "Brand share of search clicks",
+  // the Journey tab's "/GEO" on figures that are search and ads only (SARCLA 18.10: no GEO tags)
+  P05: "SEA revenue", P06: "ROAS (SEA)", P07: "SEO revenue", X01: "SEA cost",
+};
 /** A KPI's name as SARCLA wrote it on the Journey tab, else the catalogue's. */
 export const nameOf = (id: string) => NAME_FIX[id] ?? JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
 /**
