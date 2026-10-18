@@ -17,7 +17,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { full } from "@/app/charts/format";
-import { FAINT, HAIRLINE, INK, MUTED, glass } from "@/app/uc/report/ui";
+import { FAINT, HAIRLINE, INK, MUTED, TINT, glass } from "@/app/uc/report/ui";
 import type { TranscriptItem } from "@/lib/chat/shape";
 import { when } from "./shared";
 
@@ -73,13 +73,13 @@ export function Inbox({ items, selected, onSelect, toolbar, total, page, per, on
           )}
           {toolbar}
         </Box>
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", maxHeight: { xs: "70vh", md: "none" } }} role="list">
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", maxHeight: { xs: "70vh", md: "none" } }} role="list">
           {!items.length && <Typography sx={{ p: 2, fontSize: "0.84rem", color: MUTED }}>{empty ?? "No chats here."}</Typography>}
           {items.map((it) => {
             const on = it.id === selected;
             return (
               <ButtonBase key={it.id} role="listitem" onClick={() => onSelect(on ? null : it.id)} aria-current={on || undefined}
-                sx={{ display: "grid", gap: 0.4, width: "100%", textAlign: "left", px: 1.75, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`,
+                sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.4, width: "100%", minWidth: 0, textAlign: "left", px: 1.75, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`,
                   borderLeft: `3px solid ${on ? "#2459d1" : it.flag ? "#e8a3b8" : "transparent"}`, bgcolor: on ? "rgba(36,89,209,.07)" : "transparent",
                   "&:hover": { bgcolor: on ? "rgba(36,89,209,.09)" : "rgba(21,34,58,.03)" } }}>
                 <Box sx={{ display: "flex", gap: 1, alignItems: "baseline", minWidth: 0 }}>
@@ -90,7 +90,7 @@ export function Inbox({ items, selected, onSelect, toolbar, total, page, per, on
                 {it.preview && (
                   <Typography sx={{ fontSize: "0.79rem", color: MUTED, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.preview}</Typography>
                 )}
-                {it.badges && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.25 }}>{it.badges}</Box>}
+                {it.badges && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.25, minWidth: 0 }}>{it.badges}</Box>}
               </ButtonBase>
             );
           })}
@@ -172,6 +172,17 @@ export function Bubbles({ items, noTimes }: { items: TranscriptItem[]; noTimes?:
           </Box>
         );
       })}
+    </Box>
+  );
+}
+
+/** A chip for the list that shortens with "…" instead of widening the column (a sub-category can be 60 characters). */
+export function Tag({ tint, children, title }: { tint: keyof typeof TINT; children: React.ReactNode; title?: string }) {
+  const t = TINT[tint];
+  return (
+    <Box component="span" title={title} sx={{ display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      verticalAlign: "bottom", px: 1, py: 0.2, borderRadius: "8px", bgcolor: t.bg, color: t.fg, fontSize: "0.72rem", fontWeight: 700 }}>
+      {children}
     </Box>
   );
 }

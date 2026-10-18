@@ -13,10 +13,10 @@ import Typography from "@mui/material/Typography";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { FAINT, HsLink, INK, MUTED, Notice } from "@/app/uc/report/ui";
-import { topicLabel, type Conversation, type ConversationDetail, type Conversations, type Transcript } from "@/lib/chat/shape";
+import { categoryLabel, type Conversation, type ConversationDetail, type Conversations, type Transcript } from "@/lib/chat/shape";
 import { HandlerChip, LANGUAGES, Loaded, category, when } from "./shared";
-import { Bubbles, Inbox, type InboxItem } from "./inbox";
-import { TopicPick } from "./TopicsTab";
+import { Bubbles, Inbox, Tag, type InboxItem } from "./inbox";
+import { CategoryPick } from "./TopicsTab";
 
 const PER = 30;
 
@@ -58,7 +58,7 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
   const chats = useMemo(() => {
     const q = search.trim().toLowerCase();
     return r.conversations.filter((c) => (!unanswered || c.agent_wrote === false)
-      && (!q || [c.summary, c.category_code, c.sub_l1, c.topic && topicLabel(c.topic)].some((x) => x && x.toLowerCase().includes(q))));
+      && (!q || [c.summary, c.category_code, c.sub_l1, c.topic && categoryLabel(c.topic), c.topic_sub1].some((x) => x && x.toLowerCase().includes(q))));
   }, [r.conversations, search, unanswered]);
   const items: InboxItem[] = chats.map((c) => ({
     id: c.session_hash,
@@ -70,7 +70,7 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
     badges: (
       <>
         <HandlerChip c={c} />
-        {c.topic && c.topic !== "unreadable" && <Chip tint="amber">{topicLabel(c.topic)}</Chip>}
+        {c.topic && c.topic !== "unreadable" && <Tag tint="amber" title={c.topic_sub1 ? `${c.topic} · ${c.topic_sub1}` : c.topic}>{c.topic}{c.topic_sub1 ? ` · ${c.topic_sub1}` : ""}</Tag>}
         {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote</Chip>}
         <Box component="span" sx={{ fontSize: "0.7rem", color: FAINT, alignSelf: "center" }}>{c.messages ?? c.turns_count} {(c.messages ?? c.turns_count) === 1 ? "message" : "messages"}</Box>
       </>
@@ -142,9 +142,9 @@ function WholeChat({ t, c, onMoved }: { t: Transcript; c: Conversation; onMoved:
           </>
         ) : t.agentMessages ? <Chip tint="green">A person joined ({t.agentMessages} messages)</Chip> : <Chip tint="slate">The AI alone</Chip>}
         <Box sx={{ ml: "auto", minWidth: 200 }}>
-          {c.topic
-            ? <TopicPick c={{ session_hash: c.session_hash, topic: c.topic, by: c.by ?? "ai" }} onMoved={onMoved} />
-            : <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Topic: filed within the hour</Typography>}
+          {c.topic && c.filing_key
+            ? <CategoryPick c={{ key: c.filing_key, category: c.topic, sub1: c.topic_sub1 ?? null, by: c.by ?? "ai" }} onMoved={onMoved} />
+            : <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Enquiry Category: filed within the hour</Typography>}
         </Box>
       </Box>
 

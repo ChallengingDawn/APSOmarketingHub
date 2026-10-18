@@ -6,7 +6,10 @@
 //       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
 //       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
-//   POST { action: "topic-set", session_hash, topic } (anyone with Website: a person's topic, never filed over) | { action: "topics-run" } (admins)
+//       | sb-conversations&archived=0|1 (the search bar's AI conversations, each with its filing)
+//       | hs-changes&state=would-write|written|kept|same|error&offset= (the HubSpot side of the filing)
+//   POST { action: "topic-set", key, category, sub1? } (anyone with Website: a person's Enquiry Category, never filed over, written to HubSpot)
+//        | { action: "topics-run" } | { action: "filing-write", on } (admins: write the filing into the tickets, or only preview)
 //        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
@@ -20,8 +23,9 @@ import {
   LIVE_FROM, type ConversationDetail, type Conversations, type Stats, type TestAnswer,
 } from "@/lib/chat/orchestrator";
 import { chatTranscript } from "@/lib/chat/transcript";
-import { fileNow, setTopic, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
-import { TOPICS, type TopicKey } from "@/lib/chat/shape";
+import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
+import type { HsState } from "@/lib/chat/shape";
+import { adminToken as searchBarKey, gateway as searchBarGateway, type AiConversations } from "@/lib/searchbar/gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +47,21 @@ export async function GET(req: NextRequest) {
   const part = q.get("part") || "overview";
   const isAdmin = access.role === "admin";
   try {
+    if (part === "sb-conversations") {
+      // the search bar's AI conversations with their filing (summary, Enquiry Category), so its tab reads like the others
+      if (!searchBarKey()) return NextResponse.json({ configured: false, missing: ["SMART_BAR_ADMIN_TOKEN"] });
+      const d = await searchBarGateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=100&archived=${q.get("archived") === "1" ? 1 : 0}`);
+      const filed = await topicsFor((d.conversations ?? []).map((c) => c.query_id)).catch(() => new Map());
+      return ok({ ...d, isAdmin, conversations: (d.conversations ?? []).map((c) => {
+        const f = filed.get(c.query_id);
+        return f ? { ...c, topic: f.category, topic_sub1: f.sub1, summary: f.summary, by: f.by, filing_key: f.key } : c;
+      }) });
+    }
+    if (part === "hs-changes") {
+      const state = (q.get("state") || "would-write") as HsState;
+      if (!["would-write", "written", "kept", "same", "error", "pending"].includes(state)) return NextResponse.json({ ok: false, error: "Which state?" }, { status: 400 });
+      return ok(await hubspotChanges(state, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100)));
+    }
     if (part === "topics" || part === "topic-chats") {
       // filed by the hub itself (apsomh_chat_topics): counted from go-live at the earliest
       const days = int(q.get("days"), 30, 1, 400);
@@ -67,7 +86,7 @@ export async function GET(req: NextRequest) {
         orchestratorHealth(),
       ]);
       // the hub's own filing of the same period (Topics), when it has filed any - else the page shows the chat's own guess
-      const topics = await topicSummary(new Date(Date.now() - days * 86_400_000).toISOString()).then((t) => ({ rows: t.rows, filed: t.filed })).catch(() => null);
+      const topics = await topicSummary(new Date(Date.now() - days * 86_400_000).toISOString()).then((t) => ({ rows: t.rows.map((r) => ({ topic: r.category, chats: r.chats })), filed: t.filed })).catch(() => null);
       return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live, topics });
     }
     if (part === "conversations") {
@@ -81,7 +100,10 @@ export async function GET(req: NextRequest) {
       const list = await perChat<Conversations>(`/dashboard/chats?${p}`, `/dashboard/conversations?${p}`);
       // the hub's filed topic and one-line summary on each chat, for the inbox list (none yet = the chat's own guess)
       const filed = await topicsFor(list.conversations.map((c) => c.session_hash)).catch(() => new Map());
-      return ok({ ...list, conversations: list.conversations.map((c) => ({ ...c, ...(filed.get(c.session_hash) ?? {}) })) });
+      return ok({ ...list, conversations: list.conversations.map((c) => {
+        const f = filed.get(c.session_hash);
+        return f ? { ...c, topic: f.category, topic_sub1: f.sub1, summary: f.summary, agent_wrote: f.agent_wrote, by: f.by, filing_key: f.key } : c;
+      }) });
     }
     if (part === "transcript") {
       // the whole chat from HubSpot (the hub's own app): messages, agents, the hand-over
@@ -130,12 +152,19 @@ export async function POST(req: NextRequest) {
       }
     }
     if (body.action === "topic-set") {
-      // a person's topic for one chat: kept, and the AI never files over it
-      const hash = str(body.session_hash, 128), topic = str(body.topic, 40);
-      if (!/^[a-f0-9]{16,128}$/i.test(hash) || !TOPICS.some((t) => t.key === topic)) return NextResponse.json({ ok: false, error: "Which chat, which topic?" }, { status: 400 });
-      await setTopic(hash, topic as TopicKey, who);
-      console.log(`[chat-topics] ${hash.slice(0, 10)} filed under ${topic} by ${who}`);
+      // a person's Enquiry Category for one chat: kept, the AI never files over it, and it goes to the ticket too
+      const key = str(body.key, 160), category = str(body.category, 60), sub1 = str(body.sub1, 200) || null;
+      if (!/^(hs|sb):[\w-]{6,140}$/.test(key) || !category) return NextResponse.json({ ok: false, error: "Which chat, which category?" }, { status: 400 });
+      await setCategory(key, category, sub1, who);
+      console.log(`[chat-topics] ${key.slice(0, 14)} filed under ${category}${sub1 ? ` / ${sub1}` : ""} by ${who}`);
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "filing-write") {
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      if (typeof body.on !== "boolean") return NextResponse.json({ ok: false, error: "On or off?" }, { status: 400 });
+      const s2 = await setWriteSwitch(body.on, who);
+      console.log(`[chat-topics] writing the filing into HubSpot switched ${body.on ? "ON" : "off"} by ${who}`);
+      return NextResponse.json({ ok: true, data: s2 });
     }
     if (body.action === "topics-run") {
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });

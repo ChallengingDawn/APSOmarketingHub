@@ -25,7 +25,7 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HsLink, KpiTile, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { num, topicLabel, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
+import { num, categoryLabel, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
 import { Bars, HandlerChip, PagedBars, category, pct, when } from "./shared";
 
 export type OverviewData = {
@@ -79,7 +79,7 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
               <>
                 <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
                   note={`Filed by the hub after each chat, from the whole chat (Topics tab) - ${full(d.topics.filed)} of ${full(total)} chats filed${d.topics.filed < total ? " so far" : ""}.`} />
-                <PagedBars rows={d.topics.rows.map((t) => ({ label: topicLabel(t.topic), n: t.chats }))} colour="#a96a12" />
+                <PagedBars rows={d.topics.rows.map((t) => ({ label: categoryLabel(t.topic), n: t.chats }))} colour="#a96a12" />
               </>
             ) : (
               <>
