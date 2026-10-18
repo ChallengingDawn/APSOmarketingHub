@@ -73,8 +73,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   } catch (err) {
     const msg = (err as Error).message;
-    // the hub's app needs the "hubdb" permission, accepted once in HubSpot
-    const scope = /scope|403|MISSING_SCOPES|permission/i.test(msg) ? " - the hub's HubSpot app needs the 'hubdb' permission: accept the app's updated permissions in HubSpot." : "";
+    // the hub's app needs the "files" permission, accepted once in HubSpot
+    const scope = /scope|403|MISSING_SCOPES|permission/i.test(msg) ? " - the hub's HubSpot app needs the 'files' permission: accept the app's updated permissions in HubSpot." : "";
     return NextResponse.json({ ok: false, error: msg.slice(0, 300) + scope }, { status: 500 });
   }
 }

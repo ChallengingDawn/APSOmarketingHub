@@ -1,9 +1,13 @@
-// SMART SUB-TICKET - THE CREATE FORM: the draft (kv), HubSpot's catalogue, publishing to HubDB. The design itself -
-// types, BUILT_IN, the checks - is in formDesign.ts.
+// SMART SUB-TICKET - THE CREATE FORM: the draft (kv), HubSpot's catalogue, publishing. The design itself - types,
+// BUILT_IN, the checks - is in formDesign.ts. Published as ONE PRIVATE FILE in HubSpot's File Manager
+// (/apsomh/apsomh-smart-ticket-form.json), which the card's app function reads through a signed link: HubDB could not
+// be installed on this account ("Something went wrong while installing the app", 18.10.2026), a custom object was not
+// wanted, and HubSpot cannot reach the hub (its load balancer only takes the "whitelist" prefix list).
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
+import { hubspotToken } from "@/lib/integrations/status";
 import { BUILT_IN, GQS_LOCKED, SECTIONS, problems, type Catalog, type Field, type Section, type SmartForm } from "./formDesign";
 
 export * from "./formDesign";
@@ -30,10 +34,11 @@ export async function catalog(): Promise<Catalog> {
   return c;
 }
 
-/* ── the draft, the published design, HubDB ────────────────────────────── */
+/* ── the draft, the published design, the file ─────────────────────────── */
 
 const KV = { draft: "smartTickets:form:draft", published: "smartTickets:form:published", history: "smartTickets:form:history" };
-export const HUBDB_TABLE = "apsomh_smart_ticket_form";
+/** Where the published design is: a private file the card's function finds by this path. */
+export const FORM_FILE = { folder: "/apsomh", name: "apsomh-smart-ticket-form.json" };
 export type Published = { version: number; at: string; by: string; form: SmartForm } | null;
 
 export async function getDraft(): Promise<SmartForm> {
@@ -70,31 +75,30 @@ const clean = (x: Field): Field => ({
 export async function discardDraft(): Promise<void> { await kvSet(KV.draft, null); }
 export async function draftToBuiltIn(): Promise<void> { await kvSet(KV.draft, structuredClone(BUILT_IN)); }
 
-type HubdbRow = { id: string; values?: { section?: string; json?: string } };
-async function tableExists(): Promise<boolean> {
-  try { await hs(`/cms/v3/hubdb/tables/${HUBDB_TABLE}/draft`); return true; } catch { return false; }
+/** Upload (or replace) the design file - multipart, so not through the JSON helper. */
+async function uploadDesign(json: string): Promise<string> {
+  const token = hubspotToken();
+  if (!token) throw new Error("HUBSPOT_TOKEN is not set");
+  const fd = new FormData();
+  fd.append("file", new Blob([json], { type: "application/json" }), FORM_FILE.name);
+  fd.append("fileName", FORM_FILE.name);
+  fd.append("folderPath", FORM_FILE.folder);
+  fd.append("options", JSON.stringify({ access: "PRIVATE", overwrite: true, duplicateValidationStrategy: "NONE", duplicateValidationScope: "EXACT_FOLDER" }));
+  const r = await fetch("https://api.hubapi.com/files/v3/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`HubSpot files ${r.status}: ${text.slice(0, 200)}`);
+  return (JSON.parse(text) as { id?: string }).id ?? "";
 }
 
-/** Validate the draft and write it to HubDB (one row per section), then publish the table. */
+/** Validate the draft and publish it: the private file the card reads. */
 export async function publishDraft(by: string): Promise<{ ok: boolean; problems: string[]; version?: number }> {
   const d = await getDraft();
   const issues = problems(d, await catalog());
   if (issues.length) return { ok: false, problems: issues };
-  if (!(await tableExists())) {
-    await hs("/cms/v3/hubdb/tables", "POST", {
-      name: HUBDB_TABLE, label: "APSOhub - Smart Sub-Ticket form", useForPages: false, allowPublicApiAccess: false,
-      columns: [{ name: "section", label: "Section", type: "TEXT" }, { name: "json", label: "JSON", type: "TEXT" }],
-    });
-  }
   const prev = await getPublished();
   const version = (prev?.version ?? 0) + 1;
   const at = new Date().toISOString();
-  const rows = [...SECTIONS.map((s) => ({ section: s, json: JSON.stringify(d[s]) })), { section: "meta", json: JSON.stringify({ version, at, by }) }];
-  const existing = await hs<{ results?: HubdbRow[] }>(`/cms/v3/hubdb/tables/${HUBDB_TABLE}/rows/draft?limit=100`);
-  const ids = (existing.results ?? []).map((r) => r.id);
-  if (ids.length) await hs(`/cms/v3/hubdb/tables/${HUBDB_TABLE}/rows/draft/batch/purge`, "POST", { inputs: ids });
-  await hs(`/cms/v3/hubdb/tables/${HUBDB_TABLE}/rows/draft/batch/create`, "POST", { inputs: rows.map((values) => ({ values })) });
-  await hs(`/cms/v3/hubdb/tables/${HUBDB_TABLE}/draft/publish`, "POST");
+  await uploadDesign(JSON.stringify({ version, at, by, form: d }));
   const pub: Published = { version, at, by, form: d };
   await kvSet(KV.published, pub);
   const hist = (await kvGet<NonNullable<Published>[]>(KV.history)) ?? [];

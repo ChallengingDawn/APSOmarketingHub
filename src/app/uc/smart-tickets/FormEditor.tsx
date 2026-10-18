@@ -1,7 +1,7 @@
 "use client";
 
 // SMART SUB-TICKET - THE CREATE FORM (SARCLA 18.10.2026: "another tab, Create form, put the design here so we can tweak
-// the properties and so forth"). The Smart Sub-Ticket card reads the PUBLISHED design from HubDB when it opens; here
+// the properties and so forth"). The Smart Sub-Ticket card reads the PUBLISHED design (a private File Manager file) when it opens; here
 // the design is changed one piece at a time into a draft (the hub refuses request bodies over 8 KB), checked against
 // HubSpot's ticket properties, pipelines and owners, and published. Margin % and Target price stay required on GQS.
 

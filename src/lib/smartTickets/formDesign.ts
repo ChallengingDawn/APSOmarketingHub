@@ -1,10 +1,10 @@
 // SMART SUB-TICKET - THE CREATE FORM'S DESIGN, the pure part (types, BUILT_IN, checks) - IO in form.ts.
 // SMART SUB-TICKET - THE CREATE FORM'S DESIGN (SARCLA 18.10.2026: "another tab, Create form, put the design here so
 // we can tweak the properties"). The Smart Sub-Ticket card (HubSpot, the hub's app) had its design written into its
-// code; it now reads the PUBLISHED design from a HubDB table when it opens and falls back to BUILT_IN - the same
-// design, copied here from SmartTicketCard.jsx - when none is published or HubDB cannot be read.
+// code; it now reads the PUBLISHED design (a private File Manager file) when it opens and falls back to BUILT_IN - the same
+// design, copied here from SmartTicketCard.jsx - when none is published or the file cannot be read.
 // The hub keeps a DRAFT (kv) that the page changes one piece at a time (the hub refuses request bodies over 8 KB);
-// Publish validates it against HubSpot - ticket properties, pipelines and stages, owners - and writes it to HubDB.
+// Publish validates it against HubSpot - ticket properties, pipelines and stages, owners - and uploads it (form.ts).
 
 
 export type FieldType = "text" | "textarea" | "number" | "date" | "yesno" | "select";
