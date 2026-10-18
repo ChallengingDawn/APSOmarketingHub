@@ -5,11 +5,16 @@
 // Microsoft Advertising script).
 
 const SECRET = "PASTE THE SECRET HERE";
+// Only when the script is made at script.google.com instead of from the sheet: the sheet id from its address
+// (docs.google.com/spreadsheets/d/<THIS PART>/edit). From the sheet itself, leave it empty.
+const SHEET_ID = "";
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
   if (body.secret !== SECRET) return ContentService.createTextOutput("refused");
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  // bound to the sheet (Extensions > Apps Script) it finds the sheet itself; made at script.google.com it needs SHEET_ID
+  const book = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = book.getSheets()[0];
   const values = [["month", "impressions", "clicks", "cost", "currency", "campaigns", "account", "through", "written"]]
     .concat(body.rows.map((r) => [r[0], r[1], r[2], r[3], body.currency, r[4], body.account, body.through, new Date().toISOString()]));
   sheet.clearContents();
