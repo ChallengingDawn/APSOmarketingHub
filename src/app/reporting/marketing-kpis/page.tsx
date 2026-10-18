@@ -33,6 +33,7 @@ import { TileActions } from "./tiles/TileActions";
 import { LinkCard, rendererOf } from "./tiles/registry";
 import { kpiSummary } from "./tiles/summary";
 import { WithActions } from "./tiles/WithActions";
+import { stageName } from "@/lib/marketingKpis/stageNames";
 import { placementOf, useActions, type ActionsState } from "./tiles/store";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
@@ -145,7 +146,7 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
         <Badge icon={<StageGlyph slug={s.slug} size={22} />} tint={tint} size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
           <Box component={Link} href={stageHref(s.slug)} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT[tint].fg } }}>
-            <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>{s.name}</Typography>
+            <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>{stageName(s.slug, s.name)}</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT[tint].fg, transition: "transform .15s ease" }} />
           </Box>
           {/* no stage number (SARCLA 17.10: "take out stage, there are no stages") - only what the section carries */}

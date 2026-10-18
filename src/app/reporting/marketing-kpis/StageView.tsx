@@ -23,6 +23,7 @@ import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf
 import { CustomersExplorer } from "./Customers";
 import { ReachExplorer } from "./Reach";
 import { VisitExplorer } from "./Visit";
+import { LeadExplorer } from "./Lead";
 import { TileActions } from "./tiles/TileActions";
 import { kpiSummary } from "./tiles/summary";
 
@@ -86,6 +87,8 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (s.slug === "reach") return <ReachExplorer state={state} />;
   // Visit & traffic origin too (SARCLA 18.10: "put also the page like the others")
   if (s.slug === "visit") return <VisitExplorer state={state} />;
+  // Lead Generation: the path from acquisition to purchase (9f, SARCLA 18.10)
+  if (s.slug === "lead") return <LeadExplorer state={state} />;
   const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
