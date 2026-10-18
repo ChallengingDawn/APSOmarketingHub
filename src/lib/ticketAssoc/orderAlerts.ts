@@ -20,7 +20,7 @@ import { ASSOC_PIPELINES, ESO, PP_OBJ, TSA, articleCandidates, positionArticles,
 import { hubPublicUrl } from "@/lib/content/shareMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
 import { renderOrderAlert } from "./mail";
-import { alertArticles, alertsPlan, msOf, nextSince } from "./rules";
+import { alertArticles, alertsPlan, msOf, nextSince, sharedMailbox } from "./rules";
 
 export type AlertMode = "off" | "preview" | "link" | "mail";
 export type AlertRun = { at: string; seconds: number; mode: AlertMode; read: number; withArticles: number; matched: number; created: number; promoted: number; linked: number; mailed: number; error?: string };
@@ -108,6 +108,8 @@ async function act(mode: AlertMode, a: Act, out: AlertRun): Promise<{ linked: bo
     ownerEmail = ow.email;
     if (mode === "mail" && linked) {
       if (!ow.email) error = "the ticket's owner has no e-mail address";
+      // a team inbox (helpline@, support@, sales@ ...) would turn the alert into a new ticket
+      else if (sharedMailbox(ow.email)) error = `not mailed: the owner is the shared mailbox ${ow.email}`;
       else if (!mailConfigured()) error = "the hub's mail relay is not set up";
       else {
         try {

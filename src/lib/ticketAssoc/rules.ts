@@ -34,6 +34,15 @@ export function firstSince(stored: number | null, now: number, maxBackMs = 30 * 
 /* ── order alerts (SARCLA, 17.10.2026) ──────────────────────────────────── */
 
 /**
+ * A shared mailbox, not a person: an order alert mailed there comes back into HubSpot as a new
+ * ticket - 18.10.2026 00:40, the alert for "EROSION | 0653321032", owned by "TSA Team"
+ * <helpline@apsoparts.com>, became TSA ticket 439348599022 with no owner. Such tickets are linked,
+ * never mailed.
+ */
+const SHARED_MAILBOX = /^(helpline|support|sales|info|order|orders|service|office|admin|team|backoffice|avor|einkauf|verkauf|kontakt|contact|hello|noreply|no-reply|eso|tsa)@/i;
+export const sharedMailbox = (email: string | null | undefined): boolean => !!email && SHARED_MAILBOX.test(email.trim());
+
+/**
  * When the order alerts look again: every `everyMs` - or on the next tick while a backlog waits (the
  * last check read its full `maxRead`: the chain's morning load, or a look back). After a full check the
  * next one also starts at the mark itself, without the overlap: more than `maxRead` orders changed inside

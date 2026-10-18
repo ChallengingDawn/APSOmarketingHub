@@ -36,7 +36,12 @@ test("after a start or a long stop the first look goes back half an hour, not da
   assert.equal(firstSince(now - 3 * 86_400_000, now), now - 30 * 60_000);
 });
 
-import { alertArticles, msOf, normArticle } from "../src/lib/ticketAssoc/rules";
+import { alertArticles, msOf, normArticle, sharedMailbox } from "../src/lib/ticketAssoc/rules";
+
+test("an order alert is never mailed to a shared mailbox - it would come back as a ticket", () => {
+  for (const m of ["helpline@apsoparts.com", "support@apsoparts.com", "sales@apsoparts.com", " Info@angst-pfister.com", "no-reply@apsoparts.com"]) assert.equal(sharedMailbox(m), true, m);
+  for (const m of ["claudio.saraiva@angst-pfister.com", "salesmanager@x.ch", "helpline.team@x.ch", null, ""]) assert.equal(sharedMailbox(m), false, String(m));
+});
 
 test("an order alerts an open ESO / TSA ticket it shares an article with, placed on or after the ticket's day", () => {
   const base = { orderArticles: ["1120030724", "254001102"], orderDayMs: Date.parse("2026-10-17"), ticketCreatedMs: Date.parse("2026-10-10T15:00:00Z"), ticketArticles: ["0254001102"], open: true, pipeline: "ESO" };
