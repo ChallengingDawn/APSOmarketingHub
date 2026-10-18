@@ -60,6 +60,15 @@ export async function register() {
     const { startPartnerStock } = await import("./lib/partnerStock/engine");
     startPartnerStock();
 
+    // Back Office distribution, SHADOW MODE: what the distribution workflows decide for each new Back Office / GQS
+    // ticket, next to what HubSpot did - writes nothing to HubSpot (src/lib/boDistribution). BO_DISTRIBUTION=off stops it.
+    const { startBoDistribution } = await import("./lib/boDistribution/engine");
+    startBoDistribution();
+    // Duplicates & merges, SHADOW MODE: the DUPS workflow's duplicate check next to the hub's, with its exclusions
+    // (src/lib/ticketDuplicates) - writes nothing to HubSpot. TICKET_DUPLICATES=off stops it.
+    const { startTicketDuplicates } = await import("./lib/ticketDuplicates/engine");
+    startTicketDuplicates();
+
     // APSOassistant Chat > Topics: every real chat filed by topic after it ended, from the whole chat in HubSpot
     // (src/lib/chat/topics.ts, a small Claude model, every 20 min). CHAT_TOPICS=off stops it. SARCLA, 18.10.2026.
     const { startChatTopics } = await import("./lib/chat/topics");
