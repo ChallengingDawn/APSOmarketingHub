@@ -7,6 +7,7 @@ import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import Popover from "@mui/material/Popover";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
@@ -51,10 +52,15 @@ export function SavedViews({ page }: { page: string }) {
 
   return (
     <>
-      <Button variant="outlined" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<BookmarksOutlinedIcon sx={{ fontSize: 18 }} />}
-        sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", borderColor: HAIRLINE, color: current ? TINT.blue.fg : INK, bgcolor: "#fff" }}>
-        {current ? current.name : "Views"}
-      </Button>
+      {/* the icon alone below extra-wide screens: beside the tabs it must not push them onto a second row (d2's check at 1440) */}
+      <Tooltip title={current ? `Saved view: ${current.name}` : "Saved views"}>
+        <Button variant="outlined" onClick={(e) => setAnchor(e.currentTarget)} aria-label={current ? `Saved view: ${current.name}` : "Saved views"}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", borderColor: current ? TINT.blue.fg : HAIRLINE, color: current ? TINT.blue.fg : INK, bgcolor: current ? TINT.blue.bg : "#fff",
+            minWidth: 44, px: { xs: 1.25, xl: 1.75 }, gap: 0.75, flexShrink: 0 }}>
+          <BookmarksOutlinedIcon sx={{ fontSize: 19 }} />
+          <Box component="span" sx={{ display: { xs: "none", xl: "inline" }, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.name : "Views"}</Box>
+        </Button>
+      </Tooltip>
       <Popover open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { width: 340, borderRadius: "16px", p: 1.5, mt: 0.75 } } }}>
         <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mb: 0.75 }}>Saved views</Typography>
