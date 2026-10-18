@@ -5,13 +5,13 @@
 // Modes: off / test (the file goes only to the test address) / live (to the partner). Production runs two copies
 // of the hub: the send takes an advisory lock and marks the day before it sends, so nobody gets it twice.
 
-import ExcelJS from "exceljs";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
 import { ITAFRAN_ARTICLES, ITAFRAN_SHEET } from "./itafranArticles";
 import { renderPartnerStockMail } from "./mail";
+import { xlsx } from "./xlsx";
 import { addresses, due, lineOf, nextSend, summary, zurich, type Article, type Line, type PartnerMode } from "./rules";
 
 export type Partner = { key: string; name: string; sheet: string; codeHeader: string; articles: [string, string][] };
@@ -106,42 +106,32 @@ export async function readLines(p: Partner): Promise<Line[]> {
 const zurichTime = (at: Date) => new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit" }).format(at);
 export const fileName = (p: Partner, day: string) => `APSOparts stock ${p.name} ${day}.xlsx`;
 
-/** The Excel file: the partner's two columns, then ours - and an Info sheet saying when and what. */
+/**
+ * The Excel file: the partner's two columns, then ours - and an Info sheet saying when and what. Written by
+ * xlsx.ts, not exceljs: loaded from the start-up hook, exceljs crashed the hub's new tasks (18.10.2026).
+ */
 export async function workbook(p: Partner, lines: Line[], at: Date): Promise<Buffer> {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "APSOparts";
-  wb.created = at;
-  const ws = wb.addWorksheet(p.sheet.slice(0, 31));
-  ws.columns = [
-    { header: p.codeHeader, key: "partnerCode", width: 18 },
-    { header: "Code APSO", key: "apso", width: 14 },
-    { header: "Description", key: "description", width: 56 },
-    { header: "Stock", key: "stock", width: 10 },
-    { header: "Unit", key: "unit", width: 8 },
-    { header: "MOQ", key: "moq", width: 7 },
-    { header: "Min. order qty", key: "moqQty", width: 14 },
-    { header: "Status", key: "status", width: 22 },
-  ];
-  for (const l of lines) ws.addRow({ ...l, stock: l.stock ?? "", moqQty: l.moqQty ?? "" });
-  ws.getColumn("apso").numFmt = "@";
-  ws.getColumn("stock").numFmt = "#,##0.##";
-  const head = ws.getRow(1);
-  head.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D2433" } };
-  ws.views = [{ state: "frozen", ySplit: 1 }];
-  ws.autoFilter = { from: "A1", to: "H1" };
   const s = summary(lines);
-  const info = wb.addWorksheet("Info");
-  info.columns = [{ width: 22 }, { width: 90 }];
   const z = zurich(at);
-  for (const row of [
-    ["Stock as of", `${z.day.split("-").reverse().join(".")} ${zurichTime(at)} (Zurich)`],
-    ["Articles", `${s.articles} - ${s.inStock} in stock, ${s.moq} with an MOQ, ${s.inactive} inactive, ${s.unknown} not in our catalogue`],
-    ["Stock", "Free stock, in the sales unit (pcs = pieces)."],
-    ["MOQ", "Yes = a minimum order quantity applies; Min. order qty says how many."],
-    ["Status", "Active = can be ordered. Inactive = no longer sold. Liquidation = sold while stock lasts. Not in our catalogue = we do not know this code."],
-  ]) info.addRow(row).getCell(1).font = { bold: true };
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return xlsx([
+    {
+      name: p.sheet, header: true, widths: [18, 14, 56, 10, 8, 7, 14, 22],
+      rows: [
+        [p.codeHeader, "Code APSO", "Description", "Stock", "Unit", "MOQ", "Min. order qty", "Status"],
+        ...lines.map((l) => [l.partnerCode, l.apso, l.description || null, l.stock, l.unit || null, l.moq || null, l.moqQty, l.status]),
+      ],
+    },
+    {
+      name: "Info", boldFirstCol: true, widths: [22, 90],
+      rows: [
+        ["Stock as of", `${z.day.split("-").reverse().join(".")} ${zurichTime(at)} (Zurich)`],
+        ["Articles", `${s.articles} - ${s.inStock} in stock, ${s.moq} with an MOQ, ${s.inactive} inactive, ${s.unknown} not in our catalogue`],
+        ["Stock", "Free stock, in the sales unit (pcs = pieces)."],
+        ["MOQ", "Yes = a minimum order quantity applies; Min. order qty says how many."],
+        ["Status", "Active = can be ordered. Inactive = no longer sold. Liquidation = sold while stock lasts. Not in our catalogue = we do not know this code."],
+      ],
+    },
+  ]);
 }
 
 /** Build and send one partner's file: scheduled (by the mode) or a test now (to who asked). Never throws. */
