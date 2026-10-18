@@ -146,3 +146,26 @@ export function cutoutVerdict(r: CutoutResult): { good: boolean; why: string } {
   }
   return { good: true, why: `${Math.round(r.removed * 100)}% of the picture was background.` };
 }
+
+/**
+ * The size to work at.
+ *
+ * The result is written back into the document as a PNG data URL, and a src
+ * is capped at 8 MB by the schema. A cut-out from a 4000x3000 original
+ * base64s to roughly 18 MB, so the design would fail to save AFTER somebody
+ * had watched the cut-out work on screen - the worst shape a bug can take.
+ * The same 8 MB is the request-body limit on /api/image, so an uncapped
+ * reference comes back 413.
+ *
+ * 1600px on the longest edge keeps a PNG with alpha near 2 MB and is still
+ * more resolution than a 1920px board can show. Smaller pictures are left
+ * exactly as they are: this only ever scales down.
+ */
+export function fitWithin(w: number, h: number, maxEdge = 1600): { w: number; h: number } {
+  if (!(w > 0 && h > 0)) return { w: 0, h: 0 };
+  const longest = Math.max(w, h);
+  if (longest <= maxEdge) return { w: Math.round(w), h: Math.round(h) };
+  const k = maxEdge / longest;
+  // At least one pixel each way: a 4000x3 panorama must not round to zero.
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}

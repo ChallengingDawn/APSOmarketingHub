@@ -5,7 +5,7 @@ import { arcPath } from "@/lib/editor/curvedText";
 import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
 import { expandSelection, groupNodes, isWholeGroup, moveGroup, groupSiblings, ungroupNodes } from "@/lib/editor/grouping";
 import { reflow, sizeLabel } from "@/lib/editor/resize";
-import { cutoutBackdrop, cutoutVerdict } from "@/lib/editor/cutout";
+import { cutoutBackdrop, cutoutVerdict, fitWithin } from "@/lib/editor/cutout";
 import { describeStyle, readStyle, styleFor, type Style } from "@/lib/editor/styleClipboard";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
 import { ChartNode, TableNode } from "./DataNodes";
@@ -1252,12 +1252,17 @@ export default function EditorCanvas({
     setCutting(n.id);
     setCutFailed(null);
     try {
+      // Capped, because the result goes back into the document as a PNG data
+      // URL and a src is limited to 8 MB. A cut-out from a 4000x3000 original
+      // base64s to about 18 MB: the design would fail to save AFTER somebody
+      // had watched the cut-out work, which is the worst shape a bug takes.
+      const fit = fitWithin(el.naturalWidth, el.naturalHeight);
       const cv = document.createElement("canvas");
-      cv.width = el.naturalWidth;
-      cv.height = el.naturalHeight;
+      cv.width = fit.w;
+      cv.height = fit.h;
       const ctx = cv.getContext("2d", { willReadFrequently: true });
       if (!ctx) throw new Error("no 2d context");
-      ctx.drawImage(el, 0, 0);
+      ctx.drawImage(el, 0, 0, fit.w, fit.h);
       const frame = ctx.getImageData(0, 0, cv.width, cv.height);
       const verdict = cutoutVerdict(cutoutBackdrop(frame.data, cv.width, cv.height));
       if (!verdict.good) {
@@ -1294,13 +1299,30 @@ export default function EditorCanvas({
     if (!n.src) return;
     setCutting(n.id);
     try {
+      // The same cap, for the same reason at the other end: /api/image
+      // refuses a body over 8 MB, so an uncapped reference comes back 413.
+      const reference = await (async () => {
+        const el = imgEls[n.src ?? ""];
+        if (!el) return n.src as string;
+        const fit = fitWithin(el.naturalWidth, el.naturalHeight, 1280);
+        if (fit.w === el.naturalWidth && fit.h === el.naturalHeight) return n.src as string;
+        const cv = document.createElement("canvas");
+        cv.width = fit.w;
+        cv.height = fit.h;
+        const ctx = cv.getContext("2d");
+        if (!ctx) return n.src as string;
+        ctx.drawImage(el, 0, 0, fit.w, fit.h);
+        // JPEG for the trip out: it is a reference the model only looks at,
+        // and it has no transparency to lose.
+        return cv.toDataURL("image/jpeg", 0.9);
+      })();
       const r = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: "Isolate the product in the reference picture.",
           isolate: true,
-          references: [{ dataUrl: n.src }],
+          references: [{ dataUrl: reference }],
         }),
       }).then((x) => x.json());
       const url: string | undefined = r?.image ?? r?.dataUrl ?? r?.url;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cutoutBackdrop, cutoutVerdict } from "../src/lib/editor/cutout";
+import { cutoutBackdrop, cutoutVerdict, fitWithin } from "../src/lib/editor/cutout";
 
 /** A picture as a canvas hands it over: RGBA, four bytes a pixel. */
 function picture(w: number, h: number, paint: (x: number, y: number) => [number, number, number]) {
@@ -130,4 +130,27 @@ test("nonsense dimensions are refused", () => {
   const d = new Uint8ClampedArray(16);
   assert.deepEqual(cutoutBackdrop(d, 0, 0), { ok: false, removed: 0 });
   assert.deepEqual(cutoutBackdrop(d, 100, 100), { ok: false, removed: 0 }, "shorter than it claims");
+});
+
+test("the working size is capped, so the result can actually be saved", () => {
+  // A src is capped at 8 MB by the schema and by /api/image's body limit. A
+  // cut-out from a 4000x3000 original base64s to about 18 MB, so the design
+  // would fail to save after somebody watched the cut-out work.
+  assert.deepEqual(fitWithin(4000, 3000), { w: 1600, h: 1200 });
+  assert.deepEqual(fitWithin(3000, 4000), { w: 1200, h: 1600 });
+  // The aspect ratio survives.
+  const r = fitWithin(2400, 1000);
+  assert.ok(Math.abs(r.w / r.h - 2.4) < 0.01);
+});
+
+test("a picture already small enough is left exactly alone", () => {
+  assert.deepEqual(fitWithin(1200, 627), { w: 1200, h: 627 });
+  assert.deepEqual(fitWithin(1600, 900), { w: 1600, h: 900 });
+});
+
+test("an extreme panorama does not round to nothing", () => {
+  const r = fitWithin(4000, 3);
+  assert.equal(r.w, 1600);
+  assert.ok(r.h >= 1, "a zero-height canvas throws");
+  assert.deepEqual(fitWithin(0, 0), { w: 0, h: 0 });
 });
