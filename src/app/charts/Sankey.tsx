@@ -200,4 +200,4 @@ export function Sankey({
   );
 }
 
-const share = (v: number, of: number) => (of > 0 ? `${Math.round((v / of) * 100)}%` : "–");
+const share = (v: number, of: number) => (of > 0 ? (v > 0 && v / of < 0.005 ? "<1%" : `${Math.round((v / of) * 100)}%`) : "–");

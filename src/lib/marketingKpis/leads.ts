@@ -7,12 +7,13 @@
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
-import { channelOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
+import { channelOf, howOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
 import { UCS } from "@/lib/lifecycle/config";
 import { associations, searchAll } from "@/lib/lifecycle/read";
 
-// v2: the UC2 qualification tasks counted as the way to sales too (18.10)
-const KEY = "marketingKpis:leads:v2";
+// v2: the UC2 qualification tasks counted as the way to sales too; v3: how the first contact was
+// made, and a ticket or task counted from the first contact on (both 18.10)
+const KEY = "marketingKpis:leads:v3";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_FAILED_MS = 30 * 60 * 1000;
 const SALES_PIPES = new Set(["1726599376", "1726599377"]); // ESO, TSA
@@ -43,7 +44,7 @@ export async function buildLeads(): Promise<LeadsData> {
   const errors: Record<string, string> = {};
 
   // 1. the new contacts, month by month from January last year
-  type C = { id: string; t: number; company: string | null; channel: string };
+  type C = { id: string; t: number; company: string | null; channel: string; how: string };
   const contacts: C[] = [];
   const perMonth: LeadsData["contacts"] = {};
   for (let y = py, m = 0; y < year || m <= now.getUTCMonth(); m === 11 ? (y++, m = 0) : m++) {
@@ -57,7 +58,7 @@ export async function buildLeads(): Promise<LeadsData> {
           path: "/crm/v3/objects/contacts/search", method: "POST",
           body: {
             filterGroups: [{ filters: [{ propertyName: "createdate", operator: "GTE", value: String(a) }, { propertyName: "createdate", operator: "LT", value: String(b) }] }],
-            properties: ["createdate", "associatedcompanyid", "hs_analytics_source", "hs_analytics_source_data_1", "hs_analytics_source_data_2"],
+            properties: ["createdate", "associatedcompanyid", "hs_analytics_source", "hs_analytics_source_data_1", "hs_analytics_source_data_2", "hs_object_source", "hs_object_source_detail_1"],
             limit: 200, ...(after ? { after } : {}),
           },
         });
@@ -65,7 +66,7 @@ export async function buildLeads(): Promise<LeadsData> {
           const p = c.properties ?? {};
           const t = ms(p.createdate);
           if (t == null) continue;
-          contacts.push({ id: String(c.id), t, company: p.associatedcompanyid ? String(p.associatedcompanyid) : null, channel: channelOf(p.hs_analytics_source, p.hs_analytics_source_data_1, p.hs_analytics_source_data_2) });
+          contacts.push({ id: String(c.id), t, company: p.associatedcompanyid ? String(p.associatedcompanyid) : null, channel: channelOf(p.hs_analytics_source, p.hs_analytics_source_data_1, p.hs_analytics_source_data_2), how: howOf(p.hs_object_source, p.hs_object_source_detail_1) });
         }
         after = j.paging?.next?.after;
         if (!after) break;
@@ -181,14 +182,17 @@ export async function buildLeads(): Promise<LeadsData> {
   const rows: LeadRow[] = [];
   for (const [id, l] of leads) {
     const p = cos.get(id) ?? {};
-    const sales = (ticketsOf.get(id) ?? []).map((t) => tickets.get(t)).filter((t): t is { pipe: string; t: number } => !!t && SALES_PIPES.has(t.pipe) && t.t >= l.created - DAY);
-    const tasks = (tasksOf.get(id) ?? []).filter((t) => t.t >= l.created - DAY);
+    // from the first new contact on, or the company if it came first: HubSpot often makes the company
+    // days after the person wrote in, and the ticket of that first message counts (97 of them, 18.10)
+    const since = Math.min(l.created, l.first.t) - DAY;
+    const sales = (ticketsOf.get(id) ?? []).map((t) => tickets.get(t)).filter((t): t is { pipe: string; t: number } => !!t && SALES_PIPES.has(t.pipe) && t.t >= since);
+    const tasks = (tasksOf.get(id) ?? []).filter((t) => t.t >= since);
     const firstTicket = sales.length ? Math.min(...sales.map((t) => t.t)) : null;
     const firstTask = tasks.length ? Math.min(...tasks.map((t) => t.t)) : null;
     const firstSales = firstTicket == null ? firstTask : firstTask == null ? firstTicket : Math.min(firstTicket, firstTask);
     const firstOrder = ms(p.order_first_order_date);
     rows.push({
-      m: monthOf(l.created), c: l.first.channel, k: (p.country_custom || p.country || "").trim() || "Unknown", o: p.hubspot_owner_id ?? "",
+      m: monthOf(l.created), c: l.first.channel, h: l.first.how, k: (p.country_custom || p.country || "").trim() || "Unknown", o: p.hubspot_owner_id ?? "",
       n: Math.max(1, l.n), q: qualOf(p.qualified_by_company_owner), s: firstSales != null,
       via: firstSales == null ? null : firstTask != null && firstTask === firstSales ? "task" : "ticket",
       td: tasks.some((t) => t.done),

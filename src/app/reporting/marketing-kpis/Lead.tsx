@@ -36,7 +36,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { BarList } from "@/app/charts/BarList";
 import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
-import { CHANNELS, channelLabel, flowOf, inWin, keep, outcomeOf, pathBy, pathOf, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
+import { CHANNELS, HOWS, channelLabel, howLabel, flowOf, inWin, keep, outcomeOf, pathBy, pathOf, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
 import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -131,7 +131,7 @@ function rowCells(label: React.ReactNode, e: { cur: PathCounts; prev: PathCounts
 
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
-const STEP_NAME: Record<FlowStep, string> = { all: "New leads", source: "Source", contact: "Sales contact", qualification: "Owner's qualification", outcome: "Outcome" };
+const STEP_NAME: Record<FlowStep, string> = { all: "New leads", how: "Came in by", source: "Source", contact: "Sales contact", qualification: "Owner's qualification", outcome: "Outcome" };
 const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], sales: SERIES[3], good: SERIES[2], bad: SERIES[1], none: DEEMPHASIS };
 
 function FlowCard({ flow, title, note, actions, height }: { flow: Flow; title: string; note: string; actions: React.ReactNode; height: number }) {
@@ -164,6 +164,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
   const [tab, setTab] = useState<Tab>(() => (TABS.some((t) => t.id === params.get("tab")) ? (params.get("tab") as Tab) : "path"));
   const [channels, setChannels] = useState<string[]>(() => params.getAll("source"));
   const [countries, setCountries] = useState<string[]>(() => params.getAll("country"));
+  const [hows, setHows] = useState<string[]>(() => params.getAll("how").filter((h) => HOWS.some((x) => x.id === h)));
   const [chosenWin, setChosenWin] = useState<MonthWindow | null>(() => {
     const f = Number(params.get("from")), t = Number(params.get("to"));
     return f >= 1 && t >= f && t <= 12 ? { start: f - 1, end: t - 1 } : null;
@@ -171,7 +172,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
   const win: MonthWindow = chosenWin && chosenWin.end < Math.max(1, done) ? chosenWin : { start: 0, end: Math.max(0, done - 1) };
   const isDefault = win.start === 0 && win.end === Math.max(0, done - 1);
   const [panel, setPanel] = useState(false);
-  const [open, setOpen] = useState<{ period?: boolean; source?: boolean; country?: boolean }>({});
+  const [open, setOpen] = useState<{ period?: boolean; source?: boolean; country?: boolean; how?: boolean }>({});
 
   // the view lives in the address: a choice can be sent on and saved as a view
   useEffect(() => {
@@ -180,23 +181,24 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
     if (!isDefault) { q.set("from", String(win.start + 1)); q.set("to", String(win.end + 1)); }
     for (const c of channels) q.append("source", c);
     for (const c of countries) q.append("country", c);
+    for (const h of hows) q.append("how", h);
     const s = q.toString();
     window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
-  }, [tab, win.start, win.end, isDefault, channels, countries]);
+  }, [tab, win.start, win.end, isDefault, channels, countries, hows]);
 
-  const f: LeadFilters = { channel: channels, country: countries };
-  const path = useMemo(() => (d ? pathOf(d, win, f) : null), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f: LeadFilters = { channel: channels, country: countries, how: hows };
+  const path = useMemo(() => (d ? pathOf(d, win, f) : null), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
   const flip = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x]);
-  const chosenCount = channels.length + countries.length + (isDefault ? 0 : 1);
-  const filters = { ...(channels.length ? { source: channels } : {}), ...(countries.length ? { country: countries } : {}) };
+  const chosenCount = channels.length + countries.length + hows.length + (isDefault ? 0 : 1);
+  const filters = { ...(channels.length ? { source: channels } : {}), ...(countries.length ? { country: countries } : {}), ...(hows.length ? { how: hows } : {}) };
   const act = (key: string, title: string) => (
     <TileActions where="tab" start="tab" tile={{ key: `lead:${tab}:${key}`, page: "lead", tab, title, summary: path ? `${n0(path.cur.companies)} new leads, ${n0(path.cur.customers)} new customers, ${monthsLabel(win)} ${year}` : undefined, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />
   );
 
-  const countryRows = useMemo(() => (d ? [...pathBy(d, win, f, (r) => r.k).entries()].sort((a, b) => (FOCUS.includes(b[0]) ? 1 : 0) - (FOCUS.includes(a[0]) ? 1 : 0) || b[1].cur.companies - a[1].cur.companies) : []), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
+  const countryRows = useMemo(() => (d ? [...pathBy(d, win, f, (r) => r.k).entries()].sort((a, b) => (FOCUS.includes(b[0]) ? 1 : 0) - (FOCUS.includes(a[0]) ? 1 : 0) || b[1].cur.companies - a[1].cur.companies) : []), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
   const countryOptions = useMemo(() => (d ? [...new Set(d.rows.map((r) => r.k))].sort((a, b) => (FOCUS.includes(b) ? 1 : 0) - (FOCUS.includes(a) ? 1 : 0) || a.localeCompare(b)) : []), [d]);
-  const pathFlow = useMemo(() => (d ? flowOf(d, win, f, ["all", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sourceFlow = useMemo(() => (d ? flowOf(d, win, f, ["source", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pathFlow = useMemo(() => (d ? flowOf(d, win, f, ["how", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sourceFlow = useMemo(() => (d ? flowOf(d, win, f, ["source", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!d || !path || !pathFlow || !sourceFlow) {
     return (
@@ -256,8 +258,9 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
               {!isDefault && <Chip size="small" label={<span><b>Period:</b> {monthsLabel(win)}</span>} onDelete={() => setChosenWin(null)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg }} />}
               {channels.map((c) => <Chip key={c} size="small" label={<span><b>Source:</b> {channelLabel(c)}</span>} onDelete={() => setChannels(flip(channels, c))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.amber.bg }} />)}
+              {hows.map((h) => <Chip key={h} size="small" label={<span><b>Came in:</b> {howLabel(h)}</span>} onDelete={() => setHows(flip(hows, h))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.purple.bg }} />)}
               {countries.map((c) => <Chip key={c} size="small" label={<span><b>Country:</b> {c}</span>} onDelete={() => setCountries(flip(countries, c))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.green.bg }} />)}
-              <Button size="small" onClick={() => { setChannels([]); setCountries([]); setChosenWin(null); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+              <Button size="small" onClick={() => { setChannels([]); setCountries([]); setHows([]); setChosenWin(null); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
             </Box>
           )}
         </Box>
@@ -279,7 +282,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "path" && (
         <>
           <FlowCard flow={pathFlow} height={340} title="How the leads split" actions={act("flow", "How the leads split")}
-            note={`${monthsLabel(win)} ${year} · every new lead, step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy · hover a band for its count`} />
+            note={`${monthsLabel(win)} ${year} · every new lead by how it came in, then step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy · UC2 only picks up shop registrations, so the contacts sales and service add themselves get no UC2 task · hover a band for its count`} />
           <PathCard cur={path.cur} prev={path.prev} w={win} year={year} actions={act("path", "From acquisition to purchase")} />
         </>
       )}
@@ -365,14 +368,17 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
         {Object.keys(d.errors).length > 0 && <Box component="span" sx={{ color: RED }}> Not everything could be read: {Object.keys(d.errors).join(", ")}.</Box>}
       </Typography>
 
-      <FilterPanel id="lead-filters" open={panel} onClose={() => setPanel(false)} subtitle="The months, the sources, the countries" onClearAll={chosenCount ? () => { setChannels([]); setCountries([]); setChosenWin(null); } : undefined}>
+      <FilterPanel id="lead-filters" open={panel} onClose={() => setPanel(false)} subtitle="The months, the sources, how they came in, the countries" onClearAll={chosenCount ? () => { setChannels([]); setCountries([]); setHows([]); setChosenWin(null); } : undefined}>
         <FilterSection id="lead-f-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={!!open.period} onFlip={() => setOpen((o) => ({ ...o, period: !o.period }))} summary={monthsLabel(win)} chosen={!isDefault}>
           <PeriodPicker done={done} win={win} onChange={(x) => setChosenWin(x)} />
         </FilterSection>
         <FilterSection id="lead-f-source" index={1} title="Source" icon={<AltRouteIcon />} tint="amber" open={!!open.source} onFlip={() => setOpen((o) => ({ ...o, source: !o.source }))} summary={channels.length ? `${channels.length} chosen` : "All"} chosen={channels.length > 0}>
           {CHANNELS.map((c) => <Pick key={c.id} on={channels.includes(c.id)} label={c.label} onClick={() => setChannels(flip(channels, c.id))} />)}
         </FilterSection>
-        <FilterSection id="lead-f-country" index={2} title="Country" icon={<PublicOutlinedIcon />} tint="green" open={!!open.country} onFlip={() => setOpen((o) => ({ ...o, country: !o.country }))} summary={countries.length ? `${countries.length} chosen` : "All"} chosen={countries.length > 0}>
+        <FilterSection id="lead-f-how" index={2} title="How they came in" icon={<PersonAddAltOutlinedIcon />} tint="purple" open={!!open.how} onFlip={() => setOpen((o) => ({ ...o, how: !o.how }))} summary={hows.length ? `${hows.length} chosen` : "All"} chosen={hows.length > 0}>
+          {HOWS.map((h) => <Pick key={h.id} on={hows.includes(h.id)} label={h.label} onClick={() => setHows(flip(hows, h.id))} />)}
+        </FilterSection>
+        <FilterSection id="lead-f-country" index={3} title="Country" icon={<PublicOutlinedIcon />} tint="green" open={!!open.country} onFlip={() => setOpen((o) => ({ ...o, country: !o.country }))} summary={countries.length ? `${countries.length} chosen` : "All"} chosen={countries.length > 0}>
           {countryOptions.map((c) => <Pick key={c} on={countries.includes(c)} label={c} note={FOCUS.includes(c) ? "focus market" : undefined} onClick={() => setCountries(flip(countries, c))} />)}
         </FilterSection>
       </FilterPanel>

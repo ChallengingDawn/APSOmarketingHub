@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { channelOf, flowOf, outcomeOf, pathBy, pathOf, qualOf, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
+import { channelOf, flowOf, howOf, outcomeOf, pathBy, pathOf, qualOf, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
 
 test("where a lead came from: HubSpot's original source and its details", () => {
   assert.equal(channelOf("PAID_SEARCH", "brand (deutsch)", "Google"), "sea-google");
@@ -25,7 +25,7 @@ test("the owner's qualification: yes in any wording, no, or not yet", () => {
   assert.equal(qualOf(null), null);
 });
 
-const row = (p: Partial<LeadRow>): LeadRow => ({ m: "2026-03", c: "seo", k: "Switzerland", o: "1", n: 1, q: null, s: false, via: null, td: false, f: null, a: false, orders: 0, rev: 0, ...p });
+const row = (p: Partial<LeadRow>): LeadRow => ({ m: "2026-03", c: "seo", h: "shop", k: "Switzerland", o: "1", n: 1, q: null, s: false, via: null, td: false, f: null, a: false, orders: 0, rev: 0, ...p });
 const data = (rows: LeadRow[]): LeadsData => ({ rows, owners: {}, year: 2026, monthsDone: 9, contacts: {}, readAt: "", errors: {} });
 
 test("the path of the months chosen, against the same months a year earlier", () => {
@@ -74,4 +74,23 @@ test("the UC2 task counts as the way to sales, and the leads flow through the st
   assert.equal(all.totals.all, 4);
   assert.deepEqual(all.nodes.map((n) => n.id), ["all", "q:yes", "q:no", "q:open"]);
   assert.deepEqual(d.rows.map(outcomeOf), ["open", "customer", "notQualified", "customer"]);
+});
+
+test("how the first contact was made: the shop, a person, the chat, a form", () => {
+  assert.equal(howOf("INTEGRATION", "Magento Integration"), "shop");
+  assert.equal(howOf("FORM", "Magento Last Order Summary Form"), "shop");
+  assert.equal(howOf("CRM_UI", null), "person");
+  assert.equal(howOf("EXTENSION", ""), "person");
+  assert.equal(howOf("MOBILE_IOS", "Business card scanner"), "person");
+  assert.equal(howOf("FORM", "EVENT VISIT REPORT "), "person");
+  assert.equal(howOf("CONVERSATIONS", null), "chat");
+  assert.equal(howOf("INTEGRATION", "APSOassistant"), "chat");
+  assert.equal(howOf("FORM", "DE_Customer Facing | Contact Us Form_2507"), "web");
+  assert.equal(howOf("IMPORT", "KT Action.xlsx"), "other");
+  assert.equal(howOf(null, null), "other");
+  const d = data([row({ h: "person" }), row({ h: "shop", s: true, via: "task" }), row({ h: "person", s: true, via: "ticket" })]);
+  assert.equal(pathOf(d, { start: 0, end: 8 }, { how: ["person"] }).cur.companies, 2);
+  const fl = flowOf(d, { start: 0, end: 8 }, {}, ["how", "contact"]);
+  assert.deepEqual(fl.nodes.map((n) => n.id), ["how:shop", "how:person", "contact:task", "contact:ticket", "contact:none"]);
+  assert.equal(fl.links.find((l) => l.from === "how:person" && l.to === "contact:none")?.value, 1);
 });

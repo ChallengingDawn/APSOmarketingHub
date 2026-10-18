@@ -3,6 +3,9 @@
 // ON A NEW COMPANY; every breakdown its own tab. The path, per new company:
 //   acquired      its first new contact, by where that contact came from (SEA Google / Microsoft,
 //                 SEO, AI assistants, direct, shop registration, email, chat, created by sales…)
+//   came in by    how its first new contact was made: a shop registration, added by a person (sales,
+//                 service), the chat, a website form, an import - SARCLA 18.10 "not even a task?": UC2
+//                 only picks up registrations, so the people's own contacts never get its task
 //   to sales      the company sent to ESO after it came in: a UC2 qualification TASK (until
 //                 1 October 2026) or an ESO/TSA ticket (UC2 tickets since) - SARCLA 18.10: "are you
 //                 also checking the tasks before as tickets?" (only tickets were counted at first)
@@ -16,6 +19,8 @@ export type LeadRow = {
   m: string;
   /** where its first new contact came from (CHANNELS) */
   c: string;
+  /** how its first new contact was made (HOWS) */
+  h: string;
   /** country, as HubSpot has it on the company */
   k: string;
   /** the company's owner (HubSpot owner id) */
@@ -71,6 +76,31 @@ export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | 
 ];
 export const channelLabel = (id: string) => CHANNELS.find((c) => c.id === id)?.label ?? id;
 
+/** How the first contact was made, in the order the page lists them. */
+export const HOWS: { id: string; label: string }[] = [
+  { id: "shop", label: "Shop registration" },
+  { id: "person", label: "Added by sales or service" },
+  { id: "chat", label: "Chat and APSOassistant" },
+  { id: "web", label: "Website form" },
+  { id: "other", label: "Import or other" },
+];
+export const howLabel = (id: string) => HOWS.find((h) => h.id === id)?.label ?? id;
+
+/** How a contact was made: HubSpot's record source (hs_object_source) and its first detail. */
+export function howOf(source: string | null | undefined, detail: string | null | undefined): string {
+  const s = (source ?? "").toUpperCase();
+  const d = (detail ?? "").toLowerCase();
+  if (/magento/.test(d)) return "shop";
+  if (/apsoassistant/.test(d)) return "chat";
+  switch (s) {
+    case "CRM_UI": case "MOBILE_IOS": case "MOBILE_ANDROID": case "EXTENSION": case "BCC_TO_CRM": case "EMAIL_INTEGRATION": case "SALES": return "person";
+    case "CONVERSATIONS": case "CONVERSATIONAL_ENRICHMENT": case "CHATSPOT": return "chat";
+    case "FORM": return /visit/.test(d) ? "person" : "web";
+    case "ANALYTICS": return "web";
+    default: return "other";
+  }
+}
+
 /** Where a contact came from: HubSpot's original source and its two details. */
 export function channelOf(source: string | null | undefined, d1: string | null | undefined, d2: string | null | undefined): string {
   const s = (source ?? "").toUpperCase();
@@ -106,9 +136,9 @@ export function qualOf(v: string | null | undefined): 1 | 0 | null {
 export const ym = (year: number, m: number) => `${year}-${String(m + 1).padStart(2, "0")}`;
 export const inWin = (m: string, year: number, w: { start: number; end: number }) => m >= ym(year, w.start) && m <= ym(year, w.end);
 
-export type LeadFilters = { channel?: string[]; country?: string[]; owner?: string[] };
+export type LeadFilters = { channel?: string[]; country?: string[]; owner?: string[]; how?: string[] };
 export function keep(r: LeadRow, f: LeadFilters): boolean {
-  return (!f.channel?.length || f.channel.includes(r.c)) && (!f.country?.length || f.country.includes(r.k)) && (!f.owner?.length || f.owner.includes(r.o));
+  return (!f.channel?.length || f.channel.includes(r.c)) && (!f.country?.length || f.country.includes(r.k)) && (!f.owner?.length || f.owner.includes(r.o)) && (!f.how?.length || f.how.includes(r.h));
 }
 
 export type PathCounts = { companies: number; contacts: number; toSales: number; viaTask: number; viaTicket: number; qualified: number; notQualified: number; notYet: number; taskDoneNoAnswer: number; customers: number; onOwn: number; orders: number; rev: number };
@@ -151,7 +181,7 @@ export function pathBy(d: LeadsData, w: { start: number; end: number }, f: LeadF
 
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
-export type FlowStep = "all" | "source" | "contact" | "qualification" | "outcome";
+export type FlowStep = "all" | "how" | "source" | "contact" | "qualification" | "outcome";
 export type FlowNode = { id: string; step: FlowStep; label: string; tone: "source" | "sales" | "good" | "bad" | "none" };
 export type Flow = { steps: FlowStep[]; nodes: FlowNode[]; links: { from: string; to: string; value: number }[]; totals: Record<string, number> };
 
@@ -160,6 +190,8 @@ function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
   switch (step) {
     case "all":
       return { id: "all", step, label: "New leads", tone: "source" };
+    case "how":
+      return { id: `how:${r.h}`, step, label: howLabel(r.h), tone: "source" };
     case "source": {
       const c = sources.has(r.c) ? r.c : "rest";
       return { id: `source:${c}`, step, label: c === "rest" ? "Other sources" : channelLabel(c), tone: "source" };
@@ -202,7 +234,7 @@ export function flowOf(d: LeadsData, w: { start: number; end: number }, f: LeadF
   const out = [...nodes.values()].sort((a, b) => steps.indexOf(a.step) - steps.indexOf(b.step) || rank(a) - rank(b));
   return { steps, nodes: out, links: [...links.values()], totals };
 }
-const ORDER = ["all", "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:customer", "o:none"];
+const ORDER = ["all", ...HOWS.map((h) => `how:${h.id}`), "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:customer", "o:none"];
 
 /** What became of a lead so far - one answer each, for the months chart. */
 export type Outcome = "customer" | "qualified" | "notQualified" | "open";
