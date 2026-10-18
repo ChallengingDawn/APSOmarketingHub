@@ -5,6 +5,8 @@
 // "don't open a modal, send to the sub-app"). 13.10: drawn as the UC apps are -
 // a glass card per stage with its glyph badge, each KPI a tile with its badge,
 // its figure and its months; the full width; the stage's title is the way in.
+// 18.10: every tile carries the toolbar (tasks, Scroll to Sale tickets, demote); a demoted tile
+// leaves the nutshell for its tab only, a promoted card shows in "Promoted" at the top (tiles/*).
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -13,6 +15,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import UpcomingIcon from "@mui/icons-material/Upcoming";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
+import VerticalAlignTopIcon from "@mui/icons-material/VerticalAlignTop";
 
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
@@ -27,17 +30,22 @@ import {
 } from "./data";
 import { CustomersSummary } from "./Customers";
 import { SearchCustomersCard } from "./SearchCustomers";
+import { TileActions } from "./tiles/TileActions";
+import { LinkCard, rendererOf } from "./tiles/registry";
+import { kpiSummary } from "./tiles/summary";
+import { placementOf, useActions, type ActionsState } from "./tiles/store";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 
 /** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months. */
-function KpiTileChart({ v, slug, tint, upTo }: { v: KpiView; slug: string; tint: Tint; upTo: string }) {
+function KpiTileChart({ v, slug, tint, upTo, actions }: { v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
         <Badge icon={<StageGlyph slug={slug} />} tint={tint} size={32} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{nameOf(v.id)}</Typography>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0 }}>{nameOf(v.id)}</Typography>
       </Box>
+      {actions && <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -0.5 }}>{actions}</Box>}
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(v)}</Typography>
@@ -78,12 +86,46 @@ function TrafficOrigin({ live }: { live: LiveKpis }) {
   );
 }
 
-function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, KpiView>; state: MkState }) {
+/** A nutshell KPI tile's key - the same as on its page, so a move there is a move here. */
+const kpiKey = (slug: string, id: string) => `${slug}::${id}`;
+
+function KpiActions({ v, slug }: { v: KpiView; slug: string }) {
+  return (
+    <TileActions where="nutshell" start="nutshell"
+      tile={{ key: kpiKey(slug, v.id), page: slug, kpiId: v.id, title: nameOf(v.id), summary: kpiSummary(v, periodOf(v)), kind: "kpi", href: stageHref(slug) }} />
+  );
+}
+
+/** The cards promoted from the pages - every KPI already in its panel stays there. */
+function Promoted({ views, state, acts }: { views: Record<string, KpiView>; state: MkState; acts: ActionsState | null }) {
+  const year = new Date().getFullYear();
+  const inPanels = new Set(STAGES.flatMap((st) => stageKpis(st.id, state.live?.value).ids.map((id) => kpiKey(st.slug, id))));
+  const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && !inPanels.has(p.spec.key));
+  if (!list.length) return null;
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+      <CardTitle icon={<VerticalAlignTopIcon />} tint="blue" title="Promoted" note="Brought here from the pages - demote one to send it back to its tab" />
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
+        {list.map(({ spec }) => {
+          const tint = stageTint(spec.page);
+          const actions = <TileActions where="nutshell" start="tab" tile={{ key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind }} />;
+          const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
+          if (v) return <KpiTileChart key={spec.key} v={v} slug={spec.page} tint={tint} upTo={upToOf(v, state, year)} actions={actions} />;
+          const draw = rendererOf(spec.page);
+          return <Box key={spec.key} sx={{ minWidth: 0 }}>{draw ? draw(spec) : <LinkCard spec={spec} actions={actions} />}</Box>;
+        })}
+      </Box>
+    </GlassCard>
+  );
+}
+
+function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<string, KpiView>; state: MkState; acts: ActionsState | null }) {
   const live = state.live?.value;
   const year = new Date().getFullYear();
   const tint = stageTint(s.slug);
   const { ids, missing } = stageKpis(s.id, live);
-  const tiles = ids.map((id) => views[id]).filter(Boolean);
+  // a tile someone demoted lives on its tab only
+  const tiles = ids.map((id) => views[id]).filter(Boolean).filter((v) => placementOf(acts, kpiKey(s.slug, v.id), "nutshell") === "nutshell");
   const all = KPIS.filter((k) => k.stage === s.id).length;
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
   const geo = JOURNEY.some((j) => j.note === "GEO" && KPIS.find((k) => k.id === j.id)?.stage === s.id);
@@ -121,7 +163,7 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
         <CustomersSummary />
       ) : (tiles.length > 0 || traffic) ? (
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
-          {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} />)}
+          {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />} />)}
           {traffic && <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}><TrafficOrigin live={live!} /></Box>}
           {/* SEO and SEA in customers: new, reactivated, active (SARCLA 17.10) */}
           {s.slug === "reach" && <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><SearchCustomersCard /></Box>}
@@ -146,6 +188,7 @@ function StagePanel({ s, views, state }: { s: KpiStage; views: Record<string, Kp
 
 export default function MarketingKpisMacro() {
   const [state] = useMarketingKpis();
+  const { state: acts } = useActions("nutshell");
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
   const measured = KPIS.filter((k) => isMeasured(k.id)).length;
@@ -160,7 +203,8 @@ export default function MarketingKpisMacro() {
       )}
       {views && state && (
         <>
-          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} />)}
+          <Promoted views={views} state={state} acts={acts} />
+          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} />)}
           {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
             <GlassCard key={title}>
               <CardTitle icon={<UpcomingIcon />} tint="slate" title={title} />
