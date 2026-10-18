@@ -39,6 +39,8 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import KeyboardIcon from "@mui/icons-material/KeyboardOutlined";
 import FindReplaceIcon from "@mui/icons-material/FindReplace";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
+import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -450,6 +452,10 @@ export default function EditorCanvas({
   const [sizeAnchor, setSizeAnchor] = useState<HTMLElement | null>(null);
   const [keysAnchor, setKeysAnchor] = useState<HTMLElement | null>(null);
   const [replaceAnchor, setReplaceAnchor] = useState<HTMLElement | null>(null);
+  /** The floating bar shows its header only. Its tabs still switch sections. */
+  const [barCollapsed, setBarCollapsed] = useState(false);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const [barH, setBarH] = useState(0);
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
@@ -1503,6 +1509,24 @@ export default function EditorCanvas({
       if (node) node.position({ x: sib.x + dx, y: sib.y + dy });
     }
   };
+
+  /**
+   * How much room the floating bar needs at the top of the workspace.
+   *
+   * Measured, not assumed: the bar wraps to two rows at narrow widths and on
+   * a long selection name, and a hard-coded inset would tuck the artboard
+   * under it exactly when the screen is smallest. ResizeObserver rather than
+   * a layout effect on every render, because the bar also changes height when
+   * its section changes and when it is collapsed.
+   */
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight));
+    ro.observe(el);
+    setBarH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [selectedIds.length, barCollapsed]);
 
   /* ── snapping: canvas center/edges, 4% safe margin, other nodes' edges/centers ── */
   const onDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -2684,8 +2708,27 @@ export default function EditorCanvas({
           </Box>
         </Card>
 
-        {/* ── the selection's bar ── */}
-        <Card sx={{ mb: 1.5 }}>
+        {notice && (
+          <Alert severity={notice.startsWith("Design") ? "success" : "warning"} onClose={() => setNotice("")} sx={{ mb: 1.5 }}>
+            {notice}
+          </Alert>
+        )}
+
+        {/* ── the selection's bar, floating on the workspace ── */}
+        <Box sx={{ position: "relative" }}>
+        <Card
+          ref={barRef}
+          sx={{
+            position: "absolute", top: 12, left: 12, right: 12, zIndex: 6,
+            borderRadius: "14px",
+            // Not quite opaque, so you can see that there is artboard under
+            // it and it reads as floating rather than as a missing strip.
+            bgcolor: "rgba(255,255,255,.94)",
+            backdropFilter: "blur(10px)",
+            boxShadow: "0 10px 30px rgba(16,24,40,.16)",
+            border: "1px solid rgba(21,34,58,.10)",
+          }}
+        >
           {selectedIds.length === 0 ? (
             <Box sx={{ p: 1.25, minHeight: 52, display: "flex", alignItems: "center" }}>
               {/* This used to be four tips run together on one line, which is
@@ -2722,7 +2765,7 @@ export default function EditorCanvas({
                   key={s.key}
                   component="button"
                   type="button"
-                  onClick={() => setSection(s.key)}
+                  onClick={() => { setSection(s.key); setBarCollapsed(false); }}
                   sx={{
                     border: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
                     px: 1.1, py: 0.5, borderRadius: "8px",
@@ -2768,6 +2811,13 @@ export default function EditorCanvas({
                   </IconButton>
                 </Tooltip>
               )}
+              <Tooltip title={barCollapsed ? "Show the controls" : "Collapse — keep the tabs, hide the controls"}>
+                <IconButton size="small" onClick={() => setBarCollapsed((c) => !c)}>
+                  {barCollapsed
+                    ? <UnfoldMoreIcon sx={{ fontSize: 17, color: "#5b6470" }} />
+                    : <UnfoldLessIcon sx={{ fontSize: 17, color: "#5b6470" }} />}
+                </IconButton>
+              </Tooltip>
               {selected && (
                 <Tooltip title={selected.locked ? "Unlock" : "Lock position"}>
                   <IconButton size="small" onClick={() => patch(selected.id, { locked: !selected.locked })} sx={{ color: selected.locked ? "#ed1b2f" : "#5b6470" }}>
@@ -2782,7 +2832,13 @@ export default function EditorCanvas({
                 </Tooltip>
             </Box>
 
-            <Box sx={{ p: 1.25, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", minHeight: 52 }}>
+            <Box sx={{
+              p: 1.25, display: barCollapsed ? "none" : "flex",
+              gap: 1, alignItems: "center", flexWrap: "wrap", minHeight: 52,
+              // Deep sections (Content, Rows) can outgrow the workspace;
+              // the bar scrolls rather than covering the artboard entirely.
+              maxHeight: 280, overflowY: "auto",
+            }}>
               {sec === "content" && selected && (
                 <>
                   <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 0.75 }}>
@@ -3699,12 +3755,6 @@ export default function EditorCanvas({
           )}
         </Card>
 
-        {notice && (
-          <Alert severity={notice.startsWith("Design") ? "success" : "warning"} onClose={() => setNotice("")} sx={{ mb: 1.5 }}>
-            {notice}
-          </Alert>
-        )}
-
         {/* workspace surface — the artboard floats on a neutral dotted board like a real design tool */}
         <Box
           ref={workRef}
@@ -3715,6 +3765,9 @@ export default function EditorCanvas({
             borderRadius: 1.5,
             border: "1px solid #e2e6eb",
             p: { xs: 1.5, md: 3 },
+            // The bar's measured height plus its inset, so the artboard
+            // starts below it however many rows it has wrapped to.
+            pt: `${barH + 24}px`,
             display: "flex",
             overflow: "auto",
             maxHeight: 720,
@@ -4139,6 +4192,7 @@ export default function EditorCanvas({
               />
             </Layer>
           </Stage>
+        </Box>
         </Box>
         </Box>
       </Box>
