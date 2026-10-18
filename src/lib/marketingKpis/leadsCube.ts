@@ -3,7 +3,9 @@
 // ON A NEW COMPANY; every breakdown its own tab. The path, per new company:
 //   acquired      its first new contact, by where that contact came from (SEA Google / Microsoft,
 //                 SEO, AI assistants, direct, shop registration, email, chat, created by sales…)
-//   to sales      an ESO or TSA ticket on the company after it came in
+//   to sales      the company sent to ESO after it came in: a UC2 qualification TASK (until
+//                 1 October 2026) or an ESO/TSA ticket (UC2 tickets since) - SARCLA 18.10: "are you
+//                 also checking the tasks before as tickets?" (only tickets were counted at first)
 //   qualified     the owner's qualification on the company: yes / no / not yet
 //   new customer  its first order; "on its own" when no ESO/TSA ticket came before that order
 //   orders        how many, and the revenue of the years shown
@@ -22,11 +24,15 @@ export type LeadRow = {
   n: number;
   /** qualified by the owner: 1 yes, 0 no, null not yet */
   q: 1 | 0 | null;
-  /** an ESO or TSA ticket after it came in */
+  /** sent to sales after it came in: a UC2 qualification task or an ESO/TSA ticket */
   s: boolean;
+  /** how it reached sales first: the UC2 task (until 1 Oct 2026) or a ticket; null when it did not */
+  via: "task" | "ticket" | null;
+  /** its UC2 qualification task was done */
+  td: boolean;
   /** the month of its first order, or null */
   f: string | null;
-  /** bought before any ESO/TSA ticket - on its own */
+  /** bought before any UC2 task or ESO/TSA ticket - on its own */
   a: boolean;
   /** its orders, all time (a new company: since it came in) */
   orders: number;
@@ -105,13 +111,14 @@ export function keep(r: LeadRow, f: LeadFilters): boolean {
   return (!f.channel?.length || f.channel.includes(r.c)) && (!f.country?.length || f.country.includes(r.k)) && (!f.owner?.length || f.owner.includes(r.o));
 }
 
-export type PathCounts = { companies: number; contacts: number; toSales: number; qualified: number; notQualified: number; notYet: number; customers: number; onOwn: number; orders: number; rev: number };
-export const emptyPath = (): PathCounts => ({ companies: 0, contacts: 0, toSales: 0, qualified: 0, notQualified: 0, notYet: 0, customers: 0, onOwn: 0, orders: 0, rev: 0 });
+export type PathCounts = { companies: number; contacts: number; toSales: number; viaTask: number; viaTicket: number; qualified: number; notQualified: number; notYet: number; taskDoneNoAnswer: number; customers: number; onOwn: number; orders: number; rev: number };
+export const emptyPath = (): PathCounts => ({ companies: 0, contacts: 0, toSales: 0, viaTask: 0, viaTicket: 0, qualified: 0, notQualified: 0, notYet: 0, taskDoneNoAnswer: 0, customers: 0, onOwn: 0, orders: 0, rev: 0 });
 
 export function add(p: PathCounts, r: LeadRow): PathCounts {
   p.companies += 1; p.contacts += r.n;
   if (r.s) p.toSales += 1;
-  if (r.q === 1) p.qualified += 1; else if (r.q === 0) p.notQualified += 1; else p.notYet += 1;
+  if (r.via === "task") p.viaTask += 1; else if (r.via === "ticket") p.viaTicket += 1;
+  if (r.q === 1) p.qualified += 1; else if (r.q === 0) p.notQualified += 1; else { p.notYet += 1; if (r.td) p.taskDoneNoAnswer += 1; }
   if (r.f) { p.customers += 1; if (r.a) p.onOwn += 1; p.orders += r.orders; p.rev += r.rev; }
   return p;
 }
@@ -141,3 +148,62 @@ export function pathBy(d: LeadsData, w: { start: number; end: number }, f: LeadF
   }
   return out;
 }
+
+/* ── the flow diagram ─────────────────────────────────────────────────── */
+
+export type FlowStep = "all" | "source" | "contact" | "qualification" | "outcome";
+export type FlowNode = { id: string; step: FlowStep; label: string; tone: "source" | "sales" | "good" | "bad" | "none" };
+export type Flow = { steps: FlowStep[]; nodes: FlowNode[]; links: { from: string; to: string; value: number }[]; totals: Record<string, number> };
+
+/** Where a lead stands at each step - the node it passes through. */
+function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
+  switch (step) {
+    case "all":
+      return { id: "all", step, label: "New leads", tone: "source" };
+    case "source": {
+      const c = sources.has(r.c) ? r.c : "rest";
+      return { id: `source:${c}`, step, label: c === "rest" ? "Other sources" : channelLabel(c), tone: "source" };
+    }
+    case "contact":
+      return r.via === "task" ? { id: "contact:task", step, label: "Qualification task (UC2)", tone: "sales" }
+        : r.via === "ticket" ? { id: "contact:ticket", step, label: "ESO/TSA ticket", tone: "sales" }
+          : { id: "contact:none", step, label: "No sales contact", tone: "none" };
+    case "qualification":
+      return r.q === 1 ? { id: "q:yes", step, label: "Qualified", tone: "good" } : r.q === 0 ? { id: "q:no", step, label: "Not qualified", tone: "bad" } : { id: "q:open", step, label: "Not qualified yet", tone: "none" };
+    case "outcome":
+      return r.f ? { id: "o:customer", step, label: "New customer", tone: "good" } : { id: "o:none", step, label: "No order yet", tone: "none" };
+  }
+}
+
+/**
+ * The leads of the months chosen as a flow through the steps given (SARCLA 18.10: "a diagram where
+ * they split the number") - the biggest sources by name, the rest together.
+ */
+export function flowOf(d: LeadsData, w: { start: number; end: number }, f: LeadFilters, steps: FlowStep[], topSources = 6): Flow {
+  const rows = d.rows.filter((r) => keep(r, f) && inWin(r.m, d.year, w));
+  const bySource = new Map<string, number>();
+  for (const r of rows) bySource.set(r.c, (bySource.get(r.c) ?? 0) + 1);
+  const sources = new Set([...bySource.entries()].sort((a, b) => b[1] - a[1]).slice(0, topSources).map(([c]) => c));
+  const nodes = new Map<string, FlowNode>();
+  const links = new Map<string, { from: string; to: string; value: number }>();
+  const totals: Record<string, number> = {};
+  for (const r of rows) {
+    const path = steps.map((s) => nodeOf(r, s, sources));
+    for (const n of path) { nodes.set(n.id, n); totals[n.id] = (totals[n.id] ?? 0) + 1; }
+    for (let i = 0; i + 1 < path.length; i++) {
+      const k = `${path[i].id}>${path[i + 1].id}`;
+      const l = links.get(k) ?? { from: path[i].id, to: path[i + 1].id, value: 0 };
+      l.value += 1;
+      links.set(k, l);
+    }
+  }
+  // top to bottom: the biggest source first and the rest last, then the good way before the others
+  const rank = (n: FlowNode) => (n.step === "source" ? (n.id === "source:rest" ? 1e9 : -(totals[n.id] ?? 0)) : ORDER.indexOf(n.id));
+  const out = [...nodes.values()].sort((a, b) => steps.indexOf(a.step) - steps.indexOf(b.step) || rank(a) - rank(b));
+  return { steps, nodes: out, links: [...links.values()], totals };
+}
+const ORDER = ["all", "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:customer", "o:none"];
+
+/** What became of a lead so far - one answer each, for the months chart. */
+export type Outcome = "customer" | "qualified" | "notQualified" | "open";
+export const outcomeOf = (r: LeadRow): Outcome => (r.f ? "customer" : r.q === 1 ? "qualified" : r.q === 0 ? "notQualified" : "open");

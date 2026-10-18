@@ -4,6 +4,9 @@
 // Reach and Visit: the title with its figures top right, tabs - the path, sources, months,
 // countries, teams - and the Filters window (the months, the sources, the countries). The choice
 // lives in the address; each card carries the tile tools (Actions). The rules are in leadsCube.ts.
+// SARCLA 18.10: "we need more graphs to understand better" and the sources "as a diagram where they
+// split the number" - the path and the sources each open on a flow diagram (Sankey), the months show
+// what became of each month's leads and how many bought, the countries and the owners get bars.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -29,7 +32,11 @@ import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, T
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
-import { CHANNELS, channelLabel, pathBy, pathOf, ym, type LeadFilters, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
+import { StackedColumns } from "@/app/charts/StackedColumns";
+import { BarList } from "@/app/charts/BarList";
+import { Sankey } from "@/app/charts/Sankey";
+import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
+import { CHANNELS, channelLabel, flowOf, inWin, keep, outcomeOf, pathBy, pathOf, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
 import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -51,7 +58,7 @@ const eur = (n: number) => `€${Math.round(n).toLocaleString("en")}`;
 function Figures({ cur, prev }: { cur: PathCounts; prev: PathCounts }) {
   const items: { label: string; icon: React.ReactNode; tint: Tint; v: number; p: number; fmt?: (n: number) => string; sub?: string }[] = [
     { label: "New leads", icon: <PersonAddAltOutlinedIcon />, tint: "blue", v: cur.companies, p: prev.companies, sub: `${n0(cur.contacts)} new contacts` },
-    { label: "To sales", icon: <SupportAgentOutlinedIcon />, tint: "amber", v: cur.toSales, p: prev.toSales, sub: ratio(cur.toSales, cur.companies) + " of the leads" },
+    { label: "To sales", icon: <SupportAgentOutlinedIcon />, tint: "amber", v: cur.toSales, p: prev.toSales, sub: `${ratio(cur.toSales, cur.companies)} · ${n0(cur.viaTask)} by task, ${n0(cur.viaTicket)} by ticket` },
     { label: "Qualified", icon: <VerifiedOutlinedIcon />, tint: "purple", v: cur.qualified, p: prev.qualified, sub: `${n0(cur.notQualified)} not, ${n0(cur.notYet)} not yet` },
     { label: "New customers", icon: <ShoppingCartOutlinedIcon />, tint: "green", v: cur.customers, p: prev.customers, sub: ratio(cur.customers, cur.companies) + " of the leads" },
     { label: "Their revenue", icon: <EuroOutlinedIcon />, tint: "green", v: cur.rev, p: prev.rev, fmt: eur, sub: `${n0(cur.orders)} orders` },
@@ -82,10 +89,10 @@ function Figures({ cur, prev }: { cur: PathCounts; prev: PathCounts }) {
 function PathCard({ cur, prev, w, year, actions }: { cur: PathCounts; prev: PathCounts; w: MonthWindow; year: number; actions: React.ReactNode }) {
   const steps: { label: string; note: string; v: number; p: number; tint: Tint }[] = [
     { label: "New leads", note: "new companies, with their first new contact", v: cur.companies, p: prev.companies, tint: "blue" },
-    { label: "Handed to sales", note: "an ESO or TSA ticket after they came in", v: cur.toSales, p: prev.toSales, tint: "amber" },
-    { label: "Qualified by the owner", note: `${n0(cur.notQualified)} not qualified, ${n0(cur.notYet)} not yet`, v: cur.qualified, p: prev.qualified, tint: "purple" },
+    { label: "Handed to sales", note: `a UC2 qualification task (until 1 October) or an ESO/TSA ticket after they came in · ${n0(cur.viaTask)} by task, ${n0(cur.viaTicket)} by ticket`, v: cur.toSales, p: prev.toSales, tint: "amber" },
+    { label: "Qualified by the owner", note: `${n0(cur.notQualified)} not qualified, ${n0(cur.notYet)} not yet${cur.taskDoneNoAnswer ? ` (${n0(cur.taskDoneNoAnswer)} of them with the task done but no answer on the company)` : ""}`, v: cur.qualified, p: prev.qualified, tint: "purple" },
     { label: "New customers", note: "their first order", v: cur.customers, p: prev.customers, tint: "green" },
-    { label: "… of them on their own", note: "ordered before any ESO/TSA ticket", v: cur.onOwn, p: prev.onOwn, tint: "green" },
+    { label: "… of them on their own", note: "ordered before any UC2 task or ESO/TSA ticket", v: cur.onOwn, p: prev.onOwn, tint: "green" },
   ];
   const top = Math.max(cur.companies, prev.companies, 1);
   return (
@@ -121,6 +128,32 @@ function rowCells(label: React.ReactNode, e: { cur: PathCounts; prev: PathCounts
   const c = e.cur;
   return [label, withChange(n0(c.companies), change(c.companies, e.prev.companies)), n0(c.toSales), n0(c.qualified), withChange(n0(c.customers), change(c.customers, e.prev.customers)), ratio(c.customers, c.companies), n0(c.onOwn), eur(c.rev)];
 }
+
+/* ── the flow diagram ─────────────────────────────────────────────────── */
+
+const STEP_NAME: Record<FlowStep, string> = { all: "New leads", source: "Source", contact: "Sales contact", qualification: "Owner's qualification", outcome: "Outcome" };
+const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], sales: SERIES[3], good: SERIES[2], bad: SERIES[1], none: DEEMPHASIS };
+
+function FlowCard({ flow, title, note, actions, height }: { flow: Flow; title: string; note: string; actions: React.ReactNode; height: number }) {
+  const label = new Map(flow.nodes.map((n) => [n.id, n.label]));
+  const twin = { columns: ["From", "To", "Leads", "Share of from"], rows: flow.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value, ratio(l.value, flow.totals[l.from])]), numeric: [2, 3] };
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+      <CardTitle icon={<AltRouteIcon />} tint="blue" title={title} note={note} right={actions} />
+      <ChartFrame table={twin} empty={flow.nodes.length ? null : "No new leads for this choice."}>
+        {/* the diagram needs its width: on a phone it scrolls inside the card, the page does not */}
+        <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
+          <Box sx={{ minWidth: 760 }}>
+            <Sankey height={height} columns={flow.steps.map((s) => STEP_NAME[s])} label={title}
+              nodes={flow.nodes.map((n) => ({ id: n.id, column: flow.steps.indexOf(n.step), label: n.label, color: TONE[n.tone] }))} links={flow.links} />
+          </Box>
+        </Box>
+      </ChartFrame>
+    </GlassCard>
+  );
+}
+
+const pct = (v: number | null) => (v == null ? "—" : `${Number.isInteger(v) ? v : v.toFixed(1)}%`);
 
 export function LeadExplorer({ state }: { state: MkState | null }) {
   const params = useSearchParams();
@@ -162,8 +195,10 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
 
   const countryRows = useMemo(() => (d ? [...pathBy(d, win, f, (r) => r.k).entries()].sort((a, b) => (FOCUS.includes(b[0]) ? 1 : 0) - (FOCUS.includes(a[0]) ? 1 : 0) || b[1].cur.companies - a[1].cur.companies) : []), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
   const countryOptions = useMemo(() => (d ? [...new Set(d.rows.map((r) => r.k))].sort((a, b) => (FOCUS.includes(b) ? 1 : 0) - (FOCUS.includes(a) ? 1 : 0) || a.localeCompare(b)) : []), [d]);
+  const pathFlow = useMemo(() => (d ? flowOf(d, win, f, ["all", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sourceFlow = useMemo(() => (d ? flowOf(d, win, f, ["source", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!d || !path) {
+  if (!d || !path || !pathFlow || !sourceFlow) {
     return (
       <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
         {!ld.error && <CircularProgress size={18} />}
@@ -180,6 +215,32 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
     const inCur = i <= done - 1;
     return { x, current: inCur ? e?.cur.companies ?? 0 : null, prior: e?.prev.companies ?? 0, partial: false };
   });
+  // what became of each month's leads so far, this year
+  const outcomeData = MONTHS.slice(0, Math.max(1, done)).map((x, i) => {
+    const m = `${year}-${String(i + 1).padStart(2, "0")}`;
+    const o = { x, customer: 0, notQualified: 0, qualified: 0, open: 0 };
+    for (const r of d.rows) if (r.m === m && keep(r, f)) o[outcomeOf(r)] += 1;
+    return o;
+  });
+  const convData = MONTHS.map((x, i) => {
+    const e = byMonth.get(String(i + 1).padStart(2, "0"));
+    const c = (p?: PathCounts) => (p && p.companies ? (p.customers / p.companies) * 100 : null);
+    return { x, current: i <= done - 1 ? c(e?.cur) : null, prior: c(e?.prev), partial: false };
+  });
+  // conversion by source - the sources with at least 20 leads, best first
+  const sourceConv = CHANNELS.flatMap((c) => { const e = bySource.get(c.id); return e && e.cur.companies >= 20 ? [{ id: c.id, label: c.label, value: (e.cur.customers / e.cur.companies) * 100, secondary: `${n0(e.cur.customers)} of ${n0(e.cur.companies)}` }] : []; }).sort((a, b) => b.value - a.value);
+  // the leads with sales that the owner has not qualified yet, by owner
+  const waiting = new Map<string, { n: number; of: number }>();
+  for (const r of d.rows) {
+    if (!r.s || !keep(r, f) || !inWin(r.m, d.year, win)) continue;
+    const e = waiting.get(r.o) ?? { n: 0, of: 0 };
+    e.of += 1;
+    if (r.q == null) e.n += 1;
+    waiting.set(r.o, e);
+  }
+  const ownerName = (o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
+  const waitingRows = [...waiting.entries()].filter(([, e]) => e.n > 0).sort((a, b) => b[1].n - a[1].n).slice(0, 12).map(([o, e]) => ({ label: ownerName(o), value: e.n, secondary: `of ${n0(e.of)} with sales` }));
+  const countryBars = countryRows.slice().sort((a, b) => b[1].cur.companies - a[1].cur.companies).slice(0, 12).map(([k, e]) => ({ label: k, value: e.cur.companies, secondary: `${ratio(e.cur.customers, e.cur.companies)} bought` }));
 
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
@@ -215,7 +276,27 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
         </Button>
       </Box>
 
-      {tab === "path" && <PathCard cur={path.cur} prev={path.prev} w={win} year={year} actions={act("path", "From acquisition to purchase")} />}
+      {tab === "path" && (
+        <>
+          <FlowCard flow={pathFlow} height={340} title="How the leads split" actions={act("flow", "How the leads split")}
+            note={`${monthsLabel(win)} ${year} · every new lead, step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy · hover a band for its count`} />
+          <PathCard cur={path.cur} prev={path.prev} w={win} year={year} actions={act("path", "From acquisition to purchase")} />
+        </>
+      )}
+
+      {tab === "sources" && (
+        <FlowCard flow={sourceFlow} height={430} title="Where the leads came from, and where they went" actions={act("flow", "Where the leads came from, and where they went")}
+          note={`${monthsLabel(win)} ${year} · the six biggest sources by name, the rest together · hover a band for its count`} />
+      )}
+
+      {tab === "sources" && (
+        <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+          <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Which sources buy" note={`${monthsLabel(win)} ${year} · the share of each source's new leads that placed an order · sources with 20 leads or more · click one to filter by it`} right={act("conversion", "Which sources buy")} />
+          <ChartFrame table={{ columns: ["Source", "Bought", "New customers"], rows: sourceConv.map((r) => [r.label, pct(r.value), r.secondary]), numeric: [1] }}>
+            <BarList rows={sourceConv} format={pct} labelWidth={240} onSelect={(l) => { const c = CHANNELS.find((x) => x.label === l); if (c) setChannels(flip(channels, c.id)); }} selectedLabel={channels.length === 1 ? channelLabel(channels[0]) : null} />
+          </ChartFrame>
+        </GlassCard>
+      )}
 
       {tab === "sources" && (
         <GlassCard sx={{ display: "grid", gap: 1.25 }}>
@@ -231,6 +312,23 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
           <ChartFrame table={{ columns: ["Month", String(year), String(year - 1)], rows: monthData.map((m) => [m.x, m.current ?? "", m.prior]), numeric: [1, 2] }}>
             <GroupedColumns height={220} format={(x) => n0(x)} data={monthData} currentLabel={String(year)} priorLabel={String(year - 1)} />
           </ChartFrame>
+          <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: 1 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What became of each month&apos;s leads</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: FAINT, mb: 1 }}>{year}, so far - the newest months have had the least time</Typography>
+              <ChartFrame table={{ columns: ["Month", "New customer", "Not qualified", "Qualified, no order yet", "Not qualified yet"], rows: outcomeData.map((o) => [o.x, o.customer, o.notQualified, o.qualified, o.open]), numeric: [1, 2, 3, 4] }}>
+                <StackedColumns height={240} format={(v) => n0(v)} data={outcomeData}
+                  parts={[{ key: "customer", label: "New customer" }, { key: "notQualified", label: "Not qualified" }, { key: "qualified", label: "Qualified, no order yet" }, { key: "open", label: "Not qualified yet" }]} />
+              </ChartFrame>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>How many bought</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: FAINT, mb: 1 }}>The share of each month&apos;s new leads with an order, {year} against {year - 1} - {year - 1}&apos;s leads have had a year longer</Typography>
+              <ChartFrame table={{ columns: ["Month", String(year), String(year - 1)], rows: convData.map((m) => [m.x, pct(m.current), pct(m.prior)]), numeric: [1, 2] }}>
+                <GroupedColumns height={240} format={pct} data={convData} currentLabel={String(year)} priorLabel={String(year - 1)} />
+              </ChartFrame>
+            </Box>
+          </Box>
           <Table head={["Month", ...head.slice(1)]} rows={MONTHS.slice(0, Math.max(1, done)).map((m, i) => {
             const e = byMonth.get(String(i + 1).padStart(2, "0")) ?? { cur: pathOf({ ...d, rows: [] }, win, f).cur, prev: pathOf({ ...d, rows: [] }, win, f).prev };
             return { key: m, cells: rowCells(m, e) };
@@ -241,6 +339,9 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "countries" && (
         <GlassCard sx={{ display: "grid", gap: 1.25 }}>
           <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country" note={`${monthsLabel(win)} ${year} · our focus markets first · click a country to filter by it`} right={act("countries", "New leads by country")} />
+          <ChartFrame table={{ columns: ["Country", "New leads", "Bought"], rows: countryBars.map((r) => [r.label, r.value, r.secondary]), numeric: [1] }}>
+            <BarList rows={countryBars} format={(v) => n0(v)} labelWidth={180} onSelect={(k) => setCountries(flip(countries, k))} selectedLabel={countries.length === 1 ? countries[0] : null} />
+          </ChartFrame>
           <Table head={["Country", ...head.slice(1)]} rows={countryRows.map(([k, e]) => ({ key: k, on: countries.includes(k), onPick: () => setCountries(flip(countries, k)), cells: rowCells(k, e) }))} />
         </GlassCard>
       )}
@@ -248,12 +349,19 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "teams" && (
         <GlassCard sx={{ display: "grid", gap: 1.25 }}>
           <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="New leads by owner" note={`${monthsLabel(win)} ${year} · the company's owner in HubSpot today`} right={act("teams", "New leads by owner")} />
-          <Table head={["Owner", ...head.slice(1)]} rows={byOwner.map(([o, e]) => ({ key: o || "none", cells: rowCells(o ? d.owners[o] ?? `Owner ${o}` : "No owner", e) }))} />
+          <Box>
+            <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Waiting for the owner&apos;s qualification</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT, mb: 1 }}>Leads sent to sales (a UC2 task or an ESO/TSA ticket) with no answer yet in &quot;Qualified by company owner&quot;</Typography>
+            <ChartFrame table={{ columns: ["Owner", "Not qualified yet", "With sales"], rows: waitingRows.map((r) => [r.label, r.value, r.secondary]), numeric: [1] }}>
+              <BarList rows={waitingRows} format={(v) => n0(v)} labelWidth={200} emptyMessage="Every lead with sales has its qualification." />
+            </ChartFrame>
+          </Box>
+          <Table head={["Owner", "Leads", "To sales", "Qualified", "Not qualified", "Not yet", "New customers", "Revenue"]} rows={byOwner.map(([o, e]) => ({ key: o || "none", cells: [ownerName(o), withChange(n0(e.cur.companies), change(e.cur.companies, e.prev.companies)), n0(e.cur.toSales), n0(e.cur.qualified), n0(e.cur.notQualified), n0(e.cur.notYet), n0(e.cur.customers), eur(e.cur.rev)] }))} />
         </GlassCard>
       )}
 
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        Read from HubSpot - new contacts, their companies, the companies&apos; ESO and TSA tickets - {d.readAt ? `last read ${new Date(d.readAt).toLocaleString("en-GB")}` : ""}, every 6 hours.
+        Read from HubSpot - new contacts, their companies, the companies&apos; UC2 qualification tasks and ESO and TSA tickets - {d.readAt ? `last read ${new Date(d.readAt).toLocaleString("en-GB")}` : ""}, every 6 hours.
         {Object.keys(d.errors).length > 0 && <Box component="span" sx={{ color: RED }}> Not everything could be read: {Object.keys(d.errors).join(", ")}.</Box>}
       </Typography>
 

@@ -1,14 +1,18 @@
 // LEAD GENERATION - the read (the rules are in leadsCube.ts). SARCLA 18.10.2026: a lead is a new
 // contact on a new company. From January last year, month by month: HubSpot's new contacts (their
 // original source), their companies (when the company came in, country, owner, the owner's
-// qualification, first order, orders, revenue), and on the new companies their ESO and TSA tickets.
+// qualification, first order, orders, revenue), and on the new companies their ESO and TSA tickets
+// and their UC2 qualification tasks (ESO qualified from a task until 1 October 2026, a ticket since).
 // A few minutes; read every 6 hours, the page shows the last read meanwhile.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { channelOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
+import { UCS } from "@/lib/lifecycle/config";
+import { associations, searchAll } from "@/lib/lifecycle/read";
 
-const KEY = "marketingKpis:leads:v1";
+// v2: the UC2 qualification tasks counted as the way to sales too (18.10)
+const KEY = "marketingKpis:leads:v2";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_FAILED_MS = 30 * 60 * 1000;
 const SALES_PIPES = new Set(["1726599376", "1726599377"]); // ESO, TSA
@@ -141,6 +145,25 @@ export async function buildLeads(): Promise<LeadsData> {
     }
   }
 
+  // 3b. the UC2 qualification tasks (until 1 October 2026), by the workflow that made them, and their companies
+  const taskNames = UCS.find((u) => u.key === "uc2")?.tasks.map((t) => t.name) ?? [];
+  const tasksOf = new Map<string, { t: number; done: boolean }[]>();
+  if (taskNames.length) {
+    reportProgress(KEY, "reading the UC2 qualification tasks");
+    try {
+      // paged by id, as the lifecycle reports read them: HubSpot's own paging stops at 10,000 and
+      // there are more UC2 tasks than that since January last year
+      const rows = await searchAll("tasks", [[{ propertyName: "hs_object_source_detail_1", operator: "IN", values: taskNames }, { propertyName: "hs_createdate", operator: "GTE", value: String(Date.UTC(py, 0, 1)) }]],
+        ["hs_createdate", "hs_task_status"], (n) => reportProgress(KEY, `reading the UC2 qualification tasks · ${n.toLocaleString("en")}`));
+      const found = rows.flatMap((t) => { const at = ms(t.properties?.hs_createdate); return at == null ? [] : [{ id: String(t.id), t: at, done: t.properties?.hs_task_status === "COMPLETED" }]; });
+      reportProgress(KEY, "linking the UC2 tasks to their companies");
+      const toCo = await associations("tasks", "companies", found.map((t) => t.id));
+      for (const t of found) for (const c of toCo.get(t.id) ?? []) (tasksOf.get(c) ?? tasksOf.set(c, []).get(c)!).push({ t: t.t, done: t.done });
+    } catch (e) {
+      errors.tasks = String((e as Error)?.message ?? e).slice(0, 200);
+    }
+  }
+
   // 4. the owners' names
   const owners: Record<string, string> = {};
   reportProgress(KEY, "reading the owners");
@@ -159,11 +182,16 @@ export async function buildLeads(): Promise<LeadsData> {
   for (const [id, l] of leads) {
     const p = cos.get(id) ?? {};
     const sales = (ticketsOf.get(id) ?? []).map((t) => tickets.get(t)).filter((t): t is { pipe: string; t: number } => !!t && SALES_PIPES.has(t.pipe) && t.t >= l.created - DAY);
-    const firstSales = sales.length ? Math.min(...sales.map((t) => t.t)) : null;
+    const tasks = (tasksOf.get(id) ?? []).filter((t) => t.t >= l.created - DAY);
+    const firstTicket = sales.length ? Math.min(...sales.map((t) => t.t)) : null;
+    const firstTask = tasks.length ? Math.min(...tasks.map((t) => t.t)) : null;
+    const firstSales = firstTicket == null ? firstTask : firstTask == null ? firstTicket : Math.min(firstTicket, firstTask);
     const firstOrder = ms(p.order_first_order_date);
     rows.push({
       m: monthOf(l.created), c: l.first.channel, k: (p.country_custom || p.country || "").trim() || "Unknown", o: p.hubspot_owner_id ?? "",
-      n: Math.max(1, l.n), q: qualOf(p.qualified_by_company_owner), s: sales.length > 0,
+      n: Math.max(1, l.n), q: qualOf(p.qualified_by_company_owner), s: firstSales != null,
+      via: firstSales == null ? null : firstTask != null && firstTask === firstSales ? "task" : "ticket",
+      td: tasks.some((t) => t.done),
       f: firstOrder != null ? monthOf(firstOrder) : null,
       a: firstOrder != null && (firstSales == null || firstSales > firstOrder),
       orders: Number(p.order_total_orders) || 0,

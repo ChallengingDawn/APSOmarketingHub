@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { channelOf, pathBy, pathOf, qualOf, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
+import { channelOf, flowOf, outcomeOf, pathBy, pathOf, qualOf, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
 
 test("where a lead came from: HubSpot's original source and its details", () => {
   assert.equal(channelOf("PAID_SEARCH", "brand (deutsch)", "Google"), "sea-google");
@@ -25,7 +25,7 @@ test("the owner's qualification: yes in any wording, no, or not yet", () => {
   assert.equal(qualOf(null), null);
 });
 
-const row = (p: Partial<LeadRow>): LeadRow => ({ m: "2026-03", c: "seo", k: "Switzerland", o: "1", n: 1, q: null, s: false, f: null, a: false, orders: 0, rev: 0, ...p });
+const row = (p: Partial<LeadRow>): LeadRow => ({ m: "2026-03", c: "seo", k: "Switzerland", o: "1", n: 1, q: null, s: false, via: null, td: false, f: null, a: false, orders: 0, rev: 0, ...p });
 const data = (rows: LeadRow[]): LeadsData => ({ rows, owners: {}, year: 2026, monthsDone: 9, contacts: {}, readAt: "", errors: {} });
 
 test("the path of the months chosen, against the same months a year earlier", () => {
@@ -46,4 +46,32 @@ test("the path of the months chosen, against the same months a year earlier", ()
   assert.equal(by.get("seo")?.cur.companies, 1);
   assert.equal(by.get("seo")?.prev.companies, 1);
   assert.equal(by.get("sea-google")?.cur.onOwn, 1);
+});
+
+test("the UC2 task counts as the way to sales, and the leads flow through the steps", () => {
+  const d = data([
+    row({ s: true, via: "task", td: true, q: null }),
+    row({ s: true, via: "ticket", q: 1, f: "2026-04" }),
+    row({ c: "sea-google", q: 0 }),
+    row({ c: "chat", f: "2026-03", a: true }),
+  ]);
+  const { cur } = pathOf(d, { start: 0, end: 8 }, {});
+  assert.deepEqual([cur.toSales, cur.viaTask, cur.viaTicket, cur.notYet, cur.taskDoneNoAnswer], [2, 1, 1, 2, 1]);
+  const fl = flowOf(d, { start: 0, end: 8 }, {}, ["source", "contact", "outcome"], 2);
+  // two sources by name (seo has 2), the rest together
+  assert.equal(fl.totals["source:seo"], 2);
+  assert.equal(fl.totals["source:rest"], 1);
+  assert.equal(fl.totals["contact:task"], 1);
+  assert.equal(fl.totals["contact:none"], 2);
+  assert.equal(fl.totals["o:customer"], 2);
+  const l = fl.links.find((x) => x.from === "source:seo" && x.to === "contact:task");
+  assert.equal(l?.value, 1);
+  // every lead leaves each step once
+  assert.equal(fl.links.filter((x) => x.from.startsWith("source:")).reduce((a, x) => a + x.value, 0), 4);
+  // the nodes top to bottom: biggest source first, the rest last; the task before the ticket before none
+  assert.deepEqual(fl.nodes.map((n) => n.id), ["source:seo", "source:sea-google", "source:rest", "contact:task", "contact:ticket", "contact:none", "o:customer", "o:none"]);
+  const all = flowOf(d, { start: 0, end: 8 }, {}, ["all", "qualification"]);
+  assert.equal(all.totals.all, 4);
+  assert.deepEqual(all.nodes.map((n) => n.id), ["all", "q:yes", "q:no", "q:open"]);
+  assert.deepEqual(d.rows.map(outcomeOf), ["open", "customer", "notQualified", "customer"]);
 });
