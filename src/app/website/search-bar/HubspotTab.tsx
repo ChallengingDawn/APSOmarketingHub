@@ -66,7 +66,7 @@ function Job({ name, d, icon, tint, title, what, offNote, runLabel, runAsk, chil
         ) : undefined} />
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
         <Chip tint={sw.on ? "green" : "slate"}>{sw.on ? "On" : "Off - runs only with Run now"}</Chip>
-        <Chip tint="slate">{sw.set ? `switched ${when(sw.set_at)}` : "as set on Railway"}</Chip>
+        {sw.set && <Chip tint="slate">{`switched ${when(sw.set_at)}`}</Chip>}
       </Box>
       <Box sx={{ display: "grid", gap: 0.35, flex: 1 }}>{children}</Box>
       {d.isAdmin && (

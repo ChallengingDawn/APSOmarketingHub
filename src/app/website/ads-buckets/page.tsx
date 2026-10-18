@@ -27,7 +27,6 @@ import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import PauseCircleOutlineIcon from "@mui/icons-material/PauseCircleOutline";
 import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCheckoutOutlined";
 import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
-import RouterOutlinedIcon from "@mui/icons-material/RouterOutlined";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -82,7 +81,7 @@ function Controls({ job, d, title, offAsk, runLabel, runAction, runAsk, reload }
   return (
     <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
       <Chip tint={sw.on ? "green" : "slate"}>{sw.on ? "On" : "Off"}</Chip>
-      <Chip tint="slate">{sw.set ? `switched ${when(sw.set_at)}` : "as set on Railway"}</Chip>
+      {sw.set && <Chip tint="slate">{`switched ${when(sw.set_at)}`}</Chip>}
       {d.isAdmin && (
         <>
           <Box sx={{ display: "flex", alignItems: "center" }}>
@@ -179,16 +178,6 @@ function Body({ d, reload }: { d: Data; reload: () => void }) {
           </Grid>
         </Grid>
         {sa.last_error && <Notice tone="warn">Last write error: {sa.last_error}</Notice>}
-      </GlassCard>
-
-      <GlassCard>
-        <CardTitle icon={<RouterOutlinedIcon />} tint="slate" title="Where it runs"
-          note="Its own service since 17.10.2026 (before, inside the search bar's gateway: every search bar restart rebuilt the list). Nothing about a customer is stored there - the list and the activity buffer live in memory." />
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-          <Chip tint={d.health ? "green" : "pink"}>{d.health ? "Ads Gateway answering" : "Ads Gateway not answering"}</Chip>
-          <Chip tint="slate">{d.setting.url.replace(/^https:\/\//, "")}{d.setting.fromDefault ? " (the Railway address)" : ""}</Chip>
-          <Chip tint="slate">The shop still calls the search bar's address, which passes both calls on - GTM unchanged</Chip>
-        </Box>
       </GlassCard>
     </>
   );
