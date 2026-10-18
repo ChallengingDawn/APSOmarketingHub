@@ -1,32 +1,101 @@
 "use client";
 
-// APSOassistant Chat > Search bar chat (SARCLA 18.10.2026: "integrate here the search bar chat with toggles"). The
-// search bar's AI assistant is APSOassistant too, so its conversations sit beside the HubSpot chat's: the switch for
-// its button on the bar (the same one as Search bar > Setup, the gateway's widget config), and its conversations
-// (Search bar > AI chat, read from the smart-bar gateway). Nothing new is stored; both pages change the same switch.
+// APSOassistant Chat > Search bar chat (SARCLA 18.10.2026: "integrate here the search bar chat with toggles", then
+// "the UX of the chat should be massively improved"). The search bar's AI assistant is APSOassistant too: the switch for
+// its button on the bar (the same one as Search bar > Setup), and its conversations in the page's inbox - the question in
+// the list with the start of the answer, the whole exchange on the right. Archiving is the gateway's, as on the search
+// bar page. Nothing new is stored.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import SmartButtonOutlinedIcon from "@mui/icons-material/SmartButtonOutlined";
-import { Chip } from "@/app/connectors/parts";
-import { CardTitle, GlassCard, GREEN, MUTED, Notice } from "@/app/uc/report/ui";
-import type { Switches } from "@/lib/searchbar/gateway";
-import { Loaded, post } from "@/app/website/search-bar/shared";
-import AiTab from "@/app/website/search-bar/AiTab";
+import { Chip, Choice } from "@/app/connectors/parts";
+import { CardTitle, GlassCard, GREEN, INK, MUTED, Notice } from "@/app/uc/report/ui";
+import type { AiConversation, AiConversations, Switches } from "@/lib/searchbar/gateway";
+import { Loaded, pill, post } from "@/app/website/search-bar/shared";
+import { when } from "./shared";
+import { Bubbles, Inbox, type InboxItem } from "./inbox";
 
 type Setup = { switches: Switches; isAdmin: boolean };
 
 export default function SearchBarChatTab() {
+  const [which, setWhich] = useState<"active" | "archived">("active");
   return (
     <>
       <Loaded<Setup> url="/api/website/search-bar?part=setup" what="the bar's switches">
         {(s, reload) => <ButtonSwitch s={s} reload={reload} />}
       </Loaded>
-      <AiTab />
+      <Loaded<AiConversations & { isAdmin?: boolean }> key={which} url={`/api/website/search-bar?part=ai&archived=${which === "archived" ? 1 : 0}`} what="the conversations">
+        {(d, reload) => <BarInbox d={d} which={which} setWhich={setWhich} reload={reload} />}
+      </Loaded>
     </>
+  );
+}
+
+const firstQuestion = (c: AiConversation) => c.turns.find((t) => t.role === "user")?.text?.trim() || "(no question)";
+const firstAnswer = (c: AiConversation) => c.turns.find((t) => t.role !== "user")?.text?.trim() || null;
+const langOf = (locale: string) => (locale || "").split("-")[0] || null;
+
+function BarInbox({ d, which, setWhich, reload }: {
+  d: AiConversations & { isAdmin?: boolean }; which: "active" | "archived"; setWhich: (w: "active" | "archived") => void; reload: () => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (d.conversations ?? []).filter((c) => !q || c.turns.some((t) => t.text?.toLowerCase().includes(q)));
+  }, [d.conversations, search]);
+  const items: InboxItem[] = list.map((c) => {
+    const questions = c.turns.filter((t) => t.role === "user").length;
+    return {
+      id: c.query_id, title: firstQuestion(c), preview: firstAnswer(c), at: c.ts, lang: langOf(c.locale),
+      badges: (
+        <>
+          <Chip tint="slate">{c.locale}</Chip>
+          <Box component="span" sx={{ fontSize: "0.7rem", color: "#8b97ac", alignSelf: "center" }}>{questions} {questions === 1 ? "question" : "questions"}</Box>
+        </>
+      ),
+    };
+  });
+  const open = (d.conversations ?? []).find((c) => c.query_id === selected) ?? null;
+  return (
+    <Inbox items={items} selected={selected} onSelect={setSelected} search={search} onSearch={setSearch}
+      empty={which === "archived" ? "Nothing archived." : "No conversations yet."}
+      toolbar={<Choice value={which} onChange={(k) => { setWhich(k); setSelected(null); }} options={[{ key: "active", label: "Current" }, { key: "archived", label: "Archived" }]} />}
+      detail={open ? <BarChat key={open.query_id} c={open} archived={which === "archived"} isAdmin={!!d.isAdmin} onMoved={() => { setSelected(null); reload(); }} /> : null} />
+  );
+}
+
+function BarChat({ c, archived, isAdmin, onMoved }: { c: AiConversation; archived: boolean; isAdmin: boolean; onMoved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const move = async () => {
+    setBusy(true); setErr(null);
+    const r = await post({ action: "ai-archive", conversation_id: c.query_id, archived: !archived });
+    setBusy(false);
+    if (r.ok) onMoved(); else setErr(r.error ?? "Did not work.");
+  };
+  const questions = c.turns.filter((t) => t.role === "user").length;
+  return (
+    <Box sx={{ display: "grid", gap: 1.5 }}>
+      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <Box sx={{ flex: "1 1 260px", minWidth: 0 }}>
+          <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{firstQuestion(c)}</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>On the search bar · {c.locale} · {when(c.ts)} · {questions} {questions === 1 ? "question" : "questions"}</Typography>
+        </Box>
+        {isAdmin && (
+          <Button size="small" variant="outlined" sx={pill} disabled={busy} onClick={() => void move()}>
+            {busy ? <CircularProgress size={14} /> : archived ? "Bring back" : "Archive"}
+          </Button>
+        )}
+      </Box>
+      {err && <Notice tone="bad">{err}</Notice>}
+      <Bubbles items={c.turns.map((t) => ({ at: t.ts || c.ts, who: t.role === "user" ? "customer" : "ai", name: null, text: t.text }))} />
+    </Box>
   );
 }
 
@@ -43,9 +112,9 @@ function ButtonSwitch({ s, reload }: { s: Setup; reload: () => void }) {
     if (r.ok) reload();
   };
   return (
-    <GlassCard sx={{ display: "grid", gap: 1 }}>
+    <GlassCard sx={{ display: "grid", gap: 1, py: { xs: 1.5, md: 1.75 } }}>
       <CardTitle icon={<SmartButtonOutlinedIcon />} tint={on ? "green" : "slate"} title="APSOassistant on the search bar"
-        note="The AI button at the right of the shop's search bar opens APSOassistant. The same switch as Search bar > Setup."
+        note={on ? "The AI button at the right of the shop's search bar opens APSOassistant." : "The AI button is hidden: customers cannot open APSOassistant from the bar."}
         right={
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
             {busy && <CircularProgress size={14} />}

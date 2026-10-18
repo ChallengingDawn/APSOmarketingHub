@@ -21,12 +21,18 @@ import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
 import MonitorHeartOutlinedIcon from "@mui/icons-material/MonitorHeartOutlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import { full } from "@/app/charts/format";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { StackedColumns } from "@/app/charts/StackedColumns";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HsLink, KpiTile, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { num, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
+import { num, topicLabel, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
 import { Bars, HandlerChip, PagedBars, category, pct, when } from "./shared";
 
-export type OverviewData = { stats: Stats; recent: Conversation[]; health: Health | null; liveFrom?: string; cappedAtLive?: boolean };
+export type OverviewData = {
+  stats: Stats; recent: Conversation[]; health: Health | null; liveFrom?: string; cappedAtLive?: boolean;
+  /** the hub's own filing (Topics), when it has filed any chat of the period */
+  topics?: { rows: { topic: string; chats: number }[]; filed: number } | null;
+};
 
 const CHECKS: [keyof Health, string][] = [
   ["postgres", "Database"], ["redis", "Chat memory"], ["hubspot", "HubSpot"], ["claude", "AI model"], ["embedding", "Knowledge search"],
@@ -55,15 +61,33 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
 
       <GlassCard sx={{ display: "grid", gap: 1.25 }}>
         <CardTitle icon={<ScheduleOutlinedIcon />} tint="purple" title={weekly ? "Chats per week" : "Chats per day"}
-          note={`The whole bar is all chats; the green part is the ones handed to a person.${d.cappedAtLive ? ` From go-live (${when(d.liveFrom ?? "").slice(0, 10)}): the test phase before is left out.` : ""}`} />
-        <DayBars rows={bars} unit={weekly ? "week of" : ""} />
+          note={`Each column is the chats of that ${weekly ? "week" : "day"} - hover for the numbers, or switch to the table.${d.cappedAtLive ? ` From go-live (${when(d.liveFrom ?? "").slice(0, 10)}): the test phase before is left out.` : ""}`} />
+        <ChartFrame
+          empty={bars.length ? null : "No chats in this period."}
+          table={{ columns: [weekly ? "Week of" : "Day", "AI alone", "Handed to a person", "All chats"], numeric: [1, 2, 3],
+            rows: bars.map((b) => [ddmm(b.day), full(b.total - b.handed), full(b.handed), full(b.total)]) }}>
+          <StackedColumns height={260} format={(v) => full(v)} xFormat={(x) => x}
+            parts={[{ key: "ai", label: "Answered by the AI alone" }, { key: "handed", label: "Handed to a person" }]}
+            data={bars.map((b) => ({ x: ddmm(b.day), ai: b.total - b.handed, handed: b.handed }))} />
+        </ChartFrame>
       </GlassCard>
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about" note="The AI's category for each chat" />
-            <PagedBars rows={s.byCategory.map((c) => ({ label: category(c.category), n: num(c.count) }))} colour="#a96a12" />
+            {d.topics && d.topics.filed > 0 ? (
+              <>
+                <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
+                  note={`Filed by the hub after each chat, from the whole chat (Topics tab) - ${full(d.topics.filed)} of ${full(total)} chats filed${d.topics.filed < total ? " so far" : ""}.`} />
+                <PagedBars rows={d.topics.rows.map((t) => ({ label: topicLabel(t.topic), n: t.chats }))} colour="#a96a12" />
+              </>
+            ) : (
+              <>
+                <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
+                  note="The chat's own guess while it was talking - often none or Others. The hub's filing after each chat (Topics) takes over here once it has run." />
+                <PagedBars rows={s.byCategory.map((c) => ({ label: category(c.category), n: num(c.count) }))} colour="#a96a12" />
+              </>
+            )}
           </GlassCard>
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -129,18 +153,5 @@ function byWeek(days: Stats["byDay"]): { day: string; total: number; handed: num
   return [...m.values()].sort((a, b) => a.day.localeCompare(b.day));
 }
 
-/** One bar per day (or week), the handed-over part in green. */
-function DayBars({ rows, unit }: { rows: { day: string; total: number; handed: number }[]; unit: string }) {
-  const max = Math.max(1, ...rows.map((r) => r.total));
-  if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No chats in this period.</Typography>;
-  return (
-    <Box sx={{ display: "flex", alignItems: "flex-end", gap: "3px", height: 140, overflowX: "auto", pb: 0.5 }}>
-      {rows.map((r) => (
-        <Box key={r.day} title={`${unit ? `${unit} ` : ""}${r.day}: ${r.total} chats, ${r.handed} handed to a person`}
-          sx={{ flex: "1 0 8px", maxWidth: 28, height: `${(r.total / max) * 100}%`, minHeight: 2, borderRadius: "4px 4px 0 0", bgcolor: "#d9cdf7", display: "flex", flexDirection: "column", justifyContent: "flex-end", overflow: "hidden" }}>
-          <Box sx={{ height: `${r.total ? (r.handed / r.total) * 100 : 0}%`, bgcolor: "#1b7a55" }} />
-        </Box>
-      ))}
-    </Box>
-  );
-}
+/** "2026-10-12" -> "12.10" */
+const ddmm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;

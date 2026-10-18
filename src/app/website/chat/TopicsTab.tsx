@@ -173,7 +173,7 @@ function TopicChats({ topic, days, onMoved }: { topic: string; days: number; onM
   );
 }
 
-function TopicPick({ c, onMoved }: { c: TopicChat; onMoved: () => void }) {
+export function TopicPick({ c, onMoved }: { c: { session_hash: string; topic: string; by: string }; onMoved: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const pick = async (topic: string) => {

@@ -25,6 +25,8 @@ export type Conversation = {
   started_at: string; debug_log?: string | null; handler?: string | null;
   /** per chat (/dashboard/chats): customer messages and the last one's time */
   messages?: number; last_at?: string;
+  /** filed by the hub after the chat (Topics): its topic, one-line summary, whether a person wrote, who filed it */
+  topic?: string; summary?: string; agent_wrote?: boolean | null; by?: string;
 };
 export type Conversations = { unit?: Unit; conversations: Conversation[]; total: number; limit: number; offset: number };
 

@@ -20,7 +20,7 @@ import {
   LIVE_FROM, type ConversationDetail, type Conversations, type Stats, type TestAnswer,
 } from "@/lib/chat/orchestrator";
 import { chatTranscript } from "@/lib/chat/transcript";
-import { fileNow, setTopic, topicChats, topicSummary } from "@/lib/chat/topics";
+import { fileNow, setTopic, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
 import { TOPICS, type TopicKey } from "@/lib/chat/shape";
 
 export const runtime = "nodejs";
@@ -66,16 +66,22 @@ export async function GET(req: NextRequest) {
         perChat<Conversations>("/dashboard/chats?limit=8", "/dashboard/conversations?limit=8"),
         orchestratorHealth(),
       ]);
-      return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live });
+      // the hub's own filing of the same period (Topics), when it has filed any - else the page shows the chat's own guess
+      const topics = await topicSummary(new Date(Date.now() - days * 86_400_000).toISOString()).then((t) => ({ rows: t.rows, filed: t.filed })).catch(() => null);
+      return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live, topics });
     }
     if (part === "conversations") {
-      const p = new URLSearchParams({ limit: String(int(q.get("limit"), 25, 1, 200)), offset: String(int(q.get("offset"), 0, 0, 1_000_000)) });
+      // since go-live: the orchestrator leaves the test phase out of the list and its count (one without since ignores it)
+      const p = new URLSearchParams({ limit: String(int(q.get("limit"), 25, 1, 200)), offset: String(int(q.get("offset"), 0, 0, 1_000_000)), since: LIVE_FROM });
       if (q.get("escalated") === "1") p.set("escalated", "true");
       const lang = (q.get("language") || "").toLowerCase();
       if (LANGS.includes(lang)) p.set("language", lang);
       const cat = (q.get("category") || "").slice(0, 100);
       if (cat) p.set("category", cat);
-      return ok(await perChat<Conversations>(`/dashboard/chats?${p}`, `/dashboard/conversations?${p}`));
+      const list = await perChat<Conversations>(`/dashboard/chats?${p}`, `/dashboard/conversations?${p}`);
+      // the hub's filed topic and one-line summary on each chat, for the inbox list (none yet = the chat's own guess)
+      const filed = await topicsFor(list.conversations.map((c) => c.session_hash)).catch(() => new Map());
+      return ok({ ...list, conversations: list.conversations.map((c) => ({ ...c, ...(filed.get(c.session_hash) ?? {}) })) });
     }
     if (part === "transcript") {
       // the whole chat from HubSpot (the hub's own app): messages, agents, the hand-over

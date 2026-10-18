@@ -53,7 +53,7 @@ function ensure(): Promise<void> {
 async function realChats(): Promise<Conversation[]> {
   const out: Conversation[] = [];
   for (let offset = 0; offset < 20_000; offset += 200) {
-    const r = await orchestrator<Conversations>(`/dashboard/chats?limit=200&offset=${offset}`);
+    const r = await orchestrator<Conversations>(`/dashboard/chats?limit=200&offset=${offset}&since=${LIVE_FROM}`);
     const page = r.conversations ?? [];
     out.push(...page);
     if (page.length < 200 || page.some((c) => (c.started_at ?? "") < LIVE_FROM)) break;
@@ -86,7 +86,8 @@ export async function classifyChat(c: Conversation, client: NonNullable<ReturnTy
   const keys = TOPICS.map((x) => x.key);
   const ask = async () => {
     const msg = await client.messages.create({
-      model: MODEL, max_tokens: 300, system: SYSTEM,
+      // the cap covers the model's thinking too: at 300, 2 answers in 15 stopped mid-sentence (18.10.2026)
+      model: MODEL, max_tokens: 2000, system: SYSTEM,
       messages: [{ role: "user", content: chat }],
       output_config: { format: { type: "json_schema", schema: {
         type: "object", additionalProperties: false, required: ["topic", "summary"],
@@ -232,4 +233,15 @@ export async function fileNow(): Promise<TopicsRun> {
   } finally {
     client.release();
   }
+}
+
+/** The filed topic and summary of these chats (the inbox list shows them), keyed by session_hash. */
+export async function topicsFor(hashes: string[]): Promise<Map<string, { topic: string; summary: string; agent_wrote: boolean | null; by: string }>> {
+  const m = new Map<string, { topic: string; summary: string; agent_wrote: boolean | null; by: string }>();
+  if (!hashes.length) return m;
+  await ensure();
+  const r = await query<{ session_hash: string; topic: string; summary: string; agent_wrote: boolean | null; by: string }>(
+    `SELECT session_hash, topic, summary, agent_wrote, by FROM ${TABLE} WHERE session_hash = ANY($1)`, [hashes]);
+  for (const x of r.rows) m.set(x.session_hash, { topic: x.topic, summary: x.summary, agent_wrote: x.agent_wrote, by: x.by });
+  return m;
 }
