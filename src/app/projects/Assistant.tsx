@@ -22,6 +22,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import Dialog from "@mui/material/Dialog";
 import SendIcon from "@mui/icons-material/Send";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
@@ -82,6 +83,10 @@ export default function Assistant({
   bare?: boolean;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
+  /** Every picture in this project, newest first. */
+  const [pictures, setPictures] = useState<{ id: number; url: string; label: string }[]>([]);
+  /** The one being looked at full size. */
+  const [looking, setLooking] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [deciding, setDeciding] = useState<number | null>(null);
@@ -95,6 +100,32 @@ export default function Assistant({
       .catch(() => setTurns([]));
   }, [projectId]);
   useEffect(load, [load]);
+
+  /**
+   * The pictures, reloaded whenever the conversation moves - which is when a
+   * new one appears, because drawing one is a turn.
+   */
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/content/projects/${projectId}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive || !j.ok) return;
+        type V = { id: number; imageUrl: string | null; label: string | null; channel: string };
+        const seen = new Set<string>();
+        const found: { id: number; url: string; label: string }[] = [];
+        for (const v of ((j.variants ?? []) as V[]).slice().reverse()) {
+          // The same picture can sit on several versions once one is
+          // duplicated; show it once.
+          if (!v.imageUrl || seen.has(v.imageUrl)) continue;
+          seen.add(v.imageUrl);
+          found.push({ id: v.id, url: v.imageUrl, label: v.label || v.channel });
+        }
+        setPictures(found);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [projectId, turns]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "nearest" });
@@ -157,6 +188,35 @@ export default function Assistant({
               Ask it anything about this project. It reads the type&rsquo;s required sections, so it can tell you
               what is missing rather than only what is there.
             </Typography>
+            {pictures.length > 0 && (
+              <Box sx={{ mb: 1.5 }}>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
+                  Pictures in this project · {pictures.length}
+                </Typography>
+                {/* A strip that scrolls sideways rather than a grid that
+                    pushes the conversation off the bottom of the window. */}
+                <Box sx={{ display: "flex", gap: 0.75, overflowX: "auto", pb: 0.5 }}>
+                  {pictures.map((p) => (
+                    <Box
+                      key={p.id}
+                      component="button"
+                      type="button"
+                      onClick={() => setLooking(p.url)}
+                      title={p.label + " — click to see it full size"}
+                      sx={{
+                        flexShrink: 0, cursor: "zoom-in", p: 0, border: `1px solid ${HAIRLINE}`,
+                        borderRadius: "10px", overflow: "hidden", bgcolor: "#fff", lineHeight: 0,
+                        "&:hover": { borderColor: ACCENT },
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.url} alt={p.label} width={84} height={84} style={{ objectFit: "cover", display: "block" }} />
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
               {OPENERS.map((o) => (
                 <Box
@@ -270,6 +330,16 @@ export default function Assistant({
           {busy ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 18 }} />}
         </Button>
       </Box>
+
+      {/* Full size, over everything, because choosing between two pictures is
+          done at the size they will be seen at and not at 84px. */}
+      <Dialog open={Boolean(looking)} onClose={() => setLooking(null)} maxWidth="lg"
+        PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden", bgcolor: "#111" } }}>
+        {looking && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={looking} alt="" style={{ display: "block", maxWidth: "90vw", maxHeight: "86vh", objectFit: "contain" }} />
+        )}
+      </Dialog>
     </>
   );
 

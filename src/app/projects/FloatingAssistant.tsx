@@ -49,22 +49,31 @@ const MUTED = "#5d6b85";
 const HAIRLINE = "rgba(21,34,58,.10)";
 const PURPLE = "#6a46c9";
 
-const MIN_W = 320;
-const MIN_H = 280;
+const MIN_W = 420;
+const MIN_H = 360;
 const MARGIN = 12;
 
 type Rect = { x: number; y: number; w: number; h: number };
 
-const KEY = "apsomh:assistant-window";
+// -v2: a window sized in a previous session is restored from here, so a
+// new default would never be seen by anybody who had already opened it once.
+// Bumping the key hands out the bigger window once; after that their own
+// size is theirs again.
+const KEY = "apsomh:assistant-window-v2";
 
 /** Where it opens the very first time: bottom-right, clear of the rail. */
 function defaultRect(): Rect {
-  // Wider than a chat bubble on purpose: this window now holds the brief,
-  // the personas and the brain as well as the conversation, and a 380px
-  // column turns two dropdowns side by side into two dropdowns stacked.
-  const w = 460;
-  const h = 640;
-  if (typeof window === "undefined") return { x: 40, y: 40, w, h };
+  // Sized to READ A DRAFT IN, not to chat in. It holds the brief, the
+  // personas, the brain, the conversation and every draft and picture it
+  // proposes; at 460px a headline arrives as a column of five-word lines and
+  // you cannot tell whether it works.
+  //
+  // Taken from the window rather than fixed, so it is generous on a desktop
+  // and still fits a laptop: a little under half the width, most of the
+  // height, inside sane bounds.
+  if (typeof window === "undefined") return { x: 40, y: 40, w: 620, h: 820 };
+  const w = Math.min(760, Math.max(520, Math.round(window.innerWidth * 0.42)));
+  const h = Math.min(980, Math.max(560, Math.round(window.innerHeight - 120)));
   return {
     x: Math.max(MARGIN, window.innerWidth - w - 24),
     y: Math.max(MARGIN, window.innerHeight - h - 24),

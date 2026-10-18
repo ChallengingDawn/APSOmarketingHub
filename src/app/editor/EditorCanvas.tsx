@@ -451,6 +451,8 @@ export default function EditorCanvas({
   const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
   const [sizeAnchor, setSizeAnchor] = useState<HTMLElement | null>(null);
   const [keysAnchor, setKeysAnchor] = useState<HTMLElement | null>(null);
+  const [customW, setCustomW] = useState("");
+  const [customH, setCustomH] = useState("");
   const [replaceAnchor, setReplaceAnchor] = useState<HTMLElement | null>(null);
   /** The floating bar shows its header only. Its tabs still switch sections. */
   const [barCollapsed, setBarCollapsed] = useState(false);
@@ -1345,6 +1347,28 @@ export default function EditorCanvas({
       setCutting(null);
     }
   };
+
+  /**
+   * Whether the typed size can be used, and why not when it cannot.
+   *
+   * Checked here rather than at save: the schema refuses a board under 64px,
+   * over 8192px or over 32 megapixels, and finding that out AFTER the work is
+   * laid out on it is finding out too late.
+   */
+  const customNum = { w: Math.round(Number(customW)), h: Math.round(Number(customH)) };
+  const customWhy =
+    !customW || !customH
+      ? ""
+      : !Number.isFinite(customNum.w) || !Number.isFinite(customNum.h)
+        ? "Two numbers, please."
+        : customNum.w < 64 || customNum.h < 64
+          ? "Nothing smaller than 64 px a side."
+          : customNum.w > 8192 || customNum.h > 8192
+            ? "Nothing longer than 8192 px a side."
+            : customNum.w * customNum.h > 32_000_000
+              ? "That is over 32 megapixels — the browser cannot draw a board that big."
+              : "";
+  const customOk = Boolean(customW && customH && !customWhy);
 
   /** The selection, when it is exactly one whole group. */
   const grouped = isWholeGroup(nodes, selectedIds);
@@ -2507,7 +2531,11 @@ export default function EditorCanvas({
             <Tooltip title="The board's size — the design is re-laid out to fit">
               <Button
                 size="small"
-                onClick={(e) => setSizeAnchor(e.currentTarget)}
+                onClick={(e) => {
+                  setCustomW(String(canvas.w));
+                  setCustomH(String(canvas.h));
+                  setSizeAnchor(e.currentTarget);
+                }}
                 endIcon={<ExpandMoreIcon />}
                 sx={{ textTransform: "none", fontWeight: 600, color: "#1a1d21" }}
               >
@@ -2525,6 +2553,55 @@ export default function EditorCanvas({
                   <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: "#15223a" }}>{preset.label}</Typography>
                 </MenuItem>
               ))}
+              <Divider />
+              {/* Four presets is a guess about what people make. A banner, an
+                  A4 insert, a mail header and a shop hero are none of them. */}
+              <Box
+                component="form"
+                onSubmit={(e: React.FormEvent) => {
+                  e.preventDefault();
+                  const w = Math.round(Number(customW));
+                  const h = Math.round(Number(customH));
+                  if (!(w >= 64 && h >= 64 && w <= 8192 && h <= 8192)) return;
+                  // The same ceiling the document schema enforces, checked
+                  // here so the refusal is a disabled button and not a save
+                  // that fails later with the work already done.
+                  if (w * h > 32_000_000) return;
+                  setSizeAnchor(null);
+                  applyCanvasSize(w, h);
+                }}
+                sx={{ px: 1.5, py: 1, display: "flex", alignItems: "center", gap: 0.75 }}
+              >
+                <TextField
+                  size="small"
+                  label="Width"
+                  type="number"
+                  value={customW}
+                  onChange={(e) => setCustomW(e.target.value)}
+                  inputProps={{ min: 64, max: 8192 }}
+                  sx={{ width: 96 }}
+                />
+                <Typography sx={{ fontSize: 13, color: "#8a929c" }}>&times;</Typography>
+                <TextField
+                  size="small"
+                  label="Height"
+                  type="number"
+                  value={customH}
+                  onChange={(e) => setCustomH(e.target.value)}
+                  inputProps={{ min: 64, max: 8192 }}
+                  sx={{ width: 96 }}
+                />
+                <Button type="submit" size="small" variant="contained" disableElevation disabled={!customOk}
+                  sx={{ fontWeight: 700 }}>
+                  Use it
+                </Button>
+              </Box>
+              {!customOk && (customW !== "" || customH !== "") && (
+                <Typography sx={{ px: 1.5, pb: 1, fontSize: 11.5, color: "#c5221f", maxWidth: 260, whiteSpace: "normal" }}>
+                  {customWhy}
+                </Typography>
+              )}
+
               {/* Said out loud, because a resize that silently moves somebody's
                   layout is worse than one they were warned about. */}
               <MenuItem disabled sx={{ display: "block", py: 0.75, opacity: 1 }}>
