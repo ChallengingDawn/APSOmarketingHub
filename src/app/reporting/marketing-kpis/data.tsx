@@ -369,8 +369,9 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
         {icon && <Badge icon={icon} tint={tint} />}
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>{v.id} · {v.measure.origin === "live" ? "live in the hub" : "monthly input"}</Typography>
-          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf(v.id)}</Typography>
+          {/* no "R04 · live in the hub" line above the name any more (SARCLA 18.10: "take out this subtitle everywhere");
+              where a figure comes from is in the line under the number */}
+          <Typography data-kpi={v.id} sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf(v.id)}</Typography>
           <Chips note={journeyNote(v.id)} audience={kpi?.audience} />
           {kpi?.question && !v.measure.notCatalogue && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{kpi.question}</Typography>}
         </Box>

@@ -103,7 +103,8 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // a read stored before Reach came from Search Console (17.10.2026) has neither its months nor its error:
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
-  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
+  // a source waiting for a permission is asked again within half an hour - it opens when SARCLA accepts it in HubSpot (18.10.2026)
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length || v?.waiting?.R11 ? RETRY_FAILED_MS
     : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
 }
 
@@ -321,6 +322,10 @@ async function build(): Promise<LiveKpis> {
       throw e;
     }
     const s = { R11: empty(), R11OP: empty(), R11CL: empty(), R11O: empty(), R11C: empty() };
+    // HubSpot's answer is checked, not trusted: months without a "delivered" counter would read as zero emails
+    if ((r.results ?? []).length && !(r.results ?? []).some((b) => (b.aggregations?.counters ?? b.counters)?.delivered != null)) {
+      throw new Error(`HubSpot's email statistics came back in an unexpected shape (keys: ${Object.keys((r.results ?? [])[0] ?? {}).join(", ")}; counters: ${Object.keys((r.results ?? [])[0]?.aggregations?.counters ?? (r.results ?? [])[0]?.counters ?? {}).join(", ")})`);
+    }
     for (const b of r.results ?? []) {
       const at = b.interval?.start;
       if (at == null) continue;
