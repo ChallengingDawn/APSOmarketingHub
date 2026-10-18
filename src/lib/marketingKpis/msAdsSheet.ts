@@ -4,7 +4,8 @@
 // (scripts/microsoft-ads; SARCLA 18.10: no typing - "manual, it's shit" - and no Azure app).
 
 /** The sheet the script writes - not a secret: only the hub's service account may read it. */
-export const MSADS_SHEET_ID = "";
+// "APSOhub – Microsoft Ads", shared with the hub's service account (SARCLA 18.10)
+export const MSADS_SHEET_ID = "16QuE9tOmBMEMvAj8mdCLLcgytix9hM4bKONB7iwkcdQ";
 export const msAdsSheetId = () => process.env.MSADS_SHEET_ID || MSADS_SHEET_ID;
 
 export type MsAdsMonth = { impressions: number; clicks: number; cost: number };
