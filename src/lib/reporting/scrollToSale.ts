@@ -15,7 +15,7 @@ const HOUR = 3_600_000;
 
 let formCache: { at: number; value: Promise<S2sForm> } | null = null;
 export type S2sOwner = { id: string; name: string; email: string; teams: { id: string; name: string; primary: boolean }[] };
-export type S2sForm = { fields: S2sField[]; stages: Opt[]; owners: S2sOwner[]; teams: Opt[]; takenRoadmapIds: string[] };
+export type S2sForm = { fields: S2sField[]; stages: (Opt & { open: boolean })[]; owners: S2sOwner[]; teams: Opt[]; takenRoadmapIds: string[] };
 
 async function owners(): Promise<S2sOwner[]> {
   const out: S2sOwner[] = [];
@@ -58,7 +58,7 @@ async function readForm(): Promise<S2sForm> {
       hubspotFetchJson<{ options?: (Opt & { hidden?: boolean; displayOrder?: number })[] }>({ path: `/crm/v3/properties/tickets/${f.name}` })
         .then((d) => [f.name, (d.options ?? []).filter((o) => !o.hidden).map((o) => ({ value: o.value, label: o.label }))] as const)
         .catch(() => [f.name, [] as Opt[]] as const))),
-    hubspotFetchJson<{ stages?: { id: string; label: string; displayOrder: number }[] }>({ path: `/crm/v3/pipelines/tickets/${S2S_PIPELINE}` }),
+    hubspotFetchJson<{ stages?: { id: string; label: string; displayOrder: number; metadata?: { isClosed?: string } }[] }>({ path: `/crm/v3/pipelines/tickets/${S2S_PIPELINE}` }),
     owners(),
     roadmapIds().catch(() => [] as string[]),
   ]);
@@ -67,7 +67,8 @@ async function readForm(): Promise<S2sForm> {
   for (const o of own) for (const t of o.teams) teams.set(t.id, t.name);
   return {
     fields: S2S_FIELDS.map((f) => ({ ...f, ...(opts.has(f.name) ? { options: opts.get(f.name) } : {}) })),
-    stages: (pipe.stages ?? []).sort((a, b) => a.displayOrder - b.displayOrder).map((s) => ({ value: s.id, label: s.label })),
+    // Live, Maintaining Internally and Killed are closed (HubSpot's own metadata)
+    stages: (pipe.stages ?? []).sort((a, b) => a.displayOrder - b.displayOrder).map((s) => ({ value: s.id, label: s.label, open: s.metadata?.isClosed !== "true" })),
     owners: own,
     teams: [...teams.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
     takenRoadmapIds: ids,
@@ -96,17 +97,18 @@ export async function createTicket(values: Record<string, string | null | undefi
   return String(j.id);
 }
 
-export type S2sTicket = { id: string; subject: string; stage: string; stageLabel: string; owner: string; ownerName: string; roadmapId: string; created: string; url: string };
+export type S2sTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; owner: string; ownerName: string; roadmapId: string; created: string; url: string };
 
 const TICKET_PROPS = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "mkt_roadmap_id", "createdate"];
 async function shape(list: Ticket[]): Promise<S2sTicket[]> {
   const form = await s2sForm().catch(() => null);
-  const stage = new Map((form?.stages ?? []).map((s) => [s.value, s.label]));
+  const stage = new Map((form?.stages ?? []).map((s) => [s.value, s]));
   const owner = new Map((form?.owners ?? []).map((o) => [o.id, o.name]));
   return list.filter((t) => t.properties?.hs_pipeline === S2S_PIPELINE).map((t) => {
     const p = t.properties ?? {};
     return {
-      id: String(t.id), subject: p.subject ?? "", stage: p.hs_pipeline_stage ?? "", stageLabel: stage.get(p.hs_pipeline_stage ?? "") ?? "",
+      id: String(t.id), subject: p.subject ?? "", stage: p.hs_pipeline_stage ?? "", stageLabel: stage.get(p.hs_pipeline_stage ?? "")?.label ?? "",
+      open: stage.get(p.hs_pipeline_stage ?? "")?.open ?? true,
       owner: p.hubspot_owner_id ?? "", ownerName: owner.get(p.hubspot_owner_id ?? "") ?? "", roadmapId: p.mkt_roadmap_id ?? "",
       created: p.createdate ?? "", url: ticketUrl(String(t.id)),
     };
@@ -123,13 +125,17 @@ export async function readTickets(ids: string[]): Promise<S2sTicket[]> {
   return shape(j.results ?? []);
 }
 
-/** The pipeline's tickets to link: by words of the name or the roadmap id, newest first; empty asks for the newest. */
+/**
+ * The pipeline's OPEN tickets to link (SARCLA 18.10: "only show open tickets" - not Live, Maintaining
+ * Internally or Killed): by words of the name or the roadmap id, newest first; empty asks for the newest.
+ */
 export async function searchTickets(q: string): Promise<S2sTicket[]> {
   const words = q.trim();
+  const open = (await s2sForm()).stages.filter((s) => s.open).map((s) => s.value);
   const j = await hubspotFetchJson<{ results?: Ticket[] }>({
     path: "/crm/v3/objects/tickets/search", method: "POST",
     body: {
-      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: S2S_PIPELINE }] }],
+      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: S2S_PIPELINE }, ...(open.length ? [{ propertyName: "hs_pipeline_stage", operator: "IN", values: open }] : [])] }],
       ...(words ? { query: words.slice(0, 100) } : {}),
       sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
       properties: TICKET_PROPS, limit: 25,

@@ -52,6 +52,9 @@ import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
+// the tile toolbar and saved views (9f, SARCLA 18.10: "they should be on the main one then visible on the nutshell")
+import { TileActions } from "./tiles/TileActions";
+import { SavedViews } from "./tiles/SavedViews";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import {
   DIMS, chosenDims, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
@@ -221,9 +224,11 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
 
 /* ── the charts: their bars are the filter ────────────────────────────── */
 
-function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false }: {
+function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions }: {
   title: string; rows: Row[]; cur: (r: Row) => number; prev: (r: Row) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[]; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
+  /** the tile toolbar: tasks (with their Scroll to Sale tickets), promote */
+  actions?: React.ReactNode;
   /** priority and potential keep their own order; every other chart ranks by what it shows */
   fixedOrder?: boolean;
 }) {
@@ -259,6 +264,7 @@ function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, sel
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         )}
+        {actions}
       </Box>
       <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
@@ -521,6 +527,11 @@ export function CustomersExplorer() {
   const pro = proRataNote(cube, win);
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
+  // the tile toolbar per chart, keyed "customers:<tab>:<chart>"; the filters in force go into a ticket
+  const act = (key: string, title: string) => (
+    <TileActions where="tab" start="tab"
+      tile={{ key: `customers:${view}:${key}`, page: "customers", tab: view, title, summary: `${w} against ${pw}`, filters: Object.fromEntries(active.map((x) => [x, filters[x] ?? []])), kind: "card" }} />
+  );
   // each tab shows its own breakdown only (SARCLA 14.10: "information not belonging to the table");
   // customer type and APIC also count their new customers
   const withNew = view === "type" || view === "apic";
@@ -558,6 +569,7 @@ export function CustomersExplorer() {
             tabs={[...ORDER.map((x) => ({ id: x as Dim | "moves", label: DIM[x].name, count: filters[x]?.length ? String(filters[x]!.length) : null })), { id: "moves" as const, label: "Movements", count: null }]} />
         </Box>
         <Box sx={{ flex: 1 }} />
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="customers" /></Box>
         <Button onClick={() => (panel ? setPanel(false) : view === "moves" ? setPanel(true) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="customers-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
@@ -574,12 +586,15 @@ export function CustomersExplorer() {
         {/* the charts first - this view's own - and the table at the end */}
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
           <DimChart key={`b-${dimView}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={byBought} prev={(r) => r.boughtPy} pageSize={12} fixedOrder={fixedView}
-            curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+            curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
+            actions={act("bought", `Companies that bought, by ${d.lower}`)} />
           <DimChart key={`r-${dimView}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={byRev} prev={(r) => r.revPy} pageSize={12} fixedOrder={fixedView}
-            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+            curLabel={w} prevLabel={pw} fmt={eur} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
+            actions={act("revenue", `Revenue, by ${d.lower}`)} />
           {withNew && (
             <DimChart key={`n-${dimView}`} title={`New customers, by ${d.lower}`} rows={chartRows} cur={byNew} prev={(r) => r.newCPy} pageSize={12} fixedOrder={fixedView}
-              curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+              curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
+              actions={act("new", `New customers, by ${d.lower}`)} />
           )}
           {/* KPI C06: of the orders' value, how much came through the shop - its own read, in when it is in */}
           {/* the odd chart out takes the whole row */}
@@ -588,7 +603,8 @@ export function CustomersExplorer() {
             <DimChart key={`o-${dimView}`} title={dimView === "country" ? "Online share of order value, our focus markets" : `Online share of order value, by ${d.lower}`}
               rows={withOnline(chartRows, onlineGroups).filter((r) => r.online != null && (dimView !== "country" || FOCUS_MARKETS.includes(r.label)))}
               cur={byOnline} prev={byOnlinePy} pageSize={12} fixedOrder={fixedView}
-              curLabel={w} prevLabel={pw} fmt={pct} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`} />
+              curLabel={w} prevLabel={pw} fmt={pct} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
+              actions={act("online", `Online share of order value, by ${d.lower}`)} />
           ) : <OnlineWaiting progress={onl.progress} error={onl.error} />}
           </Box>
         </Box>

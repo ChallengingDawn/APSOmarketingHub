@@ -1,8 +1,9 @@
 "use client";
 // THE TILE TOOLBAR (SARCLA 18.10.2026) - on every chart card of the Digital Growth KPIs, beside its figure:
 //   Filter          this tile's own filter (the card says what it filters; absent where it has none)
-//   Tasks           actions to correct the KPI, tracked here - the badge counts the open ones
-//   Ticket          "From Scroll to Sale" tickets, new and prefilled or linked - the badge counts them
+//   Tasks           actions to correct the KPI, tracked here - the badge counts the open ones; each
+//                   task carries its "From Scroll to Sale" tickets, new and prefilled or linked
+//                   (SARCLA 18.10: "the scroll to sale ticket should be inside of the task")
 //   Promote/Demote  to "In a nutshell" and back to its tab, for everyone
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
@@ -12,7 +13,6 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import TuneIcon from "@mui/icons-material/Tune";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
-import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import VerticalAlignTopIcon from "@mui/icons-material/VerticalAlignTop";
 import VerticalAlignBottomIcon from "@mui/icons-material/VerticalAlignBottom";
 
@@ -31,8 +31,9 @@ export type TileInfo = {
   kind?: "kpi" | "card";
 };
 
+// a little bigger than a chart's own controls (SARCLA 18.10: "a little bit small")
 const btn = (on = false) => ({
-  width: 30, height: 30, borderRadius: "10px", border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`,
+  width: 36, height: 36, borderRadius: "11px", border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`,
   bgcolor: on ? TINT.blue.bg : "rgba(255,255,255,.7)", color: on ? TINT.blue.fg : FAINT,
   "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.06)", color: INK },
 });
@@ -40,7 +41,7 @@ const btn = (on = false) => ({
 function Count({ n, tint = "blue" }: { n: number; tint?: "blue" | "amber" }) {
   if (!n) return null;
   return (
-    <Box component="span" sx={{ position: "absolute", top: -6, right: -6, minWidth: 17, height: 17, px: 0.4, borderRadius: 99, bgcolor: TINT[tint].fg, color: "#fff", fontSize: "0.64rem", fontWeight: 800, display: "grid", placeItems: "center", lineHeight: 1, pointerEvents: "none" }}>
+    <Box component="span" sx={{ position: "absolute", top: -7, right: -7, minWidth: 19, height: 19, px: 0.45, borderRadius: 99, bgcolor: TINT[tint].fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, display: "grid", placeItems: "center", lineHeight: 1, pointerEvents: "none" }}>
       {n}
     </Box>
   );
@@ -56,7 +57,7 @@ export function TileActions({ tile, start = "tab", onFilter, filterOn = false, w
   where?: "nutshell" | "tab";
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
-  const [panel, setPanel] = useState<null | "tasks" | "tickets">(null);
+  const [panel, setPanel] = useState(false);
   const [busy, setBusy] = useState(false);
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
@@ -75,30 +76,25 @@ export function TileActions({ tile, start = "tab", onFilter, filterOn = false, w
   };
 
   return (
-    <Box sx={{ display: "inline-flex", gap: 0.6, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+    <Box sx={{ display: "inline-flex", gap: 0.75, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
       {onFilter && (
-        <Tooltip title="Filter this tile"><IconButton aria-label="Filter this tile" onClick={onFilter} sx={btn(filterOn)}><TuneIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>
+        <Tooltip title="Filter this tile"><IconButton aria-label="Filter this tile" onClick={onFilter} sx={btn(filterOn)}><TuneIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
       )}
-      <Tooltip title={c.tasks ? `${c.open} open of ${c.tasks} tasks` : "Tasks to correct this KPI"}>
-        <IconButton aria-label="Tasks" onClick={() => setPanel("tasks")} sx={{ ...btn(c.open > 0), position: "relative" }}>
-          <TaskAltIcon sx={{ fontSize: 17 }} /><Count n={c.open} />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title={c.tickets ? `${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : "A Scroll to Sale ticket"}>
-        <IconButton aria-label="Scroll to Sale tickets" onClick={() => setPanel("tickets")} sx={{ ...btn(c.tickets > 0), position: "relative" }}>
-          <ConfirmationNumberOutlinedIcon sx={{ fontSize: 17 }} /><Count n={c.tickets} tint="amber" />
+      <Tooltip title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}` : "Tasks to correct this KPI, with their Scroll to Sale tickets"}>
+        <IconButton aria-label="Tasks" onClick={() => setPanel(true)} sx={{ ...btn(c.open > 0), position: "relative" }}>
+          <TaskAltIcon sx={{ fontSize: 20 }} /><Count n={c.open} />
         </IconButton>
       </Tooltip>
       {canWrite && (placed === "nutshell" ? (
         <Tooltip title={where === "nutshell" ? "Demote - back to its tab only" : "In a nutshell - demote it to its tab only"}>
-          <span><IconButton aria-label="Demote to its tab" disabled={busy} onClick={() => void move("tab")} sx={btn(true)}><VerticalAlignBottomIcon sx={{ fontSize: 17 }} /></IconButton></span>
+          <span><IconButton aria-label="Demote to its tab" disabled={busy} onClick={() => void move("tab")} sx={btn(true)}><VerticalAlignBottomIcon sx={{ fontSize: 20 }} /></IconButton></span>
         </Tooltip>
       ) : (
         <Tooltip title="Promote - show it In a nutshell">
-          <span><IconButton aria-label="Promote to In a nutshell" disabled={busy} onClick={() => void move("nutshell")} sx={btn()}><VerticalAlignTopIcon sx={{ fontSize: 17 }} /></IconButton></span>
+          <span><IconButton aria-label="Promote to In a nutshell" disabled={busy} onClick={() => void move("nutshell")} sx={btn()}><VerticalAlignTopIcon sx={{ fontSize: 20 }} /></IconButton></span>
         </Tooltip>
       ))}
-      {panel && <ActionsPanel tile={tile} open={!!panel} start={panel} onClose={() => setPanel(null)} />}
+      {panel && <ActionsPanel tile={tile} open={panel} onClose={() => setPanel(false)} />}
     </Box>
   );
 }

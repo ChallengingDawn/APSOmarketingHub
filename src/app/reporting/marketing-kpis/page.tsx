@@ -21,7 +21,7 @@ import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { BarList } from "@/app/charts/BarList";
 import { Badge, CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
-import { ADDITIONAL_TRACKING, JOURNEY, KPIS, PLANNED, STAGES, type KpiStage } from "@/lib/marketingKpis/catalogue";
+import { ADDITIONAL_TRACKING, KPIS, PLANNED, STAGES, type KpiStage } from "@/lib/marketingKpis/catalogue";
 import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import {
@@ -128,7 +128,6 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
   const tiles = ids.map((id) => views[id]).filter(Boolean).filter((v) => placementOf(acts, kpiKey(s.slug, v.id), "nutshell") === "nutshell");
   const all = KPIS.filter((k) => k.stage === s.id).length;
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
-  const geo = JOURNEY.some((j) => j.note === "GEO" && KPIS.find((k) => k.id === j.id)?.stage === s.id);
   const customers = s.slug === "customers";
   const traffic = s.slug === "visit" && !!live?.breakdowns.channels.length;
   return (
@@ -142,11 +141,8 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT[tint].fg, transition: "transform .15s ease" }} />
           </Box>
           {/* no stage number (SARCLA 17.10: "take out stage, there are no stages") - only what the section carries */}
-          {(geo || s.note) && (
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-              {[geo ? "+ GEO" : "", s.note ?? ""].filter(Boolean).join(" · ")}
-            </Typography>
-          )}
+          {/* no "+ GEO" (SARCLA 18.10: "take out these tags") */}
+          {s.note && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{s.note}</Typography>}
         </Box>
         {/* how far the stage is measured - gone once it is complete (SARCLA 17.10: "8 of 8 measured: it is complete, the indication should go") */}
         {measured < all && (

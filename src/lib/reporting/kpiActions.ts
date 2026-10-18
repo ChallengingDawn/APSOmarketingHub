@@ -57,6 +57,8 @@ function ensure(): Promise<void> {
         linked_at timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (tile, ticket_id)
       )`);
+      // a ticket belongs to the task it was created or linked for (SARCLA 18.10: "the ticket inside the task")
+      await query(`ALTER TABLE ${LINKS} ADD COLUMN IF NOT EXISTS task_id integer`);
       await query(`CREATE TABLE IF NOT EXISTS ${PLACE} (
         tile text PRIMARY KEY,
         placement text NOT NULL,
@@ -129,20 +131,24 @@ export async function updateTask(id: number, p: { title?: string; note?: string;
   return r.rows[0] ? task(r.rows[0]) : null;
 }
 
+/** The task goes, and with it its links - the tickets themselves stay in HubSpot. */
 export async function deleteTask(id: number): Promise<void> {
   await ensure();
+  await query(`DELETE FROM ${LINKS} WHERE task_id = $1`, [id]);
   await query(`DELETE FROM ${TASKS} WHERE id = $1`, [id]);
 }
 
 /* ── ticket links ──────────────────────────────────────────────────────── */
 
-export async function linkTickets(tile: string, ticketIds: string[], by: string, created = false): Promise<void> {
+export async function linkTickets(tile: string, ticketIds: string[], by: string, created = false, taskId: number | null = null): Promise<void> {
   const ids = [...new Set(ticketIds.map(String).filter((x) => /^\d+$/.test(x)))];
   if (!ids.length) return;
   await ensure();
   await query(
-    `INSERT INTO ${LINKS} (tile, ticket_id, created, linked_by) SELECT $1, x, $3, $4 FROM unnest($2::text[]) AS x ON CONFLICT DO NOTHING`,
-    [tile, ids, created, by],
+    // linked again for a task: it moves under that task
+    `INSERT INTO ${LINKS} (tile, ticket_id, created, linked_by, task_id) SELECT $1, x, $3, $4, $5 FROM unnest($2::text[]) AS x
+     ON CONFLICT (tile, ticket_id) DO UPDATE SET task_id = COALESCE(EXCLUDED.task_id, ${LINKS}.task_id)`,
+    [tile, ids, created, by, taskId],
   );
 }
 
@@ -151,10 +157,10 @@ export async function unlinkTicket(tile: string, ticketId: string): Promise<void
   await query(`DELETE FROM ${LINKS} WHERE tile = $1 AND ticket_id = $2`, [tile, ticketId]);
 }
 
-export async function ticketsOf(tile: string): Promise<{ ticketId: string; created: boolean; linkedBy: string; linkedAt: string }[]> {
+export async function ticketsOf(tile: string): Promise<{ ticketId: string; created: boolean; linkedBy: string; linkedAt: string; taskId: number | null }[]> {
   await ensure();
-  const r = await query<{ ticket_id: string; created: boolean; linked_by: string; linked_at: unknown }>(`SELECT * FROM ${LINKS} WHERE tile = $1 ORDER BY linked_at`, [tile]);
-  return r.rows.map((x) => ({ ticketId: x.ticket_id, created: x.created, linkedBy: x.linked_by, linkedAt: iso(x.linked_at) ?? "" }));
+  const r = await query<{ ticket_id: string; created: boolean; linked_by: string; linked_at: unknown; task_id: number | null }>(`SELECT * FROM ${LINKS} WHERE tile = $1 ORDER BY linked_at`, [tile]);
+  return r.rows.map((x) => ({ ticketId: x.ticket_id, created: x.created, linkedBy: x.linked_by, linkedAt: iso(x.linked_at) ?? "", taskId: x.task_id ?? null }));
 }
 
 /* ── placement ─────────────────────────────────────────────────────────── */
