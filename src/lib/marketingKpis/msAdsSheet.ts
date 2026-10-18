@@ -11,6 +11,8 @@ export const msAdsSheetId = () => process.env.MSADS_SHEET_ID || MSADS_SHEET_ID;
 export type MsAdsMonth = { impressions: number; clicks: number; cost: number };
 export type MsAdsSheet = {
   months: Record<string, MsAdsMonth>;
+  /** "YYYY-MM" -> campaign type (Search, Performance Max, Shopping...) -> its month - rows "2026-09|Search" */
+  kinds: Record<string, Record<string, MsAdsMonth>>;
   /** the cost's currency code, "CHF" */
   currency: string | null;
   /** some accounts were in another currency and left out of the cost (impressions and clicks are all) */
@@ -38,16 +40,20 @@ function sheetDate(v: unknown): string | null {
 
 /** The sheet's rows (a header, then one month each) as the hub keeps them. */
 export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
-  const out: MsAdsSheet = { months: {}, currency: null, costPartial: false, through: null, written: null };
+  const out: MsAdsSheet = { months: {}, kinds: {}, currency: null, costPartial: false, through: null, written: null };
   if (!values?.length) return out;
   const head = values[0].map((h) => String(h ?? "").trim().toLowerCase());
   const at = (name: string) => head.indexOf(name);
   const [mi, ii, ci, co, cu, th, wr] = ["month", "impressions", "clicks", "cost", "currency", "through", "written"].map(at);
   if (mi < 0 || ii < 0) return out;
   for (const row of values.slice(1)) {
-    const month = String(row[mi] ?? "").trim().slice(0, 7);
+    const [key, kind] = String(row[mi] ?? "").trim().split("|");
+    const month = key.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
-    out.months[month] = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
+    const m = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
+    // a campaign type's share of the month ("2026-09|Performance Max"), or the month's total
+    if (kind) (out.kinds[month] ??= {})[kind.trim()] = m;
+    else out.months[month] = m;
     if (cu >= 0 && row[cu]) {
       // "CHF", or "CHF (others left out of cost)" when accounts in another currency were left out
       const c = String(row[cu]).trim();
@@ -83,4 +89,18 @@ export function msAdsSeries(sheet: MsAdsSheet, year: number, toEur?: (amount: nu
 export function msAdsStale(sheet: MsAdsSheet, now: Date, days = 3): boolean {
   const t = sheet.written ? Date.parse(sheet.written) : NaN;
   return !Number.isFinite(t) || now.getTime() - t > days * 86_400_000;
+}
+
+/**
+ * Microsoft Ads by campaign type per month - impressions, clicks and cost (through `toEur`, or
+ * null when the cost cannot be shown in euros) - for Reach's table beside Google's networks.
+ */
+export function msAdsKindMonths(sheet: MsAdsSheet, toEur?: (amount: number, month: string) => number | null, costOk = true): Record<string, Record<string, [number, number, number | null]>> {
+  const out: Record<string, Record<string, [number, number, number | null]>> = {};
+  for (const [month, kinds] of Object.entries(sheet.kinds)) {
+    for (const [kind, m] of Object.entries(kinds)) {
+      (out[month] ??= {})[kind] = [m.impressions, m.clicks, !costOk ? null : toEur ? toEur(m.cost, month) : m.cost];
+    }
+  }
+  return out;
 }

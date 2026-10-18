@@ -43,3 +43,20 @@ test("a script that stopped writing is noticed after three days", () => {
   assert.equal(msAdsStale(s, new Date("2026-10-22T08:00:00Z")), true);
   assert.equal(msAdsStale({ ...s, written: null }, new Date()), true);
 });
+
+import { msAdsKindMonths } from "../src/lib/marketingKpis/msAdsSheet";
+
+test("the campaign types beside each month's total, and their costs in euros", () => {
+  const s = parseMsAdsSheet([
+    values[0],
+    ["2026-09", 389509, 8140, 5581.66, "CHF", 23, "APSOparts AG", 46312, "2026-10-18T15:30:19.481Z"],
+    ["2026-09|Performance Max", 300000, 2000, 2000, "CHF", 1, "APSOparts AG", 46312, "2026-10-18T15:30:19.481Z"],
+    ["2026-09|Search", 89509, 6140, 3581.66, "CHF", 22, "APSOparts AG", 46312, "2026-10-18T15:30:19.481Z"],
+  ]);
+  assert.equal(s.months["2026-09"].impressions, 389509);              // the total stays the total
+  assert.deepEqual(Object.keys(s.kinds["2026-09"]), ["Performance Max", "Search"]);
+  const k = msAdsKindMonths(s, (chf) => chf / 0.94);
+  assert.deepEqual(k["2026-09"]["Search"].slice(0, 2), [89509, 6140]);
+  assert.equal(Math.round(k["2026-09"]["Performance Max"][2]!), Math.round(2000 / 0.94));
+  assert.equal(msAdsKindMonths(s, undefined, false)["2026-09"]["Search"][2], null);   // a cost not shown in euros
+});

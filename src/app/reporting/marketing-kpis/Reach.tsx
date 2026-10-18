@@ -238,19 +238,44 @@ const NETWORK: Record<string, string> = {
 /** Google Ads by network - where the impressions come from (SARCLA 18.10: "is this data about impressions right?"). */
 function SeaNetworks({ live, win }: { live: LiveKpis; win: MonthWindow }) {
   const b = live.breakdowns;
+  return (
+    <ByKind live={live} win={win} byMonth={b.seaNetworkMonths} total={b.seaNetworks} euros={b.seaCurrency === "EUR"} names={NETWORK}
+      title="Google Ads by network" first="Network" icon={<AdsClickIcon />} tint="amber"
+      note={<>From the Google Ads accounts linked to GA4{b.seaCurrency === "EUR" ? "; cost in euros, GA4's francs at each month's ECB rate" : ""}. Performance Max shows ads across Search, Display, YouTube and Gmail, so it gathers many impressions for few clicks:
+        a change in how much of the budget runs through it moves the impressions far more than the clicks or the cost.</>} />
+  );
+}
+
+/** Microsoft Ads by campaign type - Microsoft's side of Google's networks (SARCLA 18.10: "this table for Microsoft as well"). */
+function MsKinds({ live, win }: { live: LiveKpis; win: MonthWindow }) {
+  const ms = live.breakdowns.msAds;
+  if (!ms?.kinds || !Object.keys(ms.kinds).length) return null;
+  return (
+    <ByKind live={live} win={win} byMonth={ms.kinds} euros title="Microsoft Ads by campaign type" first="Campaign type" icon={<AdsClickIcon />} tint="blue"
+      note={<>From the Microsoft Advertising script, every campaign of the account by its type; cost in euros, the account&apos;s francs at each month&apos;s ECB rate{ms.costPartial ? " - accounts in another currency left out of the cost" : ""}.
+        Performance Max runs across Microsoft&apos;s search and audience network, so like Google&apos;s it gathers many impressions per click.</>} />
+  );
+}
+
+/** A table by kind (network, campaign type): impressions, clicks and cost, the months chosen against the same months last year. */
+function ByKind({ live, win, byMonth, total, euros, names = {}, title, first, icon, tint, note }: {
+  live: LiveKpis; win: MonthWindow; byMonth?: Record<string, Record<string, [number, number, number | null]>>;
+  total?: { label: string; impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number }[];
+  euros: boolean; names?: Record<string, string>; title: string; first: string; icon: React.ReactNode; tint: Tint; note: React.ReactNode;
+}) {
+  const b = live.breakdowns;
   const upTo = b.seaUpTo ?? live.monthsDone;
-  // the months chosen, as far as whole months go; a read without the months has Jan to the last month only
-  const byMonth = b.seaNetworkMonths;
   const end = Math.min(win.end, upTo - 1);
   const shown: MonthWindow = byMonth ? { start: win.start, end } : { start: 0, end: upTo - 1 };
-  let rows = b.seaNetworks ?? [];
+  let rows: { label: string; impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number; noCost?: boolean }[] = total ?? [];
   if (byMonth) {
-    const acc: Record<string, { impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number }> = {};
+    const acc: Record<string, { impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number; noCost?: boolean }> = {};
     for (let i = shown.start; i <= shown.end; i++) {
       for (const [y, cy] of [[live.year, true], [live.year - 1, false]] as const) {
         for (const [net, [im, cl, co]] of Object.entries(byMonth[`${y}-${String(i + 1).padStart(2, "0")}`] ?? {})) {
           const a = (acc[net] ??= { impr: 0, clicks: 0, cost: 0, pyImpr: 0, pyClicks: 0, pyCost: 0 });
-          if (cy) { a.impr += im; a.clicks += cl; a.cost += co; } else { a.pyImpr += im; a.pyClicks += cl; a.pyCost += co; }
+          if (co == null) a.noCost = true;
+          if (cy) { a.impr += im; a.clicks += cl; a.cost += co ?? 0; } else { a.pyImpr += im; a.pyClicks += cl; a.pyCost += co ?? 0; }
         }
       }
     }
@@ -258,7 +283,8 @@ function SeaNetworks({ live, win }: { live: LiveKpis; win: MonthWindow }) {
   }
   if (!rows.length || shown.end < shown.start) return null;
   const w = monthsLabel(shown);
-  const money = (v: number) => (b.seaCurrency === "EUR" ? `€${n0(v)}` : `CHF ${n0(v)}`);
+  const noCost = rows.some((r) => r.noCost);
+  const money = (v: number) => (noCost ? "—" : euros ? `€${n0(v)}` : `CHF ${n0(v)}`);
   const t = rows.reduce((s, r) => ({ impr: s.impr + r.impr, pyImpr: s.pyImpr + r.pyImpr, clicks: s.clicks + r.clicks, pyClicks: s.pyClicks + r.pyClicks, cost: s.cost + r.cost, pyCost: s.pyCost + r.pyCost }), { impr: 0, pyImpr: 0, clicks: 0, pyClicks: 0, cost: 0, pyCost: 0 });
   const line = (key: string, name: string, r: typeof t, strong = false) => {
     // the change under this year's figure, never squeezed beside it
@@ -272,15 +298,12 @@ function SeaNetworks({ live, win }: { live: LiveKpis; win: MonthWindow }) {
   };
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-      <CardTitle icon={<AdsClickIcon />} tint="amber" title="Google Ads by network" note={`${w} ${live.year} against ${w} ${live.year - 1} - where the impressions and clicks come from`} />
+      <CardTitle icon={icon} tint={tint} title={title} note={`${w} ${live.year} against ${w} ${live.year - 1} - where the impressions and clicks come from`} />
       <Table
-        head={["Network", `Impressions ${live.year - 1}`, `Impressions ${live.year}`, `Clicks ${live.year - 1}`, `Clicks ${live.year}`, `Cost ${live.year - 1}`, `Cost ${live.year}`]}
-        rows={[...rows.map((r) => line(r.label, NETWORK[r.label] ?? r.label, r)), line("total", "All networks", t, true)]}
+        head={[first, `Impressions ${live.year - 1}`, `Impressions ${live.year}`, `Clicks ${live.year - 1}`, `Clicks ${live.year}`, `Cost ${live.year - 1}`, `Cost ${live.year}`]}
+        rows={[...rows.map((r) => line(r.label, names[r.label] ?? r.label, r)), line("total", first === "Network" ? "All networks" : "All campaign types", t, true)]}
       />
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        From the Google Ads accounts linked to GA4{b.seaCurrency === "EUR" ? "; cost in euros, GA4's francs at each month's ECB rate" : ""}. Performance Max shows ads across Search, Display, YouTube and Gmail, so it gathers many impressions for few clicks:
-        a change in how much of the budget runs through it moves the impressions far more than the clicks or the cost.
-      </Typography>
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{note}</Typography>
     </GlassCard>
   );
 }
@@ -545,7 +568,10 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
               </GlassCard>
             )}
             {fromSheet.length > 0
-              ? <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{fromSheet.map(card)}</Box>
+              ? <>
+                <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{fromSheet.map(card)}</Box>
+                <MsKinds live={live} win={win} />
+              </>
               : (
                 <BeingBuilt id="R01M" icon={<AdsClickIcon />} title="Microsoft Ads impressions, clicks and cost"
                   shows="Impressions, clicks and cost of every campaign in the Microsoft Advertising account, by month, this year against last."
@@ -580,7 +606,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
 
       {/* every Reach KPI has its tab now - email and LinkedIn as "being built"; anything else not connected is still listed */}
       <NotConnected list={missing.filter((k) => !["R11", "R11O", "R11C", "R12"].includes(k.id))} />
-      <LiveNote state={state} />
+      <LiveNote state={state} typed={false} sources="Search Console, GA4 (Google Ads, Microsoft Ads visits), HubSpot's AEO and email, and the Microsoft Advertising script" />
 
       <FilterPanel id="reach-filters" open={panel} onClose={() => setPanel(false)}
         subtitle={chosenCount ? `${chosenCount} chosen - click again to let one go` : "The months, and the countries for Search Console"}

@@ -29,7 +29,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMonths, type MonthAcc } from "./searchMonthly";
 import { countryTable, mergeCountryMonths, r09Series, type CountryMonths, type CountryRow } from "./countryMonths";
 import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
-import { msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
+import { msAdsKindMonths, msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
 import { googleFetchJson } from "@/lib/integrations/google";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
@@ -73,7 +73,9 @@ export type LiveKpis = {
     /** "YYYY-MM" -> network -> [impressions, clicks, cost] - Reach's period filter */
     seaNetworkMonths?: Record<string, Record<string, [number, number, number]>>;
     /** the Microsoft Advertising script's sheet: the last day counted, when it was written, whether it has stopped */
-    msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null; costPartial?: boolean };
+    msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null; costPartial?: boolean;
+      /** "YYYY-MM" -> campaign type -> [impressions, clicks, cost in euros or null] */
+      kinds?: Record<string, Record<string, [number, number, number | null]>> };
     seaUpTo?: number;
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
@@ -396,7 +398,7 @@ async function build(): Promise<LiveKpis> {
     }
     reportProgress(KEY, "reading the Microsoft Ads sheet");
     const r = await googleFetchJson<{ values?: unknown[][] }>({
-      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("A1:I60")}?valueRenderOption=UNFORMATTED_VALUE`,
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("A1:I400")}?valueRenderOption=UNFORMATTED_VALUE`,
       scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Microsoft Ads sheet",
     });
     const sheet = parseMsAdsSheet(r.values);
@@ -406,7 +408,10 @@ async function build(): Promise<LiveKpis> {
     // a cost that cannot be shown in euros (francs without a rate, another currency) is left out, never shown under a euro sign
     if (cur !== "EUR" && !rate) delete (s as Partial<typeof s>).X01M;
     Object.assign(series, s);
-    msAds = { through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency, costPartial: sheet.costPartial };
+    msAds = {
+      through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency, costPartial: sheet.costPartial,
+      kinds: msAdsKindMonths(sheet, rate, cur === "EUR" || !!rate),
+    };
   });
 
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)

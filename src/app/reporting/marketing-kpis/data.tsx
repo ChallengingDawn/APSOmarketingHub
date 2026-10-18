@@ -429,18 +429,25 @@ export function NotConnected({ list }: { list: CatalogueKpi[] }) {
   );
 }
 
-export function LiveNote({ state }: { state: MkState }) {
+/** The footer: what is read live and when; the typed months only where a page has any (Reach has none - SARCLA 18.10: "this link serves nothing"). */
+export function LiveNote({ state, typed = true, sources }: { state: MkState; typed?: boolean; sources?: string }) {
   const live = state.live;
   const errs = Object.entries(live?.value?.errors ?? {});
   return (
     <Box sx={{ display: "grid", gap: 0.5 }}>
       {live?.computing && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Reading HubSpot, GA4 and Search Console{live.progress ? ` · ${live.progress}` : ""} - live figures appear when it is done.</Typography>}
       {errs.map(([k, e]) => <Typography key={k} sx={{ fontSize: "0.78rem", color: RED }}>Live source "{k}" could not be read: {e}</Typography>)}
-      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
-        Monthly inputs {state.inputs?.updatedAt ? `last saved ${new Date(state.inputs.updatedAt).toLocaleString("en-GB")} by ${state.inputs.updatedBy}` : "as in SARCLA's Dashboard 2026 sheet"}
-        {live?.value ? ` · live figures read ${new Date(live.computedAt ?? live.value.generatedAt).toLocaleString("en-GB")}, every 6 hours` : ""}
-        {" · "}<Link href="/reporting/marketing-kpis/inputs" style={{ color: MUTED }}>Monthly inputs</Link>
-      </Typography>
+      {typed ? (
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+          Monthly inputs {state.inputs?.updatedAt ? `last saved ${new Date(state.inputs.updatedAt).toLocaleString("en-GB")} by ${state.inputs.updatedBy}` : "as in SARCLA's Dashboard 2026 sheet"}
+          {live?.value ? ` · live figures read ${new Date(live.computedAt ?? live.value.generatedAt).toLocaleString("en-GB")}, every 6 hours` : ""}
+          {" · "}<Link href="/reporting/marketing-kpis/inputs" style={{ color: MUTED }}>Monthly inputs</Link>
+        </Typography>
+      ) : (
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+          Read live{sources ? ` from ${sources}` : ""}{live?.value ? ` · last read ${new Date(live.computedAt ?? live.value.generatedAt).toLocaleString("en-GB")}, every 6 hours` : ""}
+        </Typography>
+      )}
     </Box>
   );
 }
