@@ -68,3 +68,55 @@ test("each assistant, last 30 days and the 30 before", () => {
   assert.deepEqual(w.models, ["CHATGPT", "PERPLEXITY"]);
   assert.equal(w.since, new Date(now.getTime() - 40 * 86_400_000).toISOString());
 });
+
+import { chfToEur, parseEcbCsv, rateFor } from "../src/lib/marketingKpis/fxRates";
+import { fmtValue } from "../src/lib/marketingKpis/measures";
+
+test("francs to euros at the month's ECB rate - the nearest earlier month when one is missing", () => {
+  const csv = "KEY,FREQ,TIME_PERIOD,OBS_VALUE\nEXR.M.CHF.EUR.SP00.A,M,2026-08,0.9361857\nEXR.M.CHF.EUR.SP00.A,M,2026-09,0.94298636\nEXR.M.CHF.EUR.SP00.A,M,2026-10,";
+  const r = parseEcbCsv(csv);
+  assert.deepEqual(Object.keys(r), ["2026-08", "2026-09"]);
+  assert.equal(rateFor(r, "2026-09"), 0.94298636);
+  assert.equal(rateFor(r, "2026-10"), 0.94298636);        // not published yet: September's
+  assert.equal(rateFor(r, "2026-01"), 0.9361857);          // before the first: the first
+  assert.equal(Math.round(chfToEur(943, "2026-09", r)!), 1000);
+  assert.equal(chfToEur(100, "2026-09", {}), null);
+  assert.deepEqual(parseEcbCsv("nonsense"), {});
+});
+
+test("euros in full; francs only while no rate is known", () => {
+  assert.equal(fmtValue("eur", 4136195), "€4,136,195");
+  assert.equal(fmtValue("eur", -1200.4), "−€1,200");
+  assert.equal(fmtValue("chf", 182669), "CHF 182,669");
+});
+
+import { seriesForCountries } from "../src/lib/marketingKpis/countryMonths";
+
+test("Reach's country filter: Search Console's impressions, clicks and click rate for the chosen countries", () => {
+  const months: CountryMonths = {
+    "2025-09": { ita: [90, 900], che: [10, 100] },
+    "2026-09": { ita: [100, 1000], che: [20, 400], usa: [5, 500] },
+  };
+  const s = seriesForCountries(months, ["ITA", "che"], 2026);
+  assert.equal(s.R05.months[8], 120);
+  assert.equal(s.R04.months[8], 1400);
+  assert.equal(s.R06.months[8], 120 / 1400);
+  assert.equal(s.R09.py[8], 100);
+  assert.equal(s.R05.months[7], null);       // no month read
+  const only = seriesForCountries(months, ["usa"], 2026);
+  assert.equal(only.R05.months[8], 5);
+  assert.equal(only.R05.py[8], 0);           // read, and none from there
+});
+
+test("the country table over the months chosen", () => {
+  const months: CountryMonths = {
+    "2025-07": { ita: [50, 500] }, "2025-08": { ita: [60, 600] },
+    "2026-07": { ita: [70, 700] }, "2026-08": { ita: [80, 800] }, "2026-09": { ita: [90, 900] },
+  };
+  const t = countryTable(months, 2026, 9, 15, { start: 7, end: 8 });
+  const ita = t.rows.find((r) => r.label === "ita")!;
+  assert.equal(ita.clicks, 170);             // Aug + Sep
+  assert.deepEqual(t.same, [7]);             // Sep has no last year
+  assert.equal(ita.pyClicks, 60);
+  assert.equal(ita.sameClicks, 80);
+});

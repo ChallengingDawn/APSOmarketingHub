@@ -55,7 +55,7 @@ function Row({ id, year, inputs, canEdit, onSaved }: { id: string; year: number;
     <Box sx={{ display: "grid", gridTemplateColumns: `minmax(190px, 1.4fr) repeat(12, minmax(62px, 1fr)) 92px`, gap: "4px", alignItems: "center", py: 0.5, borderTop: `1px solid ${HAIRLINE}` }}>
       <Box>
         <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{m.label}</Typography>
-        <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{id} · {isPct(id) ? "in %" : m.fmt === "chf" ? "CHF" : m.fmt === "dec1" ? "position" : "count"}</Typography>
+        <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{id} · {isPct(id) ? "in %" : m.typedCurrency === "CHF" ? "CHF as in Google - shown in € at the month's rate" : m.fmt === "chf" ? "CHF" : m.fmt === "dec1" ? "position" : "count"}</Typography>
       </Box>
       {vals.map((v, i) => (
         <Box key={i} component="input" value={v} disabled={!canEdit} inputMode="decimal" aria-label={`${m.label} ${MONTHS[i]} ${year}`}

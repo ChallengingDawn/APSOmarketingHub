@@ -5,6 +5,7 @@
 // yet" list that keeps every catalogue KPI visible, measured or not.
 
 import type { AssistantWindows } from "@/lib/aeo/model";
+import { chfToEur } from "@/lib/marketingKpis/fxRates";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -125,16 +126,32 @@ export type KpiView = {
   sameYtd?: number | null;
   /** a live KPI shown from its typed months because its source did not answer */
   fellBack?: boolean;
+  /** the months chosen on Reach's filter ("Apr–Jun"), when not the year so far */
+  period?: string;
 };
 
-/** Every measured KPI for one year, from the inputs and the live read. */
-export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: number): Record<string, KpiView> {
+/** A chosen run of months of the year, 0-11, both ends included (Reach's period filter). */
+export type MonthWindow = { start: number; end: number };
+
+/** Every measured KPI for one year, from the inputs and the live read - over the year so far, or the months chosen. */
+export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: number, win?: MonthWindow): Record<string, KpiView> {
   const key = (y: number, i: number) => `${y}-${String(i + 1).padStart(2, "0")}`;
   const typed = (id: string): Series => ({
     months: MONTHS.map((_, i) => inputs.months[id]?.[key(year, i)] ?? null),
     py: MONTHS.map((_, i) => inputs.months[id]?.[key(year - 1, i)] ?? null),
   });
   const cache: Record<string, Series> = {};
+  // Google's figures typed in francs, shown in euros at each month's ECB rate (SARCLA 18.10)
+  const fx = live?.fx && Object.keys(live.fx).length ? live.fx : null;
+  const inEur = (s: Series): Series => (!fx ? s : {
+    months: s.months.map((v, i) => (v == null ? null : chfToEur(v, key(year, i), fx))),
+    py: s.py.map((v, i) => (v == null ? null : chfToEur(v, key(year - 1, i), fx))),
+  });
+  // a year's target in francs, at that year's average rate so far
+  const yearRate = (y: number) => {
+    const rs = Object.entries(fx ?? {}).filter(([k]) => k.startsWith(`${y}-`)).map(([, r]) => r);
+    return rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
+  };
   // a live KPI whose source did not answer (Search Console's borrowed login lapses every 7 days)
   // falls back to its typed months, when there are any, rather than to nothing
   const fellBack = new Set<string>();
@@ -146,33 +163,44 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
     if (m?.origin === "live" && !liveHas && inputs.months[id]) fellBack.add(id);
     const s = !m ? { months: Array(12).fill(null), py: Array(12).fill(null) }
       : m.origin === "live" ? (liveHas ? liveS! : inputs.months[id] ? typed(id) : (liveS ?? { months: Array(12).fill(null), py: Array(12).fill(null) }))
-        : m.derived ? derive(id, get) : typed(id);
+        : m.derived ? derive(id, get) : m.typedCurrency === "CHF" ? inEur(typed(id)) : typed(id);
     return (cache[id] = s);
   };
   const out: Record<string, KpiView> = {};
-  for (const m of Object.values(MEASURES)) {
+  for (const m0 of Object.values(MEASURES)) {
+    // without a rate the francs stay francs, and say so
+    const m = m0.typedCurrency === "CHF" && !fx ? { ...m0, fmt: "chf" as const } : m0;
     const s = get(m.id);
     const lastTyped = s.months.reduce<number>((n, v, i) => (v != null ? i + 1 : n), 0);
     const upTo = m.origin === "live" && !fellBack.has(m.id) ? (live?.monthsDone ?? 0) : lastTyped;
-    const target = inputs.targets[m.id]?.[String(year)] ?? null;
+    const typedTarget = inputs.targets[m.id]?.[String(year)] ?? null;
+    const target = typedTarget != null && m0.typedCurrency === "CHF" && fx && yearRate(year) ? typedTarget / yearRate(year)! : typedTarget;
     if (m.agg.kind === "ytd") {
       const y = live?.ytd[m.id];
       out[m.id] = { id: m.id, measure: m, series: s, upTo, ytd: y?.cy ?? null, pyYtd: y?.py ?? null, pyNote: y?.pyNote, target, partial: null };
       continue;
     }
+    // a chosen period: its months only, as far as the months are in - and no year target on a part of the year
+    const first = win ? win.start : 0;
+    const last = win ? Math.max(first, Math.min(win.end + 1, upTo)) : upTo;
+    const inWin = win ? MONTHS.map((_, i) => i >= first && i < last) : undefined;
+    const part = !!win && (first !== 0 || last !== upTo);
+    const period = win ? (last <= first ? "no months yet" : last - first === 1 ? MONTHS[first] : `${MONTHS[first]}–${MONTHS[last - 1]}`) : undefined;
+    const windowed = { period, ...(part ? { target: null } : {}) };
+    const shownUpTo = win ? last : upTo;
     // like for like: only the months both years have (Search Console keeps 16 months)
-    const both = m.likeForLike ? s.months.map((v, i) => i < upTo && v != null && s.py[i] != null) : undefined;
-    const ytd = total(m.id, s, "months", get, upTo);
-    let pyYtd = both ? (both.some(Boolean) ? total(m.id, s, "py", get, upTo, both) : null) : total(m.id, s, "py", get, upTo);
+    const both = m.likeForLike ? s.months.map((v, i) => i >= first && i < last && v != null && s.py[i] != null) : undefined;
+    const ytd = total(m.id, s, "months", get, upTo, inWin);
+    let pyYtd = both ? (both.some(Boolean) ? total(m.id, s, "py", get, upTo, both) : null) : total(m.id, s, "py", get, upTo, inWin);
     let pyNote: string | undefined;
-    if (both && pyYtd != null && both.slice(0, upTo).some((x) => !x)) {
+    if (both && pyYtd != null && both.slice(first, last).some((x) => !x)) {
       const on = both.map((x, i) => (x ? i : -1)).filter((i) => i >= 0);
       const ytdSame = total(m.id, s, "months", get, upTo, both);
       // the change is measured on the same months; the note says which
       pyNote = `same months ${MONTHS[on[0]]}–${MONTHS[on[on.length - 1]]}`;
       out[m.id] = {
-        id: m.id, measure: m, series: s, upTo, ytd, pyYtd, pyNote, target, sameYtd: ytdSame,
-        partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id),
+        id: m.id, measure: m, series: s, upTo: shownUpTo, ytd, pyYtd, pyNote, target, sameYtd: ytdSame,
+        partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id), ...windowed,
       };
       continue;
     }
@@ -181,8 +209,8 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
     // not marketing: no percentage on it.
     if (m.origin === "live" && m.agg.kind === "sum" && ytd != null && pyYtd != null && pyYtd < 0.3 * ytd) { pyYtd = null; pyNote = "too thin to compare"; }
     out[m.id] = {
-      id: m.id, measure: m, series: s, upTo, ytd, pyYtd, pyNote, target,
-      partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id),
+      id: m.id, measure: m, series: s, upTo: shownUpTo, ytd, pyYtd, pyNote, target,
+      partial: m.origin === "live" && live && !fellBack.has(m.id) ? live.monthsDone : null, fellBack: fellBack.has(m.id), ...windowed,
     };
   }
   return out;
@@ -316,7 +344,7 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
   return `Up to ${day(new Date(Date.UTC(year, v.upTo, 0)))} · ${v.measure.origin === "live" ? `read ${read ? day(new Date(read)) : ""}` : "monthly input"}`;
 }
 
-export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet");
+export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.period ?? (v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet"));
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
 export function KpiCard({ v, kpi, icon, tint = "blue", upTo }: { v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string }) {

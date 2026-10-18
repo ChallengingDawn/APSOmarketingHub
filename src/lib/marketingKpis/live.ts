@@ -27,6 +27,7 @@ import { fetchGscDaily, fetchGscQueries } from "@/lib/integrations/gsc";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMonths, type MonthAcc } from "./searchMonthly";
 import { countryTable, mergeCountryMonths, r09Series, type CountryMonths, type CountryRow } from "./countryMonths";
+import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
@@ -60,8 +61,14 @@ export type LiveKpis = {
     searchCountries: (CountryRow | { label: string; clicks: number; impressions: number; pyClicks?: undefined; sameClicks?: undefined; focus?: undefined })[];
     /** the months (0-11) the country comparison is made on */
     searchSame?: number[];
+    /** clicks and impressions by country and month, this year and last - Reach's period and country filter */
+    searchCountryMonths?: CountryMonths;
     /** Google Ads by network, the whole months this year against the same months last year */
+    /** cost in euros (GA4's francs at each month's ECB rate), or in francs - `seaCurrency` says which */
     seaNetworks?: { label: string; impr: number; clicks: number; cost: number; pyImpr: number; pyClicks: number; pyCost: number }[];
+    seaCurrency?: "EUR" | "CHF";
+    /** "YYYY-MM" -> network -> [impressions, clicks, cost] - Reach's period filter */
+    seaNetworkMonths?: Record<string, Record<string, [number, number, number]>>;
     seaUpTo?: number;
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
@@ -75,6 +82,8 @@ export type LiveKpis = {
    * and not read again every half hour as a failure would be.
    */
   waiting?: Record<string, string>;
+  /** francs per euro by month (ECB) - the pages turn the typed francs into euros with it */
+  fx?: ChfPerEur;
 };
 
 /** A read with a failed source is asked again after this, not after 6 hours (12.10.2026: a GA4 403 stayed on the page after its fix). */
@@ -85,7 +94,7 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
   return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks ? 0 : TTL_MS), build);
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -125,6 +134,13 @@ async function build(): Promise<LiveKpis> {
   const guard = async (name: string, fn: () => Promise<void>) => {
     try { await fn(); } catch (e) { errors[name] = String((e as Error)?.message ?? e).slice(0, 300); }
   };
+
+  // Exchange rates first: Google's francs become euros (SARCLA 18.10: "everything in EUR")
+  let fx: ChfPerEur = {};
+  await guard("fx", async () => {
+    reportProgress(KEY, "reading the ECB exchange rates");
+    fx = await chfPerEur(`${py}-01`);
+  });
 
   // Leads: the Contact Us form, per month.
   await guard("leads", async () => {
@@ -210,7 +226,9 @@ async function build(): Promise<LiveKpis> {
   const countries: LiveKpis["breakdowns"]["countries"] = [];
   let searchCountries: LiveKpis["breakdowns"]["searchCountries"] = [];
   let searchSame: number[] | undefined;
+  let searchCountryMonths: CountryMonths | undefined;
   let seaNetworks: LiveKpis["breakdowns"]["seaNetworks"];
+  const seaNetworkMonths: NonNullable<LiveKpis["breakdowns"]["seaNetworkMonths"]> = {};
   const waiting: Record<string, string> = {};
   await guard("ga4", async () => {
     reportProgress(KEY, "reading GA4 channels and countries");
@@ -268,6 +286,7 @@ async function build(): Promise<LiveKpis> {
     const t = countryTable(Object.fromEntries(Object.entries(months).filter(([m]) => m >= thisMonth || `${m}-01` >= first || kept[m])), year, monthsDone);
     searchCountries = t.rows;
     searchSame = t.same;
+    searchCountryMonths = Object.fromEntries(Object.entries(months).filter(([m]) => (m.startsWith(`${year}-`) || m.startsWith(`${py}-`)) && (m >= thisMonth || `${m}-01` >= first || kept[m])));
   });
 
   // Email reach (R11): HubSpot's marketing emails per month - delivered, opens, clicks
@@ -322,8 +341,13 @@ async function build(): Promise<LiveKpis> {
       const r = await fetchGa4Report({ name: "adsNetworkDaily", from: `${y}-01-01`, to: lastDay(y) });
       for (const row of r.rows) {
         const a = (acc[row.keys[1] || "(not set)"] ??= { impr: 0, clicks: 0, cost: 0, pyImpr: 0, pyClicks: 0, pyCost: 0 });
-        if (cy) { a.impr += row.values[0] ?? 0; a.clicks += row.values[1] ?? 0; a.cost += row.values[2] ?? 0; }
-        else { a.pyImpr += row.values[0] ?? 0; a.pyClicks += row.values[1] ?? 0; a.pyCost += row.values[2] ?? 0; }
+        // GA4's cost is in francs: each day at its month's rate
+        const chf = row.values[2] ?? 0;
+        const cost = Object.keys(fx).length ? chfToEur(chf, String(row.keys[0] ?? "").slice(0, 7), fx) ?? chf : chf;
+        if (cy) { a.impr += row.values[0] ?? 0; a.clicks += row.values[1] ?? 0; a.cost += cost; }
+        else { a.pyImpr += row.values[0] ?? 0; a.pyClicks += row.values[1] ?? 0; a.pyCost += cost; }
+        const mo = ((seaNetworkMonths[String(row.keys[0] ?? "").slice(0, 7)] ??= {})[row.keys[1] || "(not set)"] ??= [0, 0, 0]);
+        mo[0] += row.values[0] ?? 0; mo[1] += row.values[1] ?? 0; mo[2] += cost;
       }
     }
     seaNetworks = Object.entries(acc).map(([label, v]) => ({ label, ...v })).sort((a, b) => b.impr + b.pyImpr - (a.impr + a.pyImpr));
@@ -366,9 +390,10 @@ async function build(): Promise<LiveKpis> {
   return {
     generatedAt: new Date().toISOString(), year, monthsDone,
     series, ytd,
-    breakdowns: { channels, countries, searchCountries, searchSame, seaNetworks, seaUpTo: monthsDone, prio, handover },
+    breakdowns: { channels, countries, searchCountries, searchSame, searchCountryMonths, seaNetworks, seaNetworkMonths, seaUpTo: monthsDone, seaCurrency: Object.keys(fx).length ? "EUR" : "CHF", prio, handover },
     search,
     errors,
     waiting,
+    fx,
   };
 }

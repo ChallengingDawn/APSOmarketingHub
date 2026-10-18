@@ -13,7 +13,7 @@
 //
 // Value: the order's net value (order_total_net_revenue) - the deliveries' sum,
 // or the web record's while the ERP has none yet; never both. Credit notes (G…)
-// and cancelled orders are left out. In the order's own currency (CHF or EUR).
+// and cancelled orders are left out. In euros: a CHF order at its month's ECB rate (fx.ts).
 
 import { DIMS, type Dim, type Filters, type Win } from "./cube";
 
@@ -58,6 +58,8 @@ export function groupOrders(recs: Iterable<OrderRec>, archivedWeb: ReadonlySet<s
 
 export type OnlineCube = {
   generatedAt: string;
+  /** whether the francs were turned into euros (false: each order in its own currency - no rate was known) */
+  eur?: boolean;
   /** this year, last year, the year before - as the customers cube */
   years: number[];
   labels: Record<Dim, string[]>;

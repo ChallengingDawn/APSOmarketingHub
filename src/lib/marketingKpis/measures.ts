@@ -7,7 +7,7 @@
 //          check-out abandonment and the GA4 figures as reported come from it)
 //   live   read by the hub itself (HubSpot, GA4, Search Console)
 
-export type Fmt = "int" | "pct" | "chf" | "dec1" | "dec2" | "x";
+export type Fmt = "int" | "pct" | "eur" | "chf" | "dec1" | "dec2" | "x";
 export type Agg =
   | { kind: "sum" }
   | { kind: "avg" }
@@ -44,6 +44,11 @@ export type Measure = {
   note?: string;
   /** a figure outside the catalogue shown as a card of its own in this stage (the email open and click rates beside R11) */
   extraIn?: string;
+  /**
+   * Typed in francs - Google's figures, as SARCLA's Dashboard 2026 has them (GA4 reports in CHF) -
+   * and shown in euros at each month's ECB rate (SARCLA 18.10: "everything in EUR").
+   */
+  typedCurrency?: "CHF";
 };
 
 const M = (m: Measure) => m;
@@ -62,8 +67,8 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "R01", label: "SEA impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Impressions from Google Ads", note: "Through GA4's Google Ads link - Microsoft Ads not included" }),
   M({ id: "R02", label: "SEA clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Clicks from Google Ads", note: "Through GA4's Google Ads link - Microsoft Ads not included" }),
   M({ id: "R03", label: "SEA CTR", fmt: "pct", agg: { kind: "ratio", num: "R02", den: "R01" }, origin: "live", likeForLike: true, liveSource: "Google Ads", definition: "Google Ads clicks / Google Ads impressions" }),
-  M({ id: "X01", label: "SEA cost", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", goodWhenUp: false }),
-  M({ id: "P05", label: "SEA revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
+  M({ id: "X01", label: "SEA cost", fmt: "eur", typedCurrency: "CHF", agg: { kind: "sum" }, origin: "sheet", goodWhenUp: false }),
+  M({ id: "P05", label: "SEA revenue", fmt: "eur", typedCurrency: "CHF", agg: { kind: "sum" }, origin: "sheet" }),
   M({ id: "P06", label: "ROAS (SEA)", fmt: "x", agg: { kind: "ratio", num: "P05", den: "X01" }, origin: "sheet", derived: true }),
   // Reach (SEO): live from Search Console since 17.10.2026 (SARCLA: "this should update live, last year against
   // this year"); the typed months stay as the fallback while Google is not connected
@@ -85,8 +90,8 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "R10N", label: "AI answers naming APSO", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10D", label: "AI answers", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", notCatalogue: true }),
-  M({ id: "P07", label: "SEO revenue", fmt: "chf", agg: { kind: "sum" }, origin: "sheet" }),
-  M({ id: "F01", label: "Paid revenue (SEA) vs SMEC target", fmt: "chf", agg: { kind: "sum" }, origin: "sheet", derived: true, note: "SEA revenue against the year's SMEC target" }),
+  M({ id: "P07", label: "SEO revenue", fmt: "eur", typedCurrency: "CHF", agg: { kind: "sum" }, origin: "sheet" }),
+  M({ id: "F01", label: "Paid revenue (SEA) vs SMEC target", fmt: "eur", typedCurrency: "CHF", agg: { kind: "sum" }, origin: "sheet", derived: true, note: "SEA revenue against the year's SMEC target" }),
   // live - read by the hub
   M({ id: "L01", label: "Leads (contact requests)", fmt: "int", agg: { kind: "sum" }, origin: "live", note: "Contact Us form requests - a minimum (HubSpot keeps each contact's latest form only)" }),
   M({ id: "L02", label: "Leads to sales", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, note: "ESO + TSA tickets created from forms and chat" }),
@@ -146,6 +151,8 @@ export function fmtValue(fmt: Fmt, v: number | null | undefined): string {
     case "int": return Math.round(v).toLocaleString("en");
     case "pct": return `${(v * 100).toFixed(1)}%`;
     // in full, never "CHF 4.14M" (SARCLA 18.10: abbreviations make the pages hard to read)
+    case "eur": return `${v < 0 ? "−" : ""}€${Math.round(Math.abs(v)).toLocaleString("en")}`;
+    // only while no exchange rate is known: the francs as typed, said as francs
     case "chf": return `CHF ${Math.round(v).toLocaleString("en")}`;
     case "dec1": return v.toFixed(1);
     case "dec2": return v.toFixed(2);

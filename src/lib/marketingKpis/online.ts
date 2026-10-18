@@ -21,14 +21,16 @@ import { DIM_PROPS, labelsOf } from "./customers";
 import type { Dim } from "./cube";
 import { classifySearchCustomers, foldOnline, groupOrders, splitNumber, webMark, type OnlineCube, type OrderRec } from "./onlineShare";
 import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
+import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
 
 const KEY = "marketingKpis:online:v1";
 const TTL_MS = 6 * 60 * 60 * 1000;
-const PROPS = ["order_order_number", "order_order_date", "order_total_net_revenue", "hs_external_order_id", "order_channel", "order_web_order_number", "hs_pipeline_stage"];
+const PROPS = ["order_order_number", "order_order_date", "order_total_net_revenue", "hs_currency_code", "hs_external_order_id", "order_channel", "order_web_order_number", "hs_pipeline_stage"];
 
 export function onlineCube(): Promise<SlowState<OnlineCube>> {
   // a read stored before the customers from search existed (17.10.2026) is read again at once
-  return slowReport(KEY, (v: OnlineCube) => (!v?.searchCustomers && !v?.searchCustomersError ? 0 : TTL_MS), build);
+  // and one stored before the orders were turned into euros (18.10.2026)
+  return slowReport(KEY, (v: OnlineCube) => ((!v?.searchCustomers && !v?.searchCustomersError) || v?.eur === undefined ? 0 : TTL_MS), build);
 }
 
 type Obj = { id: string; properties?: Record<string, string | null> };
@@ -45,6 +47,13 @@ async function build(): Promise<OnlineCube> {
   const now = new Date();
   const year = now.getUTCFullYear();
   const years = [year, year - 1, year - 2];
+
+  // every order in euros: HubSpot's orders are in CHF or EUR (SARCLA 18.10: "everything in EUR")
+  let fx: ChfPerEur = {};
+  try { fx = await chfPerEur(`${years[2]}-01`); } catch { /* no rate: each order in its own currency, as before */ }
+  const eur = Object.keys(fx).length > 0;
+  const inEur = (v: number, currency: string | null | undefined, month: string) =>
+    eur && String(currency ?? "").toUpperCase() === "CHF" ? chfToEur(v, month, fx) ?? v : v;
 
   // 1. the archived web records, by order number
   const archivedWeb = new Set<string>();
@@ -95,7 +104,7 @@ async function build(): Promise<OnlineCube> {
         noteShopNumber(p, splitNumber(p.order_order_number)?.[0] ?? `web:${o.id}`);
         recs.push({
           id: String(o.id), number: String(p.order_order_number ?? ""), month: monthOf(p.order_order_date),
-          value: Number(p.order_total_net_revenue) || 0, web: webMark(p), cancelled: p.hs_pipeline_stage === CANCELLED,
+          value: inEur(Number(p.order_total_net_revenue) || 0, p.hs_currency_code, monthOf(p.order_order_date)), web: webMark(p), cancelled: p.hs_pipeline_stage === CANCELLED,
         });
       }
       a = r.paging?.next?.after;
@@ -189,6 +198,6 @@ async function build(): Promise<OnlineCube> {
   return {
     generatedAt: new Date().toISOString(), years, through: now.toISOString().slice(0, 10),
     orders: { all, web, noCompany }, ...foldOnline(placed, years),
-    searchCustomers, searchCustomersError,
+    searchCustomers, searchCustomersError, eur,
   };
 }

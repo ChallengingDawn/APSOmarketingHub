@@ -12,7 +12,6 @@
 // wider so we can see the data clearly"; "no abbreviation".
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { keyframes } from "@mui/system";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -31,7 +30,6 @@ import TableRow from "@mui/material/TableRow";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
-import Collapse from "@mui/material/Collapse";
 import CheckIcon from "@mui/icons-material/Check";
 import SearchIcon from "@mui/icons-material/Search";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -48,8 +46,6 @@ import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
-import CloseIcon from "@mui/icons-material/Close";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
@@ -65,6 +61,7 @@ import type { SlowState } from "@/lib/integrations/slowReport";
 import { RETRY_MS, RETRIES, everyWhileSeen, hubJson, stageHref, useSlow } from "./data";
 import { onlineBy, onlineShare, type OnlineAgg, type OnlineCube } from "@/lib/marketingKpis/onlineShare";
 import { MovementsView, inOut, movesIn, useMovements } from "./Movements";
+import { FilterPanel, FilterSection as Section } from "./FilterPanel";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -118,7 +115,6 @@ const fromYm = (cube: Cube, s: string | null) => {
 };
 
 /** The filter window's folds come in one after another as it opens. */
-const foldIn = keyframes`from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; }`;
 
 /* ── the period ───────────────────────────────────────────────────────── */
 
@@ -607,7 +603,7 @@ export function CustomersExplorer() {
           Every company in HubSpot, read again after every ERP delivery; revenue up to that delivery. Bought = invoiced revenue in at least one month of the period.
           Priority, APSO customer, potential, sales rep and APIC are today&apos;s. Share of wallet leaves out potentials above €1,000,000.
           {onl.value && <> Online share: of the orders&apos; net value by order date, the part that came through the shop (apsoparts.com), read {readAt(onl.value.generatedAt)};
-            credit notes and cancelled orders left out; in each order&apos;s own currency (CHF or EUR).</>}
+            credit notes and cancelled orders left out; in euros, a CHF order at its month&apos;s ECB rate.</>}
         </Typography>
       </GlassCard>
       )}
@@ -664,12 +660,6 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   const [shut, setShut] = useState<Partial<Record<Dim | "period", boolean>>>({});
-  useEffect(() => {
-    if (!open) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [open, onClose]);
   // a breakdown opens by itself when it holds a choice; the first two are open to begin with
   const isOpen = (k: Dim | "period") => {
     if (shut[k] !== undefined) return !shut[k];
@@ -687,88 +677,26 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [focus]);
   return (
-    <Box id="customers-filters" role="dialog" aria-modal="false" aria-label="Filters" aria-hidden={!open}
-      sx={{
-        position: "fixed", top: 16, right: 16, bottom: 16, width: { xs: "calc(100vw - 32px)", sm: 380 }, zIndex: 1300,
-        display: "flex", flexDirection: "column", borderRadius: "22px", overflow: "hidden",
-        bgcolor: "#fff", border: "1px solid rgba(21,34,58,.08)",
-        boxShadow: "0 24px 60px rgba(21,34,58,.22), 0 4px 14px rgba(21,34,58,.08)",
-        // it grows out of the top right, where its button is, and settles softly
-        transformOrigin: "top right",
-        transform: open ? "translate3d(0, 0, 0) scale(1)" : "translate3d(28px, -6px, 0) scale(.96)",
-        opacity: open ? 1 : 0, visibility: open ? "visible" : "hidden",
-        transition: open
-          ? "transform .42s cubic-bezier(.16, 1, .3, 1), opacity .24s ease, visibility 0s"
-          : "transform .22s cubic-bezier(.4, 0, 1, 1), opacity .18s ease, visibility 0s linear .22s",
-        "& .fold": { animation: open ? `${foldIn} .38s cubic-bezier(.16, 1, .3, 1) both` : "none" },
-        "@media (prefers-reduced-motion: reduce)": { transition: "opacity .1s linear", transform: "none", "& .fold": { animation: "none" } },
-      }}>
-      {/* the header: what this is, how many choices, and the way out */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.25, py: 1.75, borderBottom: `1px solid ${HAIRLINE}`, background: "linear-gradient(180deg, #f6f8fc, #fff)" }}>
-        <Badge icon={<TuneIcon />} tint="blue" size={34} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>Filters</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}</Typography>
-        </Box>
-        {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 700 }}>Clear all</Button>}
-        <IconButton aria-label="Close the filters" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}>
-          <CloseIcon sx={{ fontSize: 20 }} />
-        </IconButton>
-      </Box>
-
-      {chosen.length > 0 && (
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", px: 2.25, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "#fbfcfe" }}>
-          {chosen.map(([x, v]) => (
-            <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
-              sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
-          ))}
-        </Box>
-      )}
-
-      <Box sx={{ flex: 1, overflowY: "auto", px: 1.25, py: 1 }}>
-        <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
-          summary={windowLabel(cube, win)}>
-          <Period cube={cube} win={win} onChange={setWin} />
-          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
-            Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
-          </Typography>
+    <FilterPanel id="customers-filters" open={open} onClose={onClose}
+      subtitle={chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}
+      onClearAll={chosen.length ? clearAll : undefined}
+      chips={chosen.length > 0 ? chosen.map(([x, v]) => (
+        <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
+          sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+      )) : null}>
+      <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
+        summary={windowLabel(cube, win)}>
+        <Period cube={cube} win={win} onChange={setWin} />
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
+          Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
+        </Typography>
+      </Section>
+      {ORDER.map((dim, i) => (
+        <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
+          <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>
-        {ORDER.map((dim, i) => (
-          <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
-            <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
-          </Section>
-        ))}
-      </Box>
-
-      <Box sx={{ px: 2.25, py: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 1, alignItems: "center", bgcolor: "#fbfcfe" }}>
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT, flex: 1 }}>Filters apply at once; the charts behind stay live</Typography>
-        <Button variant="contained" disableElevation onClick={onClose} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Done</Button>
-      </Box>
-    </Box>
-  );
-}
-
-/** One fold of the filter window: its glyph, its name, what is chosen - and its content when open. */
-function Section({ id, index, lit = false, title, icon, tint, open, onFlip, summary, chosen = false, children }: {
-  id: string; index: number; lit?: boolean; title: string; icon: React.ReactNode; tint: Tint; open: boolean; onFlip: () => void; summary: string; chosen?: boolean; children: React.ReactNode;
-}) {
-  return (
-    <Box id={id} className="fold" sx={{
-      borderRadius: "14px", mb: 0.75, scrollMarginTop: 8, animationDelay: `${40 + index * 28}ms`,
-      bgcolor: lit ? TINT[tint].bg : open ? "#f7f9fc" : "transparent", border: `1px solid ${lit ? TINT[tint].fg : open ? HAIRLINE : "transparent"}`,
-      transition: "background-color .4s ease, border-color .4s ease",
-    }}>
-      <Box component="button" type="button" onClick={onFlip} aria-expanded={open}
-        sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%", border: 0, bgcolor: "transparent", font: "inherit", cursor: "pointer", textAlign: "left", px: 1, py: 0.9, borderRadius: "14px", "&:hover": { bgcolor: open ? "transparent" : "rgba(21,34,58,.04)" } }}>
-        <Badge icon={icon} tint={tint} size={26} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: 1 }}>{title}</Typography>
-        <Typography sx={{ fontSize: "0.76rem", fontWeight: chosen ? 700 : 500, color: chosen ? TINT[tint].fg : FAINT, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</Typography>
-        <ExpandMoreIcon sx={{ fontSize: 20, color: FAINT, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-      </Box>
-      <Collapse in={open} unmountOnExit>
-        <Box sx={{ px: 1.25, pb: 1.25 }}>{children}</Box>
-      </Collapse>
-    </Box>
+      ))}
+    </FilterPanel>
   );
 }
 

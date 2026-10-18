@@ -49,6 +49,9 @@ export function GroupedColumns({
   const top = niceCeiling(
     Math.max(0, ...data.flatMap((d) => [d.current ?? 0, d.prior ?? 0])),
   );
+  const ticks = [0, top / 4, top / 2, (top * 3) / 4, top];
+  // the axis as wide as its longest figure: written in full ("1,500,000", "€182,669") they no longer fit 46px
+  const axisWidth = Math.max(46, Math.ceil(Math.max(...ticks.map((t) => format(t).length)) * 7.2) + 10);
 
   return (
     <Box>
@@ -65,12 +68,12 @@ export function GroupedColumns({
             />
             <YAxis
               domain={[0, top]}
-              ticks={[0, top / 4, top / 2, (top * 3) / 4, top]}
+              ticks={ticks}
               tickFormatter={(v) => format(Number(v))}
               tick={{ fontSize: 12, fill: CHROME.label }}
               axisLine={false}
               tickLine={false}
-              width={46}
+              width={axisWidth}
             />
             <Tooltip
               cursor={{ fill: "rgba(26,29,33,0.04)" }}
