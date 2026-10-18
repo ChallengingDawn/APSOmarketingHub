@@ -8,7 +8,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { hubspotToken } from "@/lib/integrations/status";
-import { AUTOFILL, BUILT_IN, GQS_LOCKED, SECTIONS, problems, type Catalog, type Field, type Section, type SmartForm } from "./formDesign";
+import { AUTOFILL, BUILT_IN, GQS_LOCKED, OBJ_SOURCE, SECTIONS, problems, type Catalog, type Field, type Section, type SmartForm } from "./formDesign";
 
 export * from "./formDesign";
 
@@ -19,16 +19,21 @@ const hs = <T>(path: string, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 let catalogCache: { at: number; c: Catalog } | null = null;
 export async function catalog(): Promise<Catalog> {
   if (catalogCache && Date.now() - catalogCache.at < 10 * 60_000) return catalogCache.c;
-  const [props, pipes, owners] = await Promise.all([
+  type Named = { results?: { name: string; label: string; hidden?: boolean }[] };
+  const [props, pipes, owners, companyProps, contactProps] = await Promise.all([
     hs<{ results?: { name: string; label: string; type: string; fieldType: string; hidden?: boolean; options?: { value: string }[] }[] }>("/crm/v3/properties/tickets"),
     hs<{ results?: { id: string; label: string; stages?: { id: string; label: string }[] }[] }>("/crm/v3/pipelines/tickets"),
     ownerNames().catch(() => new Map<string, string>()),
+    hs<Named>("/crm/v3/properties/companies").catch(() => null),
+    hs<Named>("/crm/v3/properties/contacts").catch(() => null),
   ]);
+  const named = (r: Named | null) => r ? (r.results ?? []).filter((p) => !p.hidden).map((p) => ({ name: p.name, label: p.label })).sort((a, b) => a.label.localeCompare(b.label)) : undefined;
   const c: Catalog = {
     properties: (props.results ?? []).filter((p) => !p.hidden).map((p) => ({ name: p.name, label: p.label, type: p.type, fieldType: p.fieldType, options: (p.options ?? []).map((o) => o.value) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
     pipelines: (pipes.results ?? []).map((p) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).map((s) => ({ id: s.id, label: s.label })) })),
     owners: [...owners].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+    companyProps: named(companyProps), contactProps: named(contactProps),
   };
   catalogCache = { at: Date.now(), c };
   return c;
@@ -69,7 +74,7 @@ const clean = (x: Field): Field => ({
   f: String(x.f ?? "").trim(), l: String(x.l ?? "").trim(), t: x.t,
   ...(x.t === "select" ? { opts: (x.opts ?? []).map((o) => String(o).trim()).filter(Boolean) } : {}),
   ...(x.req || GQS_LOCKED.includes(String(x.f)) ? { req: true } : {}),
-  ...(x.autofill && x.autofill !== "auto" && AUTOFILL.some((a) => a.v === x.autofill) ? { autofill: x.autofill } : {}),
+  ...(x.autofill && x.autofill !== "auto" && (AUTOFILL.some((a) => a.v === x.autofill) || OBJ_SOURCE.test(String(x.autofill))) ? { autofill: x.autofill } : {}),
 });
 
 export async function discardDraft(): Promise<void> { await kvSet(KV.draft, null); }

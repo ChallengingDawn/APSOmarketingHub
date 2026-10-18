@@ -76,3 +76,13 @@ test("auto fills the obvious fields from the ticket - articles, company, mandant
   assert.equal(sourceOf({ f: "material", l: "M", t: "text", autofill: "order" }), "order");
   assert.equal(autoSource({ f: "delivery_date", t: "text" }), null);
 });
+
+test("a field can be filled from any property of the parent ticket, its company or its contact - one HubSpot has", () => {
+  const f = copy();
+  f.pmForms.MOQ = f.pmForms.MOQ.map((x, i) => (i === 0 ? { ...x, autofill: "company:mandant" } : i === 1 ? { ...x, autofill: "contact:no_such_contact_prop" } : { ...x, autofill: "ticket:requested_quantity" }));
+  const withObjects: Catalog = { ...catalog, companyProps: [{ name: "mandant", label: "Mandant" }], contactProps: [{ name: "email", label: "Email" }] };
+  const p = problems(f, withObjects);
+  assert.equal(p.length, 1, p.join("\n"));
+  assert.ok(p[0].includes('contact\'s "no_such_contact_prop"'), p[0]);
+  assert.equal(sourceOf(f.pmForms.MOQ[0]), "company:mandant");
+});

@@ -14,8 +14,13 @@ export type Field = { f: string; l: string; t: FieldType; opts?: string[]; req?:
 /** Where a field is pre-filled from when the card opens (SARCLA 18.10.2026: "article should also be filled with the
  *  ticket detection ... try to get the maximum"). No value = "auto". Whatever the source, an empty result falls back
  *  to the parent ticket's same property, then to what the ticket's text says (quantity, target price, material...);
- *  "none" leaves the field to be typed. The card has the same rules (SmartTicketCard.jsx, autoSource / prefill). */
-export type Autofill = "auto" | "customer" | "mandant" | "contact" | "article" | "articles" | "order" | "delivery_date" | "none";
+ *  "none" leaves the field to be typed. The card has the same rules (SmartTicketCard.jsx, autoSource / prefill).
+ *  "much more properties" (SARCLA, same evening): any property of the parent ticket, its company or its contact can be the
+ *  source too - "ticket:<property>", "company:<property>", "contact:<property>". */
+export type ObjSource = `${"ticket" | "company" | "contact"}:${string}`;
+export type Autofill = "auto" | "customer" | "mandant" | "contact" | "article" | "articles" | "order" | "delivery_date" | "none" | ObjSource;
+export const OBJ_SOURCE = /^(ticket|company|contact):([a-z0-9_]{1,100})$/;
+export const OBJ_LABEL = { ticket: "Parent ticket", company: "Company", contact: "Contact" } as const;
 export const AUTOFILL: { v: Autofill; l: string }[] = [
   { v: "auto", l: "Auto" },
   { v: "customer", l: "The ticket's company (# / name)" },
@@ -199,6 +204,9 @@ export const BUILT_IN: SmartForm = {
 export type TicketProperty = { name: string; label: string; type: string; fieldType: string; options: string[] };
 export type Catalog = {
   properties: TicketProperty[];
+  /** company and contact properties - "Filled from" can name them */
+  companyProps?: { name: string; label: string }[];
+  contactProps?: { name: string; label: string }[];
   pipelines: { id: string; label: string; stages: { id: string; label: string }[] }[];
   owners: { id: string; name: string }[];
 };
@@ -210,6 +218,7 @@ const TYPES: FieldType[] = ["text", "textarea", "number", "date", "yesno", "sele
 export function problems(form: SmartForm, c: Catalog): string[] {
   const out: string[] = [];
   const props = new Set(c.properties.map((p) => p.name));
+  const objProps = { ticket: props, company: c.companyProps && new Set(c.companyProps.map((p) => p.name)), contact: c.contactProps && new Set(c.contactProps.map((p) => p.name)) };
   const pipeById = new Map(c.pipelines.map((p) => [p.id, p]));
   const checkFields = (where: string, fields: Field[]) => {
     const seen = new Set<string>();
@@ -221,6 +230,9 @@ export function problems(form: SmartForm, c: Catalog): string[] {
       seen.add(x.f);
       if (!TYPES.includes(x.t)) out.push(`${at}: unknown type "${x.t}"`);
       if (x.t === "select" && !(x.opts ?? []).length) out.push(`${at}: a list needs its choices`);
+      const src = OBJ_SOURCE.exec(String(x.autofill ?? ""));
+      const known = src && objProps[src[1] as keyof typeof objProps];
+      if (src && known && !known.has(src[2])) out.push(`${at}: it is filled from the ${OBJ_LABEL[src[1] as keyof typeof OBJ_LABEL].toLowerCase()}'s "${src[2]}", which HubSpot does not have`);
     });
   };
   if (!form.pipelines.length) out.push("Pipelines: at least one");

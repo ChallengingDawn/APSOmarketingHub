@@ -24,7 +24,10 @@ async function formState() {
   return {
     draft, live: published ? { version: published.version, at: published.at, by: published.by } : null,
     changed: changedPieces(draft, live), problems: problems(draft, c), history: hist,
-    catalog: { properties: c.properties.map((p) => ({ name: p.name, label: p.label, fieldType: p.fieldType, options: p.options.slice(0, 60) })), pipelines: c.pipelines, owners: c.owners },
+    catalog: {
+      properties: c.properties.map((p) => ({ name: p.name, label: p.label, fieldType: p.fieldType, options: p.options.slice(0, 60) })), pipelines: c.pipelines, owners: c.owners,
+      companyProps: c.companyProps ?? [], contactProps: c.contactProps ?? [],
+    },
   };
 }
 

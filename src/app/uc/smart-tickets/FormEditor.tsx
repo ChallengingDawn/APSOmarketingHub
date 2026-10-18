@@ -12,7 +12,7 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
-import Autocomplete from "@mui/material/Autocomplete";
+import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -33,10 +33,14 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { CardTitle, GlassCard, INK, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, when } from "@/app/connectors/parts";
-import { AUTOFILL, autoSource, type Autofill, type Field, type FieldType, type SmartForm, type Section } from "@/lib/smartTickets/formDesign";
+import { AUTOFILL, OBJ_LABEL, OBJ_SOURCE, autoSource, type Autofill, type Field, type FieldType, type SmartForm, type Section } from "@/lib/smartTickets/formDesign";
 
 type Prop = { name: string; label: string; fieldType: string; options: string[] };
-type Catalog = { properties: Prop[]; pipelines: { id: string; label: string; stages: { id: string; label: string }[] }[]; owners: { id: string; name: string }[] };
+type Named = { name: string; label: string };
+type Catalog = {
+  properties: Prop[]; pipelines: { id: string; label: string; stages: { id: string; label: string }[] }[]; owners: { id: string; name: string }[];
+  companyProps: Named[]; contactProps: Named[];
+};
 type State = {
   draft: SmartForm; live: { version: number; at: string; by: string } | null; changed: string[]; problems: string[];
   history: { version: number; at: string; by: string }[]; catalog: Catalog; admin: boolean;
@@ -52,7 +56,30 @@ const AUTO_SHORT: Record<string, string> = {
   customer: "the ticket's company", mandant: "the mandant", contact: "the contact", article: "detected article",
   articles: "detected articles", order: "detected order", delivery_date: "detected delivery date",
 };
-const autoLabel = (x: Field) => { const s = autoSource(x); return `Auto - ${s ? AUTO_SHORT[s] : "parent ticket / its text"}`; };
+const autoLabel = (x: Field) => { const s = autoSource(x); return `Auto - ${s ? AUTO_SHORT[s] : "same field on the ticket, company, contact or text"}`; };
+
+/** The choices of "Filled from": Auto, Nothing, what the card detects, then every property of the parent ticket, its company, its contact. */
+type SourceOpt = { v: Autofill; l: string; g: string };
+const DETECTED_GROUP = "Detected on the ticket";
+function sourceOptions(c: Catalog): SourceOpt[] {
+  const fixed = AUTOFILL.filter((a) => a.v !== "auto" && a.v !== "none").map((a) => ({ v: a.v, l: a.l, g: DETECTED_GROUP }));
+  const obj = (o: keyof typeof OBJ_LABEL, props: Named[]) => props.map((p) => ({ v: `${o}:${p.name}` as Autofill, l: `${p.label} (${p.name})`, g: `${OBJ_LABEL[o]} property` }));
+  return [{ v: "auto", l: "Auto", g: "" }, { v: "none", l: "Nothing - always typed", g: "" }, ...fixed,
+    ...obj("ticket", c.properties), ...obj("company", c.companyProps ?? []), ...obj("contact", c.contactProps ?? [])];
+}
+const filterSources = createFilterOptions<SourceOpt>({ limit: 80, stringify: (o) => `${o.g} ${o.l}` });
+
+function SourcePicker({ x, options, onChange }: { x: Field; options: SourceOpt[]; onChange: (v: Autofill | undefined) => void }) {
+  const v = x.autofill ?? "auto";
+  const sel = options.find((o) => o.v === v) ?? (OBJ_SOURCE.test(v) ? { v, l: `${v} - not in HubSpot`, g: "" } : options[0]);
+  const label = (o: SourceOpt) => (o.v === "auto" ? autoLabel(x) : o.g && o.g !== DETECTED_GROUP ? `${o.g.replace(" property", "")}: ${o.l}` : o.l);
+  return (
+    <Autocomplete size="small" options={options} value={sel} disableClearable groupBy={(o) => o.g} filterOptions={filterSources}
+      getOptionLabel={label} isOptionEqualToValue={(a, b) => a.v === b.v}
+      onChange={(_, o) => onChange(!o || o.v === "auto" ? undefined : o.v)}
+      renderInput={(p) => <TextField {...p} placeholder="type to search a property" />} />
+  );
+}
 const cell = { ...bodyCell, fontSize: "0.82rem", py: 0.75, verticalAlign: "top" } as const;
 const small = { size: "small" as const, fullWidth: true };
 const csv = (a: string[]) => a.join(", ");
@@ -88,14 +115,15 @@ function RowTools({ i, n, onMove, onDelete, locked }: { i: number; n: number; on
 }
 
 /** A form's fields: label, property, type, choices, where the card fills it from, required - in order. */
-function FieldsEditor({ value, props, gqs, onChange }: { value: Field[]; props: Prop[]; gqs: boolean; onChange: (v: Field[]) => void }) {
+function FieldsEditor({ value, props, sources, gqs, onChange }: { value: Field[]; props: Prop[]; sources: SourceOpt[]; gqs: boolean; onChange: (v: Field[]) => void }) {
   const set = (i: number, patch: Partial<Field>) => onChange(value.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-        <b>Filled from</b>: where the card takes the value when it opens. <b>Auto</b> picks it from the property (articles, company,
-        mandant, order, delivery date); when that is empty, the parent ticket&apos;s same property, then what the ticket&apos;s text
-        says. <b>Required</b>: the card does not create the sub-ticket until the field is filled.
+        <b>Filled from</b>: where the card takes the value when it opens - something it detects (articles, company, mandant, order,
+        delivery date) or any property of the parent ticket, its company or its contact (type to search). <b>Auto</b> picks the
+        detected value that fits; when a source is empty, the card tries the same property on the parent ticket, the company and
+        the contact, then what the ticket&apos;s text says. <b>Required</b>: the card does not create the sub-ticket until the field is filled.
       </Typography>
       <Table size="small">
         <TableHead><TableRow>{["#", "Label", "HubSpot property", "Type", "Choices (lists)", "Filled from", "Required", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
@@ -121,10 +149,8 @@ function FieldsEditor({ value, props, gqs, onChange }: { value: Field[]; props: 
                     </>
                   ) : <Typography sx={{ fontSize: "0.78rem", color: MUTED, pt: 1 }}>-</Typography>}
                 </TableCell>
-                <TableCell sx={{ ...cell, minWidth: 210 }}>
-                  <TextField select {...small} value={x.autofill ?? "auto"} onChange={(e) => set(i, { autofill: e.target.value === "auto" ? undefined : (e.target.value as Autofill) })}>
-                    {AUTOFILL.map((a) => <MenuItem key={a.v} value={a.v}>{a.v === "auto" ? autoLabel(x) : a.l}</MenuItem>)}
-                  </TextField>
+                <TableCell sx={{ ...cell, minWidth: 280 }}>
+                  <SourcePicker x={x} options={sources} onChange={(autofill) => set(i, { autofill })} />
                 </TableCell>
                 <TableCell sx={{ ...cell, whiteSpace: "nowrap" }}>
                   {locked ? (
@@ -190,10 +216,11 @@ function PieceEditor({ s, piece, onSaved }: { s: State; piece: Piece; onSaved: (
   };
   const d = s.draft;
   const props = c.properties;
+  const sources = useMemo(() => sourceOptions(c), [c]);
   const enumOpts = (name: string) => props.find((p) => p.name === name)?.options ?? [];
   let editor: React.ReactNode;
   if (piece.section === "gqsForms" || piece.section === "pmForms") {
-    editor = <FieldsEditor value={value as Field[]} props={props} gqs={piece.section === "gqsForms"} onChange={setValue} />;
+    editor = <FieldsEditor value={value as Field[]} props={props} sources={sources} gqs={piece.section === "gqsForms"} onChange={setValue} />;
   } else if (piece.section === "pipelines") {
     editor = <RowsEditor value={value as SmartForm["pipelines"]} onChange={setValue} blank={{ label: "", value: "", stage: "" }} cols={[
       { label: "Label", render: (r, set) => <TextField {...small} value={r.label} onChange={(e) => set({ label: e.target.value })} /> },
