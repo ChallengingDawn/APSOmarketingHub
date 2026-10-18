@@ -200,7 +200,7 @@ function CountryVisibility({ live, v, win, chosen }: { live: LiveKpis; v: KpiVie
  * A KPI the hub is still building - what it will show, what it waits for, what happens
  * meanwhile (SARCLA 18.10: the email statistics are not in the app's scope; LinkedIn "under building").
  */
-function BeingBuilt({ id, icon, waits, meanwhile }: { id: string; icon: React.ReactNode; waits: string; meanwhile: string }) {
+function BeingBuilt({ id, icon, waits, meanwhile, title, shows, from }: { id: string; icon: React.ReactNode; waits: string; meanwhile: string; title?: string; shows?: string; from?: string }) {
   const k = KPIS.find((x) => x.id === id);
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, border: `1px dashed ${TINT.amber.fg}` }}>
@@ -208,8 +208,8 @@ function BeingBuilt({ id, icon, waits, meanwhile }: { id: string; icon: React.Re
         <Badge icon={icon} tint="amber" />
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>{id} · being built</Typography>
-          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{k?.name ?? id}</Typography>
-          {k?.question && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{k.question}</Typography>}
+          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{title ?? k?.name ?? id}</Typography>
+          {!title && k?.question && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{k.question}</Typography>}
         </Box>
         <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, fontSize: "0.74rem", fontWeight: 700, color: TINT.amber.fg, bgcolor: TINT.amber.bg, px: 1, py: 0.4, borderRadius: "999px" }}>
           <ConstructionOutlinedIcon sx={{ fontSize: 16 }} /> Being built
@@ -217,9 +217,9 @@ function BeingBuilt({ id, icon, waits, meanwhile }: { id: string; icon: React.Re
       </Box>
       <Box sx={{ display: "grid", gap: 0.75, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "160px minmax(0, 1fr)" }, fontSize: "0.86rem" }}>
         <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>It will show</Typography>
-        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{k?.definition ?? ""} By {k?.breakdowns?.toLowerCase().replace(/ · /g, ", ") || "month"}.</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{shows ?? `${k?.definition ?? ""} By ${k?.breakdowns?.toLowerCase().replace(/ · /g, ", ") || "month"}.`}</Typography>
         <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>From</Typography>
-        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{k?.source ?? ""}</Typography>
+        <Typography sx={{ fontSize: "0.86rem", color: INK }}>{from ?? k?.source ?? ""}</Typography>
         <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>Waiting for</Typography>
         <Typography sx={{ fontSize: "0.86rem", color: INK }}>{waits}</Typography>
         <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>Meanwhile</Typography>
@@ -518,28 +518,39 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
       )}
       {tab === "ads" && <SeaNetworks live={live} win={win} />}
       {tab === "ads" && (() => {
-        // Microsoft Ads: what GA4 sees of it now, and what is typed from Microsoft Advertising until its API is open
-        const typed = MICROSOFT_TYPED.filter((id) => views[id]?.series.months.some((x) => x != null) || views[id]?.series.py.some((x) => x != null));
+        // Microsoft Ads: what GA4 sees of it, and the account's own impressions, clicks and cost from the script's sheet
+        const fromSheet = waiting.R01M ? [] : MICROSOFT_TYPED.filter((id) => views[id]?.series.months.some((x) => x != null) || views[id]?.series.py.some((x) => x != null));
         const liveCards = MICROSOFT_LIVE.map(card).filter(Boolean);
+        const ms = live.breakdowns.msAds;
         return (
           <>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 0.5 }}>
               <Badge icon={<AdsClickIcon />} tint="blue" size={30} />
               <Box>
                 <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>Microsoft Ads</Typography>
-                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Visits, orders and revenue as GA4 sees them; impressions, clicks and cost typed from Microsoft Advertising until the hub can read it</Typography>
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                  Visits, orders and revenue as GA4 sees them; impressions, clicks and cost from the account itself, sent by a script in Microsoft Advertising every morning
+                  {ms?.through ? ` - counted up to ${ms.through}` : ""}
+                </Typography>
               </Box>
             </Box>
             {liveCards.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{liveCards}</Box>}
-            {typed.length > 0
-              ? <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{typed.map(card)}</Box>
+            {/* a script that stopped writing must not pass for figures that are current (the shelf lesson, 14.10) */}
+            {ms?.stale && fromSheet.length > 0 && (
+              <GlassCard sx={{ py: 1.25, border: `1px solid ${RED}` }}>
+                <Typography sx={{ fontSize: "0.86rem", color: RED, fontWeight: 600 }}>
+                  The Microsoft Advertising script has not written since {ms.written ? ms.written.slice(0, 10) : "it was set up"} - these figures stop there. Check the script&apos;s runs in Microsoft Advertising (Tools → Scripts).
+                </Typography>
+              </GlassCard>
+            )}
+            {fromSheet.length > 0
+              ? <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{fromSheet.map(card)}</Box>
               : (
-                <GlassCard sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                  <Typography sx={{ flex: 1, minWidth: 260, fontSize: "0.88rem", color: MUTED }}>
-                    Microsoft Ads impressions, clicks and cost come in by hand until Microsoft lets the hub read them: type each month&apos;s figures from Microsoft Advertising&apos;s report.
-                  </Typography>
-                  <Button component="a" href="/reporting/marketing-kpis/inputs" variant="outlined" sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Open Monthly inputs</Button>
-                </GlassCard>
+                <BeingBuilt id="R01M" icon={<AdsClickIcon />} title="Microsoft Ads impressions, clicks and cost"
+                  shows="Impressions, clicks and cost of every campaign in the Microsoft Advertising account, by month, this year against last."
+                  from="Microsoft Advertising - a script in the account writes them to a Google Sheet every morning; the hub reads the sheet."
+                  waits={waiting.R01M ? "The Google Sheet the Microsoft Advertising script writes to - being set up." : "The script's first run: it writes the months to the sheet every morning."}
+                  meanwhile="Visits, orders and revenue from Microsoft Ads already come from GA4, above." />
               )}
           </>
         );

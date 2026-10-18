@@ -29,6 +29,8 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMonths, type MonthAcc } from "./searchMonthly";
 import { countryTable, mergeCountryMonths, r09Series, type CountryMonths, type CountryRow } from "./countryMonths";
 import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
+import { msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
+import { googleFetchJson } from "@/lib/integrations/google";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
@@ -70,6 +72,8 @@ export type LiveKpis = {
     seaCurrency?: "EUR" | "CHF";
     /** "YYYY-MM" -> network -> [impressions, clicks, cost] - Reach's period filter */
     seaNetworkMonths?: Record<string, Record<string, [number, number, number]>>;
+    /** the Microsoft Advertising script's sheet: the last day counted, when it was written, whether it has stopped */
+    msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null };
     seaUpTo?: number;
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
@@ -95,7 +99,7 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
   return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV ? 0 : TTL_MS), build);
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || (msAdsSheetId() && !v?.breakdowns?.msAds) ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -229,6 +233,7 @@ async function build(): Promise<LiveKpis> {
   let searchSame: number[] | undefined;
   let searchCountryMonths: CountryMonths | undefined;
   let seaNetworks: LiveKpis["breakdowns"]["seaNetworks"];
+  let msAds: LiveKpis["breakdowns"]["msAds"];
   const seaNetworkMonths: NonNullable<LiveKpis["breakdowns"]["seaNetworkMonths"]> = {};
   const waiting: Record<string, string> = {};
   await guard("ga4", async () => {
@@ -381,6 +386,28 @@ async function build(): Promise<LiveKpis> {
     Object.assign(series, s);
   });
 
+  // Microsoft Ads impressions, clicks and cost: the Microsoft Advertising script's Google Sheet
+  await guard("microsoftAdsSheet", async () => {
+    const id = msAdsSheetId();
+    if (!id) {
+      const why = "Being set up: a script in Microsoft Advertising will write these to a Google Sheet every morning";
+      for (const k of ["R01M", "R02M", "X01M"]) waiting[k] = why;
+      return;
+    }
+    reportProgress(KEY, "reading the Microsoft Ads sheet");
+    const r = await googleFetchJson<{ values?: unknown[][] }>({
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("A1:I60")}?valueRenderOption=UNFORMATTED_VALUE`,
+      scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Microsoft Ads sheet",
+    });
+    const sheet = parseMsAdsSheet(r.values);
+    const rate = Object.keys(fx).length && (sheet.currency ?? "CHF") === "CHF" ? (v: number, m: string) => chfToEur(v, m, fx) : undefined;
+    const s = msAdsSeries(sheet, year, rate);
+    // francs that could not be turned into euros are left out rather than shown under a euro sign
+    if ((sheet.currency ?? "CHF") === "CHF" && !rate) delete (s as Partial<typeof s>).X01M;
+    Object.assign(series, s);
+    msAds = { through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency };
+  });
+
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)
   await guard("googleAds", async () => {
     reportProgress(KEY, "reading Google Ads through GA4");
@@ -418,7 +445,7 @@ async function build(): Promise<LiveKpis> {
   return {
     generatedAt: new Date().toISOString(), year, monthsDone,
     series, ytd,
-    breakdowns: { channels, countries, searchCountries, searchSame, searchCountryMonths, seaNetworks, seaNetworkMonths, seaUpTo: monthsDone, seaCurrency: Object.keys(fx).length ? "EUR" : "CHF", prio, handover },
+    breakdowns: { channels, countries, searchCountries, searchSame, searchCountryMonths, seaNetworks, seaNetworkMonths, msAds, seaUpTo: monthsDone, seaCurrency: Object.keys(fx).length ? "EUR" : "CHF", prio, handover },
     search,
     errors,
     waiting,

@@ -87,14 +87,14 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "R11C", label: "Email click rate", fmt: "pct", agg: { kind: "ratio", num: "R11CL", den: "R11" }, origin: "live", notCatalogue: true, extraIn: "1", liveSource: "HubSpot marketing email", definition: "Clicks / emails delivered" }),
   M({ id: "R11OP", label: "Email opens", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R11CL", label: "Email clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
-  // Microsoft Ads (SARCLA 18.10: "GA4 now + type the rest"): the visits, orders and revenue GA4 tags
-  // bing / ppc, live; impressions, clicks and cost typed from Microsoft Advertising until its API is open
+  // Microsoft Ads (SARCLA 18.10): the visits, orders and revenue GA4 tags bing / ppc; impressions, clicks
+  // and cost from the Microsoft Advertising script's Google Sheet (scripts/microsoft-ads) - no typing
   M({ id: "MSV", label: "Microsoft Ads visits", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Visits from Microsoft Ads (bing / ppc) as GA4 sees them - only visitors who accepted statistics cookies" }),
   M({ id: "MSO", label: "Microsoft Ads orders", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Orders from Microsoft Ads visits, GA4's last click" }),
   M({ id: "MSR", label: "Microsoft Ads revenue", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Revenue of those orders, GA4's francs in euros at the month's ECB rate" }),
-  M({ id: "R01M", label: "Microsoft Ads impressions", fmt: "int", agg: { kind: "sum" }, origin: "sheet", notCatalogue: true, note: "Typed from Microsoft Advertising until the hub reads it" }),
-  M({ id: "R02M", label: "Microsoft Ads clicks", fmt: "int", agg: { kind: "sum" }, origin: "sheet", notCatalogue: true, note: "Typed from Microsoft Advertising until the hub reads it" }),
-  M({ id: "X01M", label: "Microsoft Ads cost", fmt: "eur", typedCurrency: "CHF", agg: { kind: "sum" }, origin: "sheet", notCatalogue: true, goodWhenUp: false, note: "Typed in francs from Microsoft Advertising, shown in euros at the month's ECB rate" }),
+  M({ id: "R01M", label: "Microsoft Ads impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
+  M({ id: "R02M", label: "Microsoft Ads clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
+  M({ id: "X01M", label: "Microsoft Ads cost", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, goodWhenUp: false, liveSource: "the Microsoft Advertising script", note: "The account's spend, francs in euros at the month's ECB rate" }),
   M({ id: "R10N", label: "AI answers naming APSO", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10D", label: "AI answers", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R08B", label: "Brand search clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", likeForLike: true, liveSource: "Search Console", notCatalogue: true }),

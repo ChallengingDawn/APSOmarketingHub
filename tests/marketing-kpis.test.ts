@@ -61,8 +61,8 @@ test("every measured KPI is in the catalogue (SEA cost is the journey's extra), 
   // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of; R11's open and click rates and their parts sit beside it
   for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D", "R11O", "R11C", "R11OP", "R11CL", "MSV", "MSO", "MSR", "R01M", "R02M", "X01M"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
   // Reach is live since 17.10.2026 - SEO from Search Console, SEA from Google Ads: R01, R02, R04-R07 are no longer typed
-  // and Microsoft Ads' impressions, clicks and cost, typed until its API is open to the hub (18.10.2026)
-  assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "R01M", "R02M", "V01", "X01", "X01M"]);
+  // Microsoft Ads' impressions, clicks and cost come from the script's sheet - never typed (18.10.2026)
+  assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "V01", "X01"]);
 });
 
 test("formats", () => {
