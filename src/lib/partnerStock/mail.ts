@@ -7,11 +7,13 @@ import { esc } from "@/lib/notify/mailer";
 export type PartnerStockMail = {
   partner: string; day: string; time: string; articles: number; inStock: number; moq: number; inactive: number; specials: number;
   filename: string; test: string[] | null;
+  /** Who answers the partner's questions - named in the mail and where a reply goes, never the shared support inbox. */
+  contact: string | null;
 };
 
 export const SAMPLE_PARTNER_STOCK: PartnerStockMail = {
   partner: "ITAFRAN", day: "2026-10-19", time: "07:00", articles: 271, inStock: 180, moq: 13, inactive: 0, specials: 18,
-  filename: "APSOparts stock ITAFRAN 2026-10-19.xlsx", test: null,
+  filename: "APSOparts stock ITAFRAN 2026-10-19.xlsx", test: null, contact: "claudio.saraiva@apsoparts.com",
 };
 
 const dmy = (d: string) => d.split("-").reverse().join(".");
@@ -31,6 +33,10 @@ export function renderPartnerStockMail(m: PartnerStockMail): { subject: string; 
   // only APSOparts on the mail (SARCLA 18.10.2026)
   const sign = ["Meilleures salutations / Best regards", "APSOparts®"];
   const banner = m.test ? `TEST - this mail went only to ${m.test.join(", ")}, not to ${m.partner}.` : null;
+  // a person to write to, not "reply" - a reply to the shared support inbox lands on colleagues (SARCLA 18.10.2026)
+  const footer = m.contact
+    ? `Envoyé automatiquement chaque matin. Des questions ? Écrivez à ${m.contact}. / Sent automatically every morning. Questions? Write to ${m.contact}.`
+    : "Envoyé automatiquement chaque matin. / Sent automatically every morning.";
   const p = (t: string, extra = "") => `<p style="margin:0 0 12px;font-size:14px;line-height:1.55;color:#1d2433${extra}">${esc(t)}</p>`;
   const html = `<!doctype html><html><body style="margin:0;background:#f4f5f7">
   <div style="max-width:640px;margin:0 auto;padding:26px 20px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
@@ -43,8 +49,8 @@ export function renderPartnerStockMail(m: PartnerStockMail): { subject: string; 
       <p style="margin:16px 0 0;font-size:13px;color:#5d6b85">📎 ${esc(m.filename)}</p>
       <p style="margin:18px 0 0;font-size:14px;line-height:1.55;color:#1d2433">${sign.map(esc).join("<br>")}</p>
     </div>
-    <p style="margin:14px 0 0;font-size:12px;color:#8b93a3">Sent automatically every morning. Questions? Reply to this e-mail.</p>
+    <p style="margin:14px 0 0;font-size:12px;color:#8b93a3">${esc(footer)}</p>
   </div></body></html>`;
-  const text = [...(banner ? [banner, ""] : []), ...fr, "", ...en, "", `Attachment: ${m.filename}`, "", ...sign].join("\n");
+  const text = [...(banner ? [banner, ""] : []), ...fr, "", ...en, "", `Attachment: ${m.filename}`, "", ...sign, "", footer].join("\n");
   return { subject, html, text };
 }

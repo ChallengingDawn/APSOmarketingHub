@@ -37,7 +37,7 @@ import type { Line, PartnerMode } from "@/lib/partnerStock/rules";
 
 type LogRow = { at: string; kind: string; mode: string; recipients: string[]; articles: number; in_stock: number; ok: boolean; error: string | null };
 type Data = {
-  partners: { key: string; name: string }[]; partner: { key: string; name: string; codeHeader: string; sheet: string };
+  partners: { key: string; name: string }[]; partner: { key: string; name: string; codeHeader: string; sheet: string; contact: string };
   settings: PartnerSettings; testTo: string[]; lines: Line[];
   summary: { articles: number; inStock: number; moq: number; inactive: number; specials: number };
   last: SendResult | null; log: LogRow[]; next: string | null; mailReady: boolean; admin: boolean;
@@ -97,7 +97,7 @@ function Sending({ d, onChanged }: { d: Data; onChanged: () => void }) {
               <TextField size="small" label={`Send to (${d.partner.name})`} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@itafran.com, ..." />
               <TextField size="small" label="Copy (cc)" value={cc} onChange={(e) => setCc(e.target.value)} />
               <TextField size="small" label="Test address" value={testTo} onChange={(e) => setTestTo(e.target.value)} helperText={s.testTo.length ? undefined : `Empty: ${d.testTo.join(", ") || "-"}`} />
-              <TextField size="small" label="Replies go to" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} helperText={s.replyTo ? undefined : "Empty: support@apsoparts.com"} />
+              <TextField size="small" label="Replies go to" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} helperText={s.replyTo ? undefined : `Empty: ${d.partner.contact} - named in the mail for questions`} />
             </Box>
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
               <Button size="small" variant="contained" disableElevation disabled={!!busy} onClick={() => void put({ to, cc, testTo, replyTo }, "save")} sx={{ borderRadius: "999px", textTransform: "none" }}>

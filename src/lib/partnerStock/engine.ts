@@ -15,9 +15,11 @@ import { renderPartnerStockMail } from "./mail";
 import { xlsx } from "./xlsx";
 import { addresses, due, lineOf, nextSend, summary, zurich, type Article, type Line, type PartnerMode } from "./rules";
 
-export type Partner = { key: string; name: string; sheet: string; codeHeader: string; articles: [string, string][] };
+/** contact: who the partner writes to, and where replies go unless "Replies go to" says otherwise. */
+export type Partner = { key: string; name: string; sheet: string; codeHeader: string; articles: [string, string][]; contact: string };
 export const PARTNERS: Partner[] = [
-  { key: "itafran", name: "ITAFRAN", sheet: ITAFRAN_SHEET, codeHeader: "Code ITAFRAN", articles: ITAFRAN_ARTICLES },
+  // SARCLA 18.10.2026: questions to claudio.saraiva@apsoparts.com, not a reply to support (lands on colleagues)
+  { key: "itafran", name: "ITAFRAN", sheet: ITAFRAN_SHEET, codeHeader: "Code ITAFRAN", articles: ITAFRAN_ARTICLES, contact: "claudio.saraiva@apsoparts.com" },
 ];
 export const partnerOf = (key: string | null | undefined): Partner => PARTNERS.find((p) => p.key === key) ?? PARTNERS[0];
 
@@ -175,9 +177,10 @@ export async function sendPartner(key: string, kind: "scheduled" | "test", reque
     out.articles = sum.articles;
     out.inStock = sum.inStock;
     const filename = fileName(p, day);
-    const m = renderPartnerStockMail({ partner: p.name, day, time: zurichTime(at), ...sum, filename, test: test ? to : null });
+    const contact = s.replyTo ?? p.contact;
+    const m = renderPartnerStockMail({ partner: p.name, day, time: zurichTime(at), ...sum, filename, test: test ? to : null, contact });
     await sendHubMail({
-      to: to.join(", "), ...(cc.length ? { cc: cc.join(", ") } : {}), ...m, ...(s.replyTo ? { replyTo: s.replyTo } : {}),
+      to: to.join(", "), ...(cc.length ? { cc: cc.join(", ") } : {}), ...m, replyTo: contact,
       attachments: [{ filename, content: await workbook(p, lines, at), contentType: XLSX }],
     });
     out.ok = true;
@@ -250,7 +253,7 @@ export async function partnerReport(key: string) {
   const lastDay = done && (done.ok || done.tries >= MAX_TRIES) ? done.day : null;
   return {
     partners: PARTNERS.map((x) => ({ key: x.key, name: x.name })),
-    partner: { key: p.key, name: p.name, codeHeader: p.codeHeader, sheet: p.sheet },
+    partner: { key: p.key, name: p.name, codeHeader: p.codeHeader, sheet: p.sheet, contact: p.contact },
     settings: s, testTo: await testRecipients(s), lines, summary: summary(lines), last: last ?? null, log,
     next: s.mode === "off" ? null : nextSend(lastDay, new Date(), s.weekdaysOnly), mailReady: mailConfigured(),
   };

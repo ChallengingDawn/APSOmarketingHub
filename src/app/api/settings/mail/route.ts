@@ -45,7 +45,7 @@ function templates(me: { full_name: string; username: string; email: string | nu
     {
       key: "partner-stock", name: "Stock to partners - the daily stock file", audience: "Partners (ITAFRAN)",
       when: "Every morning at 07:00 Zurich time, with the partner's article list attached as an Excel file - its code and ours, our stock, MOQ and status. In test mode only to the test address. Set up under UC & HubSpot Apps > Stock to partners. French and English; the Excel file is not attached to this preview.",
-      from: FROM, replyTo: `${REPLY_TO} (or the "Replies go to" address)`,
+      from: FROM, replyTo: `${SAMPLE_PARTNER_STOCK.contact} (the partner's contact, or the "Replies go to" address)`,
       ...renderPartnerStockMail(SAMPLE_PARTNER_STOCK),
     },
   ];
