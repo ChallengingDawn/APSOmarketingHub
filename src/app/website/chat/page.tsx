@@ -24,10 +24,11 @@ import ConversationsTab from "./ConversationsTab";
 import TestTab from "./TestTab";
 import SetupTab from "./SetupTab";
 import SearchBarChatTab from "./SearchBarChatTab";
+import TopicsTab from "./TopicsTab";
 
-type View = "overview" | "conversations" | "handovers" | "searchbar" | "test" | "setup";
+type View = "overview" | "topics" | "conversations" | "handovers" | "searchbar" | "test" | "setup";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", test: "#test", setup: "#setup",
+  overview: "#overview", topics: "#topics", conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", test: "#test", setup: "#setup",
 };
 
 export default function ChatPage() {
@@ -39,7 +40,8 @@ export default function ChatPage() {
 
   // every loader in this slot has its own key: a held answer must never be drawn by another tab (search bar, 17.10)
   const panel =
-    view === "conversations" ? <ConversationsTab key={`all-${n}`} handedOnly={false} />
+    view === "topics" ? <TopicsTab key={`topics-${n}`} days={days} label={label} />
+    : view === "conversations" ? <ConversationsTab key={`all-${n}`} handedOnly={false} />
     : view === "handovers" ? <ConversationsTab key={`handed-${n}`} handedOnly />
     : view === "searchbar" ? <SearchBarChatTab key={`searchbar-${n}`} />
     : view === "test" ? <TestTab key="test" />
@@ -55,7 +57,7 @@ export default function ChatPage() {
         subtitle="APSOassistant on the shop - the HubSpot chat and the search bar's AI: how many chats, what the AI answered alone, what it handed to TSA or Back Office, and a test bench"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {view === "overview" && <WindowPicker />}
+            {(view === "overview" || view === "topics") && <WindowPicker />}
             <Tooltip title="Ask the orchestrator again"><IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
@@ -63,6 +65,7 @@ export default function ChatPage() {
       <Box>
         <ReportTabs name="chat" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
+          { id: "topics", label: "Topics", count: null },
           { id: "conversations", label: "Conversations", count: null },
           { id: "handovers", label: "Hand-overs", count: null },
           { id: "searchbar", label: "Search bar chat", count: null },

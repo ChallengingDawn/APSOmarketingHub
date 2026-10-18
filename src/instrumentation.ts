@@ -59,5 +59,10 @@ export async function register() {
     // test mode first - only to the test address. PARTNER_STOCK=off stops it.
     const { startPartnerStock } = await import("./lib/partnerStock/engine");
     startPartnerStock();
+
+    // APSOassistant Chat > Topics: every real chat filed by topic after it ended, from the whole chat in HubSpot
+    // (src/lib/chat/topics.ts, a small Claude model, every 20 min). CHAT_TOPICS=off stops it. SARCLA, 18.10.2026.
+    const { startChatTopics } = await import("./lib/chat/topics");
+    startChatTopics();
   }
 }

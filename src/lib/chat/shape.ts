@@ -60,3 +60,26 @@ export type Transcript = {
 /** The chat went live on the shop on 13.04.2026; 23.03-12.04 was the test phase (~9,300 scripted chats, no
  *  tickets). Counts start here so the test phase neither swamps the chart nor fills "Not classified". */
 export const LIVE_FROM = "2026-04-13";
+
+/** The fixed topics a chat is filed under after it ended (src/lib/chat/topics.ts) - the customer's main reason. */
+export const TOPICS = [
+  { key: "order_status", label: "Order status & delivery", hint: "where is my order, delivery date, tracking, late, shipping costs" },
+  { key: "price_quote", label: "Price & quote", hint: "a price, a quote or offer, a discount, the price not shown, volume prices" },
+  { key: "product_choice", label: "Product choice & technical", hint: "which product or material fits, temperature, media, dimensions, compatibility" },
+  { key: "find_article", label: "Find an article", hint: "looking for a part number, an equivalent of another brand's part, a special article" },
+  { key: "availability", label: "Stock & lead time", hint: "in stock?, lead time, minimum order quantity" },
+  { key: "order_change", label: "Change or cancel an order", hint: "cancel, change quantity or address" },
+  { key: "invoice_payment", label: "Invoice & payment", hint: "invoice, payment method, VAT, credit note" },
+  { key: "certificates", label: "Certificates & documents", hint: "DoC, FDA, 3.1 certificate, CAD or 3D files, data sheets" },
+  { key: "account_website", label: "Account & website", hint: "login, registration, password, a website error, the cart" },
+  { key: "returns_complaint", label: "Return or complaint", hint: "wrong or faulty part, a return, a complaint" },
+  { key: "samples", label: "Samples", hint: "free samples" },
+  { key: "wants_person", label: "Only wants a person", hint: "asks only for a human, a phone number or a contact, nothing else" },
+  { key: "other", label: "Other", hint: "spam, a test, a greeting only, unrelated" },
+] as const;
+export type TopicKey = (typeof TOPICS)[number]["key"];
+/** a chat HubSpot no longer holds is kept as "unreadable" so it is not asked for again */
+export const topicLabel = (k: string) => (TOPICS.find((t) => t.key === k)?.label ?? (k === "unreadable" ? "Could not be read" : k));
+
+/** One run of the filing job. */
+export type TopicsRun = { at: string; ok: boolean; filed: number; unreadable: number; failed: number; waiting: number | null; error: string | null };

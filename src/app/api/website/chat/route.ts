@@ -5,7 +5,9 @@
 //       (counted per CHAT - /dashboard/chat-stats, /dashboard/chats; on an orchestrator without them, per message, marked)
 //       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
-//   POST { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
+//       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
+//   POST { action: "topic-set", session_hash, topic } (anyone with Website: a person's topic, never filed over) | { action: "topics-run" } (admins)
+//        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
 //        { action: "orchestrator", url }   admins: which orchestrator the hub reads
@@ -18,6 +20,8 @@ import {
   LIVE_FROM, type ConversationDetail, type Conversations, type Stats, type TestAnswer,
 } from "@/lib/chat/orchestrator";
 import { chatTranscript } from "@/lib/chat/transcript";
+import { fileNow, setTopic, topicChats, topicSummary } from "@/lib/chat/topics";
+import { TOPICS, type TopicKey } from "@/lib/chat/shape";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +43,14 @@ export async function GET(req: NextRequest) {
   const part = q.get("part") || "overview";
   const isAdmin = access.role === "admin";
   try {
+    if (part === "topics" || part === "topic-chats") {
+      // filed by the hub itself (apsomh_chat_topics): counted from go-live at the earliest
+      const days = int(q.get("days"), 30, 1, 400);
+      const from = new Date(Math.max(Date.now() - days * 86_400_000, Date.parse(`${LIVE_FROM}T00:00:00Z`))).toISOString();
+      if (part === "topics") return ok({ ...(await topicSummary(from)), from, isAdmin });
+      const topic = q.get("topic") || "";
+      return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100)));
+    }
     if (part === "setup") {
       const [setting, health] = await Promise.all([orchestratorSetting(), orchestratorHealth()]);
       return ok({ setting, health, keySet: !!orchestratorKey(), isAdmin });
@@ -110,6 +122,20 @@ export async function POST(req: NextRequest) {
         }
         throw err;
       }
+    }
+    if (body.action === "topic-set") {
+      // a person's topic for one chat: kept, and the AI never files over it
+      const hash = str(body.session_hash, 128), topic = str(body.topic, 40);
+      if (!/^[a-f0-9]{16,128}$/i.test(hash) || !TOPICS.some((t) => t.key === topic)) return NextResponse.json({ ok: false, error: "Which chat, which topic?" }, { status: 400 });
+      await setTopic(hash, topic as TopicKey, who);
+      console.log(`[chat-topics] ${hash.slice(0, 10)} filed under ${topic} by ${who}`);
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "topics-run") {
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const run = await fileNow();
+      console.log(`[chat-topics] run by ${who}: ${run.filed} filed${run.error ? ` (${run.error})` : ""}`);
+      return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
     }
     if (body.action === "orchestrator") {
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
