@@ -53,6 +53,9 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
   { id: "linkedin", label: "LinkedIn", kpis: [] },
   { id: "customers", label: "Customers from search", kpis: [] },
 ];
+/** Microsoft Ads on the Ads tab: GA4's visits, orders and revenue (live), and the typed impressions, clicks and cost */
+const MICROSOFT_LIVE = ["MSV", "MSO", "MSR"];
+const MICROSOFT_TYPED = ["R01M", "R02M", "X01M"];
 /** the KPIs a country choice narrows: Search Console's impressions, clicks and click rate, and the clicks by country */
 const BY_COUNTRY = ["R04", "R05", "R06", "R09"];
 
@@ -462,7 +465,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
   const waiting = live.waiting ?? {};
   const card = (id: string) => {
     const v = views[id];
-    if (!v || !ids.includes(id)) return null;
+    if (!v || (!ids.includes(id) && !MICROSOFT_LIVE.includes(id) && !MICROSOFT_TYPED.includes(id))) return null;
     const k = KPIS.find((x) => x.id === id) ?? { ...KPIS[0], id, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
     return <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} upTo={upToOf(v, state, year)} />;
   };
@@ -514,6 +517,33 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>
       )}
       {tab === "ads" && <SeaNetworks live={live} win={win} />}
+      {tab === "ads" && (() => {
+        // Microsoft Ads: what GA4 sees of it now, and what is typed from Microsoft Advertising until its API is open
+        const typed = MICROSOFT_TYPED.filter((id) => views[id]?.series.months.some((x) => x != null) || views[id]?.series.py.some((x) => x != null));
+        const liveCards = MICROSOFT_LIVE.map(card).filter(Boolean);
+        return (
+          <>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 0.5 }}>
+              <Badge icon={<AdsClickIcon />} tint="blue" size={30} />
+              <Box>
+                <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>Microsoft Ads</Typography>
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Visits, orders and revenue as GA4 sees them; impressions, clicks and cost typed from Microsoft Advertising until the hub can read it</Typography>
+              </Box>
+            </Box>
+            {liveCards.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{liveCards}</Box>}
+            {typed.length > 0
+              ? <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{typed.map(card)}</Box>
+              : (
+                <GlassCard sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                  <Typography sx={{ flex: 1, minWidth: 260, fontSize: "0.88rem", color: MUTED }}>
+                    Microsoft Ads impressions, clicks and cost come in by hand until Microsoft lets the hub read them: type each month&apos;s figures from Microsoft Advertising&apos;s report.
+                  </Typography>
+                  <Button component="a" href="/reporting/marketing-kpis/inputs" variant="outlined" sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Open Monthly inputs</Button>
+                </GlassCard>
+              )}
+          </>
+        );
+      })()}
       {tab === "countries" && views.R09 && (live.breakdowns.searchCountryMonths
         ? <CountryVisibility live={live} v={views.R09} win={win} chosen={countries} />
         : card("R09"))}

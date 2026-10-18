@@ -44,6 +44,7 @@ export type Ga4ReportName =
   | "organicValue"
   | "adsDaily"
   | "adsNetworkDaily"
+  | "msAdsDaily"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -176,6 +177,15 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["advertiserAdImpressions", "advertiserAdClicks", "advertiserAdCost"],
     orderBy: { dimension: "date" },
     limit: 25000,
+  },
+  msAdsDaily: {
+    // Microsoft Ads as GA4 sees it (SARCLA 18.10: "can we really not bring the data?"): the visits
+    // tagged bing / ppc, their orders and revenue, per day - until Microsoft's own API is open to the hub.
+    dimensions: ["date"],
+    metrics: ["sessions", "transactions", "totalRevenue"],
+    filter: { field: "sessionSourceMedium", value: "bing / ppc" },
+    orderBy: { dimension: "date" },
+    limit: 1000,
   },
   transactionsChannel: {
     // Each web order GA4 saw, by its order number and the channel of the session it came in:

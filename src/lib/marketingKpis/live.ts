@@ -12,6 +12,7 @@
 //                    year and last (R09: clicks from the focus markets); every whole month kept
 //   email (R11)      HubSpot's marketing emails per month: delivered, opens, clicks
 //   SEA networks     Google Ads by network (Search, Performance Max...), this year and the same months last
+//   Microsoft Ads    the visits GA4 tags bing / ppc, their orders and revenue, per month this year and last
 //   reach (SEO)      Search Console day by day, folded into months this year and
 //                    last: impressions, clicks, CTR, position, brand share (R04-R08);
 //                    every whole month kept in the hub, beyond Google's 16 months
@@ -94,7 +95,7 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
   return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx ? 0 : TTL_MS), build);
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -352,6 +353,32 @@ async function build(): Promise<LiveKpis> {
       }
     }
     seaNetworks = Object.entries(acc).map(([label, v]) => ({ label, ...v })).sort((a, b) => b.impr + b.pyImpr - (a.impr + a.pyImpr));
+  });
+
+  // Microsoft Ads as GA4 sees it: bing / ppc visits, orders and revenue per month (revenue in euros)
+  await guard("microsoftAds", async () => {
+    reportProgress(KEY, "reading Microsoft Ads visits through GA4");
+    const s = { MSV: empty(), MSO: empty(), MSR: empty() };
+    for (const [side, y, to] of [["py", py, `${py}-12-31`], ["months", year, iso(now)]] as const) {
+      const r = await fetchGa4Report({ name: "msAdsDaily", from: `${y}-01-01`, to });
+      for (const row of r.rows) {
+        const ymd = String(row.keys[0] ?? "");
+        const m = Number(ymd.slice(5, 7)) - 1;
+        if (!(m >= 0 && m < 12)) continue;
+        s.MSV[side][m] = (s.MSV[side][m] ?? 0) + (row.values[0] ?? 0);
+        s.MSO[side][m] = (s.MSO[side][m] ?? 0) + (row.values[1] ?? 0);
+        const chf = row.values[2] ?? 0;
+        s.MSR[side][m] = (s.MSR[side][m] ?? 0) + (Object.keys(fx).length ? chfToEur(chf, ymd.slice(0, 7), fx) ?? chf : chf);
+      }
+    }
+    for (const side of ["months", "py"] as const) {
+      s.MSV[side] = notBeforeFirst(s.MSV[side]);
+      s.MSO[side] = s.MSO[side].map((v, i) => (s.MSV[side][i] == null ? null : v ?? 0));
+      s.MSR[side] = s.MSR[side].map((v, i) => (s.MSV[side][i] == null ? null : v ?? 0));
+    }
+    // without a rate the revenue would be francs under a euro sign: then it is left out
+    if (!Object.keys(fx).length) delete (s as Partial<typeof s>).MSR;
+    Object.assign(series, s);
   });
 
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)
