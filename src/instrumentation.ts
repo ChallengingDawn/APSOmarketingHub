@@ -54,5 +54,10 @@ export async function register() {
     // TICKET_ASSOC=off stops it.
     const { startTicketAssoc } = await import("./lib/ticketAssoc/run");
     startTicketAssoc();
+
+    // Stock to partners: each partner's stock file by e-mail at 07:00 Zurich (src/lib/partnerStock),
+    // test mode first - only to the test address. PARTNER_STOCK=off stops it.
+    const { startPartnerStock } = await import("./lib/partnerStock/engine");
+    startPartnerStock();
   }
 }

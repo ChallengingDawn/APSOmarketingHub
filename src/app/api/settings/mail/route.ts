@@ -9,6 +9,7 @@ import { FROM, REPLY_TO, addressOf, mailConfigured, sendHubMail, smtp } from "@/
 import { SAMPLE_INVITE, renderInviteMail } from "@/lib/content/shareMail";
 import { renderEmail } from "@/lib/doc/email";
 import { SAMPLE_ORDER_ALERT, renderOrderAlert } from "@/lib/ticketAssoc/mail";
+import { SAMPLE_PARTNER_STOCK, renderPartnerStockMail } from "@/lib/partnerStock/mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,12 @@ function templates(me: { full_name: string; username: string; email: string | nu
       when: "When the customer of an open ESO or TSA ticket orders an article the ticket names, on or after the day the ticket was opened. The order is linked to the ticket; one mail per ticket and order. Sent only while Ticket/order/article associations > Order alerts is set to mail.",
       from: FROM, replyTo: REPLY_TO,
       ...renderOrderAlert({ ...SAMPLE_ORDER_ALERT, ownerName: first }),
+    },
+    {
+      key: "partner-stock", name: "Stock to partners - the daily stock file", audience: "Partners (ITAFRAN)",
+      when: "Every morning at 07:00 Zurich time, with the partner's article list attached as an Excel file - its code and ours, our stock, MOQ and status. In test mode only to the test address. Set up under UC & HubSpot Apps > Stock to partners. French and English; the Excel file is not attached to this preview.",
+      from: FROM, replyTo: `${REPLY_TO} (or the "Replies go to" address)`,
+      ...renderPartnerStockMail(SAMPLE_PARTNER_STOCK),
     },
   ];
 }

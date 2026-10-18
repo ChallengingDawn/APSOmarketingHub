@@ -36,6 +36,10 @@ export async function sendHubMail(m: {
   fromName?: string;
   /** Where a reply goes, when it should reach a person rather than support. */
   replyTo?: string;
+  /** Copies, comma separated (Stock to partners, 18.10.2026). */
+  cc?: string;
+  /** Files sent with it - the partners' stock file (18.10.2026). */
+  attachments?: { filename: string; content: Buffer; contentType?: string }[];
 }): Promise<void> {
   const s = smtp();
   if (!s.user || !s.pass) throw new Error("No SMTP credentials: DOC_SMTP_USER / DOC_SMTP_PASS are unset.");
@@ -49,6 +53,7 @@ export async function sendHubMail(m: {
   const info = await transport.sendMail({
     from: m.fromName ? `"${m.fromName.replace(/["<>]/g, "")}" <${addressOf(FROM)}>` : FROM,
     replyTo: m.replyTo || REPLY_TO, to: m.to, subject: m.subject, html: m.html, text: m.text,
+    ...(m.cc ? { cc: m.cc } : {}), ...(m.attachments?.length ? { attachments: m.attachments } : {}),
   });
   if (!info.accepted?.length) {
     throw new Error(`SMTP refused ${m.to}: ${JSON.stringify(info.rejected ?? [])}`);
