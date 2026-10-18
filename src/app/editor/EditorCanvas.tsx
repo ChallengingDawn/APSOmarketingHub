@@ -5,6 +5,7 @@ import { arcPath } from "@/lib/editor/curvedText";
 import { itemCount, LIST_STYLES, listify, splitIntoItems } from "@/lib/editor/lists";
 import { expandSelection, groupNodes, isWholeGroup, moveGroup, groupSiblings, ungroupNodes } from "@/lib/editor/grouping";
 import { reflow, sizeLabel } from "@/lib/editor/resize";
+import { cutoutBackdrop, cutoutVerdict } from "@/lib/editor/cutout";
 import { describeStyle, readStyle, styleFor, type Style } from "@/lib/editor/styleClipboard";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
 import { ChartNode, TableNode } from "./DataNodes";
@@ -37,6 +38,7 @@ import FormatPaintIcon from "@mui/icons-material/FormatPaint";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import KeyboardIcon from "@mui/icons-material/KeyboardOutlined";
 import FindReplaceIcon from "@mui/icons-material/FindReplace";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -1231,6 +1233,90 @@ export default function EditorCanvas({
    * whatever they had copied with a blob of our own JSON is rude.
    */
   const [copiedStyle, setCopiedStyle] = useState<Style | null>(null);
+
+  /** Which image is having its background worked on. */
+  const [cutting, setCutting] = useState<string | null>(null);
+  /** Set when a local cut found nothing, so the model is worth offering. */
+  const [cutFailed, setCutFailed] = useState<string | null>(null);
+
+  /**
+   * Take the flat backdrop out of the selected picture, here, in the browser.
+   *
+   * No service and no model: the subject's pixels are the pixels that were
+   * photographed. Most product shots have a plain backdrop and need nothing
+   * more than this.
+   */
+  const cutBackground = async (n: NodeSpec) => {
+    const el = imgEls[n.src ?? ""];
+    if (!el || !n.src) return;
+    setCutting(n.id);
+    setCutFailed(null);
+    try {
+      const cv = document.createElement("canvas");
+      cv.width = el.naturalWidth;
+      cv.height = el.naturalHeight;
+      const ctx = cv.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(el, 0, 0);
+      const frame = ctx.getImageData(0, 0, cv.width, cv.height);
+      const verdict = cutoutVerdict(cutoutBackdrop(frame.data, cv.width, cv.height));
+      if (!verdict.good) {
+        // Nothing is changed when changing it would not be an improvement,
+        // and the model is offered rather than run unasked.
+        setCutFailed(n.id);
+        setNotice(verdict.why);
+        return;
+      }
+      ctx.putImageData(frame, 0, 0);
+      // PNG, not JPG: a JPEG has no alpha channel, so the whole point would
+      // be flattened back onto white on the way out.
+      patch(n.id, { src: cv.toDataURL("image/png") });
+      setNotice(verdict.why + " Ctrl+Z puts the background back.");
+    } catch {
+      // A picture from another origin taints the canvas and getImageData
+      // throws. Worth saying plainly rather than failing silently.
+      setCutFailed(n.id);
+      setNotice("This picture could not be read back for cutting out. Uploaded and generated images work.");
+    } finally {
+      setCutting(null);
+    }
+  };
+
+  /**
+   * Ask the assistant to redraw the subject on a flat backdrop, then cut that
+   * backdrop out locally.
+   *
+   * Two steps because the models answer "plain white background" reliably and
+   * "transparent PNG" only sometimes. Asking for what works and finishing the
+   * job arithmetically beats asking for what sometimes works.
+   */
+  const redrawWithoutBackground = async (n: NodeSpec) => {
+    if (!n.src) return;
+    setCutting(n.id);
+    try {
+      const r = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Isolate the product in the reference picture.",
+          isolate: true,
+          references: [{ dataUrl: n.src }],
+        }),
+      }).then((x) => x.json());
+      const url: string | undefined = r?.image ?? r?.dataUrl ?? r?.url;
+      if (!url) {
+        setNotice(r?.error ? String(r.error) : "The assistant could not redraw this picture.");
+        return;
+      }
+      patch(n.id, { src: url });
+      setCutFailed(null);
+      setNotice("Redrawn on a flat background. Press Remove background again to make it transparent.");
+    } catch {
+      setNotice("The assistant could not be reached.");
+    } finally {
+      setCutting(null);
+    }
+  };
 
   /** The selection, when it is exactly one whole group. */
   const grouped = isWholeGroup(nodes, selectedIds);
@@ -3120,6 +3206,32 @@ export default function EditorCanvas({
               {sec === "adjust" && selected && (
                 <>
                   <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+                    {/* Local first: it costs nothing and keeps the
+                        photographed pixels. The assistant only appears once
+                        the local cut has found no flat backdrop. */}
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={cutting === selected.id}
+                      startIcon={cutting === selected.id ? <CircularProgress size={13} /> : <AutoFixHighIcon />}
+                      onClick={() => void cutBackground(selected)}
+                      sx={{ fontWeight: 700 }}
+                    >
+                      Remove background
+                    </Button>
+                    {cutFailed === selected.id && (
+                      <Tooltip title="The assistant redraws the product on a flat background. The result is a DRAWING of the part, not the photograph — check it before it goes to a customer.">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={cutting === selected.id}
+                          onClick={() => void redrawWithoutBackground(selected)}
+                          sx={{ fontWeight: 700 }}
+                        >
+                          Let the assistant redraw it
+                        </Button>
+                      </Tooltip>
+                    )}
               <Button size="small" variant={selected.flipH ? "contained" : "outlined"} onClick={() => patch(selected.id, { flipH: !selected.flipH })} sx={{ fontWeight: 700 }}>
                 Flip H
               </Button>

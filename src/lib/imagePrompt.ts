@@ -12,9 +12,43 @@ export type ImagePromptInput = {
    * there and must never contain lettering of its own.
    */
   overlaySpace?: boolean;
+  /**
+   * Redraw the subject of the reference picture alone, on a flat backdrop.
+   *
+   * Everything the house prompt adds - editorial framing, lighting, quiet
+   * space for a headline - is exactly wrong here: it would put the subject
+   * back into a scene. So this returns its own short, literal prompt instead.
+   */
+  isolate?: boolean;
 };
 
+/**
+ * The isolation prompt.
+ *
+ * It asks for a FLAT BACKDROP rather than transparency. The models answer
+ * "plain white background" reliably and "transparent PNG" only sometimes, and
+ * a flat backdrop is all cutoutBackdrop() needs to make it transparent
+ * locally and exactly. Asking for the thing that works and finishing the job
+ * arithmetically beats asking for the thing that sometimes works.
+ */
+export function isolatePrompt(): string {
+  return [
+    "The attached picture contains one product. Redraw THAT product, alone, filling the frame.",
+    "",
+    "- a plain, perfectly uniform white background, the same white in every corner",
+    "- nothing else in the frame: no surface, no shadow cast onto a floor, no props, no hands, no lettering, no watermark",
+    "- the product's own shape, proportions, colour, material and markings exactly as in the attached picture",
+    "- do not restyle it, do not improve it, do not change the angle",
+    "- a soft contact shadow directly under it is acceptable; a cast shadow across a background is not",
+    "",
+    "The result is going to have its background removed arithmetically, so the background must be flat and the edges of the product crisp.",
+  ].join("\n");
+}
+
 export function buildImagePrompt(brain: Brain, input: ImagePromptInput): string {
+  // Isolation is not a photograph brief and must not be dressed as one.
+  if (input.isolate) return isolatePrompt();
+
   const g = brain.photoGuidelines;
   const sections: string[] = [];
 

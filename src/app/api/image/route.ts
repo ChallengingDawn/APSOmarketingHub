@@ -15,6 +15,8 @@ type Body = {
   referenceNotes?: string;
   aspect?: ImagePromptInput["aspect"];
   overlaySpace?: boolean;
+  /** Redraw the reference's subject on a flat backdrop, with no house style. */
+  isolate?: boolean;
 };
 
 export async function POST(req: NextRequest) {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     referenceNotes: body.referenceNotes,
     aspect: body.aspect,
     overlaySpace: body.overlaySpace ?? false,
+    isolate: body.isolate === true,
   });
 
   const result = await generateApsoImage(geminiKey, fullPrompt, body.references ?? []);
