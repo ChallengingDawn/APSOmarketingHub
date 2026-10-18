@@ -23,7 +23,7 @@ import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import { full } from "@/app/charts/format";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HsLink, KpiTile, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { num, type Conversation, type Health, type Stats } from "@/lib/chat/orchestrator";
+import { num, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
 import { Bars, HandlerChip, PagedBars, category, pct, when } from "./shared";
 
 export type OverviewData = { stats: Stats; recent: Conversation[]; health: Health | null };

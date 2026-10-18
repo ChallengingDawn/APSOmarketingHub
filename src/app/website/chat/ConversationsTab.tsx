@@ -22,7 +22,7 @@ import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
 import { full } from "@/app/charts/format";
 import { Choice } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, HsLink, INK, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import type { Conversation, ConversationDetail, Conversations } from "@/lib/chat/orchestrator";
+import type { Conversation, ConversationDetail, Conversations } from "@/lib/chat/shape";
 import { HandlerChip, LANGUAGES, Loaded, category, when } from "./shared";
 
 const PER = 25;

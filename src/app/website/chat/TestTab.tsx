@@ -15,7 +15,7 @@ import Typography from "@mui/material/Typography";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import { Choice, Chip } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
-import type { TestAnswer } from "@/lib/chat/orchestrator";
+import type { TestAnswer } from "@/lib/chat/shape";
 import { COUNTRIES, LANGUAGES, pill, post } from "./shared";
 
 type Line = { me: boolean; text: string; a?: TestAnswer };
@@ -47,11 +47,17 @@ export default function TestTab() {
       <CardTitle icon={<ScienceOutlinedIcon />} tint="purple" title="Try the chat's AI"
         note="Write as a customer would. The answer comes from the same AI as the shop chat, with what it decided and how long it took. Nothing is written: no ticket, no contact, no statistics." />
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-        <Choice value={lang} onChange={(k) => { setLang(k); reset(); }} options={LANGUAGES.map((l) => ({ key: l, label: l.toUpperCase() }))} />
-        <Choice value={country} onChange={(k) => { setCountry(k); reset(); }} options={COUNTRIES.map((c) => ({ key: c, label: c }))} />
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Language</Typography>
+          <Choice value={lang} onChange={(k) => { setLang(k); reset(); }} options={LANGUAGES.map((l) => ({ key: l, label: l.toUpperCase() }))} />
+        </Box>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Shop</Typography>
+          <Choice value={country} onChange={(k) => { setCountry(k); reset(); }} options={COUNTRIES.map((c) => ({ key: c, label: c }))} />
+        </Box>
       </Box>
 
-      <Box sx={{ display: "grid", gap: 1, minHeight: 120, maxHeight: 520, overflow: "auto", p: 1.5, borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(106,70,201,.03)" }}>
+      <Box sx={{ display: "grid", gap: 1, alignContent: "start", minHeight: 120, maxHeight: 520, overflow: "auto", p: 1.5, borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(106,70,201,.03)" }}>
         {!lines.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>For example: "Where is my order A26.123456.000?" or "Which O-ring for hot water at 120 °C?"</Typography>}
         {lines.map((l, i) => (
           <Box key={i} sx={{ justifySelf: l.me ? "end" : "start", maxWidth: "80%", display: "grid", gap: 0.5 }}>
@@ -69,8 +75,8 @@ export default function TestTab() {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
           slotProps={{ htmlInput: { "aria-label": "Test message", maxLength: 2000 } }} />
-        <Button variant="contained" sx={pill} disabled={busy || !text.trim()} onClick={() => void send()}>Send</Button>
-        <Button variant="outlined" sx={pill} disabled={busy || !lines.length} onClick={reset}>New conversation</Button>
+        <Button variant="contained" sx={{ ...pill, flexShrink: 0 }} disabled={busy || !text.trim()} onClick={() => void send()}>Send</Button>
+        <Button variant="outlined" sx={{ ...pill, whiteSpace: "nowrap", flexShrink: 0 }} disabled={busy || !lines.length} onClick={reset}>New conversation</Button>
       </Box>
     </GlassCard>
   );

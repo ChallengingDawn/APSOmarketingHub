@@ -13,7 +13,8 @@ import SettingsEthernetOutlinedIcon from "@mui/icons-material/SettingsEthernetOu
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, INK, MUTED, Notice } from "@/app/uc/report/ui";
-import type { Health, OrchestratorSetting } from "@/lib/chat/orchestrator";
+import type { Health } from "@/lib/chat/shape";
+import type { OrchestratorSetting } from "@/lib/chat/orchestrator";   // a type only: nothing of the server file reaches the browser
 import { Loaded, pill, post, when } from "./shared";
 
 type Setup = { setting: OrchestratorSetting; health: Health | null; keySet: boolean; isAdmin: boolean };

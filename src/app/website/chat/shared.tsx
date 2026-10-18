@@ -7,7 +7,7 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { Chip } from "@/app/connectors/parts";
 import type { Tint } from "@/app/uc/report/ui";
-import { handlerOf, type Conversation } from "@/lib/chat/orchestrator";
+import { handlerOf, type Conversation } from "@/lib/chat/shape";
 
 export { when, pct, Bars } from "@/app/website/directup/shared";
 export { pill, PagedBars, Empty, Num } from "@/app/website/search-bar/shared";
