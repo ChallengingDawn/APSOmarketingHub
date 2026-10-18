@@ -37,6 +37,7 @@ import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import { FOCUS_A3, countryName } from "@/lib/marketingKpis/countries";
 import { countryTable, seriesForCountries, type CountryRow } from "@/lib/marketingKpis/countryMonths";
+import { roasRows } from "@/lib/marketingKpis/roas";
 import { Compare, KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, type KpiView, type MkState, type MonthWindow } from "./data";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { FilterPanel, FilterSection } from "./FilterPanel";
@@ -47,7 +48,8 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
   { id: "ads", label: "Ads (SEA)", kpis: ["R01", "R02", "R03"] },
   // R09 has a card of its own there: the countries side by side (SARCLA 18.10: "this graph is not correct")
   { id: "countries", label: "Countries", kpis: [] },
-  { id: "ai", label: "AI answers", kpis: ["R10"] },
+  // SARCLA 18.10: "AI answer tab - change the name to (GEO)"
+  { id: "ai", label: "AI answers (GEO)", kpis: ["R10"] },
   { id: "email", label: "Email", kpis: ["R11", "R11O", "R11C"] },
   // being built until LinkedIn opens the page statistics (SARCLA 18.10: "create a tab for LinkedIn and put under building")
   { id: "linkedin", label: "LinkedIn", kpis: [] },
@@ -243,6 +245,54 @@ function SeaNetworks({ live, win }: { live: LiveKpis; win: MonthWindow }) {
       title="Google Ads by network" first="Network" icon={<AdsClickIcon />} tint="amber"
       note={<>From the Google Ads accounts linked to GA4{b.seaCurrency === "EUR" ? "; cost in euros, GA4's francs at each month's ECB rate" : ""}. Performance Max shows ads across Search, Display, YouTube and Gmail, so it gathers many impressions for few clicks:
         a change in how much of the budget runs through it moves the impressions far more than the clicks or the cost.</>} />
+  );
+}
+
+/**
+ * Return on ad spend by channel (SARCLA 18.10: "ROAS on SEA different channels + SEO"): GA4's revenue
+ * over the ad cost, Google Ads by network and Microsoft Ads, the months chosen against the same months
+ * a year earlier; SEO's revenue beside them, with no ad cost to divide by.
+ */
+function Roas({ live, win }: { live: LiveKpis; win: MonthWindow }) {
+  const data = live.breakdowns.roas;
+  if (!data) return null;
+  const upTo = live.monthsDone;
+  const months = Array.from({ length: Math.max(0, Math.min(win.end, upTo - 1) - win.start + 1) }, (_, k) => win.start + k);
+  if (!months.length) return null;
+  const rows = roasRows(data, live.year, months);
+  const w = monthsLabel({ start: months[0], end: months[months.length - 1] });
+  const eur = (v: number | null) => (v == null ? "—" : `€${n0(v)}`);
+  const x = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}×`);
+  const roasCell = (r: (typeof rows)[number]) => {
+    if (r.key === "seo") return <Box component="span" sx={{ color: FAINT }}>no ad cost</Box>;
+    const c = r.roas != null && r.pyRoas ? r.roas / r.pyRoas - 1 : null;
+    return (
+      <Box sx={{ display: "grid", justifyItems: "end" }}>
+        <span>{x(r.roas)}</span>
+        {c != null && <Box component="span" sx={{ color: c > 0.005 ? GREEN : c < -0.005 ? RED : MUTED, fontWeight: 700, fontSize: "0.74rem" }}>{c > 0 ? "↑" : c < 0 ? "↓" : "±"} {Math.abs(c * 100).toFixed(1)}%</Box>}
+      </Box>
+    );
+  };
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+      <CardTitle icon={<AdsClickIcon />} tint="green" title="Return on ad spend by channel, and SEO" note={`${w} ${live.year} against ${w} ${live.year - 1} - revenue per euro of ad cost`} />
+      <Table
+        firstWidth="minmax(220px, 1.7fr)"
+        head={["Channel", `Revenue ${live.year - 1}`, `Revenue ${live.year}`, `Cost ${live.year - 1}`, `Cost ${live.year}`, `ROAS ${live.year - 1}`, `ROAS ${live.year}`]}
+        rows={rows.map((r) => ({
+          key: r.key, strong: !r.indent,
+          cells: [
+            <Box key="n" component="span" sx={{ pl: r.indent ? 2 : 0, fontWeight: r.indent ? 500 : 700 }}>{r.label}</Box>,
+            eur(r.pyRevenue), eur(r.revenue), eur(r.pyCost), eur(r.cost), r.key === "seo" ? "—" : x(r.pyRoas), roasCell(r),
+          ],
+        }))}
+      />
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+        ROAS = revenue ÷ ad cost. Revenue is GA4&apos;s: the orders of the visits each channel brought (last click), only from visitors who accepted statistics cookies - a floor, below what
+        Google Ads and Microsoft Advertising report with their own conversion tracking. Cost from Google Ads through GA4 and from the Microsoft Advertising script; all in euros at each
+        month&apos;s ECB rate. SEO has no ad cost, so no ROAS - its revenue shows what organic search brings.
+      </Typography>
+    </GlassCard>
   );
 }
 
@@ -539,6 +589,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
       {kpis.length > 0 && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>
       )}
+      {tab === "ads" && <Roas live={live} win={win} />}
       {tab === "ads" && <SeaNetworks live={live} win={win} />}
       {tab === "ads" && (() => {
         // Microsoft Ads: what GA4 sees of it, and the account's own impressions, clicks and cost from the script's sheet

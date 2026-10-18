@@ -45,6 +45,8 @@ export type Ga4ReportName =
   | "adsDaily"
   | "adsNetworkDaily"
   | "msAdsDaily"
+  | "adsNetworkRevenueDaily"
+  | "channelRevenueDaily"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -184,6 +186,21 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     dimensions: ["date"],
     metrics: ["sessions", "transactions", "totalRevenue"],
     filter: { field: "sessionSourceMedium", value: "bing / ppc" },
+    orderBy: { dimension: "date" },
+    limit: 1000,
+  },
+  adsNetworkRevenueDaily: {
+    // ROAS by Google Ads network (SARCLA 18.10): the revenue and orders of the sessions each network
+    // brought, per day - session-scoped, so asked apart from the advertiser metrics.
+    dimensions: ["date", "sessionGoogleAdsAdNetworkType"],
+    metrics: ["totalRevenue", "transactions"],
+    orderBy: { dimension: "date" },
+    limit: 25000,
+  },
+  channelRevenueDaily: {
+    // Revenue and orders per day for whichever channel group the request filters to (SEO: Organic Search).
+    dimensions: ["date"],
+    metrics: ["totalRevenue", "transactions"],
     orderBy: { dimension: "date" },
     limit: 1000,
   },

@@ -233,8 +233,13 @@ export const journeyAdditionsIn = (stage: string): CatalogueKpi[] =>
       inSheet: "No", inHub: "No", where: "Added on the Journey tab", target: "", priority: "", audience: "", audienceAsk: "" };
   });
 
+/**
+ * Names the hub corrects: R08 counts Google search clicks only, not GEO (SARCLA 18.10: "this graph is
+ * still wrong" - the Journey tab calls it "Brand share of SEO & GEO clicks").
+ */
+const NAME_FIX: Record<string, string> = { R08: "Brand share of search clicks" };
 /** A KPI's name as SARCLA wrote it on the Journey tab, else the catalogue's. */
-export const nameOf = (id: string) => JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
+export const nameOf = (id: string) => NAME_FIX[id] ?? JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
 /**
  * The customers stage's KPIs measured by the company drill-down (Customers.tsx)
  * rather than as a monthly series: counts, revenue and share of wallet by
@@ -388,7 +393,10 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
 }
 
 /** SARCLA's note on the KPI and who it is for, as small tags. */
-export function Chips({ note, audience }: { note?: string; audience?: string }) {
+export function Chips({ note: given, audience }: { note?: string; audience?: string }) {
+  // the Dashboard sheet's "GEO" marks the Reach rows as a group; in the hub GEO means the AI answers,
+  // so on a search or ads card it misleads (SARCLA 18.10: "why do we have GEO like this?")
+  const note = given === "GEO" ? undefined : given;
   if (!note && !audience) return null;
   const chip = (text: string, tone: { bg: string; fg: string }) => (
     <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, px: 0.9, py: 0.2, borderRadius: "999px", bgcolor: tone.bg, color: tone.fg, whiteSpace: "nowrap" }}>{text}</Box>

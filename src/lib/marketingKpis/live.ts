@@ -30,6 +30,7 @@ import { BRAND_QUERY, completeOnly, mergeHistory, monthsFromDays, seriesFromMont
 import { countryTable, mergeCountryMonths, r09Series, type CountryMonths, type CountryRow } from "./countryMonths";
 import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
 import { msAdsKindMonths, msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
+import type { RoasMonths } from "./roas";
 import { googleFetchJson } from "@/lib/integrations/google";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
@@ -73,6 +74,8 @@ export type LiveKpis = {
     /** "YYYY-MM" -> network -> [impressions, clicks, cost] - Reach's period filter */
     seaNetworkMonths?: Record<string, Record<string, [number, number, number]>>;
     /** the Microsoft Advertising script's sheet: the last day counted, when it was written, whether it has stopped */
+    /** revenue, orders and ad cost per channel and month, in euros - the ROAS table (SARCLA 18.10) */
+    roas?: RoasMonths;
     msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null; costPartial?: boolean;
       /** "YYYY-MM" -> campaign type -> [impressions, clicks, cost in euros or null] */
       kinds?: Record<string, Record<string, [number, number, number | null]>> };
@@ -101,7 +104,7 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
   return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || (msAdsSheetId() && !v?.breakdowns?.msAds) ? 0 : TTL_MS), build);
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -414,6 +417,44 @@ async function build(): Promise<LiveKpis> {
     };
   });
 
+  // ROAS by channel: GA4's revenue per Google Ads network and for organic search, beside the costs
+  // read above (Google per network, Microsoft from its script) and Microsoft's revenue (GA4 bing / ppc)
+  let roas: RoasMonths | undefined;
+  await guard("roas", async () => {
+    reportProgress(KEY, "reading revenue by channel for ROAS");
+    if (!Object.keys(fx).length) throw new Error("no exchange rate - GA4's francs cannot be shown in euros");
+    const out: RoasMonths = {};
+    const put = (m: string, ch: string, rev: number, ord: number, cost: number | null) => {
+      const c = ((out[m] ??= {})[ch] ??= [0, 0, cost == null ? null : 0]);
+      c[0] += rev; c[1] += ord;
+      if (cost == null || c[2] == null) c[2] = null; else c[2] += cost;
+    };
+    for (const [y, to] of [[py, `${py}-12-31`], [year, iso(now)]] as const) {
+      const n = await fetchGa4Report({ name: "adsNetworkRevenueDaily", from: `${y}-01-01`, to });
+      for (const row of n.rows) {
+        const m = String(row.keys[0] ?? "").slice(0, 7), net = row.keys[1] || "(not set)";
+        if (net === "(not set)") continue;
+        put(m, net, chfToEur(row.values[0] ?? 0, m, fx) ?? 0, row.values[1] ?? 0, 0);
+      }
+      const o = await fetchGa4Report({ name: "channelRevenueDaily", from: `${y}-01-01`, to, channelGroup: "Organic Search" });
+      for (const row of o.rows) {
+        const m = String(row.keys[0] ?? "").slice(0, 7);
+        put(m, "seo", chfToEur(row.values[0] ?? 0, m, fx) ?? 0, row.values[1] ?? 0, null);
+      }
+    }
+    // Google's cost per network and month (already in euros), Microsoft's revenue and cost
+    for (const [m, nets] of Object.entries(seaNetworkMonths)) for (const [net, [, , cost]] of Object.entries(nets)) if ((out[m] ??= {})[net]) out[m][net][2] = (out[m][net][2] ?? 0) + cost; else put(m, net, 0, 0, cost);
+    for (const [side, y] of [["months", year], ["py", py]] as const) {
+      for (let i = 0; i < 12; i++) {
+        const m = `${y}-${String(i + 1).padStart(2, "0")}`;
+        const rev = series.MSR?.[side][i], ord = series.MSO?.[side][i], cost = series.X01M?.[side][i];
+        if (rev == null && cost == null) continue;
+        put(m, "microsoft", rev ?? 0, ord ?? 0, cost ?? null);
+      }
+    }
+    roas = out;
+  });
+
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)
   await guard("googleAds", async () => {
     reportProgress(KEY, "reading Google Ads through GA4");
@@ -451,7 +492,7 @@ async function build(): Promise<LiveKpis> {
   return {
     generatedAt: new Date().toISOString(), year, monthsDone,
     series, ytd,
-    breakdowns: { channels, countries, searchCountries, searchSame, searchCountryMonths, seaNetworks, seaNetworkMonths, msAds, seaUpTo: monthsDone, seaCurrency: Object.keys(fx).length ? "EUR" : "CHF", prio, handover },
+    breakdowns: { channels, countries, searchCountries, searchSame, searchCountryMonths, seaNetworks, seaNetworkMonths, msAds, roas, seaUpTo: monthsDone, seaCurrency: Object.keys(fx).length ? "EUR" : "CHF", prio, handover },
     search,
     errors,
     waiting,
