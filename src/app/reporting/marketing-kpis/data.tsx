@@ -161,9 +161,11 @@ export function buildViews(inputs: Inputs, live: LiveKpis | undefined, year: num
     const liveS = m?.origin === "live" ? live?.series[id] : undefined;
     const liveHas = !!liveS?.months.some((v) => v != null);
     if (m?.origin === "live" && !liveHas && inputs.months[id]) fellBack.add(id);
+    // a derived KPI is computed from its parts, live or typed (SEA Google and Microsoft together)
     const s = !m ? { months: Array(12).fill(null), py: Array(12).fill(null) }
-      : m.origin === "live" ? (liveHas ? liveS! : inputs.months[id] ? typed(id) : (liveS ?? { months: Array(12).fill(null), py: Array(12).fill(null) }))
-        : m.derived ? derive(id, get) : m.typedCurrency === "CHF" ? inEur(typed(id)) : typed(id);
+      : m.derived ? derive(id, get)
+        : m.origin === "live" ? (liveHas ? liveS! : inputs.months[id] ? typed(id) : (liveS ?? { months: Array(12).fill(null), py: Array(12).fill(null) }))
+          : m.typedCurrency === "CHF" ? inEur(typed(id)) : typed(id);
     return (cache[id] = s);
   };
   const out: Record<string, KpiView> = {};
@@ -356,10 +358,14 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
 export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.period ?? (v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet"));
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
-export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
+export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, title }: {
   v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string;
+  /** the page's own name for the KPI (Reach: "SEA Google impressions"; the nutshell keeps the catalogue's) */
+  title?: string;
   /** the card's own tools, right of the figure (9f's tile toolbar: filter, tasks, ticket, promote, 18.10.2026) */
   actions?: React.ReactNode;
+  /** a chart of the card's own in place of the months (Visit: users outside Switzerland by country, a store's channels) */
+  children?: React.ReactNode;
 }) {
   const L = MONTHS;
   const hasMonths = v.series.months.some((x) => x != null);
@@ -371,8 +377,9 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {/* no "R04 · live in the hub" line above the name any more (SARCLA 18.10: "take out this subtitle everywhere");
               where a figure comes from is in the line under the number */}
-          <Typography data-kpi={v.id} sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf(v.id)}</Typography>
-          <Chips note={journeyNote(v.id)} audience={kpi?.audience} />
+          <Typography data-kpi={v.id} sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{title ?? nameOf(v.id)}</Typography>
+          {/* no "For Sales leader, Rose" tag on a card (SARCLA 18.10: "take out the tag") - the Sales leader view has them */}
+          <Chips note={journeyNote(v.id)} />
           {kpi?.question && !v.measure.notCatalogue && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{kpi.question}</Typography>}
         </Box>
         <Box sx={{ textAlign: "right" }}>
@@ -383,7 +390,8 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions }: {
         {actions && <Box sx={{ flex: "0 0 auto", alignSelf: "flex-start" }}>{actions}</Box>}
       </Box>
       <Compare v={v} />
-      {hasMonths && v.measure.agg.kind !== "ytd" && (
+      {children}
+      {!children && hasMonths && v.measure.agg.kind !== "ytd" && (
         <ChartFrame table={{ columns: ["Month", "This year", "Last year"], rows: L.map((x, i) => [x, v.series.months[i] ?? "", v.series.py[i] ?? ""]), numeric: [1, 2] }}>
           <GroupedColumns height={180} format={(x) => fmtValue(v.measure.fmt, x)}
             data={L.map((x, i) => ({ x, current: v.series.months[i], prior: hasPy ? v.series.py[i] : null, partial: v.partial === i }))}

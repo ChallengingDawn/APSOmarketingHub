@@ -24,12 +24,17 @@ import FiberNewOutlinedIcon from "@mui/icons-material/FiberNewOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 
-import { CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { countryName } from "@/lib/marketingKpis/countries";
-import { CHANNEL_INFO, cubeTable, landingTable, storeName, storeTable, visitSeries, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
+import { CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type UnlinkedRow, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useSlow, type KpiView, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -44,10 +49,11 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
   { id: "countries", label: "Countries", kpis: ["V04"] },
   { id: "stores", label: "Shop stores", kpis: ["V05"] },
   { id: "landing", label: "Landing pages", kpis: ["V08"] },
-  { id: "customers", label: "Known customers", kpis: ["V06", "V07"] },
+  { id: "customers", label: "Known customers", kpis: ["V06S"] },
 ];
 /** the focus markets in GA4's two-letter codes */
 const FOCUS2 = ["CH", "DE", "IT", "FR", "AT", "NL", "LI", "PL"];
+const HUBSPOT = "https://app-eu1.hubspot.com/contacts/26492587/record";
 const names = (xs: string[], f: (x: string) => string) => {
   const n = xs.map(f);
   return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n[0] ?? "";
@@ -70,6 +76,7 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
   const isDefault = win.start === 0 && win.end === Math.max(0, done - 1);
   const [panel, setPanel] = useState(false);
   const [shut, setShut] = useState<Record<string, boolean>>({});
+  const [allUnlinked, setAllUnlinked] = useState(false);
   const filters: VisitFilters = { country: countries, channel: channels };
   const filtered = countries.length > 0 || channels.length > 0;
 
@@ -108,26 +115,44 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
 
   const { missing } = stageKpis("2", live);
   const who = [countries.length ? names(countries, countryName) : "", channels.length ? names(channels, (x) => x) : ""].filter(Boolean).join(" · ");
-  const card = (id: string) => {
+  const card = (id: string, chart?: React.ReactNode) => {
     let v: KpiView | undefined = views[id];
     if (!v) return null;
     // say on the card what the country and channel choice does to it
-    if (filtered && ["V01", "V02", "V03", "V04"].includes(id)) v = { ...v, measure: { ...v.measure, note: `Only ${who} - from GA4's month, country and channel table` } };
+    if (filtered && ["V01", "V02", "V03", "V04"].includes(id)) v = { ...v, measure: { ...v.measure, note: `Only ${who} - from GA4's ${channels.length ? "month, country and channel table" : "users per month and country"}` } };
+    if (id === "V06S" && countries.length) v = { ...v, measure: { ...v.measure, note: `Only ${names(countries, countryName)} - GA4's login event${channels.length ? "; it has no channel, so the channel choice does not apply" : ""}` } };
+    if (id === "V06S" && !countries.length && channels.length) v = { ...v, measure: { ...v.measure, note: `${v.measure.note} · GA4's login event has no channel: every channel` } };
+    if (id === "V07" && vis.value?.prio.length) {
+      const band = (b: string) => vis.value!.prio.find((p) => p.band === b);
+      const say = (b: string) => { const p = band(b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
+      v = { ...v, measure: { ...v.measure, note: `${say("Prio 1")} · ${say("Prio 2")} - logged in to the shop this year (Datatracker)` } };
+    }
     if (filtered && ["V05", "V06", "V07", "V08"].includes(id)) v = { ...v, measure: { ...v.measure, note: `${v.measure.note ? `${v.measure.note} · ` : ""}For every country and channel - the filter applies to the tables` } };
     const k = KPIS.find((x) => x.id === id) ?? { ...KPIS[0], id, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
     return (
       <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="visit" />} tint={stageTint("visit")} upTo={upToOf(v, state, year)}
-        actions={<TileActions where="tab" start="nutshell" tile={{ key: `visit::${id}`, page: "visit", kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), kind: "kpi" }} />} />
+        actions={<TileActions where="tab" start="nutshell" tile={{ key: `visit::${id}`, page: "visit", kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), kind: "kpi" }} />}>
+        {chart}
+      </KpiCard>
     );
   };
-  const kpis = TABS.find((t) => t.id === tab)!.kpis.map(card).filter(Boolean);
+  const d = vis.value;
+  const w = monthsLabel(months.length ? { start: months[0], end: months[months.length - 1] } : win);
+  // each tab's own chart in its KPI card, once GA4 is read (SARCLA 18.10: by country, the stores' and pages' channels)
+  const charts: Record<string, React.ReactNode> = !d ? {} : {
+    V04: <AbroadChart d={d} year={year} months={months} filters={filters} chosen={countries} w={w} />,
+    V05: <MixChart title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
+      rows={storeChannels(d, filters).slice(0, 16).map((r) => ({ key: r.code, label: r.label, sub: `/${r.code}`, total: r.total, py: r.pyTotal, channels: r.channels }))} />,
+    V08: <MixChart title={`The top landing pages by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
+      rows={landingTable(d, filters, 12).map((r) => ({ key: r.page, label: r.page, sub: r.store ? storeName(r.store) ?? undefined : undefined, total: r.sessions, py: null, channels: r.channels }))} />,
+  };
+  const kpis = TABS.find((t) => t.id === tab)!.kpis.map((id) => card(id, charts[id])).filter(Boolean);
   const tileFor = (cardId: string, title: string) => (
     <TileActions where="tab" start="tab" tile={{ key: `visit:${tab}:${cardId}`, page: "visit", tab, title, kind: "card", ...(filtered ? { filters: { country: countries, channel: channels } } : {}), ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }) }} />
   );
-  const w = monthsLabel(months.length ? { start: months[0], end: months[months.length - 1] } : win);
   const upToDay = (() => { const e = Math.min(win.end, done - 1); return e >= 0 ? `${new Date(Date.UTC(year, e + 1, 0)).getUTCDate()} ${MONTHS[e]} ${year}` : "—"; })();
   const chosenCount = countries.length + channels.length + (isDefault ? 0 : 1);
-  const d = vis.value;
+  const noPage = d ? noPageVisits(d) : null;
 
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
@@ -174,7 +199,32 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
         </Button>
       </Box>
 
-      {kpis.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>}
+      {kpis.length > 0 && (
+        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
+          {kpis}
+          {d && tab === "customers" && (() => {
+            const rows = knownByCountry(d, year, months);
+            const pick = new Set(countries);
+            const shown = rows.filter((r) => FOCUS2.includes(r.code) || pick.has(r.code) || rows.indexOf(r) < 10);
+            return (
+              <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+                <CardTitle icon={<VerifiedUserOutlinedIcon />} tint="green" title="Visitors who log in, by country"
+                  note={`GA4, ${w} ${year} against ${w} ${year - 1} · click a country to filter by it`} right={tileFor("known-countries", "Visitors who log in, by country")} />
+                <Table firstWidth="minmax(110px, 1.4fr)" widths={["minmax(70px, 1fr)", "minmax(70px, 1fr)", "minmax(56px, 0.8fr)", "minmax(56px, 0.8fr)"]} minWidth={400}
+                  head={["Country", "Visitors", "Logged in", "Share", `${year - 1}`]}
+                  rows={shown.map((r) => ({
+                    key: r.code, on: pick.has(r.code), onPick: () => toggleCountry(r.code),
+                    cells: [
+                      <Box key="n" component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>{pick.has(r.code) && <CheckIcon sx={{ fontSize: 16, color: TINT.blue.fg }} />}{r.label}</Box>,
+                      n0(r.users), n0(r.known), ratio(r.known, r.users), ratio(r.pyKnown, r.pyUsers),
+                    ],
+                  }))} />
+                <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Visitors per month and country, added up; logged in = GA4&apos;s login event in the month. The focus markets are always listed.</Typography>
+              </GlassCard>
+            );
+          })()}
+        </Box>
+      )}
 
       {!d && (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
@@ -236,15 +286,27 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
 
       {d && tab === "stores" && (() => {
         const rows = storeTable(d, filters);
-        const total = rows.reduce((a, r) => a + r.sessions, 0);
+        const total = rows.filter((r) => storeName(r.code)).reduce((a, r) => a + r.sessions, 0);
         return (
           <GlassCard sx={{ display: "grid", gap: 1.25 }}>
             <CardTitle icon={<StorefrontOutlinedIcon />} tint="purple" title="Visitors by shop store"
               note={`The store a visit landed on, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year} against the same months of ${year - 1}${channels.length ? ` · ${names(channels, (x) => x)} only` : ""}`} right={tileFor("stores", "Visitors by shop store")} />
             <Table head={["Store", "Sessions", "Share", `Sessions ${year - 1}`, "Users"]}
-              rows={rows.map((r) => ({ key: r.code, cells: [<Box key="s" component="span">{r.label}{storeName(r.code) && <Box component="span" sx={{ ml: 0.75, fontSize: "0.72rem", color: FAINT }}>/{r.code}</Box>}</Box>, withChange(n0(r.sessions), change(r.sessions, r.pySessions)), ratio(r.sessions, total), n0(r.pySessions), n0(r.users)] }))} />
+              rows={rows.map((r) => {
+                const store = !!storeName(r.code);
+                return {
+                  key: r.code, strong: false,
+                  cells: [
+                    <Box key="s" sx={{ display: "grid", gap: 0.15, minWidth: 0 }}>
+                      <Box component="span">{r.label}{store && <Box component="span" sx={{ ml: 0.75, fontSize: "0.72rem", color: FAINT }}>/{r.code}</Box>}</Box>
+                      {r.code === "(not set)" && <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 400, color: MUTED, whiteSpace: "normal" }}>{NO_PAGE_INFO}</Box>}
+                    </Box>,
+                    withChange(n0(r.sessions), change(r.sessions, r.pySessions)), store ? ratio(r.sessions, total) : "—", n0(r.pySessions), n0(r.users),
+                  ],
+                };
+              })} />
             <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-              The store is the first part of the landing page&apos;s address (/de-CH, /it-IT, /en-INT …). &quot;No landing page recorded&quot; are visits GA4 saw without a first page view. The year so far in whole months - the period filter does not apply here.
+              The store is the first part of the landing page&apos;s address (/de-CH, /it-IT, /en-INT …); the share is of the visits that landed on a store. The year so far in whole months - the period filter does not apply here.
             </Typography>
           </GlassCard>
         );
@@ -263,27 +325,29 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
                   key: r.page,
                   cells: [
                     <Box key="p" sx={{ minWidth: 0, display: "grid" }}>
-                      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.page}>{r.page === "(not set)" ? "No landing page recorded" : r.page}</Box>
+                      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.page}>{r.page}</Box>
                       {r.store && <Box component="span" sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 400 }}>{storeName(r.store)}</Box>}
                     </Box>,
                     n0(r.sessions), n0(r.users), main ? `${main[0]} (${ratio(main[1], r.sessions)})` : "—",
                   ],
                 };
               })} />
-            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Choose channels in the Filters window to see the pages each channel brings people to. The year so far in whole months.</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+              Choose channels in the Filters window to see the pages each channel brings people to. The year so far in whole months.
+              {noPage && noPage.cy > 0 ? ` Not in the list: ${n0(noPage.cy)} visits without a page - ${NO_PAGE_INFO.charAt(0).toLowerCase()}${NO_PAGE_INFO.slice(1)}` : ""}
+            </Typography>
           </GlassCard>
         );
       })()}
 
       {d && tab === "customers" && (
-        <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-          <CardTitle icon={<LoginOutlinedIcon />} tint="pink" title="Known customers in the shop, by sales priority"
-            note={`Companies that logged in to the shop (Datatracker) - this year so far and the whole of ${year - 1}`} right={tileFor("prio", "Logged-in companies by priority")} />
-          <Table head={["Sales priority", "Companies", "Logged in this year", "Share of the band", `Logged in ${year - 1}`]}
-            rows={d.prio.map((p) => ({ key: p.band, cells: [p.band, n0(p.all), n0(p.cy), ratio(p.cy, p.all), n0(p.py)] }))} />
-          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>From the companies&apos; Datatracker login counts in HubSpot; read with the GA4 figures, every 6 hours. Countries and channels do not apply here.</Typography>
-        </GlassCard>
+        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
+          {card("V06")}
+          {card("V07")}
+        </Box>
       )}
+
+      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} all={allUnlinked} onAll={() => setAllUnlinked((x) => !x)} right={tileFor("unlinked", "Shop accounts without a company")} />}
 
       <NotConnected list={missing} />
       <LiveNote state={state} typed={false} sources="GA4 (users, sessions, channels, countries, landing pages) and HubSpot (Datatracker logins)" />
@@ -310,6 +374,139 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
         </FilterSection>
       </FilterPanel>
     </Box>
+  );
+}
+
+/** Users outside Switzerland by country, against a year earlier (SARCLA 18.10: "should be viewed by country"). */
+function AbroadChart({ d, year, months, filters, chosen, w }: { d: VisitData; year: number; months: number[]; filters: VisitFilters; chosen: string[]; w: string }) {
+  const rows = usersAbroad(d, year, months, filters);
+  const shown = (chosen.length ? rows.filter((r) => chosen.includes(r.code)) : rows).slice(0, 8);
+  if (!shown.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visitors outside Switzerland in the choice.</Typography>;
+  return (
+    <Box sx={{ display: "grid", gap: 0.75 }}>
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Users by country, {w} {year} against {w} {year - 1}</Typography>
+      <ChartFrame table={{ columns: ["Country", String(year), String(year - 1)], rows: rows.slice(0, 25).map((r) => [r.label, r.users, r.pyUsers]), numeric: [1, 2] }}>
+        <GroupedColumns height={240} format={(x) => n0(x)} data={shown.map((r) => ({ x: r.label, current: r.users, prior: r.pyUsers || null }))} currentLabel={String(year)} priorLabel={String(year - 1)} />
+      </ChartFrame>
+    </Box>
+  );
+}
+
+type MixRow = { key: string; label: string; sub?: string; total: number; py: number | null; channels: Record<string, number> };
+/**
+ * Visits per store or page, split by the channel that brought them (SARCLA 18.10: "compare what
+ * brings more visitors to it"): the four biggest channels in colour, the rest grey; the bar is the
+ * visits - or, switched to shares, every bar is a whole, to compare the mix.
+ */
+function MixChart({ title, rows }: { title: string; rows: MixRow[] }) {
+  const [shares, setShares] = useState(false);
+  const all: Record<string, number> = {};
+  for (const r of rows) for (const [c, n] of Object.entries(r.channels)) all[c] = (all[c] ?? 0) + n;
+  const top = Object.entries(all).sort((a, b) => b[1] - a[1]).slice(0, SERIES.length).map(([c]) => c);
+  const parts = (r: MixRow) => {
+    const other = Object.entries(r.channels).filter(([c]) => !top.includes(c)).reduce((a, [, n]) => a + n, 0);
+    return [...top.map((c, i) => ({ c, n: r.channels[c] ?? 0, color: SERIES[i] })), { c: "Other channels", n: other, color: DEEMPHASIS }].filter((p) => p.n > 0);
+  };
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visits in the choice.</Typography>;
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={{ flex: 1, minWidth: 220, fontSize: "0.86rem", fontWeight: 700, color: INK }}>{title}</Typography>
+        <Box sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "12px", bgcolor: "rgba(21,34,58,.05)" }}>
+          {([false, true] as const).map((m) => (
+            <Box key={String(m)} component="button" type="button" onClick={() => setShares(m)} aria-pressed={shares === m}
+              sx={{ border: 0, font: "inherit", cursor: "pointer", px: 1.25, py: 0.6, borderRadius: "9px", fontSize: "0.8rem", fontWeight: 700,
+                bgcolor: shares === m ? "#fff" : "transparent", color: shares === m ? INK : MUTED, boxShadow: shares === m ? "0 1px 3px rgba(21,34,58,.12)" : "none" }}>
+              {m ? "Channel shares" : "Visits"}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+      <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+        {[...top.map((c, i) => ({ c, color: SERIES[i] })), { c: "Other channels", color: DEEMPHASIS }].map((x) => (
+          <Box key={x.c} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, fontSize: "0.76rem", color: MUTED }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: x.color }} />{x.c}
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ display: "grid", gap: 0.6 }}>
+        {rows.map((r) => {
+          const ps = parts(r);
+          const main = ps.filter((p) => p.c !== "Other channels").sort((a, b) => b.n - a.n)[0];
+          const c = r.py != null ? change(r.total, r.py) : null;
+          return (
+            <Box key={r.key} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(180px, 260px) minmax(0, 1fr) 92px 64px minmax(150px, 190px)" }, gap: { xs: 0.4, md: 1.25 }, alignItems: "center", py: 0.4, borderBottom: `1px solid ${HAIRLINE}` }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography title={r.label} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</Typography>
+                {r.sub && <Typography sx={{ fontSize: "0.7rem", color: FAINT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sub}</Typography>}
+              </Box>
+              <Box role="img" aria-label={`${r.label}: ${ps.map((p) => `${p.c} ${n0(p.n)}`).join(", ")}`} sx={{ height: 16, display: "flex", width: shares ? "100%" : `${Math.max(1, (100 * r.total) / max)}%`, borderRadius: "4px", overflow: "hidden", gap: "2px", bgcolor: "#fff" }}>
+                {ps.map((p) => <Box key={p.c} title={`${p.c}: ${n0(p.n)} visits (${ratio(p.n, r.total)})`} sx={{ flex: `${p.n} 0 0`, bgcolor: p.color, minWidth: 2 }} />)}
+              </Box>
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, textAlign: { md: "right" }, fontVariantNumeric: "tabular-nums" }}>{n0(r.total)}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c?.color ?? FAINT, textAlign: { md: "right" } }}>{c?.text ?? ""}</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{main ? <>Most from <b style={{ color: INK }}>{main.c}</b> ({ratio(main.n, r.total)})</> : "—"}</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * The shop accounts with no company in HubSpot (SARCLA 18.10: "companies that are not company that
+ * we can fix"): their logins and orders count for no company. A company with their e-mail domain
+ * first - link it; the hub never links or creates a company itself.
+ */
+function UnlinkedCard({ u, error, all, onAll, right }: { u: VisitData["unlinked"]; error?: string; all: boolean; onAll: () => void; right?: React.ReactNode }) {
+  const todo = (r: UnlinkedRow) => (r.kind === "match" && r.match
+    ? <>Link to <Box component="a" href={`${HUBSPOT}/0-2/${r.match.id}`} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 700 }}>{r.match.name}</Box>{r.match.more ? <Box component="span" sx={{ color: FAINT }}> (+{r.match.more} more on this domain)</Box> : null}</>
+    : r.kind === "business" ? "No company with this domain yet - find or create it" : "Free e-mail address - check the company they typed");
+  const rows = u ? (all ? u.rows : u.rows.slice(0, 15)) : [];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+      <CardTitle icon={<LinkOffIcon />} tint="amber" title="Shop accounts without a company - to fix"
+        note="People with a shop login whose HubSpot contact has no company: their logins and orders count for no company, so no report sees them as a known customer" right={right} />
+      {!u ? (
+        <Typography sx={{ fontSize: "0.84rem", color: error ? RED : MUTED }}>{error ? `HubSpot could not be read: ${error}` : "Not read yet."}</Typography>
+      ) : (
+        <>
+          <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
+            {[
+              { n: u.total, label: "Shop accounts without a company", sub: `${n0(u.createdThisYear)} opened this year · ${n0(u.seenThisYear)} on the site this year` },
+              { n: u.matched, label: "A company with their e-mail domain exists", sub: "Link the contact to it" },
+              { n: u.business, label: "Business address, no company yet", sub: "Find or create the company" },
+              { n: u.free, label: "Free e-mail address", sub: "gmail, bluewin … - check the company they typed" },
+            ].map((x) => (
+              <Box key={x.label} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "14px", px: 1.5, py: 1.1, bgcolor: "#fff" }}>
+                <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{n0(x.n)}</Typography>
+                <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: INK }}>{x.label}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{x.sub}</Typography>
+              </Box>
+            ))}
+          </Box>
+          <Table firstWidth="minmax(220px, 1.6fr)" head={["Company they typed", "E-mail domain", "Country", "Account since", "What to do"]}
+            widths={["minmax(150px, 1fr)", "minmax(110px, 0.8fr)", "minmax(110px, 0.7fr)", "minmax(260px, 2fr)"]}
+            rows={rows.map((r) => ({
+              key: r.id,
+              cells: [
+                <Box key="c" component="a" href={`${HUBSPOT}/0-1/${r.id}`} target="_blank" rel="noreferrer" title="Open the contact in HubSpot" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.company || "(no company typed)"}</Box>,
+                r.domain || "—", r.country || "—", r.created ? `${Number(r.created.slice(8, 10))} ${MONTHS[Number(r.created.slice(5, 7)) - 1]} ${r.created.slice(0, 4)}` : "—",
+                <Box key="t" component="span" sx={{ fontWeight: 400, whiteSpace: "normal", textAlign: "right" }}>{todo(r)}</Box>,
+              ],
+            }))} />
+          {u.rows.length > 15 && (
+            <Box><Button size="small" onClick={onAll} sx={{ textTransform: "none", fontWeight: 700 }}>{all ? "Show the first 15" : `Show all ${n0(u.rows.length)}`}</Button></Box>
+          )}
+          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+            HubSpot contacts with a shop customer id and no company; A+P&apos;s own people ({n0(u.internal)} accounts) are left out. The name opens the contact in HubSpot.
+            The hub never links or creates a company by itself - a person decides. Read with the GA4 figures, every 6 hours; countries and channels do not apply here.
+          </Typography>
+        </>
+      )}
+    </GlassCard>
   );
 }
 

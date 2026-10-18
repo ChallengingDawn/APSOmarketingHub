@@ -32,6 +32,7 @@ import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ByAssistant, CitedSitesCard } from "@/app/aeo/OverviewBody";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { StackedColumns } from "@/app/charts/StackedColumns";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { fmtValue } from "@/lib/marketingKpis/measures";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
@@ -64,7 +65,17 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
 ];
 /** Microsoft Ads on the Ads tab: GA4's visits, orders and revenue (live), and the typed impressions, clicks and cost */
 const MICROSOFT_LIVE = ["MSV", "MSO", "MSR"];
-const MICROSOFT_TYPED = ["R01M", "R02M", "X01M"];
+const MICROSOFT_TYPED = ["R01M", "R02M", "R03M", "X01M"];
+/**
+ * The Ads tab's names (SARCLA 18.10: "this is only Google, so we should call it SEA Google like SEA
+ * Microsoft"). On this page only: the nutshell keeps the catalogue's names ("don't change the nutshell").
+ */
+const ADS_NAMES: Record<string, string> = {
+  R01: "SEA Google impressions", R02: "SEA Google clicks", R03: "SEA Google CTR",
+  R01M: "SEA Microsoft impressions", R02M: "SEA Microsoft clicks", R03M: "SEA Microsoft CTR", X01M: "SEA Microsoft cost",
+  MSV: "SEA Microsoft visits", MSO: "SEA Microsoft orders", MSR: "SEA Microsoft revenue",
+};
+const adsName = (id: string) => ADS_NAMES[id] ?? nameOf(id);
 /** the KPIs a country choice narrows: Search Console's impressions, clicks and click rate, and the clicks by country */
 const BY_COUNTRY = ["R04", "R05", "R06", "R09"];
 
@@ -142,6 +153,50 @@ function SearchCountries({ live, win, chosen, onPick, actions }: { live: LiveKpi
 }
 
 /**
+ * The search table's countries at a glance (SARCLA 18.10: "keep it, but we should have a smaller
+ * and more graphic one"): a bar of clicks each, the click rate and the change against last year -
+ * the focus markets, the countries chosen and the largest others. A row picks the country.
+ */
+function SearchGlance({ live, win, chosen, onPick, actions }: { live: LiveKpis; win: MonthWindow; chosen: string[]; onPick: (code: string) => void; actions?: React.ReactNode }) {
+  const b = live.breakdowns;
+  const cm = b.searchCountryMonths;
+  const t = cm ? countryTable(cm, live.year, live.monthsDone, 999, win) : { rows: b.searchCountries as CountryRow[], same: b.searchSame ?? [] };
+  const pick = new Set(chosen);
+  const others = t.rows.filter((r) => !r.focus && !pick.has(r.label)).slice(0, 4);
+  const rows = t.rows.filter((r) => r.focus || pick.has(r.label) || others.includes(r)).sort((a, z) => z.clicks - a.clicks);
+  if (!rows.length) return null;
+  const max = Math.max(1, ...rows.map((r) => r.clicks));
+  const cmp = t.same.length ? (t.same.length === 1 ? MONTHS[t.same[0]] : `${MONTHS[t.same[0]]}–${MONTHS[t.same[t.same.length - 1]]}`) : "";
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1, alignContent: "start" }}>
+      <CardTitle icon={<TravelExploreIcon />} tint="blue" title="Search visibility at a glance" right={actions}
+        note={`Clicks by country, ${cm ? monthsLabel(win) : "the year so far"} ${live.year}${cmp ? ` · the arrow: ${cmp} against ${live.year - 1}` : ""}`} />
+      <Box sx={{ display: "grid", gap: 0.25 }}>
+        {rows.map((r) => {
+          const ch = change(r.sameClicks, r.pyClicks);
+          const on = pick.has(r.label);
+          return (
+            <Box key={r.label} component="button" type="button" onClick={() => onPick(r.label)} aria-pressed={on}
+              title={`${countryName(r.label)}: ${n0(r.clicks)} clicks of ${n0(r.impressions)} impressions`}
+              sx={{ display: "grid", gridTemplateColumns: "minmax(86px, 120px) minmax(0, 1fr) 62px 46px 64px", alignItems: "center", gap: 1, border: 0, font: "inherit", textAlign: "left", cursor: "pointer",
+                px: 0.75, py: 0.45, borderRadius: "8px", bgcolor: on ? TINT.blue.bg : "transparent", "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.04)" } }}>
+              <Typography component="span" sx={{ fontSize: "0.8rem", fontWeight: r.focus || on ? 700 : 500, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{countryName(r.label)}</Typography>
+              <Box sx={{ height: 10, borderRadius: 99, bgcolor: "#eef1f5" }}>
+                <Box sx={{ height: 10, borderRadius: 99, width: `${Math.max(1.5, (100 * r.clicks) / max)}%`, bgcolor: r.focus ? "#2d6fa8" : "#9ec5f4" }} />
+              </Box>
+              <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n0(r.clicks)}</Typography>
+              <Typography component="span" sx={{ fontSize: "0.72rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ratio(r.clicks, r.impressions)}</Typography>
+              <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: ch?.color ?? FAINT, textAlign: "right", whiteSpace: "nowrap" }}>{ch?.text ?? "—"}</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Dark bars: the focus markets. Then clicks, click rate and the change. Every country is in the table below.</Typography>
+    </GlassCard>
+  );
+}
+
+/**
  * R09, search visibility by country: the countries side by side, this year against last
  * on the months both years have - not one monthly total under a "by country" title
  * (SARCLA 18.10: "this graph is not correct"). Clicks or impressions.
@@ -170,11 +225,12 @@ function CountryVisibility({ live, v, win, chosen, actions }: { live: LiveKpis; 
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf("R09")}</Typography>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Which markets see us?</Typography>
         </Box>
-        <Box sx={{ textAlign: "right" }}>
+        <Box sx={{ textAlign: "right", maxWidth: 230 }}>
           <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
           <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{periodOf(v)} · clicks from the {chosen.length ? "chosen countries" : "focus markets"}</Typography>
         </Box>
-        {actions && <Box sx={{ flex: "0 0 auto" }}>{actions}</Box>}
+        {/* the card's tools at its right edge, as on every KPI card - beside the title they covered the figure's line */}
+        {actions && <Box sx={{ flex: "0 0 auto", alignSelf: "flex-start" }}>{actions}</Box>}
       </Box>
       <Compare v={v} />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -303,6 +359,88 @@ function Roas({ live, win, actions }: { live: LiveKpis; win: MonthWindow; action
   );
 }
 
+/** A section's heading on the Ads tab - SEA Google, SEA Microsoft. */
+function SectionHead({ title, line, icon }: { title: string; line: string; icon: React.ReactNode }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 0.5 }}>
+      <Badge icon={icon} tint="blue" size={30} />
+      <Box>
+        <Typography component="h2" sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>{title}</Typography>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{line}</Typography>
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * SEA Google and SEA Microsoft together, month by month (SARCLA 18.10: "and the mix"): impressions,
+ * clicks or cost stacked per month over the months chosen, each one's share, against the same
+ * months a year earlier. Google's from GA4's Google Ads link, Microsoft's from its script's sheet.
+ */
+function SeaMix({ live, views, win, actions }: { live: LiveKpis; views: Record<string, KpiView>; win: MonthWindow; actions?: React.ReactNode }) {
+  const [by, setBy] = useState<"impr" | "clicks" | "cost">("impr");
+  const year = live.year;
+  const key = (y: number, i: number) => `${y}-${String(i + 1).padStart(2, "0")}`;
+  const nm = live.breakdowns.seaNetworkMonths ?? {};
+  const euros = live.breakdowns.seaCurrency === "EUR";
+  const googleCost = (y: number, i: number) => { const n = nm[key(y, i)]; return n ? Object.values(n).reduce((a, v) => a + (v[2] ?? 0), 0) : null; };
+  const pair = (side: "months" | "py", i: number): [number | null, number | null] => {
+    if (by === "impr") return [views.R01?.series[side][i] ?? null, views.R01M?.series[side][i] ?? null];
+    if (by === "clicks") return [views.R02?.series[side][i] ?? null, views.R02M?.series[side][i] ?? null];
+    return [googleCost(side === "months" ? year : year - 1, i), views.X01M?.series[side][i] ?? null];
+  };
+  const last = Math.min(win.end, live.monthsDone - 1);
+  const months = Array.from({ length: Math.max(0, last - win.start + 1) }, (_, k) => win.start + k);
+  if (!months.length || !views.R01M?.series.months.some((v) => v != null)) return null;
+  const add = (side: "months" | "py", j: 0 | 1) => months.reduce((a, i) => a + (pair(side, i)[j] ?? 0), 0);
+  const [g, m, pg, pm] = [add("months", 0), add("months", 1), add("py", 0), add("py", 1)];
+  const fmt = (v: number | null) => (v == null ? "—" : by === "cost" ? (euros ? `€${n0(v)}` : `CHF ${n0(v)}`) : n0(v));
+  const pct = (a: number, b: number) => (b ? `${((100 * a) / b).toFixed(1)}%` : "—");
+  const w = months.length === 1 ? MONTHS[months[0]] : `${MONTHS[months[0]]}–${MONTHS[months[months.length - 1]]}`;
+  const what = by === "impr" ? "Impressions" : by === "clicks" ? "Clicks" : "Cost";
+  const totalChange = pg + pm ? (g + m) / (pg + pm) - 1 : null;
+  const tiles: { label: string; v: number; sub: string }[] = [
+    { label: `${what}, Google and Microsoft`, v: g + m, sub: totalChange == null ? "" : `${totalChange >= 0 ? "↑" : "↓"} ${Math.abs(totalChange * 100).toFixed(1)}% vs ${w} ${year - 1} (${fmt(pg + pm)})` },
+    { label: "SEA Google", v: g, sub: `${pct(g, g + m)} of the total · ${year - 1}: ${pct(pg, pg + pm)}` },
+    { label: "SEA Microsoft", v: m, sub: `${pct(m, g + m)} of the total · ${year - 1}: ${pct(pm, pg + pm)}` },
+  ];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+      <CardTitle icon={<AdsClickIcon />} tint="amber" title="SEA mix - Google and Microsoft"
+        note={`${w} ${year} against ${w} ${year - 1} · Google Ads through GA4, Microsoft Ads from its script${by === "cost" && euros ? " · cost in euros at each month's ECB rate" : ""}`} right={actions} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Box sx={{ flex: 1, display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" }, minWidth: 260 }}>
+          {tiles.map((t) => (
+            <Box key={t.label} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "14px", px: 1.5, py: 1, bgcolor: "#fff" }}>
+              <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED }}>{t.label}</Typography>
+              <Typography sx={{ fontSize: "1.25rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{fmt(t.v)}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{t.sub}</Typography>
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "12px", bgcolor: "rgba(21,34,58,.05)", alignSelf: "flex-start" }}>
+          {([["impr", "Impressions"], ["clicks", "Clicks"], ["cost", "Cost"]] as const).map(([k, label]) => (
+            <Box key={k} component="button" type="button" onClick={() => setBy(k)} aria-pressed={by === k}
+              sx={{ border: 0, font: "inherit", cursor: "pointer", px: 1.25, py: 0.6, borderRadius: "9px", fontSize: "0.8rem", fontWeight: 700,
+                bgcolor: by === k ? "#fff" : "transparent", color: by === k ? INK : MUTED, boxShadow: by === k ? "0 1px 3px rgba(21,34,58,.12)" : "none" }}>
+              {label}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+      <ChartFrame table={{ columns: ["Month", "SEA Google", "SEA Microsoft", "Together", "Microsoft's share"], rows: months.map((i) => { const [a, b] = pair("months", i); return [`${MONTHS[i]} ${year}`, a ?? "", b ?? "", (a ?? 0) + (b ?? 0), pct(b ?? 0, (a ?? 0) + (b ?? 0))]; }), numeric: [1, 2, 3] }}>
+        <StackedColumns height={240} format={(v) => fmt(v)} xFormat={(x) => x}
+          parts={[{ key: "google", label: "SEA Google" }, { key: "microsoft", label: "SEA Microsoft" }]}
+          data={months.map((i) => { const [a, b] = pair("months", i); return { x: MONTHS[i], google: a, microsoft: b }; })} />
+      </ChartFrame>
+      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+        {by === "cost" ? "Google's cost through GA4's Google Ads link; Microsoft's from the account's script." : "Google's through GA4's Google Ads link (the accounts linked to GA4); Microsoft's from the account's script, every campaign."}
+        {" "}Each one&apos;s own graphs are below, in SEA Google and SEA Microsoft.
+      </Typography>
+    </GlassCard>
+  );
+}
+
 /** Microsoft Ads by campaign type - Microsoft's side of Google's networks (SARCLA 18.10: "this table for Microsoft as well"). */
 function MsKinds({ live, win, actions }: { live: LiveKpis; win: MonthWindow; actions?: React.ReactNode }) {
   const ms = live.breakdowns.msAds;
@@ -369,7 +507,9 @@ function ByKind({ live, win, byMonth, total, euros, names = {}, title, first, ic
 function Figures({ views, countries }: { views: Record<string, KpiView>; countries: string[] }) {
   const items: { id: string; label: string; icon: React.ReactNode; tint: Tint }[] = [
     { id: "R05", label: "Search clicks", icon: <TouchAppOutlinedIcon />, tint: "blue" },
-    { id: "R02", label: "Ad clicks", icon: <AdsClickIcon />, tint: "amber" },
+    ...(views.R02T?.ytd != null
+      ? [{ id: "R02T", label: "Ad clicks, Google and Microsoft", icon: <AdsClickIcon />, tint: "amber" as Tint }]
+      : [{ id: "R02", label: "Ad clicks, Google", icon: <AdsClickIcon />, tint: "amber" as Tint }]),
     { id: "R09", label: countries.length ? "Clicks, chosen countries" : "Clicks, focus markets", icon: <FlagOutlinedIcon />, tint: "green" },
     { id: "R10", label: "AI answers naming APSO", icon: <SmartToyOutlinedIcon />, tint: "purple" },
     { id: "R11", label: "Emails delivered", icon: <MailOutlineIcon />, tint: "pink" },
@@ -548,7 +688,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
   const months = isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) };
   const kpiActs = (id: string, v: KpiView) => (
     <TileActions where="tab" start={ids.includes(id) ? "nutshell" : "tab"}
-      tile={{ key: `reach::${id}`, page: "reach", tab, kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), filters: country, ...months, kind: "kpi" }} />
+      tile={{ key: `reach::${id}`, page: "reach", tab, kpiId: id, title: adsName(id), summary: kpiSummary(v, periodOf(v)), filters: country, ...months, kind: "kpi" }} />
   );
   const tileOf = (key: string, title: string) => ({ key: `reach:${tab}:${key}`, page: "reach", tab, title, summary: `${monthsLabel(win)} ${year}`, filters: country, ...months, kind: "card" as const });
   const act = (key: string, title: string) => <TileActions where="tab" start="tab" tile={tileOf(key, title)} />;
@@ -556,7 +696,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
     const v = views[id];
     if (!v || (!ids.includes(id) && !MICROSOFT_LIVE.includes(id) && !MICROSOFT_TYPED.includes(id))) return null;
     const k = KPIS.find((x) => x.id === id) ?? { ...KPIS[0], id, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
-    return <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} upTo={upToOf(v, state, year)} actions={kpiActs(id, v)} />;
+    return <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} upTo={upToOf(v, state, year)} actions={kpiActs(id, v)} title={ADS_NAMES[id]} />;
   };
   const kpis = TABS.find((t) => t.id === tab)!.kpis.map(card).filter(Boolean);
   const upToDay = (() => { const e = Math.min(win.end, done - 1); return e >= 0 ? `${new Date(Date.UTC(year, e + 1, 0)).getUTCDate()} ${MONTHS[e]} ${year}` : "—"; })();
@@ -603,11 +743,20 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         </Button>
       </Box>
 
-      {kpis.length > 0 && (
+      {kpis.length > 0 && tab !== "ads" && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>
       )}
+      {/* SARCLA 18.10: the return on ad spend on top; SEA Google and SEA Microsoft, each with its graphs, and the mix */}
       {tab === "ads" && <Roas live={live} win={win} actions={act("roas", "Return on ad spend by channel, and SEO")} />}
-      {tab === "ads" && <SeaNetworks live={live} win={win} actions={act("google-networks", "Google Ads by network")} />}
+      {tab === "ads" && <SeaMix live={live} views={views} win={win} actions={act("sea-mix", "SEA mix - Google and Microsoft")} />}
+      {tab === "ads" && (
+        <>
+          <SectionHead title="SEA Google" icon={<AdsClickIcon />}
+            line="Google Ads, through the accounts linked to GA4: impressions, clicks and click rate by month, then each network" />
+          {kpis.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{kpis}</Box>}
+          <SeaNetworks live={live} win={win} actions={act("google-networks", "Google Ads by network")} />
+        </>
+      )}
       {tab === "ads" && (() => {
         // Microsoft Ads: what GA4 sees of it, and the account's own impressions, clicks and cost from the script's sheet
         const fromSheet = waiting.R01M ? [] : MICROSOFT_TYPED.filter((id) => views[id]?.series.months.some((x) => x != null) || views[id]?.series.py.some((x) => x != null));
@@ -615,17 +764,8 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         const ms = live.breakdowns.msAds;
         return (
           <>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 0.5 }}>
-              <Badge icon={<AdsClickIcon />} tint="blue" size={30} />
-              <Box>
-                <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>Microsoft Ads</Typography>
-                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-                  Visits, orders and revenue as GA4 sees them; impressions, clicks and cost from the account itself, sent by a script in Microsoft Advertising every morning
-                  {ms?.through ? ` - counted up to ${ms.through}` : ""}
-                  {ms?.costPartial ? " - the cost leaves out accounts in another currency" : ""}
-                </Typography>
-              </Box>
-            </Box>
+            <SectionHead title="SEA Microsoft" icon={<AdsClickIcon />}
+              line={`Microsoft Ads: visits, orders and revenue as GA4 sees them; impressions, clicks and cost from the account itself, sent by a script in Microsoft Advertising every morning${ms?.through ? ` - counted up to ${ms.through}` : ""}${ms?.costPartial ? " - the cost leaves out accounts in another currency" : ""}`} />
             {liveCards.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>{liveCards}</Box>}
             {/* a script that stopped writing must not pass for figures that are current (the shelf lesson, 14.10) */}
             {ms?.stale && fromSheet.length > 0 && (
@@ -641,7 +781,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
                 <MsKinds live={live} win={win} actions={act("microsoft-kinds", "Microsoft Ads by campaign type")} />
               </>
               : (
-                <BeingBuilt id="R01M" icon={<AdsClickIcon />} title="Microsoft Ads impressions, clicks and cost"
+                <BeingBuilt id="R01M" icon={<AdsClickIcon />} title="SEA Microsoft impressions, clicks and cost"
                   shows="Impressions, clicks and cost of every campaign in the Microsoft Advertising account, by month, this year against last."
                   from="Microsoft Advertising - a script in the account writes them to a Google Sheet every morning; the hub reads the sheet."
                   waits={waiting.R01M ? "The Google Sheet the Microsoft Advertising script writes to - being set up." : "The script's first run: it writes the months to the sheet every morning."}
@@ -651,7 +791,12 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
         );
       })()}
       {tab === "countries" && views.R09 && (live.breakdowns.searchCountryMonths
-        ? <CountryVisibility live={live} v={views.R09} win={win} chosen={countries} actions={kpiActs("R09", views.R09)} />
+        ? (
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1.25fr) minmax(0, 1fr)" }, alignItems: "start" }}>
+            <CountryVisibility live={live} v={views.R09} win={win} chosen={countries} actions={kpiActs("R09", views.R09)} />
+            <SearchGlance live={live} win={win} chosen={countries} onPick={toggleCountry} actions={act("search-glance", "Search visibility at a glance")} />
+          </Box>
+        )
         : card("R09"))}
       {tab === "countries" && (live.breakdowns.searchCountries.length > 0 || live.breakdowns.searchCountryMonths) && <SearchCountries live={live} win={win} chosen={countries} onPick={toggleCountry} actions={act("search-countries", "Search visibility by country")} />}
       {/* where we stand against the sites the assistants rely on, then each assistant (SARCLA 18.10) */}
@@ -719,10 +864,12 @@ export function ReachPromoted({ spec, actions }: { spec: TileSpec; actions?: Rea
     case "roas": return <Roas live={live} win={win} actions={actions} />;
     case "google-networks": return <SeaNetworks live={live} win={win} actions={actions} />;
     case "microsoft-kinds": return <MsKinds live={live} win={win} actions={actions} />;
+    case "sea-mix": return state?.inputs ? <SeaMix live={live} views={buildViews(state.inputs, live, live.year, win)} win={win} actions={actions} /> : null;
     case "search-countries": return <SearchCountries live={live} win={win} chosen={chosen} onPick={() => undefined} actions={actions} />;
     case "cited-sites": return state?.aeoCited ? <Pinned actions={actions}><CitedSitesCard data={state.aeoCited} /></Pinned> : null;
     case "by-assistant": return state?.aeoAssistants ? <Pinned actions={actions}><ByAssistant w={state.aeoAssistants} /></Pinned> : null;
     case "search-customers": return <Pinned actions={actions}><SearchCustomersCard /></Pinned>;
+    case "search-glance": return <SearchGlance live={live} win={win} chosen={chosen} onPick={() => undefined} actions={actions} />;
     default: return null;
   }
 }

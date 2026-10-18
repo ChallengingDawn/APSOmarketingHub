@@ -50,6 +50,8 @@ export type Ga4ReportName =
   | "visitUsersMonthly"
   | "visitCube"
   | "visitLanding"
+  | "visitCountryUsers"
+  | "visitLoginUsers"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -225,6 +227,21 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["sessions", "activeUsers"],
     orderBy: { metric: "sessions", desc: true },
     limit: 25000,
+  },
+  visitCountryUsers: {
+    // users per month and country, exact - the cube's users are per channel too, so a visitor who
+    // came through two channels would count twice in a country's total (SARCLA 18.10: "by country")
+    dimensions: ["yearMonth", "countryId"],
+    metrics: ["activeUsers", "newUsers", "sessions"],
+    limit: 10000,
+  },
+  visitLoginUsers: {
+    // the visitors who logged in to the shop, per month and country: GA4's login event - the share of
+    // the visitors who are known customers (SARCLA 18.10). The shop sends no user id, so this is the signal.
+    dimensions: ["yearMonth", "countryId"],
+    metrics: ["activeUsers"],
+    filter: { field: "eventName", value: "login" },
+    limit: 10000,
   },
   transactionsChannel: {
     // Each web order GA4 saw, by its order number and the channel of the session it came in:

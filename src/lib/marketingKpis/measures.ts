@@ -44,6 +44,8 @@ export type Measure = {
   note?: string;
   /** a figure outside the catalogue shown as a card of its own in this stage (the email open and click rates beside R11) */
   extraIn?: string;
+  /** a derived sum: the months where every part has a figure (SEA Google and Microsoft together) */
+  parts?: string[];
   /**
    * Typed in francs - Google's figures, as SARCLA's Dashboard 2026 has them (GA4 reports in CHF) -
    * and shown in euros at each month's ECB rate (SARCLA 18.10: "everything in EUR").
@@ -60,10 +62,16 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "V02", label: "New users' share", fmt: "pct", agg: { kind: "ratio", num: "V02N", den: "V01" }, origin: "live", liveSource: "GA4", definition: "New users / all users - GA4: a visitor whose first visit falls in the month" }),
   M({ id: "V02N", label: "New users", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "V03", label: "Sessions", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "All visits (GA4 sessions), every channel - the channels are in the table below" }),
-  M({ id: "V04", label: "Users outside Switzerland", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "GA4's users per month from every country but Switzerland" }),
-  M({ id: "V05", label: "Sessions on a shop store", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that landed on a store's address (/de-CH, /it-IT, /en-INT ...), the year so far - each store in the table below" }),
-  M({ id: "V07", label: "Prio 1 and 2 companies logged in", fmt: "int", agg: { kind: "ytd" }, origin: "live", note: "Companies that logged in to the shop this year (Datatracker) - every priority in the table below" }),
-  M({ id: "V08", label: "Sessions on the 20 top landing pages", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that started on the 20 most visited landing pages, the year so far - the pages in the table below" }),
+  M({ id: "V04", label: "Users outside Switzerland", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "GA4's users per month from every country but Switzerland - each country in the chart" }),
+  M({ id: "V05", label: "Sessions on a shop store", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that landed on a store's address (/de-CH, /it-IT, /en-INT ...), the year so far - each store and the channels that bring it visitors below" }),
+  M({ id: "V07", label: "Prio 1 and 2 companies logged in", fmt: "int", agg: { kind: "ytd" }, origin: "live", note: "Companies that logged in to the shop this year (Datatracker); each priority's companies are on Who are our customers" }),
+  M({ id: "V08", label: "Sessions on the 20 top landing pages", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that started on the 20 most visited landing pages, the year so far - a shop tab left open without a page is not a landing page" }),
+  // the known visitors (SARCLA 18.10: "percentage of known customers ... of visitors"): GA4's login event
+  M({ id: "V06S", label: "Visitors who log in", fmt: "pct", agg: { kind: "ratio", num: "V06G", den: "V06U" }, origin: "live", notCatalogue: true, liveSource: "GA4",
+    note: "Of the shop's visitors each month, the share who logged in - GA4's login event; a visitor who stays logged in from an earlier visit is not counted, so it is a floor" }),
+  M({ id: "V06G", label: "Visitors who logged in", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4",
+    note: "GA4's users per month with a login event" }),
+  M({ id: "V06U", label: "Visitors (for the logins)", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "E01", label: "Bounce rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false, note: "Max 50%, lower is better" }),
   M({ id: "E02", label: "Engagement rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", note: "60% B2B standard, 75% strong" }),
   M({ id: "K02", label: "Cart abandonment rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false }),
@@ -102,6 +110,10 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "MSR", label: "Microsoft Ads revenue", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Revenue of those orders, GA4's francs in euros at the month's ECB rate" }),
   M({ id: "R01M", label: "Microsoft Ads impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
   M({ id: "R02M", label: "Microsoft Ads clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
+  // SEA Google and SEA Microsoft together, and Microsoft's own click rate (SARCLA 18.10: "SEA Google like SEA Microsoft ... and the mix")
+  M({ id: "R03M", label: "Microsoft Ads CTR", fmt: "pct", agg: { kind: "ratio", num: "R02M", den: "R01M" }, origin: "live", derived: true, notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Microsoft Ads clicks / impressions" }),
+  M({ id: "R01T", label: "SEA impressions, Google and Microsoft", fmt: "int", agg: { kind: "sum" }, origin: "live", derived: true, parts: ["R01", "R01M"], likeForLike: true, notCatalogue: true }),
+  M({ id: "R02T", label: "SEA clicks, Google and Microsoft", fmt: "int", agg: { kind: "sum" }, origin: "live", derived: true, parts: ["R02", "R02M"], likeForLike: true, notCatalogue: true }),
   M({ id: "X01M", label: "Microsoft Ads cost", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, goodWhenUp: false, liveSource: "the Microsoft Advertising script", note: "The account's spend, francs in euros at the month's ECB rate" }),
   M({ id: "R10N", label: "AI answers naming APSO", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "R10D", label: "AI answers", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
@@ -128,6 +140,13 @@ export function derive(id: string, get: (id: string) => Series): Series {
   const m = MEASURES[id];
   const out: Series = { months: Array(12).fill(null), py: Array(12).fill(null) };
   if (id === "F01") return get("P05");
+  if (m?.parts) {
+    const ps = m.parts.map(get);
+    for (const k of ["months", "py"] as const) {
+      for (let i = 0; i < 12; i++) out[k][i] = ps.every((p) => p[k][i] != null) ? ps.reduce((a, p) => a + p[k][i]!, 0) : null;
+    }
+    return out;
+  }
   if (m?.agg.kind !== "ratio") return out;
   const a = get(m.agg.num), b = get(m.agg.den);
   for (const k of ["months", "py"] as const) {

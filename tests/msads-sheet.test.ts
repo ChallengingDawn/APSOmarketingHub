@@ -60,3 +60,21 @@ test("the campaign types beside each month's total, and their costs in euros", (
   assert.equal(Math.round(k["2026-09"]["Performance Max"][2]!), Math.round(2000 / 0.94));
   assert.equal(msAdsKindMonths(s, undefined, false)["2026-09"]["Search"][2], null);   // a cost not shown in euros
 });
+
+import { derive, total, type Series } from "../src/lib/marketingKpis/measures";
+
+test("SEA Google and SEA Microsoft together: a month counts where both have a figure; Microsoft's own click rate", () => {
+  const empty = () => Array(12).fill(null);
+  const s: Record<string, Series> = {
+    R01: { months: [100, 200, null, ...empty().slice(3)], py: [50, ...empty().slice(1)] },
+    R01M: { months: [300, 100, 400, ...empty().slice(3)], py: [150, ...empty().slice(1)] },
+    R02: { months: [10, 20, null, ...empty().slice(3)], py: empty() },
+    R02M: { months: [6, 4, 8, ...empty().slice(3)], py: empty() },
+  };
+  const get = (id: string): Series => s[id] ?? derive(id, get);
+  const t = derive("R01T", get);
+  assert.deepEqual(t.months.slice(0, 3), [400, 300, null]);    // March has no Google figure yet
+  assert.equal(t.py[0], 200);
+  assert.deepEqual(derive("R03M", get).months.slice(0, 3), [6 / 300, 4 / 100, 8 / 400]);
+  assert.equal(total("R03M", derive("R03M", get), "months", get, 3), 18 / 800);
+});

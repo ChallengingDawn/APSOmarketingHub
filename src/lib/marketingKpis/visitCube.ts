@@ -5,8 +5,15 @@
 //              period, country and channel filters, and the traffic origin and country tables
 //   landing    sessions per landing page x channel, the year so far and the same months last
 //              year - the store (the page address's first part, /de-CH) and landing page tables
+//   countryUsers  exact users, new users and sessions per month x country (V04 by country)
+//   logins     visitors who logged in to the shop per month x country - GA4's login event (V06G/V06S)
 //   prio       companies that logged in to the shop, per sales priority (Datatracker, V06/V07)
+//   unlinked   shop accounts with no company in HubSpot - their logins and orders count for nobody
 // GA4 counts visitors who accepted statistics cookies only: every figure is a floor.
+// GA4's "(not set)" landing page is a visit without a page view: a shop tab left open on a
+// computer, active again after 30 minutes - GA4 starts a new visit, no page loads (checked
+// 18.10.2026: 15% of the visits, 99% desktop, no page views, no orders, ~5,000 a month both years).
+// They count as visits, but they are not a store or a page: the store and page figures leave them out.
 
 import { countryName } from "./countries";
 
@@ -50,6 +57,35 @@ export function storeOf(page: string): string | null {
   return m ? `${m[1].slice(0, 2).toLowerCase()}-${m[1].slice(3).toUpperCase()}` : null;
 }
 
+/** What GA4's "(not set)" landing page is, in plain words. */
+export const NO_PAGE = "Shop tab left open - no page loaded";
+export const NO_PAGE_INFO = "A shop tab left open on a computer that became active again after 30 minutes: GA4 starts a new visit, but no page loads, so there is no landing page. Almost all on desktop, no orders.";
+
+export type UnlinkedRow = {
+  /** the HubSpot contact */
+  id: string;
+  /** the company name the person typed in the shop */
+  company: string;
+  domain: string;
+  country: string;
+  created: string;
+  /** "match" a company with this e-mail domain exists - link it; "business" no company yet; "free" a free e-mail address */
+  kind: "match" | "business" | "free";
+  match: { id: string; name: string; more: number } | null;
+};
+export type Unlinked = {
+  /** every shop account without a company, A+P's own staff left out */
+  total: number;
+  internal: number;
+  matched: number;
+  business: number;
+  free: number;
+  createdThisYear: number;
+  seenThisYear: number;
+  /** the accounts to fix: a matching company first, then the newest */
+  rows: UnlinkedRow[];
+};
+
 export type VisitData = {
   generatedAt: string;
   year: number;
@@ -63,8 +99,13 @@ export type VisitData = {
   cube: [string, string, number, number, number, number][];
   /** landing pages: this year so far (whole months) and the same months last year */
   landing: { months: number; cy: [string, string, number, number][]; py: [string, string, number, number][] };
+  /** [month, country, users, new users, sessions], exact per month and country */
+  countryUsers: [string, string, number, number, number][];
+  /** [month, country, visitors who logged in] - GA4's login event */
+  logins: [string, string, number][];
   /** companies by sales priority: all, logged in this year, logged in last year */
   prio: { band: string; all: number | null; cy: number | null; py: number | null }[];
+  unlinked: Unlinked | null;
   errors: Record<string, string>;
 };
 
@@ -73,41 +114,99 @@ type Monthly = { months: (number | null)[]; py: (number | null)[] };
 
 const ym = (y: number, i: number) => `${y}-${String(i + 1).padStart(2, "0")}`;
 
+type SeriesId = "V01" | "V02N" | "V02" | "V03" | "V04" | "V06G" | "V06U" | "V06S";
+
 /**
  * The page's monthly KPIs, this year and last: users (V01), new users (V02N) and their share
- * (V02), sessions (V03), users outside Switzerland (V04). Unfiltered, users are GA4's exact
- * monthly users; with a country or channel chosen they come from the cube, where a visitor
- * arriving through two channels in a month counts twice.
+ * (V02), sessions (V03), users outside Switzerland (V04), the visitors who logged in (V06G) and
+ * their share of the visitors (V06S over V06U). Unfiltered, users are GA4's exact monthly users;
+ * with countries chosen, GA4's exact users per month and country; with a channel chosen they come
+ * from the cube, where a visitor arriving through two channels in a month counts twice. GA4's
+ * login event has no channel: the known visitors follow the countries only.
  */
-export function visitSeries(d: VisitData, year: number, f: VisitFilters = {}): Record<"V01" | "V02N" | "V02" | "V03" | "V04", Monthly> {
+export function visitSeries(d: VisitData, year: number, f: VisitFilters = {}): Record<SeriesId, Monthly> {
   const empty = (): Monthly => ({ months: Array(12).fill(null), py: Array(12).fill(null) });
-  const out = { V01: empty(), V02N: empty(), V02: empty(), V03: empty(), V04: empty() };
-  const filtered = !!(f.country?.length || f.channel?.length);
+  const out: Record<SeriesId, Monthly> = { V01: empty(), V02N: empty(), V02: empty(), V03: empty(), V04: empty(), V06G: empty(), V06U: empty(), V06S: empty() };
   const pickC = f.country?.length ? new Set(f.country.map((c) => c.toUpperCase())) : null;
   const pickH = f.channel?.length ? new Set(f.channel) : null;
-  const agg: Record<string, [number, number, number, number]> = {};   // sessions, users, new, users outside CH
+  // sessions, users, new users, users outside Switzerland - per month
+  const fromCube: Record<string, [number, number, number, number]> = {};
   for (const [m, c, h, s, u, n] of d.cube) {
     if (pickC && !pickC.has(c)) continue;
     if (pickH && !pickH.has(d.channels[h])) continue;
-    const a = (agg[m] ??= [0, 0, 0, 0]);
+    const a = (fromCube[m] ??= [0, 0, 0, 0]);
     a[0] += s; a[1] += u; a[2] += n;
     if (c !== "CH") a[3] += u;
   }
+  const byCountry: Record<string, [number, number, number, number]> = {};
+  for (const [m, c, u, n, s] of d.countryUsers ?? []) {
+    if (pickC && !pickC.has(c)) continue;
+    const a = (byCountry[m] ??= [0, 0, 0, 0]);
+    a[0] += s; a[1] += u; a[2] += n;
+    if (c !== "CH") a[3] += u;
+  }
+  const known: Record<string, number> = {};
+  for (const [m, c, u] of d.logins ?? []) if (!pickC || pickC.has(c)) known[m] = (known[m] ?? 0) + u;
+  const hasLogins = (d.logins?.length ?? 0) > 0;
   for (const [side, y] of [["months", year], ["py", year - 1]] as const) {
     for (let i = 0; i < 12; i++) {
       const m = ym(y, i);
-      const exact = d.users[m], a = agg[m];
-      if (!exact && !a) continue;
-      const users = filtered ? a?.[1] ?? 0 : exact?.[0] ?? a?.[1] ?? 0;
-      const fresh = filtered ? a?.[2] ?? 0 : exact?.[1] ?? a?.[2] ?? 0;
+      const exact = d.users[m];
+      if (!exact && !fromCube[m] && !byCountry[m]) continue;
+      // the channel needs the cube; countries alone are exact; neither: GA4's own monthly users
+      const a = pickH ? fromCube[m] ?? [0, 0, 0, 0] : pickC ? byCountry[m] ?? fromCube[m] ?? [0, 0, 0, 0] : null;
+      const users = a ? a[1] : exact?.[0] ?? 0;
+      const fresh = a ? a[2] : exact?.[1] ?? 0;
       out.V01[side][i] = users;
       out.V02N[side][i] = fresh;
       out.V02[side][i] = users ? fresh / users : null;
-      out.V03[side][i] = filtered ? a?.[0] ?? 0 : exact?.[2] ?? a?.[0] ?? 0;
-      out.V04[side][i] = a ? a[3] : null;
+      out.V03[side][i] = a ? a[0] : exact?.[2] ?? 0;
+      const abroad = pickH ? fromCube[m] : byCountry[m] ?? fromCube[m];
+      out.V04[side][i] = abroad ? abroad[3] : null;
+      // the known visitors: countries only (the login event has no channel)
+      const den = pickC ? byCountry[m]?.[1] ?? null : exact?.[0] ?? null;
+      if (hasLogins && den != null) {
+        out.V06G[side][i] = known[m] ?? 0;
+        out.V06U[side][i] = den;
+        out.V06S[side][i] = den ? (known[m] ?? 0) / den : null;
+      }
     }
   }
   return out;
+}
+
+export type CountryUsersRow = { code: string; label: string; users: number; pyUsers: number };
+/**
+ * Users by country outside Switzerland over the months chosen, against the same months a year
+ * earlier (V04 by country, SARCLA 18.10). Exact per country; with a channel chosen from the cube.
+ */
+export function usersAbroad(d: VisitData, year: number, months: number[], f: VisitFilters = {}): CountryUsersRow[] {
+  const cy = new Set(months.map((i) => ym(year, i))), py = new Set(months.map((i) => ym(year - 1, i)));
+  const pickH = f.channel?.length ? new Set(f.channel) : null;
+  const rows: Record<string, CountryUsersRow> = {};
+  const add = (m: string, c: string, u: number) => {
+    if (c === "CH" || (!cy.has(m) && !py.has(m))) return;
+    const key = c || "ZZ";
+    const r = (rows[key] ??= { code: key, label: countryName(key), users: 0, pyUsers: 0 });
+    if (cy.has(m)) r.users += u; else r.pyUsers += u;
+  };
+  if (pickH || !d.countryUsers?.length) {
+    for (const [m, c, h, , u] of d.cube) if (!pickH || pickH.has(d.channels[h])) add(m, c, u);
+  } else {
+    for (const [m, c, u] of d.countryUsers) add(m, c, u);
+  }
+  return Object.values(rows).filter((r) => r.users || r.pyUsers).sort((a, b) => b.users - a.users);
+}
+
+export type KnownRow = { code: string; label: string; users: number; known: number; pyUsers: number; pyKnown: number };
+/** Per country: the visitors and those who logged in, over the months chosen and a year earlier. */
+export function knownByCountry(d: VisitData, year: number, months: number[]): KnownRow[] {
+  const cy = new Set(months.map((i) => ym(year, i))), py = new Set(months.map((i) => ym(year - 1, i)));
+  const rows: Record<string, KnownRow> = {};
+  const row = (c: string) => (rows[c || "ZZ"] ??= { code: c || "ZZ", label: countryName(c || "ZZ"), users: 0, known: 0, pyUsers: 0, pyKnown: 0 });
+  for (const [m, c, u] of d.countryUsers ?? []) { if (cy.has(m)) row(c).users += u; else if (py.has(m)) row(c).pyUsers += u; }
+  for (const [m, c, u] of d.logins ?? []) { if (cy.has(m)) row(c).known += u; else if (py.has(m)) row(c).pyKnown += u; }
+  return Object.values(rows).filter((r) => r.users).sort((a, b) => b.known - a.known || b.users - a.users);
 }
 
 export type BreakRow = { key: string; label: string; sessions: number; pySessions: number; users: number; pyUsers: number; newUsers: number; pyNewUsers: number };
@@ -118,6 +217,17 @@ export function cubeTable(d: VisitData, year: number, months: number[], by: "cha
   const pickC = f.country?.length ? new Set(f.country.map((c) => c.toUpperCase())) : null;
   const pickH = f.channel?.length ? new Set(f.channel) : null;
   const rows: Record<string, BreakRow> = {};
+  // countries without a channel chosen: GA4's exact users per country (the cube counts a visitor once per channel)
+  if (by === "country" && !pickH && d.countryUsers?.length) {
+    for (const [m, c, u, n, s] of d.countryUsers) {
+      const isCy = cy.has(m);
+      if (!isCy && !py.has(m)) continue;
+      const key = c || "ZZ";
+      const r = (rows[key] ??= { key, label: countryName(key), sessions: 0, pySessions: 0, users: 0, pyUsers: 0, newUsers: 0, pyNewUsers: 0 });
+      if (isCy) { r.sessions += s; r.users += u; r.newUsers += n; } else { r.pySessions += s; r.pyUsers += u; r.pyNewUsers += n; }
+    }
+    return Object.values(rows).filter((r) => r.sessions || r.pySessions).sort((a, b) => b.sessions - a.sessions);
+  }
   for (const [m, c, h, s, u, n] of d.cube) {
     const isCy = cy.has(m), isPy = py.has(m);
     if (!isCy && !isPy) continue;
@@ -140,20 +250,50 @@ export function storeTable(d: VisitData, f: VisitFilters = {}): StoreRow[] {
     for (const [page, ch, s, u] of list) {
       if (pickH && !pickH.has(ch)) continue;
       const code = storeOf(page) ?? (page === "(not set)" ? "(not set)" : "(other)");
-      const r = (rows[code] ??= { code, label: storeName(code) ?? (code === "(not set)" ? "No landing page recorded" : "Other pages (not a store address)"), sessions: 0, pySessions: 0, users: 0 });
+      const r = (rows[code] ??= { code, label: storeName(code) ?? (code === "(not set)" ? NO_PAGE : "Other pages (not a store address)"), sessions: 0, pySessions: 0, users: 0 });
       if (side === "cy") { r.sessions += s; r.users += u; } else r.pySessions += s;
     }
   }
-  return Object.values(rows).sort((a, b) => b.sessions - a.sessions);
+  // the stores first, largest first; the visits without a store at the end
+  const rank = (r: StoreRow) => (r.code === "(not set)" ? 2 : r.code === "(other)" ? 1 : 0);
+  return Object.values(rows).sort((a, b) => rank(a) - rank(b) || b.sessions - a.sessions);
+}
+
+export type StoreChannels = { code: string; label: string; total: number; pyTotal: number; channels: Record<string, number> };
+/**
+ * Each store's visits by the channel that brought them, the year so far (SARCLA 18.10: "a graph
+ * about the locale + top main channel to compare what brings more visitors to it"). Stores only:
+ * the visits without a page and the pages outside a store are not in it.
+ */
+export function storeChannels(d: VisitData, f: VisitFilters = {}): StoreChannels[] {
+  const pickH = f.channel?.length ? new Set(f.channel) : null;
+  const rows: Record<string, StoreChannels> = {};
+  for (const [side, list] of [["cy", d.landing.cy], ["py", d.landing.py]] as const) {
+    for (const [page, ch, s] of list) {
+      if (pickH && !pickH.has(ch)) continue;
+      const code = storeOf(page);
+      if (!code) continue;
+      const r = (rows[code] ??= { code, label: storeName(code) ?? code, total: 0, pyTotal: 0, channels: {} });
+      if (side === "cy") { r.total += s; r.channels[ch] = (r.channels[ch] ?? 0) + s; } else r.pyTotal += s;
+    }
+  }
+  return Object.values(rows).sort((a, b) => b.total - a.total);
+}
+
+/** The visits without a landing page (a tab left open), the year so far and the same months last year. */
+export function noPageVisits(d: VisitData): { cy: number; py: number } {
+  const sum = (l: [string, string, number, number][]) => l.reduce((a, [p, , s]) => a + (p === "(not set)" ? s : 0), 0);
+  return { cy: sum(d.landing.cy), py: sum(d.landing.py) };
 }
 
 export type PageRow = { page: string; store: string | null; sessions: number; users: number; channels: Record<string, number> };
-/** The landing pages with the most sessions this year so far - all channels or the ones chosen. */
+/** The landing pages with the most sessions this year so far - all channels or the ones chosen; the visits without a page left out. */
 export function landingTable(d: VisitData, f: VisitFilters = {}, top = 25): PageRow[] {
   const pickH = f.channel?.length ? new Set(f.channel) : null;
   const rows: Record<string, PageRow> = {};
   for (const [page, ch, s, u] of d.landing.cy) {
-    if (pickH && !pickH.has(ch)) continue;
+    // a visit without a page view is not a landing page
+    if (page === "(not set)" || (pickH && !pickH.has(ch))) continue;
     const r = (rows[page] ??= { page, store: storeOf(page), sessions: 0, users: 0, channels: {} });
     r.sessions += s; r.users += u; r.channels[ch] = (r.channels[ch] ?? 0) + s;
   }

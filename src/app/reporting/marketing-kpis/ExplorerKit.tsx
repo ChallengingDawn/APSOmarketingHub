@@ -27,16 +27,18 @@ export const withChange = (v: React.ReactNode, c: ReturnType<typeof change>) => 
 );
 
 /** A plain table, figures in full (SARCLA: no abbreviations); a row can be picked. */
-export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths }: {
+export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth }: {
   head: string[]; rows: { key: string; cells: React.ReactNode[]; strong?: boolean; on?: boolean; onPick?: () => void }[]; firstWidth?: string;
   /** the other columns' widths, when not all the same */
   widths?: string[];
+  /** below this the table scrolls sideways (a table in half a row is narrower) */
+  minWidth?: number;
 }) {
   const cols = widths ? `${firstWidth} ${widths.join(" ")}` : `${firstWidth} repeat(${head.length - 1}, minmax(110px, 1fr))`;
   return (
     <Box sx={{ overflowX: "auto" }}>
       {/* the cells stretch to their row, so a row's line runs straight across */}
-      <Box sx={{ display: "grid", gridTemplateColumns: cols, minWidth: 220 + (head.length - 1) * 115, alignItems: "stretch" }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: cols, minWidth: minWidth ?? 220 + (head.length - 1) * 115, alignItems: "stretch" }}>
         {head.map((h, i) => <Typography key={h} sx={{ display: "flex", alignItems: "flex-end", justifyContent: i ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: i ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
         {rows.map((r) => (
           <Box key={r.key} role={r.onPick ? "button" : undefined} tabIndex={r.onPick ? 0 : undefined} aria-pressed={r.onPick ? !!r.on : undefined}
