@@ -130,7 +130,7 @@ function Body({ d, reload }: { d: Data; reload: () => void }) {
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%", display: "grid", gap: 1.25, alignContent: "start" }}>
             <CardTitle icon={<ShoppingCartCheckoutOutlinedIcon />} tint="amber" title="Answer to the cart tag"
-              note="Each night, from 24 months of HubSpot web orders: is the buyer's company new, active or reactivated? The GTM tag on the cart asks, so the purchase sends Google Ads the right conversion. Kept in memory only, rebuilt at every restart." />
+              note="Each night, from 24 months of HubSpot web orders: is the buyer's company new, active or reactivated? The GTM tag on the cart asks, so the purchase sends Google Ads the right conversion. New shop accounts join within 2 minutes. Kept in memory only, rebuilt at every restart." />
             <Controls job="ads_buckets" d={d} reload={reload} title="Answer to the cart tag" runLabel="Build now" runAction="build"
               offAsk="Switch the answer off? The cart tag then gets no answer and Google falls back to its own guess. The nightly list goes on while live shop activity is on - it needs it."
               runAsk="Build the list again now? It reads 24 months of HubSpot orders and takes about 15 minutes; the current list keeps answering until the new one is ready." />
@@ -138,6 +138,9 @@ function Body({ d, reload }: { d: Data; reload: () => void }) {
               ["Last build", b.building ? "building now" : lb.finished_at ? `${when(lb.finished_at)}${lb.duration_s != null ? ` · ${Math.round(lb.duration_s / 60)} min` : ""}` : "not since the service started", lb.ok === false ? RED : undefined],
               ...(lb.ok === false ? [["Error", lb.error ?? "", RED] as [string, React.ReactNode, string]] : []),
               ["Companies in the last build", lb.companies != null ? full(lb.companies) : "-"],
+              ...(b.daytime ? [["New shop accounts since then", b.daytime.error ? `last check failed: ${b.daytime.error}`
+                : `${full(b.daytime.added_since_build.new + b.daytime.added_since_build.active + b.daytime.added_since_build.reactivated)} answered · ${full(b.daytime.added_since_build.held)} held · checked every ${b.daytime.every_min} min${b.daytime.last_look_at ? `, last ${when(b.daytime.last_look_at)}` : ""}`,
+                b.daytime.error ? RED : undefined] as [string, React.ReactNode, string?]] : []),
               ["Answer given until the list is", `${b.stale_hours} hours old`],
             ]} />
             {stale && <Notice tone="warn">The list is {b.age_hours} hours old: the cart tag gets no answer until it is built again.</Notice>}

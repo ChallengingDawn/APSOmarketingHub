@@ -46,6 +46,9 @@ export type AdsStatus = {
     last_build: { started_at: string | null; finished_at: string | null; ok: boolean | null; keys: number | null; companies: number | null;
       buckets: Record<string, number> | null; error: string | null; duration_s: number | null };
     answers: Record<string, number>;
+    /** the web-shop accounts HubSpot gained since the build, every 2 minutes (Ads Gateway 9a127b8, 18.10.2026) */
+    daytime?: { every_min: number; last_look_at: string | null; looked: number;
+      added_since_build: Record<"new" | "active" | "reactivated" | "held", number>; error: string | null };
   };
   shop_activity: {
     accepted: number; unknown_buyer: number; bad_body: number; flushes: number; companies_written: number; write_errors: number;
