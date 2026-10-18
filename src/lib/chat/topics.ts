@@ -29,7 +29,7 @@ const TABLE = "apsomh_chat_filing";
 const TOPICS_LOCK = 4_107_230;              // DoC 4107201 … partner stock 4107221 taken; this one is the chat filing's
 const TICK_MS = 20 * 60_000;
 const PER_RUN = 120;                         // ~2,400 real chats since go-live: the backlog clears in about 7 hours
-const HS_PER_RUN = 400;                      // tickets read (and, when on, written) per run, 100 a call
+const HS_PER_RUN = 400;                      // tickets read (and, when on, written) per run, 50 a call
 const QUIET_MS = 30 * 60_000;               // a chat still going is not filed yet
 const MODEL = process.env.CHAT_TOPICS_MODEL || "claude-haiku-5-5";
 export const KV_RUN = "chat:topics:last-run";
@@ -274,11 +274,14 @@ export async function syncHubSpot(opts: { max?: number } = {}): Promise<NonNulla
   const rows = (await query<{ key: string; ticket_id: string; category: string; sub1: string | null; sub2: string | null; summary: string; by: string }>(
     `SELECT key, ticket_id, category, sub1, sub2, summary, by FROM ${TABLE}
       WHERE source = 'chat' AND ticket_id IS NOT NULL AND category <> 'unreadable'
-        AND (hs_state = 'pending' OR (hs_state = 'would-write' AND $1::boolean))
+        AND (hs_state = 'pending' OR (hs_state = 'would-write' AND $1::boolean)
+             OR (hs_state = 'error' AND hs_note LIKE 'read failed%'))   -- a refused read is read again
       ORDER BY last_at DESC NULLS LAST LIMIT $2`, [sw.on, opts.max ?? HS_PER_RUN])).rows;
   const fields = fieldList(defs);
-  for (let i = 0; i < rows.length; i += 100) {
-    const batch = rows.slice(i, i + 100);
+  // 50 a call: HubSpot reads at most 50 records per batch when property history is asked for - a batch of 100 was
+  // refused whole on 18.10.2026 ("maximum number of inputs ... for property histories is 50")
+  for (let i = 0; i < rows.length; i += 50) {
+    const batch = rows.slice(i, i + 50);
     let tickets: Ticket[] = [];
     try {
       const r = await hubspotFetchJson<{ results?: Ticket[] }>({
