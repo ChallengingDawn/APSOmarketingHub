@@ -6,7 +6,7 @@
 // A ticket belongs to the task it is made for (SARCLA 18.10: "inside of the task").
 //   POST {action:"unlink", tile, id}
 import { NextRequest, NextResponse } from "next/server";
-import { linkTickets, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
+import { linkTickets, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl } from "@/lib/reporting/scrollToSale";
 import { missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
@@ -31,9 +31,8 @@ export async function GET(req: NextRequest) {
     const [links, form] = await Promise.all([ticketsOf(tile), s2sForm()]);
     const linked = await readTickets(links.map((l) => l.ticketId));
     const me = ownerOf(form, w.email);
-    const team = me?.teams.find((t) => t.primary) ?? me?.teams[0];
     const options = Object.fromEntries(form.fields.filter((f) => f.options).map((f) => [f.name, f.options!]));
-    const values = ctx ? prefill({ ...ctx, page: ctx.page || tile.split(":")[0] }, { options, ownerId: me?.id, teamId: team?.id, year: new Date().getFullYear(), takenRoadmapIds: form.takenRoadmapIds }) : {};
+    const values = ctx ? prefill({ ...ctx, page: ctx.page || tile.split(":")[0] }, { options, ownerId: me?.id, year: new Date().getFullYear(), takenRoadmapIds: form.takenRoadmapIds }) : {};
     return NextResponse.json({
       ok: true, canWrite: w.canWrite,
       linked: linked.map((t) => { const l = links.find((x) => x.ticketId === t.id); return { ...t, createdHere: l?.created ?? false, taskId: l?.taskId ?? null }; }),
@@ -55,7 +54,10 @@ export async function POST(req: NextRequest) {
     if (b.action === "create") {
       const missing = missingRequired(b.values ?? {});
       if (missing.length) return fail(`still to fill in: ${missing.join(", ")}`, 400);
-      const id = await createTicket(b.values ?? {});
+      // the task's shared people share the ticket too (HubSpot notifies them) - by their user ids
+      const task = taskId ? await taskById(taskId) : null;
+      const sharedUsers = (task?.shared ?? []).map((p) => p.userId).filter(Boolean);
+      const id = await createTicket(b.values ?? {}, sharedUsers.length ? { hs_shared_user_ids: sharedUsers.join(";") } : {});
       await linkTickets(b.tile, [id], w.name, true, taskId);
       console.log(`[kpi-actions] ticket ${id} created from tile ${b.tile} by ${w.name}`);
       return NextResponse.json({ ok: true, id, url: ticketUrl(id) });

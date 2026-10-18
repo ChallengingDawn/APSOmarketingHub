@@ -17,9 +17,12 @@ const VIEWS = "apsomh_kpi_views";
 
 export type TaskStatus = "open" | "doing" | "done";
 export const TASK_STATUSES: readonly TaskStatus[] = ["open", "doing", "done"];
+/** A HubSpot owner a task is shared with: the hub mails them, the ticket shares with their user. */
+export type SharedPerson = { id: string; userId: string; name: string; email: string };
 export type KpiTask = {
   id: number; tile: string; page: string; title: string; note: string;
   owner: string; ownerName: string; due: string | null; status: TaskStatus;
+  shared: SharedPerson[]; href: string;
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 export type Placement = "nutshell" | "tab";
@@ -49,6 +52,9 @@ function ensure(): Promise<void> {
         done_at timestamptz
       )`);
       await query(`CREATE INDEX IF NOT EXISTS ${TASKS}_tile ON ${TASKS} (tile)`);
+      // who it is shared with, and the page it was made on - for the mail (SARCLA 18.10)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS shared jsonb NOT NULL DEFAULT '[]'::jsonb`);
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS href text NOT NULL DEFAULT ''`);
       await query(`CREATE TABLE IF NOT EXISTS ${LINKS} (
         tile text NOT NULL,
         ticket_id text NOT NULL,
@@ -86,10 +92,15 @@ function ensure(): Promise<void> {
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? null : String(d));
 const day = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : d == null ? null : String(d).slice(0, 10));
-type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+const sharedOf = (x: unknown): SharedPerson[] => {
+  const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
+  return Array.isArray(v) ? v.filter((p) => p && typeof p.id === "string") : [];
+};
 const task = (r: TaskRow): KpiTask => ({
   id: r.id, tile: r.tile, page: r.page, title: r.title, note: r.note, owner: r.owner, ownerName: r.owner_name,
   due: day(r.due), status: (TASK_STATUSES as readonly string[]).includes(r.status) ? (r.status as TaskStatus) : "open",
+  shared: sharedOf(r.shared), href: r.href ?? "",
   createdBy: r.created_by, createdAt: iso(r.created_at) ?? "", updatedAt: iso(r.updated_at) ?? "", doneAt: iso(r.done_at),
 });
 
@@ -101,17 +112,23 @@ export async function tasksOf(tile: string): Promise<KpiTask[]> {
   return r.rows.map(task);
 }
 
-export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; by: string }): Promise<KpiTask> {
+export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; shared?: SharedPerson[]; href?: string; by: string }): Promise<KpiTask> {
   await ensure();
   const r = await query<TaskRow>(
-    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by],
+    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by, shared, href) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
+    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by, JSON.stringify(t.shared ?? []), (t.href ?? "").slice(0, 500)],
   );
   return task(r.rows[0]);
 }
 
 /** Only the fields given change; "done" stamps when, anything else clears it. */
-export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus }): Promise<KpiTask | null> {
+export async function taskById(id: number): Promise<KpiTask | null> {
+  await ensure();
+  const r = await query<TaskRow>(`SELECT * FROM ${TASKS} WHERE id = $1`, [id]);
+  return r.rows[0] ? task(r.rows[0]) : null;
+}
+
+export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[] }): Promise<KpiTask | null> {
   await ensure();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -121,6 +138,7 @@ export async function updateTask(id: number, p: { title?: string; note?: string;
   if (p.owner !== undefined) set("owner", p.owner);
   if (p.ownerName !== undefined) set("owner_name", p.ownerName);
   if (p.due !== undefined) set("due", p.due || null);
+  if (p.shared !== undefined) { vals.push(JSON.stringify(p.shared)); sets.push(`shared = $${vals.length}::jsonb`); }
   if (p.status !== undefined) {
     set("status", p.status);
     sets.push(p.status === "done" ? "done_at = COALESCE(done_at, now())" : "done_at = NULL");

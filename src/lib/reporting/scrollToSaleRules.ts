@@ -15,12 +15,12 @@ export type S2sField = {
 
 /** The form, in the order the tickets are worked: what, who, why, where, when, how it is measured. */
 export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
-  { name: "subject", label: "Ticket name", kind: "text", required: true },
+  // the ticket is named by the action (SARCLA 18.10: "ticket name should really be an action")
+  { name: "subject", label: "Action (the ticket's name)", kind: "text", required: true },
   { name: "content", label: "Description", kind: "textarea" },
   { name: "hs_pipeline_stage", label: "Status", kind: "stage", required: true },
   { name: "hs_ticket_priority", label: "Priority", kind: "select", required: true },
   { name: "hubspot_owner_id", label: "Owner", kind: "owner", required: true },
-  { name: "hubspot_team_id", label: "Team", kind: "team" },
   { name: "mkt_business_goal", label: "Business goal", kind: "multi", required: true },
   { name: "mkt_channel", label: "Marketing channel", kind: "multi", required: true },
   { name: "mkt_implementation_country", label: "Implementation country", kind: "multi", required: true },
@@ -97,7 +97,7 @@ export function nextRoadmapId(taken: (string | null | undefined)[], year: number
  */
 export function prefill(tile: TileContext, ctx: {
   options: Record<string, { value: string; label: string }[]>;
-  ownerId?: string; teamId?: string; year: number; takenRoadmapIds: (string | null | undefined)[];
+  ownerId?: string; year: number; takenRoadmapIds: (string | null | undefined)[];
 }): Record<string, string> {
   const o = ctx.options;
   const kpi = [tile.kpiId, tile.title].filter(Boolean).join(" ");
@@ -105,7 +105,8 @@ export function prefill(tile: TileContext, ctx: {
   const country = pick(o.mkt_implementation_country, countries);
   const year = pick(o.mkt_roadmap_year, [String(ctx.year)]);
   const v: Record<string, string> = {
-    subject: `${kpi}${tile.summary ? ` - ${tile.summary}` : ""}`.slice(0, 200),
+    // the action names the ticket - it comes from the task; the KPI goes into KPIs and the description
+    subject: "",
     content: [
       `From the Digital Growth KPIs tile "${tile.title}"${tile.tab ? ` (${tile.page}, ${tile.tab})` : ` (${tile.page})`}.`,
       tile.summary ? `Now: ${tile.summary}.` : "",
@@ -123,13 +124,16 @@ export function prefill(tile: TileContext, ctx: {
     mkt_kpis: [kpi, tile.summary].filter(Boolean).join(": "),
   };
   if (ctx.ownerId) v.hubspot_owner_id = ctx.ownerId;
-  if (ctx.teamId) v.hubspot_team_id = ctx.teamId;
   return v;
 }
 
-/** The properties a create sends: only the form's fields, never an empty one, the pipeline always. */
-export function ticketProperties(values: Record<string, string | null | undefined>): Record<string, string> {
+/**
+ * The properties a create sends: only the form's fields, never an empty one, the pipeline always -
+ * and what the hub adds itself (the task's shared users as hs_shared_user_ids).
+ */
+export function ticketProperties(values: Record<string, string | null | undefined>, extra: Record<string, string> = {}): Record<string, string> {
   const out: Record<string, string> = { hs_pipeline: S2S_PIPELINE };
+  for (const [k, v] of Object.entries(extra)) if (v) out[k] = v;
   for (const f of S2S_FIELDS) {
     const v = String(values[f.name] ?? "").trim();
     if (v) out[f.name] = v;

@@ -45,6 +45,8 @@ import { FilterPanel, FilterSection } from "./FilterPanel";
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
 import { kpiSummary } from "./tiles/summary";
+import type { TileSpec } from "./tiles/registry";
+import { useMarketingKpis } from "./data";
 
 type Tab = "search" | "ads" | "countries" | "ai" | "email" | "linkedin" | "customers";
 const TABS: { id: Tab; label: string; kpis: string[] }[] = [
@@ -164,7 +166,6 @@ function CountryVisibility({ live, v, win, chosen, actions }: { live: LiveKpis; 
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
         <Badge icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} />
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.72rem", color: FAINT, fontWeight: 600 }}>R09 · live in the hub</Typography>
           <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em" }}>{nameOf("R09")}</Typography>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Which markets see us?</Typography>
         </Box>
@@ -543,12 +544,13 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
   const waiting = live.waiting ?? {};
   // the tile toolbar: a KPI keyed as in the nutshell ("reach::R05"), a card by its tab ("reach:ads:roas")
   const country = countries.length ? { country: countries } : undefined;
+  const months = isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) };
   const kpiActs = (id: string, v: KpiView) => (
     <TileActions where="tab" start={ids.includes(id) ? "nutshell" : "tab"}
-      tile={{ key: `reach::${id}`, page: "reach", tab, kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), filters: country, kind: "kpi" }} />
+      tile={{ key: `reach::${id}`, page: "reach", tab, kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), filters: country, ...months, kind: "kpi" }} />
   );
   const act = (key: string, title: string) => (
-    <TileActions where="tab" start="tab" tile={{ key: `reach:${tab}:${key}`, page: "reach", tab, title, summary: `${monthsLabel(win)} ${year}`, filters: country, kind: "card" }} />
+    <TileActions where="tab" start="tab" tile={{ key: `reach:${tab}:${key}`, page: "reach", tab, title, summary: `${monthsLabel(win)} ${year}`, filters: country, ...months, kind: "card" }} />
   );
   const card = (id: string) => {
     const v = views[id];
@@ -697,4 +699,26 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
       </FilterPanel>
     </Box>
   );
+}
+
+
+/**
+ * A Reach card promoted to In a nutshell (SARCLA 18.10: "promote/demote are not really connected") -
+ * drawn again from its spec: the card, its months (the year so far when none), its countries.
+ */
+export function ReachPromoted({ spec, actions }: { spec: TileSpec; actions?: React.ReactNode }) {
+  const [state] = useMarketingKpis();
+  const live = state?.live?.value;
+  if (!live) return <GlassCard><Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{spec.title}…</Typography></Box></GlassCard>;
+  const done = live.monthsDone ?? 0;
+  const f = Number(spec.from), t = Number(spec.to);
+  const win: MonthWindow = f >= 1 && t >= f && t <= Math.max(1, done) ? { start: f - 1, end: t - 1 } : { start: 0, end: Math.max(0, done - 1) };
+  const chosen = spec.filters?.country ?? [];
+  switch (spec.key.split(":")[2]) {
+    case "roas": return <Roas live={live} win={win} actions={actions} />;
+    case "google-networks": return <SeaNetworks live={live} win={win} actions={actions} />;
+    case "microsoft-kinds": return <MsKinds live={live} win={win} actions={actions} />;
+    case "search-countries": return <SearchCountries live={live} win={win} chosen={chosen} onPick={() => undefined} actions={actions} />;
+    default: return null;
+  }
 }

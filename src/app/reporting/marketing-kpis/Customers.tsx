@@ -55,6 +55,7 @@ import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTE
 // the tile toolbar and saved views (9f, SARCLA 18.10: "they should be on the main one then visible on the nutshell")
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
+import type { TileSpec } from "./tiles/registry";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import {
   DIMS, chosenDims, FIRST_MONTH, breakdown, change, clampWindow, defaultWindow, lastMonth, monthLabel, presets, proRataNote, shareOfWallet, sortRows, totals,
@@ -529,8 +530,9 @@ export function CustomersExplorer() {
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // the tile toolbar per chart, keyed "customers:<tab>:<chart>"; the filters in force go into a ticket
   const act = (key: string, title: string) => (
-    <TileActions where="tab" start="tab"
-      tile={{ key: `customers:${view}:${key}`, page: "customers", tab: view, title, summary: `${w} against ${pw}`, filters: Object.fromEntries(active.map((x) => [x, filters[x] ?? []])), kind: "card" }} />
+    <TileActions where="tab" start="tab" edge={2}
+      tile={{ key: `customers:${view}:${key}`, page: "customers", tab: view, title, summary: `${w} against ${pw}`, filters: Object.fromEntries(active.map((x) => [x, filters[x] ?? []])),
+        ...(cube && win ? { from: ym(cube, win.start), to: ym(cube, win.end) } : {}), kind: "card" }} />
   );
   // each tab shows its own breakdown only (SARCLA 14.10: "information not belonging to the table");
   // customer type and APIC also count their new customers
@@ -901,4 +903,38 @@ function CustomersGraph({ cube, win }: { cube: Cube; win: Win }) {
       </Typography>
     </GlassCard>
   );
+}
+
+
+/**
+ * A chart of Who are our customers promoted to In a nutshell (SARCLA 18.10: "promote/demote are not
+ * really connected") - drawn again from its spec: the tab, the chart, the filters, the months.
+ */
+export function CustomersPromoted({ spec, actions }: { spec: TileSpec; actions?: React.ReactNode }) {
+  const { cube } = useCustomersCube();
+  const onl = useOnline();
+  const dim = (ORDER as string[]).includes(spec.tab ?? "") ? (spec.tab as Dim) : "prio";
+  const filters = (spec.filters ?? {}) as Filters;
+  const win = useMemo(() => {
+    if (!cube) return null;
+    const s = fromYm(cube, spec.from ?? null), e = fromYm(cube, spec.to ?? null);
+    return s != null && e != null ? clampWindow(cube, { start: s, end: e }) : defaultWindow(cube);
+  }, [cube, spec.from, spec.to]);
+  const onlineGroups = useMemo(() => (onl.value && win ? onlineBy(onl.value, filters, win, dim) : null), [onl.value, filters, win, dim]);
+  if (!cube || !win) return <Box sx={{ ...glass, borderRadius: "18px", p: 2, display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{spec.title}…</Typography></Box>;
+  const d = DIM[dim];
+  const fixed = dim === "prio" || dim === "potential";
+  const rows = fixed ? breakdown(cube, dim, filters, win) : sortRows(breakdown(cube, dim, filters, win), "rev", dim);
+  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  const common = { rows, curLabel: w, prevLabel: pw, selected: filters[dim], onPick: () => undefined, pageSize: 10, fixedOrder: fixed, actions };
+  switch (spec.key.split(":")[2]) {
+    case "bought": return <DimChart title={`Companies that bought, by ${d.lower}`} cur={byBought} prev={(r) => r.boughtPy} fmt={int} {...common} />;
+    case "revenue": return <DimChart title={`Revenue, by ${d.lower}`} cur={byRev} prev={(r) => r.revPy} fmt={eur} {...common} />;
+    case "new": return <DimChart title={`New customers, by ${d.lower}`} cur={byNew} prev={(r) => r.newCPy} fmt={int} {...common} />;
+    case "online": return onlineGroups
+      ? <DimChart title={dim === "country" ? "Online share of order value, our focus markets" : `Online share of order value, by ${d.lower}`} cur={byOnline} prev={byOnlinePy} fmt={pct} {...common}
+          rows={withOnline(rows, onlineGroups).filter((r) => r.online != null && (dim !== "country" || FOCUS_MARKETS.includes(r.label)))} />
+      : <OnlineWaiting progress={onl.progress} error={onl.error} />;
+    default: return null;
+  }
 }

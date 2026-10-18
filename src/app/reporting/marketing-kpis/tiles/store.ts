@@ -50,7 +50,8 @@ export function useActions(page: string): { state: ActionsState | null; error: s
   useEffect(() => {
     const f = () => tick((n) => n + 1);
     s.listeners.add(f);
-    if (!s.state && !s.loading) void load(page);
+    // asked again on every visit: a move or a task made on another page (or by someone else) shows at once
+    if (!s.loading) void load(page);
     return () => { s.listeners.delete(f); };
   }, [page, s]);
   return { state: s.state, error: s.error };

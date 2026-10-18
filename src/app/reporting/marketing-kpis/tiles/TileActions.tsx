@@ -1,22 +1,15 @@
 "use client";
-// THE TILE TOOLBAR (SARCLA 18.10.2026) - on every chart card of the Digital Growth KPIs, beside its figure:
-//   Filter          this tile's own filter (the card says what it filters; absent where it has none)
-//   Tasks           actions to correct the KPI, tracked here - the badge counts the open ones; each
-//                   task carries its "From Scroll to Sale" tickets, new and prefilled or linked
-//                   (SARCLA 18.10: "the scroll to sale ticket should be inside of the task")
-//   Promote/Demote  to "In a nutshell" and back to its tab, for everyone
+// THE TILE'S "ACTIONS" TAB (SARCLA 18.10.2026: "icons way too big - a separator tab on the side,
+// small, 'Actions', that changes colour when there is an action running"). One small tab on the
+// card's right edge; it opens the tile's window: its tasks, each with its "From Scroll to Sale"
+// tickets, who they are shared with, and whether the tile shows In a nutshell (promote / demote).
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
-import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
-import TuneIcon from "@mui/icons-material/Tune";
-import TaskAltIcon from "@mui/icons-material/TaskAlt";
-import VerticalAlignTopIcon from "@mui/icons-material/VerticalAlignTop";
-import VerticalAlignBottomIcon from "@mui/icons-material/VerticalAlignBottom";
 
-import { FAINT, HAIRLINE, INK, TINT } from "@/app/uc/report/ui";
+import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
 import type { Placement, TileSpec } from "@/lib/reporting/kpiActions";
 import { ActionsPanel } from "./ActionsPanel";
 import { placementOf, refreshActions, send, useActions } from "./store";
@@ -31,70 +24,62 @@ export type TileInfo = {
   kind?: "kpi" | "card";
 };
 
-// a little bigger than a chart's own controls (SARCLA 18.10: "a little bit small")
-const btn = (on = false) => ({
-  width: 36, height: 36, borderRadius: "11px", border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`,
-  bgcolor: on ? TINT.blue.bg : "rgba(255,255,255,.7)", color: on ? TINT.blue.fg : FAINT,
-  "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.06)", color: INK },
-});
+type Space = number | { xs?: number; md?: number };
+const neg = (e: Space) => (typeof e === "number" ? -e : { xs: -(e.xs ?? 0), md: -(e.md ?? e.xs ?? 0) });
 
-function Count({ n, tint = "blue" }: { n: number; tint?: "blue" | "amber" }) {
-  if (!n) return null;
-  return (
-    <Box component="span" sx={{ position: "absolute", top: -7, right: -7, minWidth: 19, height: 19, px: 0.45, borderRadius: 99, bgcolor: TINT[tint].fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, display: "grid", placeItems: "center", lineHeight: 1, pointerEvents: "none" }}>
-      {n}
-    </Box>
-  );
-}
-
-export function TileActions({ tile, start = "tab", onFilter, filterOn = false, where }: {
+export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.75 } }: {
   tile: TileInfo;
   /** where the tile is shown before anyone moves it: KPI tiles start in the nutshell, page cards on their tab */
   start?: Placement;
-  /** opens the tile's own filter; no filter icon without it */
+  /** kept for the pages that pass it; a tile's own filter lives on the card */
   onFilter?: () => void; filterOn?: boolean;
-  /** the page it is drawn on - the nutshell offers Demote, a tab offers Promote */
+  /** the page it is drawn on */
   where?: "nutshell" | "tab";
+  /** the card's padding (theme units), so the tab sits on its edge - GlassCard's by default */
+  edge?: Space;
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
-  const [panel, setPanel] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
-  const canWrite = state?.canWrite ?? false;
+  const running = c.open > 0;
 
   const move = async (to: Placement) => {
-    setBusy(true);
     const spec: TileSpec = {
       key: tile.key, page: tile.page, title: tile.title, kind: tile.kind ?? (tile.kpiId ? "kpi" : "card"),
       ...(tile.tab ? { tab: tile.tab } : {}), ...(tile.kpiId ? { kpiId: tile.kpiId } : {}),
       ...(tile.filters ? { filters: tile.filters } : {}), ...(tile.from ? { from: tile.from } : {}), ...(tile.to ? { to: tile.to } : {}),
       href: tile.href ?? (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : undefined),
     };
-    try { await send("/api/reporting/kpi-actions/placement", "POST", { spec, placement: to }); await refreshActions(tile.page); }
-    catch (e) { alert(`Could not move it: ${(e as Error).message}`); } finally { setBusy(false); }
+    await send("/api/reporting/kpi-actions/placement", "POST", { spec, placement: to });
+    await refreshActions(tile.page);
   };
 
   return (
-    <Box sx={{ display: "inline-flex", gap: 0.75, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-      {onFilter && (
-        <Tooltip title="Filter this tile"><IconButton aria-label="Filter this tile" onClick={onFilter} sx={btn(filterOn)}><TuneIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-      )}
-      <Tooltip title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}` : "Tasks to correct this KPI, with their Scroll to Sale tickets"}>
-        <IconButton aria-label="Tasks" onClick={() => setPanel(true)} sx={{ ...btn(c.open > 0), position: "relative" }}>
-          <TaskAltIcon sx={{ fontSize: 20 }} /><Count n={c.open} />
-        </IconButton>
+    <>
+      <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · In a nutshell" : ""}` : `Actions${placed === "nutshell" ? " · In a nutshell" : ""}`}>
+        <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+          sx={{
+            // on the card's right edge, rounded on the inside only
+            mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start",
+            display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.35, py: 1, minHeight: 70,
+            writingMode: "vertical-rl", transform: "rotate(180deg)",
+            border: `1px solid ${running ? TINT.amber.fg : HAIRLINE}`, borderLeft: 0, borderRadius: "0 9px 9px 0",
+            bgcolor: running ? TINT.amber.bg : "rgba(21,34,58,.035)", color: running ? TINT.amber.fg : FAINT,
+            font: "inherit", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", lineHeight: 1,
+            cursor: "pointer", transition: "background-color .15s, color .15s",
+            "&:hover": { bgcolor: running ? TINT.amber.bg : "rgba(21,34,58,.08)", color: running ? TINT.amber.fg : "#15223a" },
+          }}>
+          {running && (
+            <Box component="span" sx={{ transform: "rotate(180deg)", minWidth: 15, height: 15, px: 0.3, borderRadius: 99, bgcolor: TINT.amber.fg, color: "#fff", fontSize: "0.6rem", display: "grid", placeItems: "center", letterSpacing: 0 }}>
+              {c.open}
+            </Box>
+          )}
+          {placed === "nutshell" && where !== "nutshell" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: 99, bgcolor: TINT.blue.fg }} />}
+          Actions
+        </Box>
       </Tooltip>
-      {canWrite && (placed === "nutshell" ? (
-        <Tooltip title={where === "nutshell" ? "Demote - back to its tab only" : "In a nutshell - demote it to its tab only"}>
-          <span><IconButton aria-label="Demote to its tab" disabled={busy} onClick={() => void move("tab")} sx={btn(true)}><VerticalAlignBottomIcon sx={{ fontSize: 20 }} /></IconButton></span>
-        </Tooltip>
-      ) : (
-        <Tooltip title="Promote - show it In a nutshell">
-          <span><IconButton aria-label="Promote to In a nutshell" disabled={busy} onClick={() => void move("nutshell")} sx={btn()}><VerticalAlignTopIcon sx={{ fontSize: 20 }} /></IconButton></span>
-        </Tooltip>
-      ))}
-      {panel && <ActionsPanel tile={tile} open={panel} onClose={() => setPanel(false)} />}
-    </Box>
+      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} onMove={move} canWrite={state?.canWrite ?? false} />}
+    </>
   );
 }

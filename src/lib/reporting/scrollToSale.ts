@@ -14,19 +14,20 @@ export const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/$
 const HOUR = 3_600_000;
 
 let formCache: { at: number; value: Promise<S2sForm> } | null = null;
-export type S2sOwner = { id: string; name: string; email: string; teams: { id: string; name: string; primary: boolean }[] };
+/** id = the owner id (hubspot_owner_id), userId = the user id (hs_shared_user_ids). */
+export type S2sOwner = { id: string; userId: string; name: string; email: string; teams: { id: string; name: string; primary: boolean }[] };
 export type S2sForm = { fields: S2sField[]; stages: (Opt & { open: boolean })[]; owners: S2sOwner[]; teams: Opt[]; takenRoadmapIds: string[] };
 
 async function owners(): Promise<S2sOwner[]> {
   const out: S2sOwner[] = [];
   let after: string | undefined;
   do {
-    const j = await hubspotFetchJson<Page<{ id: string; firstName?: string; lastName?: string; email?: string; teams?: { id: string; name: string; primary?: boolean }[] }>>({
+    const j = await hubspotFetchJson<Page<{ id: string; userId?: number | string; firstName?: string; lastName?: string; email?: string; teams?: { id: string; name: string; primary?: boolean }[] }>>({
       path: `/crm/v3/owners?limit=100&archived=false${after ? `&after=${after}` : ""}`,
     });
     for (const o of j.results ?? []) {
       out.push({
-        id: String(o.id), email: (o.email ?? "").toLowerCase(),
+        id: String(o.id), userId: o.userId == null ? "" : String(o.userId), email: (o.email ?? "").toLowerCase(),
         name: [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || String(o.id),
         teams: (o.teams ?? []).map((t) => ({ id: String(t.id), name: t.name, primary: !!t.primary })),
       });
@@ -91,8 +92,8 @@ export function ownerOf(form: S2sForm, email: string | null | undefined): S2sOwn
   return e ? form.owners.find((o) => o.email === e) ?? null : null;
 }
 
-export async function createTicket(values: Record<string, string | null | undefined>): Promise<string> {
-  const j = await hubspotFetchJson<{ id: string }>({ path: "/crm/v3/objects/tickets", method: "POST", body: { properties: ticketProperties(values) } });
+export async function createTicket(values: Record<string, string | null | undefined>, extra: Record<string, string> = {}): Promise<string> {
+  const j = await hubspotFetchJson<{ id: string }>({ path: "/crm/v3/objects/tickets", method: "POST", body: { properties: ticketProperties(values, extra) } });
   formCache = null; // its roadmap id is taken now
   return String(j.id);
 }

@@ -28,7 +28,8 @@ import {
   Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, nameOf, periodOf, stageKpis,
   stageHref, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState,
 } from "./data";
-import { CustomersSummary } from "./Customers";
+import { CustomersPromoted, CustomersSummary } from "./Customers";
+import { ReachPromoted } from "./Reach";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { TileActions } from "./tiles/TileActions";
 import { LinkCard, rendererOf } from "./tiles/registry";
@@ -41,11 +42,11 @@ const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 function KpiTileChart({ v, slug, tint, upTo, actions }: { v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
         <Badge icon={<StageGlyph slug={slug} />} tint={tint} size={32} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0 }}>{nameOf(v.id)}</Typography>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{nameOf(v.id)}</Typography>
+        {actions}
       </Box>
-      {actions && <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -0.5 }}>{actions}</Box>}
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(v)}</Typography>
@@ -91,7 +92,7 @@ const kpiKey = (slug: string, id: string) => `${slug}::${id}`;
 
 function KpiActions({ v, slug }: { v: KpiView; slug: string }) {
   return (
-    <TileActions where="nutshell" start="nutshell"
+    <TileActions where="nutshell" start="nutshell" edge={2.25}
       tile={{ key: kpiKey(slug, v.id), page: slug, kpiId: v.id, title: nameOf(v.id), summary: kpiSummary(v, periodOf(v)), kind: "kpi", href: stageHref(slug) }} />
   );
 }
@@ -108,11 +109,14 @@ function Promoted({ views, state, acts }: { views: Record<string, KpiView>; stat
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
         {list.map(({ spec }) => {
           const tint = stageTint(spec.page);
-          const actions = <TileActions where="nutshell" start="tab" tile={{ key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind }} />;
+          const tile = { key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind };
           const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
-          if (v) return <KpiTileChart key={spec.key} v={v} slug={spec.page} tint={tint} upTo={upToOf(v, state, year)} actions={actions} />;
+          if (v) return <KpiTileChart key={spec.key} v={v} slug={spec.page} tint={tint} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />;
+          // the real chart, as it is on its page (Reach and Who are our customers draw theirs; another page's shows the way to it)
+          if (spec.page === "reach") return <Box key={spec.key} sx={{ minWidth: 0, gridColumn: "span 2" }}><ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} /></Box>;
+          if (spec.page === "customers") return <Box key={spec.key} sx={{ minWidth: 0, gridColumn: "span 2" }}><CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} /></Box>;
           const draw = rendererOf(spec.page);
-          return <Box key={spec.key} sx={{ minWidth: 0 }}>{draw ? draw(spec) : <LinkCard spec={spec} actions={actions} />}</Box>;
+          return <Box key={spec.key} sx={{ minWidth: 0 }}>{draw ? draw(spec) : <LinkCard spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />}</Box>;
         })}
       </Box>
     </GlassCard>
