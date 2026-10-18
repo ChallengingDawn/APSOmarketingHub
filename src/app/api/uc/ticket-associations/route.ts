@@ -40,13 +40,13 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean; alerts?: AlertMode; backfill?: { from: string | null }; alertsLookBack?: number };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: "off" | "preview" | "live"; backfill?: { from: string | null }; alertsLookBack?: number };
   try {
     // the order alerts read the last N days' orders again (at most 14)
     if (typeof b.alertsLookBack === "number") return NextResponse.json({ ok: true, data: { since: await lookBack(b.alertsLookBack) } });
     // the re-check of older tickets: start from a day, or stop (from null)
     if (b.backfill) return NextResponse.json({ ok: true, data: await setBackfill(b.backfill.from, `user ${access.userId}`) });
-    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined, alerts: b.alerts }, `user ${access.userId}`);
+    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined, alerts: b.alerts, contacts: b.contacts }, `user ${access.userId}`);
     return NextResponse.json({ ok: true, data: s });
   } catch (err) {
     return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 });

@@ -33,6 +33,8 @@ import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
+import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
 import PinOutlinedIcon from "@mui/icons-material/PinOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -44,6 +46,7 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Backfill, LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
 import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
+import type { ContactRow, ContactTotals, ContactsMode, ContactsRun } from "@/lib/ticketAssoc/contacts";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
@@ -59,11 +62,12 @@ type Data = {
   settings: Settings; mode: "preview" | "live"; pipeline: string | null; backfill: Backfill; byPipeline: Pipe[]; recent: Row[]; nothingFound: number; from: string; to: string;
   articles: ArtRow[]; orderRows: OrderRow[]; alerts: AlertRow[];
   totals: { order_tickets: number; named: number; offer: number; new_links: number; order_number: number; article_tickets: number; distinct_articles: number; rejected_tickets: number; article_filled: number }; lastAlerts: AlertRun | null; alertsEveryMinutes: number;
+  contacts: { rows: ContactRow[]; totals: ContactTotals }; lastContacts: ContactsRun | null;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
-type View = "overview" | "articles" | "orders" | "alerts" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", alerts: "#alerts", settings: "#settings" };
-const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA" };
+type View = "overview" | "articles" | "orders" | "contacts" | "alerts" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", alerts: "#alerts", settings: "#settings" };
+const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA", SPR: "Special Prices", PM: "Product Management" };
 const WHY: Record<string, string> = { new: "new", stage: "moved stage", retry: "asked again" };
 const FIELD: Record<string, string> = { order_number: "order number", articles_on_the_ticket: "articles", c2s_ticket: "C2S" };
 
@@ -298,6 +302,79 @@ function LookBack({ admin, mode }: { admin: boolean; mode: AlertMode }) {
   );
 }
 
+/**
+ * CONTACTS & COMPANIES (SARCLA 18.10.2026: "this could be a new tab on ticket associations so then I can
+ * turn down the workflow"): the contacts of each ticket's e-mails - a forwarded customer included - and
+ * their company, linked by the hub in place of the workflow "SARCLA | TICKET ASSOCIATION FIX".
+ */
+function ContactsTab({ d }: { d: Data }) {
+  const { rows, totals: t } = d.contacts;
+  const { slice, pager } = usePaged(rows, 15);
+  const would = d.settings.contacts !== "live";
+  const lr = d.lastContacts;
+  return (
+    <>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+        {d.settings.contacts === "off" ? "Off - nothing is read." : would ? "Preview - what the hub would link; the HubSpot workflow still does the linking." : "Live - the hub links them; the workflow \"SARCLA | TICKET ASSOCIATION FIX\" can be switched off."}
+        {lr ? ` Last look ${when(lr.at)}: ${full(lr.read)} changed tickets read, ${full(lr.processed)} checked${lr.error ? ` - ${lr.error}` : ""}.` : ""}
+      </Typography>
+      <Grid container spacing={2}>
+        {[
+          { icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const, label: "Tickets checked", value: t.tickets, note: `${full(t.with_contact)} with a contact in HubSpot` },
+          { icon: <PersonOutlineOutlinedIcon />, tint: "purple" as const, label: would ? "Contacts to link" : "Contacts linked", value: t.new_contacts, note: "the ticket did not have them yet" },
+          { icon: <BusinessOutlinedIcon />, tint: "green" as const, label: would ? "Companies to link" : "Companies linked", value: t.new_companies, note: "each contact's primary company" },
+          { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Not in HubSpot", value: t.not_found_tickets, note: `tickets with an address no contact has - ${full(t.forwarded_tickets)} from a forwarded mail` },
+        ].map((k) => (
+          <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
+        ))}
+      </Grid>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+          <CardTitle icon={<PersonOutlineOutlinedIcon />} tint="purple" title="Tickets and their contacts" note={rows.length >= 200 ? `The latest 200 of the period's ${full(t.with_contact + t.not_found_tickets)}` : "Every ticket in the period with a contact, or an address HubSpot does not know"} />
+        </Box>
+        <Table size="small">
+          <TableHead><TableRow>{["Ticket", "Pipeline", "Contacts", "Companies", "Not in HubSpot", "When"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {!rows.length && <TableRow><TableCell colSpan={6} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>No ticket checked in this period yet.</TableCell></TableRow>}
+            {slice.map((r) => (
+              <TableRow key={`${r.ticket_id}-${r.at}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
+                  <TicketCell id={r.ticket_id} subject={r.subject} />
+                  {!r.ok && <Typography sx={{ fontSize: "0.74rem", color: RED }}>{r.error ?? "failed - asked again next run"}</Typography>}
+                </TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{PIPE[r.pipeline ?? ""] ?? r.pipeline ?? "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
+                  {r.contacts.join(", ") || "-"} {r.new_contacts ? <Chip tint="purple">{`${r.new_contacts} new`}</Chip> : null}
+                  {r.forwarded.some((a) => r.contacts.includes(a)) ? <> <Chip tint="slate">from a forwarded mail</Chip></> : null}
+                </TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.companies.join(", ") || "-"} {r.new_companies ? <Chip tint="green">{`${r.new_companies} new`}</Chip> : null}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: r.not_found.length ? "#a96a12" : MUTED }}>{r.not_found.join(", ") || "-"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
+      </GlassCard>
+    </>
+  );
+}
+
+/** "Check a ticket": the contacts and companies it would get. */
+function CheckContacts({ c }: { c: unknown }) {
+  if (!c || typeof c !== "object") return null;
+  const p = c as { error?: string; contacts?: { email: string; isNew: boolean }[]; companies?: { name: string | null; id: string; isNew: boolean }[]; notFound?: string[] };
+  if (p.error) return <Typography sx={{ fontSize: "0.84rem", color: RED }}>Contacts: {p.error}</Typography>;
+  const cs = p.contacts ?? [], cos = p.companies ?? [];
+  return (
+    <>
+      <Typography sx={{ fontSize: "0.84rem" }}>Contacts: {cs.map((x) => x.email).join(", ") || "none"} - {cs.filter((x) => x.isNew).length} not linked yet</Typography>
+      <Typography sx={{ fontSize: "0.84rem" }}>Companies: {cos.map((x) => x.name ?? x.id).join(", ") || "none"} - {cos.filter((x) => x.isNew).length} not linked yet</Typography>
+      {(p.notFound ?? []).length ? <Typography sx={{ fontSize: "0.84rem", color: "#a96a12" }}>Not in HubSpot: {(p.notFound ?? []).join(", ")}</Typography> : null}
+    </>
+  );
+}
+
 const ALERT_MODE: Record<AlertMode, string> = { off: "Off", preview: "Preview - list only", link: "Link the order", mail: "Link and mail the owner" };
 
 /**
@@ -410,7 +487,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [tid, setTid] = useState("");
   const [check, setCheck] = useState<Record<string, unknown> | null>(null);
 
-  const save = async (change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }) => {
+  const save = async (change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode }) => {
     setBusy("save"); setMsg(null);
     try {
       const r = await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
@@ -465,6 +542,14 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
               <Choice<AlertMode> value={d.settings.alerts} onChange={(v) => void save({ alerts: v })} options={(Object.keys(ALERT_MODE) as AlertMode[]).map((k) => ({ key: k, label: ALERT_MODE[k] }))} />
             ) : <Chip tint="slate">{ALERT_MODE[d.settings.alerts]}</Chip>}
           </Box>
+          <Box>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Contacts &amp; companies - the contacts of the ticket&apos;s e-mails and their company (replaces the workflow &quot;SARCLA | TICKET ASSOCIATION FIX&quot;)</Typography>
+            {d.admin ? (
+              <Choice<ContactsMode> value={d.settings.contacts} onChange={(v) => void save({ contacts: v })} options={[
+                { key: "off", label: "Off" }, { key: "preview", label: "Preview - writes nothing" }, { key: "live", label: "Live - links them" },
+              ]} />
+            ) : <Chip tint="slate">{d.settings.contacts}</Chip>}
+          </Box>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
             {d.settings.by ? `Set by ${d.settings.by}, ${when(d.settings.at)}.` : "Not set yet - preview, the ticket's fields."}
             {!d.admin && " Only an admin can change it."}
@@ -505,9 +590,10 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
                     <Typography sx={{ fontSize: "0.84rem" }}>Articles confirmed: {(check.articles as string[]).join(", ") || "none"} - {String(check.newArticles)} not linked yet</Typography>
                     {(check.offerOrders as string[]).length ? <Typography sx={{ fontSize: "0.84rem" }}>Offer to order: {(check.offerOrders as string[]).join(", ")}</Typography> : null}
                     <Typography sx={{ fontSize: "0.84rem" }}>Would fill: {Object.keys(check.fill as object).map((f) => FIELD[f] ?? f).join(", ") || "nothing"}</Typography>
-                    <Box component="a" href={hsTicket(String(check.ticket))} target="_blank" rel="noopener" sx={{ fontSize: "0.82rem" }}>Open in HubSpot</Box>
                   </>
                 ) : null}
+                <CheckContacts c={check.contacts} />
+                {check.ticket ? <Box component="a" href={hsTicket(String(check.ticket))} target="_blank" rel="noopener" sx={{ fontSize: "0.82rem" }}>Open in HubSpot</Box> : null}
               </>
             )}
           </Box>
@@ -533,6 +619,7 @@ export default function TicketAssociations() {
   else if (view === "settings") body = <Box id="ticketassoc-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
   else if (view === "articles") body = <Box id="ticketassoc-panel-articles" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ArticlesTab d={r.data} /></Box>;
   else if (view === "orders") body = <Box id="ticketassoc-panel-orders" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><OrdersTab d={r.data} /></Box>;
+  else if (view === "contacts") body = <Box id="ticketassoc-panel-contacts" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ContactsTab d={r.data} /></Box>;
   else if (view === "alerts") body = <Box id="ticketassoc-panel-alerts" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><AlertsTab d={r.data} /></Box>;
   else body = <Box id="ticketassoc-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} /></Box>;
 
@@ -556,6 +643,7 @@ export default function TicketAssociations() {
           { id: "overview", label: "Overview", count: null },
           { id: "articles", label: "Articles", count: null },
           { id: "orders", label: "Orders", count: r?.state === "ok" && r.data.totals.order_tickets ? full(r.data.totals.order_tickets) : null },
+          { id: "contacts", label: "Contacts & companies", count: r?.state === "ok" && r.data.contacts.totals.with_contact ? full(r.data.contacts.totals.with_contact) : null },
           { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },
           { id: "settings", label: "Settings", count: null },
         ]} />

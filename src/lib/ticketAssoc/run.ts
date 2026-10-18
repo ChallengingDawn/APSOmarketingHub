@@ -23,10 +23,11 @@ import { flush, gather, newStats, type Evidence, type Gathered } from "@/lib/con
 import { ASSOC_FIELDS, ASSOC_PIPELINES, BO, ESO, TSA } from "@/lib/connectors/steps/ticketRules";
 import { alertsPlan, firstSince, nextSince, reason, type Seen } from "./rules";
 import { alertRows, lastAlertRun, MAX_READ as ALERTS_MAX_READ, runOrderAlerts, type AlertMode } from "./orderAlerts";
+import { contactReport, lastContactsRun, planContacts, runContacts, type ContactsMode } from "./contacts";
 
 export type Mode = "off" | "preview" | "live";
-/** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail. */
-export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; by: string | null; at: string | null };
+/** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail; contacts: contacts & companies (contacts.ts). */
+export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; contacts: ContactsMode; by: string | null; at: string | null };
 export type LastRun = {
   at: string; seconds: number; mode: "preview" | "live"; read: number; processed: number; skipped: number; retried: number;
   newOrders: number; newArticles: number; filled: number; c2s: number; failed: number; error?: string;
@@ -69,14 +70,15 @@ const tix = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
 /** Until somebody chooses: preview, fields only, order alerts listed but not sent - the hub watches. */
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings).catch(() => undefined);
-  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", contacts: s?.contacts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
 }
 
-export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode }, by: string): Promise<Settings> {
+export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const mode = change.mode && ["off", "preview", "live"].includes(change.mode) ? change.mode : cur.mode;
   const alerts = change.alerts && ["off", "preview", "link", "mail"].includes(change.alerts) ? change.alerts : cur.alerts;
-  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, by, at: new Date().toISOString() };
+  const contacts = change.contacts && ["off", "preview", "live"].includes(change.contacts) ? change.contacts : cur.contacts;
+  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, contacts, by, at: new Date().toISOString() };
   // going live: the live window starts at the last half hour, not at whenever live last ran
   if (mode === "live" && cur.mode !== "live") await kvSet(KV.since("live"), Date.now() - 30 * 60_000);
   await kvSet(KV.settings, next);
@@ -260,7 +262,7 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
  */
 export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promise<LastRun | null> {
   const settings = await getSettings();
-  if (settings.mode === "off" && settings.alerts === "off") return null;
+  if (settings.mode === "off" && settings.alerts === "off" && settings.contacts === "off") return null;
   const client: PoolClient = await getPool().connect();
   let dropped = false;
   const drop = () => { dropped = true; client.release(new Error("ticket associations: time limit")); };
@@ -275,6 +277,8 @@ export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promis
         const last = await lastAlertRun();
         if (forceAlerts || alertsPlan(last, Date.now(), ALERTS_EVERY_MS, ALERTS_MAX_READ, 0).due) await runOrderAlerts(settings.alerts, signal);
       }
+      // contacts & companies (the workflow "SARCLA | TICKET ASSOCIATION FIX", 18.10.2026): every run
+      if (settings.contacts !== "off") await runContacts(settings.contacts, signal);
       return res;
     } finally {
       if (!dropped) await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
@@ -316,7 +320,9 @@ export async function checkTicket(id: string) {
   const t = await tix<Ticket>(`/crm/v3/objects/tickets/${tid}?properties=${PROPS.join(",")}`);
   const p = t.properties ?? {};
   const name = ASSOC_PIPELINES[p.hs_pipeline ?? ""];
-  if (!name) return { ticket: tid, pipeline: null, note: "Not a Back Office, ESO or TSA ticket - the hub leaves it alone." };
+  // contacts & companies cover Special Prices Requests and Product Management too
+  const contacts = await planContacts(tid).catch((e) => ({ error: (e as Error).message.slice(0, 200) }));
+  if (!name) return { ticket: tid, pipeline: null, contacts, note: contacts ? "Not a Back Office, ESO or TSA ticket - its orders and articles are left alone; its contacts and companies below." : "Not one of the hub's pipelines - the hub leaves it alone." };
   const settings = await getSettings();
   const stats = newStats();
   const g = await gather(tid, p, name, stats, new Map(), evidence(settings));
@@ -325,7 +331,7 @@ export async function checkTicket(id: string) {
     ticket: tid, pipeline: name, subject: p.subject ?? null, extended: settings.extended,
     orders: g.detail.orders, articles: g.detail.articles, offerOrders: g.detail.offer_orders, c2s: g.detail.c2s,
     newOrders: g.detail.new_orders ?? 0, newArticles: g.detail.new_articles ?? 0,
-    fill: g.plan?.props ?? {}, error: g.error ?? null,
+    fill: g.plan?.props ?? {}, error: g.error ?? null, contacts,
   };
 }
 
@@ -405,7 +411,8 @@ export async function report(from: string, to: string, pipeline: string | null =
       [mode, from, to, pipe]),
   ]);
   const backfillState = await getBackfill();
-  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, nothingFound: nothing[0]?.n ?? 0, articles, orderRows, totals: totals[0], alerts, lastAlerts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
+  const [contacts, lastContacts] = await Promise.all([contactReport(settings.contacts === "live" ? "live" : "preview", from, to, pipe), lastContactsRun()]);
+  return { settings, mode, pipeline: pipe, backfill: backfillState, byPipeline, recent, nothingFound: nothing[0]?.n ?? 0, articles, orderRows, totals: totals[0], alerts, lastAlerts, contacts, lastContacts, last: { preview: lastPreview ?? null, live: lastLive ?? null }, everyMinutes: EVERY_MS / 60_000, alertsEveryMinutes: ALERTS_EVERY_MS / 60_000 };
 }
 
 /* ── the schedule ──────────────────────────────────────────────────────── */
