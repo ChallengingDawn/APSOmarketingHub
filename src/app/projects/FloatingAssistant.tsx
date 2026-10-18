@@ -181,6 +181,12 @@ export default function FloatingAssistant({
     (kind: "move" | "size") => (e: React.PointerEvent) => {
       // Only the primary button, and never on a control inside the header.
       if (e.button !== 0) return;
+      // That second half was described here and never actually written, so
+      // the Minimise button was dead: its pointerdown started a drag, the
+      // header captured the pointer, and the click never landed on it. Only
+      // Escape minimised the window. Anything interactive in this bar has to
+      // be let through, not just today's one button.
+      if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       gesture.current =
         kind === "move"
