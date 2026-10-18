@@ -31,7 +31,7 @@ export type Article = {
 };
 export type Line = {
   partnerCode: string; apso: string; description: string; stock: number | null; unit: string;
-  moq: "Yes" | "No" | ""; moqQty: number | null; status: "Active" | "Inactive" | "Liquidation" | "Not in our catalogue";
+  moq: "Yes" | "No" | ""; moqQty: number | null; status: "Active" | "Inactive" | "Liquidation" | "Special";
 };
 
 const UNIT: Record<string, string> = { Stk: "pcs", Pcs: "pcs", "100 Pcs": "100 pcs", "1000 Pcs": "1000 pcs", Kg: "kg" };
@@ -40,9 +40,11 @@ const num = (v: string | null | undefined): number | null => (v === null || v ==
 /**
  * A line of the file. Status: "Article Inactive (Compass)" says inactive -> Inactive; Article Status Liquidation ->
  * Liquidation (sold while stock lasts); otherwise Active. The field also holds "No" - not inactive.
+ * An article Products & Pricing does not carry is a SPECIAL (SARCLA 18.10.2026: "they exist as a special") - its
+ * stock is what the ERP says (`specialStock`, the shop's live stock call), unknown when that was not read.
  */
-export function lineOf(partnerCode: string, apso: string, a: Article | null): Line {
-  if (!a) return { partnerCode, apso, description: "", stock: null, unit: "", moq: "", moqQty: null, status: "Not in our catalogue" };
+export function lineOf(partnerCode: string, apso: string, a: Article | null, specialStock: number | null = null): Line {
+  if (!a) return { partnerCode, apso, description: "", stock: specialStock === null ? null : Math.max(0, specialStock), unit: "", moq: "", moqQty: null, status: "Special" };
   const inactive = /^(inactive|yes|true|1)$/i.test((a.compass_article_inactive ?? "").trim());
   const qty = num(a.moq_minimum_quantity);
   return {
@@ -63,7 +65,7 @@ export function summary(lines: Line[]) {
     inStock: lines.filter((l) => (l.stock ?? 0) > 0).length,
     moq: lines.filter((l) => l.moq === "Yes").length,
     inactive: lines.filter((l) => l.status === "Inactive" || l.status === "Liquidation").length,
-    unknown: lines.filter((l) => l.status === "Not in our catalogue").length,
+    specials: lines.filter((l) => l.status === "Special").length,
   };
 }
 

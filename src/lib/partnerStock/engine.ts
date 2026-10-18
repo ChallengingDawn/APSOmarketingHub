@@ -9,6 +9,7 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
+import { gateway } from "@/lib/searchbar/gateway";
 import { ITAFRAN_ARTICLES, ITAFRAN_SHEET } from "./itafranArticles";
 import { renderPartnerStockMail } from "./mail";
 import { xlsx } from "./xlsx";
@@ -100,7 +101,28 @@ export async function readLines(p: Partner): Promise<Line[]> {
     });
     for (const r of j.results ?? []) if (r.properties?.article_number) found.set(r.properties.article_number, r.properties as Article);
   }
-  return p.articles.map(([code, apso]) => lineOf(code, apso, found.get(apso) ?? null));
+  const specials = await specialStock(codes.filter((c) => !found.has(c)));
+  return p.articles.map(([code, apso]) => lineOf(code, apso, found.get(apso) ?? null, specials.get(apso) ?? null));
+}
+
+/**
+ * The stock of the specials - articles Products & Pricing does not carry (18 of ITAFRAN's 271) - from the ERP
+ * itself: the search bar gateway's anp-stock call, the shop's live stock (it gives 1240 / 199 / 4 where Products &
+ * Pricing does, and 0 for the specials). Unknown, never 0, when the gateway does not answer.
+ */
+async function specialStock(codes: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  // six at a time: with 18 in one call the shop's raw answer came back empty (the gateway's cache still knew the
+  // 1220... ones, not the 800... cuts); "parsed" is the shop's answer, "resolved" the gateway's cached one
+  for (let i = 0; i < codes.length; i += 6) {
+    try {
+      const j = await gateway<{ parsed?: Record<string, number>; resolved?: Record<string, number> }>(`/api/stock-debug/resolve?skus=${codes.slice(i, i + 6).join(",")}`, { timeoutMs: 30_000 });
+      for (const [sku, qty] of Object.entries({ ...(j.resolved ?? {}), ...(j.parsed ?? {}) })) if (Number.isFinite(qty)) out.set(sku, qty);
+    } catch (e) {
+      console.warn(`[partner-stock] specials' stock not read: ${(e as Error).message}`);
+    }
+  }
+  return out;
 }
 
 const zurichTime = (at: Date) => new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit" }).format(at);
@@ -125,10 +147,10 @@ export async function workbook(p: Partner, lines: Line[], at: Date): Promise<Buf
       name: "Info", boldFirstCol: true, widths: [22, 90],
       rows: [
         ["Stock as of", `${z.day.split("-").reverse().join(".")} ${zurichTime(at)} (Zurich)`],
-        ["Articles", `${s.articles} - ${s.inStock} in stock, ${s.moq} with an MOQ, ${s.inactive} inactive, ${s.unknown} not in our catalogue`],
+        ["Articles", `${s.articles} - ${s.inStock} in stock, ${s.moq} with an MOQ, ${s.inactive} inactive, ${s.specials} special articles`],
         ["Stock", "Free stock, in the sales unit (pcs = pieces)."],
         ["MOQ", "Yes = a minimum order quantity applies; Min. order qty says how many."],
-        ["Status", "Active = can be ordered. Inactive = no longer sold. Liquidation = sold while stock lasts. Not in our catalogue = we do not know this code."],
+        ["Status", "Active = can be ordered. Inactive = no longer sold. Liquidation = sold while stock lasts. Special = a special article, made to order: stock as our ERP reports it."],
       ],
     },
   ]);

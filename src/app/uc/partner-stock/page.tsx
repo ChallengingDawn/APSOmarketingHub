@@ -39,12 +39,12 @@ type LogRow = { at: string; kind: string; mode: string; recipients: string[]; ar
 type Data = {
   partners: { key: string; name: string }[]; partner: { key: string; name: string; codeHeader: string; sheet: string };
   settings: PartnerSettings; testTo: string[]; lines: Line[];
-  summary: { articles: number; inStock: number; moq: number; inactive: number; unknown: number };
+  summary: { articles: number; inStock: number; moq: number; inactive: number; specials: number };
   last: SendResult | null; log: LogRow[]; next: string | null; mailReady: boolean; admin: boolean;
 };
 type View = "itafran";
 const VIEW_HASH: Record<View, string> = { itafran: "#itafran" };
-const STATUS_TINT: Record<string, "green" | "slate" | "amber" | "pink"> = { Active: "green", Inactive: "slate", Liquidation: "amber", "Not in our catalogue": "pink" };
+const STATUS_TINT: Record<string, "green" | "slate" | "amber" | "pink"> = { Active: "green", Inactive: "slate", Liquidation: "amber", Special: "pink" };
 
 function Sending({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const s = d.settings;
@@ -130,7 +130,7 @@ function PartnerTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           { icon: <ListAltOutlinedIcon />, tint: "blue" as const, label: "Articles", value: t.articles, note: `${d.partner.name}'s list` },
           { icon: <Inventory2OutlinedIcon />, tint: "green" as const, label: "In stock", value: t.inStock, note: "free stock right now" },
           { icon: <PinOutlinedIcon />, tint: "purple" as const, label: "With an MOQ", value: t.moq, note: `${full(t.inactive)} inactive or in liquidation` },
-          { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Not in our catalogue", value: t.unknown, note: "codes we do not know" },
+          { icon: <ReportProblemOutlinedIcon />, tint: "amber" as const, label: "Special articles", value: t.specials, note: "made to order - stock from our ERP" },
         ].map((k) => (
           <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
         ))}

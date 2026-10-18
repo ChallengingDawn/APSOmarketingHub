@@ -5,12 +5,12 @@
 import { esc } from "@/lib/notify/mailer";
 
 export type PartnerStockMail = {
-  partner: string; day: string; time: string; articles: number; inStock: number; moq: number; inactive: number; unknown: number;
+  partner: string; day: string; time: string; articles: number; inStock: number; moq: number; inactive: number; specials: number;
   filename: string; test: string[] | null;
 };
 
 export const SAMPLE_PARTNER_STOCK: PartnerStockMail = {
-  partner: "ITAFRAN", day: "2026-10-19", time: "07:00", articles: 271, inStock: 180, moq: 13, inactive: 0, unknown: 18,
+  partner: "ITAFRAN", day: "2026-10-19", time: "07:00", articles: 271, inStock: 180, moq: 13, inactive: 0, specials: 18,
   filename: "APSOparts stock ITAFRAN 2026-10-19.xlsx", test: null,
 };
 
@@ -21,14 +21,15 @@ export function renderPartnerStockMail(m: PartnerStockMail): { subject: string; 
   const fr = [
     "Bonjour,",
     `Veuillez trouver ci-joint l'état de notre stock du ${dmy(m.day)} à ${m.time} pour vos ${m.articles} articles : stock disponible, quantité minimale de commande (MOQ) et statut de l'article (actif / inactif).`,
-    `${m.inStock} articles en stock · ${m.moq} avec MOQ · ${m.inactive} inactifs · ${m.unknown} inconnus dans notre catalogue.`,
+    `${m.inStock} articles en stock · ${m.moq} avec MOQ · ${m.inactive} inactifs · ${m.specials} articles spéciaux.`,
   ];
   const en = [
     "Hello,",
     `Please find attached our stock as of ${dmy(m.day)} ${m.time} for your ${m.articles} articles: available stock, minimum order quantity (MOQ) and article status (active / inactive).`,
-    `${m.inStock} articles in stock · ${m.moq} with an MOQ · ${m.inactive} inactive · ${m.unknown} not in our catalogue.`,
+    `${m.inStock} articles in stock · ${m.moq} with an MOQ · ${m.inactive} inactive · ${m.specials} special articles.`,
   ];
-  const sign = ["Meilleures salutations / Best regards", "APSOparts® - Angst+Pfister"];
+  // only APSOparts on the mail (SARCLA 18.10.2026)
+  const sign = ["Meilleures salutations / Best regards", "APSOparts®"];
   const banner = m.test ? `TEST - this mail went only to ${m.test.join(", ")}, not to ${m.partner}.` : null;
   const p = (t: string, extra = "") => `<p style="margin:0 0 12px;font-size:14px;line-height:1.55;color:#1d2433${extra}">${esc(t)}</p>`;
   const html = `<!doctype html><html><body style="margin:0;background:#f4f5f7">

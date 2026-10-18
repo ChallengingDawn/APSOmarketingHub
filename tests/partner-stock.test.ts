@@ -27,9 +27,11 @@ test("a line: stock, MOQ and status as the partner reads them", () => {
   assert.equal(moq.stock, 0); assert.equal(moq.moq, "Yes"); assert.equal(moq.moqQty, 50); assert.equal(moq.status, "Active");
   assert.equal(lineOf("X", "1", { compass_article_inactive: "inactive", article_status: "Running Article" }).status, "Inactive");
   assert.equal(lineOf("X", "1", { article_status: "Liquidation" }).status, "Liquidation");
-  assert.equal(lineOf("X", "1", null).status, "Not in our catalogue");
+  // not in Products & Pricing: a special - stock from the ERP when read, unknown when not
+  assert.deepEqual(lineOf("PLOTX", "8001247963", null, 0), { partnerCode: "PLOTX", apso: "8001247963", description: "", stock: 0, unit: "", moq: "", moqQty: null, status: "Special" });
+  assert.equal(lineOf("X", "1", null).stock, null);
   const s = summary([lineOf("a", "1", { stock_quantity: "3" }), lineOf("b", "2", { moq: "YES" }), lineOf("c", "3", null)]);
-  assert.deepEqual(s, { articles: 3, inStock: 1, moq: 1, inactive: 0, unknown: 1 });
+  assert.deepEqual(s, { articles: 3, inStock: 1, moq: 1, inactive: 0, specials: 1 });
 });
 
 test("recipients typed in a field", () => {
