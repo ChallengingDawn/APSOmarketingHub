@@ -2719,24 +2719,36 @@ export default function EditorCanvas({
         <Card
           ref={barRef}
           sx={{
-            position: "absolute", top: 12, left: 12, right: 12, zIndex: 6,
-            borderRadius: "14px",
-            // Not quite opaque, so you can see that there is artboard under
-            // it and it reads as floating rather than as a missing strip.
-            bgcolor: "rgba(255,255,255,.94)",
-            backdropFilter: "blur(10px)",
-            boxShadow: "0 10px 30px rgba(16,24,40,.16)",
-            border: "1px solid rgba(21,34,58,.10)",
+            position: "absolute", top: 14, zIndex: 6,
+            // Centred and SHRUNK TO ITS CONTENT. Pinned left and right it
+            // spanned the full width, and a full-width white strip at the top
+            // of the canvas reads as a toolbar row however it is positioned -
+            // which is exactly what SARCLA saw. Floating is about hugging the
+            // content, not about z-index.
+            left: "50%",
+            transform: "translateX(-50%)",
+            maxWidth: "calc(100% - 28px)",
+            // Shrink-to-fit has no opinion about a textarea, which has no
+            // intrinsic width: the Content editor would collapse to nothing.
+            // A floor while a section is open, none when it is collapsed or
+            // empty, so those still hug.
+            minWidth: selectedIds.length > 0 && !barCollapsed ? 560 : 0,
+            // A pill when there is nothing in it; a card when there is.
+            borderRadius: selectedIds.length === 0 ? "999px" : "16px",
+            // Not quite opaque, so you can see artboard under it.
+            bgcolor: "rgba(255,255,255,.92)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 12px 34px rgba(16,24,40,.20)",
+            border: "1px solid rgba(21,34,58,.08)",
+            overflow: "hidden",
           }}
         >
           {selectedIds.length === 0 ? (
-            <Box sx={{ p: 1.25, minHeight: 52, display: "flex", alignItems: "center" }}>
-              {/* This used to be four tips run together on one line, which is
-                  the shape text takes when nobody has decided what it is for.
-                  One sentence saying what to do, and the rest behind a button
-                  for the person who wants it. */}
-              <Typography sx={{ fontSize: 12.5, color: "#5b6470", flex: 1 }}>
-                Nothing selected — click something on the board, or add one from the left.
+            <Box sx={{ pl: 2, pr: 0.75, py: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
+              {/* Short, because this is now a pill and not a row. The long
+                  version was written for a strip that spanned the screen. */}
+              <Typography sx={{ fontSize: 12.5, color: "#5b6470", whiteSpace: "nowrap" }}>
+                Click something to change it
               </Typography>
               <Button
                 size="small"
@@ -3767,7 +3779,7 @@ export default function EditorCanvas({
             p: { xs: 1.5, md: 3 },
             // The bar's measured height plus its inset, so the artboard
             // starts below it however many rows it has wrapped to.
-            pt: `${barH + 24}px`,
+            pt: `${barH + 30}px`,
             display: "flex",
             overflow: "auto",
             maxHeight: 720,
