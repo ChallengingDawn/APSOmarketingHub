@@ -195,8 +195,10 @@ export async function prepare(webNo: string): Promise<{ mo: ShopOrder; groups: D
   const mo = await orderByIncrementId(webNo);
   if (!mo) throw new Error(`Magento order ${webNo} not found`);
   const lines = mo.items.filter((it) => it.sku && !FEE_SKUS.has(it.sku));
-  const found: Resolved[] = lines.length
-    ? ((await (await fromBackend(`/api/doc/resolve?articles=${encodeURIComponent(lines.map((l) => l.sku).join(","))}`)).json()) as {
+  // a cut position is asked for as itself AND as the article it was cut from (magento.ts cutBaseSku)
+  const articles = [...new Set(lines.flatMap((l) => [l.sku, l.baseSku ?? ""]).filter(Boolean))];
+  const found: Resolved[] = articles.length
+    ? ((await (await fromBackend(`/api/doc/resolve?articles=${encodeURIComponent(articles.join(","))}`)).json()) as {
         declarations?: Resolved[];
       }).declarations ?? []
     : [];
@@ -204,9 +206,13 @@ export async function prepare(webNo: string): Promise<{ mo: ShopOrder; groups: D
   const groups = new Map<string, DeclarationGroup>();
   const notEligible: NotEligible[] = [];
   for (const l of lines) {
-    const f = bySku.get(l.sku.replace(/\D/g, ""));
+    const own = bySku.get(l.sku.replace(/\D/g, ""));
+    const base = l.baseSku ? bySku.get(l.baseSku.replace(/\D/g, "")) : undefined;
+    // the line's own declaration, else - for a cut - the declaration of what it was cut from
+    const f = own?.declaration ? own : base?.declaration ? base : own;
     if (!f || !f.declaration) {
-      notEligible.push({ sku: l.sku, name: l.name, reason: f?.reason ?? "not resolved" });
+      const reason = l.baseSku ? `cut from ${l.baseSku}: ${base?.reason ?? "not resolved"}` : f?.reason ?? "not resolved";
+      notEligible.push({ sku: l.sku, name: l.name, reason });
       continue;
     }
     // FEP-O-SEAL's declaration is for the product line, not its core compound

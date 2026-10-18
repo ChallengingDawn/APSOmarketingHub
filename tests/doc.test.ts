@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { greetingFor, languageFor, renderEmail, storeLangFromIncrement, countryLang } from "../src/lib/doc/email";
 import { displayName, genderOf } from "../src/lib/doc/salutation";
 import { boardRow, leadingStatus, phaseOf } from "../src/lib/doc/board";
-import { dedupeName } from "../src/lib/doc/magento";
+import { cutBaseSku, dedupeName } from "../src/lib/doc/magento";
 import { TEXTS } from "../src/lib/doc/texts";
 import { copyTo, isInternalAddress } from "../src/lib/doc/config";
 
@@ -158,4 +158,16 @@ test("a product name the shop printed twice is said once, size tail kept", () =>
     "PMMA-GS Platte transparent klar # 2200 x 800 x 3 mm",
   );
   assert.equal(dedupeName("O-Ring FKM 75 10 x 2"), "O-Ring FKM 75 10 x 2");
+});
+
+test("a cut position names the article it was cut from; other lines name none", () => {
+  // shop order 10000155413 (A26.660715, 06.10.2026): the EPDM plate cut went to the Back Office for want of this
+  const cut = {
+    sku: "8001106148",
+    product_option: { extension_attributes: { custom_options: [{ option_id: "3", option_value: JSON.stringify({ sku: "8001106148", name: "Elastomerplatte EPDM 60 ShA FDA\r\n# 1400 x 1000 x 3.00 mm", baseSku: "1010110903", isDenomination: false }) }] } },
+  };
+  assert.equal(cutBaseSku(cut), "1010110903");
+  assert.equal(cutBaseSku({ sku: "1141601596" }), "");
+  assert.equal(cutBaseSku({ sku: "1141601596", product_option: { extension_attributes: { custom_options: [{ option_value: "not json baseSku" }] } } }), "");
+  assert.equal(cutBaseSku({ sku: "8001", product_option: { extension_attributes: { custom_options: [{ option_value: JSON.stringify({ baseSku: "" }) }] } } }), "");
 });

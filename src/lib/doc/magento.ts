@@ -123,8 +123,30 @@ type RawOrder = {
   customer_firstname?: string;
   customer_lastname?: string;
   billing_address?: { company?: string; country_id?: string };
-  items?: { sku?: string; name?: string; qty_ordered?: number; parent_item_id?: number | null }[];
+  items?: RawItem[];
 };
+type RawItem = {
+  sku?: string; name?: string; qty_ordered?: number; parent_item_id?: number | null;
+  product_option?: { extension_attributes?: { custom_options?: { option_id?: string; option_value?: string }[] } };
+};
+
+/**
+ * The article a CUT position was cut from. A cut (DirectCut / C2S) gets its own made-to-order article
+ * (8001...), which Products & Pricing does not know; the shop keeps the plate or cord it came from in the
+ * line's custom option, a JSON text with "baseSku" (SARCLA 18.10.2026: "the order was not detected since it
+ * was a cut - determine the certificate based on the main article"). Empty for any other line.
+ */
+export function cutBaseSku(it: RawItem): string {
+  for (const o of it.product_option?.extension_attributes?.custom_options ?? []) {
+    if (!o.option_value || !o.option_value.includes("baseSku")) continue;
+    try {
+      const v = JSON.parse(o.option_value) as { baseSku?: unknown };
+      const base = String(v.baseSku ?? "").trim();
+      if (base && base !== String(it.sku ?? "").trim()) return base;
+    } catch { /* not the cut option */ }
+  }
+  return "";
+}
 
 type OrderPage = { items?: RawOrder[]; total_count?: number };
 
@@ -178,7 +200,8 @@ export type ShopOrder = {
   company: string;
   email: string;
   country: string;
-  items: { sku: string; name: string; qty: number }[];
+  /** baseSku: the article a cut position was cut from (see cutBaseSku) */
+  items: { sku: string; name: string; qty: number; baseSku?: string }[];
 };
 
 /** One shop order by its number (increment_id), or null when the shop has no such order. */
@@ -205,7 +228,10 @@ export async function orderByIncrementId(incrementId: string): Promise<ShopOrder
     // parent-less simple items only (configurables duplicate their child rows)
     items: (o.items ?? [])
       .filter((it) => !it.parent_item_id)
-      .map((it) => ({ sku: String(it.sku ?? "").trim(), name: dedupeName(it.name), qty: Number(it.qty_ordered) || 0 })),
+      .map((it) => {
+        const baseSku = cutBaseSku(it);
+        return { sku: String(it.sku ?? "").trim(), name: dedupeName(it.name), qty: Number(it.qty_ordered) || 0, ...(baseSku ? { baseSku } : {}) };
+      }),
   };
 }
 
