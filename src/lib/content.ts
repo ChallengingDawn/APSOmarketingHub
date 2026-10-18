@@ -11,6 +11,8 @@ export function isContentStatus(value: unknown): value is ContentStatus {
 }
 
 export type ContentItem = {
+  /** The project this piece is a variant of, when it is in one. */
+  projectId: number | null;
   revision: number;
   updatedBy: string | null;
   designDocument?: DesignDocument | null;
@@ -48,6 +50,7 @@ export type ContentFilter = {
 };
 
 type ContentRow = {
+  project_id: number | null;
   revision: number;
   updated_by: string | null;
   design_document: DesignDocument | null;
@@ -77,7 +80,7 @@ const MAX_LIMIT = 200;
  */
 type ListRow = Omit<ContentRow, "image_url" | "design_document"> & { has_image: boolean; has_design: boolean };
 
-const LIST_COLUMNS = `revision, updated_by, (design_document IS NOT NULL AND design_document <> 'null'::jsonb) AS has_design, id, channel, title, body, filters, status, created_by, scheduled_for, created_at, updated_at,
+const LIST_COLUMNS = `project_id, revision, updated_by, (design_document IS NOT NULL AND design_document <> 'null'::jsonb) AS has_design, id, channel, title, body, filters, status, created_by, scheduled_for, created_at, updated_at,
        (image_url IS NOT NULL AND image_url <> '') AS has_image`;
 
 /** Stable per-version URL, so the browser may cache the bytes as immutable. */
@@ -87,6 +90,7 @@ function imageRef(id: number, updatedAt: Date): string {
 
 function toListItem(row: ListRow): ContentItem {
   return {
+    projectId: row.project_id ?? null,
     revision: row.revision, updatedBy: row.updated_by, hasDesign: row.has_design,
     id: row.id,
     channel: row.channel,
@@ -104,6 +108,7 @@ function toListItem(row: ListRow): ContentItem {
 
 function toItem(row: ContentRow): ContentItem {
   return {
+    projectId: row.project_id ?? null,
     revision: row.revision, updatedBy: row.updated_by, designDocument: row.design_document, hasDesign: Boolean(row.design_document),
     // Null for every piece made before pages existed, which the editor reads
     // as "one page, and it is the design document".

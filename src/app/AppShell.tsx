@@ -63,7 +63,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const padded = isPadded(pathname);
-  const isFullBleed = pathname === "/personality";
+  // The canvas page runs the window itself: its own 48px app rail, title bar,
+  // work rail and inspector. A 300px drawer beside all that is the hub's
+  // navigation sitting on top of the work's own (SARCLA, 18.10.2026).
+  const isCanvas = matchPrefix(pathname, "/editor");
+  const isFullBleed = pathname === "/personality" || isCanvas;
 
   return (
     // The same mesh as the front page. One surface rather than a colourful
@@ -76,7 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <MeshBackground strength="quiet" />
       {/* Advanced reporting's front page is a door like the launch pad: no
           panel until you are in a category or a report (SARCLA, 11.10.2026). */}
-      {pathname !== "/reporting" && <Sidebar />}
+      {pathname !== "/reporting" && !isCanvas && <Sidebar />}
       <Box
         component="main"
         sx={{

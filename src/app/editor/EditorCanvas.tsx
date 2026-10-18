@@ -383,6 +383,9 @@ export default function EditorCanvas({
   toolsContainers,
   contentTypeKey,
   onCanvasSize,
+  onDocumentChange,
+  chromeHosts,
+  fillHeight,
 }: {
   itemId?: number;
   initialImage?: string | null;
@@ -413,6 +416,27 @@ export default function EditorCanvas({
   contentTypeKey?: string;
   /** Reports the artboard size up, so the chrome can show what you are on. */
   onCanvasSize?: (size: { w: number; h: number }) => void;
+  /**
+   * The live document on every edit, not just on save.
+   *
+   * `initialDocument` is read once, in a useState initialiser, so a parent that
+   * swaps pages has to remount the canvas to change what is on it. Remounting
+   * throws away whatever was not saved, which is why the page strip could
+   * highlight a page without the artboard ever following. A parent holding this
+   * in a ref can put the page it is leaving back in the list before it goes.
+   */
+  onDocumentChange?: (document: DesignDocument) => void;
+  /**
+   * Where the canvas's own bars go when the page has somewhere better for them.
+   *
+   * The standalone editor grew TWO surfaces for one selection: a document bar
+   * above the artboard and a pill floating on top of it, plus the tools panel
+   * beside them. Given hosts, both bars render in the page's single inspector
+   * column instead, and the stage holds nothing but the artboard.
+   */
+  chromeHosts?: { actions?: HTMLElement | null; selection?: HTMLElement | null };
+  /** The board fills the window rather than stopping at 720px. */
+  fillHeight?: boolean;
   toolsContainers?: {
     insert?: HTMLElement | null;
     canvas?: HTMLElement | null;
@@ -487,6 +511,15 @@ export default function EditorCanvas({
     nodes,
   }), [canvas, bgColor, bgGradientId, customGrad, bgSrc, bgScrim, nodes]);
   const serialized = useMemo(() => JSON.stringify(sceneDocument), [sceneDocument]);
+  // Via a ref so a parent re-creating the callback each render cannot restart
+  // this effect, and so holding the document costs the parent no re-render.
+  const onDocChange = useRef(onDocumentChange);
+  onDocChange.current = onDocumentChange;
+  useEffect(() => { onDocChange.current?.(sceneDocument); }, [sceneDocument]);
+
+  /** Render `el` into `host` when there is one, otherwise leave it in place. */
+  const hostOr = (host: HTMLElement | null | undefined, el: React.ReactNode) =>
+    host ? createPortal(el, host) : el;
   // Compare canonically. A document loaded from PostgreSQL arrives in jsonb's
   // key order, so a plain stringify of it never equals the freshly built scene
   // and every saved design would open already flagged as changed.
@@ -2512,7 +2545,10 @@ export default function EditorCanvas({
             selection changed the width of anything to their left. They are
             the document's buttons, not the object's, so they have their own
             row and never move. */}
-        <Card sx={{ mb: 1 }}>
+        {hostOr(chromeHosts?.actions,
+        <Card sx={chromeHosts?.actions
+          ? { mb: 1, boxShadow: "none", border: "1px solid rgba(21,34,58,.11)", borderRadius: "10px" }
+          : { mb: 1 }}>
           <Box sx={{ p: 1, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
             <Tooltip title="Undo (Ctrl+Z)">
               <span>
@@ -2784,6 +2820,7 @@ export default function EditorCanvas({
             </Menu>
           </Box>
         </Card>
+        )}
 
         {notice && (
           <Alert severity={notice.startsWith("Design") ? "success" : "warning"} onClose={() => setNotice("")} sx={{ mb: 1.5 }}>
@@ -2793,6 +2830,7 @@ export default function EditorCanvas({
 
         {/* ── the selection's bar, floating on the workspace ── */}
         <Box sx={{ position: "relative" }}>
+        {hostOr(chromeHosts?.selection,
         <Card
           ref={barRef}
           sx={{
@@ -2818,6 +2856,15 @@ export default function EditorCanvas({
             boxShadow: "0 12px 34px rgba(16,24,40,.20)",
             border: "1px solid rgba(21,34,58,.08)",
             overflow: "hidden",
+            // Hosted in a column it is not floating any more: no absolute
+            // placement, no blur (a blurred card composites its text into tiles
+            // and softens it), no shadow over an artboard it is no longer above.
+            ...(chromeHosts?.selection ? {
+              position: "static", transform: "none", left: "auto", top: "auto",
+              maxWidth: "none", minWidth: 0, borderRadius: "10px", mb: 1,
+              bgcolor: "#fff", backdropFilter: "none", boxShadow: "none",
+              border: "1px solid rgba(21,34,58,.11)",
+            } : null),
           }}
         >
           {selectedIds.length === 0 ? (
@@ -3843,6 +3890,7 @@ export default function EditorCanvas({
             </>
           )}
         </Card>
+        )}
 
         {/* workspace surface — the artboard floats on a neutral dotted board like a real design tool */}
         <Box
@@ -3856,10 +3904,11 @@ export default function EditorCanvas({
             p: { xs: 1.5, md: 3 },
             // The bar's measured height plus its inset, so the artboard
             // starts below it however many rows it has wrapped to.
-            pt: `${barH + 30}px`,
+            pt: chromeHosts?.selection ? undefined : `${barH + 30}px`,
             display: "flex",
             overflow: "auto",
-            maxHeight: 720,
+            maxHeight: fillHeight ? "none" : 720,
+            minHeight: fillHeight ? "calc(100vh - 84px)" : undefined,
           }}
         >
         <Box sx={{ display: "inline-block", m: "auto", boxShadow: "0 8px 32px rgba(22,48,63,0.18)", borderRadius: 0.5, overflow: "hidden", bgcolor: "#fff", position: "relative", flexShrink: 0 }}>
