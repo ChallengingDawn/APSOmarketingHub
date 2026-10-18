@@ -34,7 +34,7 @@ import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 type Row = { id: number; title: string; folder: string | null; dueDate: string | null; status: string };
 
 const PLACES = [
-  { href: "/projects", label: "All projects", icon: <FolderOpenIcon sx={{ fontSize: 16 }} /> },
+  { href: "/projects/all", label: "All projects", icon: <FolderOpenIcon sx={{ fontSize: 16 }} /> },
   { href: "/projects/all?scope=shared", label: "Shared with me", icon: <GroupsIcon sx={{ fontSize: 16 }} /> },
   { href: "/projects/all?scope=starred", label: "Starred", icon: <StarBorderIcon sx={{ fontSize: 16 }} /> },
   { href: "/projects/calendar", label: "Calendar", icon: <CalendarMonthIcon sx={{ fontSize: 16 }} /> },

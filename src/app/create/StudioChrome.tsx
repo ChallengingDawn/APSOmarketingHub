@@ -25,7 +25,16 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
+import { useState } from "react";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
+import SearchIcon from "@mui/icons-material/Search";
+import AppsIcon from "@mui/icons-material/Apps";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Divider from "@mui/material/Divider";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 
 const BAR = "#15223a";
@@ -48,6 +57,7 @@ export default function StudioChrome({
   right?: React.ReactNode;
 }) {
   const home = projectId ? `/projects/${projectId}` : "/projects";
+  const [goAnchor, setGoAnchor] = useState<HTMLElement | null>(null);
 
   return (
     <Box
@@ -81,15 +91,47 @@ export default function StudioChrome({
 
       {right}
 
+      {/* The way out. It used to be a second button pointing at exactly the
+          same href as the back arrow, so the editor had ONE destination and
+          the rest of the hub was unreachable from here. */}
       <Button
-        component={Link}
-        href={home}
         size="small"
+        onClick={(e) => setGoAnchor(e.currentTarget)}
         startIcon={<FolderOpenIcon sx={{ fontSize: 16 }} />}
+        endIcon={<ExpandMoreIcon sx={{ fontSize: 17 }} />}
         sx={{ textTransform: "none", fontWeight: 600, color: ON_BAR, "&:hover": { bgcolor: "rgba(255,255,255,.08)" } }}
       >
-        {projectId ? "Project" : "Projects"}
+        Go to
       </Button>
+      <Menu
+        open={Boolean(goAnchor)}
+        anchorEl={goAnchor}
+        onClose={() => setGoAnchor(null)}
+        slotProps={{ paper: { sx: { borderRadius: "12px", minWidth: 220 } } }}
+      >
+        {projectId && (
+          <MenuItem component={Link} href={`/projects/${projectId}`} onClick={() => setGoAnchor(null)} sx={{ gap: 1, fontSize: "0.86rem", fontWeight: 600 }}>
+            <FolderOpenIcon sx={{ fontSize: 17, color: "#5b6470" }} />
+            {projectTitle ? `Back to ${projectTitle}` : "Back to the project"}
+          </MenuItem>
+        )}
+        {projectId && <Divider />}
+        {[
+          { href: "/projects", label: "Projects", icon: <FolderOpenIcon sx={{ fontSize: 17, color: "#5b6470" }} /> },
+          { href: "/projects/all", label: "All projects", icon: <SearchIcon sx={{ fontSize: 17, color: "#5b6470" }} /> },
+          { href: "/projects/calendar", label: "Calendar", icon: <CalendarMonthIcon sx={{ fontSize: 17, color: "#5b6470" }} /> },
+          { href: "/templates", label: "Templates", icon: <DashboardCustomizeIcon sx={{ fontSize: 17, color: "#5b6470" }} /> },
+        ].map((d) => (
+          <MenuItem key={d.href} component={Link} href={d.href} onClick={() => setGoAnchor(null)} sx={{ gap: 1, fontSize: "0.86rem" }}>
+            {d.icon}{d.label}
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem component={Link} href="/" onClick={() => setGoAnchor(null)} sx={{ gap: 1, fontSize: "0.86rem", color: "#5b6470" }}>
+          <AppsIcon sx={{ fontSize: 17, color: "#5b6470" }} />
+          All apps
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }
