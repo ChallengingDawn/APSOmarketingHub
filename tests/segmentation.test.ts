@@ -133,3 +133,15 @@ test("visit reports, mass updates and absurd values", () => {
   assert.equal(editDelta({ ...base, at: "x", source: "rep" }), 1500);
   assert.equal(isAbsurd({ ...base, at: "x", source: "rep", value: 500015000 }), true);
 });
+
+test("the potential's three revenue years move with the calendar - 2025-2027 in 2027, not 2024-2026", () => {
+  const REV27 = revProps(2027);
+  // a customer that starts buying in 2027 gets a potential from its revenue, not the flat starter
+  assert.equal(potentialFormula({ revenue_2027: "1000" }, REV27), 1300);
+  assert.equal(initialPotential({ revenue_2027: "1000" }, REV27), 1300);
+  // in 2027, 2024 is no longer one of the three years
+  assert.equal(potentialFormula({ revenue_2024: "1000" }, REV27), null);
+  // in 2026 nothing changes
+  assert.equal(potentialFormula({ revenue_2024: "1000" }, REV), 1300);
+  assert.equal(potentialFormula({ revenue_2027: "1000" }, REV), null);
+});

@@ -234,13 +234,19 @@ export function apicMult(apic: string | null | undefined): number {
   return best;
 }
 
-const recentRevenue = (p: Props) =>
-  [fnum(p.revenue_2026), fnum(p.revenue_2025), fnum(p.revenue_2024)].filter(truthy);
+/**
+ * The last three revenue years, newest first: this year and the two before - 2024-2026 in 2026, 2025-2027
+ * in 2027 - read off the end of `rev` (revProps), which grows with the calendar. It was revenue_2024..2026
+ * typed in, so from January 2027 every potential would have stayed on those years and a customer new in
+ * 2027 would have kept the flat starter value (SARCLA 18.10.2026: "fix it now").
+ */
+const recentRevenue = (p: Props, rev: string[]) =>
+  [...rev].sort().slice(-3).reverse().map((k) => fnum(p[k])).filter(truthy);
 
 /** _initial_potential: a starter yearly potential for a company that has NONE (reps' values always win). */
 export function initialPotential(p: Props, rev: string[]): number {
   const revs = rev.map((k) => fnum(p[k])).filter(truthy);
-  const recent = recentRevenue(p);
+  const recent = recentRevenue(p, rev);
   const m = apicMult(p.apic_ap);
   if (recent.length) {
     const base = recent.reduce((a, b) => a + b, 0) / recent.length;
@@ -254,7 +260,7 @@ export function initialPotential(p: Props, rev: string[]): number {
 /** _potential_formula: avg of the last three revenue years x APIC, floor 1.3x the best year, +40% cap, ceiling 1M. */
 export function potentialFormula(p: Props, rev: string[]): number | null {
   const revs = rev.map((k) => fnum(p[k])).filter(truthy);
-  const recent = recentRevenue(p);
+  const recent = recentRevenue(p, rev);
   if (!recent.length) return null;
   const base = recent.reduce((a, b) => a + b, 0) / recent.length;
   let pot = Math.max(base * apicMult(p.apic_ap), 1.3 * Math.max(...revs));
