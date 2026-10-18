@@ -18,6 +18,9 @@ import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
+import TextFieldMui from "@mui/material/TextField";
+import CircularProgress from "@mui/material/CircularProgress";
+import { canMove, MANUAL_FROM } from "@/lib/directcut/board";
 import InputAdornment from "@mui/material/InputAdornment";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
@@ -71,9 +74,39 @@ function Row({ label, value, tone }: { label: string; value: React.ReactNode; to
   );
 }
 
-/** Everything the ledger holds about one line. */
-function Detail({ l, onClose }: { l: Line | null; onClose: () => void }) {
+const MOVE_LABEL: Record<string, string> = {
+  "to-cut": "Send to the saw",
+  "cut-done": "Mark it cut",
+  closed: "Close it",
+};
+const MOVE_WHY: Record<string, string> = {
+  "to-cut": "it is ordered and should be queued",
+  "cut-done": "the saw has run — this also releases the plate area it was holding",
+  closed: "it should leave the board without being cut",
+};
+
+/** Everything the ledger holds about one line, and what a person may do to it. */
+function Detail({ l, onClose, isAdmin, onMoved }:
+  { l: Line | null; onClose: () => void; isAdmin: boolean; onMoved: () => void }) {
   const open = !!l;
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const move = async (stage: string) => {
+    if (!l) return;
+    setBusy(stage); setErr(null);
+    try {
+      const res = await fetch("/api/website/directcut", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stage", key: l.key, stage, from: l.stage, note }),
+      });
+      const j = await res.json();
+      if (!j.ok) setErr(j.error ?? `HTTP ${res.status}`);
+      else { setNote(""); onClose(); onMoved(); }
+    } catch (e) { setErr(String((e as Error)?.message ?? e)); }
+    finally { setBusy(""); }
+  };
   const done = l?.stage === "cut-done" || l?.stage === "closed";
   const work = l ? workOf(l) : "unknown";
   return (
@@ -106,6 +139,38 @@ function Detail({ l, onClose }: { l: Line | null; onClose: () => void }) {
           <Row label="In this stage since" value={l.at ? when(l.at, true) : "—"} />
           <Row label="Booked by" value={l.fromShop ? "the widget" : "the ERP / order feed"} />
 
+          {isAdmin && l.stage !== "closed" && (
+            <Box sx={{ mt: 2.5 }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, mb: 1 }}>Move this line</Typography>
+              {/* the reason is required: a stage somebody set by hand with no reason recorded is
+                  indistinguishable later from a bug */}
+              <TextFieldMui size="small" fullWidth value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Why? — recorded on the line" sx={{ mb: 1.25 }} />
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {Object.keys(MANUAL_FROM).filter((to) => canMove(l.stage, to)).map((to) => (
+                  <Tooltip key={to} title={MOVE_WHY[to]} placement="top">
+                    <span>
+                      <Button size="small" variant={to === "closed" ? "outlined" : "contained"}
+                        color={to === "closed" ? "inherit" : "primary"}
+                        disabled={!!busy || !note.trim()} onClick={() => move(to)}
+                        startIcon={busy === to ? <CircularProgress size={14} /> : undefined}>
+                        {MOVE_LABEL[to]}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                ))}
+              </Box>
+              {!note.trim() && (
+                <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 1 }}>Give a reason to enable these.</Typography>
+              )}
+              {err && <Typography sx={{ fontSize: "0.8rem", color: RED, mt: 1 }}>{err}</Typography>}
+              <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1.25 }}>
+                The middleware still decides — it refuses a move its own rules do not allow. There is no way
+                back from &ldquo;cut done&rdquo;, because that releases the plate area.
+              </Typography>
+            </Box>
+          )}
+
           {work === "unknown" && (
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 2, lineHeight: 1.7 }}>
               This line came in on a real order carrying only a cut-article number. Our registry never minted
@@ -120,8 +185,9 @@ function Detail({ l, onClose }: { l: Line | null; onClose: () => void }) {
   );
 }
 
-export default function KanbanTab({ open, done, doneTotal, onMore, loadingMore }:
-  { open: Line[]; done: Line[]; doneTotal: number; onMore?: () => void; loadingMore?: boolean }) {
+export default function KanbanTab({ open, done, doneTotal, onMore, loadingMore, isAdmin = false, onMoved }:
+  { open: Line[]; done: Line[]; doneTotal: number; onMore?: () => void; loadingMore?: boolean;
+    isAdmin?: boolean; onMoved?: () => void }) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Line | null>(null);
 
@@ -244,7 +310,7 @@ export default function KanbanTab({ open, done, doneTotal, onMore, loadingMore }
         })}
       </Box>
 
-      <Detail l={picked} onClose={() => setPicked(null)} />
+      <Detail l={picked} onClose={() => setPicked(null)} isAdmin={isAdmin} onMoved={() => onMoved?.()} />
     </GlassCard>
   );
 }

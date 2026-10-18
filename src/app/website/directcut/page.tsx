@@ -385,7 +385,7 @@ export default function DirectCutPage() {
         <ReportTabs name="directcut" tab={tab} onSelect={setTab} tabs={tabs} />
         <Box sx={{ mt: 3 }}>
           {tab === "overview" && <Overview b={board} s={s} />}
-          {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal}
+          {tab === "kanban" && <KanbanTab open={board.open} done={board.done} doneTotal={board.doneTotal} isAdmin={r.data.isAdmin} onMoved={reload}
             onMore={() => setDoneShown((n) => Math.min(2000, n + 400))} loadingMore={boardHeld.stale} />}
           {tab === "leftovers" && (left
             ? <LeftoversTab data={left} isAdmin={left.isAdmin} onDone={reload} />

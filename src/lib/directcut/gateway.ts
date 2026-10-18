@@ -25,7 +25,7 @@
 import { kvGet, kvSet } from "@/lib/db/init";
 import { slim, type Board, type RawPipeline } from "./board";
 
-export { slim, STAGES } from "./board";
+export { slim, STAGES, MANUAL_FROM, canMove } from "./board";
 export type { Board, Line, Stage, StockRow } from "./board";
 
 export const DEFAULT_GATEWAY = "https://c2s-middleware-production.up.railway.app";
@@ -53,7 +53,50 @@ export function adminKey(): string | null {
   return v ? v : null;
 }
 
-/** One READ of the middleware's admin API. GET only, on purpose: see the note at the top of this file. */
+/* ONE WRITE, ADDED DELIBERATELY (18.10.2026). SARCLA: "if the hub can do it would be great" — moving a
+   line's stage and closing one were the last reasons to keep the Railway dashboard open.
+
+   This does NOT weaken the rule at the top of this file. That rule is about the LEDGER: the middleware
+   stays the single reservation authority, and the hub never computes availability, never holds plate area
+   and never decides what a line is. A stage move is not a second opinion about stock — it is a person
+   saying "this one is cut" or "forget this one", which the middleware then applies with its own rules
+   (MANUAL_FROM: to-cut only from ordered, cut-done from ordered or to-cut, closed from anywhere, and no
+   way back from cut-done because it releases plate area). The hub asks; the middleware still decides and
+   can still refuse with 409.
+   
+   Kept separate from gateway() so that every write is visible as a write at the call site. */
+export async function gatewayPost<T>(path: string, body: unknown, timeoutMs = 25_000): Promise<T> {
+  const key = adminKey();
+  if (!key) throw new Error("C2S_ADMIN_KEY is not set on the hub");
+  const base = (await gatewaySetting()).url;
+  const res = await fetch(`${base}/api/c2s${path}`, {
+    method: "POST",
+    headers: { "x-admin-key": key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let out: unknown = null;
+  try { out = JSON.parse(text); } catch { /* not JSON */ }
+  if (!res.ok) {
+    const said = out && typeof out === "object" && "error" in out ? String((out as { error: unknown }).error) : text.slice(0, 160);
+    throw Object.assign(
+      new Error(res.status === 409 ? `The middleware refused that move: ${said}`
+        : res.status === 403 ? "The gateway refused the hub's key (C2S_ADMIN_KEY differs)"
+        : `The gateway answered ${res.status}: ${said}`),
+      { status: res.status },
+    );
+  }
+  return out as T;
+}
+
+export async function setStage(key: string, stage: string, note: string) {
+  return gatewayPost<{ ok: boolean; error?: string; stage?: string }>(
+    `/admin/cuts/${encodeURIComponent(key)}/stage`, { stage, note });
+}
+
+/** One READ of the middleware's admin API. */
 export async function gateway<T>(path: string, timeoutMs = 25_000): Promise<T> {
   const key = adminKey();
   if (!key) throw new Error("C2S_ADMIN_KEY is not set on the hub");

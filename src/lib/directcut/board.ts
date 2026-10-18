@@ -44,6 +44,17 @@ export type RawPipeline = { at: string; counts: Record<string, number>; stages: 
 /* HOW MANY FINISHED LINES TRAVEL. A cap, because the whole history is 531 KB of the gateway's 967 KB
    answer, but a cap the reader can lift: SARCLA, 17.10.2026 - "you are only showing 100 more recent but
    you should allow to see more". The page asks for more when it wants more. */
+/* THE MOVES A PERSON MAY MAKE BY HAND, mirroring the middleware's own MANUAL_FROM. They live HERE, in the
+   module that imports nothing, because the Kanban is a client component: importing them from gateway.ts
+   pulled kvGet -> pg -> 'dns'/'net' into the browser bundle and the build refused. A rule the UI needs to
+   draw a button must not sit behind a database client. */
+export const MANUAL_FROM: Record<string, string[]> = {
+  "to-cut": ["ordered"],
+  "cut-done": ["ordered", "to-cut"],
+  closed: ["reserved", "lapsed", "ordered", "to-cut", "cut-done"],
+};
+export const canMove = (from: string, to: string) => (MANUAL_FROM[to] ?? []).includes(from);
+
 const DONE_DEFAULT = 100;
 const DONE_MAX = 2000;
 const OPEN: Stage[] = ["reserved", "ordered", "to-cut"];

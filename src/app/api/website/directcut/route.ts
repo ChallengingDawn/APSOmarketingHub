@@ -8,7 +8,8 @@
 //
 // Same three answers as every integration route: not configured, upstream failed (with the reason), or data.
 //   GET  ?part=board | status | promises | registry | leftovers
-//   POST { action: "gateway", url } | { action: "tickets", dry }
+//   POST { action: "gateway", url } | { action: "tickets", dry } | { action: "avor", dry, erpNo }
+//        | { action: "stage", key, stage, from, note }
 //
 // The ticket action is the one thing here that writes anywhere, and it writes to HubSpot, not to the
 // middleware: a Back Office ticket for an order whose promise the shelf can no longer keep. It is V1's job
@@ -17,7 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
-import { adminKey, board, gatewaySetting, holds, registry, setGateway, status } from "@/lib/directcut/gateway";
+import { adminKey, board, canMove, gatewaySetting, holds, registry, setGateway, setStage, status } from "@/lib/directcut/gateway";
 import { brokenWithTickets, runPromiseTickets } from "@/lib/directcut/tickets";
 import { fetchLeftovers, mailLeftovers } from "@/lib/directcut/leftovers";
 
@@ -74,7 +75,10 @@ export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
-  const body = (await req.json().catch(() => ({}))) as { action?: string; url?: unknown; dry?: unknown; erpNo?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    action?: string; url?: unknown; dry?: unknown; erpNo?: unknown;
+    key?: unknown; stage?: unknown; from?: unknown; note?: unknown;
+  };
   const me = await requireUser();
   const who = me.full_name || me.username;
   try {
@@ -83,6 +87,28 @@ export async function POST(req: NextRequest) {
       const setting = await setGateway(body.url, who);
       console.log(`[directcut] gateway address set to ${setting.url} by ${who}`);
       return NextResponse.json({ ok: true, data: { setting } });
+    }
+    if (body.action === "stage") {
+      /* MOVING A LINE BY HAND (18.10.2026). The last reason the Railway dashboard had to stay open.
+         The middleware still decides: it owns MANUAL_FROM and answers 409 if the move is not allowed.
+         This checks the same rule first only so the person gets a sentence instead of a refusal, and
+         because a button that cannot work should not be offered. */
+      const key = String(body.key ?? "").slice(0, 64);
+      const stage = String(body.stage ?? "");
+      const from = String(body.from ?? "");
+      const note = String(body.note ?? "").slice(0, 200);
+      if (!key) return NextResponse.json({ ok: false, error: "No line given." }, { status: 400 });
+      if (!canMove(from, stage)) {
+        return NextResponse.json({ ok: false,
+          error: `A line that is "${from}" cannot be moved to "${stage}".` }, { status: 400 });
+      }
+      if (!note.trim()) {
+        /* a stage somebody set by hand, with no reason recorded, is indistinguishable later from a bug */
+        return NextResponse.json({ ok: false, error: "Say why - it is recorded on the line." }, { status: 400 });
+      }
+      const data = await setStage(key, stage, `${note.trim()} — ${who}`);
+      console.log(`[directcut] ${key}: ${from} -> ${stage} by ${who} (${note.trim()})`);
+      return NextResponse.json({ ok: true, data });
     }
     if (body.action === "avor") {
       /* DRY UNLESS ASKED OTHERWISE: this reaches a shared mailbox a person reads, and a mail cannot be
