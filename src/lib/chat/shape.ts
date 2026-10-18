@@ -47,3 +47,16 @@ export function handlerOf(c: Pick<Conversation, "escalated" | "routing_team" | "
   if (!c.escalated) return "AI";
   return ["back_office", "finance", "marketing"].includes(c.routing_team ?? "") ? "BO" : "TSA";
 }
+
+/** One line of a chat as HubSpot holds it (src/lib/chat/transcript.ts): who wrote, when, what. */
+export type TranscriptItem = { at: string; who: "customer" | "ai" | "agent" | "system"; name: string | null; text: string };
+/** A whole chat from HubSpot, with its hand-over: when the bot let go, who took it, when a person first wrote. */
+export type Transcript = {
+  threadId: string; status: string; inbox: string | null; openedAt: string | null; closedAt: string | null;
+  handedAt: string | null; agent: { name: string | null; at: string } | null; agentFirstReplyAt: string | null;
+  agentMessages: number; items: TranscriptItem[]; link: string;
+};
+
+/** The chat went live on the shop on 13.04.2026; 23.03-12.04 was the test phase (~9,300 scripted chats, no
+ *  tickets). Counts start here so the test phase neither swamps the chart nor fills "Not classified". */
+export const LIVE_FROM = "2026-04-13";

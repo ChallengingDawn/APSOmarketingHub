@@ -3,6 +3,7 @@
 // answers as every integration route: not configured, upstream failed (with the reason), or the data.
 //   GET ?part=overview&days=30 | conversations&limit=&offset=&escalated=1&language=&category= | conversation&hash=
 //       (counted per CHAT - /dashboard/chat-stats, /dashboard/chats; on an orchestrator without them, per message, marked)
+//       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
 //   POST { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
@@ -14,8 +15,9 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import {
   orchestrator, orchestratorHealth, orchestratorKey, orchestratorSetting, perChat, setOrchestrator,
-  type ConversationDetail, type Conversations, type Stats, type TestAnswer,
+  LIVE_FROM, type ConversationDetail, type Conversations, type Stats, type TestAnswer,
 } from "@/lib/chat/orchestrator";
+import { chatTranscript } from "@/lib/chat/transcript";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,13 +45,16 @@ export async function GET(req: NextRequest) {
     }
     if (!orchestratorKey()) return NextResponse.json({ configured: false, missing: ["CHAT_ORCHESTRATOR_KEY"] });
     if (part === "overview") {
-      const days = int(q.get("days"), 30, 1, 365);
+      // never back past go-live: the test phase (23.03-12.04.2026, ~9,300 scripted chats) would swamp everything
+      const live = Math.max(1, Math.ceil((Date.now() - Date.parse(`${LIVE_FROM}T00:00:00Z`)) / 86_400_000));
+      const asked = int(q.get("days"), 30, 1, 365);
+      const days = Math.min(asked, live);
       const [stats, recent, health] = await Promise.all([
         perChat<Stats>(`/dashboard/chat-stats?days=${days}`, `/dashboard/stats?days=${days}`),
         perChat<Conversations>("/dashboard/chats?limit=8", "/dashboard/conversations?limit=8"),
         orchestratorHealth(),
       ]);
-      return ok({ stats, recent: recent.conversations, health });
+      return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live });
     }
     if (part === "conversations") {
       const p = new URLSearchParams({ limit: String(int(q.get("limit"), 25, 1, 200)), offset: String(int(q.get("offset"), 0, 0, 1_000_000)) });
@@ -59,6 +64,12 @@ export async function GET(req: NextRequest) {
       const cat = (q.get("category") || "").slice(0, 100);
       if (cat) p.set("category", cat);
       return ok(await perChat<Conversations>(`/dashboard/chats?${p}`, `/dashboard/conversations?${p}`));
+    }
+    if (part === "transcript") {
+      // the whole chat from HubSpot (the hub's own app): messages, agents, the hand-over
+      const ticket = q.get("ticket") || "";
+      if (!/^\d{5,20}$/.test(ticket)) return NextResponse.json({ ok: false, error: "Which ticket?" }, { status: 400 });
+      return ok({ transcript: await chatTranscript(ticket) });
     }
     if (part === "conversation") {
       const hash = q.get("hash") || "";

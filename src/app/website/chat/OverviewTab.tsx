@@ -26,7 +26,7 @@ import { CardTitle, FAINT, GlassCard, HsLink, KpiTile, MUTED, Notice, bodyCell, 
 import { num, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
 import { Bars, HandlerChip, PagedBars, category, pct, when } from "./shared";
 
-export type OverviewData = { stats: Stats; recent: Conversation[]; health: Health | null };
+export type OverviewData = { stats: Stats; recent: Conversation[]; health: Health | null; liveFrom?: string; cappedAtLive?: boolean };
 
 const CHECKS: [keyof Health, string][] = [
   ["postgres", "Database"], ["redis", "Chat memory"], ["hubspot", "HubSpot"], ["claude", "AI model"], ["embedding", "Knowledge search"],
@@ -39,6 +39,9 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
     .filter((t) => (["back_office", "finance", "marketing"].includes(t.routing_team ?? "") ? "BO" : "TSA") === want)
     .reduce((a, t) => a + num(t.count), 0);
   const byDay = [...s.byDay].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  // past two months a bar a day is a hairline: a bar a week (SARCLA 18.10.2026: "hard to read")
+  const weekly = byDay.length > 62;
+  const bars = weekly ? byWeek(byDay) : byDay.map((r) => ({ day: String(r.date).slice(0, 10), total: num(r.total), handed: num(r.escalated) }));
   const perMessage = s.unit === "messages";
   return (
     <>
@@ -51,8 +54,9 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
       </Grid>
 
       <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-        <CardTitle icon={<ScheduleOutlinedIcon />} tint="purple" title="Chats per day" note="The whole bar is all chats; the green part is the ones handed to a person." />
-        <DayBars rows={byDay.map((r) => ({ day: String(r.date).slice(0, 10), total: num(r.total), handed: num(r.escalated) }))} />
+        <CardTitle icon={<ScheduleOutlinedIcon />} tint="purple" title={weekly ? "Chats per week" : "Chats per day"}
+          note={`The whole bar is all chats; the green part is the ones handed to a person.${d.cappedAtLive ? ` From go-live (${when(d.liveFrom ?? "").slice(0, 10)}): the test phase before is left out.` : ""}`} />
+        <DayBars rows={bars} unit={weekly ? "week of" : ""} />
       </GlassCard>
 
       <Grid container spacing={2}>
@@ -111,14 +115,28 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
   );
 }
 
-/** One bar per day, the handed-over part in green. */
-function DayBars({ rows }: { rows: { day: string; total: number; handed: number }[] }) {
+/** Days folded into weeks (Monday first). */
+function byWeek(days: Stats["byDay"]): { day: string; total: number; handed: number }[] {
+  const m = new Map<string, { day: string; total: number; handed: number }>();
+  for (const r of days) {
+    const d = new Date(`${String(r.date).slice(0, 10)}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    const k = d.toISOString().slice(0, 10);
+    const w = m.get(k) ?? { day: k, total: 0, handed: 0 };
+    w.total += num(r.total); w.handed += num(r.escalated);
+    m.set(k, w);
+  }
+  return [...m.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/** One bar per day (or week), the handed-over part in green. */
+function DayBars({ rows, unit }: { rows: { day: string; total: number; handed: number }[]; unit: string }) {
   const max = Math.max(1, ...rows.map((r) => r.total));
   if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No chats in this period.</Typography>;
   return (
     <Box sx={{ display: "flex", alignItems: "flex-end", gap: "3px", height: 140, overflowX: "auto", pb: 0.5 }}>
       {rows.map((r) => (
-        <Box key={r.day} title={`${r.day}: ${r.total} chats, ${r.handed} handed to a person`}
+        <Box key={r.day} title={`${unit ? `${unit} ` : ""}${r.day}: ${r.total} chats, ${r.handed} handed to a person`}
           sx={{ flex: "1 0 8px", maxWidth: 28, height: `${(r.total / max) * 100}%`, minHeight: 2, borderRadius: "4px 4px 0 0", bgcolor: "#d9cdf7", display: "flex", flexDirection: "column", justifyContent: "flex-end", overflow: "hidden" }}>
           <Box sx={{ height: `${r.total ? (r.handed / r.total) * 100 : 0}%`, bgcolor: "#1b7a55" }} />
         </Box>

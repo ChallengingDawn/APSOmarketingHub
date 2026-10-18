@@ -23,10 +23,11 @@ import OverviewTab, { type OverviewData } from "./OverviewTab";
 import ConversationsTab from "./ConversationsTab";
 import TestTab from "./TestTab";
 import SetupTab from "./SetupTab";
+import SearchBarChatTab from "./SearchBarChatTab";
 
-type View = "overview" | "conversations" | "handovers" | "test" | "setup";
+type View = "overview" | "conversations" | "handovers" | "searchbar" | "test" | "setup";
 const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", conversations: "#conversations", handovers: "#handovers", test: "#test", setup: "#setup",
+  overview: "#overview", conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", test: "#test", setup: "#setup",
 };
 
 export default function ChatPage() {
@@ -40,6 +41,7 @@ export default function ChatPage() {
   const panel =
     view === "conversations" ? <ConversationsTab key={`all-${n}`} handedOnly={false} />
     : view === "handovers" ? <ConversationsTab key={`handed-${n}`} handedOnly />
+    : view === "searchbar" ? <SearchBarChatTab key={`searchbar-${n}`} />
     : view === "test" ? <TestTab key="test" />
     : view === "setup" ? <SetupTab key={`setup-${n}`} />
     : <Loaded<OverviewData> key="overview" url={`/api/website/chat?part=overview&days=${days}&r=${n}`} what="the overview">
@@ -49,8 +51,8 @@ export default function ChatPage() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Chat"
-        subtitle="The shop chat: how many chats, what the AI answered alone and what it handed to TSA or Back Office - and a test bench for its AI"
+        title="APSOassistant Chat"
+        subtitle="APSOassistant on the shop - the HubSpot chat and the search bar's AI: how many chats, what the AI answered alone, what it handed to TSA or Back Office, and a test bench"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {view === "overview" && <WindowPicker />}
@@ -63,6 +65,7 @@ export default function ChatPage() {
           { id: "overview", label: "Overview", count: null },
           { id: "conversations", label: "Conversations", count: null },
           { id: "handovers", label: "Hand-overs", count: null },
+          { id: "searchbar", label: "Search bar chat", count: null },
           { id: "test", label: "Test", count: null },
           { id: "setup", label: "Setup", count: null },
         ]} />

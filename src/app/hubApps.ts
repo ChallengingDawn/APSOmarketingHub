@@ -85,7 +85,7 @@ export const APPS: HubApp[] = [
       { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
       // the shop chat: its dashboard moves here from the APSOAssistant dashboard, the chat itself unchanged (SARCLA 18.10.2026:
       // "start building under Website > Microservices just after DirectCut, without switching off the old one")
-      { group: "Microservices", name: "Chat", note: "The shop chat: conversations, hand-overs to TSA and Back Office, the AI test bench", href: "/website/chat", icon: "chat", ...PURPLE },
+      { group: "Microservices", name: "APSOassistant Chat", note: "The shop chat and the search bar's AI: conversations, hand-overs to TSA and Back Office, the AI test bench", href: "/website/chat", icon: "chat", ...PURPLE },
       // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
       { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
       { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
