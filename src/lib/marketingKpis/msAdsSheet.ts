@@ -26,6 +26,16 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * A day as the sheet hands it back: Google Sheets turns "2026-10-17" into a date, which the
+ * API answers as a serial number (days since 30 Dec 1899) - 18.10.2026: "counted up to 46312".
+ */
+function sheetDate(v: unknown): string | null {
+  if (typeof v === "number" && Number.isFinite(v)) return new Date(Math.round((v - 25569) * 86_400_000)).toISOString();
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+
 /** The sheet's rows (a header, then one month each) as the hub keeps them. */
 export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
   const out: MsAdsSheet = { months: {}, currency: null, costPartial: false, through: null, written: null };
@@ -44,8 +54,8 @@ export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
       out.currency = c.slice(0, 3).toUpperCase();
       out.costPartial = /left out/i.test(c);
     }
-    if (th >= 0 && row[th]) out.through = String(row[th]).trim().slice(0, 10);
-    if (wr >= 0 && row[wr]) out.written = String(row[wr]).trim();
+    if (th >= 0 && row[th]) out.through = sheetDate(row[th])?.slice(0, 10) ?? null;
+    if (wr >= 0 && row[wr]) out.written = sheetDate(row[wr]);
   }
   return out;
 }

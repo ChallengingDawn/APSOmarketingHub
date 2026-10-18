@@ -21,6 +21,10 @@ test("the script's sheet: months, currency, how far it counted and when it wrote
   assert.equal(partial.currency, "CHF");
   assert.equal(partial.costPartial, true);
   assert.equal(parseMsAdsSheet(values).costPartial, false);
+  // Sheets hands dates back as serial numbers: 46312 is 17 Oct 2026
+  const serial = parseMsAdsSheet([values[0], ["2026-09", 1, 1, 1, "CHF", 1, "a", 46312, 46313.25]]);
+  assert.equal(serial.through, "2026-10-17");
+  assert.equal(serial.written, "2026-10-18T06:00:00.000Z");
   assert.deepEqual(parseMsAdsSheet([["nothing"], ["2026-01"]]).months, {});
 });
 
