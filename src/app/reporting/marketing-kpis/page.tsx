@@ -16,7 +16,6 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import UpcomingIcon from "@mui/icons-material/Upcoming";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
 
-import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { BarList } from "@/app/charts/BarList";
 import { Badge, CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
@@ -209,10 +208,9 @@ export default function MarketingKpisMacro() {
   const { state: acts } = useActions("nutshell");
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
-  const measured = KPIS.filter((k) => isMeasured(k.id)).length;
   return (
+    // no title and no "N of N measured" line: the panels straight away (SARCLA 18.10: "take out this on the nutshell, put directly the placeholders")
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Digital Growth KPIs" subtitle={`Every KPI · ${year} · ${measured} of ${KPIS.length} measured`} />
       {!views && (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
           {!state?.error && <CircularProgress size={18} />}
