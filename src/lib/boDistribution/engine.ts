@@ -15,11 +15,11 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
-import { classifyTicket } from "./classifier";
+import { CATEGORIES, DROPDOWN_VALUES, KEYWORDS, classifyTicket, type Classification } from "./classifier";
 import {
-  BO, BO_OPEN_STAGES, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, SALES_SPLIT_SENDERS, STAGE, SUB,
+  BO, BO_OPEN_STAGES, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
   assignBo, assignGqs, findSalesAgent, route,
-  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type Route, type Workload,
+  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload,
 } from "./rules";
 
 const LOCK = 4_107_231;
@@ -32,7 +32,8 @@ const OUTCOME_AFTER_MS = 10 * 60_000;
 const DAYS_KEPT = 21;
 const MAX_PER_RUN = 40;
 
-export type Settings = { mode: "off" | "shadow"; by: string | null; at: string | null };
+/** rosters: the page's lists (hub mode); a list left out = the workflow's own. */
+export type Settings = { mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; by: string | null; at: string | null };
 export type Answer = { ownerId: string | null; ownerName: string | null; method: string; reasons: string[] };
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
@@ -45,22 +46,38 @@ export type Row = {
   /** null when the path picks no owner (chat, exclusions, CERTIFICATES...) */
   legacy: Answer | null;
   hub: Answer | null;
+  /** replayed from the last 7 days: availability and workload are today's, not the ones at the time */
+  approx?: boolean;
   note?: string;
   actual?: Actual;
   error?: string;
 };
 export type RunInfo = { at: string; seconds: number; read: number; decided: number; checked: number; error?: string };
 
-const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", day: (d: string) => `boDist:rows:${d}` };
+const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", backfill: "boDist:backfill", day: (d: string) => `boDist:rows:${d}` };
+/** The replay of the last days (SARCLA 18.10.2026: the page was empty on a quiet Sunday night). */
+type Backfill = { from: number; cursor: number; done: boolean; startedAt: string };
+const BACKFILL_DAYS = 7;
+const BACKFILL_PER_RUN = 15;
 
 export async function getSettings(): Promise<Settings> {
-  return (await kvGet<Settings>(KV.settings)) ?? { mode: "shadow", by: null, at: null };
+  const x = await kvGet<Partial<Settings>>(KV.settings);
+  return { mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, by: x?.by ?? null, at: x?.at ?? null };
 }
-export async function saveSettings(s: Pick<Settings, "mode">, by: string): Promise<Settings> {
-  const next: Settings = { mode: s.mode === "off" ? "off" : "shadow", by, at: new Date().toISOString() };
+export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>> }, by: string): Promise<Settings> {
+  const cur = await getSettings();
+  const rosters = { ...cur.rosters };
+  for (const [k, v] of Object.entries(patch.rosters ?? {}) as [RosterKey, Person[] | null][]) {
+    if (!(k in LEGACY)) continue;
+    if (v === null) { delete rosters[k]; continue; } // back to the workflow's list
+    rosters[k] = v.filter((x) => /^\d+$/.test(String(x.id)) && String(x.name ?? "").trim()).slice(0, 15).map((x) => ({ id: String(x.id), name: String(x.name).trim() }));
+  }
+  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, rosters, by, at: new Date().toISOString() };
   await kvSet(KV.settings, next);
   return next;
 }
+export const replayFrom = async () => kvSet(KV.backfill, { from: Date.now() - BACKFILL_DAYS * 86400_000, cursor: Date.now() - BACKFILL_DAYS * 86400_000, done: false, startedAt: new Date().toISOString() } satisfies Backfill);
+export const backfillState = async () => (await kvGet<Backfill>(KV.backfill)) ?? null;
 export const lastRun = async () => (await kvGet<RunInfo>(KV.last)) ?? null;
 
 const day = (iso: string) => iso.slice(0, 10);
@@ -200,7 +217,11 @@ async function gqsTaskOwner(oNumber: string): Promise<Person | null> {
 const answer = (p: RulePick): Answer => ({ ownerId: p.owner?.id ?? null, ownerName: p.owner?.name ?? null, method: p.method, reasons: p.reasons });
 const fixed = (owner: Person | null, method: string): Answer => ({ ownerId: owner?.id ?? null, ownerName: owner?.name ?? null, method, reasons: [] });
 
-type Shared = { avail?: { all: Availability; first: Availability }; archived?: Set<string>; boLoad?: Workload; gqsLoad?: Workload };
+type Shared = { settings?: Settings; avail?: { all: Availability; first: Availability }; archived?: Set<string>; boLoad?: Workload; gqsLoad?: Workload };
+/** Everyone a list names - the workflow's and the page's. */
+function everyone(settings: Settings, keys: RosterKey[]): Person[] {
+  return uniq(keys.flatMap((k) => [LEGACY[k], settings.rosters[k] ?? []]));
+}
 
 async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, shared: Shared): Promise<Row> {
   const t = await ticket(id, ["hs_pipeline_stage", ...CAT_PROPS]);
@@ -210,7 +231,11 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
     key: `${id}:${enteredAt}`, ticketId: id, pipeline, enteredAt, seenAt: new Date().toISOString(),
     subject: p.subject ?? "", source: p.source_type ?? null, legacy: null, hub: null,
   };
-  const people = pipeline === "bo" ? uniq([LEGACY.team27, LEGACY.team23, [PEOPLE_MAIDA_SARA[0], PEOPLE_MAIDA_SARA[1]]]) : uniq([LEGACY.gqsTeam, LEGACY.gqsDt]);
+  shared.settings ??= await getSettings();
+  const settings = shared.settings;
+  const people = pipeline === "bo"
+    ? everyone(settings, ["team27", "team31", "team23", "team50", "primary23", "saToOwnerBo"])
+    : everyone(settings, ["gqsTeam", "gqsDt", "saToOwnerGqs"]);
   shared.avail ??= await availability();
   shared.archived ??= await archivedOwners();
   const load = pipeline === "bo"
@@ -223,13 +248,14 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   if (cur && counted.includes(p.hs_pipeline_stage ?? "") && typeof workload.get(cur) === "number") workload.set(cur, Math.max(0, (workload.get(cur) as number) - 1));
 
   const { companies, contacts } = await salesAgentFacts(t);
-  const input = (saMap: Person[]): AssignInput => ({
-    sa: findSalesAgent(companies, contacts, saMap),
-    availability: shared.avail!.all, availabilityFirstPage: shared.avail!.first, workload, archived: shared.archived!,
+  const input = (saKey: "saToOwnerBo" | "saToOwnerGqs"): AssignInput => ({
+    sa: findSalesAgent(companies, contacts, LEGACY[saKey]),
+    saHub: findSalesAgent(companies, contacts, settings.rosters[saKey] ?? LEGACY[saKey]),
+    availability: shared.avail!.all, availabilityFirstPage: shared.avail!.first, workload, archived: shared.archived!, pools: settings.rosters,
   });
 
   if (pipeline === "gqs") {
-    const inp = input(LEGACY.saToOwnerGqs);
+    const inp = input("saToOwnerGqs");
     const gqsType = p.gqs_type_of_request ?? "";
     row.legacy = answer(assignGqs(gqsType, inp, "legacy"));
     row.hub = answer(assignGqs(gqsType, inp, "hub"));
@@ -265,12 +291,11 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
     const gqsOwner = o ? await gqsTaskOwner(o) : null;
     if (gqsOwner) { row.legacy = fixed(gqsOwner, `Merged into GQS task ${o}`); row.hub = row.legacy; return row; }
   }
-  const inp = input(LEGACY.saToOwnerBo);
+  const inp = input("saToOwnerBo");
   row.legacy = answer(assignBo(r.assigner, inp, "legacy"));
   row.hub = answer(assignBo(r.assigner, inp, "hub"));
   return row;
 }
-const PEOPLE_MAIDA_SARA: Person[] = [{ id: "1207485931", name: "Maida Osmani" }, { id: "30050251", name: "Sara Gashi" }];
 
 /** What HubSpot really did: owner (and who set it), stage, category, priority, dispatch. */
 async function outcome(row: Row): Promise<Actual> {
@@ -288,16 +313,60 @@ async function outcome(row: Row): Promise<Actual> {
 }
 
 /** One ticket checked now - decided and compared, nothing stored, nothing written (the page's "check a ticket"). */
-export async function checkTicket(id: string): Promise<Row> {
+export async function checkTicket(id: string, settings?: Settings): Promise<Row> {
   const t = await hs<{ properties: Record<string, string | null> }>(
     `/crm/v3/objects/tickets/${id}?properties=hs_pipeline,hs_v2_date_entered_${STAGE.boNew},hs_v2_date_entered_${STAGE.boRedirectedFromChat},hs_v2_date_entered_${STAGE.gqsNewForBo},createdate`);
   const p = t.properties;
   const gqs = p.hs_pipeline === GQS;
   const entered = gqs ? p[`hs_v2_date_entered_${STAGE.gqsNewForBo}`] : p[`hs_v2_date_entered_${STAGE.boNew}`] ?? p[`hs_v2_date_entered_${STAGE.boRedirectedFromChat}`];
-  const row = await decide(id, gqs ? "gqs" : "bo", new Date(Date.parse(entered ?? p.createdate ?? new Date().toISOString())).toISOString(), {});
+  const row = await decide(id, gqs ? "gqs" : "bo", new Date(Date.parse(entered ?? p.createdate ?? new Date().toISOString())).toISOString(), { settings });
   row.actual = await outcome(row);
   return row;
 }
+
+/* ── the People tab and the Detection tab ─────────────────────────────────── */
+
+export type PersonRow = Person & {
+  lists: RosterKey[]; inWorkflow: RosterKey[]; deactivated: boolean; chat: string | null;
+  boOpen: number | null; gqsOpen: number | null; gqsOpenFixed: number | null;
+};
+let peopleCache: { at: number; data: { people: PersonRow[]; owners: Person[] } } | null = null;
+/** Everyone in a list (the workflow's or the page's): chat status, open Back Office / GQS tickets, deactivated. */
+export async function people(): Promise<{ people: PersonRow[]; owners: Person[]; at: string }> {
+  if (peopleCache && Date.now() - peopleCache.at < 5 * 60_000) return { ...peopleCache.data, at: new Date(peopleCache.at).toISOString() };
+  const settings = await getSettings();
+  const keys = Object.keys(LEGACY) as RosterKey[];
+  const all = everyone(settings, keys);
+  const [avail, archived, names] = await Promise.all([availability(), archivedOwners(), ownerNames()]);
+  const bo = await counts(BO, BO_OPEN_STAGES, all);
+  const gqs = await counts(GQS, GQS_OPEN_STAGES_LEGACY, all);
+  const gqsFixed = await counts(GQS, ["2338266316", "4704538856", "2964068584", "6078992599"], all);
+  const rows: PersonRow[] = all.map((x) => ({
+    ...x, name: names.get(x.id) ?? x.name,
+    lists: keys.filter((k) => (settings.rosters[k] ?? LEGACY[k]).some((y) => y.id === x.id)),
+    inWorkflow: keys.filter((k) => LEGACY[k].some((y) => y.id === x.id)),
+    deactivated: archived.has(x.id), chat: avail.all.get(x.id) ?? null,
+    boOpen: bo.get(x.id) ?? null, gqsOpen: gqs.get(x.id) ?? null, gqsOpenFixed: gqsFixed.get(x.id) ?? null,
+  }));
+  const owners = [...names].filter(([id]) => !archived.has(id)).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  peopleCache = { at: Date.now(), data: { people: rows, owners } };
+  return { people: rows, owners, at: new Date().toISOString() };
+}
+export const rosterLabels = ROSTER_LABEL;
+export const legacyRosters = LEGACY;
+export { PEOPLE };
+
+/** What the classifier knows: categories, their keywords (counts and a sample), the sub-categories it can write. */
+export function classifierInfo() {
+  return CATEGORIES.map((c) => ({
+    category: c,
+    keywords: KEYWORDS[c].main.length,
+    sample: KEYWORDS[c].main.slice(0, 24),
+    subs: Object.entries(KEYWORDS[c].sub).map(([k, words]) => ({ key: k, value: DROPDOWN_VALUES[c]?.[k] ?? k, keywords: words.length, sample: words.slice(0, 12) })),
+  }));
+}
+/** The page's "try it": a subject and a body through the classifier, exactly as the workflow step would read them. */
+export const tryClassifier = (subject: string, content: string): Classification => classifyTicket({ subject, content });
 
 /* ── the run ─────────────────────────────────────────────────────────────── */
 
@@ -335,6 +404,29 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     if (rows.some((r) => r.key === key)) continue;
     try { rows.push(await decide(e.id, e.pipeline, e.enteredAt, shared)); info.decided++; }
     catch (err) { rows.push({ key, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, error: (err as Error).message.slice(0, 200) }); }
+  }
+  // the replay of the last 7 days, oldest first, while the run has time: today's availability and workload
+  const bf = await kvGet<Backfill>(KV.backfill) ?? { from: Date.now() - BACKFILL_DAYS * 86400_000, cursor: Date.now() - BACKFILL_DAYS * 86400_000, done: false, startedAt: new Date().toISOString() };
+  if (!bf.done && !signal?.aborted && Date.now() - started < 3 * 60_000) {
+    const older = (await entries(bf.cursor)).filter((e) => Date.parse(e.enteredAt) < cursor - OVERLAP_MS);
+    let n = 0;
+    for (const e of older) {
+      if (signal?.aborted || n >= BACKFILL_PER_RUN || Date.now() - started > 5 * 60_000) break;
+      bf.cursor = Math.max(bf.cursor, Date.parse(e.enteredAt));
+      const rows = await rowsFor(day(e.enteredAt));
+      const key = `${e.id}:${e.enteredAt}`;
+      if (rows.some((r) => r.key === key)) continue;
+      n++;
+      try {
+        const row = await decide(e.id, e.pipeline, e.enteredAt, shared);
+        row.approx = true;
+        row.actual = await outcome(row);
+        rows.push(row);
+        info.decided++;
+      } catch (err) { rows.push({ key, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, approx: true, error: (err as Error).message.slice(0, 200) }); }
+    }
+    if (n < BACKFILL_PER_RUN && !signal?.aborted) bf.done = true;
+    await kvSet(KV.backfill, bf);
   }
   // HubSpot's outcome for the rows that have settled (today and yesterday)
   for (const d of [day(new Date().toISOString()), day(new Date(Date.now() - 86400_000).toISOString())]) {

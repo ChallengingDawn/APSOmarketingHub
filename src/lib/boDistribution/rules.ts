@@ -37,6 +37,7 @@ const { claudia, claudioG, leart, adriana, sara, maida, vanessa } = PEOPLE;
 
 /** The rosters exactly as the code steps carry them (order = tie-break). */
 export const LEGACY = {
+  primary23: [maida, sara],
   saToOwnerBo: [adriana, claudia, claudioG, leart, sara, maida],
   saToOwnerGqs: [claudia, claudioG, leart, sara, maida],
   team27: [claudia, claudioG, leart, adriana, sara],
@@ -264,8 +265,24 @@ export type Availability = Map<string, string | null>;
 export type Workload = Map<string, number | null>;
 export type Mode = "legacy" | "hub";
 export type Pick = { owner: Person | null; method: string; reasons: string[] };
+/** The lists the page can change (hub mode only - the copy always uses LEGACY). */
+export type RosterKey = keyof typeof LEGACY;
+export const ROSTER_LABEL: Record<RosterKey, string> = {
+  primary23: "Login / billing / ERP export - tried first, in order (#23)",
+  saToOwnerBo: "Sales Agent names that count - Back Office",
+  saToOwnerGqs: "Sales Agent names that count - GQS",
+  team27: "General Distribution team (#27, #42)",
+  team31: "Load Balancer team (#31)",
+  team23: "Login / billing / ERP export - then least busy of (#23)",
+  team50: "Task Status Report without a GQS task (#50)",
+  gqsTeam: "GQS team",
+  gqsDt: "GQS DT New Business - in order",
+};
+
 export type AssignInput = {
   sa: SalesAgent;
+  /** hub mode: the sales agent found with the page's Sales Agent names (default: the same as sa) */
+  saHub?: SalesAgent;
   /** every page of users (the code's paged read) */
   availability: Availability;
   /** only the first 100 users - #23 never pages */
@@ -273,18 +290,18 @@ export type AssignInput = {
   workload: Workload;
   /** owners HubSpot has archived (deactivated) */
   archived: Set<string>;
-  /** hub mode: the pools from the settings page (default = the legacy lists without archived people) */
-  pools?: Partial<Record<"team27" | "team31" | "team23" | "team50" | "gqsTeam" | "gqsDt", Person[]>>;
+  /** hub mode: the lists from the page (default = the legacy lists; archived people are always left out) */
+  pools?: Partial<Record<RosterKey, Person[]>>;
 };
 
 const isAvailable = (a: Availability, id: string, missing: boolean) => (a.has(id) ? a.get(id) === "available" : missing);
 const leastBusy = (cands: { p: Person; n: number }[]) => [...cands].sort((x, y) => x.n - y.n)[0]; // stable: list order breaks ties
 
-function pool(inp: AssignInput, key: keyof typeof LEGACY, mode: Mode): Person[] {
+function pool(inp: AssignInput, key: RosterKey, mode: Mode): Person[] {
   if (mode === "legacy") return LEGACY[key];
-  const p = inp.pools?.[key as keyof NonNullable<AssignInput["pools"]>] ?? LEGACY[key];
-  return p.filter((x) => !inp.archived.has(x.id));
+  return (inp.pools?.[key] ?? LEGACY[key]).filter((x) => !inp.archived.has(x.id));
 }
+const salesAgent = (inp: AssignInput, mode: Mode) => (mode === "hub" ? inp.saHub ?? inp.sa : inp.sa);
 
 /** Least busy of a pool. legacy: count failure = `onFail` (0, or 999 in the GQS code); everyone away -> everyone.
  *  hub: a failed count leaves the person out, an archived person is never in it. */
@@ -306,8 +323,8 @@ export function assignBo(step: "23" | "27" | "31" | "42" | "50", inp: AssignInpu
   const archivedOut = (p: Person | null) => (p && mode === "hub" && inp.archived.has(p.id) ? (reasons.push(`${p.name} is deactivated - skipped`), null) : p);
   if (step === "23") {
     const a = mode === "legacy" ? inp.availabilityFirstPage : inp.availability;
-    for (const p of [maida, sara]) {
-      if (isAvailable(a, p.id, false)) return { owner: p, method: p === maida ? "Primary (Maida)" : "Deputy (Sara)", reasons };
+    for (const [i, p] of pool(inp, "primary23", mode).entries()) {
+      if (isAvailable(a, p.id, false)) return { owner: p, method: i === 0 ? `Primary (${p.name})` : `Deputy (${p.name})`, reasons };
       reasons.push(`${p.name} away`);
     }
     return { owner: balance(pool(inp, "team23", mode), inp, mode, (id) => isAvailable(a, id, false), 0, reasons), method: "Least busy", reasons };
@@ -319,11 +336,12 @@ export function assignBo(step: "23" | "27" | "31" | "42" | "50", inp: AssignInpu
   }
   // #27 / #42 / #31: SA -> SA Sub (availability only, no cap) -> least busy
   const avail = (id: string) => isAvailable(inp.availability, id, false);
-  const sa = archivedOut(inp.sa.sa);
-  if (sa) { if (avail(sa.id)) return { owner: sa, method: `Sales Agent (${inp.sa.source})`, reasons }; reasons.push(`SA ${sa.name} away`); }
-  else if (!inp.sa.sa) reasons.push("no SA");
-  const sub = archivedOut(inp.sa.saSub);
-  if (sub) { if (avail(sub.id)) return { owner: sub, method: `SA Sub (${inp.sa.source})`, reasons }; reasons.push(`SA Sub ${sub.name} away`); }
+  const found = salesAgent(inp, mode);
+  const sa = archivedOut(found.sa);
+  if (sa) { if (avail(sa.id)) return { owner: sa, method: `Sales Agent (${found.source})`, reasons }; reasons.push(`SA ${sa.name} away`); }
+  else if (!found.sa) reasons.push("no SA");
+  const sub = archivedOut(found.saSub);
+  if (sub) { if (avail(sub.id)) return { owner: sub, method: `SA Sub (${found.source})`, reasons }; reasons.push(`SA Sub ${sub.name} away`); }
   return { owner: balance(pool(inp, step === "31" ? "team31" : "team27", mode), inp, mode, avail, 0, reasons), method: "Least busy", reasons };
 }
 
@@ -333,10 +351,11 @@ export function assignGqs(gqsType: string, inp: AssignInput, mode: Mode): Pick {
   // legacy: for SA / SA Sub a user missing from the list is away; for DT and the team he is AVAILABLE
   const saAvail = (id: string) => isAvailable(inp.availability, id, false);
   const teamAvail = (id: string) => isAvailable(inp.availability, id, mode === "legacy");
-  for (const [p, label] of [[inp.sa.sa, "Sales Agent"], [inp.sa.saSub, "SA Sub"]] as const) {
+  const found = salesAgent(inp, mode);
+  for (const [p, label] of [[found.sa, "Sales Agent"], [found.saSub, "SA Sub"]] as const) {
     if (!p) continue;
     if (mode === "hub" && inp.archived.has(p.id)) { reasons.push(`${p.name} is deactivated - skipped`); continue; }
-    if (saAvail(p.id)) return { owner: p, method: `${label} (${inp.sa.source})`, reasons };
+    if (saAvail(p.id)) return { owner: p, method: `${label} (${found.source})`, reasons };
     reasons.push(`${label} ${p.name} away`);
   }
   const t = gqsType.split(/\s+/).filter(Boolean).join(" ").toUpperCase();

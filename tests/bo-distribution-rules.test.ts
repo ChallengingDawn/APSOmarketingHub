@@ -167,3 +167,17 @@ test("GQS: DT New Business goes to Claudio then Leart; a missing user is availab
   const fail = input([[claudia.id, "available"], [sara.id, "available"]], [[claudia.id, null], [sara.id, 400]]);
   assert.equal(assignGqs("Running Business", fail, "legacy").owner?.id, sara.id);
 });
+
+test("teams changed on the page drive the hub's answer, never the copy's", () => {
+  const base = input([[claudia.id, "available"], [claudioG.id, "available"], [sara.id, "available"], [maida.id, "away"]], [[claudia.id, 5], [claudioG.id, 3], [sara.id, 1], [leart.id, 0]]);
+  // Sara left out of the General Distribution team on the page
+  const pools = { team27: [claudia, claudioG, leart] };
+  assert.equal(assignBo("27", { ...base, pools }, "legacy").owner?.id, sara.id);
+  assert.equal(assignBo("27", { ...base, pools }, "hub").owner?.id, claudioG.id);
+  // Sara tried first for login / billing on the page
+  assert.equal(assignBo("23", { ...base, pools: { primary23: [sara, maida] } }, "hub").method, "Primary (Sara Gashi)");
+  // the page's Sales Agent names: the hub uses saHub, the copy keeps sa
+  const sa = { ...noSa, sa: claudia, source: "company: X" };
+  assert.equal(assignBo("27", { ...base, sa: noSa, saHub: sa }, "hub").owner?.id, claudia.id);
+  assert.equal(assignBo("27", { ...base, sa: noSa, saHub: sa }, "legacy").owner?.id, sara.id);
+});

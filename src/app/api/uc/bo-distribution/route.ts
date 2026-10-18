@@ -1,47 +1,40 @@
 // BACK OFFICE DISTRIBUTION - shadow mode (SARCLA 18.10.2026). The hub works out what the HubSpot distribution
 // workflows decide for every new Back Office / GQS ticket and compares it with what HubSpot really did; it writes
 // nothing to HubSpot (src/lib/boDistribution).
-// GET: settings, the last run, the figures, the latest tickets (7 days), the rosters. PUT (admins): mode off / shadow.
-// POST (admins) {action: "run"}: look now.
+// GET: settings, last run, replay state, figures, the latest tickets (7 days), the classifier's lists, the teams.
+// GET ?people=1: everyone in a team - chat status, open tickets, deactivated - and the active owners to pick from.
+// GET ?ticket=ID: one ticket decided now, nothing stored.
+// POST {action: "classify", subject, content}: the classifier on any text (read-only, for everyone with access).
+// Admins: PUT {mode?, rosters?} - the teams the hub uses (a list set to null goes back to the workflow's);
+// POST {action: "run"} look now; POST {action: "replay"} replay the last 7 days.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { getSettings, lastRun, recentRows, runOnce, saveSettings, type Row } from "@/lib/boDistribution/engine";
-import { LEGACY, PEOPLE } from "@/lib/boDistribution/rules";
+import {
+  backfillState, checkTicket, classifierInfo, getSettings, lastRun, legacyRosters, people, recentRows, replayFrom,
+  rosterLabels, runOnce, saveSettings, tryClassifier,
+} from "@/lib/boDistribution/engine";
+import { PEOPLE, type Person, type RosterKey } from "@/lib/boDistribution/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** The figures: is the copy right (legacy = HubSpot), and what would the fixes change (hub vs legacy). */
-function summary(rows: Row[]) {
-  const decided = rows.filter((r) => r.legacy?.ownerId);
-  const checked = decided.filter((r) => r.actual);
-  const sameOwner = checked.filter((r) => r.actual!.ownerId === r.legacy!.ownerId).length;
-  const hubDiffers = decided.filter((r) => r.hub?.ownerId !== r.legacy?.ownerId).length;
-  const withCat = rows.filter((r) => r.actual && r.route?.sets.enquiry_category);
-  const sameCat = withCat.filter((r) => r.route!.sets.enquiry_category === r.actual!.category).length;
-  const withPrio = rows.filter((r) => r.actual && r.route?.sets.hs_ticket_priority);
-  const samePrio = withPrio.filter((r) => r.route!.sets.hs_ticket_priority === r.actual!.priority).length;
-  return {
-    seen: rows.length, bo: rows.filter((r) => r.pipeline === "bo").length, gqs: rows.filter((r) => r.pipeline === "gqs").length,
-    decided: decided.length, checked: checked.length, sameOwner, hubDiffers,
-    categoryChecked: withCat.length, sameCategory: sameCat, priorityChecked: withPrio.length, samePriority: samePrio,
-    noDistribution: rows.filter((r) => !r.legacy && !r.error).length, errors: rows.filter((r) => r.error).length,
-  };
-}
-
-export async function GET() {
+export async function GET(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
+  const sp = req.nextUrl.searchParams;
   try {
-    const [settings, last, rows] = await Promise.all([getSettings(), lastRun(), recentRows(7)]);
+    if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
+    const t = sp.get("ticket");
+    if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
+    const [settings, last, rows, backfill] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState()]);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, everyMinutes: 2, rows: rows.slice(0, 400), summary: summary(rows), admin: access.role === "admin",
-        rosters: { ...LEGACY, deactivated: [PEOPLE.adriana, PEOPLE.vanessa] },
+        settings, last, backfill, everyMinutes: 2, rows: rows.slice(0, 1500), admin: access.role === "admin",
+        legacy: legacyRosters, labels: rosterLabels, deactivated: [PEOPLE.adriana, PEOPLE.vanessa], classifier: classifierInfo(),
       },
     });
   } catch (err) {
@@ -53,19 +46,23 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: "off" | "shadow" };
-  return NextResponse.json({ ok: true, data: await saveSettings({ mode: b.mode === "off" ? "off" : "shadow" }, `user ${access.userId}`) });
+  const b = (await req.json().catch(() => ({}))) as { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>> };
+  return NextResponse.json({ ok: true, data: await saveSettings(b, `user ${access.userId}`) });
 }
 
 export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const b = (await req.json().catch(() => ({}))) as { action?: string; subject?: string; content?: string };
+  if (b.action === "classify") {
+    if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
+    return NextResponse.json({ ok: true, data: tryClassifier(String(b.subject ?? "").slice(0, 2000), String(b.content ?? "").slice(0, 6000)) });
+  }
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { action?: string };
-  if (b.action !== "run") return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   try {
-    const r = await runOnce();
-    return NextResponse.json({ ok: true, data: r ?? { skipped: "off, or another copy of the hub is running it" } });
+    if (b.action === "replay") { await replayFrom(); return NextResponse.json({ ok: true, data: { replay: "started - the next runs replay the last 7 days" } }); }
+    if (b.action === "run") return NextResponse.json({ ok: true, data: (await runOnce()) ?? { skipped: "off, or another copy of the hub is running it" } });
+    return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message.slice(0, 300) }, { status: 500 });
   }
