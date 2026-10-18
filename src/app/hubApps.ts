@@ -182,6 +182,7 @@ export const APPS: HubApp[] = [
       { name: "Owner redirection", note: "Companies to the right owner, by country or person", href: "/uc/owner-redirection", icon: "groups", ...GREEN },
       { name: "Ticket/order/article associations", note: "Tickets linked to the orders and articles they name; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
       { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
+      { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "route", ...PURPLE },
       { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },

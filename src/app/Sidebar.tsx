@@ -333,6 +333,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Ticket/Order/Article Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
       // every morning a partner's article list with our stock, MOQ and status (SARCLA, 18.10.2026)
       { group: "HubSpot apps", label: "Stock to Partners", href: "/uc/partner-stock", icon: <Inventory2OutlinedIcon fontSize="small" /> },
+      // the Smart Sub-Ticket card and 7 more, moved from "SARCLA - Smart Ticket Creator" (SARCLA, 18.10.2026)
+      { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <LinkOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
