@@ -47,6 +47,9 @@ export type Ga4ReportName =
   | "msAdsDaily"
   | "adsNetworkRevenueDaily"
   | "channelRevenueDaily"
+  | "visitUsersMonthly"
+  | "visitCube"
+  | "visitLanding"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -203,6 +206,25 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["totalRevenue", "transactions"],
     orderBy: { dimension: "date" },
     limit: 1000,
+  },
+  // Visit & traffic origin (SARCLA 18.10: "build what's missing"): exact users per month,
+  // a month x country x channel cube for the page's filters, and the landing pages
+  visitUsersMonthly: {
+    dimensions: ["yearMonth"],
+    metrics: ["activeUsers", "newUsers", "sessions"],
+    orderBy: { dimension: "yearMonth" },
+    limit: 24,
+  },
+  visitCube: {
+    dimensions: ["yearMonth", "countryId", "sessionDefaultChannelGroup"],
+    metrics: ["sessions", "activeUsers", "newUsers"],
+    limit: 100000,
+  },
+  visitLanding: {
+    dimensions: ["landingPage", "sessionDefaultChannelGroup"],
+    metrics: ["sessions", "activeUsers"],
+    orderBy: { metric: "sessions", desc: true },
+    limit: 25000,
   },
   transactionsChannel: {
     // Each web order GA4 saw, by its order number and the channel of the session it came in:

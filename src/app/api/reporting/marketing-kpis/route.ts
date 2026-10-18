@@ -7,6 +7,8 @@ import { readInputs, saveMonths, saveTarget } from "@/lib/marketingKpis/inputs";
 import { marketingKpisLive } from "@/lib/marketingKpis/live";
 import { aeoData } from "@/lib/aeo/read";
 import { assistantWindows, citedWindows, r10Series } from "@/lib/aeo/model";
+import { visitData } from "@/lib/marketingKpis/visit";
+import { visitSeries, visitYtd } from "@/lib/marketingKpis/visitCube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +18,11 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("reporting")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [inputs, live, aeo] = await Promise.all([readInputs(), marketingKpisLive(), aeoData().catch(() => null)]);
+    const [inputs, live, aeo, visit] = await Promise.all([readInputs(), marketingKpisLive(), aeoData().catch(() => null), visitData().catch(() => null)]);
+    // Visit & traffic origin from GA4 (V01-V08), as current as that read (SARCLA 18.10)
+    if (live.value && visit?.value) {
+      live.value = { ...live.value, series: { ...live.value.series, ...visitSeries(visit.value, live.value.year) }, ytd: { ...live.value.ytd, ...visitYtd(visit.value) } };
+    }
     // R10 "AI search visibility (GEO)" from the AEO answers the hub keeps, as current as that read (SARCLA 17.10)
     if (live.value && aeo?.value?.runs.length) {
       live.value = { ...live.value, series: { ...live.value.series, ...r10Series(aeo.value.runs, live.value.year) } };

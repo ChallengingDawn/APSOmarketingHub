@@ -19,9 +19,12 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, FAINT, GlassCard, MUTED, RED } from "@/app/uc/report/ui";
 import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
-import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, upToOf, stageKpis, stageTint, type MkState } from "./data";
+import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, upToOf, stageKpis, stageTint, type MkState } from "./data";
 import { CustomersExplorer } from "./Customers";
 import { ReachExplorer } from "./Reach";
+import { VisitExplorer } from "./Visit";
+import { TileActions } from "./tiles/TileActions";
+import { kpiSummary } from "./tiles/summary";
 
 const n0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("en"));
 const pct = (a: number | null | undefined, b: number | null | undefined) => (a == null || !b ? "—" : `${((a / b) * 100).toFixed(1)}%`);
@@ -81,6 +84,8 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (customers) return <CustomersExplorer />;
   // Reach is laid out as Who are our customers: figures, tabs, filters (SARCLA 18.10)
   if (s.slug === "reach") return <ReachExplorer state={state} />;
+  // Visit & traffic origin too (SARCLA 18.10: "put also the page like the others")
+  if (s.slug === "visit") return <VisitExplorer state={state} />;
   const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
@@ -100,7 +105,9 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
         <>
           {measured.length > 0 && (
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} upTo={upToOf(v, state, year)} />)}
+              {/* each card with 9f's tile tools - the key the nutshell uses too, so a demote there offers Promote here */}
+              {measured.map(({ k, v }) => v && <KpiCard key={k.id} v={v} kpi={k} icon={<StageGlyph slug={s.slug} />} tint={stageTint(s.slug)} upTo={upToOf(v, state, year)}
+                actions={<TileActions where="tab" start="nutshell" tile={{ key: `${s.slug}::${k.id}`, page: s.slug, kpiId: k.id, title: nameOf(k.id), summary: kpiSummary(v, periodOf(v)), kind: "kpi" }} />} />)}
             </Box>
           )}
           <Breakdowns slug={s.slug} live={state.live?.value} />

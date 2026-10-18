@@ -55,7 +55,15 @@ const M = (m: Measure) => m;
 
 export const MEASURES: Record<string, Measure> = Object.fromEntries([
   // sheet - typed monthly
-  M({ id: "V01", label: "Users (visitors)", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
+  // Visit & traffic origin, live from GA4 since 18.10.2026 (SARCLA: "build what's missing") - visit.ts / visitCube.ts
+  M({ id: "V01", label: "Users (visitors)", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "GA4's users per month, added up - visitors who accepted statistics cookies only" }),
+  M({ id: "V02", label: "New users' share", fmt: "pct", agg: { kind: "ratio", num: "V02N", den: "V01" }, origin: "live", liveSource: "GA4", definition: "New users / all users - GA4: a visitor whose first visit falls in the month" }),
+  M({ id: "V02N", label: "New users", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "V03", label: "Sessions", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "All visits (GA4 sessions), every channel - the channels are in the table below" }),
+  M({ id: "V04", label: "Users outside Switzerland", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "GA4's users per month from every country but Switzerland" }),
+  M({ id: "V05", label: "Sessions on a shop store", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that landed on a store's address (/de-CH, /it-IT, /en-INT ...), the year so far - each store in the table below" }),
+  M({ id: "V07", label: "Prio 1 and 2 companies logged in", fmt: "int", agg: { kind: "ytd" }, origin: "live", note: "Companies that logged in to the shop this year (Datatracker) - every priority in the table below" }),
+  M({ id: "V08", label: "Sessions on the 20 top landing pages", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "GA4", definition: "Visits that started on the 20 most visited landing pages, the year so far - the pages in the table below" }),
   M({ id: "E01", label: "Bounce rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false, note: "Max 50%, lower is better" }),
   M({ id: "E02", label: "Engagement rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", note: "60% B2B standard, 75% strong" }),
   M({ id: "K02", label: "Cart abandonment rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false }),
