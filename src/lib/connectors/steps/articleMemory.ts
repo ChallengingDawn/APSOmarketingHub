@@ -19,6 +19,10 @@
 // The rest (SARCLA 18.10.2026, "this should be 100%"): ids NO file knows - dim_article leaves those
 // articles out (credit notes, fees) - borrow the order's main profit centre, or the customer's on an
 // order with no other line (orderRules.borrowOrder); the real answer still replaces it.
+// And before 2025 (SARCLA 18.10.2026, "and before 2025?"): the orders of 2020-2024 (and the few
+// with no date) are read once too - month by month, a part each run, resumed where it stopped:
+// 58,805 of their 613,190 lines had no profit centre (32,087 on a real article Products & Pricing
+// knows, 26,718 on internal ids no file maps - not even July's full history).
 // Preview reads and counts; it writes neither HubSpot nor the memory.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
@@ -42,6 +46,12 @@ type Obj = { id: string; properties?: Record<string, string | null> };
 const KV_SCAN = "connectors:hub:article_scan:v2";
 const KV_SEED = "connectors:hub:article_seed";
 const SCAN_FROM = "2025-01";
+// the history before SCAN_FROM, read a part each run (HubSpot's orders start in 2020)
+const KV_HIST = "connectors:hub:article_scan_history";
+const HIST_FROM = "2020-01";
+// a "Run now" reads 12 minutes of it; the chain only 3, so the steps after it are not held up
+const HIST_BUDGET_MS = 12 * 60_000;
+const HIST_BUDGET_CHAIN_MS = 3 * 60_000;
 const REPAIR_BUDGET_MS = 10 * 60_000;
 const msg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 200);
 const PP = "2-200042439"; // Products & Pricing
@@ -269,38 +279,76 @@ async function borrowUnknown(beat: Beat, until: number): Promise<StepResult> {
 const monthStart = (ym: string) => Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
 const nextYm = (ym: string) => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`; };
 
+type Found = { orders: number; found: [string, string][] };
+
+/** One month of orders (or, with ym null, the orders with no date): the lines still without a profit centre. */
+async function scanMonth(ym: string | null): Promise<Found> {
+  const found: [string, string][] = [];
+  let orders = 0;
+  let after: string | undefined;
+  const filters = ym
+    ? [
+        { propertyName: "order_order_date", operator: "GTE", value: String(monthStart(ym)) },
+        { propertyName: "order_order_date", operator: "LT", value: String(monthStart(nextYm(ym))) },
+      ]
+    : [{ propertyName: "order_order_date", operator: "NOT_HAS_PROPERTY" }];
+  for (let page = 0; page < 60; page++) {
+    const j = await hs<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({
+      path: "/crm/v3/objects/orders/search", method: "POST",
+      body: { filterGroups: [{ filters }], properties: ["order_positions_json"], limit: 200, ...(after ? { after } : {}) },
+    });
+    for (const o of j.results ?? []) {
+      orders += 1;
+      for (const id of linesWithoutPcOn(o.properties?.order_positions_json)) found.push([String(o.id), id]);
+    }
+    after = j.paging?.next?.after;
+    if (!after) break;
+  }
+  return { orders, found };
+}
+
 /** Every order since January 2025, month by month: the lines still without a profit centre. */
-async function scanOrders(beat: Beat): Promise<{ orders: number; found: [string, string][] }> {
+async function scanOrders(beat: Beat): Promise<Found> {
   const found: [string, string][] = [];
   let orders = 0;
   const now = new Date();
   const last = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
   for (let ym = SCAN_FROM; ym <= last; ym = nextYm(ym)) {
-    let after: string | undefined;
-    for (let page = 0; page < 60; page++) {
-      const j = await hs<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({
-        path: "/crm/v3/objects/orders/search", method: "POST",
-        body: {
-          filterGroups: [{ filters: [
-            { propertyName: "order_order_date", operator: "GTE", value: String(monthStart(ym)) },
-            { propertyName: "order_order_date", operator: "LT", value: String(monthStart(nextYm(ym))) },
-          ] }],
-          properties: ["order_positions_json"], limit: 200, ...(after ? { after } : {}),
-        },
-      });
-      for (const o of j.results ?? []) {
-        orders += 1;
-        for (const id of linesWithoutPcOn(o.properties?.order_positions_json)) found.push([String(o.id), id]);
-      }
-      after = j.paging?.next?.after;
-      if (!after) break;
-    }
+    const m = await scanMonth(ym);
+    orders += m.orders;
+    found.push(...m.found);
     await beat();
   }
   return { orders, found };
 }
 
-export async function repairArticleLines(live: boolean, beat: Beat, opts: { full?: boolean } = {}): Promise<StepResult> {
+type Hist = { next: string; done?: boolean; orders: number; lines: number; at?: string };
+
+/** The orders before 2025, a part each run: each month's lines noted, the place kept, until `until`. */
+async function scanHistory(beat: Beat, until: number): Promise<StepResult> {
+  const h: Hist = (await kvGet<Hist>(KV_HIST)) ?? { next: HIST_FROM, orders: 0, lines: 0 };
+  if (h.done) return {};
+  const from = h.next;
+  let months = 0, orders = 0, lines = 0;
+  while (Date.now() < until) {
+    // after the last month before SCAN_FROM: the orders with no date, then done
+    const ym = h.next < SCAN_FROM ? h.next : null;
+    const m = await scanMonth(ym);
+    if (m.found.length) await addPending(m.found);
+    months += 1; orders += m.orders; lines += m.found.length;
+    h.orders += m.orders; h.lines += m.found.length; h.at = new Date().toISOString();
+    if (ym) h.next = nextYm(ym); else h.done = true;
+    await kvSet(KV_HIST, h);
+    await beat();
+    if (h.done) break;
+  }
+  return {
+    history_from: from, history_months_read: months, history_orders: orders, history_lines_noted: lines,
+    history: h.done ? `done - ${h.orders} orders, ${h.lines} lines noted` : `continues next run from ${h.next}`,
+  };
+}
+
+export async function repairArticleLines(live: boolean, beat: Beat, opts: { full?: boolean; inChain?: boolean } = {}): Promise<StepResult> {
   const t0 = Date.now();
   const out: StepResult = {};
   // the July seed here too, so a "Run now" repairs at once - without waiting for a delivery's article_ids
@@ -324,16 +372,23 @@ export async function repairArticleLines(live: boolean, beat: Beat, opts: { full
       await kvSet(KV_SCAN, { at: new Date().toISOString(), orders: s.orders, lines: s.found.length });
     }
   }
+  if (!live) {
+    const h = await kvGet<Hist>(KV_HIST);
+    return { ...out, history: h ? (h.done ? `done - ${h.orders} orders` : `read up to ${h.next}`) : "not read yet", ...(await memoryCounts().catch(() => ({}))), seconds: Math.round((Date.now() - t0) / 1000) };
+  }
+  // before 2025: a part each run, resumed where it stopped
+  Object.assign(out, await scanHistory(beat, Date.now() + (opts.inChain ? HIST_BUDGET_CHAIN_MS : HIST_BUDGET_MS)));
   // the waiting 10-digit articles (and the fixmap's): their profit centre from Products & Pricing
-  if (live) Object.assign(out, await learnByNumber(true, beat));
-  if (!live) return { ...out, ...(await memoryCounts().catch(() => ({}))), seconds: Math.round((Date.now() - t0) / 1000) };
+  Object.assign(out, await learnByNumber(true, beat));
+  // the repair and the borrowing get their own time, after the reading
+  const r0 = Date.now();
 
   // repair what the hub now knows, 100 orders at a time, for at most 10 minutes a run
   let orders = 0, lines = 0, failed = 0;
   const errors: string[] = [];
   const examples: unknown[] = [];
   const seen = new Set<string>();
-  while (Date.now() - t0 < REPAIR_BUDGET_MS) {
+  while (Date.now() - r0 < REPAIR_BUDGET_MS) {
     const batch = (await resolvablePending(100)).filter((b) => !seen.has(b.orderId));
     if (!batch.length) break;
     for (const b of batch) seen.add(b.orderId);
@@ -372,7 +427,7 @@ export async function repairArticleLines(live: boolean, beat: Beat, opts: { full
     await beat();
   }
   // what nothing knows: borrowed, in the time left
-  Object.assign(out, await borrowUnknown(beat, t0 + REPAIR_BUDGET_MS));
+  Object.assign(out, await borrowUnknown(beat, r0 + REPAIR_BUDGET_MS));
   return {
     ...out, orders_repaired: orders, lines_repaired: lines, failed, ...(errors.length ? { errors } : {}), examples,
     ...(await memoryCounts().catch(() => ({}))),

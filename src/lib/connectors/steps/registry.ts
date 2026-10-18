@@ -70,7 +70,7 @@ export const REGISTRY: StepDef[] = [
   { key: "orders_daily", cadence: "chain", file: "fct_orderlinehist.csv",
     run: (c) => ordersDaily(c.live, c.beat, { file: at(c, "fct_orderlinehist.csv"), articleFile: c.dir ? path.join(c.dir, "dim_article.csv") : undefined }) },
   // HUB ONLY: the HubSpot order lines still on an internal id get the real article and profit centre
-  { key: "article_repair", cadence: "chain", hubOnly: true, run: (c) => repairArticleLines(c.live, c.beat, { full: c.full }) },
+  { key: "article_repair", cadence: "chain", hubOnly: true, run: (c) => repairArticleLines(c.live, c.beat, { full: c.full, inChain: !!c.dir }) },
   { key: "stages_new_orders", cadence: "chain", file: "dim_order.csv", run: (c) => stageLoad(c.live, c.beat, { file: at(c, "dim_order.csv"), onlyChanged: true }) },
   { key: "order_sync", cadence: "chain", file: "dim_order.csv", run: (c) => orderSync(c.live, c.beat, { file: at(c, "dim_order.csv") }) },
   { key: "company_stats", cadence: "chain", run: (c) => companyStats(c.live, c.beat, c.full) },

@@ -195,7 +195,7 @@ export const STEPS: Step[] = [
   },
   {
     key: "article_repair", name: "Order lines get their real article and profit centre", group: "orders", phase: "hub",
-    what: "HubSpot order lines that still carry the ERP's internal id (no profit centre) get the real article number, its profit centre and the order's main profit centre, as soon as the hub knows the article. The first run reads every order since January 2025.",
+    what: "HubSpot order lines that still carry the ERP's internal id (no profit centre) get the real article number, its profit centre and the order's main profit centre, as soon as the hub knows the article; a line no ERP file can name borrows its order's (or its customer's) profit centre until then. The first run reads every order since January 2025; the orders of 2020-2024 are read a part each run (12 minutes on Run now, 3 in the chain).",
     when: "With each ERP delivery, after Order lines - preview until switched on",
     reads: "Orders (order_positions_json) · the hub's memory of internal ids",
     writes: [{ object: OBJECTS.order, props: ["order_line_NN_article", "order_line_NN_pc", "order_positions_json", "order_profit_center"], how: "only the lines still on an internal id" }],
