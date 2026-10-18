@@ -531,6 +531,7 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
                 <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
                   Visits, orders and revenue as GA4 sees them; impressions, clicks and cost from the account itself, sent by a script in Microsoft Advertising every morning
                   {ms?.through ? ` - counted up to ${ms.through}` : ""}
+                  {ms?.costPartial ? " - the cost leaves out accounts in another currency" : ""}
                 </Typography>
               </Box>
             </Box>

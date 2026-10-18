@@ -11,7 +11,10 @@ export const msAdsSheetId = () => process.env.MSADS_SHEET_ID || MSADS_SHEET_ID;
 export type MsAdsMonth = { impressions: number; clicks: number; cost: number };
 export type MsAdsSheet = {
   months: Record<string, MsAdsMonth>;
+  /** the cost's currency code, "CHF" */
   currency: string | null;
+  /** some accounts were in another currency and left out of the cost (impressions and clicks are all) */
+  costPartial: boolean;
   /** the last day the script counted, "2026-10-17" */
   through: string | null;
   /** when the sheet was last written, ISO */
@@ -25,7 +28,7 @@ const num = (v: unknown) => {
 
 /** The sheet's rows (a header, then one month each) as the hub keeps them. */
 export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
-  const out: MsAdsSheet = { months: {}, currency: null, through: null, written: null };
+  const out: MsAdsSheet = { months: {}, currency: null, costPartial: false, through: null, written: null };
   if (!values?.length) return out;
   const head = values[0].map((h) => String(h ?? "").trim().toLowerCase());
   const at = (name: string) => head.indexOf(name);
@@ -35,7 +38,12 @@ export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
     const month = String(row[mi] ?? "").trim().slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
     out.months[month] = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
-    if (cu >= 0 && row[cu]) out.currency = String(row[cu]).trim().toUpperCase();
+    if (cu >= 0 && row[cu]) {
+      // "CHF", or "CHF (others left out of cost)" when accounts in another currency were left out
+      const c = String(row[cu]).trim();
+      out.currency = c.slice(0, 3).toUpperCase();
+      out.costPartial = /left out/i.test(c);
+    }
     if (th >= 0 && row[th]) out.through = String(row[th]).trim().slice(0, 10);
     if (wr >= 0 && row[wr]) out.written = String(row[wr]).trim();
   }

@@ -73,7 +73,7 @@ export type LiveKpis = {
     /** "YYYY-MM" -> network -> [impressions, clicks, cost] - Reach's period filter */
     seaNetworkMonths?: Record<string, Record<string, [number, number, number]>>;
     /** the Microsoft Advertising script's sheet: the last day counted, when it was written, whether it has stopped */
-    msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null };
+    msAds?: { through: string | null; written: string | null; stale: boolean; currency: string | null; costPartial?: boolean };
     seaUpTo?: number;
     prio: { band: string; all: number | null; active: number | null }[];
     handover: { eso: Monthly; tsa: Monthly };
@@ -400,12 +400,13 @@ async function build(): Promise<LiveKpis> {
       scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Microsoft Ads sheet",
     });
     const sheet = parseMsAdsSheet(r.values);
-    const rate = Object.keys(fx).length && (sheet.currency ?? "CHF") === "CHF" ? (v: number, m: string) => chfToEur(v, m, fx) : undefined;
+    const cur = sheet.currency ?? "CHF";
+    const rate = Object.keys(fx).length && cur === "CHF" ? (v: number, m: string) => chfToEur(v, m, fx) : undefined;
     const s = msAdsSeries(sheet, year, rate);
-    // francs that could not be turned into euros are left out rather than shown under a euro sign
-    if ((sheet.currency ?? "CHF") === "CHF" && !rate) delete (s as Partial<typeof s>).X01M;
+    // a cost that cannot be shown in euros (francs without a rate, another currency) is left out, never shown under a euro sign
+    if (cur !== "EUR" && !rate) delete (s as Partial<typeof s>).X01M;
     Object.assign(series, s);
-    msAds = { through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency };
+    msAds = { through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency, costPartial: sheet.costPartial };
   });
 
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)

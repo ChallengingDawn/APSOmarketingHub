@@ -17,6 +17,10 @@ test("the script's sheet: months, currency, how far it counted and when it wrote
   assert.equal(s.currency, "CHF");
   assert.equal(s.through, "2026-10-17");
   assert.equal(parseMsAdsSheet([]).currency, null);
+  const partial = parseMsAdsSheet([values[0], ["2026-09", 1, 1, 1, "CHF (others left out of cost)", 1, "a", "2026-10-17", "x"]]);
+  assert.equal(partial.currency, "CHF");
+  assert.equal(partial.costPartial, true);
+  assert.equal(parseMsAdsSheet(values).costPartial, false);
   assert.deepEqual(parseMsAdsSheet([["nothing"], ["2026-01"]]).months, {});
 });
 
