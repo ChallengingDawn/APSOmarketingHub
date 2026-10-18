@@ -206,25 +206,44 @@ export default function VariationStrip({
           );
         })}
 
-        {/* Only when there IS something to compare. Offering it with nothing
-            saved is how it came to be pressed first and do nothing. */}
-        {(variants?.length ?? 0) >= 2 && (
-          <Box
-            component="button"
-            type="button"
-            onClick={openCompare}
-            sx={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
-              width: "100%", mt: 0.5, py: 0.75, borderRadius: "10px", cursor: "pointer",
-              fontFamily: "inherit", fontSize: 10.5, fontWeight: 600, color: MUTED,
-              bgcolor: "transparent", border: `1px dashed ${HAIRLINE}`,
-              "&:hover": { color: ACCENT, borderColor: ACCENT },
-            }}
-          >
-            <CompareArrowsIcon sx={{ fontSize: 14 }} />
-            Compare them
-          </Box>
-        )}
+        {/* Always present. Hiding it when there is only one version is how
+            the control somebody was reaching for simply vanished - which
+            reads as more broken, not less. Disabled and saying why. */}
+        {(() => {
+          const n = variants?.length ?? 0;
+          const ready = n >= 2;
+          return (
+            <>
+              <Box
+                component="button"
+                type="button"
+                disabled={!ready}
+                onClick={ready ? openCompare : undefined}
+                sx={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
+                  width: "100%", mt: 0.5, py: 0.75, borderRadius: "10px",
+                  cursor: ready ? "pointer" : "default",
+                  fontFamily: "inherit", fontSize: 10.5, fontWeight: 600,
+                  color: ready ? MUTED : FAINT,
+                  bgcolor: "transparent",
+                  border: `1px dashed ${HAIRLINE}`,
+                  opacity: ready ? 1 : 0.75,
+                  "&:hover": ready ? { color: ACCENT, borderColor: ACCENT } : {},
+                }}
+              >
+                <CompareArrowsIcon sx={{ fontSize: 14 }} />
+                Compare them
+              </Box>
+              {!ready && (
+                <Typography sx={{ fontSize: 9.5, color: FAINT, px: 0.5, pt: 0.4, lineHeight: 1.4 }}>
+                  {n === 0
+                    ? "Press Save and this fills up — two versions can be held side by side."
+                    : "One saved. Save another and you can hold the two side by side."}
+                </Typography>
+              )}
+            </>
+          );
+        })()}
       </Box>
 
       {/* Two drafts beside each other, which is the decision this whole app

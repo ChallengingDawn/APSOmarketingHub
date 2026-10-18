@@ -698,9 +698,44 @@ export default function Sidebar() {
 
         <Box sx={{ px: 1.5, py: 1.25, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
           <Row href="/api/auth/signout" icon={<LogoutIcon />} label="Sign out" anchor />
+          <BuildStamp />
         </Box>
       </Box>
     </Drawer>
+  );
+}
+
+/**
+ * Which build is on screen.
+ *
+ * The commit is baked into the image at build time and served by
+ * /api/health; it simply was not anywhere a person could see it. Without it,
+ * "nothing changed" is an argument nobody can settle: the one deploying sees
+ * digests and task definitions, the one using it sees a page that looks the
+ * same, and neither has a fact the other can check.
+ *
+ * Deliberately quiet - it is a serial number, not information - and it fails
+ * silent: a hub that cannot answer shows nothing rather than an error about
+ * a version.
+ */
+function BuildStamp() {
+  const [sha, setSha] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((j) => { if (alive && j?.shortCommit && j.shortCommit !== "unknown") setSha(j.shortCommit); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  if (!sha) return null;
+  return (
+    <Box
+      title={"This page is running build " + sha + ". If a change is missing, check this against the one that was deployed."}
+      sx={{ px: 1.25, pt: 0.75, fontSize: 10, color: "rgba(15,23,42,0.38)", fontFamily: "var(--font-mono), monospace", userSelect: "all" }}
+    >
+      build {sha}
+    </Box>
   );
 }
 
