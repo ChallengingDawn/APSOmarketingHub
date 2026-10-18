@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BUILT_IN, changedPieces, problems, type Catalog, type SmartForm } from "../src/lib/smartTickets/formDesign";
+import { BUILT_IN, autoSource, changedPieces, problems, sourceOf, type Catalog, type SmartForm } from "../src/lib/smartTickets/formDesign";
 
 // a HubSpot that has exactly what the built-in design uses
 const props = new Set<string>();
@@ -54,4 +54,25 @@ test("the changes are named per piece - a section, or one form", () => {
   f.gqsForms["Running Business"][0] = { ...f.gqsForms["Running Business"][0], l: "Customer" };
   f.quickActions.pop();
   assert.deepEqual(changedPieces(f, BUILT_IN).sort(), ["gqsForms:Running Business", "quickActions"]);
+});
+
+test("auto fills the obvious fields from the ticket - articles, company, mandant, order, date - and never a yes/no", () => {
+  const src = (f: string) => {
+    for (const forms of [BUILT_IN.gqsForms, BUILT_IN.pmForms]) for (const fields of Object.values(forms)) { const x = fields.find((y) => y.f === f); if (x) return sourceOf(x); }
+    throw new Error(f);
+  };
+  assert.equal(src("customer_number_customer_name"), "customer");
+  assert.equal(src("article"), "articles");
+  assert.equal(src("sarcla_article_pm_moq"), "article");
+  assert.equal(src("sarcla_article_number_pm_other"), "article");
+  assert.equal(src("a_p_item_number_if_existing_part_"), "article");
+  assert.equal(src("sarcla_pm_witch_mandant__"), "mandant");
+  assert.equal(src("sarcla_order_n_with_minus_margin_pm"), "order");
+  assert.equal(src("delivery_date"), "delivery_date");
+  assert.equal(src("liquidation_article"), null);
+  assert.equal(src("order_potential_"), null);
+  assert.equal(src("quantity_lot_size"), null);
+  assert.equal(sourceOf({ f: "article", l: "A", t: "textarea", autofill: "none" }), null);
+  assert.equal(sourceOf({ f: "material", l: "M", t: "text", autofill: "order" }), "order");
+  assert.equal(autoSource({ f: "delivery_date", t: "text" }), null);
 });

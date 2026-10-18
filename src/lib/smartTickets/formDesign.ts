@@ -8,8 +8,40 @@
 
 
 export type FieldType = "text" | "textarea" | "number" | "date" | "yesno" | "select";
-/** One field of a form: HubSpot property, label, type, options (select), required, autofill. */
-export type Field = { f: string; l: string; t: FieldType; opts?: string[]; req?: boolean; autofill?: "customer" };
+/** One field of a form: HubSpot property, label, type, options (select), required, where its value comes from. */
+export type Field = { f: string; l: string; t: FieldType; opts?: string[]; req?: boolean; autofill?: Autofill };
+
+/** Where a field is pre-filled from when the card opens (SARCLA 18.10.2026: "article should also be filled with the
+ *  ticket detection ... try to get the maximum"). No value = "auto". Whatever the source, an empty result falls back
+ *  to the parent ticket's same property, then to what the ticket's text says (quantity, target price, material...);
+ *  "none" leaves the field to be typed. The card has the same rules (SmartTicketCard.jsx, autoSource / prefill). */
+export type Autofill = "auto" | "customer" | "mandant" | "contact" | "article" | "articles" | "order" | "delivery_date" | "none";
+export const AUTOFILL: { v: Autofill; l: string }[] = [
+  { v: "auto", l: "Auto" },
+  { v: "customer", l: "The ticket's company (# / name)" },
+  { v: "mandant", l: "The company's mandant" },
+  { v: "contact", l: "The ticket's contact" },
+  { v: "article", l: "Detected article (the first)" },
+  { v: "articles", l: "Detected articles (all)" },
+  { v: "order", l: "Detected order number" },
+  { v: "delivery_date", l: "Detected delivery date" },
+  { v: "none", l: "Nothing - always typed" },
+];
+type Source = Exclude<Autofill, "auto" | "none">;
+const TEXTISH: FieldType[] = ["text", "textarea"];
+/** What "auto" means for a field: a source picked from its property and type, or null (the parent ticket / its text only). */
+export function autoSource(x: Pick<Field, "f" | "t">): Source | null {
+  const f = x.f.toLowerCase(), text = TEXTISH.includes(x.t);
+  if (f === "customer_number_customer_name") return "customer";
+  if (f.includes("mandant") && (text || x.t === "select")) return "mandant";
+  if ((f.includes("article") || f.includes("item_number")) && text) return x.t === "textarea" ? "articles" : "article";
+  if ((f.includes("order_n") || f === "order_id") && text) return "order";
+  if (f.includes("delivery_date") && x.t === "date") return "delivery_date";
+  if (f.includes("contact") && text) return "contact";
+  return null;
+}
+/** The source the card uses for a field: its own, or what "auto" picks. */
+export const sourceOf = (x: Field): Source | null => (x.autofill === "none" ? null : x.autofill && x.autofill !== "auto" ? x.autofill : autoSource(x));
 export type SmartForm = {
   pipelines: { label: string; value: string; stage: string }[];
   categories: { value: string; subField: string; textboxField: string; subOptions: string[] }[];

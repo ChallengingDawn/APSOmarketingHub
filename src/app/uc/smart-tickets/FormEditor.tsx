@@ -11,6 +11,7 @@ import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Autocomplete from "@mui/material/Autocomplete";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -27,11 +28,12 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import PublishOutlinedIcon from "@mui/icons-material/PublishOutlined";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { CardTitle, GlassCard, INK, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, when } from "@/app/connectors/parts";
-import type { Field, FieldType, SmartForm, Section } from "@/lib/smartTickets/form";
+import { AUTOFILL, autoSource, type Autofill, type Field, type FieldType, type SmartForm, type Section } from "@/lib/smartTickets/formDesign";
 
 type Prop = { name: string; label: string; fieldType: string; options: string[] };
 type Catalog = { properties: Prop[]; pipelines: { id: string; label: string; stages: { id: string; label: string }[] }[]; owners: { id: string; name: string }[] };
@@ -46,6 +48,11 @@ const TYPES: { v: FieldType; l: string }[] = [
   { v: "text", l: "Text" }, { v: "textarea", l: "Long text" }, { v: "number", l: "Number" },
   { v: "date", l: "Date" }, { v: "yesno", l: "Yes / No" }, { v: "select", l: "List" },
 ];
+const AUTO_SHORT: Record<string, string> = {
+  customer: "the ticket's company", mandant: "the mandant", contact: "the contact", article: "detected article",
+  articles: "detected articles", order: "detected order", delivery_date: "detected delivery date",
+};
+const autoLabel = (x: Field) => { const s = autoSource(x); return `Auto - ${s ? AUTO_SHORT[s] : "parent ticket / its text"}`; };
 const cell = { ...bodyCell, fontSize: "0.82rem", py: 0.75, verticalAlign: "top" } as const;
 const small = { size: "small" as const, fullWidth: true };
 const csv = (a: string[]) => a.join(", ");
@@ -80,13 +87,18 @@ function RowTools({ i, n, onMove, onDelete, locked }: { i: number; n: number; on
   );
 }
 
-/** A form's fields: label, property, type, choices, required, customer autofill - in order. */
+/** A form's fields: label, property, type, choices, where the card fills it from, required - in order. */
 function FieldsEditor({ value, props, gqs, onChange }: { value: Field[]; props: Prop[]; gqs: boolean; onChange: (v: Field[]) => void }) {
   const set = (i: number, patch: Partial<Field>) => onChange(value.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
+        <b>Filled from</b>: where the card takes the value when it opens. <b>Auto</b> picks it from the property (articles, company,
+        mandant, order, delivery date); when that is empty, the parent ticket&apos;s same property, then what the ticket&apos;s text
+        says. <b>Required</b>: the card does not create the sub-ticket until the field is filled.
+      </Typography>
       <Table size="small">
-        <TableHead><TableRow>{["#", "Label", "HubSpot property", "Type", "Choices (lists)", "Required", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+        <TableHead><TableRow>{["#", "Label", "HubSpot property", "Type", "Choices (lists)", "Filled from", "Required", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
         <TableBody>
           {value.map((x, i) => {
             const locked = gqs && LOCKED.includes(x.f);
@@ -109,9 +121,20 @@ function FieldsEditor({ value, props, gqs, onChange }: { value: Field[]; props: 
                     </>
                   ) : <Typography sx={{ fontSize: "0.78rem", color: MUTED, pt: 1 }}>-</Typography>}
                 </TableCell>
-                <TableCell sx={cell}>
-                  <Checkbox size="small" checked={!!x.req || locked} disabled={locked} onChange={(e) => set(i, { req: e.target.checked })} />
-                  {x.f === "customer_number_customer_name" && <Tooltip title="Filled with the ticket's company"><span><Checkbox size="small" checked={x.autofill === "customer"} onChange={(e) => set(i, { autofill: e.target.checked ? "customer" : undefined })} /></span></Tooltip>}
+                <TableCell sx={{ ...cell, minWidth: 210 }}>
+                  <TextField select {...small} value={x.autofill ?? "auto"} onChange={(e) => set(i, { autofill: e.target.value === "auto" ? undefined : (e.target.value as Autofill) })}>
+                    {AUTOFILL.map((a) => <MenuItem key={a.v} value={a.v}>{a.v === "auto" ? autoLabel(x) : a.l}</MenuItem>)}
+                  </TextField>
+                </TableCell>
+                <TableCell sx={{ ...cell, whiteSpace: "nowrap" }}>
+                  {locked ? (
+                    <Tooltip title="Margin % and Target price are required on every GQS form">
+                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, pt: 1, fontSize: "0.8rem", fontWeight: 700, color: INK }}><LockOutlinedIcon sx={{ fontSize: 15 }} />Always required</Box>
+                    </Tooltip>
+                  ) : (
+                    <FormControlLabel sx={{ m: 0 }} control={<Checkbox size="small" checked={!!x.req} onChange={(e) => set(i, { req: e.target.checked })} />}
+                      label={<Typography sx={{ fontSize: "0.8rem", fontWeight: x.req ? 700 : 400, color: x.req ? INK : MUTED }}>{x.req ? "Required" : "Optional"}</Typography>} />
+                  )}
                 </TableCell>
                 <TableCell sx={cell}><RowTools i={i} n={value.length} locked={locked} onMove={(d) => onChange(move(value, i, d))} onDelete={() => onChange(value.filter((_, j) => j !== i))} /></TableCell>
               </TableRow>

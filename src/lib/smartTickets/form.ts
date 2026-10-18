@@ -8,7 +8,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { hubspotToken } from "@/lib/integrations/status";
-import { BUILT_IN, GQS_LOCKED, SECTIONS, problems, type Catalog, type Field, type Section, type SmartForm } from "./formDesign";
+import { AUTOFILL, BUILT_IN, GQS_LOCKED, SECTIONS, problems, type Catalog, type Field, type Section, type SmartForm } from "./formDesign";
 
 export * from "./formDesign";
 
@@ -69,7 +69,7 @@ const clean = (x: Field): Field => ({
   f: String(x.f ?? "").trim(), l: String(x.l ?? "").trim(), t: x.t,
   ...(x.t === "select" ? { opts: (x.opts ?? []).map((o) => String(o).trim()).filter(Boolean) } : {}),
   ...(x.req || GQS_LOCKED.includes(String(x.f)) ? { req: true } : {}),
-  ...(x.autofill === "customer" ? { autofill: "customer" as const } : {}),
+  ...(x.autofill && x.autofill !== "auto" && AUTOFILL.some((a) => a.v === x.autofill) ? { autofill: x.autofill } : {}),
 });
 
 export async function discardDraft(): Promise<void> { await kvSet(KV.draft, null); }
