@@ -39,9 +39,13 @@ export type RunInfo = { at: string; seconds: number; read: number; checked: numb
 
 const KV = { settings: "ticketDup:settings", last: "ticketDup:lastRun", cursor: "ticketDup:cursor", day: (d: string) => `ticketDup:rows:${d}` };
 
+/** The hub's exclusions until the page saves others (SARCLA 18.10.2026, "go ahead"): the owner only from a duplicate in the
+ *  same pipeline, and the ERP's stale-export warnings never a duplicate. The copy keeps the workflow's own behaviour. */
+export const INITIAL_EXCLUSIONS: Exclusions = { ...DEFAULT_EXCLUSIONS, ownerFromSamePipelineOnly: true, neverMatchTexts: ["ERP Order Export Stale Warning"] };
+
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings);
-  return { mode: s?.mode ?? "shadow", exclusions: { ...DEFAULT_EXCLUSIONS, ...(s?.exclusions ?? {}) }, by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "shadow", exclusions: { ...INITIAL_EXCLUSIONS, ...(s?.exclusions ?? {}) }, by: s?.by ?? null, at: s?.at ?? null };
 }
 export async function saveSettings(patch: { mode?: "off" | "shadow"; exclusions?: Partial<Exclusions> }, by: string): Promise<Settings> {
   const cur = await getSettings();
