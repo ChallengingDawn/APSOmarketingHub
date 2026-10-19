@@ -64,7 +64,9 @@ const STEP: Record<string, string> = {
   "31": "Load Balancer", "50": "Task Status Report merge", "75": "Sales split to ESO",
 };
 const CHAT_LABEL: Record<string, string> = { available: "Available", away: "Away" };
-const sameOwner = (r: Row) => !!r.actual && !!r.legacy && r.actual.ownerId === r.legacy.ownerId;
+/** What the distribution step gave: its own write; a later DUPS hand-over is shown apart (19.10.2026). */
+const gave = (r: Row) => (r.actual ? { id: r.actual.distOwnerId ?? r.actual.ownerId, name: r.actual.distOwnerName ?? r.actual.ownerName } : null);
+const sameOwner = (r: Row) => !!r.actual && !!r.legacy && gave(r)!.id === r.legacy.ownerId;
 const fixesDiffer = (r: Row) => !!r.legacy && r.hub?.ownerId !== r.legacy.ownerId;
 
 /* ── figures ── */
@@ -109,7 +111,7 @@ function Overview({ d }: { d: Data }) {
     { label: "Same category", value: pct(m.catSame, m.cat), note: `${full(m.catSame)} of ${full(m.cat)}; same priority ${pct(m.prioSame, m.prio)}`, icon: <CategoryOutlinedIcon />, tint: "purple" as const },
     { label: "Fixes change the owner", value: full(m.fixes), note: "The hub's fixed rules would pick someone else than the copy", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
   ];
-  const owners = count(d.rows.filter((r) => r.actual), (r) => r.actual!.ownerName);
+  const owners = count(d.rows.filter((r) => r.actual), (r) => gave(r)!.name);
   const steps = count(d.rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
   const cats = count(d.rows.filter((r) => r.actual), (r) => r.actual!.category);
   return (
@@ -150,7 +152,9 @@ function Detail({ r }: { r: Row }) {
       {r.legacy && line("Copy", `${r.legacy.ownerName ?? "nobody"} - ${r.legacy.method}${r.legacy.reasons.length ? ` (${r.legacy.reasons.join("; ")})` : ""}`)}
       {r.hub && line("Hub", `${r.hub.ownerName ?? "nobody"} - ${r.hub.method}${r.hub.reasons.length ? ` (${r.hub.reasons.join("; ")})` : ""}`)}
       {r.note && line("Note", r.note)}
-      {r.actual && line("HubSpot", `${r.actual.ownerName ?? "nobody"}${r.actual.ownerSetBy ? ` (set by ${r.actual.ownerSetBy})` : ""} · ${r.actual.category ?? "no category"}${r.actual.subCategory ? ` / ${r.actual.subCategory}` : ""} · priority ${r.actual.priority ?? "—"}${r.actual.dispatch ? ` · ${r.actual.dispatch}` : ""}`)}
+      {r.actual?.distOwnerName && line("Distribution gave", r.actual.distOwnerName)}
+      {r.actual?.dupsOwnerName && line("Then DUPS", `handed it to ${r.actual.dupsOwnerName}${r.actual.dupsNote ? ` ${r.actual.dupsNote}` : ""} - an older ticket on the same order (Duplicates & merges)`)}
+      {r.actual && line("HubSpot now", `${r.actual.ownerName ?? "nobody"}${r.actual.ownerSetBy ? ` (last set by ${r.actual.ownerSetBy})` : ""} · ${r.actual.category ?? "no category"}${r.actual.subCategory ? ` / ${r.actual.subCategory}` : ""} · priority ${r.actual.priority ?? "—"}${r.actual.dispatch ? ` · ${r.actual.dispatch}` : ""}`)}
     </Box>
   );
 }
@@ -167,7 +171,7 @@ function TicketTable({ rows, empty }: { rows: Row[]; empty: string }) {
     <>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
-          <TableHead><TableRow>{["Entered", "Ticket", "Path", "HubSpot gave", "Copy gives", "Hub gives", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Entered", "Ticket", "Path", "Distribution gave", "Copy gives", "Hub gives", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
             {slice.map((r) => (
               <Fragment key={r.key}>
@@ -178,7 +182,10 @@ function TicketTable({ rows, empty }: { rows: Row[]; empty: string }) {
                     <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{r.pipeline === "gqs" ? "GQS" : "Back Office"}{r.source ? ` · ${r.source}` : ""}</Typography>
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, ...clip(240) }}>{r.route ? (r.route.assigner ? STEP[r.route.assigner] : r.route.path[r.route.path.length - 1]) : r.pipeline === "gqs" ? (r.legacy?.method ?? "GQS") : "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.actual ? r.actual.ownerName ?? "nobody" : "…"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
+                    {r.actual ? gave(r)!.name ?? "nobody" : "…"}
+                    {r.actual?.dupsOwnerName && r.actual.dupsOwnerId !== gave(r)!.id && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>then DUPS → {r.actual.dupsOwnerName}</Typography>}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.legacy?.ownerName ?? "—"}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", fontWeight: fixesDiffer(r) ? 700 : 400 }}>{r.hub?.ownerName ?? "—"}</TableCell>
                   <TableCell sx={bodyCell}><Verdict r={r} /></TableCell>
@@ -467,7 +474,7 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
   if (r === null) return <LoadingPanel label="Reading everyone's status and open tickets…" />;
   if (r.state !== "ok") return <UpstreamPanel source="Back Office distribution - people" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   const p = r.data;
-  const got = (id: string) => d.rows.filter((x) => x.actual?.ownerId === id).length;
+  const got = (id: string) => d.rows.filter((x) => x.actual && gave(x)!.id === id).length;
   const copy = (id: string) => d.rows.filter((x) => x.legacy?.ownerId === id).length;
   const hub = (id: string) => d.rows.filter((x) => x.hub?.ownerId === id).length;
   return (

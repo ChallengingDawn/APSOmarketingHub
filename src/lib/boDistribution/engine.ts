@@ -38,6 +38,12 @@ export type Answer = { ownerId: string | null; ownerName: string | null; method:
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
   pipeline: string | null; stage: string | null; category: string | null; subCategory: string | null; priority: string | null; dispatch: string | null;
+  /** the owner the DISTRIBUTION step itself set (its app's first write after entry) - what the copy is compared with */
+  distOwnerId?: string | null; distOwnerName?: string | null;
+  /** a later hand-over by the DUPS workflow (owner of an older ticket on the same order) */
+  dupsOwnerId?: string | null; dupsOwnerName?: string | null; dupsNote?: string | null;
+  /** 2 = read with the two above */
+  v?: number;
 };
 export type Row = {
   key: string; ticketId: string; pipeline: "bo" | "gqs"; enteredAt: string; seenAt: string;
@@ -100,7 +106,7 @@ type TicketFull = {
 
 const CAT_PROPS = ["enquiry_category", SUB.website, SUB.price, SUB.delivery, SUB.delivery2, SUB.invoicing, SUB.product];
 const READ = ["subject", "content", "source_type", "ai_chat_source", "c2s_problem_order", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id",
-  "gqs_type_of_request", "hs_ticket_priority", "dispatch", "createdate", ...CAT_PROPS];
+  "gqs_type_of_request", "hs_ticket_priority", "dispatch", "createdate", "dup_reason_and_id", ...CAT_PROPS];
 
 async function ticket(id: string, withHistory: string[]): Promise<TicketFull> {
   return hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=${READ.join(",")}&propertiesWithHistory=${withHistory.join(",")}&associations=contacts,companies,emails`);
@@ -298,17 +304,32 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
 }
 
 /** What HubSpot really did: owner (and who set it), stage, category, priority, dispatch. */
+/** The apps behind the workflows' code steps: the distribution steps (secret DISTRIBUTION) and DUPS (HUBSPOT_API_KEY). */
+const DISTRIBUTION_APP = "30109717", DUPS_APP = "22343290";
+
 async function outcome(row: Row): Promise<Actual> {
-  const t = await ticket(row.ticketId, ["hubspot_owner_id"]);
+  const t = await ticket(row.ticketId, ["hubspot_owner_id", "dup_reason_and_id"]);
   const p = t.properties;
-  const last = (t.propertiesWithHistory?.hubspot_owner_id ?? [])[0];
+  const hist = t.propertiesWithHistory?.hubspot_owner_id ?? [];
+  const last = hist[0];
   const by = last ? `${last.sourceType ?? ""}${last.sourceId ? ` ${last.sourceId}` : ""}${last.sourceLabel ? ` (${last.sourceLabel})` : ""}`.trim() : null;
+  // SARCLA 19.10.2026 "why does it differ?": the copy is the DISTRIBUTION step, so it is compared with what that step
+  // wrote - a ticket on an order that already has one is handed on 4 minutes later by DUPS, which is shown apart
+  const since = Date.parse(row.enteredAt) - 5_000;
+  const after = [...hist].reverse().filter((h) => Date.parse(h.timestamp) >= since);
+  const dist = after.find((h) => h.sourceType === "INTEGRATION" && h.sourceId === DISTRIBUTION_APP);
+  const dups = after.find((h) => h.sourceType === "INTEGRATION" && h.sourceId === DUPS_APP && (!dist || Date.parse(h.timestamp) >= Date.parse(dist.timestamp)));
+  const names = await ownerNames();
   const cat = p.enquiry_category ?? null;
   const subProp = { "Website Issue": SUB.website, "Product Price": SUB.price, Delivery: SUB.delivery, "Invoicing & Accounting": SUB.invoicing, "Product Information": SUB.product }[cat ?? ""];
   return {
     at: new Date().toISOString(), ownerId: p.hubspot_owner_id ?? null, ownerName: p.hubspot_owner_id ? (await ownerNames()).get(p.hubspot_owner_id) ?? p.hubspot_owner_id : null,
     ownerSetBy: by, pipeline: p.hs_pipeline ?? null, stage: p.hs_pipeline_stage ?? null, category: cat, subCategory: subProp ? p[subProp] ?? null : null,
     priority: p.hs_ticket_priority ?? null, dispatch: p.dispatch ?? null,
+    distOwnerId: dist?.value || null, distOwnerName: dist?.value ? names.get(dist.value) ?? dist.value : null,
+    dupsOwnerId: dups?.value || null, dupsOwnerName: dups?.value ? names.get(dups.value) ?? dups.value : null,
+    dupsNote: dups ? (/\(owner of ticket (\d+)\)/.exec(p.dup_reason_and_id ?? "")?.[0] ?? null) : null,
+    v: 2,
   };
 }
 
@@ -435,6 +456,15 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
       if (signal?.aborted) break;
       if (r.actual || r.error || Date.now() - Date.parse(r.enteredAt) < OUTCOME_AFTER_MS) continue;
       try { r.actual = await outcome(r); info.checked++; } catch (err) { r.error = `outcome: ${(err as Error).message.slice(0, 160)}`; }
+    }
+  }
+  // rows read before 19.10.2026 lack the distribution's own owner: read them once more, 40 a run
+  let reread = 0;
+  for (let i = 0; i < 7 && reread < 40 && !signal?.aborted && Date.now() - started < 6 * 60_000; i++) {
+    for (const r of await rowsFor(day(new Date(Date.now() - i * 86400_000).toISOString()))) {
+      if (reread >= 40 || signal?.aborted) break;
+      if (!r.actual || r.actual.v === 2 || r.error) continue;
+      try { r.actual = await outcome(r); reread++; } catch { /* next run */ }
     }
   }
   for (const [d, rows] of touched) await kvSet(KV.day(d), rows);
