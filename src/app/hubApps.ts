@@ -25,7 +25,7 @@ export type SubApp = {
 export type IconKey =
   | "groups" | "description" | "inventory" | "bar" | "layers" | "edit" | "photo"
   | "search" | "filter" | "tag" | "sync" | "route" | "health" | "ads" | "target"
-  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat" | "tree" | "assign" | "copy";
+  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat" | "tree" | "assign" | "copy" | "map";
 
 export type HubApp = {
   key: string;
@@ -179,6 +179,8 @@ export const APPS: HubApp[] = [
       { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
       { name: "UC16 Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
       { name: "UC17 Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
+      // who owns a company, per country: Performis SAE or postcode zones on a map - first of the HubSpot apps (SARCLA 19.10.2026)
+      { name: "Map assignment", note: "Who owns each company, per country: SAE or postcode zones on a map; contacts follow", href: "/uc/map-assignment", icon: "map", ...TEAL },
       { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
       { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },

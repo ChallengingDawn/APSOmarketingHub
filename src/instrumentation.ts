@@ -72,6 +72,11 @@ export async function register() {
     // ticket, next to what HubSpot did - writes nothing to HubSpot (src/lib/boDistribution). BO_DISTRIBUTION=off stops it.
     const { startBoDistribution } = await import("./lib/boDistribution/engine");
     startBoDistribution();
+    // Map assignment, SHADOW until a country is switched live on its page: each company's owner by the rules per country
+    // (Performis SAE or postcode zones) next to HubSpot's - every 15 minutes the changed companies, once a night all of
+    // them; live countries get owner + region_responsibility + contacts written (src/lib/mapAssign). MAP_ASSIGN=off stops it.
+    const { startMapAssign } = await import("./lib/mapAssign/engine");
+    startMapAssign();
     // Duplicates & merges, SHADOW MODE: the DUPS workflow's duplicate check next to the hub's, with its exclusions
     // (src/lib/ticketDuplicates) - writes nothing to HubSpot. TICKET_DUPLICATES=off stops it.
     const { startTicketDuplicates } = await import("./lib/ticketDuplicates/engine");

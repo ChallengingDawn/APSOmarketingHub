@@ -31,6 +31,7 @@ import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
+import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
@@ -328,7 +329,9 @@ const navSections: NavSection[] = [
       { group: "Use cases", label: "UC16 - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
       { group: "Use cases", label: "UC17 - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
       // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
-      // the companies' sales priority - first of the HubSpot apps (SARCLA, 16.10.2026)
+      // who owns a company, per country, on a map - first of the HubSpot apps (SARCLA, 19.10.2026)
+      { group: "HubSpot apps", label: "Map Assignment", href: "/uc/map-assignment", icon: <MapOutlinedIcon fontSize="small" /> },
+      // the companies' sales priority (SARCLA, 16.10.2026)
       { group: "HubSpot apps", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },

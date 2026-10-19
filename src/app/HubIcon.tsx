@@ -32,6 +32,7 @@ import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
+import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
 
 import type { IconKey } from "./hubApps";
 
@@ -66,6 +67,7 @@ const MAP: Record<IconKey, React.ElementType> = {
   tree: AccountTreeOutlinedIcon,
   assign: AssignmentIndOutlinedIcon,
   copy: ContentCopyOutlinedIcon,
+  map: MapOutlinedIcon,
 };
 
 export default function HubIcon({ name, fontSize = 18 }: { name: IconKey; fontSize?: number }) {
