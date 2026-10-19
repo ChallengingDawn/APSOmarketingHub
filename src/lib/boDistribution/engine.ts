@@ -109,6 +109,9 @@ export type Row = {
   company?: { name: string; salesPriority: string | null } | null;
   /** the company the workflow step links when the sales agent came from a contact and the ticket has no company */
   associate?: string | null;
+  /** GQS: a task with no contact and no company takes them from its linked ticket (the code's
+   *  inherit_associations_from_linked_ticket) - read before deciding, written in live mode */
+  inherit?: { from: string; contacts: string[]; companies: string[] } | null;
   /** live mode: what the hub wrote, or why it left the ticket to the workflow */
   wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string };
   note?: string;
@@ -311,6 +314,21 @@ async function gqsTaskOwner(oNumber: string): Promise<Person | null> {
   return id ? { id, name: (await ownerNames()).get(id) ?? id } : null;
 }
 
+/** The code's inherit_associations_from_linked_ticket: the first linked ticket with a contact or a company gives all of its
+ *  contacts and companies. */
+async function linkedParty(id: string): Promise<{ from: string; contacts: string[]; companies: string[] } | null> {
+  const a = await hs<{ results?: { toObjectId: number | string }[] }>(`/crm/v4/objects/tickets/${id}/associations/tickets`);
+  for (const lid of [...new Set((a.results ?? []).map((x) => String(x.toObjectId)))].slice(0, 10)) {
+    try {
+      const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${lid}?properties=subject&associations=contacts,companies`);
+      const contacts = [...new Set((t.associations?.contacts?.results ?? []).map((x) => String(x.id)))];
+      const companies = [...new Set((t.associations?.companies?.results ?? []).map((x) => String(x.id)))];
+      if (contacts.length || companies.length) return { from: lid, contacts, companies };
+    } catch { /* the code skips a ticket it cannot read */ }
+  }
+  return null;
+}
+
 /* ── one ticket ──────────────────────────────────────────────────────────── */
 
 const answer = (p: RulePick): Answer => ({ ownerId: p.owner?.id ?? null, ownerName: p.owner?.name ?? null, method: p.method, reasons: p.reasons });
@@ -358,6 +376,15 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const workload = without(load, legacyStages);
   const workloadHub = without(loadHub, hubStages);
 
+  // GQS: a task with no contact and no company takes them from its linked ticket FIRST, as the workflow's code does -
+  // its Sales Agent then comes from them (SARCLA 19.10.2026: migrate the GQS distribution to the hub)
+  if (pipeline === "gqs" && !t.associations?.companies?.results?.length && !t.associations?.contacts?.results?.length) {
+    const inh = await linkedParty(id).catch(() => null);
+    if (inh) {
+      row.inherit = inh;
+      t.associations = { ...(t.associations ?? {}), contacts: { results: inh.contacts.map((x) => ({ id: x })) }, companies: { results: inh.companies.map((x) => ({ id: x })) } };
+    }
+  }
   const { companies, contacts } = await salesAgentFacts(t);
   const firstCo = companies.find((c) => !/apsoparts|angst/i.test(`${c.name} ${c.domain ?? ""}`));
   row.company = firstCo ? { name: firstCo.name, salesPriority: firstCo.salesPriority ?? null } : null;
@@ -552,7 +579,8 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
   if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
   if (row.pipeline === "bo" && !(LIVE_STEPS.has(row.route?.assigner ?? "") && settings.hub.liveSteps.includes(row.route?.assigner ?? ""))) return skip("this path stays with the workflow");
-  if (row.pipeline === "gqs" && !(row as Row & { hasParty?: boolean }).hasParty) return skip("no contact or company - the workflow copies them from the linked ticket");
+  // GQS without a contact or company of its own: the hub copies them from the linked ticket (row.inherit) before writing;
+  // with none anywhere it still assigns - the code does too (no Sales Agent, then the GQS team)
   const owner = row.hub?.ownerId ?? null;
   if (!owner) return skip("the hub found nobody");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
@@ -563,6 +591,10 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   if (cur && cur !== PEOPLE.backofficeTeam.id) return skip(`already owned (${(await ownerNames()).get(cur) ?? cur})`);
   if (!(ENTRY_STAGES[row.pipeline] as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
   try {
+    if (row.pipeline === "gqs" && row.inherit) {
+      for (const c of row.inherit.contacts) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/contacts/${c}`, "PUT").catch(() => null);
+      for (const c of row.inherit.companies) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${c}`, "PUT").catch(() => null);
+    }
     const props: Record<string, string> = { hubspot_owner_id: owner, hs_pipeline_stage: ASSIGNED_STAGE[row.pipeline] };
     // GQS: the workflow sets the status before its owner step - "Approved by Line Manager" unless auto-approved. With the
     // hub assigning, the workflow's safety net skips that branch, so the hub sets it the same way.
@@ -574,6 +606,7 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
       `✅ Auto-Assigned to ${row.hub!.ownerName}`, "", `Method: ${row.hub!.method}`,
       ...(row.hub!.reasons.length ? [`Why: ${row.hub!.reasons.join("; ")}`] : []),
       ...(row.route ? [`Path: ${row.route.path.join(" > ")}`] : []),
+      ...(row.inherit ? [`Contact and company copied from linked ticket ${row.inherit.from}`] : []),
       "", "---", "Auto-assigned by APSOhub (Back Office distribution)",
     ].join("<br>");
     if (settings.hub.note) await hs("/crm/v3/objects/notes", "POST", {

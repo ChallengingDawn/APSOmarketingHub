@@ -436,7 +436,7 @@ function Rules({ d, rows }: { d: Data; rows: Row[] }) {
     { title: "Writes",
       wf: { text: <>The owner, stage {q(stage(STAGE.gqsWaitingOnApso))} and the company when the Sales Agent came from a contact; then the owner gets &quot;NEW GQS TASK&quot; in HubSpot.</> },
       hub: live
-        ? { text: <>Live: the same - owner, stage, status and company{hub?.note ? ", and a note on the ticket" : ""}. A task with no contact or company, older than 20 minutes or already owned is left to the workflow.</>, n: wrote, extra: "written" }
+        ? { text: <>Live: the same - owner, stage, status and company{hub?.note ? ", and a note on the ticket" : ""}. A task with no contact or company first gets them from its linked ticket, as the workflow does; one older than 20 minutes or already owned is left alone.</>, n: wrote, extra: "written" }
         : { text: "Shadow: nothing - live mode for GQS is off (Settings)." } },
   ];
   return (

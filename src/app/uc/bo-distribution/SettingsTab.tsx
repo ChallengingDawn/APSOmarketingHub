@@ -93,7 +93,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
                 </Box>
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                   {pipe === "gqs"
-                    ? "Writes owner, stage “Open the GQS Task” and a note. Tickets without contact or company stay with the workflow (it copies them from the linked ticket)."
+                    ? "Writes owner, stage “Open the GQS Task”, the GQS status and a note; a task without contact or company first gets them from its linked ticket, as the workflow does. To hand GQS to the hub, the workflow's code step is replaced by a 2-minute delay (its status and \u201cNEW GQS TASK\u201d notification stay)."
                     : "Writes owner, stage Assigned, the company link and a note - for the steps ticked below. Task Status Report merges and the sales@ split stay with the workflow."}
                 </Typography>
               </Box>
