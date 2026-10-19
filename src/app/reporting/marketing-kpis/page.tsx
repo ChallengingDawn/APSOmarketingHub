@@ -33,10 +33,10 @@ import { LinkCard, rendererOf } from "./tiles/registry";
 import { kpiSummary } from "./tiles/summary";
 import { WithActions } from "./tiles/WithActions";
 import { stageName } from "@/lib/marketingKpis/stageNames";
-import { placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
+import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
 import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
 import { ShopAccountsCompact, VISIT_NAMES, useVisitData } from "./VisitCompact";
-import { tileChartFor } from "./FullCards";
+import { fullCardFor, tileChartFor } from "./FullCards";
 import type { VisitData } from "@/lib/marketingKpis/visitCube";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
@@ -87,9 +87,9 @@ function KpiTileChart({ v, slug, tint, upTo, actions, chart, title }: {
 /** A nutshell KPI tile's key - the same as on its page, so a move there is a move here. */
 const kpiKey = (slug: string, id: string) => `${slug}::${id}`;
 
-function KpiActions({ v, slug }: { v: KpiView; slug: string }) {
+function KpiActions({ v, slug, card = false }: { v: KpiView; slug: string; card?: boolean }) {
   return (
-    <TileActions where="nutshell" start="nutshell" edge={2.25}
+    <TileActions where="nutshell" start="nutshell" {...(card ? {} : { edge: 2.25 })}
       tile={{ key: kpiKey(slug, v.id), page: slug, kpiId: v.id, title: nameOf(v.id), summary: kpiSummary(v, periodOf(v)), kind: "kpi", href: stageHref(slug) }} />
   );
 }
@@ -116,6 +116,9 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
     // a Lead Generation card is the same graph as on its page (SARCLA 19.10: "not all the promoted come here")
     if (spec.page === "lead") { rows.push({ key: spec.key, node: <LeadPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} /> }); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
+    // shown as its page's full card, a whole row, when someone chose that format (SARCLA 19.10)
+    const full = v && formatOf(acts, spec.key) === "card" && spec.kpiId ? fullCardFor(spec.page, spec.kpiId, <TileActions where="nutshell" start="tab" tile={tile} />) : null;
+    if (full) { rows.push({ key: spec.key, node: full }); continue; }
     if (v) { tiles.push({ key: spec.key, node: <KpiTileChart v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} /> }); continue; }
     const draw = rendererOf(spec.page);
     rows.push({
@@ -143,10 +146,21 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
   const customers = s.slug === "customers";
   const promoted = promotedOf(s.slug, ids, views, state, acts);
+  // a KPI someone chose to show as its page's full card leaves the tiles for the rows (SARCLA 19.10:
+  // "the same dashboard that we push into the nutshell, even the small one, then we decide which format")
+  const fullRows: SortItem[] = [];
+  const small = tiles.filter((v) => {
+    if (formatOf(acts, kpiKey(s.slug, v.id)) !== "card") return true;
+    const node = fullCardFor(s.slug, v.id, <KpiActions v={v} slug={s.slug} card />);
+    if (!node) return true;
+    fullRows.push({ key: kpiKey(s.slug, v.id), node });
+    return false;
+  });
+  const rows = [...fullRows, ...promoted.rows];
   // the panel's tiles, then its full-width cards, each in the order someone dragged them
   const items: SortItem[] = [
     // Visit's tiles draw their page's graphs, small (VisitCompact.tsx)
-    ...tiles.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
+    ...small.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
       chart={tileChartFor(s.slug, v.id, views, visit, live, year) ?? undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
     ...(lead ? LEAD_NUTSHELL_TILES.filter((t) => placementOf(acts, t.key, "nutshell") === "nutshell").map((t) => {
       const tile = { key: t.key, page: "lead", tab: "months", title: t.title, kind: "card" as const, href: stageHref("lead") };
@@ -200,12 +214,12 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
       ) : items.length > 0 ? (
         <SortableGrid items={items} order={acts?.orders?.[`nutshell:${s.slug}`]} canMove={canMove} onMove={save(`nutshell:${s.slug}`)}
           sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }} />
-      ) : !promoted.rows.length ? (
+      ) : !rows.length ? (
         <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
       ) : null}
       {/* the charts and tables promoted from this page, a whole row each */}
-      {promoted.rows.length > 0 && (
-        <SortableGrid items={promoted.rows} order={acts?.orders?.[`nutshell:${s.slug}-rows`]} canMove={canMove} onMove={save(`nutshell:${s.slug}-rows`)}
+      {rows.length > 0 && (
+        <SortableGrid items={rows} order={acts?.orders?.[`nutshell:${s.slug}-rows`]} canMove={canMove} onMove={save(`nutshell:${s.slug}-rows`)}
           sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }} />
       )}
 
