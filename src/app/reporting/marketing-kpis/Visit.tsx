@@ -13,6 +13,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
 import TuneIcon from "@mui/icons-material/Tune";
 import CheckIcon from "@mui/icons-material/Check";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -25,6 +26,8 @@ import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { ChartFrame } from "@/app/charts/ChartFrame";
@@ -418,7 +421,7 @@ function NewReturningBars({ users, fresh, year, w }: { users: KpiView; fresh: Kp
 /** What a Visit card says about its KPI beyond the catalogue - on the page and on the nutshell's full card alike. */
 function visitCardView(id: string, v: KpiView, d: VisitData | null): KpiView {
   // "Visitors per country" (SARCLA 18.10/19.10); the figure stays the visitors outside Switzerland
-  if (id === "V04") return { ...v, measure: { ...v.measure, definition: "Visitors - people on the shop, not companies (GA4's users, who accepted statistics cookies). The figure: every country but Switzerland, month by month added up; the chart: each country, Switzerland included" } };
+  if (id === "V04") return { ...v, measure: { ...v.measure, definition: "People, not companies (GA4, cookies accepted). The figure: all but Switzerland; the chart: each country" } };
   if (id === "V07" && d?.prio.length) {
     const say = (b: string) => { const p = d.prio.find((x) => x.band === b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
     return { ...v, measure: { ...v.measure, note: `${say("Prio 1")} · ${say("Prio 2")} - logged in to the shop this year (Datatracker)` } };
@@ -437,7 +440,7 @@ function visitCharts({ views, d, year, months, filters, countries, w }: { views:
     V03: <MixChart title={`Visits each month by where they came from, ${w} ${year}`} order={CHANNEL_GROUPS} otherLabel="Other (links, e-mail, unknown)"
       rows={groupsByMonth(d, year, months, filters).map((g) => ({ key: String(g.month), label: `${MONTHS[g.month]} ${year}`, total: g.total, py: g.pyTotal, channels: g.groups }))} />,
     V04: <AbroadChart d={d} year={year} months={months} filters={filters} chosen={countries} w={w} />,
-    V05: <MixChart title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
+    V05: <MixChart pageSize={7} title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
       rows={storeChannels(d, filters).slice(0, 16).map((r) => ({ key: r.code, label: r.label, sub: `/${r.code}`, total: r.total, py: r.pyTotal, channels: r.channels }))} />,
     V07: <PrioLoginsByDay live={d.liveLogins} error={d.errors?.liveLogins} />,
     V08: <MixChart title={`The top landing pages by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
@@ -504,19 +507,19 @@ function PrioLoginsByDay({ live, error }: { live: VisitData["liveLogins"]; error
   );
 }
 
-/** Users outside Switzerland by country, against a year earlier (SARCLA 18.10: "should be viewed by country"). */
+/**
+ * Visitors by country, against a year earlier (SARCLA 18.10: "should be viewed by country") - as high as
+ * the New vs returning card beside it (SARCLA 19.10: "should take the same size").
+ */
 function AbroadChart({ d, year, months, filters, chosen, w }: { d: VisitData; year: number; months: number[]; filters: VisitFilters; chosen: string[]; w: string }) {
   // every country, Switzerland included (SARCLA 18.10: "users per country")
   const rows = usersAbroad(d, year, months, filters, true);
   const shown = (chosen.length ? rows.filter((r) => chosen.includes(r.code)) : rows).slice(0, 9);
   if (!shown.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visitors in the choice.</Typography>;
   return (
-    <Box sx={{ display: "grid", gap: 0.75 }}>
-      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Visitors by country, {w} {year} against {w} {year - 1}</Typography>
-      <ChartFrame table={{ columns: ["Country", String(year), String(year - 1)], rows: rows.slice(0, 25).map((r) => [r.label, r.users, r.pyUsers]), numeric: [1, 2] }}>
-        <GroupedColumns height={240} format={(x) => n0(x)} data={shown.map((r) => ({ x: r.label, current: r.users, prior: r.pyUsers || null }))} currentLabel={String(year)} priorLabel={String(year - 1)} />
-      </ChartFrame>
-    </Box>
+    <ChartFrame title={`Visitors by country, ${w} ${year} against ${w} ${year - 1}`} table={{ columns: ["Country", String(year), String(year - 1)], rows: rows.slice(0, 25).map((r) => [r.label, r.users, r.pyUsers]), numeric: [1, 2] }}>
+      <GroupedColumns height={140} format={(x) => n0(x)} data={shown.map((r) => ({ x: r.label, current: r.users, prior: r.pyUsers || null }))} currentLabel={String(year)} priorLabel={String(year - 1)} />
+    </ChartFrame>
   );
 }
 
@@ -524,19 +527,25 @@ type MixRow = { key: string; label: string; sub?: string; total: number; py: num
 /**
  * Visits per store or page, split by the channel that brought them (SARCLA 18.10: "compare what
  * brings more visitors to it"): the four biggest channels in colour, the rest grey; the bar is the
- * visits - or, switched to shares, every bar is a whole, to compare the mix.
+ * visits - or, switched to shares, every bar is a whole, to compare the mix. A long list goes a page
+ * at a time (the stores: seven, SARCLA 19.10 "this should paginate on Netherlands").
  */
-function MixChart({ title, rows, order, otherLabel = "Other channels" }: { title: string; rows: MixRow[]; order?: readonly string[]; otherLabel?: string }) {
+function MixChart({ title, rows: allRows, order, otherLabel = "Other channels", pageSize }: { title: string; rows: MixRow[]; order?: readonly string[]; otherLabel?: string; pageSize?: number }) {
   const [shares, setShares] = useState(false);
+  const [page, setPage] = useState(0);
+  const pages = pageSize ? Math.max(1, Math.ceil(allRows.length / pageSize)) : 1;
+  const at = Math.min(page, pages - 1);
+  const rows = pageSize ? allRows.slice(at * pageSize, at * pageSize + pageSize) : allRows;
   const all: Record<string, number> = {};
-  for (const r of rows) for (const [c, n] of Object.entries(r.channels)) all[c] = (all[c] ?? 0) + n;
+  for (const r of allRows) for (const [c, n] of Object.entries(r.channels)) all[c] = (all[c] ?? 0) + n;
   const top = order ? order.slice(0, SERIES.length) : Object.entries(all).sort((a, b) => b[1] - a[1]).slice(0, SERIES.length).map(([c]) => c);
   const parts = (r: MixRow) => {
     const other = Object.entries(r.channels).filter(([c]) => !top.includes(c)).reduce((a, [, n]) => a + n, 0);
     return [...top.map((c, i) => ({ c, n: r.channels[c] ?? 0, color: SERIES[i] })), { c: otherLabel, n: other, color: DEEMPHASIS }].filter((p) => p.n > 0);
   };
-  const max = Math.max(1, ...rows.map((r) => r.total));
+  const max = Math.max(1, ...allRows.map((r) => r.total));
   if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visits in the choice.</Typography>;
+  const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -550,6 +559,13 @@ function MixChart({ title, rows, order, otherLabel = "Other channels" }: { title
             </Box>
           ))}
         </Box>
+        {pages > 1 && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED, mr: 0.5, fontVariantNumeric: "tabular-nums" }}>{at * pageSize! + 1}–{Math.min(allRows.length, (at + 1) * pageSize!)} of {allRows.length}</Typography>
+            <IconButton size="small" aria-label="The previous ones" disabled={at === 0} onClick={() => setPage(Math.max(0, at - 1))} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+            <IconButton size="small" aria-label="The next ones" disabled={at >= pages - 1} onClick={() => setPage(Math.min(pages - 1, at + 1))} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+          </Box>
+        )}
       </Box>
       <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
         {[...top.map((c, i) => ({ c, color: SERIES[i] })), { c: otherLabel, color: DEEMPHASIS }].map((x) => (

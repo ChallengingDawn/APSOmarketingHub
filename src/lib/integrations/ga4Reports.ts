@@ -57,6 +57,8 @@ export type Ga4ReportName =
   | "viewItemMonthly"
   | "topItemsViewed"
   | "engageEvents"
+  | "itemsMonthly"
+  | "viewItemPages"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -269,10 +271,27 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     limit: 24,
   },
   topItemsViewed: {
+    // the product pages' names (one per store language) - the most viewed first
     dimensions: ["itemName", "itemId"],
     metrics: ["itemsViewed"],
     orderBy: { metric: "itemsViewed", desc: true },
-    limit: 50,
+    limit: 6000,
+  },
+  itemsMonthly: {
+    // The articles bought, month by month (SARCLA 19.10: "the breakdown by profit center and if it was
+    // purchased or not"): purchase carries the 10-digit ARTICLE, which Products & Pricing ties to its product.
+    // (itemsViewed is no view count: view_item fires on category lists too and carries every product listed.)
+    dimensions: ["yearMonth", "itemId"],
+    metrics: ["itemsPurchased"],
+    limit: 250000,
+  },
+  viewItemPages: {
+    // The pages view_item fires on, month by month: a category list (its name says the profit centre), a
+    // product page (its address starts with the 8-digit product), the search results.
+    dimensions: ["yearMonth", "pagePath"],
+    metrics: ["eventCount"],
+    filter: { field: "eventName", value: "view_item" },
+    limit: 250000,
   },
   engageEvents: {
     // DirectUp (uploads, requests sent), the O-ring Expert, and the site search (searches, a result clicked)

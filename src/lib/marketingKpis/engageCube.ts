@@ -5,8 +5,11 @@
 //   topItems   the most viewed articles this year so far (whole months)
 //   events     the tools' and the site search's GA4 events per month
 //   search     the search bar's own log (its gateway): searches per month, those that found nothing
-//   prices     price checks from the live shop tracker (since 30 Sep 2026): customers who priced
-//              3+ KT/DT articles and did not order (the Datatracker's rule)
+//   prices     why logged-in customers did not buy, from the live shop tracker (since 30 Sep 2026): the
+//              price (they priced 3+ KT/DT articles and did not order - the Datatracker's rule), the
+//              minimum order quantity (they asked for fewer), availability (not, or not enough, on the shelf)
+//   products   each product page viewed, its profit centre and whether its articles were bought, per month
+//   tools      each configurator's own count - DirectCut, DirectUP, the shop tools' gateways
 // GA4 counts visitors who accepted statistics cookies only: every GA4 figure is a floor.
 
 import { countryName } from "./countries";
@@ -18,6 +21,116 @@ export const TOOLS: { event: string; label: string; what: string }[] = [
   { event: "oring_expert_add_to_cart", label: "O-ring Expert - to the cart", what: "An O-ring chosen in the O-ring Expert put in the cart" },
 ];
 export const SEARCH_EVENTS = { searches: "view_search_results", clicks: "search_results_click" } as const;
+
+/** Products & Pricing's profit centres, in plain words. */
+export const PROFIT_CENTRES: Record<string, string> = {
+  DT: "Sealing", KT: "Plastics", FT: "Fluid - hoses and fittings", AT: "Drive - belts", ST: "Anti-vibration", PW: "Sensors and power",
+};
+export const pcLabel = (pc: string | null) => (pc ? (PROFIT_CENTRES[pc] ? `${pc} · ${PROFIT_CENTRES[pc]}` : pc) : "Not in Products & Pricing");
+
+/** The shop's top categories in its six languages - a category page's profit centre. */
+const CATEGORY_PC: Record<string, string> = Object.fromEntries(Object.entries({
+  DT: ["dichtungstechnik", "sealing-technology", "technologie-de-l-etancheite", "tecnologia-delle-tenute", "afdichtingstechniek", "technologia-uszczelniania"],
+  KT: ["kunststofftechnik", "engineering-plastics-technology", "technologie-des-matieres-plastiques", "tecnologia-delle-materie-plastiche", "kunststoftechniek", "technologia-tworzyw-sztucznych", "directcut-konfigurator", "directcut-configurator"],
+  FT: ["fluidtechnik", "fluid-handling-technology", "technologie-des-fluides", "tecnologia-dei-fluidi", "industriele-slangen", "technologia-manipulowania-plynami"],
+  AT: ["antriebstechnik", "drive-technology", "technologie-de-la-transmission", "tecnologia-delle-trasmissioni", "aandrijftechniek", "technologia-napedowa"],
+  ST: ["schwingungstechnik", "antivibration-technology", "technologie-de-l-antivibration", "tecnologia-dell-antivibrazione", "trillingisolatie", "technologia-przeciwdrganiowa"],
+  PW: ["sensoren-und-powertechnik", "sensors-and-power", "technologie-des-capteurs-et-de-l-energie", "tecnologia-dei-sensori-e-della-potenza", "sensoren-en-voedingstechnologie", "czujniki-i-elementy-zasilajace"],
+}).flatMap(([pc, slugs]) => slugs.map((s) => [s, pc])));
+
+/**
+ * The page a view_item fired on: a product page (its address starts with the 8-digit product), a category
+ * list (its top category is the profit centre), the search results, or something else.
+ */
+export function viewPage(path: string): { kind: "product"; product: string } | { kind: "list"; pc: string } | { kind: "search" | "other" } {
+  let p = path.split("?")[0].split("/").filter(Boolean);
+  if (/^[a-z]{2}-[A-Z]{2,3}$/.test(p[0] ?? "")) p = p.slice(1);
+  if (/^[a-z]{3}$/.test(p[0] ?? "") && p.length > 1) p = p.slice(1);   // /de-DE/eur/... - the currency
+  const last = (p[p.length - 1] ?? "").replace(/\.html$/, "");
+  const m = /^(\d{8})-/.exec(last);
+  if (m) return { kind: "product", product: m[1] };
+  if (p[0] === "catalogsearch") return { kind: "search" };
+  const pc = CATEGORY_PC[(p[0] ?? "").replace(/\.html$/, "")];
+  return pc ? { kind: "list", pc } : { kind: "other" };
+}
+
+export type SearchKind = "number" | "code" | "words" | "long";
+export const SEARCH_KINDS: Record<SearchKind, string> = {
+  number: "A number we do not know - article, drawing, the customer's own",
+  code: "A type or code - letters and numbers",
+  words: "Words",
+  long: "A long question or pasted text",
+};
+
+/** What a search was, by its text alone. */
+export function searchKind(text: string): SearchKind {
+  const s = text.trim();
+  if (s.split(/\s+/).length >= 6 || s.length > 50) return "long";
+  if (/^[\d\s.\-/]+$/.test(s) && s.replace(/\D/g, "").length >= 4) return "number";
+  if (/\d/.test(s) && /\p{L}/u.test(s)) return "code";
+  return "words";
+}
+
+export type LogLine = { text: string; norm: string; locale: string; hits: number; at: string };
+export type SearchSample = {
+  from: string; to: string; searches: number; nothing: number;
+  /** found nothing while the person was still typing: a longer (or shorter) text followed within a minute */
+  typing: number;
+  kinds: Record<SearchKind, number>;
+  /** the texts that found nothing most often, per kind */
+  examples: Record<SearchKind, { text: string; n: number }[]>;
+};
+/**
+ * The search bar's last searches, read for "is 27% too high?" (SARCLA 19.10): which of those that found
+ * nothing were only half typed - the bar searches as one types, so "haltegri" finds nothing a moment
+ * before "haltegriff" does - and what the others were.
+ */
+export function searchSample(lines: LogLine[]): SearchSample | null {
+  if (!lines.length) return null;
+  const asc = [...lines].sort((a, b) => a.at.localeCompare(b.at));
+  const kinds: Record<SearchKind, number> = { number: 0, code: 0, words: 0, long: 0 };
+  const seen: Record<SearchKind, Map<string, { text: string; n: number }>> = { number: new Map(), code: new Map(), words: new Map(), long: new Map() };
+  let nothing = 0, typing = 0;
+  for (let i = 0; i < asc.length; i++) {
+    const l = asc[i];
+    if (l.hits) continue;
+    nothing++;
+    const t = Date.parse(l.at);
+    let half = false;
+    for (let j = i + 1; j < asc.length && j < i + 80; j++) {
+      const m = asc[j];
+      if (Date.parse(m.at) - t > 60_000) break;
+      if (m.locale === l.locale && m.norm !== l.norm && (m.norm.startsWith(l.norm) || l.norm.startsWith(m.norm))) { half = true; break; }
+    }
+    if (half) { typing++; continue; }
+    const k = searchKind(l.text);
+    kinds[k]++;
+    // a password or an e-mail typed into the bar by mistake is counted, never shown
+    if (/pass|kennw|mot de passe|@/i.test(l.text)) continue;
+    const e = seen[k].get(l.norm);
+    if (e) e.n++; else seen[k].set(l.norm, { text: l.text.replace(/\s+/g, " ").trim().slice(0, 70), n: 1 });
+  }
+  const top = (k: SearchKind) => [...seen[k].values()].sort((a, b) => b.n - a.n).slice(0, 8);
+  return { from: asc[0].at, to: asc[asc.length - 1].at, searches: asc.length, nothing, typing, kinds, examples: { number: top("number"), code: top("code"), words: top("words"), long: top("long") } };
+}
+
+export type ToolCount = {
+  key: string; name: string; what: string;
+  /** where the count comes from, in a few words */
+  source: string;
+  /** the first day it counts */
+  since: string | null;
+  /** what the two figures of a day are */
+  unit: string; unit2: string | null;
+  /** [day, figure, second figure] */
+  days: [string, number, number][];
+  /** framed on the shop's production pages */
+  onShop: boolean;
+  error?: string;
+};
+
+export type MoqRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number; minimum: number | null; unit: string | null };
+export type ShelfRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number | null; stock: number; short: number | null; unit: string | null };
 
 export type EngageData = {
   generatedAt: string;
@@ -31,7 +144,19 @@ export type EngageData = {
   cube: [string, string, number, number, number, number, number][];
   /** "YYYY-MM" -> [article views, visitors who viewed one] */
   views: Record<string, [number, number]>;
-  topItems: { name: string; id: string; views: number }[];
+  /**
+   * Each product page viewed (the 8-digit product), its name and profit centre, and per month - last
+   * year's January to December, then this year's - its page's views and how many of its articles were bought.
+   */
+  products: Record<string, { n: string; pc: string | null; v: number[]; b?: number[] }>;
+  /** the other pages view_item fires on, per month: a category list by its profit centre, "search" (the results), "other" */
+  lists: Record<string, number[]>;
+  /** the articles bought online per month, by their product's profit centre ("other": Products & Pricing does not know it) */
+  bought: Record<string, number[]>;
+  /** made-to-order articles bought per month (8001..., cut pieces and special O-rings) - they belong to no product page */
+  madeToOrder: number[];
+  /** the other articles bought online that Products & Pricing could not tie to a product */
+  unmapped: number;
   /** "YYYY-MM" -> event -> [count, users] */
   events: Record<string, Record<string, [number, number]>>;
   search: {
@@ -46,6 +171,8 @@ export type EngageData = {
     top: { query: string; searches: number; found: number }[];
     /** the searches that found nothing, the last 30 days - the words to add to the search bar */
     gaps: { query: string; count: number; last: string; locales: string[] }[];
+    /** the last searches, one by one: what those that found nothing were */
+    sample: SearchSample | null;
   } | null;
   prices: {
     since: string;
@@ -53,7 +180,12 @@ export type EngageData = {
     byDay: [string, number, number][];
     byTeam: Record<string, number>;
     companies: number;
+    /** asked for fewer than the article's minimum order quantity: [day, looks, companies] and each look */
+    moq: { byDay: [string, number, number][]; rows: MoqRow[]; total: number };
+    /** nothing on the shelf, or not as much as they asked for: [day, nothing, not enough] and each look */
+    shelf: { byDay: [string, number, number][]; rows: ShelfRow[]; total: number };
   } | null;
+  tools: ToolCount[];
   errors: Record<string, string>;
 };
 
@@ -156,3 +288,76 @@ export function siteSearchGa4(d: EngageData, year: number, months: number[]): { 
 
 /** "4 min 05 s" - engagement time. */
 export const minSec = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${Math.floor(v / 60)} min ${String(Math.round(v % 60)).padStart(2, "0")} s`);
+
+/** a month's place in a product's 24 months: last year's January to December, then this year's */
+const at24 = (year: number, y: number, i: number) => (y === year ? 12 + i : y === year - 1 ? i : -1);
+
+export type PcRow = {
+  /** a profit centre, "search" (the search results), "other" (a page the hub cannot place) */
+  key: string; label: string;
+  /** every view: the category lists and the product pages */
+  views: number; pyViews: number;
+  /** the product pages' views, and those on a product of which an article was bought online in those months */
+  productViews: number; viewsBought: number; pyProductViews: number; pyViewsBought: number;
+  products: number; productsBought: number;
+  /** the articles of the profit centre bought online (each once a month) */
+  bought: number; pyBought: number;
+};
+const KEY_LABEL: Record<string, string> = { search: "Search results - no profit centre", other: "Other pages - not tied to a profit centre" };
+/**
+ * Article views by profit centre over the months chosen, against the same months a year earlier (SARCLA
+ * 19.10: "the breakdown by profit center and if it was purchased or not"): every page view_item fires on -
+ * a category list by its top category, a product page by its product's profit centre - and of the product
+ * pages, those on a product bought online in those months. The rows add up to the Article views figure.
+ */
+export function viewsByPc(d: EngageData, year: number, months: number[]): PcRow[] {
+  const rows = new Map<string, PcRow>();
+  const row = (key: string) => {
+    let r = rows.get(key);
+    if (!r) rows.set(key, (r = { key, label: KEY_LABEL[key] ?? pcLabel(key), views: 0, pyViews: 0, productViews: 0, viewsBought: 0, pyProductViews: 0, pyViewsBought: 0, products: 0, productsBought: 0, bought: 0, pyBought: 0 }));
+    return r;
+  };
+  const sum = (xs: number[] | undefined, y: number) => months.reduce((a, i) => a + (xs?.[at24(year, y, i)] ?? 0), 0);
+  for (const [key, xs] of Object.entries(d.lists)) {
+    const v = sum(xs, year), pv = sum(xs, year - 1);
+    if (!v && !pv) continue;
+    const r = row(key);
+    r.views += v; r.pyViews += pv;
+  }
+  for (const [key, xs] of Object.entries(d.bought)) {
+    const b = sum(xs, year), pb = sum(xs, year - 1);
+    if (!b && !pb) continue;
+    const r = row(key);
+    r.bought += b; r.pyBought += pb;
+  }
+  for (const p of Object.values(d.products)) {
+    const v = sum(p.v, year), pv = sum(p.v, year - 1), b = sum(p.b, year), pb = sum(p.b, year - 1);
+    if (!v && !pv) continue;
+    // a product Products & Pricing does not know joins the pages the hub cannot place
+    const r = row(p.pc ?? "other");
+    r.views += v; r.pyViews += pv; r.productViews += v; r.pyProductViews += pv;
+    if (v) r.products++;
+    if (v && b) { r.productsBought++; r.viewsBought += v; }
+    if (pv && pb) r.pyViewsBought += pv;
+  }
+  const last = (k: string) => (k === "search" ? 1 : k === "other" ? 2 : 0);
+  return [...rows.values()].sort((a, b) => last(a.key) - last(b.key) || b.views - a.views);
+}
+
+/** Made-to-order articles bought online over the months chosen - they belong to no product page. */
+export const madeToOrderIn = (d: EngageData, year: number, months: number[]) => months.reduce((a, i) => a + (d.madeToOrder[at24(year, year, i)] ?? 0), 0);
+
+export type ProductRow = { id: string; name: string; pc: string | null; views: number; pyViews: number; bought: number };
+/** The products viewed most over the months chosen - their profit centre, and the articles of them bought online. */
+export function productTable(d: EngageData, year: number, months: number[], f: { pc?: (string | null)[]; bought?: boolean } = {}): ProductRow[] {
+  const out: ProductRow[] = [];
+  for (const [id, p] of Object.entries(d.products)) {
+    if (f.pc?.length && !f.pc.includes(p.pc)) continue;
+    let v = 0, pv = 0, b = 0;
+    for (const i of months) { v += p.v[at24(year, year, i)] ?? 0; pv += p.v[at24(year, year - 1, i)] ?? 0; b += p.b?.[at24(year, year, i)] ?? 0; }
+    if (!v) continue;
+    if (f.bought != null && f.bought !== b > 0) continue;
+    out.push({ id, name: p.n, pc: p.pc, views: v, pyViews: pv, bought: b });
+  }
+  return out.sort((a, b) => b.views - a.views);
+}

@@ -82,7 +82,7 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "E03", label: "Average engagement time", fmt: "sec", agg: { kind: "ratio", num: "E03S", den: "E03U" }, origin: "live", liveSource: "GA4", definition: "GA4's engagement time per visitor - the time the shop was in front, month by month" }),
   M({ id: "E03S", label: "Engagement seconds", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "E03U", label: "Visitors (engagement)", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
-  M({ id: "E04", label: "Article views", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "Article pages viewed (GA4's view_item), month by month - the most viewed below" }),
+  M({ id: "E04", label: "Article views", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "Pages showing articles, viewed (GA4's view_item): a category list, a product page or the search results" }),
   M({ id: "E04U", label: "Visitors who viewed an article", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
   M({ id: "E05", label: "Site searches", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "the search bar", definition: "Searches in the shop's search bar, from its own log (every search, cookies or not)" }),
   M({ id: "E05N", label: "Searches that found nothing", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),

@@ -27,24 +27,27 @@ export const withChange = (v: React.ReactNode, c: ReturnType<typeof change>) => 
 );
 
 /** A plain table, figures in full (SARCLA: no abbreviations); a row can be picked. */
-export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth }: {
+export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth, left = [] }: {
   head: string[]; rows: { key: string; cells: React.ReactNode[]; strong?: boolean; on?: boolean; onPick?: () => void }[]; firstWidth?: string;
   /** the other columns' widths, when not all the same */
   widths?: string[];
   /** below this the table scrolls sideways (a table in half a row is narrower) */
   minWidth?: number;
+  /** the columns read as text, left-aligned like the first (a company, an article); the others are figures */
+  left?: number[];
 }) {
+  const right = (i: number) => i > 0 && !left.includes(i);
   const cols = widths ? `${firstWidth} ${widths.join(" ")}` : `${firstWidth} repeat(${head.length - 1}, minmax(110px, 1fr))`;
   return (
     <Box sx={{ overflowX: "auto" }}>
       {/* the cells stretch to their row, so a row's line runs straight across */}
       <Box sx={{ display: "grid", gridTemplateColumns: cols, minWidth: minWidth ?? 220 + (head.length - 1) * 115, alignItems: "stretch" }}>
-        {head.map((h, i) => <Typography key={h} sx={{ display: "flex", alignItems: "flex-end", justifyContent: i ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: i ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
+        {head.map((h, i) => <Typography key={h} sx={{ display: "flex", alignItems: "flex-end", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: right(i) ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
         {rows.map((r) => (
           <Box key={r.key} role={r.onPick ? "button" : undefined} tabIndex={r.onPick ? 0 : undefined} aria-pressed={r.onPick ? !!r.on : undefined}
             onClick={r.onPick} onKeyDown={r.onPick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); r.onPick!(); } } : undefined}
             sx={{ display: "contents", cursor: r.onPick ? "pointer" : "default", "& > *": { py: 0.8, px: 0.75, borderBottom: `1px solid ${HAIRLINE}`, fontVariantNumeric: "tabular-nums", bgcolor: r.on ? TINT.blue.bg : r.strong ? "#f4f7fc" : "transparent" }, "&:hover > *": r.onPick ? { bgcolor: r.on ? TINT.blue.bg : "#f7f9fc" } : {} }}>
-            {r.cells.map((c, i) => <Box key={i} sx={{ display: "flex", alignItems: "center", justifyContent: i ? "flex-end" : "flex-start", fontSize: "0.86rem", color: INK, fontWeight: r.strong ? 800 : i ? 500 : 600, textAlign: i ? "right" : "left", minWidth: 0 }}>{c}</Box>)}
+            {r.cells.map((c, i) => <Box key={i} sx={{ display: "flex", alignItems: "center", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.86rem", color: INK, fontWeight: r.strong ? 800 : i ? 500 : 600, textAlign: right(i) ? "right" : "left", minWidth: 0 }}>{c}</Box>)}
           </Box>
         ))}
       </Box>
