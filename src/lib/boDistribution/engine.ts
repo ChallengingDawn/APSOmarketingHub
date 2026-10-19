@@ -36,9 +36,10 @@ const DAYS_KEPT = 21;
 const MAX_PER_RUN = 40;
 
 /** rosters: the page's lists (hub mode); a list left out = the workflow's own. */
-/** live: the hub WRITES the owner for that pipeline (SARCLA 19.10.2026, "build it now"); off = shadow only. */
+/** live: the hub WRITES the owner for that pipeline (SARCLA 19.10.2026, "build it now"); off = shadow only.
+ *  live.strays: the hub gives the open tickets waiting for an owner one (see "waiting for an owner" below). */
 export type Settings = {
-  mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; live: { bo: boolean; gqs: boolean };
+  mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; live: { bo: boolean; gqs: boolean; strays: boolean };
   hub: HubOptions; priority: PrioritySettings; by: string | null; at: string | null;
 };
 /** The hub's own rules (Settings tab, SARCLA 19.10.2026 "settings should be more developed") - the copy never uses them. */
@@ -110,7 +111,7 @@ export type Row = {
 };
 export type RunInfo = { at: string; seconds: number; read: number; decided: number; checked: number; error?: string };
 
-const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", backfill: "boDist:backfill", day: (d: string) => `boDist:rows:${d}` };
+const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", backfill: "boDist:backfill", strays: "boDist:strays", day: (d: string) => `boDist:rows:${d}` };
 /** The replay of the last days (SARCLA 18.10.2026: the page was empty on a quiet Sunday night). */
 type Backfill = { from: number; cursor: number; done: boolean; startedAt: string };
 const BACKFILL_DAYS = 7;
@@ -119,7 +120,7 @@ const BACKFILL_PER_RUN = 15;
 export async function getSettings(): Promise<Settings> {
   const x = await kvGet<Partial<Settings>>(KV.settings);
   return {
-    mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs },
+    mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs, strays: !!x?.live?.strays },
     hub: { ...DEFAULT_HUB, ...(x?.hub ?? {}) }, priority: { ...DEFAULT_PRIORITY, ...(x?.priority ?? {}) }, by: x?.by ?? null, at: x?.at ?? null,
   };
 }
@@ -134,7 +135,7 @@ export async function saveSettings(patch: {
     if (v === null) { delete rosters[k]; continue; } // back to the workflow's list
     rosters[k] = v.filter((x) => /^\d+$/.test(String(x.id)) && String(x.name ?? "").trim()).slice(0, 15).map((x) => ({ id: String(x.id), name: String(x.name).trim() }));
   }
-  const live = { bo: patch.live?.bo ?? cur.live.bo, gqs: patch.live?.gqs ?? cur.live.gqs };
+  const live = { bo: patch.live?.bo ?? cur.live.bo, gqs: patch.live?.gqs ?? cur.live.gqs, strays: patch.live?.strays ?? cur.live.strays };
   const h = { ...cur.hub, ...(patch.hub ?? {}) };
   const ids = (a: unknown) => (Array.isArray(a) ? a.map(String).filter((x) => /^\d+$/.test(x)).slice(0, 20) : []);
   const hub: HubOptions = {
@@ -310,12 +311,16 @@ const answer = (p: RulePick): Answer => ({ ownerId: p.owner?.id ?? null, ownerNa
 const fixed = (owner: Person | null, method: string): Answer => ({ ownerId: owner?.id ?? null, ownerName: owner?.name ?? null, method, reasons: [] });
 
 type Shared = { settings?: Settings; avail?: { all: Availability; first: Availability; ooo: Set<string> }; archived?: Set<string>; boLoad?: Workload; gqsLoad?: Workload; boLoadHub?: Workload; gqsLoadHub?: Workload };
+const BO_KEYS: RosterKey[] = ["team27", "team31", "team23", "team50", "primary23", "saToOwnerBo"];
+const GQS_KEYS: RosterKey[] = ["gqsTeam", "gqsDt", "saToOwnerGqs"];
 /** Everyone a list names - the workflow's and the page's. */
 function everyone(settings: Settings, keys: RosterKey[]): Person[] {
   return uniq(keys.flatMap((k) => [LEGACY[k], settings.rosters[k] ?? []]));
 }
 
-async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, shared: Shared): Promise<Row> {
+/** stray: a ticket waiting for an owner - its facts as they are now, routed as if it entered New, and a path that
+ *  picks nobody (chat, exclusions, the sales split, Rose) falls to General Distribution: it must get someone. */
+async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, shared: Shared, opts: { stray?: boolean } = {}): Promise<Row> {
   const t = await ticket(id, ["hs_pipeline_stage", ...CAT_PROPS]);
   const p = t.properties;
   const asOf = Date.parse(enteredAt) + 45_000; // the workflow reads the ticket one minute after entry
@@ -325,9 +330,7 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   };
   shared.settings ??= await getSettings();
   const settings = shared.settings;
-  const people = pipeline === "bo"
-    ? everyone(settings, ["team27", "team31", "team23", "team50", "primary23", "saToOwnerBo"])
-    : everyone(settings, ["gqsTeam", "gqsDt", "saToOwnerGqs"]);
+  const people = everyone(settings, pipeline === "bo" ? BO_KEYS : GQS_KEYS);
   shared.avail ??= await availability();
   shared.archived ??= await archivedOwners();
   const load = pipeline === "bo"
@@ -376,8 +379,8 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const mail = await emails(t);
   const facts = {
     subject: p.subject ?? "", sourceType: p.source_type ?? null, aiChatSource: p.ai_chat_source ?? null, c2sProblemOrder: !!p.c2s_problem_order,
-    stage: valueAt(stageHist, asOf) ?? p.hs_pipeline_stage ?? "",
-    stagesEver: [...new Set(stageHist.filter((h) => Date.parse(h.timestamp) <= asOf).map((h) => h.value))],
+    stage: opts.stray ? STAGE.boNew : valueAt(stageHist, asOf) ?? p.hs_pipeline_stage ?? "",
+    stagesEver: opts.stray ? [STAGE.boNew] : [...new Set(stageHist.filter((h) => Date.parse(h.timestamp) <= asOf).map((h) => h.value))],
     category: valueAt(t.propertiesWithHistory?.enquiry_category, asOf),
     subs: Object.fromEntries(CAT_PROPS.slice(1).map((k) => [k, valueAt(t.propertiesWithHistory?.[k], asOf)])),
     emailToSales: mail.to.includes("sales@apsoparts.com"),
@@ -401,25 +404,29 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const subKey = { "Website Issue": SUB.website, "Product Price": SUB.price, Delivery: SUB.delivery, "Invoicing & Accounting": SUB.invoicing, "Product Information": SUB.product }[cat ?? ""];
   const sub = subKey ? r.sets[subKey] ?? facts.subs[subKey] ?? null : null;
   row.priorityHub = priorityFor((r.sets.hs_ticket_priority as Priority | undefined) ?? null, cat ?? null, sub, row.priorityFacts, settings.priority);
-  if (r.sets.hubspot_owner_id) {
-    const rose = fixed({ id: r.sets.hubspot_owner_id, name: (await ownerNames()).get(r.sets.hubspot_owner_id) ?? r.sets.hubspot_owner_id }, "Chat request resent by TSA");
-    row.legacy = rose; row.hub = rose; return row;
+  const strayStep = opts.stray && (!r.assigner || r.assigner === "75" || r.assigner === "50" || !!r.sets.hubspot_owner_id) ? "27" as const : null;
+  if (!strayStep) {
+    if (r.sets.hubspot_owner_id) {
+      const rose = fixed({ id: r.sets.hubspot_owner_id, name: (await ownerNames()).get(r.sets.hubspot_owner_id) ?? r.sets.hubspot_owner_id }, "Chat request resent by TSA");
+      row.legacy = rose; row.hub = rose; return row;
+    }
+    if (!r.assigner) { row.note = "no distribution on this path"; return row; }
+    if (r.assigner === "75") {
+      const rep = mail.latestFrom ? await ownerByEmail(mail.latestFrom) : null;
+      row.legacy = fixed(rep, `To ESO with the forwarding rep (${mail.latestFrom ?? "sender unknown"})`);
+      row.hub = row.legacy; row.note = "sales split - ESO New"; return row;
+    }
+    if (r.assigner === "50") {
+      const o = /O2\d\.\d{8}/.exec(p.subject ?? "")?.[0];
+      const gqsOwner = o ? await gqsTaskOwner(o) : null;
+      if (gqsOwner) { row.legacy = fixed(gqsOwner, `Merged into GQS task ${o}`); row.hub = row.legacy; return row; }
+    }
   }
-  if (!r.assigner) { row.note = "no distribution on this path"; return row; }
-  if (r.assigner === "75") {
-    const rep = mail.latestFrom ? await ownerByEmail(mail.latestFrom) : null;
-    row.legacy = fixed(rep, `To ESO with the forwarding rep (${mail.latestFrom ?? "sender unknown"})`);
-    row.hub = row.legacy; row.note = "sales split - ESO New"; return row;
-  }
-  if (r.assigner === "50") {
-    const o = /O2\d\.\d{8}/.exec(p.subject ?? "")?.[0];
-    const gqsOwner = o ? await gqsTaskOwner(o) : null;
-    if (gqsOwner) { row.legacy = fixed(gqsOwner, `Merged into GQS task ${o}`); row.hub = row.legacy; return row; }
-  }
+  const step = strayStep ?? (r.assigner as "23" | "27" | "31" | "42" | "50");
   const inp = input("saToOwnerBo");
   row.associate = inp.saHub?.companyToAssociate ?? inp.sa.companyToAssociate ?? null;
-  row.legacy = answer(assignBo(r.assigner, inp, "legacy"));
-  row.hub = answer(assignBo(r.assigner, inp, "hub"));
+  row.legacy = answer(assignBo(step, inp, "legacy"));
+  row.hub = answer(assignBo(step, inp, "hub"));
   return row;
 }
 
@@ -572,6 +579,150 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   }
 }
 
+/* ── waiting for an owner ─────────────────────────────────────────────────── */
+// SARCLA 19.10.2026: "the unassigned tickets should always be distributed, as well as Backoffice Team". The entry
+// flow decides a ticket once, when it enters New - one that loses its owner later never comes back: when a person is
+// deactivated, the inbox clears the owner on the customer's next reply (12 tickets of Leart's old account sat in
+// "Customer/Internal replied" with nobody for weeks), and a re-entry can leave the Backoffice Team queue on it.
+// Every 5 minutes the hub lists the open Back Office and GQS tickets with no owner, Backoffice Team or a deactivated
+// owner - 15 minutes in their stage, so the entry flow and the workflow's safety net go first - and works out who
+// gets each: the person who had it (or the same person's new account) when on the team's lists and available, else
+// the distribution's own pick with the hub's rules. Nobody available: it waits and is looked at again 5 minutes
+// later. Live (Settings, its own switch) writes the owner only - never the stage - and a note.
+
+export type Stray = {
+  ticketId: string; pipeline: "bo" | "gqs"; subject: string; stage: string | null; stageLabel: string | null;
+  /** in its stage since */
+  since: string | null;
+  why: "no owner" | "Backoffice Team" | "deactivated owner";
+  /** the person who had it last (a deactivated account included) */
+  was: string | null;
+  hub: Answer | null;
+  wrote?: Row["wrote"];
+  error?: string;
+};
+export type StrayState = { at: string; total: number; items: Stray[] };
+const STRAYS_EVERY_MS = 5 * 60_000;
+const STRAY_GRACE_MS = 15 * 60_000;
+const STRAYS_PER_PASS = 25;
+const STRAY_WRITES_PER_PASS = 10;
+export const strayState = async () => (await kvGet<StrayState>(KV.strays)) ?? null;
+
+async function strayCandidates(archived: Set<string>): Promise<{ id: string; pipeline: "bo" | "gqs"; p: Record<string, string | null> }[]> {
+  const st = await pipelineStages();
+  const props = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate"];
+  const gone = [...archived].filter((x) => /^\d+$/.test(x));
+  const out = new Map<string, { id: string; pipeline: "bo" | "gqs"; p: Record<string, string | null> }>();
+  for (const [pid, kind, closed] of [[BO, "bo", st.boClosed], [GQS, "gqs", st.gqsClosed]] as const) {
+    if (!closed.length) continue; // stages unread: better nothing than closed tickets
+    const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }];
+    const owners: object[] = [
+      { propertyName: "hubspot_owner_id", operator: "NOT_HAS_PROPERTY" },
+      { propertyName: "hubspot_owner_id", operator: "EQ", value: PEOPLE.backofficeTeam.id },
+      ...Array.from({ length: Math.ceil(gone.length / 100) }, (_, i) => ({ propertyName: "hubspot_owner_id", operator: "IN", values: gone.slice(i * 100, i * 100 + 100) })),
+    ];
+    for (const f of owners) {
+      let after: string | undefined;
+      for (let page = 0; page < 3; page++) {
+        const r = await hs<{ results?: { id: string; properties: Record<string, string | null> }[]; paging?: { next?: { after?: string } } }>("/crm/v3/objects/tickets/search", "POST", {
+          filterGroups: [{ filters: [...base, f] }], properties: props, sorts: [{ propertyName: "createdate", direction: "ASCENDING" }], limit: 100, ...(after ? { after } : {}),
+        });
+        for (const t of r.results ?? []) out.set(t.id, { id: t.id, pipeline: kind, p: t.properties });
+        after = r.paging?.next?.after;
+        if (!after) break;
+      }
+    }
+  }
+  return [...out.values()].filter((c) => Date.now() - Date.parse(c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? "") >= STRAY_GRACE_MS);
+}
+
+/** The person who had the ticket last (not the queue), and that person's active account: the same one, or - for a
+ *  deactivated account - an active owner with exactly the same name (Leart Asllani's new account, 14.09.2026). */
+async function lastRealOwner(id: string, shared: Shared, names: Map<string, string>): Promise<{ name: string | null; active: Person | null; moved: boolean }> {
+  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hubspot_owner_id&propertiesWithHistory=hubspot_owner_id`);
+  const h = (t.propertiesWithHistory?.hubspot_owner_id ?? []).find((x) => x.value && x.value !== PEOPLE.backofficeTeam.id);
+  if (!h) return { name: null, active: null, moved: false };
+  const name = names.get(h.value) ?? h.value;
+  if (!shared.archived!.has(h.value)) return { name, active: { id: h.value, name }, moved: false };
+  const key = name.trim().toLowerCase();
+  const twin = [...shared.avail!.all.keys()].find((oid) => oid !== h.value && !shared.archived!.has(oid) && (names.get(oid) ?? "").trim().toLowerCase() === key);
+  return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin };
+}
+
+async function strays(shared: Shared, started: number, signal?: AbortSignal): Promise<void> {
+  const prev = await kvGet<StrayState>(KV.strays);
+  if (prev && Date.now() - Date.parse(prev.at) < STRAYS_EVERY_MS) return;
+  shared.settings ??= await getSettings();
+  const settings = shared.settings;
+  shared.archived ??= await archivedOwners();
+  shared.avail ??= await availability();
+  const [found, names, st] = await Promise.all([strayCandidates(shared.archived), ownerNames(), pipelineStages()]);
+  const avail = hubAvailability(shared.avail, settings.hub.availability);
+  const items: Stray[] = [];
+  let writes = 0;
+  for (const c of found.slice(0, STRAYS_PER_PASS)) {
+    if (signal?.aborted || Date.now() - started > 4 * 60_000) break;
+    const owner = c.p.hubspot_owner_id ?? "";
+    const item: Stray = {
+      ticketId: c.id, pipeline: c.pipeline, subject: c.p.subject ?? "", stage: c.p.hs_pipeline_stage ?? null,
+      stageLabel: (c.pipeline === "bo" ? st.bo : st.gqs).find((x) => x.id === c.p.hs_pipeline_stage)?.label ?? null,
+      since: c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? null,
+      why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : "deactivated owner", was: null, hub: null,
+    };
+    try {
+      const team = everyone(settings, c.pipeline === "bo" ? BO_KEYS : GQS_KEYS);
+      const back = await lastRealOwner(c.id, shared, names);
+      item.was = back.name;
+      const onTeam = !!back.active && team.some((x) => x.id === back.active!.id);
+      if (back.active && onTeam && avail.get(back.active.id) === "available") {
+        item.hub = { ownerId: back.active.id, ownerName: back.active.name, method: "Back to the person who had it", reasons: back.moved ? [`${back.active.name}'s new account`] : [] };
+      } else {
+        const row = await decide(c.id, c.pipeline, new Date(Date.now() - 45_000).toISOString(), shared, { stray: true });
+        const not = !back.name ? null : !back.active ? `${back.name}: no active account` : !onTeam ? `${back.active.name} is not on the team's lists` : `${back.active.name} is away`;
+        item.hub = row.hub ? { ...row.hub, reasons: [...(not ? [not] : []), ...row.hub.reasons] } : null;
+      }
+      if (settings.live.strays && writes < STRAY_WRITES_PER_PASS) {
+        item.wrote = await actStray(item, team, settings, shared.archived);
+        if (item.wrote.ok) writes++;
+      }
+    } catch (e) { item.error = (e as Error).message.slice(0, 200); }
+    items.push(item);
+  }
+  await kvSet(KV.strays, { at: new Date().toISOString(), total: found.length, items } satisfies StrayState);
+}
+
+/** Live: the owner only (the stage stays), after reading the ticket again - still nobody's, still where it was. */
+async function actStray(s: Stray, team: Person[], settings: Settings, archived: Set<string>): Promise<NonNullable<Row["wrote"]>> {
+  const at = new Date().toISOString();
+  const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
+  const owner = s.hub?.ownerId ?? null;
+  if (!owner) return skip("nobody available - it waits");
+  if (!team.some((x) => x.id === owner)) return skip("the pick is not on the team's lists");
+  const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
+  if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
+  const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${s.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage`);
+  const cur = now.properties.hubspot_owner_id ?? "";
+  if (cur && cur !== PEOPLE.backofficeTeam.id && !archived.has(cur)) return skip(`owned meanwhile (${(await ownerNames()).get(cur) ?? cur})`);
+  if (now.properties.hs_pipeline !== (s.pipeline === "bo" ? BO : GQS) || now.properties.hs_pipeline_stage !== s.stage) return skip("moved on meanwhile");
+  try {
+    await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: { hubspot_owner_id: owner } });
+    await writesThisHour(1);
+    const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : `had a deactivated owner (${s.was ?? "?"})`;
+    const body = [
+      `✅ Owner given: ${s.hub!.ownerName}`, "", `The ticket ${had}${s.since ? ` since ${s.since.slice(0, 10)}` : ""}.`, `Method: ${s.hub!.method}`,
+      ...(s.hub!.reasons.length ? [`Why: ${s.hub!.reasons.join("; ")}`] : []),
+      "", "---", "APSOhub (Back Office distribution - waiting for an owner)",
+    ].join("<br>");
+    if (settings.hub.note) await hs("/crm/v3/objects/notes", "POST", {
+      properties: { hs_timestamp: at, hs_note_body: body },
+      associations: [{ to: { id: s.ticketId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 228 }] }],
+    }).catch(() => null);
+    return { at, ownerId: owner, ownerName: s.hub!.ownerName, ok: true };
+  } catch (e) {
+    return { at, ownerId: owner, ownerName: s.hub!.ownerName, ok: false, error: (e as Error).message.slice(0, 200) };
+  }
+}
+
 /* ── the People tab and the Detection tab ─────────────────────────────────── */
 
 export type PersonRow = Person & {
@@ -601,14 +752,14 @@ export async function people(): Promise<{ people: PersonRow[]; owners: Person[];
   return { people: rows, owners, at: new Date().toISOString() };
 }
 type StageList = { id: string; label: string }[];
-let stagesCache: { at: number; data: { bo: StageList; gqs: StageList; eso: StageList; tsa: StageList; gqsClosed: string[] } } | null = null;
+let stagesCache: { at: number; data: { bo: StageList; gqs: StageList; eso: StageList; tsa: StageList; gqsClosed: string[]; boClosed: string[] } } | null = null;
 /** Back Office and GQS stages with their names - the Settings tab's workload pickers. */
 export async function pipelineStages() {
   if (stagesCache && Date.now() - stagesCache.at < 60 * 60_000) return stagesCache.data;
   const r = await hs<{ results?: { id: string; stages?: { id: string; label: string; metadata?: { isClosed?: string } }[] }[] }>("/crm/v3/pipelines/tickets");
   const of = (id: string) => (r.results ?? []).find((x) => x.id === id)?.stages?.map((x) => ({ id: x.id, label: x.label })) ?? [];
-  const gqsClosed = ((r.results ?? []).find((x) => x.id === GQS)?.stages ?? []).filter((x) => x.metadata?.isClosed === "true").map((x) => x.id);
-  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS), eso: of("1726599376"), tsa: of("1726599377"), gqsClosed } };
+  const closedOf = (id: string) => ((r.results ?? []).find((x) => x.id === id)?.stages ?? []).filter((x) => String(x.metadata?.isClosed) === "true").map((x) => x.id);
+  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS), eso: of("1726599376"), tsa: of("1726599377"), gqsClosed: closedOf(GQS), boClosed: closedOf(BO) } };
   return stagesCache.data;
 }
 export const rosterLabels = ROSTER_LABEL;
@@ -673,6 +824,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
     catch (err) { rows.push({ key, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, error: (err as Error).message.slice(0, 200) }); }
   }
+  // tickets waiting for an owner (no owner, Backoffice Team, a deactivated owner): every 5 minutes
+  if (!signal?.aborted) await strays(shared, started, signal).catch((e) => console.warn(`[bo-distribution] waiting for an owner: ${(e as Error).message}`));
   // the replay of the last 7 days, oldest first, while the run has time: today's availability and workload
   const bf = await kvGet<Backfill>(KV.backfill) ?? { from: Date.now() - BACKFILL_DAYS * 86400_000, cursor: Date.now() - BACKFILL_DAYS * 86400_000, done: false, startedAt: new Date().toISOString() };
   if (!bf.done && !signal?.aborted && Date.now() - started < 3 * 60_000) {

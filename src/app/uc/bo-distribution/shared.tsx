@@ -42,7 +42,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
-import type { PersonRow, Row, RunInfo, Settings } from "@/lib/boDistribution/engine";
+import type { PersonRow, Row, RunInfo, Settings, StrayState } from "@/lib/boDistribution/engine";
 import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
@@ -50,7 +50,7 @@ import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 export type ClassInfo = { category: string; keywords: number; sample: string[]; subs: { key: string; value: string; keywords: number; sample: string[] }[] }[];
 export type Data = {
   settings: Settings; last: RunInfo | null; backfill: { from: number; cursor: number; done: boolean; startedAt: string } | null; everyMinutes: number;
-  rows: Row[]; admin: boolean; legacy: Record<RosterKey, Person[]>; labels: Record<RosterKey, string>; deactivated: Person[]; classifier: ClassInfo;
+  rows: Row[]; strays?: StrayState | null; admin: boolean; legacy: Record<RosterKey, Person[]>; labels: Record<RosterKey, string>; deactivated: Person[]; classifier: ClassInfo;
   stages: { bo: { id: string; label: string }[]; gqs: { id: string; label: string }[]; eso?: { id: string; label: string }[]; tsa?: { id: string; label: string }[]; gqsClosed?: string[] };
   fixes: { id: string; title: string; description: string }[];
   priorityTable: { key: string; category: string; sub: string | null; priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT" }[];
