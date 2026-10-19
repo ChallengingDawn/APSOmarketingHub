@@ -16,6 +16,8 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Checkbox from "@mui/material/Checkbox";
 import Switch from "@mui/material/Switch";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Autocomplete from "@mui/material/Autocomplete";
 import CircularProgress from "@mui/material/CircularProgress";
 import CloseIcon from "@mui/icons-material/Close";
@@ -27,7 +29,7 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import type { KpiTask, Placement, TaskStatus } from "@/lib/reporting/kpiActions";
+import type { KpiTask, Placement, TaskStatus, TileFormat } from "@/lib/reporting/kpiActions";
 import type { S2sField } from "@/lib/reporting/scrollToSaleRules";
 import { refreshActions, send } from "./store";
 import type { TileInfo } from "./TileActions";
@@ -57,9 +59,14 @@ function People({ owners, value, onChange, label = "Shared with" }: { owners: Op
   );
 }
 
-export function ActionsPanel({ tile, open, onClose, placed, onMove, canWrite }: {
-  tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; onMove: (to: Placement) => Promise<void>; canWrite: boolean;
+export function ActionsPanel({ tile, open, onClose, placed, format, onMove, canWrite }: {
+  tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat;
+  onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
 }) {
+  // a KPI goes to the nutshell as a small tile or as its page's full card (SARCLA 19.10); chosen
+  // before the switch is turned on, or changed at once while it is there
+  const isKpi = (tile.kind ?? (tile.kpiId ? "kpi" : "card")) === "kpi" && !!tile.kpiId;
+  const [want, setWant] = useState<TileFormat>(format);
   useEffect(() => {
     if (!open) return;
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -93,9 +100,9 @@ export function ActionsPanel({ tile, open, onClose, placed, onMove, canWrite }: 
   }, [tile.key]);
   useEffect(() => { if (open) { void loadTasks(); if (!t) void loadTickets(); } }, [open, t, loadTasks, loadTickets]);
   const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); void refreshActions(tile.page); };
-  const move = async (to: Placement) => {
+  const move = async (to: Placement, fmt?: TileFormat) => {
     setMoving(true);
-    try { await onMove(to); } catch (e) { setErr(`Could not move it: ${(e as Error).message}`); } finally { setMoving(false); }
+    try { await onMove(to, fmt); } catch (e) { setErr(`Could not move it: ${(e as Error).message}`); } finally { setMoving(false); }
   };
 
   const ticketsOf = (id: number) => (t?.linked ?? []).filter((x) => x.taskId === id);
@@ -127,8 +134,19 @@ export function ActionsPanel({ tile, open, onClose, placed, onMove, canWrite }: 
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: placed === "nutshell" ? TINT.blue.fg : INK }}>In a nutshell</Typography>
               <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{placed === "nutshell" ? "Shown there for everyone" : "Only on this page"}</Typography>
             </Box>
-            <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab")} />
+            <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab", e.target.checked && isKpi ? want : undefined)} />
           </Box>
+          {isKpi && (
+            <Box sx={{ display: "grid", gap: 0.35 }}>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Shown as</Typography>
+              <ToggleButtonGroup size="small" exclusive value={placed === "nutshell" ? format : want} disabled={!canWrite || moving} aria-label="How it is shown in the nutshell"
+                onChange={(_, v: TileFormat | null) => { if (!v) return; setWant(v); if (placed === "nutshell") void move("nutshell", v); }}
+                sx={{ "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 600, fontSize: "0.8rem", px: 1.25, py: 0.4 } }}>
+                <ToggleButton value="tile">Small tile</ToggleButton>
+                <ToggleButton value="card">Full card</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+          )}
           <IconButton aria-label="Close" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}><CloseIcon sx={{ fontSize: 22 }} /></IconButton>
         </Box>
 

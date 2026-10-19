@@ -3,10 +3,10 @@
 // tickets counted, every promoted or demoted tile, the page's saved views. A tile's change asks again.
 
 import { useEffect, useState } from "react";
-import type { Placement, SavedView, TileSpec } from "@/lib/reporting/kpiActions";
+import type { Placement, SavedView, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 
 export type Counts = Record<string, { open: number; tasks: number; tickets: number }>;
-export type Placed = { spec: TileSpec; placement: Placement; by: string; at: string };
+export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat; by: string; at: string };
 export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]> };
 
 type Store = { state: ActionsState | null; error: string | null; listeners: Set<() => void>; loading: Promise<void> | null };
@@ -55,6 +55,11 @@ export function useActions(page: string): { state: ActionsState | null; error: s
     return () => { s.listeners.delete(f); };
   }, [page, s]);
   return { state: s.state, error: s.error };
+}
+
+/** How a KPI is shown in the nutshell: a small tile unless someone chose its full card. */
+export function formatOf(state: ActionsState | null, key: string): TileFormat {
+  return state?.placements.find((p) => p.spec.key === key)?.format === "card" ? "card" : "tile";
 }
 
 /** Where a tile is shown: what someone chose, else where it starts. */

@@ -3,7 +3,9 @@
 //   tasks      actions to correct the KPI, kept here and tracked on the tile (owner, due, status)
 //   tickets    "From Scroll to Sale" tickets created from the tile or linked to it (the tickets
 //              themselves live in HubSpot - only the link is kept here)
-//   placement  promoted to "In a nutshell" or demoted to its own tab - one choice for everyone
+//   placement  promoted to "In a nutshell" or demoted to its own tab - one choice for everyone; a KPI
+//              shown there as a small tile or as its page's full card (SARCLA 19.10: "the same dashboard
+//              that we push into the nutshell, even the small one, then we decide which format to push")
 //   views      a named set of a page's filters (its URL query), personal unless shared
 //   order      the tiles of a nutshell panel in the order someone dragged them (SARCLA 19.10: "press
 //              continuously with the mouse on a graph and move it inside the card") - one order for everyone
@@ -29,6 +31,7 @@ export type KpiTask = {
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 export type Placement = "nutshell" | "tab";
+export type TileFormat = "tile" | "card";
 export type TileSpec = {
   key: string; page: string; tab?: string; kpiId?: string; kind: "kpi" | "card"; title: string;
   filters?: Record<string, string[]>; from?: string; to?: string; href?: string;
@@ -75,6 +78,7 @@ function ensure(): Promise<void> {
         by_name text NOT NULL DEFAULT '',
         at timestamptz NOT NULL DEFAULT now()
       )`);
+      await query(`ALTER TABLE ${PLACE} ADD COLUMN IF NOT EXISTS format text`);
       await query(`CREATE TABLE IF NOT EXISTS ${VIEWS} (
         id serial PRIMARY KEY,
         page text NOT NULL,
@@ -192,20 +196,22 @@ export async function ticketsOf(tile: string): Promise<{ ticketId: string; creat
 
 /* ── placement ─────────────────────────────────────────────────────────── */
 
-export async function setPlacement(spec: TileSpec, placement: Placement, by: string): Promise<void> {
+/** Where a tile is shown; a KPI's format kept as it was when none is given. */
+export async function setPlacement(spec: TileSpec, placement: Placement, by: string, format?: TileFormat): Promise<void> {
   await ensure();
   await query(
-    `INSERT INTO ${PLACE} (tile, placement, spec, by_name) VALUES ($1, $2, $3::jsonb, $4)
-     ON CONFLICT (tile) DO UPDATE SET placement = EXCLUDED.placement, spec = EXCLUDED.spec, by_name = EXCLUDED.by_name, at = now()`,
-    [spec.key, placement, JSON.stringify(spec), by],
+    `INSERT INTO ${PLACE} (tile, placement, spec, by_name, format) VALUES ($1, $2, $3::jsonb, $4, $5)
+     ON CONFLICT (tile) DO UPDATE SET placement = EXCLUDED.placement, spec = EXCLUDED.spec, by_name = EXCLUDED.by_name,
+       format = COALESCE(EXCLUDED.format, ${PLACE}.format), at = now()`,
+    [spec.key, placement, JSON.stringify(spec), by, format ?? null],
   );
 }
 
 /** Every tile someone moved: promoted to the nutshell or demoted to its tab. */
-export async function placements(): Promise<{ spec: TileSpec; placement: Placement; by: string; at: string }[]> {
+export async function placements(): Promise<{ spec: TileSpec; placement: Placement; format: TileFormat; by: string; at: string }[]> {
   await ensure();
-  const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown }>(`SELECT * FROM ${PLACE} ORDER BY at`);
-  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", by: x.by_name, at: iso(x.at) ?? "" }));
+  const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown; format: string | null }>(`SELECT * FROM ${PLACE} ORDER BY at`);
+  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", format: x.format === "card" ? "card" : "tile", by: x.by_name, at: iso(x.at) ?? "" }));
 }
 
 /* ── order ───────────────────────────────────────────────────────────── */

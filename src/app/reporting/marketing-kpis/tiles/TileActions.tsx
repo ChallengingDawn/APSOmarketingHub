@@ -10,9 +10,9 @@ import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 
 import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
-import type { Placement, TileSpec } from "@/lib/reporting/kpiActions";
+import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 import { ActionsPanel } from "./ActionsPanel";
-import { placementOf, refreshActions, send, useActions } from "./store";
+import { formatOf, placementOf, refreshActions, send, useActions } from "./store";
 
 export type TileInfo = {
   /** "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02" - the same on the page and in the nutshell */
@@ -44,14 +44,14 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;
 
-  const move = async (to: Placement) => {
+  const move = async (to: Placement, format?: TileFormat) => {
     const spec: TileSpec = {
       key: tile.key, page: tile.page, title: tile.title, kind: tile.kind ?? (tile.kpiId ? "kpi" : "card"),
       ...(tile.tab ? { tab: tile.tab } : {}), ...(tile.kpiId ? { kpiId: tile.kpiId } : {}),
       ...(tile.filters ? { filters: tile.filters } : {}), ...(tile.from ? { from: tile.from } : {}), ...(tile.to ? { to: tile.to } : {}),
       href: tile.href ?? (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : undefined),
     };
-    await send("/api/reporting/kpi-actions/placement", "POST", { spec, placement: to });
+    await send("/api/reporting/kpi-actions/placement", "POST", { spec, placement: to, ...(format ? { format } : {}) });
     await refreshActions(tile.page);
   };
 
@@ -79,7 +79,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
           Actions
         </Box>
       </Tooltip>
-      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} onMove={move} canWrite={state?.canWrite ?? false} />}
+      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile.key)} onMove={move} canWrite={state?.canWrite ?? false} />}
     </>
   );
 }
