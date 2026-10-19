@@ -769,7 +769,8 @@ async function strayCandidates(archived: Set<string>): Promise<{ id: string; pip
   const props = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate"];
   const gone = [...archived].filter((x) => /^\d+$/.test(x));
   const out = new Map<string, { id: string; pipeline: StrayPipe; p: Record<string, string | null> }>();
-  for (const [pid, kind, closed] of [[BO, "bo", st.boClosed], [GQS, "gqs", st.gqsClosed], [ESO, "eso", st.esoClosed], [TSA, "tsa", st.tsaClosed]] as const) {
+  // ESO / TSA moved to the wrong-owner check the same evening (SARCLA: "should this not be handled via the wrong owner?")
+  for (const [pid, kind, closed] of [[BO, "bo", st.boClosed], [GQS, "gqs", st.gqsClosed]] as const) {
     if (!closed.length) continue; // stages unread: better nothing than closed tickets
     const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }];
     const owners: object[] = [

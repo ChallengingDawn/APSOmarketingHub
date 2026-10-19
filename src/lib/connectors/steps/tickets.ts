@@ -18,7 +18,7 @@ import {
   WRONG_OWNER_PROPS, absorbArticles, addOwners, articleCandidates, articleSearchValues, articlesFromCache, articlesToCheck, assocPlan,
   companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch, productCandidates,
   orderRefs, pySlice, pySorted, rememberMissing, shopLinks, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
-  wrongOwnerSearch, handBack, handedToSales, verdict, BO_QUEUE, type OwnerHist, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
+  wrongOwnerSearch, handBack, handedToSales, unownedSalesTicket, verdict, BO_QUEUE, type OwnerHist, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
 } from "./ticketRules";
 
 type Obj = { id: string; properties?: Props };
@@ -124,6 +124,7 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
   const flags: (Row & { from: string; to: string; reason: string; subject: string })[] = [];
   const restores: (Row & { why: string; subject: string })[] = [];
   const handoffs: { id: string; pipe: string; subject: string }[] = [];
+  const unowned: { id: string; pipe: string; subject: string }[] = [];
   let read = 0, skippedCampaign = 0, pages = 0;
   for (const pid of [BO, ESO, TSA]) {
     let cursor = "0";
@@ -139,6 +140,7 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
         else if (a.kind === "restore") restores.push({ id: t.id, properties: a.props, why: a.why, subject: a.subject });
         else if (a.kind === "flag" && handedToSales(pid, t.properties?.hs_pipeline_stage, a.props.hs_pipeline)) handoffs.push({ id: t.id, pipe: pid, subject: a.subject });
         else if (a.kind === "flag") flags.push({ id: t.id, properties: a.props, from: a.from, to: a.to, reason: a.reason, subject: a.subject });
+        else if (a.kind === "none" && !t.properties?.wrong_owner_flagged_at && unownedSalesTicket(pid, t.properties ?? {}, who, Date.now())) unowned.push({ id: t.id, pipe: pid, subject: pySlice(t.properties?.subject || "", 80) });
       }
       cursor = res[res.length - 1].id;
       if (++pages % 20 === 0) await beat();
@@ -165,19 +167,28 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
     else toSalesWaiting += 1;
   }
   handed.push(...toSales);
+  // ESO / TSA tickets with no owner or one who has left: the company's owner, else the contact's (unownedSalesTicket)
+  const toCompany: (Row & { reason: string; subject: string })[] = [];
+  const waiting: { id: string; subject: string }[] = [];
+  for (const u of unowned.slice(0, 40)) {
+    const owner = await salesOwnerOf(u.id, u.pipe, who);
+    if (owner) toCompany.push({ id: u.id, properties: { hubspot_owner_id: owner.id }, reason: `no owner - ${owner.how}`, subject: u.subject });
+    else waiting.push({ id: u.id, subject: u.subject });
+  }
   const handedIds = new Set(handed.map((h) => h.id));
   const toFlag = flags.filter((f) => !handedIds.has(f.id));
   const out: StepResult = {
     scope: [BO, ESO, TSA].map((p) => PIPE_NAME[p]), dry_run: !live, missing_properties: missing,
-    tickets_open_or_flagged: read, flagged: toFlag.length, handed_back: handed.length - toSales.length, to_company_owner: toSales.length, handed_to_sales_no_owner: toSalesWaiting, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
+    tickets_open_or_flagged: read, flagged: toFlag.length, handed_back: handed.length - toSales.length, to_company_owner: toSales.length, handed_to_sales_no_owner: toSalesWaiting, no_owner_given: toCompany.length, no_owner_waiting: waiting.length, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
   };
-  let flagged = toFlag, restored = restores, handedBack = handed;
-  if (live && (toFlag.length || restores.length || handed.length)) {
-    const w = await updateTickets([...restores, ...handed, ...toFlag].map(({ id, properties }) => ({ id, properties })));
+  let flagged = toFlag, restored = restores, handedBack = handed, given = toCompany;
+  if (live && (toFlag.length || restores.length || handed.length || toCompany.length)) {
+    const w = await updateTickets([...restores, ...handed, ...toCompany, ...toFlag].map(({ id, properties }) => ({ id, properties })));
     flagged = toFlag.filter((f) => w.ok.has(f.id));
     restored = restores.filter((r) => w.ok.has(r.id));
     handedBack = handed.filter((h) => w.ok.has(h.id));
-    Object.assign(out, { flagged: flagged.length, handed_back: handedBack.length, restored: restored.length, failed: w.failed, errors: w.errors });
+    given = toCompany.filter((h) => w.ok.has(h.id));
+    Object.assign(out, { flagged: flagged.length, handed_back: handedBack.length, no_owner_given: given.length, restored: restored.length, failed: w.failed, errors: w.errors });
   }
   const byMove: Record<string, number> = {};
   for (const f of flagged) byMove[`${f.from} -> ${f.to}`] = (byMove[`${f.from} -> ${f.to}`] ?? 0) + 1;
@@ -186,6 +197,8 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
     ...flagged.slice(0, 20).map((f) => ({ action: "flag", id: f.id, from: f.from, to: f.to, reason: f.reason, subject: f.subject })),
     ...restored.slice(0, 20).map((r) => ({ action: "restore", id: r.id, why: r.why, subject: r.subject })),
     ...handedBack.slice(0, 20).map((h) => ({ action: "hand back", id: h.id, reason: h.reason, subject: h.subject })),
+    ...given.slice(0, 20).map((h) => ({ action: "owner given", id: h.id, reason: h.reason, subject: h.subject })),
+    ...waiting.slice(0, 20).map((h) => ({ action: "no owner", id: h.id, reason: "neither the company nor the contact has an owner - give the company one, the ticket follows", subject: h.subject })),
   ];
   return { ...out, seconds: Math.round((Date.now() - t0) / 1000) };
 }

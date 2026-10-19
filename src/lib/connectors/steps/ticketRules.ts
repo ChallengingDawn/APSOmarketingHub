@@ -218,6 +218,19 @@ export function wrongOwnerAction(p: Props, stages: Map<string, StageInfo>, who: 
 export const handedToSales = (pipe: string, stage: string | null | undefined, toPipe: string | null | undefined): boolean =>
   (pipe === ESO || pipe === TSA) && (stage === ESO_REDIR || stage === TSA_REDIR) && toPipe === BO;
 
+/**
+ * SARCLA 19.10.2026 ("should this not be handled via the wrong owner?"): an open ESO / TSA ticket with no owner, or one
+ * whose owner has left (not among the active owners), gets the company's owner, else the contact's (tickets.ts) - 15
+ * minutes in its stage first, so the workflows that create it go first. Not the Backoffice Team queue (rule 2's).
+ */
+export const unownedSalesTicket = (pipe: string, p: Props, who: Map<string, OwnerInfo>, nowMs: number): boolean => {
+  if (pipe !== ESO && pipe !== TSA) return false;
+  const o = String(p.hubspot_owner_id ?? "");
+  if (o && (who.has(o) || o === BO_QUEUE)) return false;
+  const since = Date.parse(String(p.hs_v2_date_entered_current_stage ?? p.createdate ?? ""));
+  return !Number.isFinite(since) || nowMs - since >= 15 * 60_000;
+};
+
 /** hubspot_owner_id's history as HubSpot returns it, newest first. */
 export type OwnerHist = { value?: string | null; timestamp?: string; sourceType?: string; sourceId?: string | null };
 /** The Back Office queue account (support@apsoparts.com) - never a person to hand a ticket back to. */
@@ -261,7 +274,7 @@ export function wrongOwnerSearch(pid: string, stages: Map<string, StageInfo>, cu
   if (stageFilter.length && flagReadable) filterGroups.push({ filters: [...base, { propertyName: "wrong_owner_flagged_at", operator: "HAS_PROPERTY" }] });
   return {
     limit: 200, filterGroups, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
-    properties: ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", ...WRONG_OWNER_PROPS],
+    properties: ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate", ...WRONG_OWNER_PROPS],
   };
 }
 
