@@ -16,7 +16,7 @@
 // They count as visits, but they are not a store or a page: the store and page figures leave them out.
 
 import { countryName } from "./countries";
-import type { Unlinked } from "@/lib/ticketAssoc/shopAccountRules";
+import type { Unlinked } from "../ticketAssoc/shopAccountRules";
 
 /** GA4's default channel groups in plain words (SARCLA 18.10: "be more descriptive"). */
 export const CHANNEL_INFO: Record<string, string> = {
@@ -62,7 +62,7 @@ export function storeOf(page: string): string | null {
 export const NO_PAGE = "Shop tab left open - no page loaded";
 export const NO_PAGE_INFO = "A shop tab left open on a computer that became active again after 30 minutes: GA4 starts a new visit, but no page loads, so there is no landing page. Almost all on desktop, no orders.";
 
-export type { Unlinked, UnlinkedRow } from "@/lib/ticketAssoc/shopAccountRules";
+export type { Unlinked, UnlinkedRow } from "../ticketAssoc/shopAccountRules";
 
 export type VisitData = {
   generatedAt: string;
