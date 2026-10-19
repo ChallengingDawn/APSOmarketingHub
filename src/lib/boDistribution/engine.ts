@@ -478,12 +478,16 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
   if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   // the ticket as it is NOW: still in its entry stage, still nobody's (Backoffice Team or empty)
-  const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage`);
+  const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage,status_of_gqs`);
   const cur = now.properties.hubspot_owner_id ?? "";
   if (cur && cur !== PEOPLE.backofficeTeam.id) return skip(`already owned (${(await ownerNames()).get(cur) ?? cur})`);
   if (!(ENTRY_STAGES[row.pipeline] as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
   try {
-    await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: { hubspot_owner_id: owner, hs_pipeline_stage: ASSIGNED_STAGE[row.pipeline] } });
+    const props: Record<string, string> = { hubspot_owner_id: owner, hs_pipeline_stage: ASSIGNED_STAGE[row.pipeline] };
+    // GQS: the workflow sets the status before its owner step - "Approved by Line Manager" unless auto-approved. With the
+    // hub assigning, the workflow's safety net skips that branch, so the hub sets it the same way.
+    if (row.pipeline === "gqs" && now.properties.status_of_gqs !== "Automatically Approved") props.status_of_gqs = "Approved by Line Manager";
+    await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: props });
     await writesThisHour(1);
     if (row.associate) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${row.associate}`, "PUT").catch(() => null);
     const body = [
