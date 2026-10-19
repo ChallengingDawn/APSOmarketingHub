@@ -595,10 +595,10 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
 // owner - 15 minutes in their stage, so the entry flow and the workflow's safety net go first - and works out who
 // gets each: the person who had it (or the same person's new account) when on the team's lists and available, else
 // the distribution's own pick with the hub's rules. Nobody available: it waits and is looked at again 5 minutes
-// later. ESO / TSA (SARCLA: "yes of course" they go to the company owner - "the company, not the options"): no owner
-// or a deactivated one -> the company's owner, nothing else; a company without an active owner needs one first, and
-// the ticket follows it on the next look (the Backoffice Team queue on a sales ticket is the wrong-owners check's:
-// back to Back Office). Live (Settings, its own switch) writes the owner only - never the stage - and a note.
+// later. ESO / TSA (SARCLA: "yes of course" they go to the company owner; "should also use the contact"): no owner or
+// a deactivated one -> the company's owner, else the contact's owner; neither active = it waits until one has an
+// owner (the Backoffice Team queue on a sales ticket is the wrong-owners check's: back to Back Office). Live
+// (Settings, its own switch) writes the owner only - never the stage - and a note.
 
 export type Stray = {
   ticketId: string; pipeline: "bo" | "gqs" | "eso" | "tsa"; subject: string; stage: string | null; stageLabel: string | null;
@@ -661,9 +661,9 @@ async function lastRealOwner(id: string, shared: Shared, names: Map<string, stri
   return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin };
 }
 
-/** ESO / TSA: the owner of the ticket's company - an active person - and nothing else. `company`: the first one's name. */
+/** ESO / TSA: the owner of the ticket's company, else of its contact - active people only. `company`: the first one's name. */
 async function companyOwner(id: string, archived: Set<string>, names: Map<string, string>): Promise<{ owner: { id: string; name: string; method: string } | null; company: string | null }> {
-  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies`);
+  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies,contacts`);
   const active = (o: string | null | undefined): o is string => !!o && /^\d+$/.test(o) && names.has(o) && !archived.has(o) && o !== PEOPLE.backofficeTeam.id;
   let company: string | null = null;
   for (const { id: cid } of (t.associations?.companies?.results ?? []).slice(0, 5)) {
@@ -672,6 +672,11 @@ async function companyOwner(id: string, archived: Set<string>, names: Map<string
     if (/apsoparts|angst/i.test(`${p.name ?? ""} ${p.domain ?? ""}`)) continue;
     company ??= p.name ?? cid;
     if (active(p.hubspot_owner_id)) return { owner: { id: p.hubspot_owner_id, name: names.get(p.hubspot_owner_id)!, method: `Company owner (${p.name ?? cid})` }, company };
+  }
+  for (const { id: kid } of (t.associations?.contacts?.results ?? []).slice(0, 3)) {
+    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/contacts/${kid}?properties=email,hubspot_owner_id`);
+    if (/apsoparts|angst/i.test(c.properties.email ?? "")) continue;
+    if (active(c.properties.hubspot_owner_id)) return { owner: { id: c.properties.hubspot_owner_id, name: names.get(c.properties.hubspot_owner_id)!, method: `Contact owner (${c.properties.email ?? kid})` }, company };
   }
   return { owner: null, company };
 }
@@ -701,7 +706,7 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
         item.was = (await lastRealOwner(c.id, shared, names)).name;
         const { owner: pick, company } = await companyOwner(c.id, shared.archived, names);
         item.hub = pick ? { ownerId: pick.id, ownerName: pick.name, method: pick.method, reasons: [] }
-          : { ownerId: null, ownerName: null, method: company ? `${company} has no owner - give the company one, the ticket follows` : "No company on the ticket - a person decides", reasons: [] };
+          : { ownerId: null, ownerName: null, method: company ? `${company} and its contact have no owner - give the company one, the ticket follows` : "No company or contact owner - a person decides", reasons: [] };
         if (settings.live.strays && writes < STRAY_WRITES_PER_PASS) {
           item.wrote = await actStray(item, null, settings, shared.archived);
           if (item.wrote.ok) writes++;
@@ -736,7 +741,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   const owner = s.hub?.ownerId ?? null;
-  if (!owner) return skip(team ? "nobody available - it waits" : "the company has no owner - it waits for one");
+  if (!owner) return skip(team ? "nobody available - it waits" : "neither company nor contact has an owner - it waits for one");
   if (team && !team.some((x) => x.id === owner)) return skip("the pick is not on the team's lists");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
   if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);

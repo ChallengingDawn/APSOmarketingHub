@@ -110,7 +110,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
               </Box>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                 Open tickets with no owner, only Backoffice Team or an owner who has left, 15 minutes in their stage: the owner (never the stage) goes to the person
-                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. ESO / TSA: the company&apos;s owner. Independent of the two switches above. The Overview lists them.
+                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. ESO / TSA: the company&apos;s owner, else the contact&apos;s. Independent of the two switches above. The Overview lists them.
               </Typography>
             </Box>
           </Grid>

@@ -60,7 +60,7 @@ export function StraysCard({ d }: { d: Data }) {
         Open Back Office and GQS tickets with no owner, only the Backoffice Team queue, or an owner who has left - 15 minutes in their stage, so the
         normal distribution goes first. Each goes back to the person who had it when that person is on the team&apos;s lists and available (a new account of
         the same person counts), else to the distribution&apos;s own pick. Nobody available: it waits and is looked at again. ESO and TSA tickets with no
-        owner or one who has left go to the company&apos;s owner - a company without one needs an owner first, then the ticket follows. Live writes the owner only, never the stage.
+        owner or one who has left go to the company&apos;s owner, else the contact&apos;s owner - with neither, the company needs an owner first, then the ticket follows. Live writes the owner only, never the stage.
       </Typography>
       {!items.length ? (
         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{st ? "None - every open ticket has a real owner." : "The first look runs within 5 minutes of the deploy."}</Typography>
