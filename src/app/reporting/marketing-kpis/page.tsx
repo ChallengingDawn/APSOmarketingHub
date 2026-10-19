@@ -40,7 +40,16 @@ import { VISIT_NAMES, useVisitData } from "./VisitCompact";
 import { fullCardFor, tileChartFor } from "./FullCards";
 import type { VisitData } from "@/lib/marketingKpis/visitCube";
 
-const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
+/**
+ * One grid for a panel's tiles and cards, twelve columns: a tile takes two on a wide screen (six to a
+ * row), a half-width card six, a whole-width card all of them - packed "dense", so a half-width card
+ * moves up beside the tiles when their row has room (SARCLA 19.10: "half width should also fit the
+ * first row if there is space").
+ */
+const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row dense" } as const;
+const TILE_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", md: "span 4", lg: "span 3", xl: "span 2" } };
+const HALF_SPAN = { gridColumn: { xs: "span 12", md: "span 6" } };
+const FULL_SPAN = { gridColumn: "1 / -1" };
 
 /** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months. */
 function KpiTileChart({ v, slug, tint, upTo, actions, chart, title }: {
@@ -105,7 +114,7 @@ const OWN = new Set(["customers::summary", "visit::traffic-origin", "visit:custo
  * as it is on its page (Reach and Who are our customers draw theirs; another page's shows the way to it).
  */
 /** A row of the panel: half its width, or the whole of it. */
-const row = (key: string, node: React.ReactNode, format: TileFormat): SortItem => ({ key, node, ...(format === "half" ? {} : { sx: { gridColumn: "1 / -1" } }) });
+const row = (key: string, node: React.ReactNode, format: TileFormat): SortItem => ({ key, node, sx: format === "half" ? HALF_SPAN : FULL_SPAN });
 
 function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>, state: MkState, acts: ActionsState | null) {
   const year = new Date().getFullYear();
@@ -182,10 +191,14 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
     ...promoted.tiles,
     // SEO and SEA in customers: new, reactivated, active (SARCLA 17.10)
     ...(s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" ? [{
-      key: "reach:customers:search-customers", sx: { gridColumn: "1 / -1" },
+      key: "reach:customers:search-customers", sx: FULL_SPAN,
       node: <WithActions where="nutshell" start="nutshell" tile={{ key: "reach:customers:search-customers", page: "reach", tab: "customers", title: "Customers from search", kind: "card", href: stageHref("reach") }}><SearchCustomersCard /></WithActions>,
     }] : []),
   ];
+  // the tiles, then the half- and whole-width cards, in one grid; one order for all of them (the cards'
+  // order was kept apart before - it still counts, after the tiles', until someone moves one)
+  const grid: SortItem[] = [...items.map((it) => (it.sx ? it : { ...it, sx: TILE_SPAN })), ...rows];
+  const order = [...new Set([...(acts?.orders?.[`nutshell:${s.slug}`] ?? []), ...(acts?.orders?.[`nutshell:${s.slug}-rows`] ?? [])])];
   const canMove = !!acts?.canWrite;
   const save = (scope: string) => (keys: string[]) => {
     void send("/api/reporting/kpi-actions/order", "POST", { scope, keys }).catch(() => {}).finally(() => { void refreshActions(); });
@@ -219,16 +232,10 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
         placementOf(acts, "customers::summary", "nutshell") === "nutshell"
           ? <WithActions where="nutshell" start="nutshell" tile={{ key: "customers::summary", page: "customers", title: "Our customers", kind: "card", href: stageHref("customers") }}><CustomersSummary /></WithActions>
           : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Moved to its page.</Typography>
-      ) : items.length > 0 ? (
-        <SortableGrid items={items} order={acts?.orders?.[`nutshell:${s.slug}`]} canMove={canMove} onMove={save(`nutshell:${s.slug}`)}
-          sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }} />
-      ) : !rows.length ? (
+      ) : grid.length > 0 ? (
+        <SortableGrid items={grid} order={order} canMove={canMove} onMove={save(`nutshell:${s.slug}`)} sx={GRID} />
+      ) : (
         <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
-      ) : null}
-      {/* the charts and tables promoted from this page, a whole row each */}
-      {rows.length > 0 && (
-        <SortableGrid items={rows} order={acts?.orders?.[`nutshell:${s.slug}-rows`]} canMove={canMove} onMove={save(`nutshell:${s.slug}-rows`)}
-          sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } }} />
       )}
 
       {missing.length > 0 && (
