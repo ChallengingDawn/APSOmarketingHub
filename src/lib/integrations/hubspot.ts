@@ -3,6 +3,7 @@
 // record. The token is read per call and never logged.
 
 import { IntegrationError, hubspotEventsToken, hubspotToken, ticketsToken } from "./status";
+import type { SharedSearchQueue } from "./searchQueue";   // the type only: the queue itself is server-side
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -10,20 +11,69 @@ const API_BASE = "https://api.hubapi.com";
 // view legitimately needs a dozen counts. All search calls therefore flow
 // through one queue with a minimum spacing, and every call retries a 429
 // after the wait HubSpot asks for — the limit is a pace, not a quota.
-const SEARCH_MIN_INTERVAL_MS = 340;
+//
+// ONE QUEUE FOR THE WHOLE HUB (SARCLA 19.10.2026: "one search queue for the whole hub, kept in the shared database,
+// so both servers together stay under the limit"). HubSpot counts searches per APP - 5 a second for the hub's app
+// (50521064), which the search bar, Ads, DirectCut and DirectUP gateways on Railway share too. Each copy of the hub
+// paced itself at ~3 a second without knowing the other: on Monday 19.10 at 08:43 the weekly revenue jobs on one copy
+// and ticket associations on the other came to ~6, and price checks lost its run to "secondly limit". Now a search
+// books the next free slot in one database row (searchQueue.ts - the database's clock, so both copies agree): 300 ms apart for the
+// whole hub, which leaves room for the gateways. A 429 pushes the slot back for everyone. If the database does not
+// answer within 2 s the copy falls back to its own pace for a minute - a search never waits on a stuck pool.
+const SEARCH_MIN_INTERVAL_MS = 340;          // a copy's own pace: only when the shared queue cannot be reached
+const SHARED_TIMEOUT_MS = 2_000;
 const RETRY_ATTEMPTS = 3;
 let searchChain: Promise<void> = Promise.resolve();
 let lastSearchAt = 0;
+let sharedDownUntil = 0;
 
-function throttleSearch(): Promise<void> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<never>((_, reject) => { t = setTimeout(() => reject(new Error("the shared search queue did not answer")), ms); })])
+    .finally(() => clearTimeout(t));
+}
+
+/** This copy's own pace - the fallback. */
+function localTurn(): Promise<void> {
   const turn = searchChain.then(async () => {
     const wait = lastSearchAt + SEARCH_MIN_INTERVAL_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (wait > 0) await sleep(wait);
     lastSearchAt = Date.now();
   });
   searchChain = turn.catch(() => {});
   return turn;
 }
+
+/** The shared queue, when this server copy installed it (instrumentation.ts -> searchQueue.ts); never in a browser. */
+const sharedQueue = () => (globalThis as { __apsoSearchQueue?: SharedSearchQueue }).__apsoSearchQueue;
+
+/** Wait for this search's turn: the hub-wide queue, or this copy's own pace when the queue cannot be reached. */
+export async function searchTurn(): Promise<void> {
+  const q = sharedQueue();
+  if (q && Date.now() >= sharedDownUntil) {
+    try {
+      const wait = await within(q.wait(), SHARED_TIMEOUT_MS);
+      if (wait > 0) await sleep(Math.min(wait, 30_000));
+      return;
+    } catch (e) {
+      const first = Date.now() >= sharedDownUntil;      // searches waiting together fail together: say it once
+      sharedDownUntil = Date.now() + 60_000;
+      if (first) console.warn(`[hubspot] shared search queue unreachable for a minute, pacing this copy alone: ${(e as Error).message}`);
+    }
+  }
+  await localTurn();
+}
+
+/** HubSpot said "secondly limit": every search of the hub waits at least this long. False when the shared queue
+ *  could not take it - the caller then waits the pause itself. */
+export async function searchBackoff(ms: number): Promise<boolean> {
+  const q = sharedQueue();
+  if (!q || Date.now() < sharedDownUntil) return false;
+  return within(q.backoff(ms), SHARED_TIMEOUT_MS).then(() => true).catch(() => false);
+}
+
+const throttleSearch = searchTurn;
 const DEFAULT_RECENT_DAYS = 30;
 const MAX_RECENT_DAYS = 365;
 
@@ -103,6 +153,9 @@ export async function hubspotFetchJson<T>(req: {
     if (res.status !== 429 || attempt === RETRY_ATTEMPTS) break;
     const retryAfter = Number(res.headers.get("retry-after"));
     const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1100 * attempt;
+    // a search refused for the pace holds back the whole hub's searches, not only this one; the retry then
+    // queues behind that pause like everyone else
+    if (req.path.includes("/search") && await searchBackoff(delay)) continue;
     await new Promise((r) => setTimeout(r, delay));
   }
   if (!res) throw new IntegrationError("HubSpot: no response.");

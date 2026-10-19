@@ -15,7 +15,7 @@
 //     picked up by the next run, and nothing ever reaches back to the start of
 //     the activity data: nobody wants a call about a Tuesday three weeks ago.
 
-import { hubspotFetchJson } from "./hubspot";
+import { hubspotFetchJson, searchBackoff, searchTurn } from "./hubspot";
 import { IntegrationError, hubspotToken, ticketsToken } from "./status";
 import { fetchShopSignals, type PriceCheckRow } from "./shopSignals";
 import { PIPE_STAGE, ownerName, teamOf } from "../datatracker/rosters";
@@ -68,15 +68,27 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 async function ticketsRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> {
   const token = ticketsToken() ?? hubspotToken();
   if (!token) throw new IntegrationError("No HubSpot token is set, so no ticket can be created.");
-  const res = await fetch(`https://api.hubapi.com${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: "no-store",
-  });
-  const text = await res.text();
-  if (!res.ok) throw new IntegrationError(`HubSpot tickets: ${res.status} ${text.slice(0, 300)}`, res.status);
-  return (text ? JSON.parse(text) : {}) as T;
+  // searches go through the hub-wide queue, and a "secondly limit" waits and tries again instead of failing the
+  // run (19.10.2026: price checks lost its 08:43 run to a single 429 - this request had no pace and no retry)
+  const search = path.includes("/search");
+  for (let attempt = 1; ; attempt++) {
+    if (search) await searchTurn();
+    const res = await fetch(`https://api.hubapi.com${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store",
+    });
+    const text = await res.text();
+    if (res.status === 429 && attempt < 4) {
+      const ra = Number(res.headers.get("retry-after"));
+      const delay = Number.isFinite(ra) && ra > 0 ? ra * 1000 : 1100 * attempt;
+      if (!(search && await searchBackoff(delay))) await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+    if (!res.ok) throw new IntegrationError(`HubSpot tickets: ${res.status} ${text.slice(0, 300)}`, res.status);
+    return (text ? JSON.parse(text) : {}) as T;
+  }
 }
 
 /** Which of these keys already have a ticket. Dedup without a state file. */

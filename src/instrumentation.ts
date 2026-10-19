@@ -6,6 +6,10 @@
 // `return` does not, and the build fails on 'fs' and 'path').
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // first: every HubSpot search of this copy books its turn in the hub-wide queue (both copies together stay under
+    // HubSpot's per-app limit; SARCLA 19.10.2026). Before the schedulers below, so none searches outside it.
+    const { installSharedSearchQueue } = await import("./lib/integrations/searchQueue");
+    installSharedSearchQueue();
     const { startDocScheduler } = await import("./lib/doc/scheduler");
     startDocScheduler();
     // erosion tickets, once a day after the connector's nightly chain (EROSION_DETECTOR=live)
