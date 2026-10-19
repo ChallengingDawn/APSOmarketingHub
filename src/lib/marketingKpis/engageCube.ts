@@ -13,6 +13,7 @@
 // GA4 counts visitors who accepted statistics cookies only: every GA4 figure is a floor.
 
 import { countryName } from "./countries";
+import type { LostReason } from "../datatracker/rules";
 
 /** The GA4 events of the Tools tab, in plain words. */
 export const TOOLS: { event: string; label: string; what: string }[] = [
@@ -129,6 +130,23 @@ export type ToolCount = {
   error?: string;
 };
 
+/** Where a look that ended in no order was lost, in plain words - the order the diagram reads. */
+export const LOST: { key: LostReason; label: string; what: string }[] = [
+  { key: "shelf", label: "Availability", what: "Nothing on the shelf, or less than they asked for" },
+  { key: "moq", label: "Minimum order quantity", what: "They asked for fewer than we sell" },
+  { key: "cart", label: "Left in the cart", what: "Put in the cart, never ordered" },
+  { key: "price", label: "The price", what: "They typed a quantity, saw the price, and left" },
+  { key: "looked", label: "Only looked", what: "Opened the article, no quantity typed" },
+];
+
+/** The search bar as one of the tools (SARCLA 19.10: "merge as a tool, only the number"): its searches each day, those that found something. */
+export function searchTool(d: EngageData): ToolCount | null {
+  const s = d.search;
+  if (!s) return d.errors.search ? { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log", since: null, unit: "Searches", unit2: "Found something", days: [], onShop: true, error: d.errors.search } : null;
+  const days = s.byDay ?? [];
+  return { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log - every search, cookies or not", since: s.since, unit: "Searches", unit2: "Found something", days, onShop: true };
+}
+
 export type MoqRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number; minimum: number | null; unit: string | null };
 export type ShelfRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number | null; stock: number; short: number | null; unit: string | null };
 
@@ -167,6 +185,8 @@ export type EngageData = {
     total: number; zero: number;
     /** "YYYY-MM" -> [searches, found something] */
     byMonth: Record<string, [number, number]>;
+    /** [day, searches, found something] - the search bar as one of the tools */
+    byDay?: [string, number, number][];
     byLocale: { locale: string; searches: number; ok: number }[];
     top: { query: string; searches: number; found: number }[];
     /** the searches that found nothing, the last 30 days - the words to add to the search bar */
@@ -184,6 +204,8 @@ export type EngageData = {
     moq: { byDay: [string, number, number][]; rows: MoqRow[]; total: number };
     /** nothing on the shelf, or not as much as they asked for: [day, nothing, not enough] and each look */
     shelf: { byDay: [string, number, number][]; rows: ShelfRow[]; total: number };
+    /** every look that ended in no order, by where it was lost (datatracker/rules.lostReason) */
+    lost?: { looks: Record<LostReason, number>; companies: Record<LostReason, number>; total: number; totalCompanies: number; ordered: number; orderedCompanies: number };
   } | null;
   tools: ToolCount[];
   errors: Record<string, string>;

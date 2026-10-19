@@ -3,8 +3,12 @@
 // "put the page like the others"): figures top right, a plain table with full figures, the period
 // picker of the Filters window. Visit uses them; Reach keeps its own copies until its tile icons are in.
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { fmtValue } from "@/lib/marketingKpis/measures";
@@ -26,8 +30,30 @@ export const withChange = (v: React.ReactNode, c: ReturnType<typeof change>) => 
   </Box>
 );
 
-/** A plain table, figures in full (SARCLA: no abbreviations); a row can be picked. */
-export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth, left = [] }: {
+/** A long list a page at a time (SARCLA 19.10: "paginate tables"): the page shown, and its rows. */
+export function usePaged<T>(rows: T[], size?: number): { shown: T[]; page: number; pages: number; setPage: (p: number) => void; size: number; total: number } {
+  const [page, setPage] = useState(0);
+  const n = size && size > 0 ? size : Math.max(1, rows.length);
+  const pages = Math.max(1, Math.ceil(rows.length / n));
+  const at = Math.min(page, pages - 1);
+  return { shown: rows.slice(at * n, at * n + n), page: at, pages, setPage, size: n, total: rows.length };
+}
+
+/** "11–20 of 48" and the two arrows - nothing when the list fits on one page. */
+export function Pager({ p }: { p: ReturnType<typeof usePaged<unknown>> }) {
+  if (p.pages <= 1) return null;
+  const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mr: 0.5, fontVariantNumeric: "tabular-nums" }}>{p.page * p.size + 1}–{Math.min(p.total, (p.page + 1) * p.size)} of {p.total.toLocaleString("en")}</Typography>
+      <IconButton size="small" aria-label="The previous page" disabled={p.page === 0} onClick={() => p.setPage(p.page - 1)} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+      <IconButton size="small" aria-label="The next page" disabled={p.page >= p.pages - 1} onClick={() => p.setPage(p.page + 1)} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+    </Box>
+  );
+}
+
+/** A plain table, figures in full (SARCLA: no abbreviations); a row can be picked; a long one goes a page at a time. */
+export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth, left = [], pageSize }: {
   head: string[]; rows: { key: string; cells: React.ReactNode[]; strong?: boolean; on?: boolean; onPick?: () => void }[]; firstWidth?: string;
   /** the other columns' widths, when not all the same */
   widths?: string[];
@@ -35,7 +61,11 @@ export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths,
   minWidth?: number;
   /** the columns read as text, left-aligned like the first (a company, an article); the others are figures */
   left?: number[];
+  /** the rows a page shows - all of them when not given */
+  pageSize?: number;
 }) {
+  const paged = usePaged(allRows, pageSize);
+  const rows = paged.shown;
   const right = (i: number) => i > 0 && !left.includes(i);
   const cols = widths ? `${firstWidth} ${widths.join(" ")}` : `${firstWidth} repeat(${head.length - 1}, minmax(110px, 1fr))`;
   return (
@@ -51,6 +81,7 @@ export function Table({ head, rows, firstWidth = "minmax(200px, 1.6fr)", widths,
           </Box>
         ))}
       </Box>
+      {paged.pages > 1 && <Box sx={{ pt: 1 }}><Pager p={paged} /></Box>}
     </Box>
   );
 }

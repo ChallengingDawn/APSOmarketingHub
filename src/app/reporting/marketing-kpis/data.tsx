@@ -65,12 +65,20 @@ export function everyWhileSeen(fn: () => void): () => void {
  * again through a deployment's error page. The page shows what it has meanwhile,
  * so a slow read never holds the rest of the page back.
  */
+// one request in flight per address: a nutshell with several cards of one page asks once, not once a card
+const inflight = new Map<string, Promise<Record<string, unknown>>>();
+const askOnce = (url: string) => {
+  let p = inflight.get(url);
+  if (!p) { p = hubJson<Record<string, unknown>>(url).finally(() => inflight.delete(url)); inflight.set(url, p); }
+  return p;
+};
+
 export function useSlow<T>(url: string, field: string): { value: T | null; computing: boolean; progress?: string; error?: string } {
   const [st, setSt] = useState<{ state?: SlowState<T>; error?: string } | null>(null);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = (tries = 0) => hubJson<Record<string, unknown>>(url)
+    const load = (tries = 0) => askOnce(url)
       .then((j) => {
         if (!alive) return;
         const state = j?.[field] as SlowState<T> | undefined;

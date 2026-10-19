@@ -15,7 +15,7 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
-import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority, ticketWindowStart, typedQuantity } from "../datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, lostReason, nextWorkingDay, priceCheckQualifies, shortPriority, ticketWindowStart, typedQuantity, type LostReason } from "../datatracker/rules";
 import { adoptNamedOwners, ownerName, teamOf } from "../datatracker/rosters";
 import { owners } from "./eshopActivity";
 import { largestEarlierQuantity } from "../shopLooks/parse";
@@ -118,6 +118,11 @@ export type ShopSignals = {
   moq: LookRecord[];
   /** Looked at, not bought, and there was nothing (or not enough) on the shelf. */
   availability: LookRecord[];
+  /**
+   * Every look that ended in no order, by where it was lost (rules.lostReason) - the looks (one customer,
+   * one article, one day) and the companies behind them.
+   */
+  lost: { looks: Record<LostReason, number>; companies: Record<LostReason, number>; total: number; totalCompanies: number; ordered: number; orderedCompanies: number };
   scanned: number;
   articlesLookedUp: number;
   generatedAt: string;
@@ -252,6 +257,8 @@ async function scan(
 
   const drafts = new Map<string, Draft>();
   const wanted = new Set<string>();
+  const orderedLooks = new Set<string>();
+  const orderedCompanies = new Set<string>();
   let after: string | undefined;
   let scanned = 0;
 
@@ -286,12 +293,12 @@ async function scan(
         // Ten digits or it is not an article: the eight-digit number is a page
         // that thirty-two variants share, and it joins to no price at all.
         if (!isArticle(a)) continue;
-        // Bought it? Then none of these three screens is about them.
-        if (line.o === 1) continue;
         const day = String(line.t ?? "").slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
         if (from && day < from) continue;
         if (to && day > to) continue;
+        // Bought it? Then none of these three screens is about them - only the count of what was won.
+        if (line.o === 1) { orderedLooks.add(`${r.id}|${day}|${a}`); orderedCompanies.add(String(r.id ?? "")); continue; }
 
         const key = `${r.id}|${day}`;
         let d = drafts.get(key);
@@ -366,6 +373,9 @@ async function scan(
   const priceChecks: PriceCheckRow[] = [];
   const moq: LookRecord[] = [];
   const availability: LookRecord[] = [];
+  const lostLooks: Record<LostReason, number> = { shelf: 0, moq: 0, cart: 0, price: 0, looked: 0 };
+  const lostCompanies: Record<LostReason, Set<string>> = { shelf: new Set(), moq: new Set(), cart: new Set(), price: new Set(), looked: new Set() };
+  const lostAll = new Set<string>();
 
   for (const d of drafts.values()) {
     // The list price is per mandant, and the customer's mandant is the one that
@@ -395,6 +405,13 @@ async function scan(
         special: isSpecialArticle(article),
       };
     });
+
+    for (const x of detailed) {
+      const why = lostReason({ qty: x.qty, carted: x.look.carted, stock: x.stock, minimum: x.minimum });
+      lostLooks[why]++;
+      lostCompanies[why].add(d.company.companyId);
+      lostAll.add(d.company.companyId);
+    }
 
     // ---- the price-check row: priced, not carted ----------------------------
     const left = detailed.filter((x) => !x.look.carted);
@@ -517,6 +534,15 @@ async function scan(
   moq.sort((a, b) => Number(b.belowMoq) - Number(a.belowMoq) || b.day.localeCompare(a.day) || (b.value ?? 0) - (a.value ?? 0));
   availability.sort((a, b) => (b.shortfall ?? 0) - (a.shortfall ?? 0) || b.day.localeCompare(a.day));
 
-  return { priceChecks, moq, availability, scanned, articlesLookedUp: spec.size,
+  const lost = {
+    looks: lostLooks,
+    companies: Object.fromEntries(Object.entries(lostCompanies).map(([k, v]) => [k, v.size])) as Record<LostReason, number>,
+    total: Object.values(lostLooks).reduce((a, n) => a + n, 0),
+    totalCompanies: lostAll.size,
+    // the looks that did end in an order, the same way counted - what the lost ones are out of
+    ordered: orderedLooks.size,
+    orderedCompanies: orderedCompanies.size,
+  };
+  return { priceChecks, moq, availability, lost, scanned, articlesLookedUp: spec.size,
            ticketLookupError, quantityHistoryError, generatedAt: new Date().toISOString() };
 }

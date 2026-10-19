@@ -219,6 +219,23 @@ export function knownMinimum(flag: string | null | undefined, minimum: number | 
   return minimum != null && Number.isFinite(minimum) && minimum > 1 ? minimum : null;
 }
 
+export type LostReason = "shelf" | "moq" | "cart" | "price" | "looked";
+/**
+ * Where a look at an article that ended in no order was lost (SARCLA 19.10: "a diagram to see where we
+ * lost them") - the first that applies: the shelf could not serve it (nothing, or less than asked), they
+ * asked below the minimum, it reached the cart and stopped there, they priced a quantity and left, or they
+ * only opened it. A stock we do not know is not an empty shelf.
+ */
+export function lostReason(x: { qty: number | null; carted: boolean; stock: number | null; minimum: number | null }): LostReason {
+  // a quantity the customer typed - a bare 1 is none (typedQuantity, 19.10.2026)
+  const typed = typedQuantity(x.qty);
+  if (x.stock === 0 || (x.stock != null && typed && x.stock < x.qty!)) return "shelf";
+  if (x.minimum != null && typed && x.qty! < x.minimum) return "moq";
+  if (x.carted) return "cart";
+  if (typed) return "price";
+  return "looked";
+}
+
 /**
  * The five company filters, applied the way the activity search applies them.
  *

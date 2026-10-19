@@ -182,8 +182,9 @@ async function build(): Promise<EngageData> {
     const log = await gateway<LogRow[]>("/api/smart-bar/logs?limit=2000", { timeoutMs: 60_000 }).catch(() => null);
     const byMonth: Record<string, [number, number]> = {};
     for (const x of r.by_day ?? []) { const m = String(x.day).slice(0, 7); const a = (byMonth[m] ??= [0, 0]); a[0] += x.searches ?? 0; a[1] += x.ok ?? 0; }
+    const byDay: [string, number, number][] = (r.by_day ?? []).map((x) => [String(x.day).slice(0, 10), x.searches ?? 0, x.ok ?? 0]);
     search = {
-      days: r.days, since: r.by_day?.[0]?.day ? String(r.by_day[0].day).slice(0, 10) : null, total: r.settled_searches ?? 0, zero: r.zero_result_searches ?? 0, byMonth,
+      days: r.days, since: r.by_day?.[0]?.day ? String(r.by_day[0].day).slice(0, 10) : null, total: r.settled_searches ?? 0, zero: r.zero_result_searches ?? 0, byMonth, byDay,
       byLocale: (r.by_locale ?? []).map((x) => ({ locale: x.locale, searches: x.searches, ok: x.ok })),
       top: (r.keywords_top ?? []).slice(0, 60).map((x) => ({ query: x.query, searches: x.searches, found: Math.round((x.searches * (x.success_pct ?? 0)) / 100) })),
       // a pasted e-mail signature can land in the bar: the text is cut short
@@ -276,6 +277,7 @@ async function build(): Promise<EngageData> {
       since: TRACKER_SINCE, byDay: sorted(byDay).map(([day, [q, t]]) => [day, q, t]), byTeam, companies: companies.size,
       moq: { byDay: sorted(moqDays).map(([day, [n, c]]) => [day, n, c.size]), rows: moqRows, total: below.length },
       shelf: { byDay: sorted(shelfDays).map(([day, [a, b]]) => [day, a, b]), rows: shelfRows, total: s.availability.length },
+      lost: s.lost,
     };
   });
 

@@ -10,6 +10,13 @@ import type { KpiView } from "./data";
 import { VISIT_CARDS, VisitFullCard } from "./Visit";
 import { REACH_CARDS, ReachFullCard, ReachTileChart } from "./Reach";
 import { VisitTileChart } from "./VisitCompact";
+import { EngagePromoted } from "./Engage";
+import { registerTileRenderer } from "./tiles/registry";
+
+// an Engagements card brought to In a nutshell is drawn as on its page (SARCLA 19.10: "displayed so we can
+// check on the main page", "each small graph separate to bring to the nutshell") - the nutshell asks the
+// registry for the page's renderer, so nothing in the nutshell itself has to know Engagements' cards
+registerTileRenderer("engage", (spec) => <EngagePromoted spec={spec} />);
 
 /** The KPI's card as on its page - for a placement whose format is "card"; null when its page has no card for it (it stays a tile - 9f: never an empty row). */
 export function fullCardFor(page: string, kpiId: string, actions?: React.ReactNode): React.ReactNode | null {

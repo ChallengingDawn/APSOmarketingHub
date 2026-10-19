@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engageSeries, engageTable, engageYtd, madeToOrderIn, minSec, productTable, searchKind, searchSample, siteSearchGa4, toolTotals, viewPage, viewsByPc, type EngageData } from "../src/lib/marketingKpis/engageCube";
+import { engageSeries, engageTable, engageYtd, madeToOrderIn, minSec, productTable, searchKind, searchSample, searchTool, siteSearchGa4, toolTotals, viewPage, viewsByPc, type EngageData } from "../src/lib/marketingKpis/engageCube";
+import { lostReason } from "../src/lib/datatracker/rules";
 
 const m24 = (cells: Record<number, number>) => Array.from({ length: 24 }, (_, i) => cells[i] ?? 0);
 
@@ -118,4 +119,23 @@ test("a search that found nothing: half typed, or a number, a code, words, paste
   assert.deepEqual(x.kinds, { number: 2, code: 1, words: 0, long: 0 });
   assert.deepEqual(x.examples.number, [{ text: "402055", n: 2 }]);
   assert.deepEqual(x.examples.code, []);
+});
+
+test("where a look that ended in no order was lost - the first reason that applies", () => {
+  const look = (x: Partial<{ qty: number | null; carted: boolean; stock: number | null; minimum: number | null }>) => ({ qty: null, carted: false, stock: null, minimum: null, ...x });
+  assert.equal(lostReason(look({ qty: 50, stock: 0, minimum: 100, carted: true })), "shelf");    // nothing on the shelf comes first
+  assert.equal(lostReason(look({ qty: 50, stock: 20 })), "shelf");                                // less than asked
+  assert.equal(lostReason(look({ qty: 50, stock: null, minimum: 100 })), "moq");                  // an unknown stock is not empty
+  assert.equal(lostReason(look({ qty: 500, stock: 1000, carted: true })), "cart");
+  assert.equal(lostReason(look({ qty: 5, stock: 1000 })), "price");
+  assert.equal(lostReason(look({ stock: 0 })), "shelf");
+  assert.equal(lostReason(look({ stock: 1000 })), "looked");
+  assert.equal(lostReason(look({ qty: 1, stock: 1000, minimum: 100 })), "looked");                // a bare 1 is no quantity typed
+});
+
+test("the search bar as one of the tools: its searches each day and those that found something", () => {
+  const t = searchTool({ ...d, search: { ...d.search!, byDay: [["2026-07-05", 100, 70], ["2026-07-06", 50, 40]] } })!;
+  assert.deepEqual([t.key, t.since, t.unit, t.unit2, t.days.length, t.onShop], ["search", "2026-07-05", "Searches", "Found something", 2, true]);
+  assert.equal(searchTool({ ...d, search: null, errors: {} }), null);
+  assert.equal(searchTool({ ...d, search: null, errors: { search: "timeout" } })?.error, "timeout");
 });
