@@ -45,7 +45,7 @@ import { BarList } from "@/app/charts/BarList";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
+import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { PersonRow, Row, RunInfo, Settings } from "@/lib/boDistribution/engine";
 import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
@@ -64,7 +64,6 @@ import { StraysCard } from "./StraysCard";
 
 function Overview({ d }: { d: Data }) {
   const m = measure(d.rows);
-  const liveNow = [d.settings.live.gqs && "GQS", d.settings.live.bo && "Back Office", d.settings.live.strays && "tickets waiting for an owner"].filter(Boolean) as string[];
   const days = useMemo(() => {
     const by = new Map<string, { same: number; different: number; none: number; waiting: number }>();
     for (const r of d.rows) {
@@ -95,14 +94,6 @@ function Overview({ d }: { d: Data }) {
     : d.rows.filter((r) => r.actual && (r.actual.category ?? "No category") === cat);
   return (
     <>
-      <Info>
-        {liveNow.length
-          ? <><b>Live: the hub writes the owner for {liveNow.join(", ")}</b> (Settings); everything else is shadow - compared, not written. </>
-          : <>Shadow mode - the hub writes nothing to HubSpot. </>}
-        For each ticket entering Back Office &quot;New&quot; or GQS &quot;New for Back-Office&quot; it works out
-        what the workflows decide (<b>copy</b>: their rules, quirks included) and what it would decide with the faults fixed (<b>hub</b>), and reads what
-        HubSpot really did. The last 7 days are replayed: their category and path compare exactly; their owner only roughly, as today&apos;s availability is used.
-      </Info>
       <Grid container spacing={2}>
         {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
       </Grid>
