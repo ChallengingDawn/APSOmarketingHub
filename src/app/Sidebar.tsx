@@ -335,8 +335,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
-      // replaces the HubSpot project sarcla-france-owner, with more than one rule (SARCLA, 12.10.2026)
-      { group: "HubSpot apps", label: "Owner Redirection", href: "/uc/owner-redirection", icon: <CompareArrowsIcon fontSize="small" /> },
+      // Owner Redirection (12.10.2026) is the Redirections view of Map Assignment since 19.10.2026 - SARCLA: "part of
+      // Map assignment, so it should be taken out as a sub-app"; /uc/owner-redirection sends there
       // the "Ticket associations" workflow of the Tickets app, run by the hub (SARCLA, 17.10.2026)
       { group: "HubSpot apps", label: "Ticket/Order/Article Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
       // every morning a partner's article list with our stock, MOQ and status (SARCLA, 18.10.2026)

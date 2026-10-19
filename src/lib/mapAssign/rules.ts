@@ -152,16 +152,18 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
   };
   if (!rule || rule.source === "sae") {
     const sae = String(c.sae ?? "").trim();
+    let elsewhere: OwnerId | null = null;
     if (sae) {
       const local = Object.entries(rule?.saeOverride ?? {}).find(([k]) => saeKey(k) === saeKey(sae));
       const hit = local ?? Object.entries(rules.sae).find(([k]) => saeKey(k) === saeKey(sae));
-      if (hit && rule?.people?.length && !rule.people.includes(hit[1]) && !local) flags.push("not-in-country"); // the zone decides
+      if (hit && rule?.people?.length && !rule.people.includes(hit[1]) && !local) { flags.push("not-in-country"); elsewhere = hit[1]; } // the zone decides
       else if (hit) return done(hit[1], "sae", `SAE ${sae}${local ? ` (redirected in ${country})` : ""} - ${names(hit[1])}`);
       else flags.push("sae-unmapped");
     }
     const z = zone();
     if (z) return z;
-    return done(fallback, "default", sae ? `SAE ${sae} not in the table - default` : "no SAE, no zone - default");
+    return done(fallback, "default", elsewhere ? `SAE ${sae} is ${names(elsewhere)}, who does not work ${country}; no zone - default`
+      : sae ? `SAE ${sae} not in the table, no zone - default` : "no SAE, no zone - default");
   }
   const z = zone();
   if (z) return z;

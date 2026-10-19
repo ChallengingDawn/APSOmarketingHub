@@ -12,8 +12,10 @@ import type { Geometry } from "geojson";
 import { cleanZip, saeKey, type AssignRules, type CountryRule, type OwnerId, type Zone } from "@/lib/mapAssign/rules";
 import type { MapData, Owner } from "@/lib/mapAssign/api";
 
-export type View = "map" | "rules" | "differences" | "nocompany" | "live";
-export const VIEW_HASH: Record<View, string> = { map: "#map", rules: "#rules", differences: "#differences", nocompany: "#no-company", live: "#live" };
+export type View = "map" | "rules" | "performis" | "differences" | "nocompany" | "redirections" | "live";
+export const VIEW_HASH: Record<View, string> = {
+  map: "#map", rules: "#rules", performis: "#performis", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
+};
 
 const PORTAL = "26492587";
 export const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;
@@ -42,14 +44,19 @@ export async function send(method: "PUT" | "POST", body: object): Promise<{ ok: 
 }
 
 /**
- * Saving the edited rules: one PUT {patch} per part that changed - the SAE table (with the global default) and each
+ * Saving the edited rules: one PUT {patch} per part that changed - the SAE table and the default (TSA Team), each
  * country - since the whole rules are past 8 KB (8.4 KB as seeded). Every part's size is checked before anything is
  * sent; then they go one after the other, and a failure says which parts were saved before it.
  */
 export async function saveRules(draft: AssignRules, saved: AssignRules): Promise<{ ok: boolean; text: string }> {
   const parts: { what: string; body: object }[] = [];
-  if (canon(draft.sae) !== canon(saved.sae) || String(draft.defaultOwner) !== String(saved.defaultOwner)) {
-    parts.push({ what: "the SAE table", body: { patch: { sae: draft.sae, defaultOwner: draft.defaultOwner } } });
+  const saeChanged = canon(draft.sae) !== canon(saved.sae);
+  const defaultChanged = String(draft.defaultOwner) !== String(saved.defaultOwner);
+  if (saeChanged || defaultChanged) {
+    parts.push({
+      what: saeChanged && defaultChanged ? "the SAE table and the default" : saeChanged ? "the SAE table" : "the default",
+      body: { patch: { ...(saeChanged ? { sae: draft.sae } : {}), ...(defaultChanged ? { defaultOwner: draft.defaultOwner } : {}) } },
+    });
   }
   for (const cc of [...new Set([...Object.keys(draft.countries), ...Object.keys(saved.countries)])].sort()) {
     const a = draft.countries[cc] ?? null, b = saved.countries[cc] ?? null;
@@ -105,13 +112,15 @@ export function namesOf(owners: Owner[]): Names {
   };
 }
 
-/** The people a country's rule names (zones, default, key accounts) - the global default excluded, it is grey. */
+/** The people a country's rule names (zones, default, key accounts, its SAE redirects) - TSA Team, the default
+ *  everywhere, excluded: it is grey. */
 export function ruleOwners(rule: CountryRule | undefined, globalDefault: OwnerId): OwnerId[] {
   if (!rule) return [];
   const s = new Set<string>();
   for (const z of rule.zones) if (z.owner) s.add(String(z.owner));
   if (rule.defaultOwner) s.add(String(rule.defaultOwner));
   for (const k of rule.keyAccounts ?? []) if (k.owner) s.add(String(k.owner));
+  for (const o of Object.values(rule.saeOverride ?? {})) if (o) s.add(String(o));
   s.delete(String(globalDefault));
   return [...s];
 }
@@ -120,8 +129,8 @@ export function ruleOwners(rule: CountryRule | undefined, globalDefault: OwnerId
    One colour per person, the same in every country and view. The hues are the hub's validated categorical order
    (dataviz reference palette, light mode); a map puts every colour beside every other, so past the first few the
    legend, the hover and the highlight carry identity too. A 9th to 16th person in one country gets the same hues as
-   rings (white middle), never a made-up hue. TSA Team (the global default) is grey; a person who has left keeps the
-   colour with a red edge, and the legend stripes them. */
+   rings (white middle), never a made-up hue. TSA Team - the team that gets whatever no rule places, in every country -
+   is grey; a person who has left keeps the colour with a red edge, and the legend stripes them. */
 
 export const HUES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"] as const;
 const SLOTS = HUES.length * 2;
@@ -237,22 +246,70 @@ export function matchZone(clean: string, compiled: Compiled[]): { zone: Zone; pr
 }
 
 export type Pick = { owner: OwnerId; how: string; zoneId: string | null };
-/** Who a postcode goes to by the zones, else the country's default, else the global default (TSA Team). */
-export function postcodePicker(rule: CountryRule | undefined, rules: AssignRules): (clean: string) => Pick {
+/**
+ * Who a postcode goes to by the zones (a prefix first, then a zone that holds its region - `region` is the region
+ * code of the postcode, "CH-BE", as zoneFor takes it), else the country's default person, else the default (TSA Team).
+ */
+export function postcodePicker(rule: CountryRule | undefined, rules: AssignRules): (clean: string, region?: string | null) => Pick {
   const compiled = compileZones(rule?.zones ?? []);
+  const byRegion = new Map<string, Zone>();
+  for (const z of rule?.zones ?? []) for (const r of z.regions ?? []) if (!byRegion.has(r)) byRegion.set(r, z);
   const fallback = rule?.defaultOwner || rules.defaultOwner;
-  const how = rule?.defaultOwner ? "no zone - the country's default" : "no zone - the global default";
-  return (clean) => {
+  const how = rule?.defaultOwner ? "no zone - the country's default" : "no zone - the default";
+  const label = (z: Zone) => (z.label ? ` (${z.label})` : "");
+  return (clean, region) => {
     const m = matchZone(clean, compiled);
-    return m ? { owner: m.zone.owner, how: `zone ${m.prefix}${m.zone.label ? ` (${m.zone.label})` : ""}`, zoneId: m.zone.id } : { owner: fallback, how, zoneId: null };
+    if (m) return { owner: m.zone.owner, how: `zone ${m.prefix}${label(m.zone)}`, zoneId: m.zone.id };
+    const z = region ? byRegion.get(region) : undefined;
+    if (z) return { owner: z.owner, how: `region ${region}${label(z)}`, zoneId: z.id };
+    return { owner: fallback, how, zoneId: null };
   };
 }
+
+/** Where an SAE's companies go in a country under these rules - as decide() in rules.ts takes the SAE. */
+export type SaeTarget = { owner: OwnerId | null; how: "redirect" | "table" | "not-in-country" | "unmapped" | "map" };
+export function saeTarget(rules: AssignRules, cc: string, sae: string): SaeTarget {
+  const rule = rules.countries[cc];
+  if (rule?.source === "map") return { owner: null, how: "map" };
+  const k = saeKey(sae);
+  const local = Object.entries(rule?.saeOverride ?? {}).find(([x]) => saeKey(x) === k);
+  if (local) return { owner: String(local[1]), how: "redirect" };
+  const hit = Object.entries(rules.sae).find(([x]) => saeKey(x) === k);
+  if (!hit) return { owner: null, how: "unmapped" };
+  if (rule?.people?.length && !rule.people.map(String).includes(String(hit[1]))) return { owner: String(hit[1]), how: "not-in-country" };
+  return { owner: String(hit[1]), how: "table" };
+}
+
+/** A country's SAE redirects with one set (owner) or taken out (null) - matched by saeKey, so a respelt key is replaced. */
+export function withOverride(rule: CountryRule, sae: string, owner: OwnerId | null): CountryRule {
+  const k = saeKey(sae);
+  const next = Object.fromEntries(Object.entries(rule.saeOverride ?? {}).filter(([x]) => saeKey(x) !== k));
+  if (owner) next[sae.trim()] = owner;
+  const out: CountryRule = { ...rule, saeOverride: next };
+  if (!Object.keys(next).length) delete out.saeOverride;
+  return out;
+}
+
+/** The draft rules' setter, as the page hands it to the views. */
+export type SetDraft = (f: (r: AssignRules) => AssignRules) => void;
+
+/** MapPanel's onAssign: a postcode or region given to someone on the map - its country's whole rule after the change
+ *  (MapAssign.rule) goes into the draft as it is, like an edit on Rules. */
+export const assignInto = (setDraft: SetDraft) => (country: string, change: { rule: CountryRule }) =>
+  setDraft((r) => ({ ...r, countries: { ...r.countries, [country]: change.rule } }));
+
+/** An empty rule for a country, as "Add a rule" makes it: Performis decides, no zones. */
+export const emptyRule = (cc: string): CountryRule => ({ country: cc, source: "sae", zones: [], defaultOwner: null, keyAccounts: [] });
 
 /* ── editing ── */
 
 /** "30-38, 40-49 869" -> ["30-38", "40-49", "869"]; "30 - 38" reads as one range. */
 export const splitPrefixes = (s: string) => s.replace(/\s*-\s*/g, "-").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
 export const splitIds = (s: string) => s.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+/** "be, fr CH-VS" in Switzerland -> ["CH-BE", "CH-FR", "CH-VS"]: the codes of public/geo/shapes/<CC>.json, the country
+ *  part may be left out. */
+export const splitRegions = (s: string, cc: string) => [...new Set(s.split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean)
+  .map((x) => (x.includes("-") ? x : `${cc}-${x}`)))];
 
 export function prefixProblem(p: string): string | null {
   const r = /^([A-Za-z0-9]+)-([A-Za-z0-9]+)$/.exec(p);
@@ -267,39 +324,43 @@ export function prefixProblem(p: string): string | null {
 
 export const newId = (p: string) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
-/** What stops a save (blocking) and what deserves a look (warnings). */
-export function checkRules(r: AssignRules, names: Names): { errors: string[]; warnings: string[] } {
-  const errors: string[] = [], warnings: string[] = [];
-  if (!r.defaultOwner) errors.push("No global default person");
-  else if (!names.active(r.defaultOwner)) warnings.push(`The global default, ${names.name(r.defaultOwner)}, has left`);
+/**
+ * What stops a save - only what the hub would refuse or could not use. No "X has left" lines (SARCLA 19.10.2026:
+ * "these rules are correct but take them out - the workflow will keep going"): a person who has left is never
+ * written anyway, the default gets their companies, and the map stripes them.
+ */
+export function checkRules(r: AssignRules): { errors: string[] } {
+  const errors: string[] = [];
+  if (!r.defaultOwner) errors.push("No default person or team (today TSA Team)");
   const seen = new Map<string, { k: string; o: string }>();
   for (const [k, o] of Object.entries(r.sae)) {
     if (!o) errors.push(`SAE "${k}" has no person`);
-    else if (!names.active(o)) warnings.push(`SAE "${k}" goes to ${names.name(o)}, who has left - the default gets those companies`);
     if (k.length > 120) errors.push(`SAE "${k.slice(0, 40)}..." is too long`);
     const sk = saeKey(k);
     const before = seen.get(sk);
     if (before && String(before.o) !== String(o)) errors.push(`SAE "${k}" and "${before.k}" are the same SAE with two people`);
-    else if (before) warnings.push(`SAE "${k}" is written twice`);
-    else seen.set(sk, { k, o: String(o) });
+    else if (!before) seen.set(sk, { k, o: String(o) });
   }
   for (const [cc, rule] of Object.entries(r.countries)) {
     const c = countryName(cc);
-    const tokens = new Map<string, number>();
+    const regionIn = new Map<string, number>();
     rule.zones.forEach((z, i) => {
       const n = `${c}, zone ${i + 1}${z.label ? ` (${z.label})` : ""}`;
       if (!z.owner) errors.push(`${n}: no person`);
-      else if (!names.active(z.owner)) warnings.push(`${n}: ${names.name(z.owner)} has left - the default gets these postcodes`);
-      if (!z.prefixes.length) errors.push(`${n}: no postcodes`);
+      if (!z.prefixes.length && !(z.regions ?? []).length) errors.push(`${n}: no postcodes and no regions`);
       for (const p of z.prefixes) {
         const e = prefixProblem(p);
         if (e) errors.push(`${n}: ${e}`);
-        const t = cleanZip(p) || p;
-        if (tokens.has(t) && tokens.get(t) !== i) warnings.push(`${c}: "${p}" is in zone ${tokens.get(t)! + 1} and zone ${i + 1} - the first one listed wins`);
-        else tokens.set(t, i);
+      }
+      for (const g of z.regions ?? []) {
+        // as the hub's check (plan.ts): a code, and one zone per region
+        if (!/^[A-Z0-9]{1,4}(-[A-Z0-9]{1,6})?$/i.test(g)) errors.push(`${n}: "${g}" is not a region code`);
+        const before = regionIn.get(g.toUpperCase());
+        if (before !== undefined && before !== i) errors.push(`${c}: region ${g} is in zone ${before + 1} and zone ${i + 1}`);
+        else regionIn.set(g.toUpperCase(), i);
       }
     });
-    if (rule.defaultOwner && !names.active(rule.defaultOwner)) warnings.push(`${c}: the default, ${names.name(rule.defaultOwner)}, has left`);
+    for (const [k, o] of Object.entries(rule.saeOverride ?? {})) if (!o) errors.push(`${c}: the redirect of SAE "${k}" has no person`);
     (rule.keyAccounts ?? []).forEach((k, i) => {
       const n = `${c}, key accounts ${i + 1}${k.label ? ` (${k.label})` : ""}`;
       if (!k.owner) errors.push(`${n}: no person`);
@@ -308,13 +369,18 @@ export function checkRules(r: AssignRules, names: Names): { errors: string[]; wa
       if (odd.length) errors.push(`${n}: ${odd.slice(0, 3).map((e) => `"${e}"`).join(", ")} ${odd.length === 1 ? "is not an ERP customer id" : "are not ERP customer ids"}`);
     });
   }
-  return { errors, warnings };
+  return { errors };
 }
 
-/** Same rules? Key order does not count. */
+/** A field that says nothing: missing, null, [] or {} - "no SAE redirects" whichever way it is written. */
+const blank = (x: unknown) => x === undefined || x === null || (Array.isArray(x) ? !x.length : typeof x === "object" && !Object.keys(x as object).length);
+/** Same rules? Key order does not count, nor an empty field against a missing one. */
 export function canon(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
-  if (v && typeof v === "object") return `{${Object.keys(v as object).sort().filter((k) => (v as Record<string, unknown>)[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().filter((k) => !blank(o[k])).map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  }
   return JSON.stringify(v ?? null);
 }
 
@@ -335,6 +401,28 @@ export function OwnerPicker({ value, onChange, names, disabled, placeholder = "p
       onChange={(_, v) => onChange(v ?? "")}
       renderInput={(p) => <TextField {...p} placeholder={placeholder} />}
       sx={{ minWidth: 180, ...sx }}
+    />
+  );
+}
+
+/** Several people (a country's people): the active ones to pick from, anyone already in the list kept. */
+export function PeoplePicker({ value, onChange, names, disabled, placeholder = "anyone", sx }: {
+  value: OwnerId[]; onChange: (v: OwnerId[]) => void; names: Names; disabled?: boolean; placeholder?: string; sx?: object;
+}) {
+  const picked = useMemo(() => value.map(String), [value]);
+  const options = useMemo(() => {
+    const ids = names.pickable.map((o) => String(o.id));
+    for (const v of picked) if (!ids.includes(v)) ids.unshift(v);
+    return ids;
+  }, [names, picked]);
+  return (
+    <Autocomplete<string, true, false>
+      multiple size="small" options={options} value={picked} disabled={disabled} filterSelectedOptions
+      getOptionLabel={(id) => `${names.name(id)}${names.active(id) ? "" : " (has left)"}`}
+      onChange={(_, v) => onChange(v)}
+      slotProps={{ chip: { size: "small" } }}
+      renderInput={(p) => <TextField {...p} placeholder={picked.length ? "" : placeholder} />}
+      sx={{ minWidth: 220, ...sx }}
     />
   );
 }
@@ -410,5 +498,6 @@ export const FLAG_LABEL: Record<string, string> = {
   "owner-deactivated": "person has left",
   "no-country": "no country",
   "no-zip": "no postcode",
+  "not-in-country": "SAE person does not work this country",
 };
 export const VIA_LABEL: Record<string, string> = { key: "key account", sae: "SAE", zone: "postcode zone", default: "default" };

@@ -179,12 +179,12 @@ export const APPS: HubApp[] = [
       { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
       { name: "UC16 Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
       { name: "UC17 Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
-      // who owns a company, per country: Performis SAE or postcode zones on a map - first of the HubSpot apps (SARCLA 19.10.2026)
-      { name: "Map assignment", note: "Who owns each company, per country: SAE or postcode zones on a map; contacts follow", href: "/uc/map-assignment", icon: "map", ...TEAL },
+      // who owns a company, per country: Performis SAE or postcode zones on a map - first of the HubSpot apps (SARCLA 19.10.2026);
+      // Owner redirection is its Redirections view since 19.10.2026 ("part of Map assignment, taken out as a sub-app")
+      { name: "Map assignment", note: "Who owns each company, per country: SAE or postcode zones on a map, owner redirections; contacts follow", href: "/uc/map-assignment", icon: "map", ...TEAL },
       { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
       { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
-      { name: "Owner redirection", note: "Companies to the right owner, by country or person", href: "/uc/owner-redirection", icon: "groups", ...GREEN },
       { name: "Ticket/order/article associations", note: "Tickets linked to the orders and articles they name; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
       { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
       { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },

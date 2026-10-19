@@ -5,7 +5,9 @@
 // country by country, by the Performis SAE or by postcode zones on a map (France: Jeremy Borey for Auvergne-Rhône-Alpes
 // and Bourgogne-Franche-Comté only); key accounts first; the contacts follow their company. Shadow (compare) or live
 // (write) per country. The engine is src/lib/mapAssign; this page reads GET /api/uc/map-assignment.
-// Views: Map (default), Rules, Differences, No company, Live. Edits to the rules show on the map before they are saved.
+// Views: Map (default), Rules, Performis (the SAE copy: the SAE table, by country and SAE, redirects per country),
+// Differences, No company, Redirections (Owner redirection, moved in 19.10.2026 - its own data and API), Live.
+// Edits to the rules show on the map before they are saved; one Save sends them, a patch per part.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -25,26 +27,46 @@ import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, sourceNote, useCountryMap } from "./MapPanel";
 import { RulesView, SaveBar } from "./RulesView";
+import { PerformisView } from "./PerformisView";
 import { DiffView } from "./DiffView";
 import { NoCompanyView } from "./NoCompanyView";
+import { RedirectionsView } from "./RedirectionsView";
 import { LiveView } from "./LiveView";
 import {
-  API, VIEW_HASH, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
-  type Names, type Palette, type View,
+  API, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
+  type Names, type Palette, type SetDraft, type View,
 } from "./shared";
 
 const CC_KEY = "apsomh:map-assignment:country";
 
-function MapView({ d, rules, cc, setCc, names, palette, dirty }: { d: MapData; rules: AssignRules; cc: string; setCc: (cc: string) => void; names: Names; palette: Palette; dirty: boolean }) {
+const VIEW_LABEL: Record<View, string> = {
+  map: "Map", rules: "Rules", performis: "Performis", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
+};
+
+/** Which views hold unsaved edits: Performis = the SAE table and the SAE redirects, Rules = everything else. */
+function edited(draft: AssignRules | null, saved: AssignRules | undefined): { rules: boolean; performis: boolean } {
+  if (!draft || !saved) return { rules: false, performis: false };
+  const ccs = [...new Set([...Object.keys(draft.countries), ...Object.keys(saved.countries)])];
+  const without = (r: AssignRules["countries"][string] | undefined) => (r ? { ...r, saeOverride: undefined } : null);
+  return {
+    performis: canon(draft.sae) !== canon(saved.sae) || ccs.some((cc) => canon(draft.countries[cc]?.saeOverride) !== canon(saved.countries[cc]?.saeOverride)),
+    rules: String(draft.defaultOwner) !== String(saved.defaultOwner) || ccs.some((cc) => canon(without(draft.countries[cc])) !== canon(without(saved.countries[cc]))),
+  };
+}
+
+function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty }: {
+  d: MapData; rules: AssignRules; setDraft: SetDraft; cc: string; setCc: (cc: string) => void; names: Names; palette: Palette; dirty: boolean;
+}) {
   const m = useCountryMap(cc, rules, d.rules, dirty);
   const note = sourceNote(cc, rules, names);
+  const onAssign = useMemo(() => assignInto(setDraft), [setDraft]);
   return (
     <>
       <CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<MapOutlinedIcon />} tint={note.tint} title={note.title} note={note.text}
           right={d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
-        <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} />
+        <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} />
       </GlassCard>
     </>
   );
@@ -90,7 +112,8 @@ export default function MapAssignment() {
 
   const names = useMemo(() => namesOf(d?.owners ?? []), [d]);
   const palette = useMemo(() => (d && rules ? buildPalette(d, rules, names) : () => ({ color: "#c9ced6", ring: false, grey: true, left: false, none: true })), [d, rules, names]);
-  const check = useMemo(() => (rules ? checkRules(rules, names) : { errors: [], warnings: [] }), [rules, names]);
+  const check = useMemo(() => (rules ? checkRules(rules) : { errors: [] }), [rules]);
+  const parts = edited(dirty ? draft : null, d?.rules);
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -108,7 +131,9 @@ export default function MapAssignment() {
   const seeded = () => { if (d) { setDraftState(JSON.parse(JSON.stringify(d.seeded)) as AssignRules); setRev((x) => x + 1); setMsg(null); } };
 
   let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
+  // Redirections has its own data (Owner redirection's): it shows whatever the map data does
+  if (view === "redirections") body = <RedirectionsView key="redirections" frLive={d ? !!d.live.FR : null} />;
+  else if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
   else if (r.state !== "ok") {
     body = r.state === "error" && r.status === 404
       ? <Info key="missing">The map assignment service is not there yet (HTTP 404). This page fills in once it is deployed.</Info>
@@ -116,10 +141,11 @@ export default function MapAssignment() {
   } else if (d && rules) {
     const bar = <SaveBar key="bar" d={d} dirty={dirty} seededNow={seededNow} check={check} busy={busy} msg={msg} onSave={() => void save()} onUndo={undo} onSeeded={seeded} />;
     if (view === "rules") body = <>{bar}<RulesView key="rules" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} rev={rev} dirty={dirty} /></>;
+    else if (view === "performis") body = <>{bar}<PerformisView key="performis" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} rev={rev} n={n} /></>;
     else if (view === "differences") body = <DiffView key="differences" d={d} names={names} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
-    else body = <>{(dirty || msg) && bar}<MapView key="map" d={d} rules={rules} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} /></>;
+    else body = <>{(dirty || msg) && bar}<MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} /></>;
   }
 
   const liveCount = d ? Object.values(d.live).filter(Boolean).length : 0;
@@ -138,14 +164,16 @@ export default function MapAssignment() {
       />
       <Box sx={{ minWidth: 0 }}>
         <ReportTabs name="mapassign" tab={view} onSelect={setView} tabs={[
-          { id: "map", label: "Map", count: null },
-          { id: "rules", label: "Rules", count: dirty ? "edited" : null },
-          { id: "differences", label: "Differences", count: d ? full(d.changes.length) : null },
-          { id: "nocompany", label: "No company", count: d && d.noCompany.length ? full(d.noCompany.length) : null },
-          { id: "live", label: "Live", count: liveCount ? `${liveCount} live` : null },
+          { id: "map", label: VIEW_LABEL.map, count: null },
+          { id: "rules", label: VIEW_LABEL.rules, count: parts.rules ? "edited" : null },
+          { id: "performis", label: VIEW_LABEL.performis, count: parts.performis ? "edited" : null },
+          { id: "differences", label: VIEW_LABEL.differences, count: d ? full(d.changes.length) : null },
+          { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
+          { id: "redirections", label: VIEW_LABEL.redirections, count: null },
+          { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />
       </Box>
-      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${view === "nocompany" ? "No company" : view} view${d ? ` - ${countryName(cc)}` : ""}`}
+      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${VIEW_LABEL[view]} view${d && view !== "redirections" ? ` - ${countryName(cc)}` : ""}`}
         sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

@@ -24,7 +24,7 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, MUTED, Notice, RED, bodyCell, headCell } from "@/app/uc/report/ui";
-import { Chip, when } from "@/app/connectors/parts";
+import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { MapData } from "@/lib/mapAssign/api";
 import { countryList, countryName, send } from "./shared";
 
@@ -45,7 +45,12 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
     const ch = d.changes.filter((c) => c.country === cc);
     return { companies: s?.companies ?? 0, change: s?.change ?? ch.length, contacts: ch.reduce((a, c) => a + (c.contactsOff || 0), 0) };
   };
-  const list = [...new Set([...countryList(d, d.rules).map((c) => c.cc), ...Object.keys(d.live)])];
+  // live countries first, then the biggest; paged as the other views (SARCLA 19.10.2026: "paginate live")
+  const all = [...new Set([...countryList(d, d.rules).map((c) => c.cc), ...Object.keys(d.live)])]
+    .map((cc, i) => ({ cc, i })).sort((a, b) => Number(!!d.live[b.cc]) - Number(!!d.live[a.cc]) || a.i - b.i).map((x) => x.cc);
+  const [show, setShow] = useState<"all" | "live" | "rule" | "shadow">("all");
+  const list = all.filter((cc) => show === "all" || (show === "live" ? !!d.live[cc] : show === "rule" ? !!d.rules.countries[cc] : !d.live[cc]));
+  const { slice, pager } = usePaged(list, 20);
   const flip = async (cc: string, on: boolean) => {
     setBusy(cc); setMsg(null);
     const r = await send("PUT", { live: { [cc]: on } }); // merged into the saved switches
@@ -70,11 +75,19 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Shadow or live, per country"
           note="Shadow: the hub only compares. Live: every scan writes owner and region responsibility, and the contacts follow" />
+        <Box sx={{ mb: 1.5 }}>
+          <Choice<"all" | "live" | "rule" | "shadow"> value={show} onChange={setShow} options={[
+            { key: "all", label: "All countries", count: all.length },
+            { key: "live", label: "Live", count: all.filter((cc) => !!d.live[cc]).length },
+            { key: "rule", label: "With a rule", count: all.filter((cc) => !!d.rules.countries[cc]).length },
+            { key: "shadow", label: "Shadow", count: all.filter((cc) => !d.live[cc]).length },
+          ]} />
+        </Box>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead><TableRow>{["Country", "Mode", "Companies", "Would change", "Contacts off"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
             <TableBody>
-              {list.map((cc) => {
+              {slice.map((cc) => {
                 const f = figures(cc);
                 const on = !!d.live[cc];
                 return (
@@ -98,7 +111,8 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
             </TableBody>
           </Table>
         </Box>
-        {!list.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>No country yet - they appear with the rules and the first scan.</Typography>}
+        {pager}
+        {!list.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{all.length ? "No country with this filter." : "No country yet - they appear with the rules and the first scan."}</Typography>}
         <Box sx={{ mt: 2, display: "grid", gap: 0.5 }}>
           <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Before a country goes live, switch off for it in HubSpot</Typography>
           <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
@@ -132,6 +146,11 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>First switch off, for {countryName(ask.cc)}, the HubSpot workflows that do the same:</Typography>
                     <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
                       {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.84rem", color: INK }}>{w}</Typography>)}
+                      {ask.cc === "FR" && (
+                        <Typography component="li" sx={{ fontSize: "0.84rem", color: INK }}>
+                          and here, on <Box component="a" href="#redirections" sx={{ color: "#2459d1", textDecoration: "none" }}>Redirections</Box>, the France rule (France → Jeremy Borey): it gives him all of France, the map only Auvergne-Rhône-Alpes + Bourgogne-Franche-Comté
+                        </Typography>
+                      )}
                     </Box>
                     <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>Otherwise they write over each other.</Typography>
                   </Box>
