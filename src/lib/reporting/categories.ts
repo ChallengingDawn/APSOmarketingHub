@@ -54,11 +54,19 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         overview: "In a nutshell", overviewHref: "/reporting/marketing-kpis",
         children: [
           ...SHOWN_STAGES.map((s) => ({ name: stageName(s.slug, s.name), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
-          { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader", icon: "verified", group: "Views & inputs" },
-          { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Views & inputs" },
+          // "Views & inputs" becomes "Other reports" - Monthly inputs and SMEC targets (SARCLA 20.10.2026)
+          { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Other reports" },
+          { name: "SMEC targets", href: "/analytics/smec", icon: "target", group: "Other reports" },
         ],
       },
-      { name: "SMEC targets", href: "/analytics/smec", note: "Where the targets stand", icon: "target" },
+    ],
+  },
+  {
+    // The Sales leader view leaves Digital Growth for a tile of its own (SARCLA 20.10.2026: "a full advanced
+    // report with its own tile - will be changed later")
+    slug: "sales-leader", name: "Sales Leader View", line: "The KPIs the sales leader follows",
+    reports: [
+      { name: "Sales leader view", href: "/reporting/sales-leader", note: "The KPIs tagged for the sales leader, stage by stage", icon: "verified" },
     ],
   },
   {

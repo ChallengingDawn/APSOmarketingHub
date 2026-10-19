@@ -123,6 +123,8 @@ export type ToolCount = {
   since: string | null;
   /** what the two figures of a day are */
   unit: string; unit2: string | null;
+  /** a figure of its own in place of the second one - the search bar's AI chats */
+  second?: { n: number; label: string } | null;
   /** [day, figure, second figure] */
   days: [string, number, number][];
   /** [month, figure, second figure] - when a read has no days (the search bar read before 19.10.2026) */
@@ -174,10 +176,11 @@ export function lostPath(l: { looks: Record<LostReason, number>; ordered: number
 /** The search bar as one of the tools (SARCLA 19.10: "merge as a tool, only the number"): its searches each day, those that found something. */
 export function searchTool(d: EngageData): ToolCount | null {
   const s = d.search;
-  if (!s) return d.errors.search ? { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log", since: null, unit: "Searches", unit2: "Found something", days: [], onShop: true, error: d.errors.search } : null;
+  if (!s) return d.errors.search ? { key: "search", name: "Search bar", what: "The shop's search bar - searches, and the chats with its AI", source: "its own log", since: null, unit: "Searches", unit2: null, days: [], onShop: true, error: d.errors.search } : null;
   const days = s.byDay ?? [];
   const months = Object.keys(s.byMonth).sort().map((m) => [m, s.byMonth[m][0], s.byMonth[m][1]] as [string, number, number]);
-  return { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log - every search, cookies or not", since: s.since, unit: "Searches", unit2: "Found something", days, months, onShop: true };
+  // the searches, and the AI chats beside them (SARCLA 20.10: "take the found-nothing share out, replace it by the number of AI chats")
+  return { key: "search", name: "Search bar", what: "The shop's search bar - searches, and the chats with its AI", source: "its own log - every search, cookies or not", since: s.since, unit: "Searches", unit2: null, second: s.aiChats != null ? { n: s.aiChats, label: "AI chats" } : null, days, months, onShop: true };
 }
 
 export type MoqRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number; minimum: number | null; unit: string | null };
@@ -220,6 +223,8 @@ export type EngageData = {
     byMonth: Record<string, [number, number]>;
     /** [day, searches, found something] - the search bar as one of the tools */
     byDay?: [string, number, number][];
+    /** the conversations with the search bar's AI over the same days */
+    aiChats?: number | null;
     byLocale: { locale: string; searches: number; ok: number }[];
     top: { query: string; searches: number; found: number }[];
     /** the searches that found nothing, the last 30 days - the words to add to the search bar */

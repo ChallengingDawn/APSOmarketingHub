@@ -135,7 +135,10 @@ test("where a look that ended in no order was lost - the first reason that appli
 
 test("the search bar as one of the tools: its searches each day and those that found something", () => {
   const t = searchTool({ ...d, search: { ...d.search!, byDay: [["2026-07-05", 100, 70], ["2026-07-06", 50, 40]] } })!;
-  assert.deepEqual([t.key, t.since, t.unit, t.unit2, t.days.length, t.onShop], ["search", "2026-07-05", "Searches", "Found something", 2, true]);
+  assert.deepEqual([t.key, t.since, t.unit, t.unit2, t.days.length, t.onShop], ["search", "2026-07-05", "Searches", null, 2, true]);
+  // the AI chats in place of the found-nothing share (SARCLA 20.10)
+  assert.deepEqual(searchTool({ ...d, search: { ...d.search!, aiChats: 412 } })!.second, { n: 412, label: "AI chats" });
+  assert.equal(t.second, null);
   assert.equal(searchTool({ ...d, search: null, errors: {} }), null);
   assert.equal(searchTool({ ...d, search: null, errors: { search: "timeout" } })?.error, "timeout");
 });

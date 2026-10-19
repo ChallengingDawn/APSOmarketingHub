@@ -105,7 +105,7 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
   // a source waiting for a permission is asked again within half an hour - it opens when SARCLA accepts it in HubSpot (18.10.2026)
   return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length || v?.waiting?.R11 ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || !v?.series?.P01G || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over
@@ -458,6 +458,27 @@ async function build(): Promise<LiveKpis> {
       }
     }
     roas = out;
+  });
+
+  // What the Monthly inputs page fills the sheet's typed rows with (SARCLA 20.10: "monthly input should be
+  // prefilled"): GA4's purchases and the organic search revenue in francs - both match Dashboard 2026's own
+  // figures month for month (checked 20.10.2026: P01 2,751 / 2,900, P07 292,092 / 225,577)
+  await guard("sheetFill", async () => {
+    reportProgress(KEY, "reading GA4 purchases and organic revenue per month");
+    const s = { P01G: empty(), P07G: empty() };
+    for (const [side, y, to] of [["py", py, `${py}-12-31`], ["months", year, iso(now)]] as const) {
+      const t = await fetchGa4Report({ name: "transactionsDaily", from: `${y}-01-01`, to });
+      for (const row of t.rows) {
+        const m = Number(String(row.keys[0] ?? "").replace(/-/g, "").slice(4, 6)) - 1;
+        if (m >= 0 && m < 12) s.P01G[side][m] = (s.P01G[side][m] ?? 0) + (row.values[0] ?? 0);
+      }
+      const o = await fetchGa4Report({ name: "channelRevenueDaily", from: `${y}-01-01`, to, channelGroup: "Organic Search" });
+      for (const row of o.rows) {
+        const m = Number(String(row.keys[0] ?? "").replace(/-/g, "").slice(4, 6)) - 1;
+        if (m >= 0 && m < 12) s.P07G[side][m] = (s.P07G[side][m] ?? 0) + (row.values[0] ?? 0);
+      }
+    }
+    Object.assign(series, s);
   });
 
   // SEA: Google Ads through GA4's Ads link, a year per call (GA4 takes 365 days at most)

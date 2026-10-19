@@ -122,6 +122,9 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   // and cost from the Microsoft Advertising script's Google Sheet (scripts/microsoft-ads) - no typing
   M({ id: "MSV", label: "Microsoft Ads visits", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Visits from Microsoft Ads (bing / ppc) as GA4 sees them - only visitors who accepted statistics cookies" }),
   M({ id: "MSO", label: "Microsoft Ads orders", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Orders from Microsoft Ads visits, GA4's last click" }),
+  // what the Monthly inputs page fills Dashboard 2026's typed rows with - GA4, matching the sheet's own figures
+  M({ id: "P01G", label: "Purchases - GA4 transactions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4" }),
+  M({ id: "P07G", label: "SEO revenue - GA4 organic search, in francs", fmt: "chf", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4" }),
   M({ id: "MSR", label: "Microsoft Ads revenue", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Revenue of those orders, GA4's francs in euros at the month's ECB rate" }),
   M({ id: "R01M", label: "Microsoft Ads impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
   M({ id: "R02M", label: "Microsoft Ads clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),

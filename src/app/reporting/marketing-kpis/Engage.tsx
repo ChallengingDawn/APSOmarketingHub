@@ -573,10 +573,9 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
   const counted = monthly ? t.months! : t.days;
   const sum = (k: "a" | "b") => counted.reduce((s, r) => s + (k === "a" ? r[1] : r[2]), 0);
   const ga4Sum = ga4 ? months.reduce((s, i) => s + (ga4[i]?.a ?? 0), 0) : 0;
-  const stacked = t.key === "directcut" || t.key === "directup" || t.key === "search";
+  const stacked = t.key === "directcut" || t.key === "directup";
   // what GA4 sees of the shop's own DirectUP upload form (SARCLA 19.10: the GA4 table was not understood - its figures go here)
   const form = t.key === "directup" ? toolTotals(d, year, months).filter((x) => x.event.startsWith("directup_")) : [];
-  const sample = t.key === "search" ? d.search?.sample : null;
   const status = t.error ? { text: "Could not be read", color: RED, bg: "#fdecec" } : t.onShop || ga4 ? { text: "On the shop", color: GREEN, bg: TINT.green.bg } : { text: "Not on the shop yet", color: MUTED, bg: "rgba(21,34,58,.06)" };
   return (
     <Box sx={{ ...(plain ? { height: "100%" } : { border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, bgcolor: "#fff" }), position: "relative", display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
@@ -598,15 +597,10 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
       ) : (
         <>
           <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
-            {n0(sum("a"))} <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>{t.unit.toLowerCase()}{t.unit2 ? ` · ${n0(sum("b"))} ${t.unit2.toLowerCase()}` : ""}, since {t.since ? dayLabel(t.since) : "—"}</Box>
+            {n0(sum("a"))} <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>{t.unit.toLowerCase()}{t.second ? ` · ${n0(t.second.n)} ${t.second.label}` : t.unit2 ? ` · ${n0(sum("b"))} ${t.unit2.toLowerCase()}` : ""}, since {t.since ? dayLabel(t.since) : "—"}</Box>
           </Typography>
           {shown.length > 0 ? <MiniBars bars={shown.map((r) => ({ x: r.x, a: r.a, b: stacked ? r.b : null }))} unit={t.unit} unit2={t.unit2} fill={plain} /> : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Nothing counted yet.</Typography>}
           {legend([{ c: t.unit, color: "#cfdcec" }, ...(stacked && t.unit2 ? [{ c: t.unit2, color: SERIES[0] }] : [])])}
-          {sample && sum("a") > 0 && (
-            <Typography sx={{ fontSize: "0.74rem", color: INK }}>
-              <b>{ratio(sum("a") - sum("b"), sum("a"))}</b> found nothing - <b>{ratio(sample.nothing - sample.typing, sample.searches - sample.typing)}</b> leaving out the words still being typed (the bar searches as one types; the last {n0(sample.searches)} searches).
-            </Typography>
-          )}
           {form.some((x) => x.count) && (
             <Typography sx={{ fontSize: "0.74rem", color: INK }}>
               The shop&apos;s upload form (GA4, cookies accepted), {monthsLabel({ start: months[0] ?? 0, end: months[months.length - 1] ?? 0 })}: {form.map((x, i) => <span key={x.event}>{i ? " · " : ""}<b>{n0(x.count)}</b> {x.event === "directup_form_submit_manualupload" ? "files uploaded" : "requests sent"} {(() => { const c = change(x.count, x.pyCount); return c ? <Box component="span" sx={{ color: c.color, fontWeight: 700 }}>{c.text}</Box> : null; })()}</span>)}
@@ -639,10 +633,10 @@ function ToolTile({ t, d, year, months, actions }: { t: ToolCount; d: EngageData
     }
   }
   const bars = ga4 ?? (monthly ? t.months!.map(([m, a, b]) => ({ x: MONTHS[Number(m.slice(5, 7)) - 1], a, b })) : days.slice(-31));
-  const stacked = t.key === "directcut" || t.key === "directup" || t.key === "search";
+  const stacked = t.key === "directcut" || t.key === "directup";
   const figure = ga4 ? months.reduce((s, i) => s + (ga4[i]?.a ?? 0), 0) : sum("a");
   const unit = ga4 ? "rings put in the cart" : t.unit.toLowerCase();
-  const second = ga4 ? null : t.key === "search" && sum("a") ? `${ratio(sum("a") - sum("b"), sum("a"))} found nothing` : t.unit2 ? `${n0(sum("b"))} ${t.unit2.toLowerCase()}` : null;
+  const second = ga4 ? null : t.second ? `${n0(t.second.n)} ${t.second.label}` : t.unit2 ? `${n0(sum("b"))} ${t.unit2.toLowerCase()}` : null;
   const since = ga4 ? `GA4, ${monthsLabel({ start: months[0] ?? 0, end: months[months.length - 1] ?? 0 })}` : t.since ? `Since ${dayLabel(t.since)}${t.onShop ? "" : " · not on the shop yet"}` : "Nothing counted yet";
   return (
     // as high as its row of tiles, never more: beside a taller card (the grid packs one next to tiles) it stays a tile

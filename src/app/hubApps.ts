@@ -145,6 +145,8 @@ export const APPS: HubApp[] = [
     from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
     subs: [
       { name: "Digital Growth Reports", note: "Targets and where they stand", href: "/reporting/marketing", icon: "target", ...AMBER },
+      // its own tile (SARCLA 20.10.2026)
+      { name: "Sales Leader View", note: "The KPIs the sales leader follows", href: "/reporting/sales-leader", icon: "verified", ...PURPLE },
       { name: "ESO Reports", note: "The ESO benchmark per sales rep", href: "/reporting/eso", icon: "bar", ...PURPLE },
       { name: "TSA Reports", note: "Tickets, calls, response times", href: "/reporting/tsa", icon: "route", ...TEAL },
       { name: "Back-Office Reports", note: "What comes in, how fast it goes", href: "/reporting/back-office", icon: "layers", ...PINK },

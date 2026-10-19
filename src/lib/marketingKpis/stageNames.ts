@@ -12,7 +12,8 @@ import { STAGES, type KpiStage } from "./catalogue";
 const NAMES: Record<string, string> = { lead: "Lead Generation", uc: "UC hand-overs" };
 /** the catalogue's slug -> the page's, where the page took another stage's place */
 const MOVED: Record<string, string> = { cart: "uc" };
-const ORDER = ["reach", "visit", "engage", "lead", "handover", "uc", "customers", "retain", "efficiency"];
+// Efficiency & targets is gone (SARCLA 20.10.2026: "completely gone") - its targets stay on SMEC targets and Monthly inputs
+const ORDER = ["reach", "visit", "engage", "lead", "handover", "uc", "customers", "retain"];
 
 /** The page's name as shown: the rename when there is one, else the catalogue's without its "(...)". */
 export function stageName(slug: string, catalogueName: string): string {
@@ -25,5 +26,5 @@ export const SHOWN_STAGES: KpiStage[] = ORDER.flatMap((slug) => {
   return s ? [{ ...s, slug }] : [];
 });
 
-/** A page's stage by its slug, as shown - undefined for one that is not (Purchase, the old Cart). */
+/** A page's stage by its slug, as shown - undefined for one that is not (Purchase, the old Cart, Efficiency). */
 export const shownStage = (slug: string): KpiStage | undefined => SHOWN_STAGES.find((s) => s.slug === slug);

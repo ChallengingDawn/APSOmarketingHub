@@ -18,7 +18,7 @@ import UpcomingIcon from "@mui/icons-material/Upcoming";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
-import { ADDITIONAL_TRACKING, KPIS, PLANNED, STAGES, type KpiStage } from "@/lib/marketingKpis/catalogue";
+import { KPIS, STAGES, type KpiStage } from "@/lib/marketingKpis/catalogue";
 import { fmtValue } from "@/lib/marketingKpis/measures";
 import {
   Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, nameOf, periodOf, stageKpis,
@@ -300,14 +300,6 @@ export default function MarketingKpisMacro() {
       {views && state && (
         <>
           {SHOWN_STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} visit={visit.value} />)}
-          {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
-            <GlassCard key={title}>
-              <CardTitle icon={<UpcomingIcon />} tint="slate" title={title} />
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                {list.map((t) => <Box key={t} sx={{ fontSize: "0.84rem", color: INK, px: 1.5, py: 0.75, borderRadius: "12px", bgcolor: "rgba(255,255,255,.8)", border: "1px dashed rgba(21,34,58,.18)" }}>{t}</Box>)}
-              </Box>
-            </GlassCard>
-          ))}
           <LiveNote state={state} />
         </>
       )}

@@ -20,7 +20,8 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { searchSample, viewPage, type EngageData, type MoqRow, type ShelfRow, type ToolCount } from "./engageCube";
 
 // v3: the search bar by day and where we lost them (19.10.2026) - a read kept before them has neither
-const KEY = "marketingKpis:engage:v3";
+// v4: the search bar's AI chats (20.10.2026)
+const KEY = "marketingKpis:engage:v4";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_FAILED_MS = 30 * 60 * 1000;
 /** the live shop tracker writes the company's days since then - the price checks start there */
@@ -185,7 +186,7 @@ async function build(): Promise<EngageData> {
     for (const x of r.by_day ?? []) { const m = String(x.day).slice(0, 7); const a = (byMonth[m] ??= [0, 0]); a[0] += x.searches ?? 0; a[1] += x.ok ?? 0; }
     const byDay: [string, number, number][] = (r.by_day ?? []).map((x) => [String(x.day).slice(0, 10), x.searches ?? 0, x.ok ?? 0]);
     search = {
-      days: r.days, since: r.by_day?.[0]?.day ? String(r.by_day[0].day).slice(0, 10) : null, total: r.settled_searches ?? 0, zero: r.zero_result_searches ?? 0, byMonth, byDay,
+      days: r.days, since: r.by_day?.[0]?.day ? String(r.by_day[0].day).slice(0, 10) : null, total: r.settled_searches ?? 0, zero: r.zero_result_searches ?? 0, byMonth, byDay, aiChats: r.ai_conversations ?? null,
       byLocale: (r.by_locale ?? []).map((x) => ({ locale: x.locale, searches: x.searches, ok: x.ok })),
       top: (r.keywords_top ?? []).slice(0, 60).map((x) => ({ query: x.query, searches: x.searches, found: Math.round((x.searches * (x.success_pct ?? 0)) / 100) })),
       // a pasted e-mail signature can land in the bar: the text is cut short

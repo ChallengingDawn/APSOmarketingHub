@@ -91,7 +91,8 @@ test("the figures: a first contact (reply or call) within a working day, win rat
 });
 
 test("the stages as shown: Reach first, Purchase gone, UC hand-overs in the place of Cart & check-out, Who are our customers before Retain & grow", () => {
-  assert.deepEqual(SHOWN_STAGES.map((s) => s.slug), ["reach", "visit", "engage", "lead", "handover", "uc", "customers", "retain", "efficiency"]);
+  assert.deepEqual(SHOWN_STAGES.map((s) => s.slug), ["reach", "visit", "engage", "lead", "handover", "uc", "customers", "retain"]);
+  assert.equal(shownStage("efficiency"), undefined);   // SARCLA 20.10: "Efficiency & targets is completely gone"
   assert.equal(shownStage("uc")?.id, "6");
   assert.equal(stageName("uc", shownStage("uc")!.name), "UC hand-overs");
   assert.equal(shownStage("purchase"), undefined);
