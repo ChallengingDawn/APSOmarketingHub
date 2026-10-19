@@ -11,7 +11,9 @@
 // Per run: find the companies that differ from what a rule says (searches narrowed to
 // "owner or region_responsibility is not the target", so a settled portal costs a handful
 // of searches), resolve each with the rules, then write - changed-only, as the function:
-//   country rule  the company first, then its contacts / open tickets / open tasks
+//   country rule  the company first, then its contacts / open ESO+TSA tickets / open tasks
+//                 (tickets in Back Office, GQS or any other pipeline never move - rules.ts
+//                 CASCADE_TICKET_PIPELINES, SARCLA 19.10.2026)
 //   owner rule    the children first, the company last: a failure half-way leaves the
 //                 company on the old owner, so the next run (or webhook retry) starts over
 // At most MAX_PER_RUN companies a run; the rest wait for the next one.
@@ -19,7 +21,7 @@
 import { hubspotRetry as hs } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import type { StepResult } from "@/lib/connectors/steps/companyFacts";
-import { COMPANY_PROPS, childMoves, groupKey, resolve, type ChildType, type PubRule, type Resolution } from "./rules";
+import { COMPANY_PROPS, TICKET_PROPS, childMoves, groupKey, resolve, ticketMoves, type ChildType, type PubRule, type Resolution } from "./rules";
 import { readPublished } from "./hubspot";
 import { logCorrections } from "./store";
 
@@ -215,10 +217,11 @@ async function cascade(plans: Plan[], live: boolean): Promise<GroupOut> {
     const of = firstCompany(map);
     if (of.size) {
       const closed = await closedStages();
-      const props = await batchRead("tickets", [...of.keys()], ["hs_pipeline_stage", "hubspot_owner_id"]);
-      const open = [...props].filter(([, p]) => !closed.has(p.hs_pipeline_stage ?? ""));
-      const { ours } = await confirm("tickets", open.map(([id]) => id));
-      await run("tickets", open.filter(([id, p]) => ours.has(id) && childMoves(p.hubspot_owner_id, filters.tickets, to)).map(([id]) => ({ id, company: of.get(id)! })));
+      const props = await batchRead("tickets", [...of.keys()], TICKET_PROPS);
+      // open, ESO / TSA only (CASCADE_TICKET_PIPELINES): Back Office, GQS and the rest keep their owner
+      const moving = [...props].filter(([, p]) => ticketMoves(p, closed, filters.tickets, to));
+      const { ours } = await confirm("tickets", moving.map(([id]) => id));
+      await run("tickets", moving.filter(([id]) => ours.has(id)).map(([id]) => ({ id, company: of.get(id)! })));
     }
   }
   if (filters.tasks !== "none") {

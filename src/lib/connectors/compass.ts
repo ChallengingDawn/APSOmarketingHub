@@ -272,13 +272,13 @@ export const OTHER_STEPS: Step[] = [
   },
   {
     key: "owner_rules", name: "Owner redirection", group: "company", phase: "hub",
-    what: "Companies go to the owner their rule names - by country (France → Jeremy Borey) or by person (someone left) - with their contacts, open tickets and open tasks. The HubSpot app reacts at once; this is the 15-minute safety net with the same published rules.",
+    what: "Companies go to the owner their rule names - by country (France → Jeremy Borey) or by person (someone left) - with their contacts, open ESO / TSA tickets (never Back Office, GQS or any other pipeline) and open tasks. The HubSpot app reacts at once; this is the 15-minute safety net with the same published rules.",
     when: "Every 15 minutes, beside the chain (preview until switched on)",
-    reads: "The rules published to HubSpot (KPI record apsohub_owner_redirection_rules) · companies that differ from a rule · their contacts, open tickets, open tasks",
+    reads: "The rules published to HubSpot (KPI record apsohub_owner_redirection_rules) · companies that differ from a rule · their contacts, open ESO / TSA tickets, open tasks",
     writes: [
       { object: OBJECTS.company, props: ["hubspot_owner_id", "region_responsibility"], how: "only what differs" },
       { object: OBJECTS.contact, props: ["hubspot_owner_id"] },
-      { object: OBJECTS.ticket, props: ["hubspot_owner_id (open tickets only)"] },
+      { object: OBJECTS.ticket, props: ["hubspot_owner_id (open ESO / TSA tickets only)"] },
       { object: "Task (0-27)", props: ["hubspot_owner_id (open tasks only)"] },
     ],
   },

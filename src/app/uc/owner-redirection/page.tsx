@@ -129,7 +129,7 @@ function RuleText({ r, n }: { r: Rule; n: ReturnType<typeof useNames> }) {
 }
 
 function along(r: Rule, n: ReturnType<typeof useNames>): string {
-  const parts = [r.cascade.contacts && "contacts", r.cascade.tickets && "open tickets", r.cascade.tasks && "open tasks"].filter(Boolean) as string[];
+  const parts = [r.cascade.contacts && "contacts", r.cascade.tickets && "open ESO / TSA tickets", r.cascade.tasks && "open tasks"].filter(Boolean) as string[];
   if (!parts.length) return "the company only";
   return r.kind === "country" ? `all ${parts.join(", ")}` : `${n.name(r.fromOwner)}'s ${parts.join(", ")}`;
 }
@@ -192,7 +192,7 @@ function Rules({ d, n, onEdit, onAdd, onMove, onDelete, onToggle, busy }: {
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 1.25 }}>
         Every rule writes the company owner and region_responsibility (the ownership workflow copies one into the other), and only what differs.
-        Closed tickets and completed tasks keep their owner. Leaving a country does not hand a company back.
+        Only open ESO and TSA tickets follow: Back Office, GQS and every other pipeline keep their owner. Closed tickets and completed tasks keep theirs too. Leaving a country does not hand a company back.
       </Typography>
     </GlassCard>
   );

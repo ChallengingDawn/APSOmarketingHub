@@ -140,7 +140,7 @@ export default function RuleEditor({ open, initial, owners, onClose, onSaved }: 
           </Typography>
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
             <FormControlLabel control={<Checkbox checked={d.contacts} onChange={(e) => set("contacts", e.target.checked)} />} label="Contacts" />
-            <FormControlLabel control={<Checkbox checked={d.tickets} onChange={(e) => set("tickets", e.target.checked)} />} label="Open tickets" />
+            <FormControlLabel control={<Checkbox checked={d.tickets} onChange={(e) => set("tickets", e.target.checked)} />} label="Open ESO / TSA tickets" />
             <FormControlLabel control={<Checkbox checked={d.tasks} onChange={(e) => set("tasks", e.target.checked)} />} label="Open tasks" />
           </Box>
         </Box>

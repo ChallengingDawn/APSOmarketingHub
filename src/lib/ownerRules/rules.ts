@@ -12,6 +12,8 @@
 //            open tickets and open tasks, whoever owned them (as the France app did)
 //   owner    the company is owned by a person (who left or moved) -> it goes to another,
 //            and only the contacts, open tickets and open tasks THAT person owned follow
+// Tickets: only the sales pipelines ESO and TSA ever follow (CASCADE_TICKET_PIPELINES);
+// Back Office, GQS and every other pipeline keep their owner (SARCLA 19.10.2026).
 // Both write hubspot_owner_id AND region_responsibility (the ownership workflow copies
 // region_responsibility into the owner ~1 s later, so writing only the owner would be
 // reverted), and only what differs - so the write's own webhook finds nothing to do and
@@ -293,6 +295,39 @@ export function childMoves(childOwner: unknown, filter: ChildFilter, to: string)
   const o = own(childOwner);
   if (filter === "none" || o === to) return false;
   return filter === "all" || filter.includes(o);
+}
+
+/**
+ * The ONLY ticket pipelines a company's owner change may move tickets in: the sales
+ * pipelines ESO (1726599376) and TSA (1726599377). Every other pipeline - Back Office
+ * 1726786777, GQS 1726786775, Special Prices Requests 1553929403, Product Management
+ * 1737150687, chat 0 and any pipeline added later - belongs to the Back Office or its own
+ * team, and its tickets keep their owner whoever owns the company.
+ *
+ * SARCLA, 19.10.2026 - the wrong-owner loop: the ERP chain's customer_agents step changed
+ * the owner of 230 companies at 08:41; this cascade then gave Back Office ticket
+ * 436617700592 the company's sales owner (Jeremy Borey), and ten minutes later the
+ * wrong_owners sweep saw a sales person owning a Back Office ticket and moved it to ESO
+ * as "WRONG OWNER PLEASE CORRECT IT". An allow-list, not a deny-list: a new pipeline is
+ * left alone until someone decides it follows the company.
+ *
+ * The HubSpot app function (ownerRedirection.js) holds the same list - keep them equal.
+ */
+export const CASCADE_TICKET_PIPELINES: readonly string[] = ["1726599376", "1726599377"];
+
+/** The ticket properties ticketMoves reads. */
+export const TICKET_PROPS = ["hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id"] as const;
+export type TicketProps = { hs_pipeline?: string | null; hs_pipeline_stage?: string | null; hubspot_owner_id?: string | null };
+
+/**
+ * Does this ticket follow its company to `to`? Only when it is in a sales pipeline
+ * (CASCADE_TICKET_PIPELINES), still open (its stage is not one of `closedStages`), and
+ * childMoves says its owner goes. A ticket whose pipeline is unknown (not read) stays.
+ */
+export function ticketMoves(t: TicketProps, closedStages: ReadonlySet<string>, filter: ChildFilter, to: string): boolean {
+  if (!CASCADE_TICKET_PIPELINES.includes(own(t.hs_pipeline))) return false;
+  if (closedStages.has(own(t.hs_pipeline_stage))) return false;
+  return childMoves(t.hubspot_owner_id, filter, to);
 }
 
 /** Companies that are handled together: the same target, order and cascade. */

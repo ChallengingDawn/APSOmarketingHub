@@ -69,5 +69,25 @@
     { "owner": "999", "filter": ["111"], "to": "222", "moves": false },
     { "owner": "", "filter": ["111"], "to": "222", "moves": false },
     { "owner": "111", "filter": "none", "to": "222", "moves": false }
+  ],
+  "_tickets": "Which tickets follow the company (ticketMoves). Only ESO 1726599376 and TSA 1726599377, open, and childMoves - SARCLA 19.10.2026: Back Office ticket 436617700592 was handed to the company's sales owner and then flagged WRONG OWNER. Stage 'c' is closed.",
+  "closedStages": ["c"],
+  "tickets": [
+    { "name": "ESO, open, owned by TSA Team: follows", "ticket": { "hs_pipeline": "1726599376", "hs_pipeline_stage": "o", "hubspot_owner_id": "1202569408" }, "filter": "all", "to": "29117550", "moves": true },
+    { "name": "TSA, open, unowned: follows", "ticket": { "hs_pipeline": "1726599377", "hs_pipeline_stage": "o", "hubspot_owner_id": null }, "filter": "all", "to": "29117550", "moves": true },
+    { "name": "TSA, the person who left: follows", "ticket": { "hs_pipeline": "1726599377", "hs_pipeline_stage": "o", "hubspot_owner_id": "111" }, "filter": ["111"], "to": "222", "moves": true },
+    { "name": "Back Office (436617700592's case): never", "ticket": { "hs_pipeline": "1726786777", "hs_pipeline_stage": "o", "hubspot_owner_id": "1202569408" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "Back Office, unowned: never", "ticket": { "hs_pipeline": "1726786777", "hs_pipeline_stage": "o", "hubspot_owner_id": "" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "Back Office, the person who left: never", "ticket": { "hs_pipeline": "1726786777", "hs_pipeline_stage": "o", "hubspot_owner_id": "111" }, "filter": ["111"], "to": "222", "moves": false },
+    { "name": "GQS: never", "ticket": { "hs_pipeline": "1726786775", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "Special Prices Requests: never", "ticket": { "hs_pipeline": "1553929403", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "Product Management: never", "ticket": { "hs_pipeline": "1737150687", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "chat (pipeline 0): never", "ticket": { "hs_pipeline": "0", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "a pipeline nobody listed: never", "ticket": { "hs_pipeline": "999", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "pipeline not read: never", "ticket": { "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "ESO but closed: keeps its owner", "ticket": { "hs_pipeline": "1726599376", "hs_pipeline_stage": "c", "hubspot_owner_id": "5" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "ESO, already the target's", "ticket": { "hs_pipeline": "1726599376", "hs_pipeline_stage": "o", "hubspot_owner_id": "29117550" }, "filter": "all", "to": "29117550", "moves": false },
+    { "name": "TSA, someone else's under an owner rule", "ticket": { "hs_pipeline": "1726599377", "hs_pipeline_stage": "o", "hubspot_owner_id": "999" }, "filter": ["111"], "to": "222", "moves": false },
+    { "name": "ESO, cascade off", "ticket": { "hs_pipeline": "1726599376", "hs_pipeline_stage": "o", "hubspot_owner_id": "5" }, "filter": "none", "to": "29117550", "moves": false }
   ]
 }
