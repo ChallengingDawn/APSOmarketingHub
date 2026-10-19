@@ -559,6 +559,21 @@ export async function checkTicket(id: string, settings?: Settings): Promise<Row>
 
 /** Steps the hub takes over; #50 (Task Status Report merge) and #75 (sales split to ESO) stay with the workflow. */
 const LIVE_STEPS = new Set(["23", "27", "31", "42"]);
+
+/** The HubSpot workflows the hub replaces. SARCLA 19.10.2026: the hub takes a pipeline over by the workflow being
+ *  switched OFF in HubSpot - while it is ON the hub writes nothing there (two owners on 5 tickets that afternoon), so
+ *  switching the workflow back on is the whole roll-back. Read every 2 minutes; unreadable = the hub's switch decides. */
+export const WORKFLOWS = { bo: { id: "3678508243", name: "SARCLA | BACK OFFICE MAIN ROUTING" }, gqs: { id: "3680656607", name: "SARCLA | NEW FOR BACK-OFFICE GQS DISTRIBUTION" } } as const;
+let wfCache: { at: number; on: Record<"bo" | "gqs", boolean | null> } | null = null;
+export async function workflowsOn(): Promise<Record<"bo" | "gqs", boolean | null>> {
+  if (wfCache && Date.now() - wfCache.at < 2 * 60_000) return wfCache.on;
+  const on = { bo: null, gqs: null } as Record<"bo" | "gqs", boolean | null>;
+  for (const k of ["bo", "gqs"] as const) {
+    try { on[k] = !!(await hs<{ isEnabled?: boolean }>(`/automation/v4/flows/${WORKFLOWS[k].id}`)).isEnabled; } catch { on[k] = null; }
+  }
+  wfCache = { at: Date.now(), on };
+  return on;
+}
 const ENTRY_STAGES = { bo: [STAGE.boNew, STAGE.boRedirectedFromChat], gqs: [STAGE.gqsNewForBo] } as const;
 const ASSIGNED_STAGE = { bo: STAGE.assigned, gqs: STAGE.gqsWaitingOnApso } as const;
 const LIVE_MAX_AGE_MS = 20 * 60_000;
@@ -577,6 +592,7 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
+  if ((await workflowsOn())[row.pipeline] === true) return skip(`the HubSpot workflow "${WORKFLOWS[row.pipeline].name}" is still on - it assigns; switch it off to hand over`);
   if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
   if (row.pipeline === "bo" && !(LIVE_STEPS.has(row.route?.assigner ?? "") && settings.hub.liveSteps.includes(row.route?.assigner ?? ""))) return skip("this path stays with the workflow");
   // GQS without a contact or company of its own: the hub copies them from the linked ticket (row.inherit) before writing;

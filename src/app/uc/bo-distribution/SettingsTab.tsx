@@ -91,6 +91,21 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
                     <Switch checked={d.settings.live[pipe]} disabled={!d.admin || busy !== null} onChange={(e) => void live(pipe, e.target.checked)} />
                   </Box>
                 </Box>
+                {(() => {
+                  // the HubSpot workflow this switch replaces - while it is on, the hub writes nothing (engine WORKFLOWS)
+                  const wf = d.workflows?.[pipe];
+                  const name = pipe === "gqs" ? "SARCLA | NEW FOR BACK-OFFICE GQS DISTRIBUTION" : "SARCLA | BACK OFFICE MAIN ROUTING";
+                  return (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.75, flexWrap: "wrap" }}>
+                      <Chip tint={wf === false ? "green" : wf === true ? "amber" : "slate"}>{wf === false ? "HubSpot workflow OFF" : wf === true ? "HubSpot workflow ON" : "workflow not read"}</Chip>
+                      <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+                        {wf === true
+                          ? d.settings.live[pipe] ? `“${name}” still assigns, so the hub writes nothing yet - switch it off in HubSpot to hand over.` : `“${name}” assigns these tickets.`
+                          : wf === false ? (d.settings.live[pipe] ? `“${name}” is off - the hub assigns.` : `“${name}” is off and the hub is not live: nobody assigns these tickets!`) : ""}
+                      </Typography>
+                    </Box>
+                  );
+                })()}
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                   {pipe === "gqs"
                     ? "Writes owner, stage “Open the GQS Task”, the GQS status and a note; a task without contact or company first gets them from its linked ticket, as the workflow does. To hand GQS to the hub, the workflow's code step is replaced by a 2-minute delay (its status and \u201cNEW GQS TASK\u201d notification stay)."

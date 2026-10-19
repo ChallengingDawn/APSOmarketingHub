@@ -14,7 +14,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import {
   backfillState, checkTicket, classifierFixes, classifierInfo, getSettings, lastRun, legacyRosters, people, pipelineStages, recentRows, replayFrom,
-  rosterLabels, runOnce, saveSettings, strayState, tryClassifier,
+  rosterLabels, runOnce, saveSettings, strayState, tryClassifier, workflowsOn,
 } from "@/lib/boDistribution/engine";
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
 import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
@@ -31,11 +31,11 @@ export async function GET(req: NextRequest) {
     if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
     const t = sp.get("ticket");
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
-    const [settings, last, rows, backfill, stages, strays] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [], eso: [], tsa: [], gqsClosed: [], boClosed: [], esoClosed: [], tsaClosed: [] })), strayState()]);
+    const [settings, last, rows, backfill, stages, strays, workflows] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [], eso: [], tsa: [], gqsClosed: [], boClosed: [], esoClosed: [], tsaClosed: [] })), strayState(), workflowsOn().catch(() => ({ bo: null, gqs: null }))]);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, backfill, everyMinutes: 2, rows: rows.slice(0, 1500), strays, admin: access.role === "admin",
+        settings, last, backfill, everyMinutes: 2, rows: rows.slice(0, 1500), strays, workflows, admin: access.role === "admin",
         legacy: legacyRosters, labels: rosterLabels, deactivated: [PEOPLE.adriana, PEOPLE.vanessa], classifier: classifierInfo(), fixes: classifierFixes, stages,
         priorityTable: PRIORITY_TABLE, defaults: { hub: DEFAULT_HUB, priority: DEFAULT_PRIORITY },
       },
