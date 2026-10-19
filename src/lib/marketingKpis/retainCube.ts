@@ -229,3 +229,86 @@ export const keyPc = (d: RetainData) => (v: LineView) => pcOf(d, v.a);
 export const keyCustomer = () => (v: LineView) => v.u;
 /** When the line was last bought: in the last 12 months, or its last year with revenue. */
 export const keyLast = () => (v: LineView) => (v.l > 0 ? "In the last 12 months" : v.lastYear ? `Last bought in ${v.lastYear}` : "Only open orders");
+
+/* ── the rework (SARCLA 20.10.2026: "the graphs are bad, the design and the logic - look at the erosion Excel") ──
+   He chose: the headline counts the lines still bought less, or stopped recently - articles bought in two years
+   or more; made-to-order (800x) apart; what was done about it from the erosion tickets; the Excel's pivot
+   (owner > customer > article) as the page, one split graph above it. */
+
+/** What a line is: still bought less, stopped recently, lost before, one year only, or made to order. */
+export type Kind = "less" | "stopped" | "gone" | "oneoff" | "made";
+export const HEADLINE: Kind[] = ["less", "stopped"];
+export const kindInfo = (years: number[]): { id: Kind; label: string; note: string }[] => [
+  { id: "less", label: "Still buying, less", note: "bought in the last 12 months or on order, below its best year" },
+  { id: "stopped", label: "Stopped recently", note: `bought in ${years[years.length - 2]} or ${years[years.length - 1]}, nothing in the last 12 months and no open order` },
+  { id: "gone", label: "Lost before", note: `last bought in ${years[years.length - 3]} or before - lost then, not eroding now` },
+  { id: "oneoff", label: "One year only", note: "bought in one of the five years - an order, not a habit" },
+  { id: "made", label: "Made to order", note: "an 800x article - cut pieces, special O-rings: a project more than a repeat" },
+];
+/** A made-to-order article: its number starts with 800 (8001... - DirectCut's cuts, special O-rings). */
+export const isMade = (a: string) => a.startsWith("800");
+
+export function kindOf(v: LineView): Kind {
+  if (isMade(v.a)) return "made";
+  if (v.now > 0) return "less";
+  if (v.y.filter((x) => x > 0).length <= 1) return "oneoff";
+  const n = v.y.length;
+  return v.y[n - 1] > 0 || v.y[n - 2] > 0 ? "stopped" : "gone";
+}
+
+/** An erosion ticket as the page shows it: the customer, its articles, when, and what came of it. */
+export type RetainAction = { id: string; un: string; articles: string[]; created: string; closed: string | null; result: string; won: boolean; open: boolean; owner: string };
+
+export type Sums = { gap: number; best: number; last: number; now: number; lines: number; customers: number; less: number; stopped: number };
+const sumsOf = (vs: LineView[], lastIdx: number): Sums => {
+  const t: Sums = { gap: 0, best: 0, last: 0, now: 0, lines: 0, customers: 0, less: 0, stopped: 0 };
+  const cust = new Set<string>();
+  for (const v of vs) {
+    t.gap += v.gap; t.best += v.best; t.last += v.y[lastIdx] ?? 0; t.now += v.now; t.lines += 1; cust.add(v.u);
+    const k = kindOf(v);
+    if (k === "less") t.less += v.gap; else if (k === "stopped") t.stopped += v.gap;
+  }
+  t.customers = cust.size;
+  return t;
+};
+
+export type PivotCustomer = { u: string; sums: Sums; lines: (LineView & { kind: Kind })[] };
+export type PivotOwner = { owner: string; sums: Sums; customers: PivotCustomer[] };
+/**
+ * The Excel's pivot (SummaryView: Resp. action > customer > article): the lines of the kinds chosen that the
+ * filters keep, by the customer's owner today, then the customer, then the article - the most at stake first.
+ */
+export function pivot(d: RetainData, f: RFilters & { kinds?: Kind[] }): PivotOwner[] {
+  const kinds = new Set(f.kinds?.length ? f.kinds : HEADLINE);
+  const lastIdx = d.years.length - 1;
+  const byOwner = new Map<string, Map<string, (LineView & { kind: Kind })[]>>();
+  for (const line of d.lines) {
+    if (f.owner?.length && !f.owner.includes(ownerOf(d, line.u))) continue;
+    if (f.country?.length && !f.country.includes(countryOf(d, line.u))) continue;
+    if (f.pc?.length && !f.pc.includes(pcOf(d, line.a))) continue;
+    const v = viewOf(line, d.years);
+    if (v.gap <= 0) continue;
+    const kind = kindOf(v);
+    if (!kinds.has(kind)) continue;
+    const o = ownerOf(d, line.u);
+    const m = byOwner.get(o) ?? new Map();
+    byOwner.set(o, m);
+    m.set(line.u, [...(m.get(line.u) ?? []), { ...v, kind }]);
+  }
+  const out: PivotOwner[] = [];
+  for (const [owner, m] of byOwner) {
+    const customers = [...m.entries()].map(([u, ls]) => ({ u, sums: sumsOf(ls, lastIdx), lines: ls.sort((a, b) => b.gap - a.gap) })).sort((a, b) => b.sums.gap - a.sums.gap);
+    out.push({ owner, sums: sumsOf(customers.flatMap((c) => c.lines), lastIdx), customers });
+  }
+  return out.sort((a, b) => b.sums.gap - a.sums.gap);
+}
+
+/** Every kind's at stake over the filters (not the kind choice) - the headline and what is shown apart. */
+export function byKind(d: RetainData, f: RFilters): Record<Kind, { gap: number; lines: number; customers: number }> {
+  const out = Object.fromEntries((["less", "stopped", "gone", "oneoff", "made"] as Kind[]).map((k) => [k, { gap: 0, lines: 0, customers: new Set<string>() }])) as Record<Kind, { gap: number; lines: number; customers: Set<string> }>;
+  for (const v of eroding(d, f)) { const o = out[kindOf(v)]; o.gap += v.gap; o.lines += 1; o.customers.add(v.u); }
+  return Object.fromEntries(Object.entries(out).map(([k, o]) => [k, { gap: o.gap, lines: o.lines, customers: o.customers.size }])) as Record<Kind, { gap: number; lines: number; customers: number }>;
+}
+
+/** The erosion tickets of a customer - and of one of its articles. */
+export const actionsOf = (actions: RetainAction[], u: string, a?: string) => actions.filter((x) => x.un === u && (!a || x.articles.includes(a)));
