@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { decide, prefixMatches, saeKey, zoneFor, type AssignRules } from "../src/lib/mapAssign/rules";
-import { SEED } from "../src/lib/mapAssign/seed";
+import { SEED, SEED_PEOPLE } from "../src/lib/mapAssign/seed";
+import { placeZip, zipIndex } from "../src/lib/mapAssign/plan";
 
 const TSA = "1202569408", JEREMY = "29117550", JAN = "37053854", CLAUDIO = "1229976033";
 const LEFT = new Set(["32984810", "1229976034", "31218632"]); // Stahl, Nitschke, Bozek - deactivated owners the seed keeps
@@ -21,7 +22,10 @@ function expand(p: string): string[] {
 const owners = (r: AssignRules) => [
   r.defaultOwner,
   ...Object.values(r.sae),
-  ...Object.values(r.countries).flatMap((c) => [...c.zones.map((z) => z.owner), ...(c.keyAccounts ?? []).map((k) => k.owner), ...(c.defaultOwner ? [c.defaultOwner] : [])]),
+  ...Object.values(r.countries).flatMap((c) => [
+    ...c.zones.map((z) => z.owner), ...(c.keyAccounts ?? []).map((k) => k.owner), ...(c.defaultOwner ? [c.defaultOwner] : []),
+    ...(c.people ?? []), ...Object.values(c.saeOverride ?? {}),
+  ]),
 ];
 
 test("map seed: shape - numeric owner ids, well-formed prefixes and ids", () => {
@@ -143,4 +147,91 @@ test("map seed: geo files the page loads", () => {
   const shapes = JSON.parse(readFileSync(join(dir, "shapes/FR.json"), "utf8")) as { outline: { type: string }; regions: { code: string }[] };
   assert.ok(["Polygon", "MultiPolygon"].includes(shapes.outline.type));
   assert.equal(shapes.regions.length, 96); // metropolitan départements
+});
+
+const DENIS = "1229999295", NANCY = "1229976026", KATJA = "1229998779", MAYA = "1229976029", JAMES = "38431796";
+
+test("map seed: the people of each country (KM workbook, sheet \"Owner by country\")", () => {
+  // 116 rows, 49 countries; "(no owner)" rows are no one
+  assert.equal(Object.keys(SEED_PEOPLE).length, 49);
+  const count = (cc: string) => SEED.countries[cc].people?.length ?? 0;
+  assert.deepEqual(
+    Object.fromEntries(["CH", "DE", "IT", "FR", "NL", "AT", "PL", "BE", "LI", "GB", "ES"].map((cc) => [cc, count(cc)])),
+    { CH: 10, DE: 10, IT: 5, FR: 2, NL: 2, AT: 2, PL: 2, BE: 2, LI: 1, GB: 1, ES: 2 },
+  );
+  for (const [cc, list] of Object.entries(SEED_PEOPLE)) {
+    assert.equal(list[0], TSA, `${cc}: TSA Team first - a team like the others, in every country`);
+    assert.equal(new Set(list).size, list.length, `${cc}: someone twice`);
+    assert.deepEqual(SEED.countries[cc].people, list, `${cc}: on the rule`);
+    assert.equal(SEED.countries[cc].country, cc);
+  }
+  const where = (o: string) => Object.keys(SEED_PEOPLE).filter((cc) => SEED_PEOPLE[cc].includes(o)).sort();
+  assert.deepEqual(where(JEREMY), ["CH", "FR"]); // SARCLA: Jeremy = FR + CH
+  assert.deepEqual(where(JAN), ["CH"]);
+  assert.deepEqual(where(NANCY), ["CH"]); // each person only in their home country
+  assert.deepEqual(where(KATJA), ["DE"]);
+  assert.equal(where(DENIS).length, 18); // Denis Schawlochow: all his countries
+  for (const cc of ["BE", "CZ", "ES", "HU", "SE", "US"]) assert.ok(SEED_PEOPLE[cc].includes(DENIS), cc);
+  assert.deepEqual(SEED.countries.CH.people, [TSA, JEREMY, JAN, MAYA, DENIS, "1229976031", NANCY, "32968527", JAMES, CLAUDIO]);
+  // the deactivated stay where the sheet has them (never written: the engine flags them)
+  assert.ok(SEED_PEOPLE.DE.includes("1229976034") && SEED_PEOPLE.DE.includes("32984810") && SEED_PEOPLE.PL.includes("31218632"));
+  // a country not in the sheet: no rule, no list = anyone
+  assert.equal(SEED.countries.GR, undefined);
+  // a country the workflows had no rule for: a Performis rule with no zones, carrying its people
+  assert.deepEqual(SEED.countries.BE, { country: "BE", source: "sae", zones: [], people: [TSA, DENIS] });
+  // the workflows' rules are kept as they were
+  assert.equal(SEED.countries.CH.keyAccounts?.length, 2);
+  assert.equal(SEED.countries.FR.source, "map");
+});
+
+test("map seed: an SAE from outside the country - the zone decides", () => {
+  const d = (c: { country: string; zip?: string; sae?: string; region?: string }) => decide({ id: "1", ...c }, rules, active);
+  // Nancy is CH: her Liechtenstein SAE goes to the default (the sheet has only TSA Team in LI)
+  const li = d({ country: "LI", zip: "9490", sae: "Pielock Nancy" });
+  assert.equal(li.owner, TSA); assert.ok(li.flags.includes("not-in-country"));
+  assert.equal(d({ country: "CH", zip: "8001", sae: "Pielock Nancy" }).owner, NANCY); // at home
+  // Katja is DE: in CH her SAE gives way to the zone - Bern is Jan Kalt's
+  const ch = d({ country: "CH", zip: "3000", sae: "Storm Katja" });
+  assert.equal(ch.owner, JAN); assert.equal(ch.via, "zone"); assert.ok(ch.flags.includes("not-in-country"));
+  assert.equal(d({ country: "DE", zip: "50667", sae: "Storm Katja" }).owner, KATJA);
+  // Denis works Belgium
+  assert.equal(d({ country: "BE", zip: "1000", sae: "Schawlochow Denis" }).owner, DENIS);
+  assert.equal(d({ country: "BE", zip: "1000", sae: "Kalt Jan" }).owner, TSA);
+  // a country without a list: anyone
+  assert.equal(d({ country: "GR", zip: "10431", sae: "Kalt Jan" }).owner, JAN);
+});
+
+test("map seed: a postcode's region from the map's points (public/geo/postcodes)", () => {
+  const ix = (cc: string) => zipIndex((JSON.parse(readFileSync(join(process.cwd(), "public/geo/postcodes", `${cc}.json`), "utf8")) as { points: unknown }).points);
+  const ch = ix("CH");
+  const region = (zip: string) => placeZip(ch, zip)?.region ?? null;
+  // the other agent's 4th element; until it is there a point has no region and nothing breaks
+  if (ch.regions.some((r) => r)) {
+    assert.equal(region("3011"), "CH-BE");
+    assert.equal(region("8400"), "CH-ZH");
+    assert.equal(region("6900"), "CH-TI");
+    assert.equal(region("5000"), "CH-AG");
+    // a zone of whole regions: Aargau (50-59, a gap in Jan Kalt's workflow zone) given to Jan by its region
+    const r: AssignRules = JSON.parse(JSON.stringify(rules));
+    r.countries.CH.zones[0].regions = ["CH-AG"];
+    const dec = decide({ id: "1", country: "CH", zip: "5000", region: region("5000") }, r, active);
+    assert.equal(dec.owner, JAN); assert.equal(dec.detail.startsWith("zone region CH-AG"), true);
+  } else assert.equal(region("3011"), null);
+  assert.equal(placeZip(ch, "3011")?.code, "3011");
+  assert.deepEqual(placeZip(ix("PL"), "00002"), { code: "00-002", region: placeZip(ix("PL"), "00-002")?.region ?? null, exact: true }); // "00-002" as the file has it
+});
+
+test("map seed: GDP per region (public/geo/gdp)", () => {
+  const dir = join(process.cwd(), "public/geo");
+  const meta = JSON.parse(readFileSync(join(dir, "gdp/index.json"), "utf8")) as Record<string, { unit: string; known: number; regions: number }>;
+  for (const cc of ["CH", "DE", "FR", "IT", "AT", "NL", "PL"]) {
+    const gdp = JSON.parse(readFileSync(join(dir, "gdp", `${cc}.json`), "utf8")) as Record<string, number | null>;
+    const codes = (JSON.parse(readFileSync(join(dir, "shapes", `${cc}.json`), "utf8")) as { regions: { code: string }[] }).regions.map((x) => x.code).sort();
+    assert.deepEqual(Object.keys(gdp).sort(), codes, `${cc}: one value per map region`);
+    assert.equal(meta[cc].unit, "MEUR");
+    assert.ok(meta[cc].known >= codes.length - 6, `${cc}: ${meta[cc].known} of ${codes.length} known`);
+    for (const v of Object.values(gdp)) assert.ok(v === null || (typeof v === "number" && v > 0), `${cc}: ${v}`);
+  }
+  const ch = JSON.parse(readFileSync(join(dir, "gdp/CH.json"), "utf8")) as Record<string, number>;
+  assert.ok(ch["CH-ZH"] > ch["CH-BE"] && ch["CH-BE"] > ch["CH-AI"], "Zurich > Bern > Appenzell Innerrhoden");
 });

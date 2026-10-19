@@ -69,7 +69,7 @@ export type PostcodeStat = {
   customers: number;
   /** first order this year */
   newCustomers: number;
-  /** revenue this year, in the company property named in LayerData.revenueField (CHF) */
+  /** revenue this year, in the company property named in LayerData.revenueField (EUR - Performis net revenue) */
   revenue: number;
   /** sales_priority P1..P4 -> companies */
   priority: Record<string, number>;

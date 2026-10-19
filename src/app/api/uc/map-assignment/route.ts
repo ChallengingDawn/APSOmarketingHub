@@ -3,6 +3,9 @@
 // contacts (src/lib/mapAssign/engine.ts). The contract with the page: src/lib/mapAssign/api.ts.
 //
 // GET                         MapData (everyone who may open Use cases)
+// GET ?layers=CC              LayerData: the country's companies per postcode (companies, customers / new customers
+//                             this year, revenue this year, sales priority, top 3) and GDP per region
+// GET ?performis=1            PerformisData: companies and contacts per country and SAE, who the rules give each SAE
 // Admins:
 // PUT {rules}                 the whole rules, validated; every stored company decided again at once
 // PUT {patch}                 part of them (sae / defaultOwner / countries: {CC: rule | null}) merged into the saved
@@ -17,7 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { isRunning, kick, linkContact, mapData, saveLive, saveRules, saveSettings } from "@/lib/mapAssign/engine";
+import { isRunning, kick, layerData, linkContact, mapData, performisData, saveLive, saveRules, saveSettings } from "@/lib/mapAssign/engine";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
 
@@ -30,11 +33,19 @@ async function who(userId: number): Promise<string> {
   return u?.full_name?.trim() || u?.username || `user ${userId}`;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
+  const sp = req.nextUrl.searchParams;
   try {
+    const layers = sp.get("layers");
+    if (layers !== null) {
+      const cc = layers.trim().toUpperCase();
+      if (!/^[A-Z]{2}$/.test(cc)) return NextResponse.json({ ok: false, error: "layers must be an ISO 3166 two-letter country code" }, { status: 400 });
+      return NextResponse.json({ configured: true, ok: true, data: await layerData(cc) });
+    }
+    if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
     return NextResponse.json({ configured: true, ok: true, data: await mapData(access.role === "admin") });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });

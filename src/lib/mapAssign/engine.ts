@@ -15,11 +15,19 @@
 //   4. recent contacts with no company (14 days, not A+P people): the companies with their e-mail domain, and
 //      contactCompany()'s answer - the page's "No company" list. Live country + a clear company = linked and owned.
 //
+// Each company's REGION (canton, département, Land - public/geo/shapes/<CC>.json regions[].code) comes from its
+// postcode's point in public/geo/postcodes/<CC>.json (read from disk once per run; a 3-element point or a missing
+// file = no region), for zones made of whole regions. The nightly full read also counts every company's contacts
+// (v4 associations, 100 companies a call: ~610 calls, ~1.7 minutes) for the Performis tab, and every read keeps the
+// map's layer facts: revenue this year (revenue_<year>), last / first order date, sales_priority.
+//
 // Tables (made on first use, never inside ensureSchema - a failure here must not hold up the hub's pages):
 //   apsomh_map_assign            one row per company: the facts read, the decision, contacts_off, the last write
 //   apsomh_map_assign_nocompany  the "No company" list
 //   apsomh_map_assign_log        every write to HubSpot (before / after), for an audit or a rollback
 
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { ensureSchema, kvGet, kvSet } from "@/lib/db/init";
@@ -27,11 +35,12 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
-import { GENERIC_DOMAINS, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
-import type { CompanyChange, CountrySummary, MapData, NoCompany, Owner, ScanInfo } from "./api";
+import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
+import type { CompanyChange, CountrySummary, LayerData, MapData, NoCompany, Owner, PerformisData, ScanInfo } from "./api";
 import {
-  DEFAULT_SETTINGS, INTERNAL_DOMAINS, cleanSettings, companyChanges, contactChanges, emailDomain, fullDue, internalFromList, isInternal, mergeRules,
-  ownContacts, validateLive, validateRules, type Checked, type Internal, type RulesPatch, type Settings,
+  DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, contactChanges, emailDomain, fullDue, internalFromList, isInternal,
+  layerPoints, mergeRules, ownContacts, placeZip, saeStats, validateLive, validateRules, zipIndex, zurich,
+  type Checked, type Internal, type LayerRow, type RulesPatch, type SaeRow, type Settings, type ZipIndex,
 } from "./plan";
 
 const LOCK = 4_107_233;
@@ -58,7 +67,20 @@ const KV = {
   last: "mapAssign:last", lastFull: "mapAssign:lastFull", cursor: "mapAssign:cursor",
 };
 
-const COMPANY_PROPS = ["name", "country", "country_custom", "zip", "sae_performis", "erp_customer_id", "hubspot_owner_id", "region_responsibility", "hs_lastmodifieddate"];
+/** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
+const SCAN_VERSION = 2;
+
+/** The calendar year in Zurich - the year of "revenue this year", "customer this year". */
+const yearNow = () => Number(zurich(Date.now()).day.slice(0, 4));
+/** Net revenue of a year (Performis, by the Compass connector every night; EUR). */
+export const revenueField = (year: number) => `revenue_${year}`;
+/** The last order (Compass connector, every night: credit notes and cancelled orders are not orders). */
+export const CUSTOMERS_FIELD = "order_last_order_date";
+const FIRST_ORDER_FIELD = "order_first_order_date";
+const PRIORITY_FIELD = "sales_priority";
+const BASE_PROPS = ["name", "country", "country_custom", "zip", "sae_performis", "erp_customer_id", "hubspot_owner_id", "region_responsibility", "hs_lastmodifieddate"];
+/** What a company read asks for: the rules' facts and the map's layers. */
+const companyProps = (year = yearNow()) => [...BASE_PROPS, revenueField(year), CUSTOMERS_FIELD, FIRST_ORDER_FIELD, PRIORITY_FIELD];
 const CONTACT_PROPS = ["email", "hubspot_owner_id", "region_responsibility", "sae_performis", "associatedcompanyid"];
 /** v4 association types: contact -> company, unlabeled and primary. */
 const CONTACT_TO_COMPANY = 279, CONTACT_TO_PRIMARY_COMPANY = 1;
@@ -71,6 +93,8 @@ export type RunInfo = ScanInfo & {
   /** the rules changed during the run: every row was decided again at its end */
   redecided?: number;
   live?: string[];
+  /** the facts a full read keeps (SCAN_VERSION) */
+  v?: number;
 };
 
 /* ── tables ────────────────────────────────────────────────────────────── */
@@ -105,6 +129,15 @@ export function ensureMapAssign(): Promise<void> {
         wrote_error     TEXT
       );
       CREATE INDEX IF NOT EXISTS apsomh_map_assign_country_idx ON apsomh_map_assign (country);
+      -- v2 (19.10.2026): the region of the postcode, the map's layer facts, the contacts count (full read)
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS region        TEXT;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS revenue_cy    DOUBLE PRECISION;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS revenue_year  INTEGER;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS last_order    TEXT;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS first_order   TEXT;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS priority      TEXT;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_n    INTEGER;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_n_at TIMESTAMPTZ;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -268,6 +301,50 @@ async function companyContacts(ids: string[]): Promise<Map<string, string[]>> {
   return out;
 }
 
+/* ── the map's files (public/geo, shipped with the hub) ────────────────── */
+
+const geoDir = () => path.join(process.cwd(), "public", "geo");
+const readJson = async (file: string): Promise<unknown> => JSON.parse(await readFile(file, "utf8"));
+
+/** One country's postcode points as a lookup; a missing or broken file = none (no region, nothing placed). */
+async function zipsOf(country: string): Promise<ZipIndex> {
+  if (!/^[A-Z]{2}$/.test(country)) return EMPTY_ZIP_INDEX;
+  try {
+    return zipIndex(((await readJson(path.join(geoDir(), "postcodes", `${country}.json`))) as { points?: unknown })?.points);
+  } catch {
+    return EMPTY_ZIP_INDEX;
+  }
+}
+/** Every country's postcode points - read once per run (or rules save), ~2 MB. */
+async function loadGeo(): Promise<Map<string, ZipIndex>> {
+  const out = new Map<string, ZipIndex>();
+  let files: string[] = [];
+  try { files = await readdir(path.join(geoDir(), "postcodes")); } catch { return out; }
+  for (const f of files) {
+    const m = /^([A-Z]{2})\.json$/.exec(f);
+    if (m) out.set(m[1], await zipsOf(m[1]));
+  }
+  return out;
+}
+const regionOf = (geo: Map<string, ZipIndex>, country: string | null, zip: string | null) =>
+  (country ? placeZip(geo.get(country) ?? EMPTY_ZIP_INDEX, zip)?.region : null) ?? null;
+
+let gdpCache: Map<string, LayerData["gdp"]> | null = null;
+/** GDP per region (public/geo/gdp/<CC>.json {code: MEUR}) for every region of the country's shapes; unknown = null. */
+async function gdpOf(country: string): Promise<LayerData["gdp"]> {
+  gdpCache ??= new Map();
+  const hit = gdpCache.get(country);
+  if (hit) return hit;
+  let codes: string[] = [];
+  let values: Record<string, unknown> = {};
+  try { codes = (((await readJson(path.join(geoDir(), "shapes", `${country}.json`))) as { regions?: { code?: string }[] })?.regions ?? []).map((r) => String(r.code ?? "")).filter(Boolean); } catch { /* no shapes */ }
+  try { values = ((await readJson(path.join(geoDir(), "gdp", `${country}.json`))) as Record<string, unknown>) ?? {}; } catch { /* no GDP */ }
+  if (!codes.length) codes = Object.keys(values).filter((k) => !k.startsWith("_"));
+  const out = codes.map((code) => { const n = Number(values[code]); return { code, gdp: values[code] !== undefined && values[code] !== null && Number.isFinite(n) ? n : null }; });
+  gdpCache.set(country, out);
+  return out;
+}
+
 async function chainRunning(): Promise<boolean> {
   try {
     const c = await hubChain();
@@ -281,11 +358,20 @@ async function chainRunning(): Promise<boolean> {
 
 type Ctx = {
   rules: AssignRules; rulesAt: string | null; live: Record<string, boolean>; settings: Settings; own: OwnersInfo; internal: Internal;
+  /** the postcode points per country (regions), read once for the run */
+  geo: Map<string, ZipIndex>;
+  /** the year of revenue_<year>, fixed for the run */
+  year: number;
+  /** a full read: every company's contacts are counted */
+  full: boolean;
   signal?: AbortSignal; companies: number; contacts: number; differ: number;
 };
 async function context(signal?: AbortSignal): Promise<Ctx> {
   const [rules, live, settings] = [await getRules(), await getLive(), await getSettings()];
-  return { rules: rules.value, rulesAt: rules.at, live: live.value, settings, own: await owners(), internal: await internal(), signal, companies: 0, contacts: 0, differ: 0 };
+  return {
+    rules: rules.value, rulesAt: rules.at, live: live.value, settings, own: await owners(), internal: await internal(), geo: await loadGeo(),
+    year: yearNow(), full: false, signal, companies: 0, contacts: 0, differ: 0,
+  };
 }
 const stop = (ctx: Ctx) => { if (ctx.signal?.aborted) throw new Error("stopped: the run's time limit"); };
 const isActive = (ctx: Ctx) => (o: OwnerId) => ctx.own.active.has(String(o));
@@ -294,22 +380,29 @@ const isLive = (ctx: Ctx, country: string | null) => !!country && !!ctx.live[cou
 /** One company as the table keeps it. */
 type Rec = {
   company_id: string; name: string | null; country: string | null; country_raw: string | null; country_custom: string | null; zip: string | null;
-  sae: string | null; erp_id: string | null; owner_now: string | null; region_now: string | null;
+  region: string | null; sae: string | null; erp_id: string | null; owner_now: string | null; region_now: string | null;
   owner_decided: string; via: Via; detail: string; flags: string; contacts_off: number | null; contacts_checked: boolean; modified_at: string | null;
+  revenue_cy: number | null; revenue_year: number; last_order: string | null; first_order: string | null; priority: string | null;
+  /** associated contacts, counted on a full read (null = keep the stored count) */
+  contacts_n: number | null;
 };
 const nz = (x: string | null | undefined) => { const s = String(x ?? "").trim(); return s ? s : null; };
-const factsOf = (r: Pick<Rec, "company_id" | "country_raw" | "country_custom" | "zip" | "sae" | "erp_id">): CompanyFacts =>
-  ({ id: r.company_id, country: r.country_raw, countryCustom: r.country_custom, zip: r.zip, sae: r.sae, erpId: r.erp_id });
+const num = (x: string | null | undefined) => { const s = String(x ?? "").trim(); const n = Number(s); return s && Number.isFinite(n) ? n : null; };
+const factsOf = (r: Pick<Rec, "company_id" | "country_raw" | "country_custom" | "zip" | "region" | "sae" | "erp_id">): CompanyFacts =>
+  ({ id: r.company_id, country: r.country_raw, countryCustom: r.country_custom, zip: r.zip, region: r.region, sae: r.sae, erpId: r.erp_id });
 const decideRec = (f: CompanyFacts, ctx: Pick<Ctx, "rules" | "own">): Decision =>
   decide(f, ctx.rules, (o) => ctx.own.active.has(String(o)), (o) => ctx.own.names.get(String(o)) ?? String(o));
 
 function toRec(o: Obj, ctx: Ctx): Rec {
   const p = o.properties ?? {};
-  const base = { company_id: String(o.id), country_raw: nz(p.country), country_custom: nz(p.country_custom), zip: nz(p.zip), sae: nz(p.sae_performis), erp_id: nz(p.erp_customer_id) };
+  const raw = { company_id: String(o.id), country_raw: nz(p.country), country_custom: nz(p.country_custom), zip: nz(p.zip), sae: nz(p.sae_performis), erp_id: nz(p.erp_customer_id) };
+  const base = { ...raw, region: regionOf(ctx.geo, countryOf(factsOf({ ...raw, region: null })), raw.zip) };
   const d = decideRec(factsOf(base), ctx);
   return {
     ...base, name: nz(p.name), country: d.country, owner_now: nz(p.hubspot_owner_id), region_now: nz(p.region_responsibility),
     owner_decided: d.owner, via: d.via, detail: d.detail, flags: d.flags.join(","), contacts_off: null, contacts_checked: false, modified_at: nz(p.hs_lastmodifieddate),
+    revenue_cy: num(p[revenueField(ctx.year)]), revenue_year: ctx.year, last_order: nz(p[CUSTOMERS_FIELD]), first_order: nz(p[FIRST_ORDER_FIELD]),
+    priority: nz(p[PRIORITY_FIELD]), contacts_n: null,
   };
 }
 const differs = (r: { owner_now: string | null; region_now: string | null; owner_decided: string }) =>
@@ -320,19 +413,27 @@ const differs = (r: { owner_now: string | null; region_now: string | null; owner
 async function upsert(recs: Rec[]): Promise<void> {
   for (let i = 0; i < recs.length; i += 500) {
     await query(
-      `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, sae, erp_id, owner_now, region_now,
-         owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at)
-       SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.sae, x.erp_id, x.owner_now, x.region_now,
+      `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, region_now,
+         owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at,
+         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at)
+       SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.region, x.sae, x.erp_id, x.owner_now, x.region_now,
          x.owner_decided, x.via, x.detail, COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'), x.contacts_off,
-         CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW()
-       FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, sae text,
-         erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
-         contacts_checked boolean, modified_at timestamptz)
+         CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW(),
+         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END
+       FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, region text,
+         sae text, erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
+         contacts_checked boolean, modified_at timestamptz, revenue_cy double precision, revenue_year int, last_order text, first_order text,
+         priority text, contacts_n int)
        ON CONFLICT (company_id) DO UPDATE SET
          name = EXCLUDED.name, country = EXCLUDED.country, country_raw = EXCLUDED.country_raw, country_custom = EXCLUDED.country_custom,
-         zip = EXCLUDED.zip, sae = EXCLUDED.sae, erp_id = EXCLUDED.erp_id, owner_now = EXCLUDED.owner_now, region_now = EXCLUDED.region_now,
-         owner_decided = EXCLUDED.owner_decided, via = EXCLUDED.via, detail = EXCLUDED.detail, flags = EXCLUDED.flags,
-         contacts_off = EXCLUDED.contacts_off, contacts_at = EXCLUDED.contacts_at, modified_at = EXCLUDED.modified_at, checked_at = NOW()`,
+         zip = EXCLUDED.zip, region = EXCLUDED.region, sae = EXCLUDED.sae, erp_id = EXCLUDED.erp_id, owner_now = EXCLUDED.owner_now,
+         region_now = EXCLUDED.region_now, owner_decided = EXCLUDED.owner_decided, via = EXCLUDED.via, detail = EXCLUDED.detail, flags = EXCLUDED.flags,
+         contacts_off = EXCLUDED.contacts_off, contacts_at = EXCLUDED.contacts_at, modified_at = EXCLUDED.modified_at, checked_at = NOW(),
+         revenue_cy = EXCLUDED.revenue_cy, revenue_year = EXCLUDED.revenue_year, last_order = EXCLUDED.last_order, first_order = EXCLUDED.first_order,
+         priority = EXCLUDED.priority,
+         -- counted on a full read only: a 15-minute read keeps the count
+         contacts_n = COALESCE(EXCLUDED.contacts_n, m.contacts_n),
+         contacts_n_at = CASE WHEN EXCLUDED.contacts_n IS NOT NULL THEN NOW() ELSE m.contacts_n_at END`,
       [JSON.stringify(recs.slice(i, i + 500))],
     );
   }
@@ -354,13 +455,14 @@ async function log(rows: LogRow[]): Promise<void> {
 
 type ContactRec = { id: string; email: string | null; owner: string | null; region: string | null; sae: string | null };
 
-/** company -> its own contacts (ownContacts: the primary ones, and the ones with no primary company). */
-async function contactsOf(ids: string[], ctx: Ctx): Promise<Map<string, ContactRec[]>> {
+/** company -> its own contacts (ownContacts: the primary ones, and the ones with no primary company). `pre`: the
+ *  associations already read for these companies (the full read counts every company's). */
+async function contactsOf(ids: string[], ctx: Ctx, pre?: Map<string, string[]>): Promise<Map<string, ContactRec[]>> {
   const out = new Map<string, ContactRec[]>();
   for (let i = 0; i < ids.length; i += 100) {
     stop(ctx);
     const part = ids.slice(i, i + 100);
-    const assoc = await companyContacts(part);
+    const assoc = pre ? new Map(part.map((id) => [id, pre.get(id) ?? []])) : await companyContacts(part);
     const props = await batchRead("contacts", [...new Set([...assoc.values()].flat())], CONTACT_PROPS);
     ctx.contacts += props.size;
     const mine = ownContacts(part, assoc, (id) => { const p = props.get(id); return p ? nz(p.associatedcompanyid) : undefined; });
@@ -376,15 +478,20 @@ async function contactsOf(ids: string[], ctx: Ctx): Promise<Map<string, ContactR
 const offCount = (list: ContactRec[], target: { owner: OwnerId; sae: string | null }, internalSet: Internal) =>
   list.filter((c) => !isInternal(c.email, internalSet) && Object.keys(contactChanges(c, target)).length > 0).length;
 
-/** Decide a page of companies; count the contacts of the ones that differ (and of every company of a live country). */
+/** Decide a page of companies; count the contacts of the ones that differ (and of every company of a live country).
+ *  A full read also counts every company's associated contacts (one v4 call per 100 companies, its pages followed). */
 async function processCompanies(objs: Obj[], ctx: Ctx): Promise<void> {
   for (let i = 0; i < objs.length; i += 100) {
     stop(ctx);
     const recs = objs.slice(i, i + 100).map((o) => toRec(o, ctx));
     const look = recs.filter((r) => differs(r) || isLive(ctx, r.country));
     ctx.differ += recs.filter(differs).length;
+    const asked = ctx.full ? recs : look;
+    const assoc = asked.length ? await companyContacts(asked.map((r) => r.company_id)) : null;
+    // a company with no contact is not in the answer: 0
+    if (assoc) for (const r of asked) r.contacts_n = assoc.get(r.company_id)?.length ?? 0;
     if (look.length) {
-      const by = await contactsOf(look.map((r) => r.company_id), ctx);
+      const by = await contactsOf(look.map((r) => r.company_id), ctx, assoc ?? undefined);
       for (const r of look) {
         r.contacts_off = offCount(by.get(r.company_id) ?? [], { owner: r.owner_decided, sae: r.sae }, ctx.internal);
         r.contacts_checked = true;
@@ -468,7 +575,7 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
   for (let i = 0; i < pending.rows.length; i += 100) {
     stop(ctx);
     const ids = pending.rows.slice(i, i + 100).map((r) => String(r.company_id));
-    const fresh = await batchRead("companies", ids, COMPANY_PROPS);
+    const fresh = await batchRead("companies", ids, companyProps(ctx.year));
     const recs: Rec[] = [];
     /** id -> the outcome to record (null = fine); absent = nothing was attempted */
     const outcome = new Map<string, string | null>();
@@ -588,7 +695,7 @@ async function targetOf(companyId: string, ctx: Ctx): Promise<CompanyTarget | nu
     `SELECT owner_decided, country, sae FROM apsomh_map_assign WHERE company_id = $1`, [companyId],
   );
   if (r.rows[0]) return { id: companyId, owner: r.rows[0].owner_decided, country: r.rows[0].country, sae: r.rows[0].sae };
-  const p = (await batchRead("companies", [companyId], COMPANY_PROPS)).get(companyId);
+  const p = (await batchRead("companies", [companyId], companyProps(ctx.year))).get(companyId);
   if (!p) return null;
   const rec = toRec({ id: companyId, properties: p }, ctx);
   return { id: companyId, owner: rec.owner_decided, country: rec.country, sae: rec.sae };
@@ -721,24 +828,28 @@ export async function redecideAll(): Promise<number> {
   await ensureMapAssign();
   const own = await owners();
   const ctx = { rules: (await getRules()).value, own };
+  // the region again too (the postcode files ship with the hub: a new deploy may place a postcode)
+  const geo = await loadGeo();
   const r = await query<{
-    company_id: string; country: string | null; country_raw: string | null; country_custom: string | null; zip: string | null; sae: string | null;
-    erp_id: string | null; owner_decided: string; via: string; detail: string | null; flags: string[] | null;
-  }>(`SELECT company_id, country, country_raw, country_custom, zip, sae, erp_id, owner_decided, via, detail, flags FROM apsomh_map_assign`);
-  const changed: { id: string; country: string | null; owner: string; via: string; detail: string; flags: string; reset: boolean }[] = [];
+    company_id: string; country: string | null; country_raw: string | null; country_custom: string | null; zip: string | null; region: string | null;
+    sae: string | null; erp_id: string | null; owner_decided: string; via: string; detail: string | null; flags: string[] | null;
+  }>(`SELECT company_id, country, country_raw, country_custom, zip, region, sae, erp_id, owner_decided, via, detail, flags FROM apsomh_map_assign`);
+  const changed: { id: string; country: string | null; region: string | null; owner: string; via: string; detail: string; flags: string; reset: boolean }[] = [];
   for (const row of r.rows) {
-    const d = decideRec(factsOf(row), ctx);
+    const region = regionOf(geo, countryOf(factsOf({ ...row, region: null })), row.zip);
+    const d = decideRec(factsOf({ ...row, region }), ctx);
     const flags = d.flags.join(",");
-    if (d.owner === row.owner_decided && d.via === row.via && d.detail === (row.detail ?? "") && flags === (row.flags ?? []).join(",") && d.country === row.country) continue;
-    changed.push({ id: row.company_id, country: d.country, owner: d.owner, via: d.via, detail: d.detail, flags, reset: d.owner !== row.owner_decided });
+    if (d.owner === row.owner_decided && d.via === row.via && d.detail === (row.detail ?? "") && flags === (row.flags ?? []).join(",") && d.country === row.country
+      && region === (row.region ?? null)) continue;
+    changed.push({ id: row.company_id, country: d.country, region, owner: d.owner, via: d.via, detail: d.detail, flags, reset: d.owner !== row.owner_decided });
   }
   for (let i = 0; i < changed.length; i += 1000) {
     await query(
-      `UPDATE apsomh_map_assign m SET country = x.country, owner_decided = x.owner, via = x.via, detail = x.detail,
+      `UPDATE apsomh_map_assign m SET country = x.country, region = x.region, owner_decided = x.owner, via = x.via, detail = x.detail,
          flags = COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'),
          contacts_off = CASE WHEN x.reset THEN NULL ELSE m.contacts_off END,
          contacts_at = CASE WHEN x.reset THEN NULL ELSE m.contacts_at END
-       FROM jsonb_to_recordset($1::jsonb) AS x(id text, country text, owner text, via text, detail text, flags text, reset boolean)
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, country text, region text, owner text, via text, detail text, flags text, reset boolean)
        WHERE m.company_id = x.id`,
       [JSON.stringify(changed.slice(i, i + 1000))],
     );
@@ -752,7 +863,7 @@ async function* allCompanies(ctx: Ctx): AsyncGenerator<Obj[]> {
   let after: string | undefined;
   for (;;) {
     stop(ctx);
-    const j = await hs<Page>(`/crm/v3/objects/companies?limit=100&archived=false&properties=${COMPANY_PROPS.join(",")}${after ? `&after=${encodeURIComponent(after)}` : ""}`);
+    const j = await hs<Page>(`/crm/v3/objects/companies?limit=100&archived=false&properties=${companyProps(ctx.year).join(",")}${after ? `&after=${encodeURIComponent(after)}` : ""}`);
     yield j.results ?? [];
     after = j.paging?.next?.after;
     if (!after) return;
@@ -767,7 +878,7 @@ async function* changedCompanies(since: number, ctx: Ctx): AsyncGenerator<Obj[]>
         { propertyName: "hs_lastmodifieddate", operator: "GTE", value: String(since) },
         { propertyName: "hs_object_id", operator: "GT", value: cursor },
       ] }],
-      sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], properties: COMPANY_PROPS, limit: 200,
+      sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], properties: companyProps(ctx.year), limit: 200,
     });
     const res = j.results ?? [];
     if (res.length) yield res;
@@ -782,8 +893,12 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   const ctx = await context(signal);
   const cursor = await kvGet<number>(KV.cursor);
   const lastFull = await kvGet<RunInfo>(KV.lastFull);
-  let mode: "full" | "changes" = want ?? (fullDue(t0, lastFull?.at ? Date.parse(lastFull.at) : null, NIGHTLY_AT) && !(await chainRunning()) ? "full" : "changes");
+  // due at night - or at once when the last full read kept fewer facts than this version (the new columns, the
+  // contacts counts), outside the ERP chain
+  const stale = !!lastFull && (lastFull.v ?? 1) < SCAN_VERSION;
+  let mode: "full" | "changes" = want ?? ((fullDue(t0, lastFull?.at ? Date.parse(lastFull.at) : null, NIGHTLY_AT) || stale) && !(await chainRunning()) ? "full" : "changes");
   if (!Number.isFinite(Number(cursor)) || !lastFull) mode = "full"; // never read everything yet
+  ctx.full = mode === "full";
 
   if (mode === "full") {
     const startedDb = (await query<{ t: string }>(`SELECT NOW()::text AS t`)).rows[0].t;
@@ -796,7 +911,7 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   }
   // read: the next run starts from here, even when a write below fails
   await kvSet(KV.cursor, t0);
-  if (mode === "full") await kvSet(KV.lastFull, { at: new Date(t0).toISOString(), seconds: Math.round((Date.now() - t0) / 1000), companies: ctx.companies, contacts: ctx.contacts, mode } satisfies RunInfo);
+  if (mode === "full") await kvSet(KV.lastFull, { at: new Date(t0).toISOString(), seconds: Math.round((Date.now() - t0) / 1000), companies: ctx.companies, contacts: ctx.contacts, mode, v: SCAN_VERSION } satisfies RunInfo);
   await recheck(ctx);
   const wrote = await writeLive(ctx, by);
   const noCompany = await noCompanyScan(ctx, by, wrote);
@@ -807,7 +922,7 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
 
   const info: RunInfo = {
     at: new Date(t0).toISOString(), seconds: Math.round((Date.now() - t0) / 1000), companies: ctx.companies, contacts: ctx.contacts, mode,
-    differ: ctx.differ, wrote, noCompany, live: liveList(ctx.live), ...(redecided !== undefined ? { redecided } : {}),
+    differ: ctx.differ, wrote, noCompany, live: liveList(ctx.live), ...(redecided !== undefined ? { redecided } : {}), ...(mode === "full" ? { v: SCAN_VERSION } : {}),
   };
   await kvSet(KV.last, info);
   if (mode === "full") await kvSet(KV.lastFull, info);
@@ -945,4 +1060,61 @@ export async function mapData(admin: boolean): Promise<MapData> {
     rules: rules.value, seeded: SEED, owners: own?.list ?? [], live: live.value, last, countries, changes, noCompany, admin,
     by: latest?.by ?? null, at: latest?.at ?? null,
   };
+}
+
+/* ── the map's layers (GET ?layers=CC) ─────────────────────────────────── */
+
+/**
+ * One country's companies per postcode point, from the table (refreshed by every scan): companies, customers this
+ * year (order_last_order_date this year), new customers (order_first_order_date this year), revenue this year
+ * (revenue_<year>, EUR), sales_priority P1..P4, the three biggest customers; GDP per region from public/geo/gdp.
+ * A postcode is shown at its own point, else the nearest one with the same beginning (placeZip); none = `unplaced`.
+ * Without a postcode file the cleaned postcode is the key (the page cannot place those).
+ */
+export async function layerData(country: string): Promise<LayerData> {
+  await ensureMapAssign();
+  const cc = country.trim().toUpperCase();
+  const year = yearNow();
+  const r = await query<{
+    company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
+    last_order: string | null; first_order: string | null; priority: string | null;
+  }>(
+    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority FROM apsomh_map_assign WHERE country = $1`, [cc],
+  );
+  const rows: LayerRow[] = r.rows.map((x) => ({
+    id: String(x.company_id), name: x.name, zip: x.zip, owner: x.owner_now,
+    // a row read before New Year holds last year's revenue: none until the next read
+    revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
+    lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority,
+  }));
+  const ix = await zipsOf(cc);
+  const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
+  const { points, unplaced } = layerPoints(rows, place, year);
+  const last = await lastRun();
+  return {
+    country: cc, at: last?.at ?? null, points, unplaced, gdp: await gdpOf(cc),
+    revenueField: revenueField(year), customersField: CUSTOMERS_FIELD,
+  };
+}
+
+/* ── the Performis tab (GET ?performis=1) ──────────────────────────────── */
+
+/** What the Performis SAE copy fills: the company's owner and region (its SAE is Performis' own), and on every
+ *  contact the owner, region and the company's SAE. */
+const PERFORMIS_PROPS = { company: ["hubspot_owner_id", "region_responsibility"], contact: ["hubspot_owner_id", "region_responsibility", "sae_performis"] };
+
+/** Per country and SAE: companies, contacts (counted on the nightly full read), who the rules give it, owner now,
+ *  what differs. Companies without an SAE are one row per country with sae "". */
+export async function performisData(): Promise<PerformisData> {
+  await ensureMapAssign();
+  const rules = await getRules();
+  const r = await query<SaeRow>(
+    `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, sae, owner_now, count(*)::int AS companies,
+       COALESCE(sum(contacts_n), 0)::int AS contacts,
+       (count(*) FILTER (WHERE owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided))::int AS "off",
+       COALESCE(sum(contacts_off), 0)::int AS "contactsOff"
+     FROM apsomh_map_assign GROUP BY 1, 2, 3`,
+  );
+  const last = await lastRun();
+  return { at: last?.at ?? null, sae: saeStats(r.rows, rules.value), props: PERFORMIS_PROPS };
 }

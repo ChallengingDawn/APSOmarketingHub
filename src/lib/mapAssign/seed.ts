@@ -33,10 +33,18 @@
 //              65-69 is written as an explicit TSA zone (the workflow sends it to its default). The workflow's gaps are
 //              kept as it has them: 50-59 (Aargau), 77, 84 (Winterthur) -> TSA default.
 //   default    TSA Team.
+//   people     SARCLA's KM workbook "Sales territory area by owner and country 2026-10-13.xlsx", sheet "Owner by country"
+//              (116 rows, curated by hand: each person only in their home country, Jeremy Borey = FR + CH, Denis
+//              Schawlochow = all his countries). SARCLA 19.10.2026: "countries have wrong ESO - should be fixed" - an SAE
+//              that points to someone outside the country's people is not used there; the zone decides ("not-in-country").
+//              Names -> owner ids from /crm/v3/owners (archived included: Nitschke, Stahl, Bozek stay where the sheet
+//              has them - the engine never writes a deactivated owner). TSA Team is in every country's people (a team
+//              like the others). The sheet's "(no owner)" rows are no one. A country not in the sheet has no list (anyone).
+//              Countries the workflows had no rule for get a plain Performis rule (source "sae", no zones) carrying it.
 
-import type { AssignRules } from "./rules";
+import type { AssignRules, OwnerId } from "./rules";
 
-export const SEED: AssignRules = {
+const WORKFLOWS: AssignRules = {
   defaultOwner: "1202569408", // TSA Team
   sae: {
     "Borey Jeremy": "29117550", // Jeremy Borey - branch "JEREMY BOREY"
@@ -240,3 +248,65 @@ export const SEED: AssignRules = {
     },
   },
 };
+
+/** The people who work each country - "Owner by country" (see the header), TSA Team first. */
+export const SEED_PEOPLE: Record<string, OwnerId[]> = {
+  CH: ["1202569408", "29117550", "37053854", "1229976029", "1229999295", "1229976031", "1229976026", "32968527", "38431796", "1229976033"], // TSA Team, Jeremy Borey, Jan Kalt, Maya Marzena Gustak, Denis Schawlochow, Luna Bianca Falk, Nancy Pielock, Yani Alioua, James Koeremez, Claudio Saraiva
+  DE: ["1202569408", "1229976034", "1229976035", "1229998585", "1229976027", "1229998779", "817497321", "32984810", "1229998780", "817647087"], // TSA Team, Benjamin Nitschke (deactivated), Stefan Wieneber, Adem Can, Hans Peter Höhn, Katja Storm, Marc Frech, Christopher Stahl (deactivated), Christoph Lange, Bernd Rausmann
+  IT: ["1202569408", "1229999587", "1255191254", "33688321", "37659386"], // TSA Team, Luca Fantasia, Simone Vitale, Raffaello Lonardi, Vincenzo Di Martino
+  FR: ["1202569408", "29117550"], // TSA Team, Jeremy Borey
+  NL: ["1202569408", "1230006208"], // TSA Team, Nigel van der Loo
+  AT: ["1202569408", "1229976036"], // TSA Team, Tamara Mandl
+  PL: ["1202569408", "31218632"], // TSA Team, Paulina Bozek (deactivated)
+  BE: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  GB: ["1202569408"], // TSA Team
+  CZ: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  ES: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  HU: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  RO: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  PT: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  TR: ["1202569408"], // TSA Team
+  SK: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  SI: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  US: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  SE: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  DK: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  BG: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  LI: ["1202569408"], // TSA Team
+  HR: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  CN: ["1202569408"], // TSA Team
+  SG: ["1202569408"], // TSA Team
+  IE: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  FI: ["1202569408"], // TSA Team
+  MY: ["1202569408"], // TSA Team
+  NO: ["1202569408"], // TSA Team
+  LV: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  LT: ["1202569408"], // TSA Team
+  LU: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  EE: ["1202569408"], // TSA Team
+  TH: ["1202569408"], // TSA Team
+  KR: ["1202569408"], // TSA Team
+  ID: ["1202569408"], // TSA Team
+  IN: ["1202569408"], // TSA Team
+  RU: ["1202569408"], // TSA Team
+  JP: ["1202569408"], // TSA Team
+  MA: ["1202569408"], // TSA Team
+  SM: ["1202569408"], // TSA Team
+  AE: ["1202569408"], // TSA Team
+  CY: ["1202569408"], // TSA Team
+  CA: ["1202569408"], // TSA Team
+  HK: ["1202569408"], // TSA Team
+  PH: ["1202569408"], // TSA Team
+  MT: ["1202569408", "1229999295"], // TSA Team, Denis Schawlochow
+  IS: ["1202569408"], // TSA Team
+  MC: ["1202569408"], // TSA Team
+};
+
+/** Every country's people on its rule; a country the workflows had no rule for gets a Performis rule with no zones. */
+function withPeople(base: AssignRules, people: Record<string, OwnerId[]>): AssignRules {
+  const countries = { ...base.countries };
+  for (const [cc, list] of Object.entries(people)) countries[cc] = { ...(countries[cc] ?? { country: cc, source: "sae" as const, zones: [] }), people: [...list] };
+  return { ...base, countries };
+}
+
+export const SEED: AssignRules = withPeople(WORKFLOWS, SEED_PEOPLE);

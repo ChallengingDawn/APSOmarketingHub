@@ -1,0 +1,143 @@
+{
+ "AT": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2023,
+  "countryGdp": 499949.9,
+  "onMap": 499949.8,
+  "outsideMap": 0.0,
+  "regions": 9,
+  "known": 9
+ },
+ "BE": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 619914.3,
+  "onMap": 619914.3,
+  "outsideMap": 0.0,
+  "regions": 11,
+  "known": 11
+ },
+ "CH": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2022,
+  "countryGdp": 896448.7,
+  "onMap": 896448.8,
+  "outsideMap": 0.0,
+  "regions": 26,
+  "known": 26
+ },
+ "CZ": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 321231.1,
+  "onMap": 321230.9,
+  "outsideMap": 0.0,
+  "regions": 14,
+  "known": 14
+ },
+ "DE": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2023,
+  "countryGdp": 4386940.0,
+  "onMap": 4386940.0,
+  "outsideMap": 0.0,
+  "regions": 16,
+  "known": 16
+ },
+ "DK": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 400267.4,
+  "onMap": 400267.3,
+  "outsideMap": 0.0,
+  "regions": 5,
+  "known": 5
+ },
+ "ES": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2023,
+  "countryGdp": 1598588.0,
+  "onMap": 1598588.0,
+  "outsideMap": 0.0,
+  "regions": 52,
+  "known": 52
+ },
+ "FR": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 2935236.2,
+  "onMap": 2879077.7,
+  "outsideMap": 56158.8,
+  "regions": 96,
+  "known": 96
+ },
+ "IT": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2023,
+  "countryGdp": 2210594.7,
+  "onMap": 2175771.0,
+  "outsideMap": 0.0,
+  "regions": 110,
+  "known": 104
+ },
+ "LI": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": null,
+  "countryGdp": 8231.2,
+  "onMap": 0,
+  "outsideMap": 0,
+  "regions": 11,
+  "known": 0
+ },
+ "LU": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 87319.8,
+  "onMap": 0,
+  "outsideMap": 0.0,
+  "regions": 3,
+  "known": 0
+ },
+ "NL": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 1115252.0,
+  "onMap": 1115251.9,
+  "outsideMap": 0.0,
+  "regions": 12,
+  "known": 12
+ },
+ "PL": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2023,
+  "countryGdp": 852229.8,
+  "onMap": 852229.9,
+  "outsideMap": 0.0,
+  "regions": 16,
+  "known": 16
+ },
+ "SE": {
+  "unit": "MEUR",
+  "year": 2024,
+  "regionalYear": 2024,
+  "countryGdp": 563572.2,
+  "onMap": 563571.8,
+  "outsideMap": 0.0,
+  "regions": 21,
+  "known": 21
+ },
+ "_source": "Eurostat nama_10r_3gdp (GDP at current market prices by NUTS 3 region, MIO_EUR) shares of the latest year with every region, scaled to the country GDP 2024 (Eurostat); NUTS 2024 boundaries. Built 19.10.2026."
+}
