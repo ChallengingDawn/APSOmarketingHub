@@ -24,7 +24,6 @@ import FiberNewOutlinedIcon from "@mui/icons-material/FiberNewOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
@@ -339,7 +338,6 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
         </Box>
       )}
 
-      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} right={<TileActions where="tab" start="nutshell" tile={{ key: "visit:customers:unlinked", page: "visit", tab: "customers", title: "Shop accounts without a company", kind: "card" }} />} />}
 
       <NotConnected list={missing} />
       <LiveNote state={state} typed={false} sources="GA4 (users, sessions, channels, countries, landing pages) and HubSpot (Datatracker logins)" />
@@ -582,46 +580,6 @@ function MixChart({ title, rows, order, otherLabel = "Other channels" }: { title
         })}
       </Box>
     </Box>
-  );
-}
-
-/**
- * The shop accounts with no company in HubSpot: their logins and orders count for no company. The
- * counts here; the list and the Link are in Ticket/order/article associations > Contacts without a
- * company (SARCLA 19.10: "build it inside the existing app, a separate contact tab").
- */
-function UnlinkedCard({ u, error, right }: { u: VisitData["unlinked"]; error?: string; right?: React.ReactNode }) {
-  return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-      <CardTitle icon={<LinkOffIcon />} tint="amber" title="Shop accounts without a company"
-        note="People with a shop login whose HubSpot contact has no company: their logins and orders count for no company, so no report sees them as a known customer" right={right} />
-      {!u ? (
-        <Typography sx={{ fontSize: "0.84rem", color: error ? RED : MUTED }}>{error ? `HubSpot could not be read: ${error}` : "Not read yet."}</Typography>
-      ) : (
-        <>
-          <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
-            {[
-              { n: u.total, label: "Shop accounts without a company", sub: `${n0(u.createdThisYear)} opened this year · ${n0(u.seenThisYear)} on the site this year` },
-              { n: u.matched, label: "A company to link", sub: `${n0(u.withOrders ?? 0)} by their orders, the rest by their e-mail domain` },
-              { n: u.business, label: "Business address, no company yet", sub: "Find or create the company" },
-              { n: u.free, label: "Free e-mail address", sub: "gmail, bluewin … - check the company they typed" },
-            ].map((x) => (
-              <Box key={x.label} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "14px", px: 1.5, py: 1.1, bgcolor: "#fff" }}>
-                <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{n0(x.n)}</Typography>
-                <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: INK }}>{x.label}</Typography>
-                <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{x.sub}</Typography>
-              </Box>
-            ))}
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-            <Button component="a" href="/uc/ticket-associations#shop-accounts" variant="contained" disableElevation sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>
-              Fix them in Ticket/order/article associations
-            </Button>
-            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Each one with the company its orders are booked on and those on its e-mail domain - pick and Link. A+P&apos;s own people ({n0(u.internal)} accounts) left out.</Typography>
-          </Box>
-        </>
-      )}
-    </GlassCard>
   );
 }
 

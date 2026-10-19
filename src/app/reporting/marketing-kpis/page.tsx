@@ -36,7 +36,7 @@ import { stageName } from "@/lib/marketingKpis/stageNames";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
 import type { TileFormat } from "@/lib/reporting/kpiActions";
 import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
-import { ShopAccountsCompact, VISIT_NAMES, useVisitData } from "./VisitCompact";
+import { VISIT_NAMES, useVisitData } from "./VisitCompact";
 import { fullCardFor, tileChartFor } from "./FullCards";
 import type { VisitData } from "@/lib/marketingKpis/visitCube";
 
@@ -97,7 +97,7 @@ function KpiActions({ v, slug, card = false }: { v: KpiView; slug: string; card?
 
 /** The cards the nutshell draws on its own, from the start - not "promoted" (the traffic origin card is gone,
  *  SARCLA 19.10: "take out completely" - its key stays here so an old placement row draws nothing). */
-const OWN = new Set(["customers::summary", "visit::traffic-origin", "visit:customers:unlinked", "reach:customers:search-customers"]);
+const OWN = new Set(["customers::summary", "visit::traffic-origin", "visit:customers:unlinked", "reach:customers:search-customers"]); // the last two Visit ones are gone (SARCLA 19.10) - kept so an old placement row draws nothing
 
 /**
  * What was promoted from a page into its own panel (SARCLA 18.10: "they should go into their
@@ -180,11 +180,6 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
       chart={tileChartFor(s.slug, v.id, views, visit, live, year) ?? undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
     ...leadTiles.filter((t) => t.fmt !== "half").map((t) => ({ key: t.key, node: t.node })),
     ...promoted.tiles,
-    // the shop accounts without a company, compact (SARCLA 19.10) - fixed in Ticket/order/article associations
-    ...(s.slug === "visit" && visit?.unlinked && placementOf(acts, "visit:customers:unlinked", "nutshell") === "nutshell" ? [{
-      key: "visit:customers:unlinked",
-      node: <WithActions where="nutshell" start="nutshell" tile={{ key: "visit:customers:unlinked", page: "visit", tab: "customers", title: "Shop accounts without a company", kind: "card", href: stageHref("visit") }}><ShopAccountsCompact u={visit.unlinked} /></WithActions>,
-    }] : []),
     // SEO and SEA in customers: new, reactivated, active (SARCLA 17.10)
     ...(s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" ? [{
       key: "reach:customers:search-customers", sx: { gridColumn: "1 / -1" },

@@ -8,7 +8,6 @@
 import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
 import { hubspotFetchJson, searchTotal } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
-import { unlinkedAccounts } from "@/lib/ticketAssoc/shopAccounts";
 import type { Unlinked, VisitData } from "./visitCube";
 
 // v2: users per country, the login event, the shop accounts without a company (18.10)
@@ -109,13 +108,9 @@ async function build(): Promise<VisitData> {
     }
   });
 
-  let unlinked: Unlinked | null = null;
-  await guard("unlinked", async () => {
-    reportProgress(KEY, "finding shop accounts without a company");
-    unlinked = await unlinkedAccounts(year);
-    // the visit read needs the counts only; the rows are in Ticket/order/article associations
-    unlinked = { ...unlinked, rows: [] };
-  });
+  // the shop accounts without a company are no longer shown here (SARCLA 19.10: "this card should completely
+  // disappear") - Ticket/order/article associations > Contacts without a company reads them itself
+  const unlinked: Unlinked | null = null;
 
   // Prio 1 and 2 companies that logged in, day by day - the live shop tracker on the company
   // (eshop_activity, since 30 Sep 2026); the Datatracker's counts are per year (SARCLA 19.10: "a time for logging")

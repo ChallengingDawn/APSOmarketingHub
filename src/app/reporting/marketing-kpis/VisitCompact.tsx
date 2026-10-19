@@ -2,15 +2,12 @@
 // THE VISIT PAGE'S GRAPHS, SMALL - for the nutshell's tiles (SARCLA 19.10: "we should find the same
 // graph in both levels"): each tile draws what its card on Visit & traffic origin draws - visitors
 // new and returning, the channel groups each month, visitors per country, the stores' and pages'
-// channels, logins each month and each day - at tile size. And the shop accounts without a company,
-// compact, with the way to where they are fixed.
+// channels, logins each month and each day - at tile size.
 
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
 
-import { Badge, FAINT, INK, MUTED, glass } from "@/app/uc/report/ui";
+import { FAINT, INK, MUTED } from "@/app/uc/report/ui";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { CHANNEL_GROUPS, groupsByMonth, landingTable, storeChannels, usersAbroad, type VisitData } from "@/lib/marketingKpis/visitCube";
 import { MONTHS, MiniBars, useSlow, type KpiView } from "./data";
@@ -146,24 +143,4 @@ export function VisitTileChart({ id, views, d, year }: { id: string; views: Reco
     return <MonthStack rows={rows} parts={[{ label: "Prio 1", color: SERIES[0] }, { label: "Prio 2", color: SERIES[1] }]} />;
   }
   return null;
-}
-
-/** The shop accounts without a company, compact - for the nutshell's Visit panel. */
-export function ShopAccountsCompact({ u }: { u: VisitData["unlinked"] }) {
-  if (!u) return null;
-  return (
-    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "grid", gap: 1, minWidth: 0, height: "100%", alignContent: "start" }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, pr: 3 }}>
-        <Badge icon={<LinkOffIcon />} tint="amber" size={32} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, pt: 0.75 }}>Shop accounts without a company</Typography>
-      </Box>
-      <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{n0(u.total)}</Typography>
-      <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.45 }}>
-        <b style={{ color: INK }}>{n0(u.matched)}</b> to link - {n0(u.withOrders ?? 0)} by their orders · {n0(u.business)} business address, no company · {n0(u.free)} free e-mail
-      </Typography>
-      <Box>
-        <Button component="a" href="/uc/ticket-associations#shop-accounts" size="small" variant="contained" disableElevation sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Fix them</Button>
-      </Box>
-    </Box>
-  );
 }
