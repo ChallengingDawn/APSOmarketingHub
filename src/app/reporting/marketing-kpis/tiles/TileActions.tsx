@@ -12,7 +12,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
 import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 import { ActionsPanel } from "./ActionsPanel";
-import { formatOf, placementOf, refreshActions, send, useActions } from "./store";
+import { formatOf, formatsFor, placementOf, refreshActions, send, useActions } from "./store";
 
 export type TileInfo = {
   /** "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02" - the same on the page and in the nutshell */
@@ -79,7 +79,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
           Actions
         </Box>
       </Tooltip>
-      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile.key)} onMove={move} canWrite={state?.canWrite ?? false} />}
+      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move} canWrite={state?.canWrite ?? false} />}
     </>
   );
 }

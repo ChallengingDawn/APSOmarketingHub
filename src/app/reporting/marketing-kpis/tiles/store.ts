@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import type { Placement, SavedView, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 
 export type Counts = Record<string, { open: number; tasks: number; tickets: number }>;
-export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat; by: string; at: string };
+export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat | null; by: string; at: string };
 export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]> };
 
 type Store = { state: ActionsState | null; error: string | null; listeners: Set<() => void>; loading: Promise<void> | null };
@@ -57,9 +57,25 @@ export function useActions(page: string): { state: ActionsState | null; error: s
   return { state: s.state, error: s.error };
 }
 
-/** How a KPI is shown in the nutshell: a small tile unless someone chose its full card. */
-export function formatOf(state: ActionsState | null, key: string): TileFormat {
-  return state?.placements.find((p) => p.spec.key === key)?.format === "card" ? "card" : "tile";
+type Sized = { key: string; kind?: "kpi" | "card"; kpiId?: string };
+
+/**
+ * The sizes a graph can take in the nutshell (SARCLA 19.10: "propose several types when bringing it to
+ * the nutshell"): a KPI as a small tile, half or the whole width (its page's card); a small Lead graph
+ * as a tile or half the width; a page's card at half or the whole width.
+ */
+export function formatsFor(t: Sized): TileFormat[] {
+  if (/:tile:/.test(t.key)) return ["tile", "half"];
+  if ((t.kind ?? (t.kpiId ? "kpi" : "card")) === "kpi" && t.kpiId) return ["tile", "half", "card"];
+  return ["half", "card"];
+}
+export const FORMAT_LABEL: Record<TileFormat, string> = { tile: "Small tile", half: "Half width", card: "Full width" };
+
+/** How big a graph is in the nutshell: what someone chose, else a tile - or the whole width for a card. */
+export function formatOf(state: ActionsState | null, t: Sized): TileFormat {
+  const can = formatsFor(t);
+  const f = state?.placements.find((p) => p.spec.key === t.key)?.format;
+  return f && can.includes(f) ? f : can[0] === "tile" ? "tile" : "card";
 }
 
 /** Where a tile is shown: what someone chose, else where it starts. */

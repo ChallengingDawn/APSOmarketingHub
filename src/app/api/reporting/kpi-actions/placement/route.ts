@@ -20,6 +20,6 @@ export async function POST(req: NextRequest) {
     ...(s.filters ? { filters: s.filters } : {}), ...(s.from ? { from: String(s.from).slice(0, 7) } : {}), ...(s.to ? { to: String(s.to).slice(0, 7) } : {}),
     ...(s.href && String(s.href).startsWith("/reporting/") ? { href: String(s.href).slice(0, 500) } : {}),
   };
-  const format = b.format === "tile" || b.format === "card" ? b.format : undefined;
+  const format = b.format === "tile" || b.format === "half" || b.format === "card" ? b.format : undefined;
   try { await setPlacement(spec, b.placement, w.name, format); return NextResponse.json({ ok: true }); } catch (e) { return fail(e); }
 }

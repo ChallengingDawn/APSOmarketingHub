@@ -31,7 +31,9 @@ export type KpiTask = {
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 export type Placement = "nutshell" | "tab";
-export type TileFormat = "tile" | "card";
+/** How big a promoted graph is in the nutshell: a small tile, half the width, or the whole width. */
+export type TileFormat = "tile" | "half" | "card";
+const FORMATS: readonly string[] = ["tile", "half", "card"];
 export type TileSpec = {
   key: string; page: string; tab?: string; kpiId?: string; kind: "kpi" | "card"; title: string;
   filters?: Record<string, string[]>; from?: string; to?: string; href?: string;
@@ -208,10 +210,10 @@ export async function setPlacement(spec: TileSpec, placement: Placement, by: str
 }
 
 /** Every tile someone moved: promoted to the nutshell or demoted to its tab. */
-export async function placements(): Promise<{ spec: TileSpec; placement: Placement; format: TileFormat; by: string; at: string }[]> {
+export async function placements(): Promise<{ spec: TileSpec; placement: Placement; format: TileFormat | null; by: string; at: string }[]> {
   await ensure();
   const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown; format: string | null }>(`SELECT * FROM ${PLACE} ORDER BY at`);
-  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", format: x.format === "card" ? "card" : "tile", by: x.by_name, at: iso(x.at) ?? "" }));
+  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", format: x.format && FORMATS.includes(x.format) ? (x.format as TileFormat) : null, by: x.by_name, at: iso(x.at) ?? "" }));
 }
 
 /* ── order ───────────────────────────────────────────────────────────── */

@@ -29,6 +29,7 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { FORMAT_LABEL } from "./store";
 import type { KpiTask, Placement, TaskStatus, TileFormat } from "@/lib/reporting/kpiActions";
 import type { S2sField } from "@/lib/reporting/scrollToSaleRules";
 import { refreshActions, send } from "./store";
@@ -59,13 +60,13 @@ function People({ owners, value, onChange, label = "Shared with" }: { owners: Op
   );
 }
 
-export function ActionsPanel({ tile, open, onClose, placed, format, onMove, canWrite }: {
-  tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat;
+export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite }: {
+  tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat; formats: TileFormat[];
   onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
 }) {
-  // a KPI goes to the nutshell as a small tile or as its page's full card (SARCLA 19.10); chosen
-  // before the switch is turned on, or changed at once while it is there
-  const isKpi = (tile.kind ?? (tile.kpiId ? "kpi" : "card")) === "kpi" && !!tile.kpiId;
+  // how big it goes to the nutshell - a small tile, half or the whole width, as the graph allows
+  // (SARCLA 19.10: "propose several types"); chosen before the switch is turned on, or changed at once there
+  const choose = formats.length > 1;
   const [want, setWant] = useState<TileFormat>(format);
   useEffect(() => {
     if (!open) return;
@@ -134,16 +135,15 @@ export function ActionsPanel({ tile, open, onClose, placed, format, onMove, canW
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: placed === "nutshell" ? TINT.blue.fg : INK }}>In a nutshell</Typography>
               <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{placed === "nutshell" ? "Shown there for everyone" : "Only on this page"}</Typography>
             </Box>
-            <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab", e.target.checked && isKpi ? want : undefined)} />
+            <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab", e.target.checked && choose ? want : undefined)} />
           </Box>
-          {isKpi && (
+          {choose && (
             <Box sx={{ display: "grid", gap: 0.35 }}>
               <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Shown as</Typography>
               <ToggleButtonGroup size="small" exclusive value={placed === "nutshell" ? format : want} disabled={!canWrite || moving} aria-label="How it is shown in the nutshell"
                 onChange={(_, v: TileFormat | null) => { if (!v) return; setWant(v); if (placed === "nutshell") void move("nutshell", v); }}
                 sx={{ "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 600, fontSize: "0.8rem", px: 1.25, py: 0.4 } }}>
-                <ToggleButton value="tile">Small tile</ToggleButton>
-                <ToggleButton value="card">Full card</ToggleButton>
+                {formats.map((f) => <ToggleButton key={f} value={f}>{FORMAT_LABEL[f]}</ToggleButton>)}
               </ToggleButtonGroup>
             </Box>
           )}

@@ -536,16 +536,17 @@ function OwnerBuyCard({ d, f, win, actions }: Ctx) {
       <ChartFrame table={{ columns: ["Owner", "Bought after a sales contact", "Bought on their own", "New leads"], rows: rows.map((r) => [r.name, `${pct(Math.round(r.afterPct * 10) / 10)} (${n0(r.after)})`, `${pct(Math.round(r.ownPct * 10) / 10)} (${n0(r.own)})`, r.all]), numeric: [1, 2, 3] }}>
         <Box sx={{ display: "grid", gap: 0.9 }}>
           {rows.map((r) => (
-            <Box key={r.o} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "190px minmax(0, 1fr) 170px" }, gap: { xs: 0.4, md: 1.5 }, alignItems: "center" }}>
+            <Box key={r.o} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(120px, 190px) minmax(0, 1fr) auto" }, gap: { xs: 0.4, md: 1.5 }, alignItems: "center" }}>
               <Typography noWrap title={r.name} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{r.name}</Typography>
               <Box sx={{ display: "flex", gap: "2px", height: 16, width: `${((r.afterPct + r.ownPct) / max) * 100}%`, minWidth: 4 }}>
                 {r.after > 0 && <Box title={`Bought after a sales contact: ${n0(r.after)} of ${n0(r.all)}`} sx={{ flex: `${r.after} 0 0`, minWidth: 2, bgcolor: SERIES[2], borderRadius: r.own > 0 ? 0 : "0 4px 4px 0" }} />}
                 {r.own > 0 && <Box title={`Bought on their own: ${n0(r.own)} of ${n0(r.all)}`} sx={{ flex: `${r.own} 0 0`, minWidth: 2, bgcolor: SERIES[0], borderRadius: "0 4px 4px 0" }} />}
               </Box>
-              <Typography sx={{ fontSize: "0.8rem", color: INK, textAlign: { md: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                <b>{pct(Math.round((r.afterPct + r.ownPct) * 10) / 10)}</b>
-                <Box component="span" sx={{ color: FAINT }}> · {pct(Math.round(r.afterPct * 10) / 10)} after, {pct(Math.round(r.ownPct * 10) / 10)} own</Box>
-              </Typography>
+              {/* two lines, so the figures stay inside the card (SARCLA 19.10: "is broken") */}
+              <Box sx={{ textAlign: { md: "right" }, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{pct(Math.round((r.afterPct + r.ownPct) * 10) / 10)}</Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: FAINT, whiteSpace: "nowrap" }}>{pct(Math.round(r.afterPct * 10) / 10)} after · {pct(Math.round(r.ownPct * 10) / 10)} own</Typography>
+              </Box>
             </Box>
           ))}
         </Box>
