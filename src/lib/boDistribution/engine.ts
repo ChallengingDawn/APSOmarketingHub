@@ -641,6 +641,8 @@ export type Stray = {
   /** the person who had it last (a deactivated account included) */
   was: string | null;
   hub: Answer | null;
+  /** GQS: the linked ticket's contact / company to copy first (decide's row.inherit) */
+  inherit?: Row["inherit"];
   wrote?: Row["wrote"];
   error?: string;
 };
@@ -755,6 +757,7 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
         item.hub = { ownerId: back.active.id, ownerName: back.active.name, method: "Back to the person who had it", reasons: back.moved ? [`${back.active.name}'s new account`] : [] };
       } else {
         const row = await decide(c.id, c.pipeline, new Date(Date.now() - 45_000).toISOString(), shared, { stray: true });
+        item.inherit = row.inherit ?? null;
         const not = !back.name ? null : !back.active ? `${back.name}: no active account` : !onTeam ? `${back.active.name} is not on the team's lists` : `${back.active.name} is away`;
         item.hub = row.hub ? { ...row.hub, reasons: [...(not ? [not] : []), ...row.hub.reasons] } : null;
       }
@@ -783,7 +786,17 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
   if (cur && cur !== PEOPLE.backofficeTeam.id && !archived.has(cur)) return skip(`owned meanwhile (${(await ownerNames()).get(cur) ?? cur})`);
   if (now.properties.hs_pipeline !== STRAY_PIPE[s.pipeline] || now.properties.hs_pipeline_stage !== s.stage) return skip("moved on meanwhile");
   try {
-    await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: { hubspot_owner_id: owner } });
+    // a GQS task still in "New for Back-Office" (it waited for someone available): the whole GQS step, as live mode writes
+    // it - contact / company from the linked ticket, the stage and the GQS status - since the workflow may be off
+    const props: Record<string, string> = { hubspot_owner_id: owner };
+    if (s.pipeline === "gqs" && s.stage === STAGE.gqsNewForBo) {
+      for (const c of s.inherit?.contacts ?? []) await hs(`/crm/v4/objects/tickets/${s.ticketId}/associations/default/contacts/${c}`, "PUT").catch(() => null);
+      for (const c of s.inherit?.companies ?? []) await hs(`/crm/v4/objects/tickets/${s.ticketId}/associations/default/companies/${c}`, "PUT").catch(() => null);
+      props.hs_pipeline_stage = ASSIGNED_STAGE.gqs;
+      const st = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${s.ticketId}?properties=status_of_gqs`);
+      if (st.properties.status_of_gqs !== "Automatically Approved") props.status_of_gqs = "Approved by Line Manager";
+    }
+    await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: props });
     await writesThisHour(1);
     const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : `had a deactivated owner (${s.was ?? "?"})`;
     const body = [
