@@ -23,7 +23,8 @@ import {
 } from "./rules";
 
 const LOCK = 4_107_231;
-const EVERY_MS = 2 * 60_000;
+/** Every minute: in live mode the hub must assign before the workflow's safety net (3 minutes) falls back to its own step. */
+const EVERY_MS = 60_000;
 const LIMIT_MS = 8 * 60_000;
 /** HubSpot's search index trails a write: each window starts this much earlier (rows are keyed, so no double). */
 const OVERLAP_MS = 5 * 60_000;
@@ -33,7 +34,8 @@ const DAYS_KEPT = 21;
 const MAX_PER_RUN = 40;
 
 /** rosters: the page's lists (hub mode); a list left out = the workflow's own. */
-export type Settings = { mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; by: string | null; at: string | null };
+/** live: the hub WRITES the owner for that pipeline (SARCLA 19.10.2026, "build it now"); off = shadow only. */
+export type Settings = { mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; live: { bo: boolean; gqs: boolean }; by: string | null; at: string | null };
 export type Answer = { ownerId: string | null; ownerName: string | null; method: string; reasons: string[] };
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
@@ -54,6 +56,10 @@ export type Row = {
   hub: Answer | null;
   /** replayed from the last 7 days: availability and workload are today's, not the ones at the time */
   approx?: boolean;
+  /** the company the workflow step links when the sales agent came from a contact and the ticket has no company */
+  associate?: string | null;
+  /** live mode: what the hub wrote, or why it left the ticket to the workflow */
+  wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string };
   note?: string;
   actual?: Actual;
   error?: string;
@@ -68,9 +74,9 @@ const BACKFILL_PER_RUN = 15;
 
 export async function getSettings(): Promise<Settings> {
   const x = await kvGet<Partial<Settings>>(KV.settings);
-  return { mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, by: x?.by ?? null, at: x?.at ?? null };
+  return { mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs }, by: x?.by ?? null, at: x?.at ?? null };
 }
-export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>> }, by: string): Promise<Settings> {
+export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>>; live?: Partial<Settings["live"]> }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const rosters = { ...cur.rosters };
   for (const [k, v] of Object.entries(patch.rosters ?? {}) as [RosterKey, Person[] | null][]) {
@@ -78,7 +84,8 @@ export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: P
     if (v === null) { delete rosters[k]; continue; } // back to the workflow's list
     rosters[k] = v.filter((x) => /^\d+$/.test(String(x.id)) && String(x.name ?? "").trim()).slice(0, 15).map((x) => ({ id: String(x.id), name: String(x.name).trim() }));
   }
-  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, rosters, by, at: new Date().toISOString() };
+  const live = { bo: patch.live?.bo ?? cur.live.bo, gqs: patch.live?.gqs ?? cur.live.gqs };
+  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, rosters, live, by, at: new Date().toISOString() };
   await kvSet(KV.settings, next);
   return next;
 }
@@ -96,7 +103,7 @@ export async function recentRows(days = 7): Promise<Row[]> {
 
 /* ── HubSpot reads ───────────────────────────────────────────────────────── */
 
-const hs = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
+const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
 type Hist = { value: string; timestamp: string; sourceType?: string; sourceId?: string; sourceLabel?: string; updatedByUserId?: number };
 type TicketFull = {
   id: string; properties: Record<string, string | null>;
@@ -262,6 +269,8 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
 
   if (pipeline === "gqs") {
     const inp = input("saToOwnerGqs");
+    row.associate = inp.saHub?.companyToAssociate ?? inp.sa.companyToAssociate ?? null;
+    (row as Row & { hasParty?: boolean }).hasParty = !!(t.associations?.companies?.results?.length || t.associations?.contacts?.results?.length);
     const gqsType = p.gqs_type_of_request ?? "";
     row.legacy = answer(assignGqs(gqsType, inp, "legacy"));
     row.hub = answer(assignGqs(gqsType, inp, "hub"));
@@ -298,6 +307,7 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
     if (gqsOwner) { row.legacy = fixed(gqsOwner, `Merged into GQS task ${o}`); row.hub = row.legacy; return row; }
   }
   const inp = input("saToOwnerBo");
+  row.associate = inp.saHub?.companyToAssociate ?? inp.sa.companyToAssociate ?? null;
   row.legacy = answer(assignBo(r.assigner, inp, "legacy"));
   row.hub = answer(assignBo(r.assigner, inp, "hub"));
   return row;
@@ -343,6 +353,59 @@ export async function checkTicket(id: string, settings?: Settings): Promise<Row>
   const row = await decide(id, gqs ? "gqs" : "bo", new Date(Date.parse(entered ?? p.createdate ?? new Date().toISOString())).toISOString(), { settings });
   row.actual = await outcome(row);
   return row;
+}
+
+/* ── live mode: the hub writes the owner ───────────────────────────────────── */
+
+/** Steps the hub takes over; #50 (Task Status Report merge) and #75 (sales split to ESO) stay with the workflow. */
+const LIVE_STEPS = new Set(["23", "27", "31", "42"]);
+const ENTRY_STAGES = { bo: [STAGE.boNew, STAGE.boRedirectedFromChat], gqs: [STAGE.gqsNewForBo] } as const;
+const ASSIGNED_STAGE = { bo: STAGE.assigned, gqs: STAGE.gqsWaitingOnApso } as const;
+const LIVE_MAX_AGE_MS = 20 * 60_000;
+const LIVE_MAX_PER_HOUR = 40;
+
+async function writesThisHour(add = 0): Promise<number> {
+  const k = `boDist:writes:${new Date().toISOString().slice(0, 13)}`;
+  const n = ((await kvGet<number>(k)) ?? 0) + add;
+  if (add) await kvSet(k, n);
+  return n;
+}
+
+/** Write the hub's pick, exactly what the workflow step writes: owner, stage, the company link, a note. Every guard
+ *  that fails leaves the ticket to the workflow, whose safety net runs its own step 3 minutes later. */
+async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote"]>> {
+  const at = new Date().toISOString();
+  const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
+  if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
+  if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
+  if (row.pipeline === "bo" && !LIVE_STEPS.has(row.route?.assigner ?? "")) return skip("this path stays with the workflow");
+  if (row.pipeline === "gqs" && !(row as Row & { hasParty?: boolean }).hasParty) return skip("no contact or company - the workflow copies them from the linked ticket");
+  const owner = row.hub?.ownerId ?? null;
+  if (!owner) return skip("the hub found nobody");
+  if ((await writesThisHour()) >= LIVE_MAX_PER_HOUR) return skip(`breaker: ${LIVE_MAX_PER_HOUR} writes this hour - look at the page before raising it`);
+  // the ticket as it is NOW: still in its entry stage, still nobody's (Backoffice Team or empty)
+  const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage`);
+  const cur = now.properties.hubspot_owner_id ?? "";
+  if (cur && cur !== PEOPLE.backofficeTeam.id) return skip(`already owned (${(await ownerNames()).get(cur) ?? cur})`);
+  if (!(ENTRY_STAGES[row.pipeline] as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
+  try {
+    await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: { hubspot_owner_id: owner, hs_pipeline_stage: ASSIGNED_STAGE[row.pipeline] } });
+    await writesThisHour(1);
+    if (row.associate) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${row.associate}`, "PUT").catch(() => null);
+    const body = [
+      `✅ Auto-Assigned to ${row.hub!.ownerName}`, "", `Method: ${row.hub!.method}`,
+      ...(row.hub!.reasons.length ? [`Why: ${row.hub!.reasons.join("; ")}`] : []),
+      ...(row.route ? [`Path: ${row.route.path.join(" > ")}`] : []),
+      "", "---", "Auto-assigned by APSOhub (Back Office distribution)",
+    ].join("<br>");
+    await hs("/crm/v3/objects/notes", "POST", {
+      properties: { hs_timestamp: at, hs_note_body: body },
+      associations: [{ to: { id: row.ticketId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 228 }] }],
+    }).catch(() => null);
+    return { at, ownerId: owner, ownerName: row.hub!.ownerName, ok: true };
+  } catch (e) {
+    return { at, ownerId: owner, ownerName: row.hub!.ownerName, ok: false, error: (e as Error).message.slice(0, 200) };
+  }
 }
 
 /* ── the People tab and the Detection tab ─────────────────────────────────── */
@@ -421,9 +484,16 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     if (signal?.aborted) break;
     const rows = await rowsFor(day(e.enteredAt));
     const key = `${e.id}:${e.enteredAt}`;
+    // the workflow reads the ticket a minute after entry: so does the hub (the next run, 5-minute overlap, picks it up)
+    if (Date.now() - Date.parse(e.enteredAt) < 50_000) continue;
     newest = Math.max(newest, Date.parse(e.enteredAt));
     if (rows.some((r) => r.key === key)) continue;
-    try { rows.push(await decide(e.id, e.pipeline, e.enteredAt, shared)); info.decided++; }
+    try {
+      const row = await decide(e.id, e.pipeline, e.enteredAt, shared);
+      if (shared.settings!.live[row.pipeline]) row.wrote = await act(row, shared.settings!);
+      rows.push(row);
+      info.decided++;
+    }
     catch (err) { rows.push({ key, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, error: (err as Error).message.slice(0, 200) }); }
   }
   // the replay of the last 7 days, oldest first, while the run has time: today's availability and workload
