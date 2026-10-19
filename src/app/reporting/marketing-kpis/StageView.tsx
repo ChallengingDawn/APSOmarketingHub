@@ -25,6 +25,7 @@ import { ReachExplorer } from "./Reach";
 import { VisitExplorer } from "./Visit";
 import { EngageExplorer } from "./Engage";
 import { LeadExplorer } from "./Lead";
+import { HandoverExplorer } from "./Handover";
 import { TileActions } from "./tiles/TileActions";
 import { kpiSummary } from "./tiles/summary";
 
@@ -91,6 +92,8 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (s.slug === "engage") return <EngageExplorer state={state} />;
   // Lead Generation: the path from acquisition to purchase (9f, SARCLA 18.10)
   if (s.slug === "lead") return <LeadExplorer state={state} />;
+  // how ESO and TSA handle the incoming leads (SARCLA 19.10: "the concept is a little wrong") - 9f
+  if (s.slug === "handover") return <HandoverExplorer state={state} />;
   const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>

@@ -1,4 +1,4 @@
-// LEAD GENERATION READS ITSELF (SARCLA 19.10.2026: "this should load once and then save, and be
+// LEAD GENERATION (AND THE HAND-OVER TO ESO/TSA) READ THEMSELVES (SARCLA 19.10.2026: "this should load once and then save, and be
 // reloaded so nobody waits"). The read keeps its answer in the database and shows it while a new one
 // runs (slowReport), but the FIRST visit after a start or a new version of the read still waited a few
 // minutes. Now the hub reads it in the background a few minutes after it starts, and again whenever the
@@ -7,6 +7,7 @@
 
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { leadsData } from "./leads";
+import { handoverData } from "./handover";
 
 const TICK_MS = 10 * 60_000;
 /** One read never holds the warm-up longer than this; the next tick picks up where it stopped. */
@@ -30,9 +31,13 @@ async function tick() {
   busy = true;
   try {
     if (await chainRunning()) return;
-    // a fresh answer comes back at once; a stale or missing one starts the read - wait for it to finish
-    const until = Date.now() + MAX_WAIT_MS;
-    while (Date.now() < until && (await leadsData()).computing) await sleep(10_000);
+    // a fresh answer comes back at once; a stale or missing one starts the read - wait for it to finish;
+    // Lead Generation, then the Hand-over to ESO/TSA (19.10), one after the other
+    for (const get of [leadsData, handoverData]) {
+      if (await chainRunning()) return;
+      const until = Date.now() + MAX_WAIT_MS;
+      while (Date.now() < until && (await get()).computing) await sleep(10_000);
+    }
   } catch (e) {
     console.warn(`[leads] warm-up tick skipped: ${(e as Error).message}`);
   } finally {
