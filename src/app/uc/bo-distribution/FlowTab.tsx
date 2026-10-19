@@ -318,12 +318,14 @@ export function FlowTab({ d }: { d: Data }) {
         note={`SARCLA | BACK OFFICE MAIN ROUTING, the last 7 days: ${full(read.length)} tickets${replayed ? `, ${full(replayed)} of them replayed (path exact, owner rough)` : ""}${unread ? ` - ${full(unread)} could not be read` : ""}`}
         columns={columns} ways={ways} sel={sel} onPick={pick} onClear={clear} roads={BO_ROADS}
       />
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="The tickets"
-          note={chosen.length ? `Through ${chosen.join(" › ")} - click a row for its path and reasons` : "All of them - click a box of the diagram to narrow down, a row for its path and reasons"}
-          right={<Choice<Narrow> value={narrow} onChange={setNarrow} options={narrowOptions(picked)} />} />
-        <TicketTable rows={narrowRows(picked, narrow)} empty="No ticket here." />
-      </GlassCard>
+      {/* SARCLA 19.10.2026 "this is duplicate": all tickets are on the Tickets tab - here only the ones of a clicked box */}
+      {chosen.length ? (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="The tickets" note={`Through ${chosen.join(" › ")} - click a row for its path and reasons`}
+            right={<Choice<Narrow> value={narrow} onChange={setNarrow} options={narrowOptions(picked)} />} />
+          <TicketTable rows={narrowRows(picked, narrow)} empty="No ticket here." />
+        </GlassCard>
+      ) : null}
     </>
   );
 }

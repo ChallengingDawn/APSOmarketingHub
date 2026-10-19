@@ -64,6 +64,7 @@ import { StraysCard } from "./StraysCard";
 
 function Overview({ d }: { d: Data }) {
   const m = measure(d.rows);
+  const liveNow = [d.settings.live.gqs && "GQS", d.settings.live.bo && "Back Office", d.settings.live.strays && "tickets waiting for an owner"].filter(Boolean) as string[];
   const days = useMemo(() => {
     const by = new Map<string, { same: number; different: number; none: number; waiting: number }>();
     for (const r of d.rows) {
@@ -95,7 +96,10 @@ function Overview({ d }: { d: Data }) {
   return (
     <>
       <Info>
-        Shadow mode - the hub writes nothing to HubSpot. For each ticket entering Back Office &quot;New&quot; or GQS &quot;New for Back-Office&quot; it works out
+        {liveNow.length
+          ? <><b>Live: the hub writes the owner for {liveNow.join(", ")}</b> (Settings); everything else is shadow - compared, not written. </>
+          : <>Shadow mode - the hub writes nothing to HubSpot. </>}
+        For each ticket entering Back Office &quot;New&quot; or GQS &quot;New for Back-Office&quot; it works out
         what the workflows decide (<b>copy</b>: their rules, quirks included) and what it would decide with the faults fixed (<b>hub</b>), and reads what
         HubSpot really did. The last 7 days are replayed: their category and path compare exactly; their owner only roughly, as today&apos;s availability is used.
       </Info>
@@ -129,12 +133,12 @@ function Overview({ d }: { d: Data }) {
 }
 
 function Tickets({ d }: { d: Data }) {
-  const [filter, setFilter] = useState<"all" | "different" | "fixes" | "live">("all");
+  const [filter, setFilter] = useState<"all" | "different" | "fixes" | "live" | "wrote">("all");
   const [pipe, setPipe] = useState<"all" | "bo" | "gqs">("all");
   const [id, setId] = useState("");
   const [check, setCheck] = useState<string | null>(null);
   const checked = useHeld<Row>(check ? `/api/uc/bo-distribution?ticket=${check}` : null, [check]);
-  const rows = d.rows.filter((r) => (pipe === "all" || r.pipeline === pipe) && (filter === "all" || (filter === "different" ? r.actual && r.legacy && !sameOwner(r) : filter === "fixes" ? fixesDiffer(r) : !r.approx)));
+  const rows = d.rows.filter((r) => (pipe === "all" || r.pipeline === pipe) && (filter === "all" || (filter === "different" ? r.actual && r.legacy && !sameOwner(r) : filter === "fixes" ? fixesDiffer(r) : filter === "wrote" ? !!r.wrote : !r.approx)));
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -150,11 +154,13 @@ function Tickets({ d }: { d: Data }) {
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={d.last ? `Last look ${when(d.last.at)}: ${full(d.last.read)} read, ${full(d.last.decided)} new, ${full(d.last.checked)} checked${d.last.error ? ` - ${d.last.error}` : ""}` : "Not run yet"} />
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
-          <Choice<"all" | "different" | "fixes" | "live"> value={filter} onChange={setFilter} options={[
+          <Choice<"all" | "different" | "fixes" | "live" | "wrote"> value={filter} onChange={setFilter} options={[
             { key: "all", label: "All", count: d.rows.length },
             { key: "different", label: "HubSpot did otherwise", count: d.rows.filter((r) => r.actual && r.legacy && !sameOwner(r)).length },
             { key: "fixes", label: "Fixes change it", count: d.rows.filter(fixesDiffer).length },
-            { key: "live", label: "Live only", count: d.rows.filter((r) => !r.approx).length },
+            { key: "live", label: "Seen live (not replayed)", count: d.rows.filter((r) => !r.approx).length },
+            // live mode (SARCLA 19.10.2026: "this filter should also show the change now"): written, or left to the workflow and why
+            { key: "wrote", label: `Live: written by the hub ${d.rows.filter((r) => r.wrote?.ok).length} / left to the workflow`, count: d.rows.filter((r) => r.wrote).length },
           ]} />
           <Choice<"all" | "bo" | "gqs"> value={pipe} onChange={setPipe} options={[{ key: "all", label: "Both" }, { key: "bo", label: "Back Office" }, { key: "gqs", label: "GQS" }]} />
         </Box>
