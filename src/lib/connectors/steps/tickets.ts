@@ -18,7 +18,7 @@ import {
   WRONG_OWNER_PROPS, absorbArticles, addOwners, articleCandidates, articleSearchValues, articlesFromCache, articlesToCheck, assocPlan,
   companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch, productCandidates,
   orderRefs, pySlice, pySorted, rememberMissing, shopLinks, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
-  wrongOwnerSearch, handBack, type OwnerHist, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
+  wrongOwnerSearch, handBack, handedToSales, verdict, BO_QUEUE, type OwnerHist, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
 } from "./ticketRules";
 
 type Obj = { id: string; properties?: Props };
@@ -90,6 +90,24 @@ async function allOwners(): Promise<Map<string, OwnerInfo>> {
   }
 }
 
+/** The owner of the ticket's company, else of its contact - an active person the check accepts in this pipeline or
+ *  another sales one, never Back Office (that is what rule 2 would pull it back for). */
+async function salesOwnerOf(ticketId: string, pipe: string, who: Map<string, OwnerInfo>): Promise<{ id: string; how: string } | null> {
+  const t = await tix<{ associations?: Record<string, { results?: { id: string }[] }> }>(`/crm/v3/objects/tickets/${ticketId}?associations=companies,contacts`);
+  const ok = (o: string | null | undefined): o is string => !!o && who.has(o) && o !== BO_QUEUE && verdict(pipe, o, who)?.pipe !== BO;
+  for (const { id } of (t.associations?.companies?.results ?? []).slice(0, 5)) {
+    const c = await crm<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${id}?properties=name,domain,hubspot_owner_id`);
+    if (/apsoparts|angst/i.test(`${c.properties.name ?? ""} ${c.properties.domain ?? ""}`)) continue;
+    if (ok(c.properties.hubspot_owner_id)) return { id: c.properties.hubspot_owner_id, how: `company owner (${c.properties.name ?? id})` };
+  }
+  for (const { id } of (t.associations?.contacts?.results ?? []).slice(0, 3)) {
+    const c = await crm<{ properties: Record<string, string | null> }>(`/crm/v3/objects/contacts/${id}?properties=email,hubspot_owner_id`);
+    if (/apsoparts|angst/i.test(c.properties.email ?? "")) continue;
+    if (ok(c.properties.hubspot_owner_id)) return { id: c.properties.hubspot_owner_id, how: `contact owner (${c.properties.email ?? id})` };
+  }
+  return null;
+}
+
 export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult> {
   const t0 = Date.now();
   const missing = await missingWrongOwnerProps();
@@ -105,6 +123,7 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
   const nowIso = `${new Date().toISOString().slice(0, 19)}Z`;
   const flags: (Row & { from: string; to: string; reason: string; subject: string })[] = [];
   const restores: (Row & { why: string; subject: string })[] = [];
+  const handoffs: { id: string; pipe: string; subject: string }[] = [];
   let read = 0, skippedCampaign = 0, pages = 0;
   for (const pid of [BO, ESO, TSA]) {
     let cursor = "0";
@@ -118,6 +137,7 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
         const a = wrongOwnerAction(t.properties ?? {}, stages, who, nowIso);
         if (a.kind === "campaign") skippedCampaign += 1;
         else if (a.kind === "restore") restores.push({ id: t.id, properties: a.props, why: a.why, subject: a.subject });
+        else if (a.kind === "flag" && handedToSales(pid, t.properties?.hs_pipeline_stage, a.props.hs_pipeline)) handoffs.push({ id: t.id, pipe: pid, subject: a.subject });
         else if (a.kind === "flag") flags.push({ id: t.id, properties: a.props, from: a.from, to: a.to, reason: a.reason, subject: a.subject });
       }
       cursor = res[res.length - 1].id;
@@ -136,11 +156,20 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
       if (hb) handed.push({ id: t.id, properties: { hubspot_owner_id: hb.owner }, reason: hb.reason, subject: boFlags.find((f) => f.id === t.id)?.subject ?? "" });
     }
   }
+  // handed to sales by a Back Office person: the company's owner, else the contact's - no move, no prefix (handedToSales)
+  const toSales: (Row & { reason: string; subject: string })[] = [];
+  let toSalesWaiting = 0;
+  for (const h of handoffs.slice(0, 40)) {
+    const owner = await salesOwnerOf(h.id, h.pipe, who);
+    if (owner) toSales.push({ id: h.id, properties: { hubspot_owner_id: owner.id }, reason: `handed to sales by Back Office - ${owner.how}`, subject: h.subject });
+    else toSalesWaiting += 1;
+  }
+  handed.push(...toSales);
   const handedIds = new Set(handed.map((h) => h.id));
   const toFlag = flags.filter((f) => !handedIds.has(f.id));
   const out: StepResult = {
     scope: [BO, ESO, TSA].map((p) => PIPE_NAME[p]), dry_run: !live, missing_properties: missing,
-    tickets_open_or_flagged: read, flagged: toFlag.length, handed_back: handed.length, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
+    tickets_open_or_flagged: read, flagged: toFlag.length, handed_back: handed.length - toSales.length, to_company_owner: toSales.length, handed_to_sales_no_owner: toSalesWaiting, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
   };
   let flagged = toFlag, restored = restores, handedBack = handed;
   if (live && (toFlag.length || restores.length || handed.length)) {

@@ -5,7 +5,7 @@ import {
   articleCandidates, articleSearchValues, articlesFromCache, assocPlan, companyKey, createdMsIso, createdUtcMs, deputyDecision,
   deputyNote, deputyTarget, hasArticleType, hasDefaultType, isSystemSubject, isoDay, mentionsC2S, offerHit, oooWindow, orderRefs,
   positionArticles, pyCmp, pySlice, pyStrip, pyZfill, rememberMissing, stageIndex, userState, verdict, wantedOrderNumbers,
-  wrongOwnerAction, wrongOwnerSearch, handBack, BO_QUEUE, type FoundOrder, type OwnerInfo, type UserState,
+  wrongOwnerAction, wrongOwnerSearch, handBack, handedToSales, BO_QUEUE, type FoundOrder, type OwnerInfo, type UserState,
 } from "../src/lib/connectors/steps/ticketRules";
 
 // Expected values below come from the Compass connector's Python (08.10.2026).
@@ -43,6 +43,14 @@ test("wrong owners: a Back Office owner an app put there goes back to the earlie
   assert.equal(handBack(BO, [h("2", "INTEGRATION", "50521064"), h("99", "CRM_UI")], who), null); // before: deactivated / unknown
   assert.equal(handBack(BO, [h("2", "INTEGRATION", "50521064")], who), null); // nobody before
   assert.equal(handBack(BO, [], who), null);
+});
+
+test("wrong owners: a ticket Back Office hands to sales is not pulled back (SARCLA 19.10.2026)", () => {
+  assert.equal(handedToSales(ESO, ESO_REDIR, BO), true);
+  assert.equal(handedToSales(TSA, "2621331643", BO), true);
+  assert.equal(handedToSales(ESO, "2338232556", BO), false); // ESO New with a Back Office owner: rule 2 as before
+  assert.equal(handedToSales(ESO, ESO_REDIR, TSA), false); // a TSA owner in ESO: rule 1 as before
+  assert.equal(handedToSales(BO, ESO_REDIR, BO), false);
 });
 
 test("wrong owners: the verdict per pipeline and role", () => {

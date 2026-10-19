@@ -209,6 +209,15 @@ export function wrongOwnerAction(p: Props, stages: Map<string, StageInfo>, who: 
   };
 }
 
+/**
+ * SARCLA 19.10.2026: a ticket a Back Office person hands to sales - moved to ESO / TSA "Redirected from Back-Office" with
+ * their own name still on it - is not a wrong owner to pull back (rule 2 sent "Offertanfrage" 439349084370 back to
+ * Maida ten minutes after the hand-over). It goes to the company's owner instead (tickets.ts), without the WRONG OWNER
+ * prefix. `toPipe`: where rule 2 would send it.
+ */
+export const handedToSales = (pipe: string, stage: string | null | undefined, toPipe: string | null | undefined): boolean =>
+  (pipe === ESO || pipe === TSA) && (stage === ESO_REDIR || stage === TSA_REDIR) && toPipe === BO;
+
 /** hubspot_owner_id's history as HubSpot returns it, newest first. */
 export type OwnerHist = { value?: string | null; timestamp?: string; sourceType?: string; sourceId?: string | null };
 /** The Back Office queue account (support@apsoparts.com) - never a person to hand a ticket back to. */
