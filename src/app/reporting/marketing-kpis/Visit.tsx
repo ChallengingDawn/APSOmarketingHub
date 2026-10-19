@@ -36,7 +36,7 @@ import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { countryName } from "@/lib/marketingKpis/countries";
-import { CHANNEL_GROUPS, CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, groupsByMonth, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type UnlinkedRow, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
+import { CHANNEL_GROUPS, CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, groupsByMonth, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useSlow, type KpiView, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -55,7 +55,8 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
 ];
 /** the focus markets in GA4's two-letter codes */
 const FOCUS2 = ["CH", "DE", "IT", "FR", "AT", "NL", "LI", "PL"];
-const HUBSPOT = "https://app-eu1.hubspot.com/contacts/26492587/record";
+/** this page's own names for a KPI (the nutshell keeps the catalogue's) */
+const PAGE_NAMES: Record<string, string> = { V04: "Users per country" };
 const names = (xs: string[], f: (x: string) => string) => {
   const n = xs.map(f);
   return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n[0] ?? "";
@@ -78,7 +79,6 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
   const isDefault = win.start === 0 && win.end === Math.max(0, done - 1);
   const [panel, setPanel] = useState(false);
   const [shut, setShut] = useState<Record<string, boolean>>({});
-  const [allUnlinked, setAllUnlinked] = useState(false);
   const filters: VisitFilters = { country: countries, channel: channels };
   const filtered = countries.length > 0 || channels.length > 0;
 
@@ -124,6 +124,8 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
     if (filtered && ["V01", "V02", "V03", "V04"].includes(id)) v = { ...v, measure: { ...v.measure, note: `Only ${who} - from GA4's ${channels.length ? "month, country and channel table" : "users per month and country"}` } };
     if (id === "V06S" && countries.length) v = { ...v, measure: { ...v.measure, note: `Only ${names(countries, countryName)} - GA4's login event${channels.length ? "; it has no channel, so the channel choice does not apply" : ""}` } };
     if (id === "V06S" && !countries.length && channels.length) v = { ...v, measure: { ...v.measure, note: `${v.measure.note} · GA4's login event has no channel: every channel` } };
+    // "Users per country" on this page (SARCLA 18.10: "call it just users per country"); the figure stays the users outside Switzerland
+    if (id === "V04") v = { ...v, measure: { ...v.measure, definition: "The figure: GA4's users from every country but Switzerland, month by month added up - the chart: each country, Switzerland included" } };
     if (id === "V07" && vis.value?.prio.length) {
       const band = (b: string) => vis.value!.prio.find((p) => p.band === b);
       const say = (b: string) => { const p = band(b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
@@ -132,8 +134,8 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
     if (filtered && ["V05", "V06", "V07", "V08"].includes(id)) v = { ...v, measure: { ...v.measure, note: `${v.measure.note ? `${v.measure.note} · ` : ""}For every country and channel - the filter applies to the tables` } };
     const k = KPIS.find((x) => x.id === id) ?? { ...KPIS[0], id, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
     return (
-      <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="visit" />} tint={stageTint("visit")} upTo={upToOf(v, state, year)}
-        actions={<TileActions where="tab" start="nutshell" tile={{ key: `visit::${id}`, page: "visit", kpiId: id, title: nameOf(id), summary: kpiSummary(v, periodOf(v)), kind: "kpi" }} />}>
+      <KpiCard key={id} v={v} kpi={k} icon={<StageGlyph slug="visit" />} tint={stageTint("visit")} upTo={upToOf(v, state, year)} title={PAGE_NAMES[id]}
+        actions={<TileActions where="tab" start="nutshell" tile={{ key: `visit::${id}`, page: "visit", kpiId: id, title: PAGE_NAMES[id] ?? nameOf(id), summary: kpiSummary(v, periodOf(v)), kind: "kpi" }} />}>
         {chart}
       </KpiCard>
     );
@@ -353,12 +355,12 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
 
       {d && tab === "customers" && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-          {card("V06")}
-          {card("V07")}
+          {card("V06", views.V06G ? <LoginsByMonth v={views.V06G} year={year} /> : undefined)}
+          {card("V07", <PrioLoginsByDay live={d.liveLogins} error={d.errors?.liveLogins} />)}
         </Box>
       )}
 
-      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} all={allUnlinked} onAll={() => setAllUnlinked((x) => !x)} right={tileFor("unlinked", "Shop accounts without a company")} />}
+      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} right={tileFor("unlinked", "Shop accounts without a company")} />}
 
       <NotConnected list={missing} />
       <LiveNote state={state} typed={false} sources="GA4 (users, sessions, channels, countries, landing pages) and HubSpot (Datatracker logins)" />
@@ -436,11 +438,42 @@ function NewReturningBars({ users, fresh, year, w }: { users: KpiView; fresh: Kp
   );
 }
 
+/** The visitors who logged in, month by month, this year against last - GA4's login event. */
+function LoginsByMonth({ v, year }: { v: KpiView; year: number }) {
+  if (!v.series.months.some((x) => x != null)) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Visitors who logged in, each month</Typography>
+      <ChartFrame table={{ columns: ["Month", String(year), String(year - 1)], rows: MONTHS.map((m, i) => [m, v.series.months[i] ?? "", v.series.py[i] ?? ""]), numeric: [1, 2] }}>
+        <GroupedColumns height={190} format={(x) => n0(x)} data={MONTHS.map((m, i) => ({ x: m, current: v.series.months[i], prior: v.series.py[i], partial: v.partial === i }))} currentLabel={String(year)} priorLabel={String(year - 1)} />
+      </ChartFrame>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>GA4&apos;s login event (visitors who accepted statistics cookies) - the companies above are the Datatracker&apos;s, counted per year.</Typography>
+    </Box>
+  );
+}
+
+/** Prio 1 and 2 companies that logged in, day by day - the live shop tracker (since 30 Sep 2026). */
+function PrioLoginsByDay({ live, error }: { live: VisitData["liveLogins"]; error?: string }) {
+  if (!live?.days.length) return <Typography sx={{ fontSize: "0.8rem", color: error ? RED : MUTED }}>{error ? `The live shop tracker could not be read: ${error}` : "The live shop tracker has no logins yet."}</Typography>;
+  const label = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Prio 1 and 2 companies that logged in, each day since {label(live.days[0][0])}</Typography>
+      <ChartFrame table={{ columns: ["Day", "Prio 1 companies", "Their logins", "Prio 2 companies", "Their logins"], rows: live.days.map(([d, a, b, c, e]) => [label(d), a, b, c, e]), numeric: [1, 2, 3, 4] }}>
+        <StackedColumns height={190} format={(x) => n0(x)} parts={[{ key: "p1", label: "Prio 1" }, { key: "p2", label: "Prio 2" }]}
+          data={live.days.map(([d, a, , c]) => ({ x: label(d), p1: a, p2: c }))} />
+      </ChartFrame>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>The live shop tracker on each company (every login, cookie consent or not) - it started on 30 Sep 2026 and grows from here; weekends are quiet.</Typography>
+    </Box>
+  );
+}
+
 /** Users outside Switzerland by country, against a year earlier (SARCLA 18.10: "should be viewed by country"). */
 function AbroadChart({ d, year, months, filters, chosen, w }: { d: VisitData; year: number; months: number[]; filters: VisitFilters; chosen: string[]; w: string }) {
-  const rows = usersAbroad(d, year, months, filters);
-  const shown = (chosen.length ? rows.filter((r) => chosen.includes(r.code)) : rows).slice(0, 8);
-  if (!shown.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visitors outside Switzerland in the choice.</Typography>;
+  // every country, Switzerland included (SARCLA 18.10: "users per country")
+  const rows = usersAbroad(d, year, months, filters, true);
+  const shown = (chosen.length ? rows.filter((r) => chosen.includes(r.code)) : rows).slice(0, 9);
+  if (!shown.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visitors in the choice.</Typography>;
   return (
     <Box sx={{ display: "grid", gap: 0.75 }}>
       <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Users by country, {w} {year} against {w} {year - 1}</Typography>
@@ -515,18 +548,14 @@ function MixChart({ title, rows, order, otherLabel = "Other channels" }: { title
 }
 
 /**
- * The shop accounts with no company in HubSpot (SARCLA 18.10: "companies that are not company that
- * we can fix"): their logins and orders count for no company. A company with their e-mail domain
- * first - link it; the hub never links or creates a company itself.
+ * The shop accounts with no company in HubSpot: their logins and orders count for no company. The
+ * counts here; the list and the Link are in Ticket/order/article associations > Contacts without a
+ * company (SARCLA 19.10: "build it inside the existing app, a separate contact tab").
  */
-function UnlinkedCard({ u, error, all, onAll, right }: { u: VisitData["unlinked"]; error?: string; all: boolean; onAll: () => void; right?: React.ReactNode }) {
-  const todo = (r: UnlinkedRow) => (r.kind === "match" && r.match
-    ? <>Link to <Box component="a" href={`${HUBSPOT}/0-2/${r.match.id}`} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 700 }}>{r.match.name}</Box>{r.match.more ? <Box component="span" sx={{ color: FAINT }}> (+{r.match.more} more on this domain)</Box> : null}</>
-    : r.kind === "business" ? "No company with this domain yet - find or create it" : "Free e-mail address - check the company they typed");
-  const rows = u ? (all ? u.rows : u.rows.slice(0, 15)) : [];
+function UnlinkedCard({ u, error, right }: { u: VisitData["unlinked"]; error?: string; right?: React.ReactNode }) {
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-      <CardTitle icon={<LinkOffIcon />} tint="amber" title="Shop accounts without a company - to fix"
+      <CardTitle icon={<LinkOffIcon />} tint="amber" title="Shop accounts without a company"
         note="People with a shop login whose HubSpot contact has no company: their logins and orders count for no company, so no report sees them as a known customer" right={right} />
       {!u ? (
         <Typography sx={{ fontSize: "0.84rem", color: error ? RED : MUTED }}>{error ? `HubSpot could not be read: ${error}` : "Not read yet."}</Typography>
@@ -546,23 +575,12 @@ function UnlinkedCard({ u, error, all, onAll, right }: { u: VisitData["unlinked"
               </Box>
             ))}
           </Box>
-          <Table firstWidth="minmax(220px, 1.6fr)" head={["Company they typed", "E-mail domain", "Country", "Account since", "What to do"]}
-            widths={["minmax(150px, 1fr)", "minmax(110px, 0.8fr)", "minmax(110px, 0.7fr)", "minmax(260px, 2fr)"]}
-            rows={rows.map((r) => ({
-              key: r.id,
-              cells: [
-                <Box key="c" component="a" href={`${HUBSPOT}/0-1/${r.id}`} target="_blank" rel="noreferrer" title="Open the contact in HubSpot" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.company || "(no company typed)"}</Box>,
-                r.domain || "—", r.country || "—", r.created ? `${Number(r.created.slice(8, 10))} ${MONTHS[Number(r.created.slice(5, 7)) - 1]} ${r.created.slice(0, 4)}` : "—",
-                <Box key="t" component="span" sx={{ fontWeight: 400, whiteSpace: "normal", textAlign: "right" }}>{todo(r)}</Box>,
-              ],
-            }))} />
-          {u.rows.length > 15 && (
-            <Box><Button size="small" onClick={onAll} sx={{ textTransform: "none", fontWeight: 700 }}>{all ? "Show the first 15" : `Show all ${n0(u.rows.length)}`}</Button></Box>
-          )}
-          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-            HubSpot contacts with a shop customer id and no company; A+P&apos;s own people ({n0(u.internal)} accounts) are left out. The name opens the contact in HubSpot.
-            The hub never links or creates a company by itself - a person decides. Read with the GA4 figures, every 6 hours; countries and channels do not apply here.
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <Button component="a" href="/uc/ticket-associations#shop-accounts" variant="contained" disableElevation sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>
+              Fix them in Ticket/order/article associations
+            </Button>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Each one with the companies on its e-mail domain - pick and Link. A+P&apos;s own people ({n0(u.internal)} accounts) left out.</Typography>
+          </Box>
         </>
       )}
     </GlassCard>

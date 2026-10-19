@@ -16,7 +16,7 @@ const d: VisitData = {
     ["2026-09", "CH", 340, 115, 600], ["2026-09", "DE", 430, 250, 700], ["2026-09", "IT", 410, 125, 500], ["2026-09", "", 8, 2, 10],
   ],
   logins: [["2025-09", "CH", 90], ["2025-09", "DE", 30], ["2026-09", "CH", 120], ["2026-09", "DE", 40], ["2026-09", "IT", 20]],
-  unlinked: null,
+  unlinked: null, liveLogins: null,
   landing: {
     months: 9,
     cy: [["/de-CH", "Paid Search", 900, 700], ["/it-IT/o-rings", "Organic Search", 400, 350], ["(not set)", "Direct", 300, 250], ["/en-INT/x", "Direct", 50, 40], ["/blog", "Referral", 20, 18]],
@@ -72,6 +72,8 @@ test("users outside Switzerland by country - exact, from the cube with a channel
   const a = usersAbroad(d, 2026, [8]);
   assert.deepEqual(a.map((r) => [r.label, r.users, r.pyUsers]), [["Germany", 430, 380], ["Italy", 410, 340], ["Unknown region", 8, 0]]);
   assert.deepEqual(usersAbroad(d, 2026, [8], { channel: ["Paid Search"] }).map((r) => [r.code, r.users, r.pyUsers]), [["IT", 420, 350]]);
+  // users per country: Switzerland too
+  assert.deepEqual(usersAbroad(d, 2026, [8], {}, true).map((r) => r.code), ["DE", "IT", "CH", "ZZ"]);
 });
 
 test("traffic origin and countries over the months chosen, against the same months a year earlier", () => {

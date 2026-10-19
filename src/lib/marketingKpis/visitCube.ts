@@ -16,6 +16,7 @@
 // They count as visits, but they are not a store or a page: the store and page figures leave them out.
 
 import { countryName } from "./countries";
+import type { Unlinked } from "@/lib/ticketAssoc/shopAccountRules";
 
 /** GA4's default channel groups in plain words (SARCLA 18.10: "be more descriptive"). */
 export const CHANNEL_INFO: Record<string, string> = {
@@ -61,30 +62,7 @@ export function storeOf(page: string): string | null {
 export const NO_PAGE = "Shop tab left open - no page loaded";
 export const NO_PAGE_INFO = "A shop tab left open on a computer that became active again after 30 minutes: GA4 starts a new visit, but no page loads, so there is no landing page. Almost all on desktop, no orders.";
 
-export type UnlinkedRow = {
-  /** the HubSpot contact */
-  id: string;
-  /** the company name the person typed in the shop */
-  company: string;
-  domain: string;
-  country: string;
-  created: string;
-  /** "match" a company with this e-mail domain exists - link it; "business" no company yet; "free" a free e-mail address */
-  kind: "match" | "business" | "free";
-  match: { id: string; name: string; more: number } | null;
-};
-export type Unlinked = {
-  /** every shop account without a company, A+P's own staff left out */
-  total: number;
-  internal: number;
-  matched: number;
-  business: number;
-  free: number;
-  createdThisYear: number;
-  seenThisYear: number;
-  /** the accounts to fix: a matching company first, then the newest */
-  rows: UnlinkedRow[];
-};
+export type { Unlinked, UnlinkedRow } from "@/lib/ticketAssoc/shopAccountRules";
 
 export type VisitData = {
   generatedAt: string;
@@ -106,6 +84,8 @@ export type VisitData = {
   /** companies by sales priority: all, logged in this year, logged in last year */
   prio: { band: string; all: number | null; cy: number | null; py: number | null }[];
   unlinked: Unlinked | null;
+  /** Prio 1 and 2 companies that logged in per day: [day, Prio 1 companies, their logins, Prio 2 companies, their logins] - the live shop tracker */
+  liveLogins: { days: [string, number, number, number, number][] } | null;
   errors: Record<string, string>;
 };
 
@@ -214,12 +194,12 @@ export type CountryUsersRow = { code: string; label: string; users: number; pyUs
  * Users by country outside Switzerland over the months chosen, against the same months a year
  * earlier (V04 by country, SARCLA 18.10). Exact per country; with a channel chosen from the cube.
  */
-export function usersAbroad(d: VisitData, year: number, months: number[], f: VisitFilters = {}): CountryUsersRow[] {
+export function usersAbroad(d: VisitData, year: number, months: number[], f: VisitFilters = {}, withHome = false): CountryUsersRow[] {
   const cy = new Set(months.map((i) => ym(year, i))), py = new Set(months.map((i) => ym(year - 1, i)));
   const pickH = f.channel?.length ? new Set(f.channel) : null;
   const rows: Record<string, CountryUsersRow> = {};
   const add = (m: string, c: string, u: number) => {
-    if (c === "CH" || (!cy.has(m) && !py.has(m))) return;
+    if ((c === "CH" && !withHome) || (!cy.has(m) && !py.has(m))) return;
     const key = c || "ZZ";
     const r = (rows[key] ??= { code: key, label: countryName(key), users: 0, pyUsers: 0 });
     if (cy.has(m)) r.users += u; else r.pyUsers += u;
