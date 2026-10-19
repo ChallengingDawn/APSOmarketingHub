@@ -150,6 +150,28 @@ export const VALUE_FLOOR_ACTIVE = false;
 export const MIN_ARTICLES = 3;
 
 /**
+ * A 1 on an article left out of the basket is the SHOP's number, not the
+ * customer's (SARCLA, 19.10.2026: "the quantities are always set to one, giving
+ * micro baskets to sales"). The shop asks the ERP for 1 whenever its quantity
+ * field is empty - "Show product details", which its own code calls "not a price
+ * request", and the reload button pressed before typing - and the search bar's
+ * price window opens at 1 and reads stock at 1. The quantity is read off that
+ * request, so an article opened and never priced arrives as "x 1". Measured
+ * 19.10 on the KT/DT article lines since 02.10: 1 is 13% of the quantities that
+ * reached a basket or an order and 36% of the ones that did not; MPA Industrie
+ * and PMD Pumpen got tickets of O-rings at 1, 1, 1.
+ *
+ * While this is false a bare 1 counts as no quantity typed. Set it to true once
+ * the shop activity says whether the customer typed the quantity.
+ */
+export const BARE_ONE_COUNTS = false;
+
+/** Did the customer type this quantity, as far as the shop activity can tell? */
+export function typedQuantity(qty: number | null | undefined, bareOneCounts = BARE_ONE_COUNTS): boolean {
+  return qty != null && (bareOneCounts || qty !== 1);
+}
+
+/**
  * Does a day's price-checking warrant a ticket?
  *
  * With the floor active: 500 EUR, as a floor either way ("less than 500 we
@@ -158,16 +180,18 @@ export const MIN_ARTICLES = 3;
  * be determined is SKIPPED rather than assumed - a special has no P&P record at all.
  * Only a PRICED article counts: one with a quantity typed (SARCLA, 12.10.2026 - 11
  * of the first 18 tickets had no quantity on any article: opened, never priced).
+ * A bare 1 is no quantity typed while BARE_ONE_COUNTS is false (19.10.2026).
  */
 export function priceCheckQualifies(
   articles: { article: string; profitCentre: string | null; value: number | null; qty: number | null }[],
-  opts: { valueFloor?: boolean } = {},
+  opts: { valueFloor?: boolean; bareOneCounts?: boolean } = {},
 ): { qualifies: boolean; counted: number; value: number; skipped: number } {
   const valueFloor = opts.valueFloor ?? VALUE_FLOOR_ACTIVE;
+  const bareOneCounts = opts.bareOneCounts ?? BARE_ONE_COUNTS;
   const FOCUS = new Set(["KT", "DT"]);
   let counted = 0, value = 0, skipped = 0;
   for (const a of articles) {
-    if (a.qty == null || isSpecialArticle(a.article) || !a.profitCentre || !FOCUS.has(a.profitCentre)) { skipped++; continue; }
+    if (!typedQuantity(a.qty, bareOneCounts) || isSpecialArticle(a.article) || !a.profitCentre || !FOCUS.has(a.profitCentre)) { skipped++; continue; }
     counted++;
     value += a.value ?? 0;
   }

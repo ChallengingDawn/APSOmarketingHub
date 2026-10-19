@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   isoDay, periodWindow, nextWorkingDay, shortPriority,
   isArticle, isProduct, isSpecialArticle, priceCheckQualifies, priceCheckShortfall, VALUE_FLOOR_ACTIVE, companyPasses,
-  knownMinimum, isInternalCompany, pricedArticleOrdered, ticketWindowStart,
+  knownMinimum, isInternalCompany, pricedArticleOrdered, ticketWindowStart, BARE_ONE_COUNTS, typedQuantity,
 } from "../src/lib/datatracker/rules";
 import { sumRange } from "../src/lib/integrations/eshopActivity";
 import { teamOf, ownerName, adoptNamedOwners, ESO_BY_NAME } from "../src/lib/datatracker/rosters";
@@ -68,8 +68,8 @@ test("priceCheckQualifies with the 500 EUR floor ON: a floor, specials and off-f
   const on = { valueFloor: true };
   // two KT/DT catalogue articles worth 10'406 at list price -> a ticket
   const sati = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 1 },
-    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 1 },
+    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 20 },
+    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 2 },
   ], on);
   assert.equal(sati.qualifies, true);
   assert.equal(sati.counted, 2);
@@ -90,7 +90,7 @@ test("priceCheckQualifies with the 500 EUR floor ON: a floor, specials and off-f
   // Apr: five DT articles but only 158 EUR -> below the floor, no ticket
   const apr = priceCheckQualifies(
     ["1141600190", "1120030008", "1141600194", "1120030142", "1141600198"]
-      .map((a) => ({ article: a, profitCentre: "DT", value: 31.6, qty: 1 })),
+      .map((a) => ({ article: a, profitCentre: "DT", value: 31.6, qty: 10 })),
     on,
   );
   assert.equal(apr.counted, 5);
@@ -106,20 +106,20 @@ test("priceCheckQualifies while the floor is PAUSED (default): three KT/DT artic
   assert.equal(VALUE_FLOOR_ACTIVE, false, "the floor stays paused until the ERP price unit is in P&P");
   // Sati's two articles: 9,910 EUR was 20 O-rings priced per 100 - not a ticket on value any more
   const sati = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 1 },
-    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 1 },
+    { article: "1120072140", profitCentre: "DT", value: 9909.6, qty: 20 },
+    { article: "0110150035", profitCentre: "KT", value: 496.7, qty: 2 },
   ]);
   assert.equal(sati.qualifies, false);
   assert.equal(priceCheckShortfall(sati), "2 of 3 articles");
   // three KT/DT articles qualify whatever the (unknown-unit) value says
   const three = priceCheckQualifies(["1141600190", "1120030008", "0110150035"]
-    .map((a) => ({ article: a, profitCentre: a.startsWith("011") ? "KT" : "DT", value: 1, qty: 1 })));
+    .map((a) => ({ article: a, profitCentre: a.startsWith("011") ? "KT" : "DT", value: 1, qty: 10 })));
   assert.equal(three.qualifies, true);
   // specials still do not count towards the three
   const withSpecials = priceCheckQualifies([
-    { article: "1120072140", profitCentre: "DT", value: null, qty: 1 },
-    { article: "8001227954", profitCentre: "KT", value: null, qty: 1 },
-    { article: "3000000001", profitCentre: "DT", value: null, qty: 1 },
+    { article: "1120072140", profitCentre: "DT", value: null, qty: 5 },
+    { article: "8001227954", profitCentre: "KT", value: null, qty: 5 },
+    { article: "3000000001", profitCentre: "DT", value: null, qty: 5 },
   ]);
   assert.equal(withSpecials.counted, 1);
   assert.equal(withSpecials.qualifies, false);
@@ -143,6 +143,33 @@ test("priceCheckQualifies counts only PRICED articles - an article opened withou
   ]);
   assert.equal(mixed.counted, 3);
   assert.equal(mixed.qualifies, true);
+});
+
+test("a bare 1 is the shop's own number, not a typed quantity, while BARE_ONE_COUNTS is off", () => {
+  assert.equal(BARE_ONE_COUNTS, false, "a 1 counts again once the shop activity says it was typed");
+  assert.equal(typedQuantity(1), false);
+  assert.equal(typedQuantity(null), false);
+  assert.equal(typedQuantity(2), true);
+  assert.equal(typedQuantity(0.5), true, "half a metre is typed, not a default");
+  assert.equal(typedQuantity(1, true), true);
+  // MPA Industrie, 13.10.2026: three DT O-rings at 1, 1, 1 -> the ticket SARCLA called a micro basket
+  const mpa = priceCheckQualifies(["1120076834", "1120073288", "1120070456"]
+    .map((a) => ({ article: a, profitCentre: "DT", value: null, qty: 1 })));
+  assert.equal(mpa.counted, 0);
+  assert.equal(mpa.skipped, 3);
+  assert.equal(mpa.qualifies, false);
+  assert.equal(priceCheckShortfall(mpa), "No KT/DT article priced");
+  // Ferring, 15.10: 50, 50 and a 1 -> two typed, not three
+  const ferring = priceCheckQualifies([
+    { article: "1141601602", profitCentre: "DT", value: null, qty: 50 },
+    { article: "1140013034", profitCentre: "DT", value: null, qty: 50 },
+    { article: "1034141445", profitCentre: "DT", value: null, qty: 1 },
+  ]);
+  assert.equal(ferring.counted, 2);
+  assert.equal(priceCheckShortfall(ferring), "2 of 3 articles");
+  // switched back on, a 1 counts as it did before 19.10
+  assert.equal(priceCheckQualifies(["1120076834", "1120073288", "1120070456"]
+    .map((a) => ({ article: a, profitCentre: "DT", value: null, qty: 1 })), { bareOneCounts: true }).qualifies, true);
 });
 
 test("sumRange totals only the days inside the window", () => {

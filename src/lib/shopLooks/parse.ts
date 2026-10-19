@@ -43,3 +43,31 @@ export function parseActivity(raw: unknown): { looks: LookRow[]; days: DayRow[] 
   }
   return { looks: [...looks.values()], days };
 }
+
+/**
+ * The largest quantity other than 1 each wanted line carried in ANY version of
+ * the property - for a 1 that overwrote a quantity the customer typed.
+ *
+ * The gateway keeps one line per article and day and the newest quantity wins.
+ * The shop and the search bar ask the ERP for 1 on their own (an empty quantity
+ * field, the price window opening, the search bar's stock read), so a 1 landing
+ * seconds after a typed number replaced it: PMD Pumpen, 14.10.2026, 50 then 49
+ * then 1 within nine seconds; MPA Industrie, 13.10, 2 then 1 ten seconds later.
+ * HubSpot keeps the earlier values of the property, and the typed number with them.
+ *
+ * `wanted` holds "YYYY-MM-DD|article". Pure, so it is tested without HubSpot.
+ */
+export function largestEarlierQuantity(values: unknown[], wanted: Set<string>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const raw of values) {
+    let j: { recent?: Line[] };
+    try { j = JSON.parse(String(raw ?? "")); } catch { continue; }
+    for (const l of Array.isArray(j?.recent) ? j.recent : []) {
+      const k = `${String(l?.t ?? "").slice(0, 10)}|${l?.a ? String(l.a) : ""}`;
+      const q = num(l?.q);
+      if (q == null || q <= 0 || q === 1 || !wanted.has(k)) continue;
+      if (q > (out.get(k) ?? 0)) out.set(k, q);
+    }
+  }
+  return out;
+}

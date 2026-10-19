@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseActivity } from "../src/lib/shopLooks/parse";
+import { largestEarlierQuantity, parseActivity } from "../src/lib/shopLooks/parse";
 
 test("parseActivity: one row per day and article, flags only grow, the latest quantity wins", () => {
   const raw = JSON.stringify({
@@ -30,4 +30,25 @@ test("parseActivity: one row per day and article, flags only grow, the latest qu
   ]);
   assert.deepEqual(parseActivity("not json"), { looks: [], days: [] });
   assert.deepEqual(parseActivity(null), { looks: [], days: [] });
+});
+
+test("largestEarlierQuantity: the typed quantity a later 1 overwrote, from the property's history", () => {
+  // PMD Pumpen, 14.10.2026, newest version first as HubSpot returns them: 50, 49, then the 1 that stayed
+  const v = (recent: object[]) => JSON.stringify({ recent });
+  const history = [
+    v([{ t: "2026-10-14T10:17", a: "1140073025", q: 1 }, { t: "2026-10-14T10:20", a: "1140074035", q: 1 }]),
+    v([{ t: "2026-10-14T10:17", a: "1140073025", q: 1 }, { t: "2026-10-14T10:20", a: "1140074035", q: 49 }]),
+    v([{ t: "2026-10-14T10:17", a: "1140073025", q: 1 }, { t: "2026-10-14T10:20", a: "1140074035", q: 50 }]),
+    v([{ t: "2026-10-13T09:00", a: "1140074035", q: 500 }]),   // another day: not this look
+    "not json",
+  ];
+  const wanted = new Set(["2026-10-14|1140073025", "2026-10-14|1140074035"]);
+  const found = largestEarlierQuantity(history, wanted);
+  assert.equal(found.get("2026-10-14|1140074035"), 50, "the largest typed quantity of the day");
+  assert.equal(found.has("2026-10-14|1140073025"), false, "never anything but 1: nothing to recover");
+  assert.equal(found.size, 1);
+  assert.equal(largestEarlierQuantity(history, new Set()).size, 0, "only the lines asked about");
+  // half a metre is a typed quantity too
+  assert.equal(largestEarlierQuantity([v([{ t: "2026-10-14T08:00", a: "1220350194", q: 0.5 }])],
+    new Set(["2026-10-14|1220350194"])).get("2026-10-14|1220350194"), 0.5);
 });

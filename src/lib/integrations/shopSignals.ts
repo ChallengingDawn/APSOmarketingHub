@@ -15,9 +15,10 @@
 
 import { hubspotFetchJson } from "./hubspot";
 import { IntegrationError } from "./status";
-import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority, ticketWindowStart } from "../datatracker/rules";
+import { VALUE_FLOOR_ACTIVE, isArticle, isInternalCompany, isSpecialArticle, knownMinimum, nextWorkingDay, priceCheckQualifies, shortPriority, ticketWindowStart, typedQuantity } from "../datatracker/rules";
 import { adoptNamedOwners, ownerName, teamOf } from "../datatracker/rosters";
 import { owners } from "./eshopActivity";
+import { largestEarlierQuantity } from "../shopLooks/parse";
 
 /** P&P, keyed by article_number. The list price is per mandant. */
 const PP_PROPS = [
@@ -126,6 +127,11 @@ export type ShopSignals = {
    * the difference between "no ticket was raised" and "we could not look".
    */
   ticketLookupError: string | null;
+  /**
+   * Set when the property history could not be read. The quantities are then
+   * the ones HubSpot holds now, where a 1 may have overwritten a typed number.
+   */
+  quantityHistoryError: string | null;
 };
 
 type ActivityLine = { t?: string; a?: string; q?: number; c?: number; o?: number; u?: string };
@@ -144,6 +150,65 @@ function excludedBecause(apsoCustomer: string | null, salesPriority: string | nu
   if ((apsoCustomer ?? "").toLowerCase() === "apsomicro") return "APSOmicro";
   const p = shortPriority(salesPriority);
   if (p === "Prio 3" || p === "Prio 4") return p;
+  return null;
+}
+
+/**
+ * A 1 that overwrote a quantity the customer typed gets the typed one back.
+ *
+ * The gateway keeps the NEWEST quantity of the day, and the shop and the search
+ * bar ask the ERP for 1 on their own - the search bar's stock read at 1 can land
+ * after the price the customer asked for - so "50" became "x 1" on the ticket
+ * (SARCLA, 19.10.2026: "the quantities are always set to one"). HubSpot keeps the earlier
+ * values of the property; they are read only for the lines that end on a 1 and
+ * never reached a cart, fifty companies a call. The largest typed quantity of
+ * the day wins, as it does everywhere else here. A failed read leaves the
+ * quantities as they are and says so.
+ */
+async function recoverTypedQuantities(
+  days: { companyId: string; day: string; looks: Map<string, { qty: number | null; carted: boolean }> }[],
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const wanted = new Map<string, Set<string>>();   // company -> "day|article"
+  const looksOf = new Map<string, Map<string, { qty: number | null; carted: boolean }>>();
+  for (const d of days) {
+    for (const [article, look] of d.looks) {
+      if (look.carted || look.qty !== 1) continue;
+      let w = wanted.get(d.companyId);
+      if (!w) wanted.set(d.companyId, (w = new Set()));
+      w.add(`${d.day}|${article}`);
+      looksOf.set(`${d.companyId}|${d.day}`, d.looks);
+    }
+  }
+  const ids = [...wanted.keys()];
+  for (let i = 0; i < ids.length; i += 50) {
+    try {
+      const res = await hubspotFetchJson<{
+        results?: { id?: string; propertiesWithHistory?: Record<string, { value?: string }[]> }[];
+      }>({
+        path: "/crm/v3/objects/companies/batch/read",
+        method: "POST",
+        signal,
+        body: {
+          inputs: ids.slice(i, i + 50).map((id) => ({ id })),
+          properties: ["name"],
+          propertiesWithHistory: ["eshop_activity"],
+        },
+      });
+      for (const r of res.results ?? []) {
+        const id = String(r.id ?? "");
+        const versions = (r.propertiesWithHistory?.eshop_activity ?? []).map((v) => v.value);
+        for (const [k, q] of largestEarlierQuantity(versions, wanted.get(id) ?? new Set())) {
+          const [day, article] = k.split("|");
+          const look = looksOf.get(`${id}|${day}`)?.get(article);
+          if (look && look.qty === 1) look.qty = q;
+        }
+      }
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      return String((err as Error)?.message ?? err);
+    }
+  }
   return null;
 }
 
@@ -265,6 +330,11 @@ async function scan(
     if (scanned >= 3000) break;            // a guard, not a quota
   } while (after);
 
+  // ---- a 1 that overwrote a typed quantity: the typed one, from the history
+  at.step = "quantity history";
+  const quantityHistoryError = await recoverTypedQuantities(
+    [...drafts.values()].map((d) => ({ companyId: d.company.companyId, day: d.day, looks: d.looks })), signal);
+
   // ---- what those articles are: price, profit centre, MOQ, what is on the shelf
   at.step = "article lookup";
   const spec = new Map<string, Record<string, string | null>>();
@@ -340,7 +410,8 @@ async function scan(
         moq: x.pp?.moq ?? null,
         moqMinimum: x.moqMinimum,
         special: x.special,
-        counted: x.qty != null && !x.special && (x.profitCentre === "KT" || x.profitCentre === "DT"),
+        // a bare 1 is the shop's own number, not a typed one (rules.ts, BARE_ONE_COUNTS)
+        counted: typedQuantity(x.qty) && !x.special && (x.profitCentre === "KT" || x.profitCentre === "DT"),
       })).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 
       const verdict = priceCheckQualifies(list.map((a) => ({
@@ -447,5 +518,5 @@ async function scan(
   availability.sort((a, b) => (b.shortfall ?? 0) - (a.shortfall ?? 0) || b.day.localeCompare(a.day));
 
   return { priceChecks, moq, availability, scanned, articlesLookedUp: spec.size,
-           ticketLookupError, generatedAt: new Date().toISOString() };
+           ticketLookupError, quantityHistoryError, generatedAt: new Date().toISOString() };
 }
