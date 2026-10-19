@@ -63,7 +63,7 @@ test("map seed: shape - numeric owner ids, well-formed prefixes and ids", () => 
 });
 
 test("map seed: the Performis SAE table (3836456157)", () => {
-  assert.equal(Object.keys(rules.sae).length, 28); // the workflow's 26 + "Köremez James" + "ESO CH GER" (SARCLA 19.10.2026)
+  assert.equal(Object.keys(rules.sae).length, 29); // the workflow's 26 + "Köremez James" + "ESO CH GER" + "WIESTE" (SARCLA 19-20.10.2026)
   const keys = Object.keys(rules.sae).map(saeKey);
   assert.equal(new Set(keys).size, keys.length, "no two SAE values with the same key");
   assert.equal(rules.sae["Borey Jeremy"], JEREMY);
