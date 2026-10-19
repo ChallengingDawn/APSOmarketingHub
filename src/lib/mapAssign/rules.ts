@@ -126,8 +126,12 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
     if (!active(owner)) return { owner: fallback === owner ? rules.defaultOwner : fallback, via: "default", country, detail: `${detail} - ${names(owner)} has left`, flags: [...flags, "owner-deactivated"] };
     return { owner, via, country, detail, flags };
   };
+  // key accounts: first in a "map" country; in an "sae" country only for a company WITHOUT an SAE, as Diana's
+  // workflows did (all 274 of Claudio's key customers have an SAE - first would move 267 of them, SARCLA: start
+  // from today's behaviour)
   const erp = String(c.erpId ?? "").trim();
-  if (rule && erp) for (const k of rule.keyAccounts ?? []) if (k.erpIds.includes(erp)) return done(k.owner, "key", `key account${k.label ? ` (${k.label})` : ""}`);
+  const keyFirst = rule?.source === "map" || !String(c.sae ?? "").trim();
+  if (rule && erp && keyFirst) for (const k of rule.keyAccounts ?? []) if (k.erpIds.includes(erp)) return done(k.owner, "key", `key account${k.label ? ` (${k.label})` : ""}`);
   const zone = () => {
     if (!rule) return null;
     if (!cleanZip(c.zip)) { flags.push("no-zip"); return null; }

@@ -29,7 +29,8 @@ test("map assignment: who decides", () => {
   assert.equal(decide({ id: "1", country: "CH", sae: "Jeremy Borey", zip: "3000" }, rules, active).owner, "JER"); // SAE country: SAE wins
   const un = decide({ id: "1", country: "CH", sae: "ESO CH GER", zip: "3000" }, rules, active);
   assert.equal(un.owner, "JAN"); assert.equal(un.via, "zone"); assert.ok(un.flags.includes("sae-unmapped")); // unknown SAE -> zone, flagged
-  assert.equal(decide({ id: "1", country: "CH", sae: "Kalt Jan", erpId: "111" }, rules, active).owner, "SAR"); // key account first
+  assert.equal(decide({ id: "1", country: "CH", sae: "Kalt Jan", erpId: "111" }, rules, active).owner, "JAN"); // SAE country: a known SAE beats the key list (as the workflows)
+  assert.equal(decide({ id: "1", country: "CH", erpId: "111", zip: "3000" }, rules, active).owner, "SAR"); // no SAE: the key account
   assert.equal(decide({ id: "1", country: "FR", sae: "Köremez James", zip: "69001" }, rules, active).owner, "JER"); // map country: SAE ignored
   assert.equal(decide({ id: "1", country: "FR", sae: "Borey Jeremy", zip: "75001" }, rules, active).owner, "TSA"); // Paris is not Jeremy's zone
   const left = decide({ id: "1", country: "CH", sae: "Stahl Christopher" }, rules, active);
