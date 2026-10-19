@@ -595,10 +595,10 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
 // owner - 15 minutes in their stage, so the entry flow and the workflow's safety net go first - and works out who
 // gets each: the person who had it (or the same person's new account) when on the team's lists and available, else
 // the distribution's own pick with the hub's rules. Nobody available: it waits and is looked at again 5 minutes
-// later. ESO / TSA (SARCLA: "yes of course" they go to the company owner): no owner or a deactivated one -> the
-// company's owner, else its region responsible, else the contact's owner; none active = a person decides (the
-// Backoffice Team queue on a sales ticket is the wrong-owners check's: back to Back Office). Live (Settings, its own
-// switch) writes the owner only - never the stage - and a note.
+// later. ESO / TSA (SARCLA: "yes of course" they go to the company owner - "the company, not the options"): no owner
+// or a deactivated one -> the company's owner, nothing else; a company without an active owner needs one first, and
+// the ticket follows it on the next look (the Backoffice Team queue on a sales ticket is the wrong-owners check's:
+// back to Back Office). Live (Settings, its own switch) writes the owner only - never the stage - and a note.
 
 export type Stray = {
   ticketId: string; pipeline: "bo" | "gqs" | "eso" | "tsa"; subject: string; stage: string | null; stageLabel: string | null;
@@ -661,26 +661,19 @@ async function lastRealOwner(id: string, shared: Shared, names: Map<string, stri
   return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin };
 }
 
-/** ESO / TSA: the company's owner, else its region responsible, else the contact's owner - active people only. */
-async function companyOwner(id: string, archived: Set<string>, names: Map<string, string>): Promise<{ id: string; name: string; method: string } | null> {
-  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies,contacts`);
+/** ESO / TSA: the owner of the ticket's company - an active person - and nothing else. `company`: the first one's name. */
+async function companyOwner(id: string, archived: Set<string>, names: Map<string, string>): Promise<{ owner: { id: string; name: string; method: string } | null; company: string | null }> {
+  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies`);
   const active = (o: string | null | undefined): o is string => !!o && /^\d+$/.test(o) && names.has(o) && !archived.has(o) && o !== PEOPLE.backofficeTeam.id;
-  const internal = /apsoparts|angst/i;
-  let region: { id: string; name: string; method: string } | null = null;
+  let company: string | null = null;
   for (const { id: cid } of (t.associations?.companies?.results ?? []).slice(0, 5)) {
-    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${cid}?properties=name,domain,hubspot_owner_id,region_responsibility`);
+    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${cid}?properties=name,domain,hubspot_owner_id`);
     const p = c.properties;
-    if (internal.test(`${p.name ?? ""} ${p.domain ?? ""}`)) continue;
-    if (active(p.hubspot_owner_id)) return { id: p.hubspot_owner_id, name: names.get(p.hubspot_owner_id)!, method: `Company owner (${p.name ?? cid})` };
-    if (!region && active(p.region_responsibility)) region = { id: p.region_responsibility, name: names.get(p.region_responsibility)!, method: `Region responsible of ${p.name ?? cid}` };
+    if (/apsoparts|angst/i.test(`${p.name ?? ""} ${p.domain ?? ""}`)) continue;
+    company ??= p.name ?? cid;
+    if (active(p.hubspot_owner_id)) return { owner: { id: p.hubspot_owner_id, name: names.get(p.hubspot_owner_id)!, method: `Company owner (${p.name ?? cid})` }, company };
   }
-  if (region) return region;
-  for (const { id: kid } of (t.associations?.contacts?.results ?? []).slice(0, 3)) {
-    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/contacts/${kid}?properties=email,hubspot_owner_id`);
-    if (internal.test(c.properties.email ?? "")) continue;
-    if (active(c.properties.hubspot_owner_id)) return { id: c.properties.hubspot_owner_id, name: names.get(c.properties.hubspot_owner_id)!, method: `Contact owner (${c.properties.email ?? kid})` };
-  }
-  return null;
+  return { owner: null, company };
 }
 
 async function strays(shared: Shared, started: number, signal?: AbortSignal): Promise<void> {
@@ -706,9 +699,9 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
     try {
       if (c.pipeline === "eso" || c.pipeline === "tsa") {
         item.was = (await lastRealOwner(c.id, shared, names)).name;
-        const pick = await companyOwner(c.id, shared.archived, names);
+        const { owner: pick, company } = await companyOwner(c.id, shared.archived, names);
         item.hub = pick ? { ownerId: pick.id, ownerName: pick.name, method: pick.method, reasons: [] }
-          : { ownerId: null, ownerName: null, method: "No active owner on its company or contact - a person decides", reasons: [] };
+          : { ownerId: null, ownerName: null, method: company ? `${company} has no owner - give the company one, the ticket follows` : "No company on the ticket - a person decides", reasons: [] };
         if (settings.live.strays && writes < STRAY_WRITES_PER_PASS) {
           item.wrote = await actStray(item, null, settings, shared.archived);
           if (item.wrote.ok) writes++;
@@ -743,7 +736,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   const owner = s.hub?.ownerId ?? null;
-  if (!owner) return skip(team ? "nobody available - it waits" : "no active company owner - a person decides");
+  if (!owner) return skip(team ? "nobody available - it waits" : "the company has no owner - it waits for one");
   if (team && !team.some((x) => x.id === owner)) return skip("the pick is not on the team's lists");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
   if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
