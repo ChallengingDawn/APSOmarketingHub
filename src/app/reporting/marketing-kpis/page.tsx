@@ -48,7 +48,9 @@ import type { VisitData } from "@/lib/marketingKpis/visitCube";
  * moves up beside the tiles when their row has room (SARCLA 19.10: "half width should also fit the
  * first row if there is space").
  */
-const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row dense" } as const;
+// in order, no gap filling: tiles keep their rows, half cards start a row and pair up (SARCLA 19.10: "cards below tiles" -
+// a tall half card beside a part-filled row of tiles left empty space under them)
+const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 const TILE_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", md: "span 4", lg: "span 3", xl: "span 2" } };
 const HALF_SPAN = { gridColumn: { xs: "span 12", md: "span 6" } };
 const FULL_SPAN = { gridColumn: "1 / -1" };
@@ -214,7 +216,7 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   ];
   // the tiles, then the half- and whole-width cards, in one grid; one order for all of them (the cards'
   // order was kept apart before - it still counts, after the tiles', until someone moves one)
-  const grid: SortItem[] = [...items.map((it) => (it.sx ? it : { ...it, sx: TILE_SPAN })), ...rows];
+  const grid: SortItem[] = [...items.map((it) => (it.sx ? { ...it, block: true } : { ...it, sx: TILE_SPAN })), ...rows.map((r) => ({ ...r, block: true }))];
   const order = [...new Set([...(acts?.orders?.[`nutshell:${s.slug}`] ?? []), ...(acts?.orders?.[`nutshell:${s.slug}-rows`] ?? [])])];
   const canMove = !!acts?.canWrite;
   const save = (scope: string) => (keys: string[]) => {

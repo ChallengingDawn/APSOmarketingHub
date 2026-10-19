@@ -11,7 +11,20 @@ import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSens
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-export type SortItem = { key: string; node: React.ReactNode; sx?: object };
+export type SortItem = {
+  key: string; node: React.ReactNode; sx?: object;
+  /** a card, not a tile: after tiles it starts its own row, and a tile after it starts the next (SARCLA 19.10: "cards below tiles") */
+  block?: boolean;
+};
+
+/** The same columns, from the row's first: "span 6" becomes "1 / span 6" at every breakpoint. */
+const fromFirst = (sx: object | undefined): object | undefined => {
+  const g = (sx as { gridColumn?: unknown } | undefined)?.gridColumn;
+  const at1 = (v: unknown) => (typeof v === "string" && v.startsWith("span") ? `1 / ${v}` : v);
+  if (typeof g === "string") return { ...sx, gridColumn: at1(g) };
+  if (g && typeof g === "object") return { ...sx, gridColumn: Object.fromEntries(Object.entries(g).map(([k, v]) => [k, at1(v)])) };
+  return sx;
+};
 
 /** The items in the saved order; the ones it does not name keep their own order, after. */
 export function inOrder<T extends { key: string }>(items: T[], order: string[] | undefined): T[] {
@@ -66,7 +79,8 @@ export function SortableGrid({ items, order, canMove, onMove, sx }: {
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={end}>
       <SortableContext items={shown.map((x) => x.key)} strategy={rectSortingStrategy}>
-        <Box sx={sx}>{shown.map((it) => <Sortable key={it.key} item={it} canMove={canMove} />)}</Box>
+        {/* tiles keep their own rows and cards theirs: where one kind follows the other, it starts at the row's first column */}
+        <Box sx={sx}>{shown.map((it, i) => <Sortable key={it.key} item={i > 0 && !!it.block !== !!shown[i - 1].block ? { ...it, sx: fromFirst(it.sx) } : it} canMove={canMove} />)}</Box>
       </SortableContext>
     </DndContext>
   );
