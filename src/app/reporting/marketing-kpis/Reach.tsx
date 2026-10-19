@@ -382,6 +382,9 @@ function SmallKpi({ v, upTo, actions }: { v: KpiView; upTo: string; actions?: Re
   );
 }
 
+/** The KPIs that have a card on this page: the tabs', R09's countries card, and Microsoft's. */
+export const REACH_CARDS = new Set([...TABS.flatMap((t) => t.kpis), "R09", ...MICROSOFT_LIVE, ...MICROSOFT_TYPED]);
+
 /**
  * A Reach KPI's card as on the page - the year so far, no filter - for the nutshell when it is
  * promoted as a full card (SARCLA 19.10: "the same dashboard that we push into the nutshell, then we

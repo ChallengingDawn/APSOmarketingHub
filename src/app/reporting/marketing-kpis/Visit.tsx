@@ -448,6 +448,9 @@ function visitCharts({ views, d, year, months, filters, countries, w }: { views:
   return charts;
 }
 
+/** The KPIs that have a card on this page (the Known customers tab draws V06 and V07 below its share card). */
+export const VISIT_CARDS = new Set([...TABS.flatMap((t) => t.kpis), "V06", "V07"]);
+
 /**
  * A Visit KPI's card as on the page - the year so far, no filter - for the nutshell when it is
  * promoted as a full card (SARCLA 19.10: "then we decide which format to push").
