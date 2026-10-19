@@ -46,6 +46,8 @@ export const SEED: AssignRules = {
     // SARCLA 19.10.2026: Sandra's customers go to James - Performis moved her list to "Köremez James" on 19.10 and the
     // workflow had no branch for it (230 companies to TSA Team)
     "Köremez James": "38431796", // James Koeremez
+    // SARCLA 19.10.2026: "ESO CH GER is Jan Kalt" (182 companies, no branch in the workflow -> TSA Team)
+    "ESO CH GER": "37053854", // Jan Kalt
     "Bozek Paulina": "31218632", // Paulina Bozek (deactivated)
     "Lange Christoph": "1229998780", // Christoph Lange
     "Frech Marc": "817497321", // Marc Frech

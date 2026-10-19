@@ -46,3 +46,15 @@ test("map assignment: a contact's company by its domain", () => {
   assert.equal(same.link, null); assert.equal(same.owner, "A");
   assert.equal(contactCompany("acme.ch", [{ id: "1", ownerId: "A", erpId: "1" }, { id: "2", ownerId: "B", erpId: "2" }]).owner, null);
 });
+
+test("map assignment: region zones, SAE redirected per country, people of a country", () => {
+  const r: AssignRules = { defaultOwner: "TSA", sae: { "Kalt Jan": "JAN", "Gustak Marzena": "MAYA" }, countries: {
+    CH: { country: "CH", source: "sae", people: ["JAN", "JER", "TSA"], saeOverride: { "Gustak Marzena": "JER" }, zones: [{ id: "a", owner: "JAN", prefixes: ["30-38"] }, { id: "t", owner: "TSA", prefixes: [], regions: ["CH-TI"] }] },
+    DE: { country: "DE", source: "sae", people: ["CAN"], zones: [{ id: "d", owner: "CAN", prefixes: ["8"] }] },
+  } };
+  assert.equal(zoneFor("6900", r.countries.CH.zones, "CH-TI")?.zone.owner, "TSA"); // the region decides when no prefix does
+  assert.equal(zoneFor("3000", r.countries.CH.zones, "CH-BE")?.zone.owner, "JAN"); // a prefix beats a region
+  assert.equal(decide({ id: "1", country: "CH", sae: "Gustak Marzena", zip: "3000" }, r, () => true).owner, "JER"); // redirected in CH
+  const wrong = decide({ id: "1", country: "DE", sae: "Kalt Jan", zip: "80331" }, r, () => true);
+  assert.equal(wrong.owner, "CAN"); assert.ok(wrong.flags.includes("not-in-country")); // Jan Kalt is not a German ESO: the zone decides
+});

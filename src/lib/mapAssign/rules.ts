@@ -17,8 +17,10 @@
 
 export type OwnerId = string;
 
-/** A zone: postcode prefixes ("30", "869") and ranges of prefixes of one length ("30-38") that belong to one person. */
-export type Zone = { id: string; owner: OwnerId; prefixes: string[]; label?: string };
+/** A zone: postcode prefixes ("30", "869"), ranges of prefixes of one length ("30-38") and/or whole regions (the
+ *  cantons / départements / Länder codes of public/geo/shapes/<CC>.json - SARCLA 19.10.2026: "allow also edit more
+ *  broadly, like départements, regions") that belong to one person. A prefix beats a region (it is more precise). */
+export type Zone = { id: string; owner: OwnerId; prefixes: string[]; regions?: string[]; label?: string };
 
 export type CountryRule = {
   /** ISO 3166-1 alpha-2, upper case */
@@ -29,6 +31,11 @@ export type CountryRule = {
   defaultOwner?: OwnerId | null;
   /** ERP customer ids that always go to one person, before SAE and zones */
   keyAccounts?: { owner: OwnerId; erpIds: string[]; label?: string }[];
+  /** an SAE redirected in this country only (the Performis tab): SAE value -> person, before the global SAE table */
+  saeOverride?: Record<string, OwnerId>;
+  /** the people who work this country (SARCLA 13.10: each person only in their home country). An SAE that points to
+   *  someone else is not used here - the zone decides, flagged "not-in-country". Empty / missing = anyone. */
+  people?: OwnerId[];
 };
 
 export type AssignRules = {
@@ -44,6 +51,8 @@ export type CompanyFacts = {
   country?: string | null;
   countryCustom?: string | null;
   zip?: string | null;
+  /** the region code of the company's postcode (public/geo/postcodes/<CC>.json), for region zones */
+  region?: string | null;
   sae?: string | null;
   erpId?: string | null;
 };
@@ -84,17 +93,20 @@ export function prefixMatches(zip: string, p: string): boolean {
   return !!q && z.startsWith(q);
 }
 
-/** The longest matching prefix wins (a "869" zone beats an "86" one); equal length: the first zone listed. */
-export function zoneFor(zip: string | null | undefined, zones: Zone[]): { zone: Zone; prefix: string } | null {
+/** The longest matching prefix wins (a "869" zone beats an "86" one); equal length: the first zone listed. No prefix
+ *  matches: a zone that holds the postcode's region (`prefix` is then "region <code>"). */
+export function zoneFor(zip: string | null | undefined, zones: Zone[], region?: string | null): { zone: Zone; prefix: string } | null {
   const z = cleanZip(zip);
-  if (!z) return null;
   let best: { zone: Zone; prefix: string; len: number } | null = null;
-  for (const zone of zones) for (const p of zone.prefixes) {
+  if (z) for (const zone of zones) for (const p of zone.prefixes) {
     if (!prefixMatches(z, p)) continue;
     const len = p.includes("-") ? p.split("-")[0].length : cleanZip(p).length;
     if (!best || len > best.len) best = { zone, prefix: p, len };
   }
-  return best ? { zone: best.zone, prefix: best.prefix } : null;
+  if (best) return { zone: best.zone, prefix: best.prefix };
+  const r = String(region ?? "").trim();
+  if (r) for (const zone of zones) if (zone.regions?.includes(r)) return { zone, prefix: `region ${r}` };
+  return null;
 }
 
 const COUNTRY_NAMES: Record<string, string> = {
@@ -134,16 +146,18 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
   if (rule && erp && keyFirst) for (const k of rule.keyAccounts ?? []) if (k.erpIds.includes(erp)) return done(k.owner, "key", `key account${k.label ? ` (${k.label})` : ""}`);
   const zone = () => {
     if (!rule) return null;
-    if (!cleanZip(c.zip)) { flags.push("no-zip"); return null; }
-    const z = zoneFor(c.zip, rule.zones);
+    if (!cleanZip(c.zip) && !c.region) { flags.push("no-zip"); return null; }
+    const z = zoneFor(c.zip, rule.zones, c.region);
     return z ? done(z.zone.owner, "zone", `zone ${z.prefix}${z.zone.label ? ` (${z.zone.label})` : ""} - ${names(z.zone.owner)}`) : null;
   };
   if (!rule || rule.source === "sae") {
     const sae = String(c.sae ?? "").trim();
     if (sae) {
-      const hit = Object.entries(rules.sae).find(([k]) => saeKey(k) === saeKey(sae));
-      if (hit) return done(hit[1], "sae", `SAE ${sae} - ${names(hit[1])}`);
-      flags.push("sae-unmapped");
+      const local = Object.entries(rule?.saeOverride ?? {}).find(([k]) => saeKey(k) === saeKey(sae));
+      const hit = local ?? Object.entries(rules.sae).find(([k]) => saeKey(k) === saeKey(sae));
+      if (hit && rule?.people?.length && !rule.people.includes(hit[1]) && !local) flags.push("not-in-country"); // the zone decides
+      else if (hit) return done(hit[1], "sae", `SAE ${sae}${local ? ` (redirected in ${country})` : ""} - ${names(hit[1])}`);
+      else flags.push("sae-unmapped");
     }
     const z = zone();
     if (z) return z;
