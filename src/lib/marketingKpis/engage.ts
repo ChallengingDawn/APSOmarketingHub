@@ -19,7 +19,8 @@ import { SHOP_TOOLS, type ShopToolKey, type ToolUsage } from "@/lib/shopTools/to
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { searchSample, viewPage, type EngageData, type MoqRow, type ShelfRow, type ToolCount } from "./engageCube";
 
-const KEY = "marketingKpis:engage:v2";
+// v3: the search bar by day and where we lost them (19.10.2026) - a read kept before them has neither
+const KEY = "marketingKpis:engage:v3";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_FAILED_MS = 30 * 60 * 1000;
 /** the live shop tracker writes the company's days since then - the price checks start there */
