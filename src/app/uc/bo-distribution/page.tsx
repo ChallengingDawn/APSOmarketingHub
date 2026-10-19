@@ -58,6 +58,7 @@ import { FlowTab } from "./FlowTab";
 import { GqsTab } from "./GqsTab";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
+import { DetectionTab } from "./DetectionTab";
 /* ── Overview ── */
 
 function Overview({ d }: { d: Data }) {
@@ -82,7 +83,14 @@ function Overview({ d }: { d: Data }) {
   const steps = count(d.rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
   const cats = count(d.rows.filter((r) => r.actual), (r) => r.actual!.category ?? "No category");
   const [cat, setCat] = useState<string | null>(null);
-  const inCat = cat ? d.rows.filter((r) => r.actual && (r.actual.category ?? "No category") === cat) : [];
+  // deliveries, and how many of them are cut-to-size (SARCLA 19.10.2026: "from deliveries, how many C2S")
+  const deliveries = d.rows.filter((r) => r.pipeline === "bo" && (r.route?.sets.enquiry_category ?? r.actual?.category) === "Delivery");
+  const c2s = deliveries.filter((r) => r.c2s);
+  const delSubs = count(deliveries, (r) => r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category")
+    .map((x) => ({ ...x, secondary: `${full(deliveries.filter((r) => (r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category") === x.label && r.c2s).length)} C2S` }));
+  const inCat = !cat ? [] : cat.startsWith("Delivery: ")
+    ? d.rows.filter((r) => (r.route?.sets.enquiry_category ?? r.actual?.category) === "Delivery" && (r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category") === cat.slice(10))
+    : d.rows.filter((r) => r.actual && (r.actual.category ?? "No category") === cat);
   return (
     <>
       <Info>
@@ -102,6 +110,11 @@ function Overview({ d }: { d: Data }) {
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which step picked" note="The workflow step on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Categories" note="As HubSpot has them now - click one to see its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
       </Grid>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<CategoryOutlinedIcon />} tint="pink" title={`Deliveries: ${full(deliveries.length)}, of which cut-to-size (C2S): ${full(c2s.length)} (${pct(c2s.length, deliveries.length)})`}
+          note="C2S = flagged by the ticket associations (c2s_ticket), a C2S problem order, or C2S / Zuschnitt in the subject. Second figure: the C2S ones" />
+        <BarList rows={delSubs} labelWidth={200} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === `Delivery: ${l}` ? null : `Delivery: ${l}`)} />
+      </GlassCard>
       {cat && (
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} - ${full(inCat.length)} tickets`}
@@ -144,123 +157,6 @@ function Tickets({ d }: { d: Data }) {
           <Choice<"all" | "bo" | "gqs"> value={pipe} onChange={setPipe} options={[{ key: "all", label: "Both" }, { key: "bo", label: "Back Office" }, { key: "gqs", label: "GQS" }]} />
         </Box>
         <TicketTable rows={rows} empty={`Nothing yet - tickets appear within ${d.everyMinutes} minutes of entering the stage; the replay fills the last 7 days.`} />
-      </GlassCard>
-    </>
-  );
-}
-
-/* ── Detection ── */
-
-const WEAK_UNUSED = [
-  "\"received\" is a Delivery keyword, so a forwarded \"Invoice not received\" goes to Delivery",
-  "\"reach\" is listed several times, so \"reach out\" files a ticket as a certificate request",
-  "Short lines with \"inc\", \"ltd\", \"co.\" or \"kg\" are dropped as company lines - \"incorrect delivery\", \"50 kg…\" only count from the subject",
-  "\"Regards\", \"Met vriendelijke groet\", \"Pozdrawiam\", \"Viele Grüsse\" do not start the signature, so signatures are read as text",
-  "A curly apostrophe (’) never matches \"demande d'offre\"",
-  "\"Request for quotation\" is not among its own sub-category's keywords",
-  "An empty subject or body makes the step write nothing (the ticket then goes to Others)",
-];
-function Detection({ d }: { d: Data }) {
-  const [subject, setSubject] = useState("");
-  const [content, setContent] = useState("");
-  const [res, setRes] = useState<{ v1: Classification; v2: Classification & { fixes: string[] } } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const run = async () => {
-    setBusy(true);
-    try {
-      const r = await fetch("/api/uc/bo-distribution", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "classify", subject, content: content.slice(0, 6000) }) });
-      const j = (await r.json()) as { ok: boolean; data?: { v1: Classification; v2: Classification & { fixes: string[] } } };
-      setRes(j.ok && j.data ? j.data : null);
-    } finally { setBusy(false); }
-  };
-  const read = d.rows.filter((r) => r.route?.classified && r.actual);
-  const recognised = read.filter((r) => r.route!.classified!.category);
-  const notRecognised = read.filter((r) => !r.route!.classified!.category);
-  // the truth: a category a PERSON set afterwards (HubSpot's own category is this classifier's answer - comparing with it measures nothing)
-  const corrected = read.filter((r) => r.actual!.catByPerson);
-  const right = corrected.filter((r) => r.actual!.catByPerson === (r.route!.classified!.category ?? "Others"));
-  const withV2 = read.filter((r) => r.v2);
-  const v2Recognised = withV2.filter((r) => r.v2!.category);
-  const rightV2 = corrected.filter((r) => r.v2 && r.actual!.catByPerson === (r.v2.category ?? "Others"));
-  const v2Changes = withV2.filter((r) => (r.v2!.category ?? null) !== (r.route!.classified!.category ?? null));
-  const byCat = new Map<string, { n: number; same: number }>();
-  for (const r of recognised) {
-    const c = r.route!.classified!.category!;
-    const b = byCat.get(c) ?? { n: 0, same: 0 };
-    b.n++; if (r.actual!.category === c) b.same++;
-    byCat.set(c, b);
-  }
-  return (
-    <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CategoryOutlinedIcon />} tint="purple" label="Read by the classifier" value={full(read.length)} note="E-mails of the last 7 days that went through it" /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: workflow → improved" value={`${pct(recognised.length, read.length)} → ${pct(v2Recognised.length, withV2.length)}`} note={`${full(read.length - recognised.length)} not recognised today → Others, Load Balancer`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Right when a person changed it" value={`${pct(right.length, corrected.length)} → ${pct(rightV2.length, corrected.length)}`} note={`Workflow → improved, on the ${full(corrected.length)} tickets whose category a person set afterwards. On 30 days: 10% → 26%; on the 90 before: 13% → 46%`} /></Grid>
-      </Grid>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<ManageSearchOutlinedIcon />} tint="blue" title="Try it" note="Paste a subject and an e-mail: what the workflow's classifier makes of it, and why (up to 6,000 characters)" />
-        <Box sx={{ display: "grid", gap: 1, maxWidth: 900 }}>
-          <TextField size="small" label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-          <TextField size="small" label="E-mail text" multiline minRows={4} value={content} onChange={(e) => setContent(e.target.value.slice(0, 6000))} />
-          <Box><Button variant="contained" size="small" disabled={busy || (!subject && !content)} onClick={() => void run()} sx={{ textTransform: "none" }}>Classify</Button></Box>
-        </Box>
-        {res && (
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            {([["The workflow's classifier (today)", res.v1, [] as string[]], ["The improved classifier", res.v2, res.v2.fixes]] as const).map(([title, c, fx]) => (
-              <Grid key={title} size={{ xs: 12, md: 6 }}>
-                <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, display: "grid", gap: 0.5 }}>
-                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</Typography>
-                  <Typography sx={{ fontWeight: 800, color: INK }}>{c.category ?? "Nothing recognised → Others"}{c.subCategory ? ` / ${c.subCategory}` : ""}</Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{c.explanation}{c.orderNumber ? ` · order ${c.orderNumber}` : ""}</Typography>
-                  {!!fx.length && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>{fx.map((f) => <Chip key={f} tint="green">{d.fixes.find((x) => x.id === f)?.title ?? f}</Chip>)}</Box>}
-                  {!!c.matched.length && <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>{c.matched.slice(0, 20).map((k) => <Chip key={k} tint="purple">{k}</Chip>)}</Box>}
-                </Box>
-              </Grid>
-            ))}
-          </Grid>
-        )}
-      </GlassCard>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<InsightsOutlinedIcon />} tint="green" title="What it recognised" note="Last 7 days; second figure = how often HubSpot still has it (high by nature: HubSpot's category IS this answer unless a person changes it)" />
-            <BarList rows={[...byCat].sort((a, b) => b[1].n - a[1].n).map(([label, v]) => ({ label, value: v.n, secondary: pct(v.same, v.n) }))} labelWidth={170} format={(v) => full(v ?? 0)} />
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<ReportProblemOutlinedIcon />} tint="green" title="What the improved classifier fixes" note="Each fix can be switched off on its own; all off = exactly the workflow's answer" />
-            <Box component="ol" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.4 }}>{d.fixes.map((f) => <Typography component="li" key={f.id} sx={{ fontSize: "0.78rem", color: INK }}><b>{f.title}</b> - {f.description}</Typography>)}</Box>
-          </GlassCard>
-        </Grid>
-      </Grid>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="green" title={`The improved classifier changes ${full(v2Changes.length)} of ${full(withV2.length)}`} note="Workflow → improved, last 7 days - not used for routing while the workflow files the category" />
-        <BarList rows={count(v2Changes, (r) => `${r.route!.classified!.category ?? "Others"} → ${r.v2!.category ?? "Others"}`)} labelWidth={320} format={(v) => full(v ?? 0)} />
-      </GlassCard>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<ReportProblemOutlinedIcon />} tint="amber" title={`Not recognised - ${full(notRecognised.length)} e-mails`} note="No keyword matched: the workflow sets Others and the Load Balancer picks. These are what the improved classifier has to catch" />
-        <TicketTable rows={notRecognised} empty="None." />
-      </GlassCard>
-      {!!corrected.length && (
-        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="blue" title="Changed by a person" note="The classifier's category against the one a person set afterwards" />
-          <BarList rows={count(corrected, (r) => `${r.route!.classified!.category ?? "Others"} → ${r.actual!.catByPerson}`)} labelWidth={320} format={(v) => full(v ?? 0)} />
-        </GlassCard>
-      )}
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="The keyword lists" note="Six languages; the subject counts ten times; the highest score wins, then the sub-category" />
-        <Grid container spacing={2}>
-          {d.classifier.map((c) => (
-            <Grid key={c.category} size={{ xs: 12, md: 6, xl: 4 }}>
-              <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, height: "100%" }}>
-                <Typography sx={{ fontWeight: 800, fontSize: "0.88rem", color: INK }}>{c.category} <span style={{ color: MUTED, fontWeight: 500 }}>· {full(c.keywords)} keywords</span></Typography>
-                <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap", my: 0.75 }}>{c.sample.map((k) => <Chip key={k} tint="slate">{k}</Chip>)}</Box>
-                {c.subs.map((s) => <Typography key={s.key} sx={{ fontSize: "0.76rem", color: MUTED }}>→ {s.value} <span style={{ color: INK }}>({s.keywords})</span></Typography>)}
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
       </GlassCard>
     </>
   );
@@ -367,7 +263,7 @@ export default function BoDistribution() {
   else if (r.state !== "ok") body = <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
   else if (view === "tickets") body = <Tickets d={r.data} />;
   else if (view === "flow") body = <FlowTab d={r.data} />;
-  else if (view === "detection") body = <Detection d={r.data} />;
+  else if (view === "detection") body = <DetectionTab d={r.data} />;
   else if (view === "people") body = <People d={r.data} onSaved={reload} />;
   else if (view === "gqs") body = <GqsTab d={r.data} />;
   else if (view === "settings") body = <SettingsTab key={r.data.settings.at ?? "s"} d={r.data} onChanged={reload} />;

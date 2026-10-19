@@ -215,3 +215,13 @@ test("hub only: out-of-office availability and a limit per person; the copy igno
   assert.equal(assignBo("27", { ...capped, pools: { team27: [claudioG, sara] }, cap: 3 }, "hub").owner?.id, sara.id); // everyone over: the limit is ignored
   assert.equal(assignBo("27", { ...capped, pools: { team27: [claudioG, sara] }, cap: 5, workloadHub: new Map([[claudioG.id, 1], [sara.id, 7]]) }, "hub").owner?.id, claudioG.id);
 });
+
+test("nobody available: the workflow gives it to the least busy of everyone; the hub can let it wait", () => {
+  const away = input([[claudia.id, "away"], [claudioG.id, "away"], [sara.id, "away"]], [[claudia.id, 3], [claudioG.id, 1], [sara.id, 2]]);
+  const pools = { team27: [claudia, claudioG, sara] };
+  assert.notEqual(assignBo("27", { ...away, pools }, "legacy").owner, null); // the workflow's team; someone always gets it
+  const wait = assignBo("27", { ...away, pools, waitWhenNobody: true }, "hub");
+  assert.equal(wait.owner, null);
+  assert.match(wait.reasons.join(" "), /waits in the queue/);
+  assert.equal(assignBo("27", { ...away, pools, waitWhenNobody: false }, "hub").owner?.id, claudioG.id);
+});

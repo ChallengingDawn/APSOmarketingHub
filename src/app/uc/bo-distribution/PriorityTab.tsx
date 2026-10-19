@@ -19,6 +19,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
+import Collapse from "@mui/material/Collapse";
 import PriorityHighOutlinedIcon from "@mui/icons-material/PriorityHighOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
@@ -55,11 +56,13 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const changed = results.filter((x) => x.hub && x.hub.value !== base(x.r));
   const { slice, pager } = usePaged(changed, 10);
   const byPrio = (get: (x: (typeof results)[number]) => Priority | null) => PRIORITIES.map((pr) => ({ label: pr, value: results.filter((x) => get(x) === pr).length }));
-  const hits = {
-    urgent: rows.filter((r) => r.priorityFacts?.urgentHits.some((w) => draft.urgentWords.includes(w))).length,
-    news: rows.filter((r) => r.priorityFacts?.newsletterHits.some((w) => draft.newsletterWords.includes(w))).length,
-    key: rows.filter((r) => r.priorityFacts?.salesPriority && draft.keyCustomerPriorities.includes(r.priorityFacts.salesPriority)).length,
+  const hit = {
+    urgent: rows.filter((r) => r.priorityFacts?.urgentHits.some((w) => draft.urgentWords.includes(w))),
+    news: rows.filter((r) => r.priorityFacts?.newsletterHits.some((w) => draft.newsletterWords.includes(w))),
+    key: rows.filter((r) => r.priorityFacts?.salesPriority && draft.keyCustomerPriorities.includes(r.priorityFacts.salesPriority)),
   };
+  const read = rows.filter((r) => r.priorityFacts).length;
+  const [edit, setEdit] = useState<string | null>(null);
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -70,15 +73,32 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   const count = (line: Data["priorityTable"][number]) => rows.filter((r) => lineOf(r, d.priorityTable)?.key === line.key).length;
-  const signal = (on: boolean, set: (v: boolean) => void, title: string, text: string, n: number, field: React.ReactNode) => (
-    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, display: "grid", gap: 1, height: "100%" }}>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: "0.88rem", color: INK }}>{title}</Typography>
-        <Switch size="small" checked={on} onChange={(e) => set(e.target.checked)} disabled={!d.admin} />
+  const signal = (id: string, on: boolean, set: (v: boolean) => void, title: string, text: string, matches: Row[], why: (r: Row) => string, field: React.ReactNode) => (
+    <Box sx={{ border: `1px solid ${on ? "#1b7a55" : HAIRLINE}`, bgcolor: on ? "rgba(27,122,85,.05)" : "transparent", borderRadius: "14px", p: 1.75, display: "grid", gap: 1, height: "100%", alignContent: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}>
+        <Box>
+          <Typography sx={{ fontWeight: 800, fontSize: "0.9rem", color: INK }}>{title}</Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{text}</Typography>
+        </Box>
+        <Box sx={{ textAlign: "right" }}>
+          <Switch size="small" checked={on} onChange={(e) => set(e.target.checked)} disabled={!d.admin} />
+          <Typography sx={{ fontSize: "0.68rem", color: on ? "#1b7a55" : MUTED, fontWeight: 700 }}>{on ? "ON" : "off"}</Typography>
+        </Box>
       </Box>
-      <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{text}</Typography>
-      {field}
-      <Typography sx={{ fontSize: "0.76rem", color: INK }}><b>{full(n)}</b> of the last 7 days&apos; {full(rows.length)} tickets match</Typography>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
+        <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color: INK, lineHeight: 1 }}>{full(matches.length)}</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>of {full(read)} tickets in 7 days {on ? "are changed" : "would change"}</Typography>
+      </Box>
+      {matches.slice(0, 3).map((r) => (
+        <Box key={r.key} component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" sx={{ textDecoration: "none", display: "block", borderTop: `1px solid ${HAIRLINE}`, pt: 0.5 }}>
+          <Typography sx={{ fontSize: "0.76rem", color: INK, ...clip(360) }}>{r.subject || r.ticketId}</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{why(r)}</Typography>
+        </Box>
+      ))}
+      <Box>
+        <Button size="small" onClick={() => setEdit(edit === id ? null : id)} sx={{ textTransform: "none", p: 0 }}>{edit === id ? "Close" : "Edit the words"}</Button>
+        <Collapse in={edit === id}><Box sx={{ mt: 1 }}>{field}</Box></Collapse>
+      </Box>
     </Box>
   );
   return (
@@ -124,12 +144,13 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         </Box>
         <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>Set by e-mail rules, not by this table: C2S problem URGENT; PERFORMIS / AVOR stopped orders HIGH; billing address / ERP export HIGH.</Typography>
       </GlassCard>
+      {read < rows.length && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>The signals are read on {full(read)} of {full(rows.length)} tickets so far - the older ones are filled in over the next runs.</Typography>}
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 4 }}>{signal(p.raiseOnUrgentWords, (v) => setP({ ...p, raiseOnUrgentWords: v }), "Urgent words raise it one level", "When the subject or the e-mail says it is urgent - in any of the six languages.", hits.urgent,
+        <Grid size={{ xs: 12, md: 4 }}>{signal("urgent", p.raiseOnUrgentWords, (v) => setP({ ...p, raiseOnUrgentWords: v }), "Urgent words: one level up", "The subject or the e-mail says it is urgent, in any of the six languages.", hit.urgent, (r) => `“${r.priorityFacts!.urgentHits[0]}” · ${base(r)} → one level up`,
           <TextField size="small" multiline minRows={2} value={urgent} onChange={(e) => setUrgent(e.target.value)} disabled={!d.admin} helperText="Comma-separated" />)}</Grid>
-        <Grid size={{ xs: 12, md: 4 }}>{signal(p.raiseKeyCustomers, (v) => setP({ ...p, raiseKeyCustomers: v }), "Key customers raise it one level", "The ticket's company has one of these sales priorities (Smart Segmentation).", hits.key,
+        <Grid size={{ xs: 12, md: 4 }}>{signal("key", p.raiseKeyCustomers, (v) => setP({ ...p, raiseKeyCustomers: v }), "Key customers: one level up", "The ticket's company has one of these sales priorities (Smart Segmentation).", hit.key, (r) => `${r.company?.name ?? "company"} · ${r.priorityFacts!.salesPriority}`,
           <TextField size="small" value={keys} onChange={(e) => setKeys(e.target.value)} disabled={!d.admin} helperText="e.g. P1, P2" />)}</Grid>
-        <Grid size={{ xs: 12, md: 4 }}>{signal(p.lowerNewsletters, (v) => setP({ ...p, lowerNewsletters: v }), "Newsletters and advertising: LOW", "A newsletter, an unsubscribe link or a webinar invitation never needs HIGH.", hits.news,
+        <Grid size={{ xs: 12, md: 4 }}>{signal("news", p.lowerNewsletters, (v) => setP({ ...p, lowerNewsletters: v }), "Newsletters and advertising: LOW", "A newsletter, an unsubscribe link or a webinar invitation never needs HIGH.", hit.news, (r) => `“${r.priorityFacts!.newsletterHits[0]}” · ${base(r)} → LOW`,
           <TextField size="small" multiline minRows={2} value={news} onChange={(e) => setNews(e.target.value)} disabled={!d.admin} helperText="Comma-separated" />)}</Grid>
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>

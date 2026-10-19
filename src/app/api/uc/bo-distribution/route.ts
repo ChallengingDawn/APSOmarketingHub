@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
     const t = sp.get("ticket");
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
-    const [settings, last, rows, backfill, stages] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [] }))]);
+    const [settings, last, rows, backfill, stages] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [], eso: [], tsa: [], gqsClosed: [] }))]);
     return NextResponse.json({
       configured: true, ok: true,
       data: {

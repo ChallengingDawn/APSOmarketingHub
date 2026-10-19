@@ -132,6 +132,17 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
                 </Box>
               ))}
             </Box>
+            <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, mt: 2 }}>When nobody is available</Typography>
+            <Box sx={{ display: "grid", gap: 1, mt: 0.5 }}>
+              {([["wait", "Wait in the queue", "Never pass a ticket to someone who is away: it stays with Backoffice Team until someone is available. (Once live, the workflow's safety net still assigns it after 3 minutes - that branch would need the same rule.)"],
+                 ["leastBusy", "Least busy of everyone (as the workflow)", "The person with the fewest open tickets gets it, away or not."]] as const).map(([k, l, t]) => (
+                <Box key={k} component="button" type="button" disabled={!d.admin} onClick={() => setHub({ ...hub, whenNobody: k })}
+                  sx={{ textAlign: "left", cursor: d.admin ? "pointer" : "default", ...box, bgcolor: hub.whenNobody === k ? "rgba(27,122,85,.08)" : "transparent", borderColor: hub.whenNobody === k ? "#1b7a55" : HAIRLINE }}>
+                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{l}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{t}</Typography>
+                </Box>
+              ))}
+            </Box>
             {save("avail")}
           </GlassCard>
         </Grid>

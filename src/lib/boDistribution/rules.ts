@@ -297,6 +297,9 @@ export type AssignInput = {
   availabilityHub?: Availability;
   workloadHub?: Workload;
   cap?: number | null;
+  /** hub mode (SARCLA 19.10.2026 "if they are not available we should not pass"): nobody available -> nobody, the
+   *  ticket waits in the Back Office queue; the workflow gives it to the least busy of everyone */
+  waitWhenNobody?: boolean;
 };
 
 const isAvailable = (a: Availability, id: string, missing: boolean) => (a.has(id) ? a.get(id) === "available" : missing);
@@ -323,6 +326,7 @@ function balance(people: Person[], inp: AssignInput, mode: Mode, avail: (id: str
   if (mode === "hub" && known.length < all.length) reasons.push(`count failed for ${all.filter((x) => !known.includes(x)).map((x) => x.p.name).join(", ")} - left out`);
   const scored = known.map((x) => ({ p: x.p, n: x.n ?? onFail, up: x.up }));
   let cands = scored.filter((x) => x.up);
+  if (!cands.length && mode === "hub" && inp.waitWhenNobody) { reasons.push("nobody available - waits in the queue"); return null; }
   if (!cands.length) { reasons.push("nobody available - least busy of everyone"); cands = scored; }
   const best = cands.length ? leastBusy(cands) : null;
   if (best) reasons.push(`least busy: ${scored.map((x) => `${x.p.name} ${x.n}${x.up ? "" : " (away)"}`).join(", ")}`);

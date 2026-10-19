@@ -53,10 +53,12 @@ export type HubOptions = {
   liveSteps: string[];
   note: boolean;
   breaker: number;
+  /** nobody available: "wait" = nobody, the ticket stays in the queue; "leastBusy" = the least busy of everyone (the workflow) */
+  whenNobody: "wait" | "leastBusy";
 };
 /** GQS counted on the real "Waiting on APSO" (6078992599) instead of the deleted 3279663337 the workflow counts. */
 export const GQS_OPEN_STAGES_FIXED = ["2338266316", "4704538856", "2964068584", "6078992599"];
-export const DEFAULT_HUB: HubOptions = { availability: "chat", boStages: BO_OPEN_STAGES, gqsStages: GQS_OPEN_STAGES_FIXED, cap: null, liveSteps: ["23", "27", "31", "42"], note: true, breaker: 40 };
+export const DEFAULT_HUB: HubOptions = { availability: "chat", boStages: BO_OPEN_STAGES, gqsStages: GQS_OPEN_STAGES_FIXED, cap: null, liveSteps: ["23", "27", "31", "42"], note: true, breaker: 40, whenNobody: "wait" };
 export type Answer = { ownerId: string | null; ownerName: string | null; method: string; reasons: string[] };
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
@@ -67,6 +69,8 @@ export type Actual = {
   dupsOwnerId?: string | null; dupsOwnerName?: string | null; dupsNote?: string | null;
   /** the category a PERSON set after entry (CRM_UI) - the truth the classifier is measured against */
   catByPerson?: string | null;
+  /** GQS: where the task stands now - its stage, closed or not, its GQS status, and the linked ESO / TSA ticket's stage */
+  gqs?: { stage: string | null; closed: boolean; status: string | null; parent: { id: string; pipeline: string; stage: string } | null } | null;
   /** 2 = read with the two above */
   v?: number;
 };
@@ -84,7 +88,13 @@ export type Row = {
   gqsStatus?: string | null;
   /** the IMPROVED classifier (classifierV2.ts) on the same e-mail, and the way the workflow would have sent the ticket
    *  with its answer - shown beside the workflow's, not used for routing while the workflow files the category */
-  v2?: { category: string | null; subCategory: string | null; fixes: string[]; path: string[]; assigner: string | null; priority: string | null; dispatch: string | null } | null;
+  v2?: { category: string | null; subCategory: string | null; fixes: string[]; matched?: string[]; explanation?: string; path: string[]; assigner: string | null; priority: string | null; dispatch: string | null } | null;
+  /** a cut-to-size (C2S) ticket: the ticket associations engine's c2s_ticket, a C2S problem order, or the C2S path */
+  c2s?: boolean;
+  /** the domain the e-mail came from - to see what "Others" are */
+  fromDomain?: string | null;
+  /** 2 = enriched (c2s, sender, the improved classifier's reasons, priority facts) */
+  e?: number;
   /** what the priority signals read in it, and the hub's priority (Priority tab) */
   priorityFacts?: PriorityFacts | null;
   priorityHub?: { value: Priority; base: Priority | null; why: string[] } | null;
@@ -133,6 +143,7 @@ export async function saveSettings(patch: {
     cap: h.cap === null || h.cap === undefined || !Number(h.cap) ? null : Math.min(500, Math.max(1, Math.round(Number(h.cap)))),
     liveSteps: (Array.isArray(h.liveSteps) ? h.liveSteps : DEFAULT_HUB.liveSteps).map(String).filter((x) => ["23", "27", "31", "42"].includes(x)),
     note: h.note !== false, breaker: Math.min(200, Math.max(1, Math.round(Number(h.breaker) || 40))),
+    whenNobody: h.whenNobody === "leastBusy" ? "leastBusy" : "wait",
   };
   const pr = { ...cur.priority, ...(patch.priority ?? {}) };
   const words = (a: unknown, d: string[]) => (Array.isArray(a) ? a.map((x) => String(x).trim().toLowerCase()).filter(Boolean).slice(0, 60) : d);
@@ -170,7 +181,7 @@ type TicketFull = {
 
 const CAT_PROPS = ["enquiry_category", SUB.website, SUB.price, SUB.delivery, SUB.delivery2, SUB.invoicing, SUB.product];
 const READ = ["subject", "content", "source_type", "ai_chat_source", "c2s_problem_order", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id",
-  "gqs_type_of_request", "status_of_gqs", "hs_ticket_priority", "dispatch", "createdate", "dup_reason_and_id", ...CAT_PROPS];
+  "gqs_type_of_request", "status_of_gqs", "c2s_ticket", "hs_ticket_priority", "dispatch", "createdate", "dup_reason_and_id", ...CAT_PROPS];
 
 async function ticket(id: string, withHistory: string[]): Promise<TicketFull> {
   return hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=${READ.join(",")}&propertiesWithHistory=${withHistory.join(",")}&associations=contacts,companies,emails`);
@@ -201,6 +212,9 @@ async function availability(): Promise<{ all: Availability; first: Availability;
   }
   return { all, first, ooo };
 }
+const isC2s = (p: Record<string, string | null>, path: string[]) =>
+  String(p.c2s_ticket ?? "").toLowerCase() === "true" || !!p.c2s_problem_order || path.includes("C2S Problem") || /\b(c2s|zuschnitt|cut[- ]to[- ]size|coupe sur mesure)\b/i.test(p.subject ?? "");
+
 /** The hub's availability (Settings): the chat dot as the workflows, out of office, or both. */
 function hubAvailability(a: { all: Availability; ooo: Set<string> }, how: HubOptions["availability"]): Availability {
   if (how === "chat") return a.all;
@@ -343,6 +357,7 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
     saHub: findSalesAgent(companies, contacts, settings.rosters[saKey] ?? LEGACY[saKey]),
     availability: shared.avail!.all, availabilityFirstPage: shared.avail!.first, workload, archived: shared.archived!, pools: settings.rosters,
     availabilityHub: hubAvailability(shared.avail!, settings.hub.availability), workloadHub, cap: settings.hub.cap,
+    waitWhenNobody: settings.hub.whenNobody === "wait",
   });
 
   if (pipeline === "gqs") {
@@ -374,8 +389,11 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   if (r.classified) {
     const c2 = classifyTicketV2({ subject: p.subject, content: p.content });
     const r2 = route(facts, () => c2);
-    row.v2 = { category: c2.category, subCategory: c2.subCategory, fixes: c2.fixes, path: r2.path, assigner: r2.assigner, priority: r2.sets.hs_ticket_priority ?? null, dispatch: r2.sets.dispatch ?? null };
+    row.v2 = { category: c2.category, subCategory: c2.subCategory, fixes: c2.fixes, matched: c2.matched.slice(0, 12), explanation: c2.explanation, path: r2.path, assigner: r2.assigner, priority: r2.sets.hs_ticket_priority ?? null, dispatch: r2.sets.dispatch ?? null };
   }
+  row.c2s = isC2s(p, r.path);
+  row.fromDomain = mail.latestFrom?.split("@")[1] ?? null;
+  row.e = 2;
   // the priority: what the signals read, and the hub's priority with the Priority tab's rules
   const text = `${p.subject ?? ""} ${String(p.content ?? "").replace(/<[^>]+>/g, " ")}`;
   row.priorityFacts = priorityFacts(text, row.company?.salesPriority ?? null, settings.priority);
@@ -405,7 +423,54 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   return row;
 }
 
+/** Fill in what rows decided before 19.10.2026 11:30 lack: C2S, sender, the improved classifier, the priority facts. */
+async function enrich(row: Row, shared: Shared): Promise<void> {
+  shared.settings ??= await getSettings();
+  const t = await ticket(row.ticketId, ["hs_pipeline_stage"]);
+  const p = t.properties;
+  const mail = await emails(t).catch(() => ({ to: [], from: [], latestFrom: null as string | null }));
+  if (row.route?.classified) {
+    const c2 = classifyTicketV2({ subject: p.subject, content: p.content });
+    row.v2 = { ...(row.v2 ?? { path: [], assigner: null, priority: null, dispatch: null }), category: c2.category, subCategory: c2.subCategory, fixes: c2.fixes, matched: c2.matched.slice(0, 12), explanation: c2.explanation };
+  }
+  if (!row.company) {
+    const { companies } = await salesAgentFacts(t);
+    const firstCo = companies.find((c) => !/apsoparts|angst/i.test(`${c.name} ${c.domain ?? ""}`));
+    row.company = firstCo ? { name: firstCo.name, salesPriority: firstCo.salesPriority ?? null } : null;
+  }
+  const text = `${p.subject ?? ""} ${String(p.content ?? "").replace(/<[^>]+>/g, " ")}`;
+  row.priorityFacts = priorityFacts(text, row.company?.salesPriority ?? null, shared.settings.priority);
+  const base = (row.route?.sets.hs_ticket_priority as Priority | undefined) ?? null;
+  const cat = row.route?.sets.enquiry_category ?? p.enquiry_category ?? null;
+  const subKey = { "Website Issue": SUB.website, "Product Price": SUB.price, Delivery: SUB.delivery, "Invoicing & Accounting": SUB.invoicing, "Product Information": SUB.product }[cat ?? ""];
+  row.priorityHub = priorityFor(base, cat, subKey ? row.route?.sets[subKey] ?? p[subKey] ?? null : null, row.priorityFacts, shared.settings.priority);
+  row.c2s = isC2s(p, row.route?.path ?? []);
+  row.fromDomain = mail.latestFrom?.split("@")[1] ?? null;
+  row.e = 2;
+}
+
 /** What HubSpot really did: owner (and who set it), stage, category, priority, dispatch. */
+/** A GQS task now: its stage (named), closed or not, its GQS status, and the stage of the ESO / TSA ticket it belongs to. */
+async function gqsState(id: string, p: Record<string, string | null>): Promise<NonNullable<Actual["gqs"]>> {
+  const st = await pipelineStages();
+  const named = (list: { id: string; label: string }[], sid: string | null) => list.find((x) => x.id === sid)?.label ?? sid;
+  const a = await hs<{ results?: { toObjectId: number | string }[] }>(`/crm/v4/objects/tickets/${id}/associations/tickets`);
+  const ids = (a.results ?? []).map((x) => String(x.toObjectId)).slice(0, 10);
+  let parent: { id: string; pipeline: string; stage: string } | null = null;
+  if (ids.length) {
+    const b = await hs<{ results?: { id: string; properties: Record<string, string | null> }[] }>("/crm/v3/objects/tickets/batch/read", "POST", {
+      properties: ["hs_pipeline", "hs_pipeline_stage"], inputs: ids.map((x) => ({ id: x })),
+    });
+    const sales = (b.results ?? []).find((x) => ["1726599376", "1726599377"].includes(x.properties.hs_pipeline ?? ""));
+    if (sales) {
+      const pipe = sales.properties.hs_pipeline === "1726599376" ? "ESO" : "TSA";
+      parent = { id: sales.id, pipeline: pipe, stage: named(pipe === "ESO" ? st.eso : st.tsa, sales.properties.hs_pipeline_stage) ?? "" };
+    }
+  }
+  const stage = p.hs_pipeline_stage ?? null;
+  return { stage: named(st.gqs, stage) ?? null, closed: st.gqsClosed.includes(stage ?? ""), status: p.status_of_gqs ?? null, parent };
+}
+
 /** The apps behind the workflows' code steps: the distribution steps (secret DISTRIBUTION) and DUPS (HUBSPOT_API_KEY). */
 const DISTRIBUTION_APP = "30109717", DUPS_APP = "22343290";
 
@@ -432,6 +497,7 @@ async function outcome(row: Row): Promise<Actual> {
     dupsOwnerId: dups?.value || null, dupsOwnerName: dups?.value ? names.get(dups.value) ?? dups.value : null,
     dupsNote: dups ? (/\(owner of ticket (\d+)\)/.exec(p.dup_reason_and_id ?? "")?.[0] ?? null) : null,
     catByPerson: [...(t.propertiesWithHistory?.enquiry_category ?? [])].find((h) => h.sourceType === "CRM_UI" && Date.parse(h.timestamp) >= since)?.value || null,
+    gqs: row.pipeline === "gqs" ? await gqsState(row.ticketId, p).catch(() => null) : undefined,
     v: 2,
   };
 }
@@ -534,13 +600,15 @@ export async function people(): Promise<{ people: PersonRow[]; owners: Person[];
   peopleCache = { at: Date.now(), data: { people: rows, owners } };
   return { people: rows, owners, at: new Date().toISOString() };
 }
-let stagesCache: { at: number; data: { bo: { id: string; label: string }[]; gqs: { id: string; label: string }[] } } | null = null;
+type StageList = { id: string; label: string }[];
+let stagesCache: { at: number; data: { bo: StageList; gqs: StageList; eso: StageList; tsa: StageList; gqsClosed: string[] } } | null = null;
 /** Back Office and GQS stages with their names - the Settings tab's workload pickers. */
 export async function pipelineStages() {
   if (stagesCache && Date.now() - stagesCache.at < 60 * 60_000) return stagesCache.data;
-  const r = await hs<{ results?: { id: string; stages?: { id: string; label: string }[] }[] }>("/crm/v3/pipelines/tickets");
+  const r = await hs<{ results?: { id: string; stages?: { id: string; label: string; metadata?: { isClosed?: string } }[] }[] }>("/crm/v3/pipelines/tickets");
   const of = (id: string) => (r.results ?? []).find((x) => x.id === id)?.stages?.map((x) => ({ id: x.id, label: x.label })) ?? [];
-  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS) } };
+  const gqsClosed = ((r.results ?? []).find((x) => x.id === GQS)?.stages ?? []).filter((x) => x.metadata?.isClosed === "true").map((x) => x.id);
+  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS), eso: of("1726599376"), tsa: of("1726599377"), gqsClosed } };
   return stagesCache.data;
 }
 export const rosterLabels = ROSTER_LABEL;
@@ -635,6 +703,26 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
       if (signal?.aborted) break;
       if (r.actual || r.error || Date.now() - Date.parse(r.enteredAt) < OUTCOME_AFTER_MS) continue;
       try { r.actual = await outcome(r); info.checked++; } catch (err) { r.error = `outcome: ${(err as Error).message.slice(0, 160)}`; }
+    }
+  }
+  // rows decided before 19.10.2026 11:30 lack the C2S flag, the sender, the improved classifier's reasons and the priority
+  // facts: fill them in once, 30 a run
+  let enriched = 0;
+  for (let i = 0; i < 7 && enriched < 30 && !signal?.aborted && Date.now() - started < 5 * 60_000; i++) {
+    for (const r of await rowsFor(day(new Date(Date.now() - i * 86400_000).toISOString()))) {
+      if (enriched >= 30 || signal?.aborted) break;
+      if (r.e === 2 || r.error || r.pipeline !== "bo") continue;
+      try { await enrich(r, shared); enriched++; } catch { /* next run */ }
+    }
+  }
+  // GQS tasks move on for days: their stage, status and ESO ticket are read again every 6 hours for 14 days
+  let gqsRead = 0;
+  for (let i = 0; i < 14 && gqsRead < 20 && !signal?.aborted && Date.now() - started < 6 * 60_000; i++) {
+    for (const r of await rowsFor(day(new Date(Date.now() - i * 86400_000).toISOString()))) {
+      if (gqsRead >= 20) break;
+      if (r.pipeline !== "gqs" || !r.actual || r.error || r.actual.gqs?.closed) continue;
+      if (r.actual.gqs !== undefined && Date.now() - Date.parse(r.actual.at) < 6 * 3600_000) continue;
+      try { r.actual = await outcome(r); gqsRead++; } catch { /* next run */ }
     }
   }
   // rows read before 19.10.2026 lack the distribution's own owner: read them once more, 40 a run

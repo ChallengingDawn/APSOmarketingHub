@@ -51,7 +51,7 @@ export type ClassInfo = { category: string; keywords: number; sample: string[]; 
 export type Data = {
   settings: Settings; last: RunInfo | null; backfill: { from: number; cursor: number; done: boolean; startedAt: string } | null; everyMinutes: number;
   rows: Row[]; admin: boolean; legacy: Record<RosterKey, Person[]>; labels: Record<RosterKey, string>; deactivated: Person[]; classifier: ClassInfo;
-  stages: { bo: { id: string; label: string }[]; gqs: { id: string; label: string }[] };
+  stages: { bo: { id: string; label: string }[]; gqs: { id: string; label: string }[]; eso?: { id: string; label: string }[]; tsa?: { id: string; label: string }[]; gqsClosed?: string[] };
   fixes: { id: string; title: string; description: string }[];
   priorityTable: { key: string; category: string; sub: string | null; priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT" }[];
   defaults: { hub: Settings["hub"]; priority: Settings["priority"] };
