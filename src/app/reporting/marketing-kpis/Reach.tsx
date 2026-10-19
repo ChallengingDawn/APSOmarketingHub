@@ -362,7 +362,7 @@ function Roas({ live, win, actions }: { live: LiveKpis; win: MonthWindow; action
 /** A KPI as a small tile: the figure, the comparison, its months as small bars - as the nutshell draws one. */
 function SmallKpi({ v, upTo, actions }: { v: KpiView; upTo: string; actions?: React.ReactNode }) {
   return (
-    <GlassCard sx={{ display: "grid", gap: 1, alignContent: "start" }}>
+    <GlassCard sx={{ display: "grid", gap: 1, alignContent: "start", height: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25 }}>
         <Badge icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} size={32} />
         <Typography data-kpi={v.id} sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, lineHeight: 1.3, flex: 1, minWidth: 0, pt: 0.5 }}>{nameOf(v.id)}</Typography>
@@ -824,7 +824,8 @@ export function ReachExplorer({ state }: { state: MkState | null }) {
       {/* where we stand against the sites the assistants rely on, then each assistant (SARCLA 18.10) */}
       {/* AI visibility as a small tile beside each assistant (SARCLA 18.10: "a simpler one, small like the others"), then who they cite */}
       {tab === "ai" && (views.R10 || state.aeoAssistants) && (
-        <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(250px, 320px) minmax(0, 1fr)" } }}>
+        // one row, one height (SARCLA 19.10: "they should fit the same"): the cells stretch, and the card inside the actions wrapper fills its cell
+        <Box sx={{ display: "grid", gap: 2, alignItems: "stretch", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(250px, 320px) minmax(0, 1fr)" }, "& > div": { display: "grid" }, "& > div > div:first-of-type": { alignContent: "start" } }}>
           {views.R10 && <SmallKpi v={views.R10} upTo={upToOf(views.R10, state, year)} actions={kpiActs("R10", views.R10)} />}
           {state.aeoAssistants ? <WithActions tile={tileOf("by-assistant", "By assistant")}><ByAssistant w={state.aeoAssistants} /></WithActions> : null}
         </Box>
