@@ -20,6 +20,7 @@ import { full } from "@/app/charts/format";
 import type { Stray } from "@/lib/boDistribution/engine";
 import type { Data } from "./shared";
 
+const PIPE = { bo: "Back Office", gqs: "GQS", eso: "ESO", tsa: "TSA" } as const;
 const WHY_TINT = { "no owner": "pink", "Backoffice Team": "amber", "deactivated owner": "purple" } as const;
 const days = (iso: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400_000)) : null);
 
@@ -27,7 +28,7 @@ function Outcome({ s, live }: { s: Stray; live: boolean }) {
   if (s.error) return <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Not read: {s.error}</Typography>;
   if (s.wrote?.ok) return <Chip tint="green">Given to {s.wrote.ownerName}</Chip>;
   if (s.wrote?.error) return <Chip tint="pink">Write failed: {s.wrote.error}</Chip>;
-  if (!s.hub?.ownerId) return <Chip tint="slate">Waits - nobody available</Chip>;
+  if (!s.hub?.ownerId) return <Chip tint="slate">{s.pipeline === "eso" || s.pipeline === "tsa" ? "A person decides - no active company owner" : "Waits - nobody available"}</Chip>;
   return (
     <Box sx={{ display: "grid", gap: 0.25 }}>
       <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK }}>{s.hub.ownerName}</Typography>
@@ -56,7 +57,8 @@ export function StraysCard({ d }: { d: Data }) {
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
         Open Back Office and GQS tickets with no owner, only the Backoffice Team queue, or an owner who has left - 15 minutes in their stage, so the
         normal distribution goes first. Each goes back to the person who had it when that person is on the team&apos;s lists and available (a new account of
-        the same person counts), else to the distribution&apos;s own pick. Nobody available: it waits and is looked at again. Live writes the owner only, never the stage.
+        the same person counts), else to the distribution&apos;s own pick. Nobody available: it waits and is looked at again. ESO and TSA tickets with no
+        owner or one who has left go to the company&apos;s owner (else its region responsible, else the contact&apos;s owner). Live writes the owner only, never the stage.
       </Typography>
       {!items.length ? (
         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{st ? "None - every open ticket has a real owner." : "The first look runs within 5 minutes of the deploy."}</Typography>
@@ -77,7 +79,7 @@ export function StraysCard({ d }: { d: Data }) {
                     <a href={hsTicket(s.ticketId)} target="_blank" rel="noreferrer" style={{ color: INK, fontWeight: 700, fontSize: "0.8rem", textDecoration: "none" }}>{s.ticketId}</a>
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s.subject}>{s.subject || "(no subject)"}</Typography>
                   </TableCell>
-                  <TableCell sx={{ fontSize: "0.78rem", color: INK }}>{s.pipeline === "bo" ? "Back Office" : "GQS"}<br /><span style={{ color: MUTED }}>{s.stageLabel ?? s.stage}</span></TableCell>
+                  <TableCell sx={{ fontSize: "0.78rem", color: INK }}>{PIPE[s.pipeline]}<br /><span style={{ color: MUTED }}>{s.stageLabel ?? s.stage}</span></TableCell>
                   <TableCell>
                     <Chip tint={WHY_TINT[s.why]}>{s.why}</Chip>
                     {s.was && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.25 }}>had: {s.was}</Typography>}

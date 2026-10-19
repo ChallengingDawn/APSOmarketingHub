@@ -478,6 +478,7 @@ async function gqsState(id: string, p: Record<string, string | null>): Promise<N
   return { stage: named(st.gqs, stage) ?? null, closed: st.gqsClosed.includes(stage ?? ""), status: p.status_of_gqs ?? null, parent };
 }
 
+const ESO = "1726599376", TSA = "1726599377";
 /** The apps behind the workflows' code steps: the distribution steps (secret DISTRIBUTION) and DUPS (HUBSPOT_API_KEY). */
 const DISTRIBUTION_APP = "30109717", DUPS_APP = "22343290";
 
@@ -588,10 +589,13 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
 // owner - 15 minutes in their stage, so the entry flow and the workflow's safety net go first - and works out who
 // gets each: the person who had it (or the same person's new account) when on the team's lists and available, else
 // the distribution's own pick with the hub's rules. Nobody available: it waits and is looked at again 5 minutes
-// later. Live (Settings, its own switch) writes the owner only - never the stage - and a note.
+// later. ESO / TSA (SARCLA: "yes of course" they go to the company owner): no owner or a deactivated one -> the
+// company's owner, else its region responsible, else the contact's owner; none active = a person decides (the
+// Backoffice Team queue on a sales ticket is the wrong-owners check's: back to Back Office). Live (Settings, its own
+// switch) writes the owner only - never the stage - and a note.
 
 export type Stray = {
-  ticketId: string; pipeline: "bo" | "gqs"; subject: string; stage: string | null; stageLabel: string | null;
+  ticketId: string; pipeline: "bo" | "gqs" | "eso" | "tsa"; subject: string; stage: string | null; stageLabel: string | null;
   /** in its stage since */
   since: string | null;
   why: "no owner" | "Backoffice Team" | "deactivated owner";
@@ -608,17 +612,19 @@ const STRAYS_PER_PASS = 25;
 const STRAY_WRITES_PER_PASS = 10;
 export const strayState = async () => (await kvGet<StrayState>(KV.strays)) ?? null;
 
-async function strayCandidates(archived: Set<string>): Promise<{ id: string; pipeline: "bo" | "gqs"; p: Record<string, string | null> }[]> {
+type StrayPipe = Stray["pipeline"];
+const STRAY_PIPE: Record<StrayPipe, string> = { bo: BO, gqs: GQS, eso: ESO, tsa: TSA };
+async function strayCandidates(archived: Set<string>): Promise<{ id: string; pipeline: StrayPipe; p: Record<string, string | null> }[]> {
   const st = await pipelineStages();
   const props = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate"];
   const gone = [...archived].filter((x) => /^\d+$/.test(x));
-  const out = new Map<string, { id: string; pipeline: "bo" | "gqs"; p: Record<string, string | null> }>();
-  for (const [pid, kind, closed] of [[BO, "bo", st.boClosed], [GQS, "gqs", st.gqsClosed]] as const) {
+  const out = new Map<string, { id: string; pipeline: StrayPipe; p: Record<string, string | null> }>();
+  for (const [pid, kind, closed] of [[BO, "bo", st.boClosed], [GQS, "gqs", st.gqsClosed], [ESO, "eso", st.esoClosed], [TSA, "tsa", st.tsaClosed]] as const) {
     if (!closed.length) continue; // stages unread: better nothing than closed tickets
     const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }];
     const owners: object[] = [
       { propertyName: "hubspot_owner_id", operator: "NOT_HAS_PROPERTY" },
-      { propertyName: "hubspot_owner_id", operator: "EQ", value: PEOPLE.backofficeTeam.id },
+      ...(kind === "bo" || kind === "gqs" ? [{ propertyName: "hubspot_owner_id", operator: "EQ", value: PEOPLE.backofficeTeam.id }] : []),
       ...Array.from({ length: Math.ceil(gone.length / 100) }, (_, i) => ({ propertyName: "hubspot_owner_id", operator: "IN", values: gone.slice(i * 100, i * 100 + 100) })),
     ];
     for (const f of owners) {
@@ -649,6 +655,28 @@ async function lastRealOwner(id: string, shared: Shared, names: Map<string, stri
   return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin };
 }
 
+/** ESO / TSA: the company's owner, else its region responsible, else the contact's owner - active people only. */
+async function companyOwner(id: string, archived: Set<string>, names: Map<string, string>): Promise<{ id: string; name: string; method: string } | null> {
+  const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies,contacts`);
+  const active = (o: string | null | undefined): o is string => !!o && /^\d+$/.test(o) && names.has(o) && !archived.has(o) && o !== PEOPLE.backofficeTeam.id;
+  const internal = /apsoparts|angst/i;
+  let region: { id: string; name: string; method: string } | null = null;
+  for (const { id: cid } of (t.associations?.companies?.results ?? []).slice(0, 5)) {
+    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${cid}?properties=name,domain,hubspot_owner_id,region_responsibility`);
+    const p = c.properties;
+    if (internal.test(`${p.name ?? ""} ${p.domain ?? ""}`)) continue;
+    if (active(p.hubspot_owner_id)) return { id: p.hubspot_owner_id, name: names.get(p.hubspot_owner_id)!, method: `Company owner (${p.name ?? cid})` };
+    if (!region && active(p.region_responsibility)) region = { id: p.region_responsibility, name: names.get(p.region_responsibility)!, method: `Region responsible of ${p.name ?? cid}` };
+  }
+  if (region) return region;
+  for (const { id: kid } of (t.associations?.contacts?.results ?? []).slice(0, 3)) {
+    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/contacts/${kid}?properties=email,hubspot_owner_id`);
+    if (internal.test(c.properties.email ?? "")) continue;
+    if (active(c.properties.hubspot_owner_id)) return { id: c.properties.hubspot_owner_id, name: names.get(c.properties.hubspot_owner_id)!, method: `Contact owner (${c.properties.email ?? kid})` };
+  }
+  return null;
+}
+
 async function strays(shared: Shared, started: number, signal?: AbortSignal): Promise<void> {
   const prev = await kvGet<StrayState>(KV.strays);
   if (prev && Date.now() - Date.parse(prev.at) < STRAYS_EVERY_MS) return;
@@ -665,11 +693,23 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
     const owner = c.p.hubspot_owner_id ?? "";
     const item: Stray = {
       ticketId: c.id, pipeline: c.pipeline, subject: c.p.subject ?? "", stage: c.p.hs_pipeline_stage ?? null,
-      stageLabel: (c.pipeline === "bo" ? st.bo : st.gqs).find((x) => x.id === c.p.hs_pipeline_stage)?.label ?? null,
+      stageLabel: ({ bo: st.bo, gqs: st.gqs, eso: st.eso, tsa: st.tsa }[c.pipeline]).find((x) => x.id === c.p.hs_pipeline_stage)?.label ?? null,
       since: c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? null,
       why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : "deactivated owner", was: null, hub: null,
     };
     try {
+      if (c.pipeline === "eso" || c.pipeline === "tsa") {
+        item.was = (await lastRealOwner(c.id, shared, names)).name;
+        const pick = await companyOwner(c.id, shared.archived, names);
+        item.hub = pick ? { ownerId: pick.id, ownerName: pick.name, method: pick.method, reasons: [] }
+          : { ownerId: null, ownerName: null, method: "No active owner on its company or contact - a person decides", reasons: [] };
+        if (settings.live.strays && writes < STRAY_WRITES_PER_PASS) {
+          item.wrote = await actStray(item, null, settings, shared.archived);
+          if (item.wrote.ok) writes++;
+        }
+        items.push(item);
+        continue;
+      }
       const team = everyone(settings, c.pipeline === "bo" ? BO_KEYS : GQS_KEYS);
       const back = await lastRealOwner(c.id, shared, names);
       item.was = back.name;
@@ -692,18 +732,19 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
 }
 
 /** Live: the owner only (the stage stays), after reading the ticket again - still nobody's, still where it was. */
-async function actStray(s: Stray, team: Person[], settings: Settings, archived: Set<string>): Promise<NonNullable<Row["wrote"]>> {
+/** team: Back Office / GQS - the pick must be on the lists; null for ESO / TSA (the company's owner). */
+async function actStray(s: Stray, team: Person[] | null, settings: Settings, archived: Set<string>): Promise<NonNullable<Row["wrote"]>> {
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   const owner = s.hub?.ownerId ?? null;
-  if (!owner) return skip("nobody available - it waits");
-  if (!team.some((x) => x.id === owner)) return skip("the pick is not on the team's lists");
+  if (!owner) return skip(team ? "nobody available - it waits" : "no active company owner - a person decides");
+  if (team && !team.some((x) => x.id === owner)) return skip("the pick is not on the team's lists");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
   if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${s.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage`);
   const cur = now.properties.hubspot_owner_id ?? "";
   if (cur && cur !== PEOPLE.backofficeTeam.id && !archived.has(cur)) return skip(`owned meanwhile (${(await ownerNames()).get(cur) ?? cur})`);
-  if (now.properties.hs_pipeline !== (s.pipeline === "bo" ? BO : GQS) || now.properties.hs_pipeline_stage !== s.stage) return skip("moved on meanwhile");
+  if (now.properties.hs_pipeline !== STRAY_PIPE[s.pipeline] || now.properties.hs_pipeline_stage !== s.stage) return skip("moved on meanwhile");
   try {
     await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: { hubspot_owner_id: owner } });
     await writesThisHour(1);
@@ -752,14 +793,14 @@ export async function people(): Promise<{ people: PersonRow[]; owners: Person[];
   return { people: rows, owners, at: new Date().toISOString() };
 }
 type StageList = { id: string; label: string }[];
-let stagesCache: { at: number; data: { bo: StageList; gqs: StageList; eso: StageList; tsa: StageList; gqsClosed: string[]; boClosed: string[] } } | null = null;
+let stagesCache: { at: number; data: { bo: StageList; gqs: StageList; eso: StageList; tsa: StageList; gqsClosed: string[]; boClosed: string[]; esoClosed: string[]; tsaClosed: string[] } } | null = null;
 /** Back Office and GQS stages with their names - the Settings tab's workload pickers. */
 export async function pipelineStages() {
   if (stagesCache && Date.now() - stagesCache.at < 60 * 60_000) return stagesCache.data;
   const r = await hs<{ results?: { id: string; stages?: { id: string; label: string; metadata?: { isClosed?: string } }[] }[] }>("/crm/v3/pipelines/tickets");
   const of = (id: string) => (r.results ?? []).find((x) => x.id === id)?.stages?.map((x) => ({ id: x.id, label: x.label })) ?? [];
   const closedOf = (id: string) => ((r.results ?? []).find((x) => x.id === id)?.stages ?? []).filter((x) => String(x.metadata?.isClosed) === "true").map((x) => x.id);
-  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS), eso: of("1726599376"), tsa: of("1726599377"), gqsClosed: closedOf(GQS), boClosed: closedOf(BO) } };
+  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS), eso: of("1726599376"), tsa: of("1726599377"), gqsClosed: closedOf(GQS), boClosed: closedOf(BO), esoClosed: closedOf(ESO), tsaClosed: closedOf(TSA) } };
   return stagesCache.data;
 }
 export const rosterLabels = ROSTER_LABEL;
@@ -824,7 +865,7 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
     catch (err) { rows.push({ key, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, error: (err as Error).message.slice(0, 200) }); }
   }
-  // tickets waiting for an owner (no owner, Backoffice Team, a deactivated owner): every 5 minutes
+  // tickets waiting for an owner (no owner, Backoffice Team, a deactivated owner; ESO / TSA too): every 5 minutes
   if (!signal?.aborted) await strays(shared, started, signal).catch((e) => console.warn(`[bo-distribution] waiting for an owner: ${(e as Error).message}`));
   // the replay of the last 7 days, oldest first, while the run has time: today's availability and workload
   const bf = await kvGet<Backfill>(KV.backfill) ?? { from: Date.now() - BACKFILL_DAYS * 86400_000, cursor: Date.now() - BACKFILL_DAYS * 86400_000, done: false, startedAt: new Date().toISOString() };

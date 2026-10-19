@@ -48,7 +48,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
   const live = async (pipe: "bo" | "gqs" | "strays", on: boolean) => {
     const name = pipe === "bo" ? "Back Office" : "GQS";
     const ask = pipe === "strays"
-      ? `Give the tickets waiting for an owner one?\n\nEvery 5 minutes the hub writes the owner (only the owner, and a note) on open Back Office and GQS tickets with no owner, Backoffice Team or an owner who has left - at most 10 a look, within the writes-per-hour limit. ${d.strays ? `Right now: ${d.strays.total}.` : ""}`
+      ? `Give the tickets waiting for an owner one?\n\nEvery 5 minutes the hub writes the owner (only the owner, and a note) on open Back Office, GQS, ESO and TSA tickets with no owner, Backoffice Team or an owner who has left - at most 10 a look, within the writes-per-hour limit. ${d.strays ? `Right now: ${d.strays.total}.` : ""}`
       : `Switch the hub LIVE for ${name}?\n\nFrom the next ticket the hub writes the owner, the stage and a note. Do this only once the HubSpot workflow has its safety net (wait 3 minutes - still Backoffice Team? - the old step).`;
     if (on && !window.confirm(ask)) return;
     await call(`live-${pipe}`, "PUT", { live: { [pipe]: on } });
@@ -102,7 +102,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
           <Grid size={{ xs: 12 }}>
             <Box sx={{ ...box, borderColor: d.settings.live.strays ? RED : HAIRLINE }}>
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-                <Typography sx={{ fontWeight: 800, color: INK }}>Waiting for an owner - Back Office and GQS{d.strays ? ` (${d.strays.total} now)` : ""}</Typography>
+                <Typography sx={{ fontWeight: 800, color: INK }}>Waiting for an owner - Back Office, GQS, ESO and TSA{d.strays ? ` (${d.strays.total} now)` : ""}</Typography>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   {d.settings.live.strays ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
                   <Switch checked={!!d.settings.live.strays} disabled={!d.admin || busy !== null} onChange={(e) => void live("strays", e.target.checked)} />
@@ -110,7 +110,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
               </Box>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                 Open tickets with no owner, only Backoffice Team or an owner who has left, 15 minutes in their stage: the owner (never the stage) goes to the person
-                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. Independent of the two switches above. The Overview lists them.
+                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. ESO / TSA: the company&apos;s owner. Independent of the two switches above. The Overview lists them.
               </Typography>
             </Box>
           </Grid>
