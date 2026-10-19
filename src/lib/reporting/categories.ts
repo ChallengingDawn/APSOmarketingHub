@@ -10,12 +10,11 @@
 // bookmark still works, and each page keeps the access rule it already had.
 
 import type { IconKey } from "../../app/hubApps"; // relative: the unit tests compile this file
-import { STAGES } from "../marketingKpis/catalogue";
-import { stageName } from "../marketingKpis/stageNames";
+import { SHOWN_STAGES, stageName } from "../marketingKpis/stageNames";
 
 export const STAGE_ICON: Record<string, IconKey> = {
   customers: "groups", reach: "ads", visit: "route", engage: "bolt", lead: "description",
-  handover: "sync", cart: "inventory", purchase: "tag", retain: "health", efficiency: "target",
+  handover: "sync", uc: "loop", cart: "inventory", purchase: "tag", retain: "health", efficiency: "target",
 };
 
 export type Report = {
@@ -54,7 +53,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         name: "Digital Growth KPIs", href: "/reporting/marketing-kpis/customers", note: "Our customers, then every marketing KPI by stage", icon: "bar",
         overview: "In a nutshell", overviewHref: "/reporting/marketing-kpis",
         children: [
-          ...STAGES.map((s) => ({ name: stageName(s.slug, s.name), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
+          ...SHOWN_STAGES.map((s) => ({ name: stageName(s.slug, s.name), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
           { name: "Sales leader view", href: "/reporting/marketing-kpis/sales-leader", icon: "verified", group: "Views & inputs" },
           { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Views & inputs" },
         ],

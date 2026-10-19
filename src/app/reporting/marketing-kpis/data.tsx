@@ -269,7 +269,7 @@ const measures = (k: CatalogueKpi) => isMeasured(k.id);
 /** Each stage's glyph (the side panel's) and badge tint. */
 const STAGE_TINT: Record<string, Tint> = {
   customers: "purple", reach: "blue", visit: "blue", engage: "green", lead: "amber",
-  handover: "amber", cart: "pink", purchase: "green", retain: "purple", efficiency: "slate",
+  handover: "amber", uc: "pink", cart: "pink", purchase: "green", retain: "purple", efficiency: "slate",
 };
 export const stageTint = (slug: string): Tint => STAGE_TINT[slug] ?? "blue";
 export const StageGlyph = ({ slug, size = 20 }: { slug: string; size?: number }) => <HubIconGlyph name={STAGE_ICON[slug] ?? "bar"} fontSize={size} />;

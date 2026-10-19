@@ -10,13 +10,14 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { MUTED, INK } from "@/app/uc/report/ui";
-import { stageBySlug } from "@/lib/marketingKpis/catalogue";
+import { shownStage } from "@/lib/marketingKpis/stageNames";
 import { useMarketingKpis } from "../data";
 import { StageView } from "../StageView";
 
 export default function StagePage() {
   const { stage } = useParams<{ stage: string }>();
-  const s = stageBySlug(stage);
+  // the stages as shown: Purchase and the old Cart & check-out are gone (SARCLA 19.10)
+  const s = shownStage(stage);
   const [state] = useMarketingKpis();
   if (!s) notFound();
   return (

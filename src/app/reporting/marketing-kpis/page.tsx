@@ -27,7 +27,8 @@ import {
 import { CustomersPromoted, CustomersSummary } from "./Customers";
 import { ReachPromoted } from "./Reach";
 import { LEAD_NUTSHELL_TILES, LeadPromoted } from "./Lead";
-import { HANDOVER_NUTSHELL_CARDS, HandoverPromoted } from "./Handover";
+import { HANDOVER_NUTSHELL_CARDS, HandoverPromoted, UC_NUTSHELL_CARDS } from "./Handover";
+import { SHOWN_STAGES } from "@/lib/marketingKpis/stageNames";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { TileActions } from "./tiles/TileActions";
 import { LinkCard, rendererOf } from "./tiles/registry";
@@ -119,7 +120,7 @@ const row = (key: string, node: React.ReactNode, format: TileFormat): SortItem =
 
 function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>, state: MkState, acts: ActionsState | null) {
   const year = new Date().getFullYear();
-  const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN, ...(slug === "lead" ? LEAD_NUTSHELL_TILES.map((t) => t.key) : []), ...(slug === "handover" ? HANDOVER_NUTSHELL_CARDS.map((t) => t.key) : [])]);
+  const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN, ...(slug === "lead" ? LEAD_NUTSHELL_TILES.map((t) => t.key) : []), ...(slug === "handover" ? HANDOVER_NUTSHELL_CARDS.map((t) => t.key) : []), ...(slug === "uc" ? UC_NUTSHELL_CARDS.map((t) => t.key) : [])]);
   const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && p.spec.page === slug && !own.has(p.spec.key));
   const tiles: SortItem[] = [];
   const rows: SortItem[] = [];
@@ -136,7 +137,8 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
     // a Lead Generation card is the same graph as on its page (SARCLA 19.10: "not all the promoted come here")
     if (spec.page === "lead") { rows.push(row(spec.key, <LeadPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     // a Hand-over card too (SARCLA 19.10: how the teams handle the incoming leads)
-    if (spec.page === "handover") { rows.push(row(spec.key, <HandoverPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
+    // ...and a UC hand-overs one: the same page, the UC group (SARCLA 19.10)
+    if (spec.page === "handover" || spec.page === "uc") { rows.push(row(spec.key, <HandoverPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
     // a KPI at half or the whole width is its page's card
     const full = v && fmt !== "tile" && spec.kpiId ? fullCardFor(spec.page, spec.kpiId, <TileActions where="nutshell" start="tab" tile={tile} />) : null;
@@ -161,7 +163,8 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   const lead = s.slug === "lead";
   // Hand-over to ESO/TSA too: its catalogue KPIs (handed to ESO, speed, success…) are on its page now, as how
   // the teams handle the incoming leads (SARCLA 19.10) - the panel starts with ESO and TSA side by side
-  const handover = s.slug === "handover";
+  // UC hand-overs too, in the place of Cart & check-out: the page's cards, not the catalogue's (SARCLA 19.10)
+  const handover = s.slug === "handover" || s.slug === "uc";
   const catalogue = stageKpis(s.id, live);
   const ids = lead || handover ? [] : catalogue.ids, missing = lead || handover ? [] : catalogue.missing;
   // a tile someone demoted lives on its tab only
@@ -187,8 +190,8 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
     return { key: t.key, fmt: formatOf(acts, tile), node: <LeadPromoted spec={tile} actions={<TileActions where="nutshell" start="nutshell" edge={2.25} tile={tile} />} /> };
   }) : [];
   for (const t of leadTiles) if (t.fmt === "half") fullRows.push(row(t.key, t.node, "half"));
-  const handoverCards = handover ? HANDOVER_NUTSHELL_CARDS.filter((t) => placementOf(acts, t.key, "nutshell") === "nutshell").map((t) => {
-    const tile = { key: t.key, page: "handover", tab: t.key.split(":")[1], title: t.title, kind: "card" as const, href: stageHref("handover") };
+  const handoverCards = handover ? (s.slug === "uc" ? UC_NUTSHELL_CARDS : HANDOVER_NUTSHELL_CARDS).filter((t) => placementOf(acts, t.key, "nutshell") === "nutshell").map((t) => {
+    const tile = { key: t.key, page: s.slug, tab: t.key.split(":")[1], title: t.title, kind: "card" as const, href: stageHref(s.slug) };
     const fmt = formatOf(acts, tile);
     return row(t.key, <HandoverPromoted spec={tile} half={fmt === "half"} actions={<TileActions where="nutshell" start="nutshell" tile={tile} />} />, fmt);
   }) : [];
@@ -281,7 +284,7 @@ export default function MarketingKpisMacro() {
       )}
       {views && state && (
         <>
-          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} visit={visit.value} />)}
+          {SHOWN_STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} visit={visit.value} />)}
           {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
             <GlassCard key={title}>
               <CardTitle icon={<UpcomingIcon />} tint="slate" title={title} />

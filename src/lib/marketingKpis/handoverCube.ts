@@ -313,40 +313,44 @@ const LOST: ReadonlySet<Outcome> = new Set(["price", "supply", "delivery", "info
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 /** The reason a lost ticket gives, as its group: "Price", "Can't supply"… */
 export const lostReason = (o: Outcome) => cap(outcomeLabel(o).replace(/^Lost - /, ""));
-/** The closed-otherwise resolutions the flow names: the six most used, each 1% of the tickets or more; the rest are "Other resolutions". */
-const OTHER_NAMED = 6;
+/** A reason the flow names: 2% of the tickets or more - the rest are "Other reasons" / "Other resolutions" (SARCLA 19.10: "simplify"). */
+const NAMED_SHARE = 0.02;
 const short = (t: string) => (t.length > 32 ? `${t.slice(0, 30).trim()}…` : t);
 
 /**
- * The tickets of the months chosen as a flow: channel -> team -> first contact -> what became of them -> why,
- * for the lost and the closed otherwise (SARCLA 19.10: "Lost or disqualified should have the breakdown by
- * reason, as the Closed otherwise").
+ * The tickets of the months chosen as a flow: team -> first contact -> what became of them -> why, for the lost
+ * and the closed otherwise (SARCLA 19.10: "Lost or disqualified should have the breakdown by reason, as the
+ * Closed otherwise"; later "too complicated - still a diagram, but clearer": the channel left it, it has its
+ * own tab, and only the reasons of 2% or more are named).
  */
 export function flowOf(d: HandoverData, w: { start: number; end: number }, f: HFilters): HFlow {
   const rows = d.rows.filter((r) => keep(r, f) && inWin(r.m, d.year, w));
-  // the closed-otherwise resolutions the flow names: the most used
+  // the reasons the flow names: 2% of the tickets or more
   const used = new Map<string, number>();
-  for (const r of rows) if (outcomeOf(r) === "other") used.set(r.r!.trim(), (used.get(r.r!.trim()) ?? 0) + 1);
-  const named = new Set([...used.entries()].filter(([, n]) => n >= rows.length / 100).sort((a, b) => b[1] - a[1]).slice(0, OTHER_NAMED).map(([k]) => k));
+  for (const r of rows) {
+    const o = outcomeOf(r);
+    const k = LOST.has(o) ? `l:${o}` : o === "other" ? `o:${r.r!.trim()}` : null;
+    if (k) used.set(k, (used.get(k) ?? 0) + 1);
+  }
+  const named = (k: string) => (used.get(k) ?? 0) >= rows.length * NAMED_SHARE;
   const nodes = new Map<string, HFlowNode>(), links = new Map<string, { from: string; to: string; value: number }>(), totals: Record<string, number> = {};
   for (const r of rows) {
     const o = outcomeOf(r);
     const path: HFlowNode[] = [
-      { id: `c:${r.c}`, column: 0, label: channelLabel(r.c), tone: "source" },
-      { id: `t:${r.t}`, column: 1, label: r.t, tone: r.t === "ESO" ? "eso" : "tsa" },
-      r.a != null && r.a <= DAY_HOURS ? { id: "s:day", column: 2, label: "Within a working day", tone: "good" }
-        : r.a != null ? { id: "s:late", column: 2, label: "Later", tone: "none" }
-          : { id: "s:none", column: 2, label: "No reply, no call", tone: "bad" },
-      o === "won" ? { id: "o:won", column: 3, label: "Won", tone: "good" }
-        : o === "open" ? { id: "o:open", column: 3, label: "Still open", tone: "none" }
-          : LOST.has(o) ? { id: "o:lost", column: 3, label: "Lost or disqualified", tone: "bad" }
-            : { id: "o:other", column: 3, label: "Closed otherwise", tone: "none" },
+      { id: `t:${r.t}`, column: 0, label: r.t, tone: r.t === "ESO" ? "eso" : "tsa" },
+      r.a != null && r.a <= DAY_HOURS ? { id: "s:day", column: 1, label: "Within a working day", tone: "good" }
+        : r.a != null ? { id: "s:late", column: 1, label: "Later", tone: "none" }
+          : { id: "s:none", column: 1, label: "No reply, no call", tone: "bad" },
+      o === "won" ? { id: "o:won", column: 2, label: "Won", tone: "good" }
+        : o === "open" ? { id: "o:open", column: 2, label: "Still open", tone: "none" }
+          : LOST.has(o) ? { id: "o:lost", column: 2, label: "Lost or disqualified", tone: "bad" }
+            : { id: "o:other", column: 2, label: "Closed otherwise", tone: "none" },
     ];
-    if (LOST.has(o)) path.push({ id: `w:l:${o}`, column: 4, label: lostReason(o), tone: "bad" });
-    else if (o === "nores") path.push({ id: "w:o:none", column: 4, label: "No resolution set", tone: "none" });
+    if (LOST.has(o)) path.push(named(`l:${o}`) ? { id: `w:l:${o}`, column: 3, label: lostReason(o), tone: "bad" } : { id: "w:l:more", column: 3, label: "Other reasons", tone: "bad" });
+    else if (o === "nores") path.push({ id: "w:o:none", column: 3, label: "No resolution set", tone: "none" });
     else if (o === "other") {
       const k = r.r!.trim();
-      path.push(named.has(k) ? { id: `w:o:${k}`, column: 4, label: short(k), tone: "none" } : { id: "w:o:more", column: 4, label: "Other resolutions", tone: "none" });
+      path.push(named(`o:${k}`) ? { id: `w:o:${k}`, column: 3, label: short(k), tone: "none" } : { id: "w:o:more", column: 3, label: "Other resolutions", tone: "none" });
     }
     for (const n of path) { nodes.set(n.id, n); totals[n.id] = (totals[n.id] ?? 0) + 1; }
     for (let i = 0; i + 1 < path.length; i++) {
@@ -358,11 +362,10 @@ export function flowOf(d: HandoverData, w: { start: number; end: number }, f: HF
   }
   const ORDER = ["t:ESO", "t:TSA", "s:day", "s:late", "s:none", "o:won", "o:lost", "o:other", "o:open"];
   // the reasons: the lost first, then the closed otherwise - each the biggest first, "the rest" last
-  const rank = (n: HFlowNode) => (n.column === 0 ? -(totals[n.id] ?? 0)
-    : n.column === 4 ? (n.id.startsWith("w:l:") ? 0 : 1e6) + (n.id === "w:o:more" || n.id === "w:o:none" ? 5e5 : 0) - (totals[n.id] ?? 0)
-      : ORDER.indexOf(n.id));
+  const rest = new Set(["w:l:more", "w:o:more", "w:o:none"]);
+  const rank = (n: HFlowNode) => (n.column === 3 ? (n.id.startsWith("w:l:") ? 0 : 1e6) + (rest.has(n.id) ? 5e5 : 0) - (totals[n.id] ?? 0) : ORDER.indexOf(n.id));
   return {
-    columns: ["Came in by", "Team", "First contact", "Outcome", "Why"],
+    columns: ["Team", "First contact", "Outcome", "Why"],
     nodes: [...nodes.values()].sort((a, b) => a.column - b.column || rank(a) - rank(b)),
     links: [...links.values()],
     totals,

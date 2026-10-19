@@ -17,7 +17,8 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { BarList } from "@/app/charts/BarList";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, FAINT, GlassCard, MUTED, RED } from "@/app/uc/report/ui";
-import { KPIS, stageBySlug } from "@/lib/marketingKpis/catalogue";
+import { KPIS } from "@/lib/marketingKpis/catalogue";
+import { shownStage } from "@/lib/marketingKpis/stageNames";
 import type { LiveKpis } from "@/lib/marketingKpis/live";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, upToOf, stageKpis, stageTint, type MkState } from "./data";
 import { CustomersExplorer } from "./Customers";
@@ -66,7 +67,7 @@ function Breakdowns({ slug, live }: { slug: string; live?: LiveKpis }) {
 }
 
 export function StageView({ slug, state, header = true }: { slug: string; state: MkState | null; header?: boolean }) {
-  const s = stageBySlug(slug);
+  const s = shownStage(slug);
   if (!s) return null;
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
@@ -94,6 +95,8 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (s.slug === "lead") return <LeadExplorer state={state} />;
   // how ESO and TSA handle the incoming leads (SARCLA 19.10: "the concept is a little wrong") - 9f
   if (s.slug === "handover") return <HandoverExplorer state={state} />;
+  // what the UC workflows hand over, in the place of Cart & check-out (SARCLA 19.10) - the same page, the UC group
+  if (s.slug === "uc") return <HandoverExplorer state={state} group="uc" />;
   const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>

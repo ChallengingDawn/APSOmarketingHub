@@ -10,6 +10,10 @@
 // 19.10 night: the customers' requests or the UC hand-overs, never both ("a separate graph, no mix up"); a call
 // is a first contact too; the lost and the closed otherwise broken down by reason; misassigned left out; "Win
 // rate by person" and the "figures" tables are cards of their own.
+// Later that night (SARCLA: "the UC hand-overs would replace completely the cart & checkout - then we keep the
+// customer requests only at Hand-over ESO/TSA, and we don't have the graph problem any more"): two pages from
+// this one - Hand-over to ESO/TSA (the customers' requests, slug handover) and UC hand-overs (slug uc), each with
+// its own card keys, so a card of each can be in the nutshell. The diagram: team, first contact, outcome, why.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -173,7 +177,7 @@ function FlowCard({ d, f, win, actions }: Ctx) {
   const title = `What happens to the ${groupWords(groupOfF(f))}`;
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<AltRouteIcon />} tint="blue" title={title} note={`${monthsLabel(win)} ${d.year} · how each came in, which team got it, how fast the first contact came (a reply in the ticket or a call), what became of it - and why, for the lost and the closed otherwise · hover a band for its count`} right={actions} />
+      <CardTitle icon={<AltRouteIcon />} tint="blue" title={title} note={`${monthsLabel(win)} ${d.year} · which team got each, how fast the first contact came (a reply in the ticket or a call), what became of it - and why, for the lost and the closed otherwise · how they came in is on the ${groupOfF(f) === "uc" ? "Use cases" : "Channels"} tab · hover a band for its count`} right={actions} />
       <ChartFrame table={{ columns: ["From", "To", "Tickets"], rows: fl.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value]), numeric: [2] }} empty={fl.nodes.length ? null : "No tickets for this choice."}>
         <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
           <Box sx={{ minWidth: 980 }}>
@@ -464,8 +468,8 @@ const CARDS: Record<string, { title: string; draw: (c: Ctx) => React.ReactNode }
   "outcomes:split": { title: "Won, lost or still open", draw: (c) => <SplitCard {...c} /> },
   "outcomes:lost": { title: "Why they were lost", draw: (c) => <LostCard {...c} /> },
   "outcomes:reasons": { title: "How they were closed", draw: (c) => <ReasonsCard {...c} /> },
-  "channels:channels": { title: "By channel", draw: (c) => <BreakdownCard {...c} by="c" title="By channel" icon={<AltRouteIcon />} tint="amber" labelOf={channelLabel} note={`${monthsLabel(c.win)} ${c.d.year} · ${groupWords(groupOfF(c.f))} · how they came in, and what became of them`} /> },
-  "channels:figures": { title: "By channel - the figures", draw: (c) => <BreakdownFiguresCard {...c} by="c" title="By channel" icon={<AltRouteIcon />} tint="amber" labelOf={channelLabel} onPick={c.onChannel} /> },
+  "channels:channels": { title: "By channel", draw: (c) => <BreakdownCard {...c} by="c" title={groupOfF(c.f) === "uc" ? "By use case" : "By channel"} icon={<AltRouteIcon />} tint="amber" labelOf={channelLabel} note={`${monthsLabel(c.win)} ${c.d.year} · ${groupWords(groupOfF(c.f))} · how they came in, and what became of them`} /> },
+  "channels:figures": { title: "By channel - the figures", draw: (c) => <BreakdownFiguresCard {...c} by="c" title={groupOfF(c.f) === "uc" ? "By use case" : "By channel"} icon={<AltRouteIcon />} tint="amber" labelOf={channelLabel} onPick={c.onChannel} /> },
   "countries:countries": { title: "By country", draw: (c) => <BreakdownCard {...c} by="k" title="By country" icon={<PublicOutlinedIcon />} tint="green" labelOf={(k) => k} sortFocus note={`${monthsLabel(c.win)} ${c.d.year} · ${groupWords(groupOfF(c.f))} · the company's country - our focus markets first`} /> },
   "countries:figures": { title: "By country - the figures", draw: (c) => <BreakdownFiguresCard {...c} by="k" title="By country" icon={<PublicOutlinedIcon />} tint="green" labelOf={(k) => k} sortFocus onPick={c.onCountry} /> },
   "people:people": { title: "Who handles them", draw: (c) => <PeopleCard {...c} /> },
@@ -490,6 +494,10 @@ function useSharedHandover(): HandoverData | null {
 
 /** The card the nutshell's Hand-over panel starts with (demotable). */
 export const HANDOVER_NUTSHELL_CARDS = [{ key: "handover:teams:compare", title: "ESO and TSA side by side" }];
+/** ...and the UC hand-overs panel's. */
+export const UC_NUTSHELL_CARDS = [{ key: "uc:teams:compare", title: "ESO and TSA side by side" }];
+/** The page a group is on: the customers' requests on Hand-over to ESO/TSA, the UC hand-overs on their own. */
+const slugOf = (g: Group) => (g === "uc" ? "uc" : "handover");
 
 /** A hand-over card promoted to the nutshell - the same graph as on the page, with its filters and months. */
 export function HandoverPromoted({ spec, actions, half }: { spec: TileSpec; actions: React.ReactNode; half?: boolean }) {
@@ -497,17 +505,18 @@ export function HandoverPromoted({ spec, actions, half }: { spec: TileSpec; acti
   const [, tab, card] = spec.key.split(":");
   const c = CARDS[`${tab}:${card}`];
   if (!d || !c) {
-    return <GlassCard><CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title={c?.title ?? spec.title} note={d ? "This card is no longer on the Hand-over page." : "Reading the tickets…"} right={actions} /></GlassCard>;
+    return <GlassCard><CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title={c?.title ?? spec.title} note={d ? "This card is no longer on its page." : "Reading the tickets…"} right={actions} /></GlassCard>;
   }
   const from = Number(spec.from), to = Number(spec.to);
   const win: MonthWindow = from >= 1 && to >= from && to <= d.monthsDone + 1 ? { start: from - 1, end: to - 1 } : { start: 0, end: d.monthsDone };
   const ff = spec.filters ?? {};
-  // the customers' requests unless it was promoted from the UC hand-overs - never both
-  const group: Group = ff.group?.[0] === "uc" ? "uc" : "requests";
+  // the page it came from: UC hand-overs, or the customers' requests on Hand-over to ESO/TSA - never both
+  const group: Group = spec.page === "uc" ? "uc" : "requests";
   return <>{c.draw({ d, f: { team: ff.team, kind: kindsOf(group), channel: ff.channel, country: ff.country }, win, py: yearEarlierOk(d, win), actions, half })}</>;
 }
 
-export function HandoverExplorer({ state }: { state: MkState | null }) {
+export function HandoverExplorer({ state, group = "requests" }: { state: MkState | null; group?: Group }) {
+  const slug = slugOf(group);
   const params = useSearchParams();
   const ld = useSlow<HandoverData>("/api/reporting/marketing-kpis/handover", "handover");
   const d = ld.value;
@@ -517,7 +526,6 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
   const [tab, setTab] = useState<Tab>(() => (TABS.some((t) => t.id === params.get("tab")) ? (params.get("tab") as Tab) : "teams"));
   const pick = (k: string) => params.getAll(k);
   const [teams, setTeams] = useState<string[]>(() => pick("team"));
-  const [group, setGroup] = useState<Group>(() => (params.get("group") === "uc" ? "uc" : "requests"));
   const [channels, setChannels] = useState<string[]>(() => pick("channel"));
   const [countries, setCountries] = useState<string[]>(() => pick("country"));
   const [chosenWin, setChosenWin] = useState<MonthWindow | null>(() => {
@@ -532,12 +540,11 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
   useEffect(() => {
     const q = new URLSearchParams();
     if (tab !== "teams") q.set("tab", tab);
-    if (group !== "requests") q.set("group", group);
     if (!isDefault) { q.set("from", String(win.start + 1)); q.set("to", String(win.end + 1)); }
     for (const [k, xs] of [["team", teams], ["channel", channels], ["country", countries]] as const) for (const x of xs) q.append(k, x);
     const s = q.toString();
     window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
-  }, [tab, group, win.start, win.end, isDefault, teams, channels, countries]);
+  }, [tab, win.start, win.end, isDefault, teams, channels, countries]);
 
   // the channels of the group shown only
   const groupChannels = CHANNELS.filter((c) => kindsOf(group).includes(c.kind));
@@ -547,11 +554,11 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
   const stats = useMemo(() => (d ? statsOf(d, win, f) : null), [d, win.start, win.end, teams, group, channels, countries]); // eslint-disable-line react-hooks/exhaustive-deps
   const countryOptions = useMemo(() => (d ? [...new Set(d.rows.map((r) => r.k))].sort((a, b) => (FOCUS.includes(b) ? 1 : 0) - (FOCUS.includes(a) ? 1 : 0) || a.localeCompare(b)) : []), [d]);
   const chosenCount = teams.length + shownChannels.length + countries.length + (isDefault ? 0 : 1);
-  const filters = Object.fromEntries(([["group", [group]], ["team", teams], ["channel", shownChannels], ["country", countries]] as const).filter(([, xs]) => xs.length)) as Record<string, string[]>;
+  const filters = Object.fromEntries(([["team", teams], ["channel", shownChannels], ["country", countries]] as const).filter(([, xs]) => xs.length)) as Record<string, string[]>;
   const clearAll = () => { setTeams([]); setChannels([]); setCountries([]); setChosenWin(null); };
   const act = (key: string, title: string) => (
-    <TileActions where="tab" start={`handover:${tab}:${key}` === HANDOVER_NUTSHELL_CARDS[0].key ? "nutshell" : "tab"}
-      tile={{ key: `handover:${tab}:${key}`, page: "handover", tab, title: `${title} - ${groupName(group)}`, summary: stats ? `${n0(stats.cur.incoming)} ${groupWords(group)}, win rate ${pct(winRate(stats.cur))}, ${monthsLabel(win)} ${year}` : undefined, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />
+    <TileActions where="tab" start={[...HANDOVER_NUTSHELL_CARDS, ...UC_NUTSHELL_CARDS].some((t) => t.key === `${slug}:${tab}:${key}`) ? "nutshell" : "tab"}
+      tile={{ key: `${slug}:${tab}:${key}`, page: slug, tab, title, summary: stats ? `${n0(stats.cur.incoming)} ${groupWords(group)}, win rate ${pct(winRate(stats.cur))}, ${monthsLabel(win)} ${year}` : undefined, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />
   );
 
   if (!d || !stats) {
@@ -578,18 +585,13 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
           <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
-            Hand-over to ESO/TSA
+            {group === "uc" ? "UC hand-overs" : "Hand-over to ESO/TSA"}
           </Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{monthsLabel(win)} {year}</b>{win.end === now ? ` (${MONTHS[now]} so far)` : ""} · how ESO and TSA handle them: how fast, what they do with them, how many they win{py ? ` · against the same months of ${year - 1}` : ` · no year earlier to compare: the ESO and TSA pipelines started in July ${year - 1}`}{ld.computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{monthsLabel(win)} {year}</b>{win.end === now ? ` (${MONTHS[now]} so far)` : ""} · {group === "uc"
+              ? "what the UC workflows hand over to ESO and TSA - abandoned carts, lost leads, second purchases, poor ratings, new registrants: how fast they are contacted, what becomes of them"
+              : "how ESO and TSA handle the customers' requests: how fast, what they do with them, how many they win"}{py ? ` · against the same months of ${year - 1}` : ` · no year earlier to compare: the ESO and TSA pipelines started in July ${year - 1}`}{ld.computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {/* the customers' requests or the UC hand-overs - never mixed (SARCLA 19.10) */}
-          <Box role="group" aria-label="Show" sx={{ display: "inline-flex", justifySelf: "start", gap: 0.5, p: 0.5, borderRadius: "12px", ...glass }}>
-            {GROUPS.map((g) => (
-              <Button key={g.id} size="small" onClick={() => setGroup(g.id)} aria-pressed={group === g.id} disableElevation variant={group === g.id ? "contained" : "text"}
-                sx={{ textTransform: "none", fontWeight: 700, borderRadius: "9px", px: 1.75, color: group === g.id ? "#fff" : MUTED }}>{g.label}</Button>
-            ))}
-          </Box>
           {chosenCount > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
               {!isDefault && <Chip size="small" label={<span><b>Period:</b> {monthsLabel(win)}</span>} onDelete={() => setChosenWin(null)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg }} />}
@@ -605,10 +607,10 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
 
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto" }}>
-          <ReportTabs name="handover" tab={tab} onSelect={setTab} tabs={TABS.map((t) => ({ id: t.id, label: t.label, count: null }))} />
+          <ReportTabs name={slug} tab={tab} onSelect={setTab} tabs={TABS.map((t) => ({ id: t.id, label: t.id === "channels" && group === "uc" ? "Use cases" : t.label, count: null }))} />
         </Box>
         <Box sx={{ flex: 1 }} />
-        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="handover" /></Box>
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page={slug} /></Box>
         <Button onClick={() => setPanel((x) => !x)} variant={panel || chosenCount ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="handover-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosenCount ? undefined : "#fff" }}>
           Filters{chosenCount ? ` · ${chosenCount}` : ""}

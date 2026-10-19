@@ -10,7 +10,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 
 import PageHeader from "@/app/PageHeader";
 import { GlassCard, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { KPIS, STAGES } from "@/lib/marketingKpis/catalogue";
+import { KPIS } from "@/lib/marketingKpis/catalogue";
+import { SHOWN_STAGES } from "@/lib/marketingKpis/stageNames";
 import { GUTTER } from "@/app/analytics/Shell";
 import { KpiCard, LEADER, LiveNote, NotConnected, StageGlyph, buildViews, isMeasured, stageHref, stageTint, upToOf, useMarketingKpis } from "../data";
 import { CustomersSummary } from "../Customers";
@@ -29,7 +30,7 @@ export default function SalesLeaderView() {
           <Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>{state?.error ? `Could not load: ${state.error}` : "Loading…"}</Typography>
         </Box></GlassCard>
       )}
-      {views && state && STAGES.map((s) => {
+      {views && state && SHOWN_STAGES.map((s) => {
         const list = mine.filter((k) => k.stage === s.id);
         if (!list.length) return null;
         const measured = list.filter((k) => isMeasured(k.id));

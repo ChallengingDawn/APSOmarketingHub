@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classify, flowOf, outcomeOf, statsBy, statsOf, winRate, workingHours, type HandoverData, type HandoverRow } from "../src/lib/marketingKpis/handoverCube";
+import { SHOWN_STAGES, shownStage, stageName } from "../src/lib/marketingKpis/stageNames";
 
 const LIFECYCLE = { UC2_v2_New_Leads_Tickets_2609: "uc2", UC15_Lost_Leads_TICKETS_2607_FEHDIA: "uc15", UC6_v2_FIRST_PURCHASE_NPS_TICKETS_2604: "uc6" };
 
@@ -80,11 +81,19 @@ test("the figures: a first contact (reply or call) within a working day, win rat
   assert.equal(fl.totals["o:won"], 1);
   assert.equal(fl.totals["s:none"], 2);
   // why: the lost by their reason, the closed otherwise by theirs - won and open end at the outcome
-  assert.equal(fl.columns.length, 5);
+  assert.deepEqual(fl.columns, ["Team", "First contact", "Outcome", "Why"]);
   assert.equal(fl.totals["w:l:info"], 1);
   assert.equal(fl.totals["w:l:noreply"], 1);
   assert.equal(fl.totals["w:o:none"], 1);
   assert.ok(!fl.links.some((l) => l.from === "o:won" || l.from === "o:open"));
   // one kind at a time: the UC hand-overs alone
-  assert.equal(flowOf(d, { start: 0, end: 8 }, { kind: ["newlead", "lifecycle"] }).totals["c:uc15"], 1);
+  assert.equal(flowOf(d, { start: 0, end: 8 }, { kind: ["newlead", "lifecycle"] }).totals["t:ESO"], 1);
+});
+
+test("the stages as shown: Reach first, Purchase gone, UC hand-overs in the place of Cart & check-out, Who are our customers before Retain & grow", () => {
+  assert.deepEqual(SHOWN_STAGES.map((s) => s.slug), ["reach", "visit", "engage", "lead", "handover", "uc", "customers", "retain", "efficiency"]);
+  assert.equal(shownStage("uc")?.id, "6");
+  assert.equal(stageName("uc", shownStage("uc")!.name), "UC hand-overs");
+  assert.equal(shownStage("purchase"), undefined);
+  assert.equal(shownStage("cart"), undefined);
 });
