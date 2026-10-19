@@ -57,8 +57,8 @@ function Legend({ parts }: { parts: Part[] }) {
   );
 }
 
-/** A few rows, each a bar split in parts - the stores' and pages' channels, the countries. */
-function RowBars({ rows, parts }: { rows: { label: string; vals: number[]; py?: number }[]; parts: Part[] }) {
+/** A few rows, each a bar split in parts - the stores' and pages' channels, the countries (Reach's R09 tile too). */
+export function RowBars({ rows, parts }: { rows: { label: string; vals: number[]; py?: number }[]; parts: Part[] }) {
   const max = Math.max(1, ...rows.map((r) => Math.max(r.vals.reduce((a, b) => a + b, 0), r.py ?? 0)));
   return (
     <Box>

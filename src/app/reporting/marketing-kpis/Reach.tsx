@@ -49,6 +49,7 @@ import { kpiSummary } from "./tiles/summary";
 import { WithActions } from "./tiles/WithActions";
 import type { TileSpec } from "./tiles/registry";
 import { useMarketingKpis } from "./data";
+import { RowBars } from "./VisitCompact";
 
 type Tab = "search" | "ads" | "countries" | "ai" | "email" | "linkedin" | "customers";
 const TABS: { id: Tab; label: string; kpis: string[] }[] = [
@@ -379,6 +380,33 @@ function SmallKpi({ v, upTo, actions }: { v: KpiView; upTo: string; actions?: Re
       </Typography>
     </GlassCard>
   );
+}
+
+/**
+ * A Reach KPI's card as on the page - the year so far, no filter - for the nutshell when it is
+ * promoted as a full card (SARCLA 19.10: "the same dashboard that we push into the nutshell, then we
+ * decide which format to push"). R09 is its countries card, the others their months.
+ */
+export function ReachFullCard({ kpiId, actions }: { kpiId: string; actions?: React.ReactNode }) {
+  const [state] = useMarketingKpis();
+  const live = state?.live?.value;
+  if (!state?.inputs || !live) return <GlassCard><Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{nameOf(kpiId)}…</Typography></Box></GlassCard>;
+  const views = buildViews(state.inputs, live, live.year);
+  const v = views[kpiId];
+  if (!v) return null;
+  const win: MonthWindow = { start: 0, end: Math.max(0, live.monthsDone - 1) };
+  if (kpiId === "R09" && live.breakdowns.searchCountryMonths) return <CountryVisibility live={live} v={v} win={win} chosen={[]} actions={actions} />;
+  const k = KPIS.find((x) => x.id === kpiId) ?? { ...KPIS[0], id: kpiId, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
+  return <KpiCard v={v} kpi={k} icon={<StageGlyph slug="reach" />} tint={stageTint("reach")} upTo={upToOf(v, state, live.year)} actions={actions} title={ADS_NAMES[kpiId]} />;
+}
+
+/** A Reach KPI's graph at tile size where its page card draws something else than its months (R09: clicks per focus market). */
+export function ReachTileChart({ id, live }: { id: string; live: LiveKpis | undefined }): React.ReactNode {
+  const cm = live?.breakdowns.searchCountryMonths;
+  if (id !== "R09" || !live || !cm) return null;
+  const rows = countryTable(cm, live.year, live.monthsDone, 999).rows.filter((r) => r.focus).sort((a, b) => b.clicks - a.clicks).slice(0, 5);
+  if (!rows.length) return null;
+  return <RowBars rows={rows.map((r) => ({ label: countryName(r.label), vals: [r.clicks], py: r.pyClicks ?? undefined }))} parts={[{ label: "Clicks", color: "#2d6fa8" }]} />;
 }
 
 /** A section's heading on the Ads tab - SEA Google, SEA Microsoft. */

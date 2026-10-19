@@ -35,7 +35,8 @@ import { WithActions } from "./tiles/WithActions";
 import { stageName } from "@/lib/marketingKpis/stageNames";
 import { placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
 import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
-import { ShopAccountsCompact, VISIT_NAMES, VisitTileChart, useVisitData } from "./VisitCompact";
+import { ShopAccountsCompact, VISIT_NAMES, useVisitData } from "./VisitCompact";
+import { tileChartFor } from "./FullCards";
 import type { VisitData } from "@/lib/marketingKpis/visitCube";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
@@ -140,7 +141,7 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   const items: SortItem[] = [
     // Visit's tiles draw their page's graphs, small (VisitCompact.tsx)
     ...tiles.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
-      chart={s.slug === "visit" ? VisitTileChart({ id: v.id, views, d: visit, year }) ?? undefined : undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
+      chart={tileChartFor(s.slug, v.id, views, visit, live, year) ?? undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
     ...promoted.tiles,
     // the shop accounts without a company, compact (SARCLA 19.10) - fixed in Ticket/order/article associations
     ...(s.slug === "visit" && visit?.unlinked && placementOf(acts, "visit:customers:unlinked", "nutshell") === "nutshell" ? [{

@@ -36,11 +36,11 @@ import { ReportTabs } from "@/app/uc/report/Tabs";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { countryName } from "@/lib/marketingKpis/countries";
 import { CHANNEL_GROUPS, CHANNEL_INFO, NO_PAGE, NO_PAGE_INFO, cubeTable, groupsByMonth, knownByCountry, landingTable, noPageVisits, storeChannels, storeName, storeTable, usersAbroad, visitSeries, type VisitData, type VisitFilters } from "@/lib/marketingKpis/visitCube";
-import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useSlow, type KpiView, type MkState, type MonthWindow } from "./data";
+import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
 import { TileActions } from "./tiles/TileActions";
-import { VISIT_NAMES } from "./VisitCompact";
+import { VISIT_NAMES, useVisitData } from "./VisitCompact";
 import { SavedViews } from "./tiles/SavedViews";
 import { kpiSummary } from "./tiles/summary";
 
@@ -64,7 +64,7 @@ const names = (xs: string[], f: (x: string) => string) => {
 
 export function VisitExplorer({ state }: { state: MkState | null }) {
   const params = useSearchParams();
-  const vis = useSlow<VisitData>("/api/reporting/marketing-kpis/visit", "visit");
+  const vis = useVisitData();
   const live = state?.live?.value;
   const year = live?.year ?? new Date().getFullYear();
   const done = live?.monthsDone ?? 0;
@@ -124,13 +124,7 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
     if (filtered && ["V01", "V02", "V03", "V04"].includes(id)) v = { ...v, measure: { ...v.measure, note: `Only ${who} - from GA4's ${channels.length ? "month, country and channel table" : "users per month and country"}` } };
     if (id === "V06S" && countries.length) v = { ...v, measure: { ...v.measure, note: `Only ${names(countries, countryName)} - GA4's login event${channels.length ? "; it has no channel, so the channel choice does not apply" : ""}` } };
     if (id === "V06S" && !countries.length && channels.length) v = { ...v, measure: { ...v.measure, note: `${v.measure.note} · GA4's login event has no channel: every channel` } };
-    // "Users per country" on this page (SARCLA 18.10: "call it just users per country"); the figure stays the users outside Switzerland
-    if (id === "V04") v = { ...v, measure: { ...v.measure, definition: "Visitors - people on the shop, not companies (GA4's users, who accepted statistics cookies). The figure: every country but Switzerland, month by month added up; the chart: each country, Switzerland included" } };
-    if (id === "V07" && vis.value?.prio.length) {
-      const band = (b: string) => vis.value!.prio.find((p) => p.band === b);
-      const say = (b: string) => { const p = band(b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
-      v = { ...v, measure: { ...v.measure, note: `${say("Prio 1")} · ${say("Prio 2")} - logged in to the shop this year (Datatracker)` } };
-    }
+    v = visitCardView(id, v, vis.value);
     if (filtered && ["V05", "V06", "V07", "V08"].includes(id)) v = { ...v, measure: { ...v.measure, note: `${v.measure.note ? `${v.measure.note} · ` : ""}For every country and channel - the filter applies to the tables` } };
     const k = KPIS.find((x) => x.id === id) ?? { ...KPIS[0], id, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
     return (
@@ -143,19 +137,7 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
   const d = vis.value;
   const w = monthsLabel(months.length ? { start: months[0], end: months[months.length - 1] } : win);
   // each tab's own chart in its KPI card, once GA4 is read (SARCLA 18.10: by country, the stores' and pages' channels)
-  const charts: Record<string, React.ReactNode> = {
-    ...(views.V01 && views.V02N ? { V01: <NewReturning users={views.V01} fresh={views.V02N} months={months} year={year} /> } : {}),
-    ...(views.V01 && views.V02N ? { V02: <NewReturningBars users={views.V01} fresh={views.V02N} year={year} w={w} /> } : {}),
-  };
-  if (d) Object.assign(charts, {
-    V03: <MixChart title={`Visits each month by where they came from, ${w} ${year}`} order={CHANNEL_GROUPS} otherLabel="Other (links, e-mail, unknown)"
-      rows={groupsByMonth(d, year, months, filters).map((g) => ({ key: String(g.month), label: `${MONTHS[g.month]} ${year}`, total: g.total, py: g.pyTotal, channels: g.groups }))} />,
-    V04: <AbroadChart d={d} year={year} months={months} filters={filters} chosen={countries} w={w} />,
-    V05: <MixChart title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
-      rows={storeChannels(d, filters).slice(0, 16).map((r) => ({ key: r.code, label: r.label, sub: `/${r.code}`, total: r.total, py: r.pyTotal, channels: r.channels }))} />,
-    V08: <MixChart title={`The top landing pages by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
-      rows={landingTable(d, filters, 12).map((r) => ({ key: r.page, label: r.page, sub: r.store ? storeName(r.store) ?? undefined : undefined, total: r.sessions, py: null, channels: r.channels }))} />,
-  });
+  const charts = visitCharts({ views, d, year, months, filters, countries, w });
   const kpis = TABS.find((t) => t.id === tab)!.kpis.map((id) => card(id, charts[id])).filter(Boolean);
   const tileFor = (cardId: string, title: string) => (
     <TileActions where="tab" start="tab" tile={{ key: `visit:${tab}:${cardId}`, page: "visit", tab, title, kind: "card", ...(filtered ? { filters: { country: countries, channel: channels } } : {}), ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }) }} />
@@ -352,8 +334,8 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
 
       {d && tab === "customers" && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(420px, 1fr))" } }}>
-          {card("V06", views.V06G ? <LoginsByMonth v={views.V06G} year={year} /> : undefined)}
-          {card("V07", <PrioLoginsByDay live={d.liveLogins} error={d.errors?.liveLogins} />)}
+          {card("V06", charts.V06)}
+          {card("V07", charts.V07)}
         </Box>
       )}
 
@@ -432,6 +414,62 @@ function NewReturningBars({ users, fresh, year, w }: { users: KpiView; fresh: Kp
       })}
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>New = the visitor&apos;s first visit falls in the month (GA4); returning = had come before. Users added up month by month.</Typography>
     </Box>
+  );
+}
+
+/** What a Visit card says about its KPI beyond the catalogue - on the page and on the nutshell's full card alike. */
+function visitCardView(id: string, v: KpiView, d: VisitData | null): KpiView {
+  // "Visitors per country" (SARCLA 18.10/19.10); the figure stays the visitors outside Switzerland
+  if (id === "V04") return { ...v, measure: { ...v.measure, definition: "Visitors - people on the shop, not companies (GA4's users, who accepted statistics cookies). The figure: every country but Switzerland, month by month added up; the chart: each country, Switzerland included" } };
+  if (id === "V07" && d?.prio.length) {
+    const say = (b: string) => { const p = d.prio.find((x) => x.band === b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
+    return { ...v, measure: { ...v.measure, note: `${say("Prio 1")} · ${say("Prio 2")} - logged in to the shop this year (Datatracker)` } };
+  }
+  return v;
+}
+
+/** Each Visit card's graph - the page's, and the nutshell's full card's (SARCLA 19.10: "the same dashboard that we push into the nutshell"). */
+function visitCharts({ views, d, year, months, filters, countries, w }: { views: Record<string, KpiView>; d: VisitData | null; year: number; months: number[]; filters: VisitFilters; countries: string[]; w: string }): Record<string, React.ReactNode> {
+  const charts: Record<string, React.ReactNode> = {
+    ...(views.V01 && views.V02N ? { V01: <NewReturning users={views.V01} fresh={views.V02N} months={months} year={year} /> } : {}),
+    ...(views.V01 && views.V02N ? { V02: <NewReturningBars users={views.V01} fresh={views.V02N} year={year} w={w} /> } : {}),
+    ...(views.V06G ? { V06: <LoginsByMonth v={views.V06G} year={year} /> } : {}),
+  };
+  if (d) Object.assign(charts, {
+    V03: <MixChart title={`Visits each month by where they came from, ${w} ${year}`} order={CHANNEL_GROUPS} otherLabel="Other (links, e-mail, unknown)"
+      rows={groupsByMonth(d, year, months, filters).map((g) => ({ key: String(g.month), label: `${MONTHS[g.month]} ${year}`, total: g.total, py: g.pyTotal, channels: g.groups }))} />,
+    V04: <AbroadChart d={d} year={year} months={months} filters={filters} chosen={countries} w={w} />,
+    V05: <MixChart title={`The stores' visits by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
+      rows={storeChannels(d, filters).slice(0, 16).map((r) => ({ key: r.code, label: r.label, sub: `/${r.code}`, total: r.total, py: r.pyTotal, channels: r.channels }))} />,
+    V07: <PrioLoginsByDay live={d.liveLogins} error={d.errors?.liveLogins} />,
+    V08: <MixChart title={`The top landing pages by the channel that brought them, ${MONTHS[0]}–${MONTHS[Math.max(0, d.landing.months - 1)]} ${year}`}
+      rows={landingTable(d, filters, 12).map((r) => ({ key: r.page, label: r.page, sub: r.store ? storeName(r.store) ?? undefined : undefined, total: r.sessions, py: null, channels: r.channels }))} />,
+  });
+  return charts;
+}
+
+/**
+ * A Visit KPI's card as on the page - the year so far, no filter - for the nutshell when it is
+ * promoted as a full card (SARCLA 19.10: "then we decide which format to push").
+ */
+export function VisitFullCard({ kpiId, actions }: { kpiId: string; actions?: React.ReactNode }) {
+  const [state] = useMarketingKpis();
+  const vis = useVisitData();
+  const live = state?.live?.value;
+  if (!state?.inputs || !live) return <GlassCard><Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{nameOf(kpiId)}…</Typography></Box></GlassCard>;
+  const year = live.year;
+  const views = buildViews(state.inputs, live, year);
+  const v0 = views[kpiId];
+  if (!v0) return null;
+  const v = visitCardView(kpiId, v0, vis.value);
+  const months = Array.from({ length: Math.max(0, live.monthsDone) }, (_, i) => i);
+  const w = monthsLabel({ start: 0, end: Math.max(0, live.monthsDone - 1) });
+  const chart = visitCharts({ views, d: vis.value, year, months, filters: {}, countries: [], w })[kpiId];
+  const k = KPIS.find((x) => x.id === kpiId) ?? { ...KPIS[0], id: kpiId, name: "", question: "", definition: "", audience: "", audienceAsk: "" };
+  return (
+    <KpiCard v={v} kpi={k} icon={<StageGlyph slug="visit" />} tint={stageTint("visit")} upTo={upToOf(v, state, year)} title={PAGE_NAMES[kpiId]} actions={actions}>
+      {chart}
+    </KpiCard>
   );
 }
 
