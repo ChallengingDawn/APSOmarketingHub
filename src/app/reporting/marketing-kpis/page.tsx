@@ -7,6 +7,7 @@
 // its figure and its months; the full width; the stage's title is the way in.
 // 18.10: every tile carries the toolbar (tasks, Scroll to Sale tickets, demote); a demoted tile
 // leaves the nutshell for its tab only, a promoted card shows in "Promoted" at the top (tiles/*).
+// 19.10: hold the mouse on a tile and drag it to its place in the panel - one order for everyone (tiles/SortableGrid).
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -34,7 +35,8 @@ import { LinkCard, rendererOf } from "./tiles/registry";
 import { kpiSummary } from "./tiles/summary";
 import { WithActions } from "./tiles/WithActions";
 import { stageName } from "@/lib/marketingKpis/stageNames";
-import { placementOf, useActions, type ActionsState } from "./tiles/store";
+import { placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
+import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 
@@ -109,20 +111,19 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
   const year = new Date().getFullYear();
   const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN]);
   const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && p.spec.page === slug && !own.has(p.spec.key));
-  const tiles: React.ReactNode[] = [];
-  const rows: React.ReactNode[] = [];
+  const tiles: SortItem[] = [];
+  const rows: SortItem[] = [];
   for (const { spec } of list) {
     const tile = { key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind };
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
-    if (v) { tiles.push(<KpiTileChart key={spec.key} v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />); continue; }
+    if (v) { tiles.push({ key: spec.key, node: <KpiTileChart v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} /> }); continue; }
     const draw = rendererOf(spec.page);
-    rows.push(
-      <Box key={spec.key} sx={{ minWidth: 0 }}>
-        {spec.page === "reach" ? <ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />
-          : spec.page === "customers" ? <CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} />
-            : draw ? draw(spec) : <LinkCard spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />}
-      </Box>,
-    );
+    rows.push({
+      key: spec.key,
+      node: spec.page === "reach" ? <ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />
+        : spec.page === "customers" ? <CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} />
+          : draw ? draw(spec) : <LinkCard spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} />,
+    });
   }
   return { tiles, rows };
 }
@@ -139,6 +140,24 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
   const customers = s.slug === "customers";
   const traffic = s.slug === "visit" && !!live?.breakdowns.channels.length;
   const promoted = promotedOf(s.slug, ids, views, state, acts);
+  // the panel's tiles, then its full-width cards, each in the order someone dragged them
+  const items: SortItem[] = [
+    ...tiles.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />} /> })),
+    ...promoted.tiles,
+    ...(traffic && placementOf(acts, "visit::traffic-origin", "nutshell") === "nutshell" ? [{
+      key: "visit::traffic-origin", sx: { gridColumn: { sm: "span 2" } },
+      node: <WithActions where="nutshell" start="nutshell" top={18} tile={{ key: "visit::traffic-origin", page: "visit", title: "Traffic origin", kind: "card", href: stageHref("visit") }}><TrafficOrigin live={live!} /></WithActions>,
+    }] : []),
+    // SEO and SEA in customers: new, reactivated, active (SARCLA 17.10)
+    ...(s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" ? [{
+      key: "reach:customers:search-customers", sx: { gridColumn: "1 / -1" },
+      node: <WithActions where="nutshell" start="nutshell" tile={{ key: "reach:customers:search-customers", page: "reach", tab: "customers", title: "Customers from search", kind: "card", href: stageHref("reach") }}><SearchCustomersCard /></WithActions>,
+    }] : []),
+  ];
+  const canMove = !!acts?.canWrite;
+  const save = (scope: string) => (keys: string[]) => {
+    void send("/api/reporting/kpi-actions/order", "POST", { scope, keys }).catch(() => {}).finally(() => { void refreshActions(); });
+  };
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       {/* the stage, as a UC card title: badge, name (the way in), one line */}
@@ -168,27 +187,17 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
         placementOf(acts, "customers::summary", "nutshell") === "nutshell"
           ? <WithActions where="nutshell" start="nutshell" tile={{ key: "customers::summary", page: "customers", title: "Our customers", kind: "card", href: stageHref("customers") }}><CustomersSummary /></WithActions>
           : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Moved to its page.</Typography>
-      ) : (tiles.length > 0 || traffic || promoted.tiles.length > 0) ? (
-        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }}>
-          {tiles.map((v) => <KpiTileChart key={v.id} v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />} />)}
-          {promoted.tiles}
-          {traffic && placementOf(acts, "visit::traffic-origin", "nutshell") === "nutshell" && (
-            <Box sx={{ gridColumn: { sm: "span 2" }, minWidth: 0 }}>
-              <WithActions where="nutshell" start="nutshell" top={18} tile={{ key: "visit::traffic-origin", page: "visit", title: "Traffic origin", kind: "card", href: stageHref("visit") }}><TrafficOrigin live={live!} /></WithActions>
-            </Box>
-          )}
-          {/* SEO and SEA in customers: new, reactivated, active (SARCLA 17.10) */}
-          {s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" && (
-            <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}>
-              <WithActions where="nutshell" start="nutshell" tile={{ key: "reach:customers:search-customers", page: "reach", tab: "customers", title: "Customers from search", kind: "card", href: stageHref("reach") }}><SearchCustomersCard /></WithActions>
-            </Box>
-          )}
-        </Box>
+      ) : items.length > 0 ? (
+        <SortableGrid items={items} order={acts?.orders?.[`nutshell:${s.slug}`]} canMove={canMove} onMove={save(`nutshell:${s.slug}`)}
+          sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILES }} />
       ) : !promoted.rows.length ? (
         <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing here is measured yet.</Typography>
       ) : null}
       {/* the charts and tables promoted from this page, a whole row each */}
-      {promoted.rows.length > 0 && <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>{promoted.rows}</Box>}
+      {promoted.rows.length > 0 && (
+        <SortableGrid items={promoted.rows} order={acts?.orders?.[`nutshell:${s.slug}-rows`]} canMove={canMove} onMove={save(`nutshell:${s.slug}-rows`)}
+          sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }} />
+      )}
 
       {missing.length > 0 && (
         <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center" }}>

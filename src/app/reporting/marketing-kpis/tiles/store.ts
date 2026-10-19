@@ -7,7 +7,7 @@ import type { Placement, SavedView, TileSpec } from "@/lib/reporting/kpiActions"
 
 export type Counts = Record<string, { open: number; tasks: number; tickets: number }>;
 export type Placed = { spec: TileSpec; placement: Placement; by: string; at: string };
-export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[] };
+export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]> };
 
 type Store = { state: ActionsState | null; error: string | null; listeners: Set<() => void>; loading: Promise<void> | null };
 const stores = new Map<string, Store>();
@@ -26,7 +26,7 @@ async function load(page: string): Promise<void> {
       const r = await fetch(`/api/reporting/kpi-actions?page=${encodeURIComponent(page)}`);
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
-      s.state = { canWrite: !!j.canWrite, counts: j.counts ?? {}, placements: j.placements ?? [], views: j.views ?? [] };
+      s.state = { canWrite: !!j.canWrite, counts: j.counts ?? {}, placements: j.placements ?? [], views: j.views ?? [], orders: j.orders ?? {} };
       s.error = null;
     } catch (e) {
       s.error = (e as Error).message;

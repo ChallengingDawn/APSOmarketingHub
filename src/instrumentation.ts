@@ -44,6 +44,10 @@ export async function register() {
     // for HubSpot when opening one (read-only; never beside an ERP chain; LIFECYCLE_WARM=off stops it)
     const { startLifecycleWarm } = await import("./lib/lifecycle/scheduler");
     startLifecycleWarm();
+    // Lead Generation the same way: read in the background so nobody waits for it (read-only;
+    // never beside an ERP chain; LEADS_WARM=off stops it). SARCLA, 19.10.2026.
+    const { startLeadsWarm } = await import("./lib/marketingKpis/leadsWarm");
+    startLeadsWarm();
     // The 3D Gateway's counts (Railway keeps them in memory only): collected every 15 minutes into the
     // hub's database. Needs THREED_ADMIN_KEY; THREED_COLLECT=off stops it.
     const { startThreeDCollector } = await import("./lib/threeD/calls");

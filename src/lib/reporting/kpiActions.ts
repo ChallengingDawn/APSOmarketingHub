@@ -5,8 +5,10 @@
 //              themselves live in HubSpot - only the link is kept here)
 //   placement  promoted to "In a nutshell" or demoted to its own tab - one choice for everyone
 //   views      a named set of a page's filters (its URL query), personal unless shared
+//   order      the tiles of a nutshell panel in the order someone dragged them (SARCLA 19.10: "press
+//              continuously with the mouse on a graph and move it inside the card") - one order for everyone
 // A tile is known by its key: "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02".
-// Four small tables, created on first use.
+// Five small tables, created on first use.
 
 import { query } from "@/lib/db/client";
 
@@ -14,6 +16,7 @@ const TASKS = "apsomh_kpi_tasks";
 const LINKS = "apsomh_kpi_ticket_links";
 const PLACE = "apsomh_kpi_tile_placement";
 const VIEWS = "apsomh_kpi_views";
+const ORDER = "apsomh_kpi_tile_order";
 
 export type TaskStatus = "open" | "doing" | "done";
 export const TASK_STATUSES: readonly TaskStatus[] = ["open", "doing", "done"];
@@ -81,6 +84,12 @@ function ensure(): Promise<void> {
         owner_name text NOT NULL DEFAULT '',
         shared boolean NOT NULL DEFAULT false,
         created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await query(`CREATE TABLE IF NOT EXISTS ${ORDER} (
+        scope text PRIMARY KEY,
+        keys jsonb NOT NULL,
+        by_name text NOT NULL DEFAULT '',
+        at timestamptz NOT NULL DEFAULT now()
       )`);
     })().catch((e) => {
       ready = null;
@@ -197,6 +206,30 @@ export async function placements(): Promise<{ spec: TileSpec; placement: Placeme
   await ensure();
   const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown }>(`SELECT * FROM ${PLACE} ORDER BY at`);
   return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", by: x.by_name, at: iso(x.at) ?? "" }));
+}
+
+/* ── order ───────────────────────────────────────────────────────────── */
+
+/** A panel's tiles in the order someone dragged them; scope "nutshell:<stage slug>". */
+export async function setOrder(scope: string, keys: string[], by: string): Promise<void> {
+  await ensure();
+  await query(
+    `INSERT INTO ${ORDER} (scope, keys, by_name) VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (scope) DO UPDATE SET keys = EXCLUDED.keys, by_name = EXCLUDED.by_name, at = now()`,
+    [scope, JSON.stringify(keys), by],
+  );
+}
+
+/** Every panel someone put in order: scope -> tile keys, first to last. */
+export async function orders(): Promise<Record<string, string[]>> {
+  await ensure();
+  const r = await query<{ scope: string; keys: unknown }>(`SELECT scope, keys FROM ${ORDER}`);
+  const out: Record<string, string[]> = {};
+  for (const x of r.rows) {
+    const v = typeof x.keys === "string" ? (() => { try { return JSON.parse(x.keys as string); } catch { return []; } })() : x.keys;
+    if (Array.isArray(v)) out[x.scope] = v.filter((k): k is string => typeof k === "string");
+  }
+  return out;
 }
 
 /* ── saved views ───────────────────────────────────────────────────────── */

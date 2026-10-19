@@ -243,6 +243,9 @@ const NAME_FIX: Record<string, string> = {
   R08: "Brand share of search clicks",
   // the Journey tab's "/GEO" on figures that are search and ads only (SARCLA 18.10: no GEO tags)
   P05: "SEA revenue", P06: "ROAS (SEA)", P07: "SEO revenue", X01: "SEA cost",
+  // Google Ads only, now that Microsoft Ads has its own tiles (SARCLA 19.10: "SEA clicks should be
+  // Google SEA - SEA on its own doesn't exist any more")
+  R01: "Google SEA impressions", R02: "Google SEA clicks", R03: "Google SEA CTR",
 };
 /** A KPI's name as SARCLA wrote it on the Journey tab, else the catalogue's. */
 export const nameOf = (id: string) => NAME_FIX[id] ?? JOURNEY.find((j) => j.id === id)?.name ?? KPIS.find((k) => k.id === id)?.name ?? MEASURES[id]?.label ?? id;
