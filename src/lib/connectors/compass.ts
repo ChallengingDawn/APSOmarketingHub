@@ -240,6 +240,13 @@ export const STEPS: Step[] = [
  */
 export const OTHER_STEPS: Step[] = [
   {
+    key: "directup_names", name: "Cut article names for DirectUP", group: "orders", phase: "hub",
+    what: "Sends DirectUP the ERP's own text of every C2S cut article (8001…, \"PE-HD 1000 natur # 500 x 300 x 10 mm\"), so a customer who types one sees its material and size. The shop's price answer names none of them, and DirectUP's catalogue lists the standard range only. Everything on the first night and on Sundays, otherwise what the ERP created or changed in the last three days. Writes nothing in HubSpot. New in the hub (19.10.2026).",
+    when: "When a new dim_article.csv arrives",
+    reads: "dim_article.csv (cut articles 8001…, with a text) · the DirectUp Gateway's count of names it holds",
+    writes: [],
+  },
+  {
     key: "stock_load", name: "ERP stock into Products & Pricing", group: "orders", phase: "hub",
     what: "Puts the ERP's stock on every article: its stock value, unit cost, consumption and movement - and, for articles held in one unit and sold in another (PTFE plate: kg held, sold by the piece), the stock in KILOGRAMS. The piece count for those comes from the shop's own availability, written by the APSOAssistant gateway into Stock Sales. New in the hub - the connector never loaded this file on a schedule.",
     when: "When a new fct_article_quantity_and_consumption.csv arrives (it needs dim_article.csv on disk for its keys)",

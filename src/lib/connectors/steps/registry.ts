@@ -20,6 +20,7 @@ import { stockLoad } from "./stock";
 import { FCT_FILE } from "./stockRules";
 import { ownerRulesSweep } from "../../ownerRules/sweep";
 import { learnArticleIds, repairArticleLines } from "./articleMemory";
+import { directupNames } from "./directupNames";
 
 export type Beat = () => Promise<void>;
 export type StepCtx = { live: boolean; beat: Beat; full?: boolean; dir: string | null };
@@ -50,6 +51,9 @@ export const REGISTRY: StepDef[] = [
   { key: "magento_stamp", cadence: "chain", file: "export.xml", run: (c) => magentoStamp(c.live, c.beat, { file: at(c, "export.xml") }) },
   // compare: the first live run reads what HubSpot holds and writes only real differences
   { key: "articles", cadence: "chain", file: "dim_article.csv", run: (c) => articleLoad(c.live, c.beat, { file: at(c, "dim_article.csv"), compare: true }) },
+  // HUB ONLY: the ERP's text of every cut article (8001…), for DirectUP - the shop's price answer names
+  // none of them (SARCLA 19.10.2026: "we should have the name of the article in here, material + dimensions")
+  { key: "directup_names", cadence: "chain", file: "dim_article.csv", hubOnly: true, run: (c) => directupNames(c.live, c.beat, { file: at(c, "dim_article.csv") }) },
   // HUB ONLY: the ERP stock fact, which the connector never loaded on a schedule. Kilograms into
   // stock_quantity for cross-unit articles, the stock values for all - after "articles", so the
   // units it routes on are the ones the article master has just written
