@@ -3,7 +3,9 @@
 // TICKET/ORDER/ARTICLE ASSOCIATIONS > Contacts without a company (SARCLA 19.10: "build it inside the
 // existing app, a separate contact tab ... they should be straightforward"). People with a shop login
 // whose HubSpot contact has no company - their logins and orders count for no company. Each with the
-// companies on its e-mail domain, the likeliest first: pick, Link. Nothing is linked without that click.
+// companies its orders are booked on and those on its e-mail domain, the likeliest first: pick, Link;
+// the clear ones (all their orders on one company) in one go with "Link all". Nothing is linked
+// without a click.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -43,6 +45,7 @@ export function ShopAccountsTab() {
   const [pick, setPick] = useState<Record<string, string>>({});
   const [done, setDone] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [allDone, setAllDone] = useState<string | null>(null);
   const computing = r?.state === "ok" && r.data.computing && !r.data.value;
   // a first read takes a few seconds: ask again until it is in
   useEffect(() => { if (!computing) return; const t = setTimeout(() => setN((x) => x + 1), 4000); return () => clearTimeout(t); }, [computing, n]);
@@ -66,6 +69,18 @@ export function ShopAccountsTab() {
     } finally { setBusy(null); }
   };
   const linkedNow = Object.values(done).filter((x) => x.ok).length;
+  const clear = (u.rows ?? []).filter((x) => x.byOrder && !done[x.id]?.ok);
+  // the clear ones in one go - after a yes (SARCLA 19.10: "if they have an order we can also link easily")
+  const linkAll = async () => {
+    if (!window.confirm(`Link ${clear.length} contacts, each to the company all its orders are booked on?`)) return;
+    setBusy("all");
+    try {
+      const res = await fetch("/api/uc/ticket-associations/shop-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: "orders" }) });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: { linked: number; failed: number; error?: string } };
+      setAllDone(j.ok ? `${full(j.data?.linked ?? 0)} linked to the company of their orders${j.data?.failed ? ` - ${full(j.data.failed)} refused by HubSpot${j.data.error ? `: ${j.data.error}` : ""}` : ""}` : j.error ?? `HubSpot answered ${res.status}`);
+      setN((x) => x + 1);
+    } finally { setBusy(null); }
+  };
 
   return (
     <>
@@ -76,7 +91,7 @@ export function ShopAccountsTab() {
       <Grid container spacing={2}>
         {[
           { icon: <LinkOffIcon />, tint: "amber" as const, label: "Without a company", value: u.total, note: `${full(u.createdThisYear)} opened this year · A+P's own left out` },
-          { icon: <BusinessOutlinedIcon />, tint: "green" as const, label: "A company on their domain", value: u.matched, note: "pick it and Link" },
+          { icon: <BusinessOutlinedIcon />, tint: "green" as const, label: "A company to link", value: u.matched, note: `${full(u.withOrders ?? 0)} by their orders, the rest by their e-mail domain` },
           { icon: <AlternateEmailIcon />, tint: "blue" as const, label: "Business address, no company", value: u.business, note: "find or create it in HubSpot" },
           { icon: <AddLinkIcon />, tint: "purple" as const, label: "Linked here", value: r.data.linkedCount + linkedNow, note: "from this tab, every one" },
         ].map((k) => (
@@ -94,7 +109,19 @@ export function ShopAccountsTab() {
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
           <CardTitle icon={<LinkOffIcon />} tint="amber" title={kind === "match" ? "Link each one to its company" : kind === "business" ? "No company with their e-mail domain yet" : "A free e-mail address - only the company they typed says who they are"}
-            note={kind === "match" ? "The likeliest company first - the one named like the company they typed; open the list when the domain has several" : "The name opens the contact in HubSpot: find the company there, or create it"} />
+            note={kind === "match" ? "The company their orders are booked on first, then the one named like the company they typed; open the list when there are several" : "The name opens the contact in HubSpot: find the company there, or create it"} />
+          {kind === "match" && (clear.length > 0 || allDone) && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", mt: 1.25, mb: 0.5, px: 1.5, py: 1, borderRadius: "12px", bgcolor: "rgba(27,122,85,.07)" }}>
+              {clear.length > 0 && (
+                <Button size="small" variant="contained" color="success" disableElevation disabled={busy !== null} onClick={linkAll} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "8px" }}>
+                  {busy === "all" ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : `Link all ${full(clear.length)} to the company of their orders`}
+                </Button>
+              )}
+              <Typography sx={{ fontSize: "0.8rem", color: allDone ? GREEN : MUTED, fontWeight: allDone ? 700 : 400 }}>
+                {allDone ?? "Every order of these contacts is booked on one company (the ERP's customer) - the surest link there is."}
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Table size="small">
           <TableHead><TableRow>{["Company they typed", "E-mail domain", "Country", "Account since", kind === "match" ? "Link to" : ""].filter(Boolean).map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
@@ -119,11 +146,16 @@ export function ShopAccountsTab() {
                           {row.candidates.length > 1 ? (
                             <select aria-label={`Company for ${row.company || row.domain}`} value={pick[row.id] ?? row.candidates[0].id} onChange={(e) => setPick((p) => ({ ...p, [row.id]: e.target.value }))}
                               style={{ font: "inherit", fontSize: "0.84rem", padding: "5px 8px", borderRadius: 8, border: "1px solid #d5dbe4", maxWidth: 280, background: "#fff", color: INK }}>
-                              {row.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.country ? ` - ${c.country}` : ""}</option>)}
+                              {row.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.country ? ` - ${c.country}` : ""}{c.orders ? ` · ${c.orders} of their orders` : ""}</option>)}
                             </select>
                           ) : (
                             <Box component="a" href={`${HUBSPOT}/0-2/${row.candidates[0].id}`} target="_blank" rel="noreferrer" sx={{ color: INK, fontSize: "0.84rem", fontWeight: 600 }}>{row.candidates[0].name}</Box>
                           )}
+                          {(() => { const o = (row.candidates.find((c) => c.id === (pick[row.id] ?? row.candidates[0].id)) ?? row.candidates[0]).orders; return o ? (
+                            <Box component="span" title="Their orders are booked on this company" sx={{ fontSize: "0.7rem", fontWeight: 700, color: GREEN, bgcolor: "rgba(27,122,85,.1)", px: 0.8, py: 0.2, borderRadius: "6px", whiteSpace: "nowrap" }}>
+                              {o} {o === 1 ? "order" : "orders"} on it
+                            </Box>
+                          ) : null; })()}
                           <Button size="small" variant="contained" disableElevation disabled={busy !== null} onClick={() => link(row)} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "8px", minWidth: 64 }}>
                             {busy === row.id ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : "Link"}
                           </Button>

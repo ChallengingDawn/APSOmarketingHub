@@ -564,7 +564,7 @@ function UnlinkedCard({ u, error, right }: { u: VisitData["unlinked"]; error?: s
           <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
             {[
               { n: u.total, label: "Shop accounts without a company", sub: `${n0(u.createdThisYear)} opened this year · ${n0(u.seenThisYear)} on the site this year` },
-              { n: u.matched, label: "A company with their e-mail domain exists", sub: "Link the contact to it" },
+              { n: u.matched, label: "A company to link", sub: `${n0(u.withOrders ?? 0)} by their orders, the rest by their e-mail domain` },
               { n: u.business, label: "Business address, no company yet", sub: "Find or create the company" },
               { n: u.free, label: "Free e-mail address", sub: "gmail, bluewin … - check the company they typed" },
             ].map((x) => (
@@ -579,7 +579,7 @@ function UnlinkedCard({ u, error, right }: { u: VisitData["unlinked"]; error?: s
             <Button component="a" href="/uc/ticket-associations#shop-accounts" variant="contained" disableElevation sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>
               Fix them in Ticket/order/article associations
             </Button>
-            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Each one with the companies on its e-mail domain - pick and Link. A+P&apos;s own people ({n0(u.internal)} accounts) left out.</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Each one with the company its orders are booked on and those on its e-mail domain - pick and Link. A+P&apos;s own people ({n0(u.internal)} accounts) left out.</Typography>
           </Box>
         </>
       )}

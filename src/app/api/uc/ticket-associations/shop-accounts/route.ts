@@ -3,11 +3,12 @@
 // GET: the accounts, the companies on each one's e-mail domain, and the links made here.
 // POST { contact, company }: link that contact to that company as its primary - a person's click,
 // UC app users; only a company the read offered for that contact.
+// POST { all: "orders" }: link every account whose orders are all booked on one company, to it.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { linkAccount, linked, shopAccounts } from "@/lib/ticketAssoc/shopAccounts";
+import { linkAccount, linkAllByOrder, linked, shopAccounts } from "@/lib/ticketAssoc/shopAccounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +34,11 @@ export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { contact?: string; company?: string };
+  const b = (await req.json().catch(() => ({}))) as { contact?: string; company?: string; all?: string };
+  if (b.all === "orders") {
+    try { return NextResponse.json({ ok: true, data: await linkAllByOrder(`user ${access.userId}`) }); }
+    catch (err) { return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 }); }
+  }
   if (!ID.test(String(b.contact ?? "")) || !ID.test(String(b.company ?? ""))) return NextResponse.json({ ok: false, error: "A contact and a company are needed" }, { status: 400 });
   try {
     return NextResponse.json({ ok: true, data: await linkAccount(String(b.contact), String(b.company), `user ${access.userId}`) });

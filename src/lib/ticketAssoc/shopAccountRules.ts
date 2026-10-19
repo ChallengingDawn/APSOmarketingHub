@@ -9,7 +9,11 @@ export const FREE_MAIL = /^(gmail|googlemail|hotmail|outlook|live|yahoo|ymail|gm
 /** A+P's own people: their test accounts are not customers to fix. */
 export const INTERNAL = /(^|\.)(apsoparts|angst-pfister|angstpfister)\.[a-z.]+$/i;
 
-export type Candidate = { id: string; name: string; country: string };
+export type Candidate = {
+  id: string; name: string; country: string;
+  /** how many of the contact's orders are booked on this company (the ERP's customer) - the strongest sign */
+  orders?: number;
+};
 
 export type UnlinkedRow = {
   /** the HubSpot contact */
@@ -19,18 +23,22 @@ export type UnlinkedRow = {
   domain: string;
   country: string;
   created: string;
-  /** "match" a company with this e-mail domain exists - link it; "business" no company yet; "free" a free e-mail address */
+  /** "match" a company to link (their orders' or their e-mail domain's); "business" no company yet; "free" a free e-mail address */
   kind: "match" | "business" | "free";
-  /** the companies on the e-mail domain, the likeliest first */
+  /** the companies to offer: their orders' first, then the e-mail domain's, the likeliest first */
   candidates: Candidate[];
   /** the likeliest candidate, and how many more companies share the domain */
   match: { id: string; name: string; more: number } | null;
+  /** the contact's orders are all booked on ONE company - linked in one go with "Link all" */
+  byOrder: boolean;
 };
 export type Unlinked = {
   /** every shop account without a company, A+P's own staff left out */
   total: number;
   internal: number;
   matched: number;
+  /** of them, whose orders are booked on a company */
+  withOrders: number;
   business: number;
   free: number;
   createdThisYear: number;
@@ -58,4 +66,15 @@ export function rankCandidates(typed: string, list: Candidate[]): Candidate[] {
   if (!t.size) return list;
   const score = (c: Candidate) => { const w = nameWords(c.name); return w.length ? w.filter((x) => t.has(x)).length / Math.max(w.length, t.size) : 0; };
   return list.map((c, i) => ({ c, i, s: score(c) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.c);
+}
+
+/**
+ * The companies to offer: the ones the contact's orders are booked on first (most orders first -
+ * SARCLA 19.10: "if they have an order we can also link easily"), then those on its e-mail domain,
+ * each once.
+ */
+export function withOrderCompanies(fromOrders: Candidate[], fromDomain: Candidate[]): Candidate[] {
+  const byOrders = [...fromOrders].sort((a, b) => (b.orders ?? 0) - (a.orders ?? 0));
+  const seen = new Set(byOrders.map((c) => c.id));
+  return [...byOrders, ...fromDomain.filter((c) => !seen.has(c.id))];
 }
