@@ -29,6 +29,12 @@ export type LeadRow = {
   n: number;
   /** qualified by the owner: 1 yes, 0 no, null not yet */
   q: 1 | 0 | null;
+  /** the owner's answer as written ("Yes - registered by ESO", "No"…), when there is one */
+  qv?: string;
+  /** if not qualified: the disqualification reason given */
+  dr?: string;
+  /** if qualified and no order: the reason given */
+  np?: string;
   /** sent to sales after it came in: a UC2 qualification task or an ESO/TSA ticket */
   s: boolean;
   /** how it reached sales first: the UC2 task (until 1 Oct 2026) or a ticket; null when it did not */
@@ -59,8 +65,8 @@ export type LeadsData = {
   /** what the read carries (LEADS_SHAPE): an older answer is shown while a new one is read */
   shape?: number;
 };
-/** 4: owners who left HubSpot by name; 5: no "shop registration" source (both 19.10) */
-export const LEADS_SHAPE = 5;
+/** 4: owners who left HubSpot by name; 5: no "shop registration" source; 6: the owners' answers and reasons (all 19.10) */
+export const LEADS_SHAPE = 6;
 
 /** The channels, in the order the page lists them. */
 export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | "direct" | "people" | "other" }[] = [
@@ -270,4 +276,33 @@ export function monthly(d: LeadsData, f: LeadFilters, pick: (r: LeadRow) => bool
     else if (y === d.year - 1) add(py[m], r);
   }
   return { cy, py };
+}
+
+/* ── what the owners answered (SARCLA 19.10: "we have multiple answers, not only qualified and not") ── */
+
+export type Answers = {
+  /** the owner's answer as written, and "Not answered yet" */
+  answers: Map<string, number>;
+  /** the disqualification reasons of the leads not qualified ("No reason given" when empty) */
+  why: Map<string, number>;
+  /** the reasons the qualified leads with no order give ("No reason given" when empty) */
+  noOrder: Map<string, number>;
+  leads: number;
+};
+
+const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+
+/** The leads of the months chosen by the owner's answer, and the reasons behind a no and behind no order. */
+export function answersOf(d: LeadsData, w: { start: number; end: number }, f: LeadFilters): Answers {
+  const out: Answers = { answers: new Map(), why: new Map(), noOrder: new Map(), leads: 0 };
+  for (const r of d.rows) {
+    if (!keep(r, f) || !inWin(r.m, d.year, w)) continue;
+    out.leads += 1;
+    bump(out.answers, r.q == null ? "Not answered yet" : r.qv?.trim() || (r.q === 1 ? "Yes" : "No"));
+    // a reason field can hold several reasons ("No product demand;Others"): each one counts
+    const each = (v: string | undefined) => (v ?? "").split(";").map((x) => x.trim()).filter(Boolean);
+    if (r.q === 0) { const w = each(r.dr); if (w.length) for (const x of w) bump(out.why, x); else bump(out.why, "No reason given"); }
+    if (r.q === 1 && !r.f) { const w = each(r.np); if (w.length) for (const x of w) bump(out.noOrder, x); else bump(out.noOrder, "No reason given"); }
+  }
+  return out;
 }

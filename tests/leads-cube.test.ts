@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { channelOf, flowOf, howOf, monthly, outcomeOf, pathBy, pathOf, qualOf, sumPaths, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
+import { answersOf, channelOf, flowOf, howOf, monthly, outcomeOf, pathBy, pathOf, qualOf, sumPaths, type LeadRow, type LeadsData } from "../src/lib/marketingKpis/leadsCube";
 
 test("where a lead came from: HubSpot's original source and its details", () => {
   assert.equal(channelOf("PAID_SEARCH", "brand (deutsch)", "Google"), "sea-google");
@@ -115,4 +115,23 @@ test("month by month for the small graphs: this year and last, the window summed
   const jq = sumPaths(seo.cy.slice(0, 3));
   assert.deepEqual([jq.companies, jq.customers, jq.toSales], [2, 1, 1]);
   assert.equal(monthly(d, { channel: ["chat"] }).cy[0].companies, 1);
+});
+
+test("what the owners answered: the answer as written, why not, and why no order", () => {
+  const d = data([
+    row({ q: 1, qv: "Yes - registered by ESO", f: "2026-04" }),
+    row({ q: 1, qv: "Yes - registered by ESO", np: "Delivery time" }),
+    row({ q: 1, qv: "Yes - registered on their own", np: "Delivery time;Only looking for info" }),
+    row({ q: 0, qv: "No", dr: "Private Customer" }),
+    row({ q: 0, qv: "No" }),
+    row({ q: null }),
+    row({ m: "2025-03", q: 0, dr: "Other" }), // last year: not in the months chosen
+  ]);
+  const a = answersOf(d, { start: 0, end: 8 }, {});
+  assert.equal(a.leads, 6);
+  assert.deepEqual(Object.fromEntries(a.answers), { "Yes - registered by ESO": 2, "Yes - registered on their own": 1, No: 2, "Not answered yet": 1 });
+  assert.deepEqual(Object.fromEntries(a.why), { "Private Customer": 1, "No reason given": 1 });
+  // the qualified who bought are not asked why they did not
+  // two reasons in one field count once each
+  assert.deepEqual(Object.fromEntries(a.noOrder), { "Delivery time": 2, "Only looking for info": 1 });
 });

@@ -38,6 +38,20 @@ const ms = (v: string | null | undefined): number | null => {
 };
 const monthOf = (t: number) => new Date(t).toISOString().slice(0, 7);
 
+/**
+ * The labels people pick in a company dropdown, by the value HubSpot stores - "Yes" is shown as
+ * "Yes - registered on their own". The value itself when the property cannot be read.
+ */
+async function optionLabels(name: string): Promise<(v: string) => string> {
+  try {
+    const p = await hubspotFetchJson<{ options?: { value: string; label: string }[] }>({ path: `/crm/v3/properties/companies/${name}` });
+    const m = new Map((p.options ?? []).map((o) => [o.value, o.label]));
+    return (v) => m.get(v) ?? v;
+  } catch {
+    return (v) => v;
+  }
+}
+
 /** The read itself (exported for a local check; the page goes through leadsData). */
 export async function buildLeads(): Promise<LeadsData> {
   const now = new Date();
@@ -85,7 +99,7 @@ export async function buildLeads(): Promise<LeadsData> {
     try {
       const j = await hubspotFetchJson<{ results?: Obj[] }>({
         path: "/crm/v3/objects/companies/batch/read", method: "POST",
-        body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["createdate", "country_custom", "country", "hubspot_owner_id", "order_first_order_date", "order_total_orders", "qualified_by_company_owner", `revenue_${py}`, `revenue_${year}`] },
+        body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["createdate", "country_custom", "country", "hubspot_owner_id", "order_first_order_date", "order_total_orders", "qualified_by_company_owner", "disqualification_reason", "qualified_lead___no_purchase_reason", `revenue_${py}`, `revenue_${year}`] },
       });
       for (const c of j.results ?? []) cos.set(String(c.id), c.properties ?? {});
     } catch (e) {
@@ -187,6 +201,8 @@ export async function buildLeads(): Promise<LeadsData> {
     errors.owners = String((e as Error)?.message ?? e).slice(0, 200);
   }
 
+  // the owners' answers and reasons as people see them in HubSpot
+  const [qLabel, drLabel, npLabel] = await Promise.all(["qualified_by_company_owner", "disqualification_reason", "qualified_lead___no_purchase_reason"].map(optionLabels));
   const rows: LeadRow[] = [];
   for (const [id, l] of leads) {
     const p = cos.get(id) ?? {};
@@ -202,6 +218,10 @@ export async function buildLeads(): Promise<LeadsData> {
     rows.push({
       m: monthOf(l.created), c: l.first.channel, h: l.first.how, k: (p.country_custom || p.country || "").trim() || "Unknown", o: p.hubspot_owner_id ?? "",
       n: Math.max(1, l.n), q: qualOf(p.qualified_by_company_owner), s: firstSales != null,
+      // the answer and its reason as written - only when there is one, to keep the read small
+      ...(p.qualified_by_company_owner?.trim() ? { qv: qLabel(p.qualified_by_company_owner.trim()) } : {}),
+      ...(p.disqualification_reason?.trim() ? { dr: drLabel(p.disqualification_reason.trim()) } : {}),
+      ...(p.qualified_lead___no_purchase_reason?.trim() ? { np: npLabel(p.qualified_lead___no_purchase_reason.trim()) } : {}),
       via: firstSales == null ? null : firstTask != null && firstTask === firstSales ? "task" : "ticket",
       td: tasks.some((t) => t.done),
       f: firstOrder != null ? monthOf(firstOrder) : null,

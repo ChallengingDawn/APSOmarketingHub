@@ -43,7 +43,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { BarList } from "@/app/charts/BarList";
 import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
-import { CHANNELS, HOWS, channelLabel, emptyPath, howLabel, flowOf, inWin, keep, monthly, outcomeOf, pathBy, pathOf, sumPaths, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadRow, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
+import { CHANNELS, HOWS, answersOf, channelLabel, emptyPath, howLabel, flowOf, inWin, keep, monthly, outcomeOf, pathBy, pathOf, sumPaths, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadRow, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
@@ -567,10 +567,47 @@ function OwnerTableCard({ d, f, win, actions }: Ctx) {
   );
 }
 
+/**
+ * What the owners answered, and why (SARCLA 19.10: "on the path another graph that shows the different
+ * choices in qualified - we have multiple, not only qualified and not qualified"): the answer as written,
+ * the reason behind a no, and the reason a qualified lead gives for no order yet.
+ */
+function AnswersCard({ d, f, win, actions }: Ctx) {
+  const a = answersOf(d, win, f);
+  const bars = (m: Map<string, number>, of: number) => [...m.entries()].sort((x, y) => y[1] - x[1]).map(([label, value]) => ({ label, value, secondary: ratio(value, of) }));
+  const sum = (m: Map<string, number>) => [...m.values()].reduce((x, y) => x + y, 0);
+  const no = a.answers.get("No") ?? 0, qualifiedNoOrder = [...a.answers.entries()].filter(([k]) => k !== "No" && k !== "Not answered yet").reduce((x, [, v]) => x + v, 0);
+  const groups = [
+    { title: "The owner's answer", note: `all ${n0(a.leads)} new leads`, rows: bars(a.answers, a.leads), wide: false },
+    { title: "Why not qualified", note: `the ${n0(no)} answered "No" - a lead can give more than one reason`, rows: bars(a.why, no || sum(a.why)), wide: false },
+    { title: "Qualified, no order yet - why", note: `the qualified leads without an order (of ${n0(qualifiedNoOrder)} qualified) - a lead can give more than one reason`, rows: bars(a.noOrder, sum(a.noOrder)), wide: true },
+  ];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <CardTitle icon={<VerifiedOutlinedIcon />} tint="purple" title="What the owners answered" note={`${monthsLabel(win)} ${d.year} · "Qualified by company owner" as the owner set it, the reason given with a no, and the reason a qualified lead gives for no order yet`} right={actions} />
+      <ChartFrame table={{ columns: ["Group", "Answer or reason", "Leads", "Share"], rows: groups.flatMap((g) => g.rows.map((r) => [g.title, r.label, r.value ?? 0, r.secondary])), numeric: [2, 3] }}>
+        {/* the answers and the no's side by side, the reasons for no order under them, whole width - room for the words */}
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } }}>
+          {groups.map((g) => (
+            <Box key={g.title} sx={{ minWidth: 0, display: "grid", gap: 0.75, alignContent: "start", ...(g.wide ? { gridColumn: "1 / -1" } : {}) }}>
+              <Box>
+                <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{g.title}</Typography>
+                <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{g.note}</Typography>
+              </Box>
+              <BarList rows={g.rows} format={(v) => n0(v)} labelWidth={260} maxLabel={48} emptyMessage="None in these months." />
+            </Box>
+          ))}
+        </Box>
+      </ChartFrame>
+    </GlassCard>
+  );
+}
+
 /** Every card of the page by its key "<tab>:<card>" - the page draws them, and so does the nutshell. */
 const CARDS: Record<string, { title: string; draw: (c: Ctx) => React.ReactNode }> = {
   "path:flow": { title: "How the leads split", draw: (c) => <SplitCard {...c} /> },
   "path:path": { title: "From acquisition to purchase", draw: (c) => <StepsCard {...c} /> },
+  "path:answers": { title: "What the owners answered", draw: (c) => <AnswersCard {...c} /> },
   "sources:conversion": { title: "Which sources buy", draw: (c) => <SourceBuyCard {...c} /> },
   "sources:sources": { title: "Where the leads came from", draw: (c) => <SourceTableCard {...c} /> },
   "months:months": { title: "New leads by month", draw: (c) => <MonthLeadsCard {...c} /> },
@@ -711,7 +748,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
         </Button>
       </Box>
 
-      {tab === "path" && <>{card("flow")}{card("path")}</>}
+      {tab === "path" && <>{card("flow")}{card("answers")}{card("path")}</>}
 
       {tab === "sources" && (
         <>
