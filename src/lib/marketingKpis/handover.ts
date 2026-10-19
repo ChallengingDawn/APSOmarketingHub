@@ -8,7 +8,7 @@
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { UCS } from "@/lib/lifecycle/config";
-import { batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
+import { associations, batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
 import { HANDOVER_SHAPE, classify, workingHours, type HandoverData, type HandoverRow } from "./handoverCube";
 
 const KEY = "marketingKpis:handover:v1";
@@ -81,7 +81,7 @@ export async function buildHandover(): Promise<HandoverData> {
     [[{ propertyName: "hs_pipeline", operator: "IN", values: Object.keys(PIPES) }, { propertyName: "createdate", operator: "GTE", value: String(Date.UTC(py, 0, 1)) }]],
     PROPS, (n) => reportProgress(KEY, `reading the ESO and TSA tickets · ${n.toLocaleString("en")}`));
 
-  type Kept = { p: Record<string, string | null>; g: HandoverRow["g"]; c: string; created: number };
+  type Kept = { id: string; p: Record<string, string | null>; g: HandoverRow["g"]; c: string; created: number };
   const kept: Kept[] = [];
   for (const t of found) {
     const p = t.properties ?? {};
@@ -89,7 +89,26 @@ export async function buildHandover(): Promise<HandoverData> {
     if (created == null || !PIPES[p.hs_pipeline ?? ""]) continue;
     const what = classify({ subject: p.subject, sourceType: p.source_type, objectSource: p.hs_object_source, workflow: p.hs_object_source_detail_1, outbound: p.hs_outbound_ticket, tags: p.hs_tag_ids, resolution: p.ticket_resolution_eso }, lifecycle);
     if ("skip" in what) { skipped[what.skip] = (skipped[what.skip] ?? 0) + 1; continue; }
-    kept.push({ p, g: what.g, c: what.c, created });
+    kept.push({ id: String(t.id), p, g: what.g, c: what.c, created });
+  }
+
+  // the calls logged on the tickets: a call is a first contact too (SARCLA 19.10: "no reply on the ticket
+  // should also mean no calls") - the first one after the ticket came in
+  const firstCall = new Map<string, number>();
+  try {
+    reportProgress(KEY, "reading the calls on the tickets");
+    const onTicket = await associations("tickets", "calls", kept.map((k) => k.id));
+    const callIds = [...new Set([...onTicket.values()].flat())];
+    const calls = await batchRead("calls", callIds, ["hs_timestamp", "hs_createdate"], [], (n) => reportProgress(KEY, `reading the calls, ${n.toLocaleString("en")} of ${callIds.length.toLocaleString("en")}`));
+    const at = new Map(calls.map((c) => [String(c.id), ms(c.properties?.hs_timestamp) ?? ms(c.properties?.hs_createdate)]));
+    for (const k of kept) {
+      for (const id of onTicket.get(k.id) ?? []) {
+        const t = at.get(id);
+        if (t != null && t >= k.created && t < (firstCall.get(k.id) ?? Infinity)) firstCall.set(k.id, t);
+      }
+    }
+  } catch (e) {
+    errors.calls = String((e as Error)?.message ?? e).slice(0, 200);
   }
 
   // the companies' countries
@@ -106,11 +125,13 @@ export async function buildHandover(): Promise<HandoverData> {
   try { owners = await ownerNames(); } catch (e) { errors.owners = String((e as Error)?.message ?? e).slice(0, 200); }
 
   const label = await resolutionLabels();
-  const rows: HandoverRow[] = kept.map(({ p, g, c, created }) => {
+  const rows: HandoverRow[] = kept.map(({ id, p, g, c, created }) => {
     const closed = !!stages.get(p.hs_pipeline_stage ?? "")?.closed;
     const reply = ms(p.first_agent_reply_date);
     const closedAt = ms(p.closed_date);
-    const a = reply != null && reply >= created ? Math.round(workingHours(created, reply) * 10) / 10 : null;
+    // the first contact: the ticket's first reply or its first call, whichever came first
+    const first = Math.min(reply != null && reply >= created ? reply : Infinity, firstCall.get(id) ?? Infinity);
+    const a = Number.isFinite(first) ? Math.round(workingHours(created, first) * 10) / 10 : null;
     const z = Math.max(0, Math.round(((closed ? closedAt ?? created : now) - created) / DAY));
     const r = closed ? label((p.ticket_resolution_eso ?? "").trim()) : "";
     return {

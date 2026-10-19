@@ -23,6 +23,9 @@ test("what a ticket is: a customer's request, a new registrant, a lifecycle hand
   assert.ok("skip" in classify({ subject: "EROSION | Muster AG", objectSource: "INTEGRATION", tags: "42249278" }, LIFECYCLE));
   // sales asking inside the company is not a customer's lead
   assert.ok("skip" in classify({ subject: "Special price request | Muster AG", objectSource: "CRM_UI" }, LIFECYCLE));
+  // a ticket on the wrong desk, and TSA's non qualified - each named in the footnote
+  assert.deepEqual(classify({ subject: "x", sourceType: "EMAIL", objectSource: "CONVERSATIONS", resolution: "Misassigned" }, LIFECYCLE), { skip: "misassigned" });
+  assert.deepEqual(classify({ subject: "x", sourceType: "EMAIL", objectSource: "CONVERSATIONS", resolution: "TSA NON QUALIFIED" }, LIFECYCLE), { skip: "TSA non qualified" });
 });
 
 test("what became of it: won is ordered - or qualified for a new registrant", () => {
@@ -37,6 +40,8 @@ test("what became of it: won is ordered - or qualified for a new registrant", ()
   assert.equal(outcomeOf({ g: "request", x: 1, r: "Only looking for info" }), "info");
   assert.equal(outcomeOf({ g: "request", x: 1, r: "Delivery time/cost" }), "delivery");
   assert.equal(outcomeOf({ g: "request", x: 0 }), "open");
+  // closed, no resolution set: not "closed otherwise" in disguise
+  assert.equal(outcomeOf({ g: "request", x: 1 }), "nores");
 });
 
 test("working hours: Monday to Friday, 8 to 17 in Zurich", () => {
@@ -54,17 +59,17 @@ test("working hours: Monday to Friday, 8 to 17 in Zurich", () => {
 const row = (p: Partial<HandoverRow>): HandoverRow => ({ m: "2026-03", t: "ESO", g: "request", c: "email", k: "Switzerland", o: "1", x: 0, a: null, z: 3, ...p });
 const data = (rows: HandoverRow[]): HandoverData => ({ rows, owners: {}, year: 2026, monthsDone: 9, readAt: "", errors: {}, skipped: {} });
 
-test("the figures: answered within a working day, win rate on the resolved, open and stale", () => {
+test("the figures: a first contact (reply or call) within a working day, win rate on the resolved, open and stale", () => {
   const d = data([
     row({ a: 2, x: 1, r: "Ordered", z: 4 }),
     row({ a: 20, x: 1, r: "Only looking for info", z: 10 }),
     row({ a: null, x: 1, z: 2 }), // closed with no reply and no resolution
     row({ t: "TSA", a: 1, x: 0, z: 40 }), // open, stale
     row({ m: "2025-03", a: 3, x: 1, r: "Ordered" }),
-    row({ g: "lifecycle", c: "uc15", a: null, x: 1, r: "No reply", z: 9 }), // a hand-over: no reply to time
+    row({ g: "lifecycle", c: "uc15", a: null, x: 1, r: "No reply", z: 9 }), // a hand-over nobody called
   ]);
   const { cur, prev } = statsOf(d, { start: 0, end: 8 }, {});
-  assert.deepEqual([cur.incoming, cur.requests, cur.inDay, cur.noReply, cur.closed, cur.resolved, cur.won, cur.open, cur.stale], [5, 4, 2, 1, 4, 3, 1, 1, 1]);
+  assert.deepEqual([cur.incoming, cur.inDay, cur.noReply, cur.closed, cur.resolved, cur.won, cur.open, cur.stale], [5, 2, 2, 4, 3, 1, 1, 1]);
   assert.equal(Math.round(winRate(cur)!), 33);
   assert.equal(prev.won, 1);
   const by = statsBy(d, { start: 0, end: 8 }, {}, (r) => r.t);
@@ -72,7 +77,14 @@ test("the figures: answered within a working day, win rate on the resolved, open
   assert.equal(statsOf(d, { start: 0, end: 8 }, { team: ["TSA"] }).cur.incoming, 1);
   const fl = flowOf(d, { start: 0, end: 8 }, {});
   assert.equal(fl.totals["t:ESO"], 4);
-  assert.equal(fl.totals["s:out"], 1);
   assert.equal(fl.totals["o:won"], 1);
-  assert.equal(fl.totals["s:none"], 1);
+  assert.equal(fl.totals["s:none"], 2);
+  // why: the lost by their reason, the closed otherwise by theirs - won and open end at the outcome
+  assert.equal(fl.columns.length, 5);
+  assert.equal(fl.totals["w:l:info"], 1);
+  assert.equal(fl.totals["w:l:noreply"], 1);
+  assert.equal(fl.totals["w:o:none"], 1);
+  assert.ok(!fl.links.some((l) => l.from === "o:won" || l.from === "o:open"));
+  // one kind at a time: the UC hand-overs alone
+  assert.equal(flowOf(d, { start: 0, end: 8 }, { kind: ["newlead", "lifecycle"] }).totals["c:uc15"], 1);
 });

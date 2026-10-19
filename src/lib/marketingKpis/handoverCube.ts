@@ -9,12 +9,14 @@
 //               lifecycle  what the lifecycle workflows hand over: Lost Leads, Second Purchase, Thank you
 //                          (a poor rating), Abandoned Cart
 //             left out: campaigns typed in by hand, auto-logged mails, Finance mails, special price requests
-//             (sales asking inside the company), "Not a sales topic",
-//             "TSA NON QUALIFIED", Bisphenol - the rules of the Swiss SLA and territory reports (Sept-Oct 2026)
-//   speed     for a customer's request: the first reply from the ticket (first_agent_reply_date) in
-//             working hours, Mon-Fri 8-17 Zurich; a reply by phone or from Outlook is not in the ticket and
-//             counts as none. A new registrant or a lifecycle hand-over is worked by phone or mail - there is
-//             no reply to time, so speed is the customer requests' only
+//             (sales asking inside the company), "Not a sales topic", "TSA NON QUALIFIED", "Misassigned"
+//             (SARCLA 19.10: "should not enter the resolution"), Bisphenol - the rules of the Swiss SLA and
+//             territory reports (Sept-Oct 2026)
+//   never mixed  the customers' requests, or what the UC workflows hand over (new registrants and the
+//             lifecycle) - the page shows one or the other (SARCLA 19.10: "a separate graph, no mix up")
+//   speed     the first contact in working hours, Mon-Fri 8-17 Zurich: the first reply from the ticket
+//             (first_agent_reply_date) or the first call logged on it, whichever came first (SARCLA 19.10:
+//             "no reply on the ticket should also mean no calls")
 //   won       closed as Ordered (a one-shot order is an order too); a new lead is won when closed
 //             Qualified - of the tickets closed with a resolution (SARCLA 19.10: "only ordered counts as
 //             ordered, or qualified on new registrants")
@@ -37,7 +39,7 @@ export type HandoverRow = {
   x: 0 | 1;
   /** the resolution as written, when closed with one */
   r?: string;
-  /** working hours to the first reply from the ticket; null when there is none */
+  /** working hours to the first contact - a reply from the ticket or a call logged on it; null when neither */
   a: number | null;
   /** days to close (closed) or days open so far (open, at the read) */
   z: number;
@@ -56,8 +58,8 @@ export type HandoverData = {
   shape?: number;
 };
 
-/** 2: special price requests left out (19.10) */
-export const HANDOVER_SHAPE = 2;
+/** 2: special price requests left out; 3: calls are a first contact, misassigned left out (both 19.10) */
+export const HANDOVER_SHAPE = 3;
 
 export const KINDS: { id: Kind; label: string }[] = [
   { id: "request", label: "Customer requests" },
@@ -65,6 +67,14 @@ export const KINDS: { id: Kind; label: string }[] = [
   { id: "lifecycle", label: "Lifecycle hand-overs" },
 ];
 export const kindLabel = (id: string) => KINDS.find((k) => k.id === id)?.label ?? id;
+
+/** What the page shows, never both at once: the customers' requests, or the UC workflows' hand-overs. */
+export type Group = "requests" | "uc";
+export const GROUPS: { id: Group; label: string; kinds: Kind[] }[] = [
+  { id: "requests", label: "Customer requests", kinds: ["request"] },
+  { id: "uc", label: "UC hand-overs", kinds: ["newlead", "lifecycle"] },
+];
+export const kindsOf = (g: Group): Kind[] => GROUPS.find((x) => x.id === g)!.kinds;
 
 export const CHANNELS: { id: string; label: string; kind: Kind }[] = [
   { id: "form", label: "Website form", kind: "request" },
@@ -101,7 +111,11 @@ export function classify(t: TicketIn, lifecycle: Record<string, string>): { g: K
   const src = (t.sourceType ?? "").toUpperCase(), ost = (t.objectSource ?? "").toUpperCase();
   const tags = new Set((t.tags ?? "").split(";").map((x) => x.trim()).filter(Boolean));
   if (String(t.outbound ?? "") === "true" || s.startsWith("TSA | MAIL TO CUSTOMER")) return { skip: "auto-logged mail" };
-  if (t.resolution && NOT_SALES.has(t.resolution.trim())) return { skip: "not a sales topic" };
+  const res = (t.resolution ?? "").trim();
+  if (res === "TSA NON QUALIFIED") return { skip: "TSA non qualified" };
+  // a ticket on the wrong desk is not a lead the team handled (SARCLA 19.10)
+  if (res === "Misassigned") return { skip: "misassigned" };
+  if (NOT_SALES.has(res)) return { skip: "not a sales topic" };
   if (s.includes("BISPHENOL")) return { skip: "Bisphenol" };
   if (s.includes("MAIL FROM FINANCE")) return { skip: "Finance mail" };
   // the lifecycle workflows, by the workflow that made the ticket - then by their tag
@@ -129,7 +143,7 @@ export function classify(t: TicketIn, lifecycle: Record<string, string>): { g: K
 /* ── what became of it ─────────────────────────────────────────────────── */
 
 export const ORDERED: ReadonlySet<string> = new Set(["Ordered", "One-shot order", "One-shot C2S order"]);
-export type Outcome = "won" | "price" | "supply" | "delivery" | "info" | "noreply" | "disq" | "other" | "open";
+export type Outcome = "won" | "price" | "supply" | "delivery" | "info" | "noreply" | "disq" | "other" | "nores" | "open";
 export const OUTCOMES: { id: Outcome; label: string }[] = [
   { id: "won", label: "Won - ordered, or qualified" },
   { id: "price", label: "Lost - price" },
@@ -139,6 +153,7 @@ export const OUTCOMES: { id: Outcome; label: string }[] = [
   { id: "noreply", label: "No reply from the customer" },
   { id: "disq", label: "Disqualified, not our focus" },
   { id: "other", label: "Closed otherwise" },
+  { id: "nores", label: "Closed without a resolution" },
   { id: "open", label: "Still open" },
 ];
 export const outcomeLabel = (id: string) => OUTCOMES.find((o) => o.id === id)?.label ?? id;
@@ -153,6 +168,9 @@ const INFO = /^only looking for info$|^no interest|^no demand$|^don't want to bu
 export function outcomeOf(row: Pick<HandoverRow, "g" | "x" | "r">): Outcome {
   if (!row.x) return "open";
   const r = (row.r ?? "").trim();
+  // closed with no resolution set - most of them TSA's helpline and Back Office tickets of January and
+  // February 2026, before the resolution was asked for
+  if (!r) return "nores";
   if (row.g === "newlead") {
     if (/^qualified/i.test(r)) return "won";
     if (/^disqualified/i.test(r)) return "disq";
@@ -211,13 +229,11 @@ export const DAY_HOURS = 9;
 
 export type Stats = {
   incoming: number;
-  /** the customer requests: the base of the speed figures */
-  requests: number;
-  /** answered from the ticket within one working day */
+  /** a first contact - a reply from the ticket or a call - within one working day */
   inDay: number;
-  /** no reply from the ticket (closed without one, or open a working day and more) */
+  /** neither a reply from the ticket nor a call (closed without one, or open a working day and more) */
   noReply: number;
-  /** the working hours to the first reply, for the median */
+  /** the working hours to the first contact, for the median */
   firstHours: number[];
   closed: number;
   /** closed with a resolution: the base of the win rate */
@@ -231,18 +247,15 @@ export type Stats = {
   closeDays: number[];
 };
 export const emptyStats = (): Stats => ({
-  incoming: 0, requests: 0, inDay: 0, noReply: 0, firstHours: [], closed: 0, resolved: 0, won: 0,
-  outcomes: { won: 0, price: 0, supply: 0, delivery: 0, info: 0, noreply: 0, disq: 0, other: 0, open: 0 }, open: 0, stale: 0, closeDays: [],
+  incoming: 0, inDay: 0, noReply: 0, firstHours: [], closed: 0, resolved: 0, won: 0,
+  outcomes: { won: 0, price: 0, supply: 0, delivery: 0, info: 0, noreply: 0, disq: 0, other: 0, nores: 0, open: 0 }, open: 0, stale: 0, closeDays: [],
 });
 
 export function addRow(s: Stats, r: HandoverRow): Stats {
   s.incoming += 1;
-  // speed: a customer's request only - the hand-overs are worked by phone or mail
-  if (r.g === "request") {
-    s.requests += 1;
-    if (r.a != null) { s.firstHours.push(r.a); if (r.a <= DAY_HOURS) s.inDay += 1; }
-    else if (r.x || r.z >= 1) s.noReply += 1;
-  }
+  // speed: the first contact, a reply from the ticket or a call
+  if (r.a != null) { s.firstHours.push(r.a); if (r.a <= DAY_HOURS) s.inDay += 1; }
+  else if (r.x || r.z >= 1) s.noReply += 1;
   const o = outcomeOf(r);
   s.outcomes[o] += 1;
   if (r.x) {
@@ -263,7 +276,7 @@ export function median(xs: number[]): number | null {
   return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 }
 export const winRate = (s: Stats) => (s.resolved ? (s.won / s.resolved) * 100 : null);
-export const inDayRate = (s: Stats) => (s.requests ? (s.inDay / s.requests) * 100 : null);
+export const inDayRate = (s: Stats) => (s.incoming ? (s.inDay / s.incoming) * 100 : null);
 
 /** The months chosen this year, and the same months a year earlier. */
 export function statsOf(d: HandoverData, w: { start: number; end: number }, f: HFilters): { cur: Stats; prev: Stats } {
@@ -297,25 +310,44 @@ export type HFlowNode = { id: string; column: number; label: string; tone: "sour
 export type HFlow = { columns: string[]; nodes: HFlowNode[]; links: { from: string; to: string; value: number }[]; totals: Record<string, number> };
 
 const LOST: ReadonlySet<Outcome> = new Set(["price", "supply", "delivery", "info", "noreply", "disq"]);
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+/** The reason a lost ticket gives, as its group: "Price", "Can't supply"… */
+export const lostReason = (o: Outcome) => cap(outcomeLabel(o).replace(/^Lost - /, ""));
+/** The closed-otherwise resolutions the flow names: the six most used, each 1% of the tickets or more; the rest are "Other resolutions". */
+const OTHER_NAMED = 6;
+const short = (t: string) => (t.length > 32 ? `${t.slice(0, 30).trim()}…` : t);
 
-/** The tickets of the months chosen as a flow: channel -> team -> answered in a working day or not -> what became of them. */
+/**
+ * The tickets of the months chosen as a flow: channel -> team -> first contact -> what became of them -> why,
+ * for the lost and the closed otherwise (SARCLA 19.10: "Lost or disqualified should have the breakdown by
+ * reason, as the Closed otherwise").
+ */
 export function flowOf(d: HandoverData, w: { start: number; end: number }, f: HFilters): HFlow {
+  const rows = d.rows.filter((r) => keep(r, f) && inWin(r.m, d.year, w));
+  // the closed-otherwise resolutions the flow names: the most used
+  const used = new Map<string, number>();
+  for (const r of rows) if (outcomeOf(r) === "other") used.set(r.r!.trim(), (used.get(r.r!.trim()) ?? 0) + 1);
+  const named = new Set([...used.entries()].filter(([, n]) => n >= rows.length / 100).sort((a, b) => b[1] - a[1]).slice(0, OTHER_NAMED).map(([k]) => k));
   const nodes = new Map<string, HFlowNode>(), links = new Map<string, { from: string; to: string; value: number }>(), totals: Record<string, number> = {};
-  for (const r of d.rows) {
-    if (!keep(r, f) || !inWin(r.m, d.year, w)) continue;
+  for (const r of rows) {
     const o = outcomeOf(r);
     const path: HFlowNode[] = [
       { id: `c:${r.c}`, column: 0, label: channelLabel(r.c), tone: "source" },
       { id: `t:${r.t}`, column: 1, label: r.t, tone: r.t === "ESO" ? "eso" : "tsa" },
-      r.g !== "request" ? { id: "s:out", column: 2, label: "Hand-over (phone, mail)", tone: "none" }
-        : r.a != null && r.a <= DAY_HOURS ? { id: "s:day", column: 2, label: "Answered in a working day", tone: "good" }
-          : r.a != null ? { id: "s:late", column: 2, label: "Answered later", tone: "none" }
-            : { id: "s:none", column: 2, label: "No reply in the ticket", tone: "bad" },
+      r.a != null && r.a <= DAY_HOURS ? { id: "s:day", column: 2, label: "Within a working day", tone: "good" }
+        : r.a != null ? { id: "s:late", column: 2, label: "Later", tone: "none" }
+          : { id: "s:none", column: 2, label: "No reply, no call", tone: "bad" },
       o === "won" ? { id: "o:won", column: 3, label: "Won", tone: "good" }
         : o === "open" ? { id: "o:open", column: 3, label: "Still open", tone: "none" }
           : LOST.has(o) ? { id: "o:lost", column: 3, label: "Lost or disqualified", tone: "bad" }
             : { id: "o:other", column: 3, label: "Closed otherwise", tone: "none" },
     ];
+    if (LOST.has(o)) path.push({ id: `w:l:${o}`, column: 4, label: lostReason(o), tone: "bad" });
+    else if (o === "nores") path.push({ id: "w:o:none", column: 4, label: "No resolution set", tone: "none" });
+    else if (o === "other") {
+      const k = r.r!.trim();
+      path.push(named.has(k) ? { id: `w:o:${k}`, column: 4, label: short(k), tone: "none" } : { id: "w:o:more", column: 4, label: "Other resolutions", tone: "none" });
+    }
     for (const n of path) { nodes.set(n.id, n); totals[n.id] = (totals[n.id] ?? 0) + 1; }
     for (let i = 0; i + 1 < path.length; i++) {
       const k = `${path[i].id}>${path[i + 1].id}`;
@@ -324,10 +356,13 @@ export function flowOf(d: HandoverData, w: { start: number; end: number }, f: HF
       links.set(k, l);
     }
   }
-  const ORDER = ["t:ESO", "t:TSA", "s:day", "s:late", "s:none", "s:out", "o:won", "o:lost", "o:other", "o:open"];
-  const rank = (n: HFlowNode) => (n.column === 0 ? -(totals[n.id] ?? 0) : ORDER.indexOf(n.id));
+  const ORDER = ["t:ESO", "t:TSA", "s:day", "s:late", "s:none", "o:won", "o:lost", "o:other", "o:open"];
+  // the reasons: the lost first, then the closed otherwise - each the biggest first, "the rest" last
+  const rank = (n: HFlowNode) => (n.column === 0 ? -(totals[n.id] ?? 0)
+    : n.column === 4 ? (n.id.startsWith("w:l:") ? 0 : 1e6) + (n.id === "w:o:more" || n.id === "w:o:none" ? 5e5 : 0) - (totals[n.id] ?? 0)
+      : ORDER.indexOf(n.id));
   return {
-    columns: ["Came in by", "Team", "First reply", "Outcome"],
+    columns: ["Came in by", "Team", "First contact", "Outcome", "Why"],
     nodes: [...nodes.values()].sort((a, b) => a.column - b.column || rank(a) - rank(b)),
     links: [...links.values()],
     totals,

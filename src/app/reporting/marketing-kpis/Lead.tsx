@@ -281,18 +281,20 @@ export function Paged<T>({ items, size = 10, children }: { items: T[]; size?: nu
 }
 
 // The nutshell's lead tiles share one read of the leads (the answer is ~1 MB - not once per tile).
-const shared: { v: LeadsData | null; p: Promise<void> | null; subs: Set<() => void> } = { v: null, p: null, subs: new Set() };
+// While HubSpot is read again the answer is the last one: asked again every 20 s until the new one is there
+// (SARCLA 19.10: "How the leads split didn't change in the nutshell" - it kept the answer of its first visit).
+const shared: { v: LeadsData | null; p: Promise<void> | null; again: boolean; subs: Set<() => void> } = { v: null, p: null, again: false, subs: new Set() };
 function loadShared() {
   if (shared.p) return;
   shared.p = fetch("/api/reporting/marketing-kpis/leads")
     .then((r) => r.json())
-    .then((j) => { const v = j?.leads?.value as LeadsData | undefined; if (v) shared.v = v; })
+    .then((j) => { const v = j?.leads?.value as LeadsData | undefined; if (v) shared.v = v; shared.again = !!j?.leads?.computing; })
     .catch(() => {})
     .finally(() => {
       shared.p = null;
       shared.subs.forEach((f) => f());
       // still being read: ask again in a while, as long as a tile is on the screen
-      if (!shared.v) setTimeout(() => { if (shared.subs.size) loadShared(); }, 20_000);
+      if (!shared.v || shared.again) setTimeout(() => { if (shared.subs.size) loadShared(); }, 20_000);
     });
 }
 function useSharedLeads(): LeadsData | null {
