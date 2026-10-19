@@ -17,6 +17,8 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { CATEGORIES, DROPDOWN_VALUES, KEYWORDS, classifyTicket, type Classification } from "./classifier";
 import { FIXES, classifyTicketV2, type ClassificationV2 } from "./classifierV2";
+import { AI_PER_DAY, AI_PER_RUN, aiClassify, type AiAnswer } from "./aiClassify";
+import { getAnthropic } from "@/lib/ai/claude";
 import {
   BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
   assignBo, assignGqs, findSalesAgent, priorityFacts, priorityFor, route,
@@ -90,6 +92,10 @@ export type Row = {
   /** the IMPROVED classifier (classifierV2.ts) on the same e-mail, and the way the workflow would have sent the ticket
    *  with its answer - shown beside the workflow's, not used for routing while the workflow files the category */
   v2?: { category: string | null; subCategory: string | null; fixes: string[]; matched?: string[]; explanation?: string; path: string[]; assigner: string | null; priority: string | null; dispatch: string | null } | null;
+  /** AI on an e-mail both keyword classifiers leave as Others (aiClassify.ts) - shadow; null = asked twice, no answer */
+  ai?: AiAnswer | null;
+  aiError?: string;
+  aiTries?: number;
   /** a cut-to-size (C2S) ticket: the ticket associations engine's c2s_ticket, a C2S problem order, or the C2S path */
   c2s?: boolean;
   /** the domain the e-mail came from - to see what "Others" are */
@@ -839,6 +845,33 @@ async function entries(since: number): Promise<{ id: string; pipeline: "bo" | "g
   return out.sort((a, b) => a.enteredAt.localeCompare(b.enteredAt));
 }
 
+/** The e-mails of the last 7 days that NEITHER keyword classifier recognised, through the AI - newest days first. */
+async function aiPass(rowsFor: (d: string) => Promise<Row[]>, started: number, signal?: AbortSignal): Promise<void> {
+  const client = getAnthropic();
+  if (!client) return;
+  const k = `boDist:ai:${day(new Date().toISOString())}`;
+  let used = (await kvGet<number>(k)) ?? 0;
+  let n = 0;
+  outer: for (let i = 0; i < 7; i++) {
+    for (const r of await rowsFor(day(new Date(Date.now() - i * 86400_000).toISOString()))) {
+      if (n >= AI_PER_RUN || used >= AI_PER_DAY || signal?.aborted || Date.now() - started > 6 * 60_000) break outer;
+      if (r.pipeline !== "bo" || r.ai !== undefined || r.error || !r.route?.classified || r.route.classified.category || !r.v2 || r.v2.category) continue;
+      n++; used++;
+      try {
+        const t = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${r.ticketId}?properties=subject,content`);
+        r.ai = await aiClassify(client, t.properties.subject, t.properties.content);
+        delete r.aiError;
+      } catch (e) {
+        r.aiError = (e as Error).message.slice(0, 160);
+        r.aiTries = (r.aiTries ?? 0) + 1;
+        if (r.aiTries >= 2) r.ai = null; // asked twice: not again
+        break outer; // an error is rarely alone - the next run tries again
+      }
+    }
+  }
+  await kvSet(k, used);
+}
+
 async function run(signal?: AbortSignal): Promise<RunInfo> {
   const started = Date.now();
   const info: RunInfo = { at: new Date().toISOString(), seconds: 0, read: 0, decided: 0, checked: 0 };
@@ -867,6 +900,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
   }
   // tickets waiting for an owner (no owner, Backoffice Team, a deactivated owner; ESO / TSA too): every 5 minutes
   if (!signal?.aborted) await strays(shared, started, signal).catch((e) => console.warn(`[bo-distribution] waiting for an owner: ${(e as Error).message}`));
+  // AI for what both keyword classifiers leave as Others: a few a run, AI_PER_DAY a day (SARCLA: "spend as less as possible")
+  if (!signal?.aborted && process.env.BO_AI !== "off") await aiPass(rowsFor, started, signal).catch((e) => console.warn(`[bo-distribution] ai: ${(e as Error).message}`));
   // the replay of the last 7 days, oldest first, while the run has time: today's availability and workload
   const bf = await kvGet<Backfill>(KV.backfill) ?? { from: Date.now() - BACKFILL_DAYS * 86400_000, cursor: Date.now() - BACKFILL_DAYS * 86400_000, done: false, startedAt: new Date().toISOString() };
   if (!bf.done && !signal?.aborted && Date.now() - started < 3 * 60_000) {

@@ -56,7 +56,7 @@ export function DetectionTab({ d }: { d: Data }) {
   const [content, setContent] = useState("");
   const [res, setRes] = useState<Both | null>(null);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"changed" | "others" | "person" | "all">("changed");
+  const [view, setView] = useState<"changed" | "others" | "ai" | "person" | "all">("changed");
   const [lists, setLists] = useState(false);
   const run = async () => {
     setBusy(true);
@@ -75,7 +75,14 @@ export function DetectionTab({ d }: { d: Data }) {
   const right1 = corrected.filter((r) => r.actual!.catByPerson === v1cat(r));
   const right2 = corrected.filter((r) => r.v2 && r.actual!.catByPerson === v2cat(r));
   const changed = withV2.filter((r) => v1cat(r) !== v2cat(r));
-  const rows = view === "changed" ? changed : view === "others" ? others1 : view === "person" ? corrected : read;
+  // the AI on what both classifiers leave as Others (shadow, aiClassify.ts)
+  const asked = read.filter((r) => r.ai);
+  const aiFiled = asked.filter((r) => r.ai!.category);
+  const aiCorrected = asked.filter((r) => r.actual?.catByPerson);
+  const aiRight = aiCorrected.filter((r) => r.actual!.catByPerson === (r.ai!.category ?? "Others"));
+  const bothOthers = withV2.filter((r) => v1cat(r) === "Others" && v2cat(r) === "Others");
+  const aiTokens = asked.reduce((a, r) => a + (r.ai!.tokens || 0), 0);
+  const rows = view === "changed" ? changed : view === "others" ? others1 : view === "ai" ? asked : view === "person" ? corrected : read;
   const { slice, pager } = usePaged(rows, 12);
   const caught = others1.filter((r) => r.v2 && v2cat(r) !== "Others");
 
@@ -84,15 +91,16 @@ export function DetectionTab({ d }: { d: Data }) {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: workflow → improved" value={`${pct(read.length - others1.length, read.length)} → ${pct(withV2.length - others2.length, withV2.length)}`} note={`${full(read.length)} e-mails read by the classifier in 7 days`} /></Grid>
         <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Right where a person changed it" value={`${pct(right1.length, corrected.length)} → ${pct(right2.length, corrected.length)}`} note={`${full(corrected.length)} tickets a person re-filed. On 30 days: 10% → 26%; the 90 before: 13% → 46%`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others: workflow → improved" value={`${full(others1.length)} → ${full(others2.length)}`} note="Nothing recognised: the workflow sets Others and the Load Balancer picks" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others: workflow → improved" value={`${full(others1.length)} → ${full(others2.length)}`} note={`Nothing recognised: the workflow sets Others and the Load Balancer picks.${asked.length ? ` The AI files ${full(aiFiled.length)} of the ${full(asked.length)} it was asked` : ""}`} /></Grid>
       </Grid>
 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Why each ticket got its category" note="The keywords each classifier found, the fixes that changed the improved one's answer (hover a fix), and what a person set afterwards" />
         <Box sx={{ mb: 1.5 }}>
-          <Choice<"changed" | "others" | "person" | "all"> value={view} onChange={setView} options={[
+          <Choice<"changed" | "others" | "ai" | "person" | "all"> value={view} onChange={setView} options={[
             { key: "changed", label: "The improved one decides otherwise", count: changed.length },
             { key: "others", label: "Others today", count: others1.length },
+            { key: "ai", label: "Asked the AI", count: asked.length },
             { key: "person", label: "Re-filed by a person", count: corrected.length },
             { key: "all", label: "All", count: read.length },
           ]} />
@@ -111,7 +119,8 @@ export function DetectionTab({ d }: { d: Data }) {
                       <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{r.fromDomain ?? "sender unknown"}</Typography>
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, minWidth: 200 }}><Answer d={d} cat={v1cat(r)} subCat={r.route!.classified!.subCategory} words={(r.route!.classified as Classification).matched} /></TableCell>
-                    <TableCell sx={{ ...bodyCell, minWidth: 220 }}>{r.v2 ? <Answer d={d} cat={v2cat(r)!} subCat={r.v2.subCategory} words={r.v2.matched} fixes={r.v2.fixes} /> : <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>read with the next runs</Typography>}</TableCell>
+                    <TableCell sx={{ ...bodyCell, minWidth: 220 }}>{r.v2 ? <Answer d={d} cat={v2cat(r)!} subCat={r.v2.subCategory} words={r.v2.matched} fixes={r.v2.fixes} /> : <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>read with the next runs</Typography>}
+                      {r.ai && <Typography sx={{ fontSize: "0.74rem", color: INK, mt: 0.5 }}>AI: <b>{r.ai.category ?? "Others"}{r.ai.sub ? ` / ${r.ai.sub}` : ""}</b>{r.ai.why ? <span style={{ color: MUTED }}> - {r.ai.why}</span> : null}</Typography>}</TableCell>
                     <TableCell sx={bodyCell}>{person ? <Chip tint={person === v2cat(r) ? "green" : person === v1cat(r) ? "blue" : "amber"}>{person}</Chip> : <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>—</Typography>}</TableCell>
                   </TableRow>
                 );
@@ -137,7 +146,10 @@ export function DetectionTab({ d }: { d: Data }) {
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>The improved classifier</b> - recognises {full(caught.length)} of these {full(others1.length)}: {count(caught, (r) => v2cat(r)).map((x) => `${x.label} ${x.value}`).join(", ") || "none yet"}.</Typography>
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>Rules by sender</b> - our own mailboxes, known suppliers and newsletter senders (left) always mean the same thing: a short list per domain files them without reading a word.</Typography>
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>The ticket&apos;s own facts</b> - an order number the hub found in the e-mail or a shop link (Ticket/order/article associations) points to Delivery; an article number to Product Information or Price.</Typography>
-              <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>AI for the rest</b> - a small Claude model picks one of the eight categories and its sub-category for what is still left, with a one-line reason; measured against people&apos;s corrections like the rest. The e-mail text goes to Anthropic for that, as the chat filing already does - your decision.</Typography>
+              <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>AI for the rest</b> (on, shadow) - the smallest Claude model, only for what neither classifier recognises ({full(bothOthers.length)} in 7 days), the first 1,200 characters without history or addresses, at most 60 a day.
+                {asked.length
+                  ? <> Asked {full(asked.length)}: {count(asked, (r) => r.ai!.category ?? "Others").map((x) => `${x.label} ${x.value}`).join(", ")}. Right where a person re-filed it: {full(aiRight.length)} of {full(aiCorrected.length)}. Used: {full(Math.round(aiTokens / 100) / 10)}k tokens.</>
+                  : " Nothing asked yet - a few e-mails a run."}</Typography>
             </Box>
           </GlassCard>
         </Grid>
