@@ -59,8 +59,8 @@ export type LeadsData = {
   /** what the read carries (LEADS_SHAPE): an older answer is shown while a new one is read */
   shape?: number;
 };
-/** 4: owners who left HubSpot by name (19.10) */
-export const LEADS_SHAPE = 4;
+/** 4: owners who left HubSpot by name; 5: no "shop registration" source (both 19.10) */
+export const LEADS_SHAPE = 5;
 
 /** The channels, in the order the page lists them. */
 export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | "direct" | "people" | "other" }[] = [
@@ -68,7 +68,6 @@ export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | 
   { id: "sea-microsoft", label: "SEA - Microsoft Ads", group: "paid" },
   { id: "seo", label: "SEO - organic search", group: "organic" },
   { id: "ai", label: "AI assistants", group: "organic" },
-  { id: "shop", label: "Shop registration", group: "direct" },
   { id: "direct", label: "Direct (typed in, bookmarks)", group: "direct" },
   { id: "email", label: "Email", group: "organic" },
   { id: "social", label: "Social media", group: "organic" },
@@ -113,7 +112,9 @@ export function channelOf(source: string | null | undefined, d1: string | null |
     case "PAID_SEARCH": return /bing|microsoft|msn/.test(a) ? "sea-microsoft" : "sea-google";
     case "ORGANIC_SEARCH": return "seo";
     case "AI_REFERRALS": return "ai";
-    case "DIRECT_TRAFFIC": return /customer\/account\/create|\/register/.test(a) ? "shop" : "direct";
+    // a shop registration is a step on the way, not where they came from (SARCLA 19.10): the
+    // registration page they landed on directly counts as direct, as any other direct visit
+    case "DIRECT_TRAFFIC": return "direct";
     case "EMAIL_MARKETING": return "email";
     case "SOCIAL_MEDIA": case "PAID_SOCIAL": return "social";
     case "REFERRALS": return "referral";

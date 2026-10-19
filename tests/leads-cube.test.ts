@@ -7,7 +7,8 @@ test("where a lead came from: HubSpot's original source and its details", () => 
   assert.equal(channelOf("PAID_SEARCH", "bing", ""), "sea-microsoft");
   assert.equal(channelOf("ORGANIC_SEARCH", "Unknown keywords (SSL)", ""), "seo");
   assert.equal(channelOf("AI_REFERRALS", "chatgpt.com", ""), "ai");
-  assert.equal(channelOf("DIRECT_TRAFFIC", "www.apsoparts.com/de-de/customer/account/create", ""), "shop");
+  // the shop's registration page is a step, not a source: a direct visit is direct
+  assert.equal(channelOf("DIRECT_TRAFFIC", "www.apsoparts.com/de-de/customer/account/create", ""), "direct");
   assert.equal(channelOf("DIRECT_TRAFFIC", "www.apsoparts.com/en-int", ""), "direct");
   assert.equal(channelOf("OFFLINE", "CONVERSATIONS", ""), "chat");
   assert.equal(channelOf("OFFLINE", "CHATSPOT", ""), "chat");
