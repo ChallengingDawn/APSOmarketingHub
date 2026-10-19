@@ -8,6 +8,7 @@
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { leadsData } from "./leads";
 import { handoverData } from "./handover";
+import { retainData } from "./retain";
 
 const TICK_MS = 10 * 60_000;
 /** One read never holds the warm-up longer than this; the next tick picks up where it stopped. */
@@ -33,7 +34,8 @@ async function tick() {
     if (await chainRunning()) return;
     // a fresh answer comes back at once; a stale or missing one starts the read - wait for it to finish;
     // Lead Generation, then the Hand-over to ESO/TSA (19.10), one after the other
-    for (const get of [leadsData, handoverData]) {
+    // ...and Retain & grow's erosion at stake (19.10), once a day
+    for (const get of [leadsData, handoverData, retainData]) {
       if (await chainRunning()) return;
       const until = Date.now() + MAX_WAIT_MS;
       while (Date.now() < until && (await get()).computing) await sleep(10_000);

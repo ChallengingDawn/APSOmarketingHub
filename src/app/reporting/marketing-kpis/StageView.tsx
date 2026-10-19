@@ -27,6 +27,7 @@ import { VisitExplorer } from "./Visit";
 import { EngageExplorer } from "./Engage";
 import { LeadExplorer } from "./Lead";
 import { HandoverExplorer } from "./Handover";
+import { RetainExplorer } from "./Retain";
 import { TileActions } from "./tiles/TileActions";
 import { kpiSummary } from "./tiles/summary";
 
@@ -97,6 +98,8 @@ export function StageView({ slug, state, header = true }: { slug: string; state:
   if (s.slug === "handover") return <HandoverExplorer state={state} />;
   // what the UC workflows hand over, in the place of Cart & check-out (SARCLA 19.10) - the same page, the UC group
   if (s.slug === "uc") return <HandoverExplorer state={state} group="uc" />;
+  // Retain & grow on the erosion analysis (SARCLA 19.10: "base it on the erosion analysis Excel I did") - 9f
+  if (s.slug === "retain") return <RetainExplorer state={state} />;
   const count = measured.length;
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>

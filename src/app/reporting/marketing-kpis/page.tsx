@@ -28,6 +28,7 @@ import { CustomersPromoted, CustomersSummary } from "./Customers";
 import { ReachPromoted } from "./Reach";
 import { LEAD_NUTSHELL_TILES, LeadPromoted } from "./Lead";
 import { HANDOVER_NUTSHELL_CARDS, HandoverPromoted, UC_NUTSHELL_CARDS } from "./Handover";
+import { RETAIN_NUTSHELL_CARDS, RetainPromoted } from "./Retain";
 import { SHOWN_STAGES } from "@/lib/marketingKpis/stageNames";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { TileActions } from "./tiles/TileActions";
@@ -122,7 +123,7 @@ const row = (key: string, node: React.ReactNode, format: TileFormat): SortItem =
 
 function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>, state: MkState, acts: ActionsState | null) {
   const year = new Date().getFullYear();
-  const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN, ...(slug === "lead" ? LEAD_NUTSHELL_TILES.map((t) => t.key) : []), ...(slug === "handover" ? HANDOVER_NUTSHELL_CARDS.map((t) => t.key) : []), ...(slug === "uc" ? UC_NUTSHELL_CARDS.map((t) => t.key) : [])]);
+  const own = new Set([...ids.map((id) => kpiKey(slug, id)), ...OWN, ...(slug === "lead" ? LEAD_NUTSHELL_TILES.map((t) => t.key) : []), ...(slug === "handover" ? HANDOVER_NUTSHELL_CARDS.map((t) => t.key) : []), ...(slug === "uc" ? UC_NUTSHELL_CARDS.map((t) => t.key) : []), ...(slug === "retain" ? RETAIN_NUTSHELL_CARDS.map((t) => t.key) : [])]);
   const list = (acts?.placements ?? []).filter((p) => p.placement === "nutshell" && p.spec.page === slug && !own.has(p.spec.key));
   const tiles: SortItem[] = [];
   const rows: SortItem[] = [];
@@ -140,6 +141,8 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
     if (spec.page === "lead") { rows.push(row(spec.key, <LeadPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     // a Hand-over card too (SARCLA 19.10: how the teams handle the incoming leads)
     // ...and a UC hand-overs one: the same page, the UC group (SARCLA 19.10)
+    // ...and Retain & grow's: the erosion at stake (SARCLA 19.10)
+    if (spec.page === "retain") { rows.push(row(spec.key, <RetainPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     if (spec.page === "handover" || spec.page === "uc") { rows.push(row(spec.key, <HandoverPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
     // a KPI at half or the whole width is its page's card
@@ -170,8 +173,10 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   // the teams handle the incoming leads (SARCLA 19.10) - the panel starts with ESO and TSA side by side
   // UC hand-overs too, in the place of Cart & check-out: the page's cards, not the catalogue's (SARCLA 19.10)
   const handover = s.slug === "handover" || s.slug === "uc";
+  // Retain & grow: the erosion at stake in the place of the catalogue's KPIs (SARCLA 19.10: "base it on the erosion analysis")
+  const retain = s.slug === "retain";
   const catalogue = stageKpis(s.id, live);
-  const ids = lead || handover ? [] : catalogue.ids, missing = lead || handover ? [] : catalogue.missing;
+  const ids = lead || handover || retain ? [] : catalogue.ids, missing = lead || handover || retain ? [] : catalogue.missing;
   // a tile someone demoted lives on its tab only
   const tiles = ids.map((id) => views[id]).filter(Boolean).filter((v) => placementOf(acts, kpiKey(s.slug, v.id), "nutshell") === "nutshell");
   const all = KPIS.filter((k) => k.stage === s.id).length;
@@ -200,7 +205,12 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
     const fmt = formatOf(acts, tile);
     return row(t.key, <HandoverPromoted spec={tile} half={fmt === "half"} actions={<TileActions where="nutshell" start="nutshell" tile={tile} />} />, fmt);
   }) : [];
-  const rows = [...fullRows, ...handoverCards, ...promoted.rows];
+  const retainCards = retain ? RETAIN_NUTSHELL_CARDS.filter((t) => placementOf(acts, t.key, "nutshell") === "nutshell").map((t) => {
+    const tile = { key: t.key, page: "retain", tab: t.key.split(":")[1], title: t.title, kind: "card" as const, href: stageHref("retain") };
+    const fmt = formatOf(acts, tile);
+    return row(t.key, <RetainPromoted spec={tile} half={fmt === "half"} actions={<TileActions where="nutshell" start="nutshell" tile={tile} />} />, fmt);
+  }) : [];
+  const rows = [...fullRows, ...handoverCards, ...retainCards, ...promoted.rows];
   // the panel's tiles, then its full-width cards, each in the order someone dragged them
   const items: SortItem[] = [
     // Visit's tiles draw their page's graphs, small (VisitCompact.tsx)
@@ -237,7 +247,7 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
           {s.note && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{s.note}</Typography>}
         </Box>
         {/* how far the stage is measured - gone once it is complete (SARCLA 17.10: "8 of 8 measured: it is complete, the indication should go") */}
-        {!lead && !handover && measured < all && (
+        {!lead && !handover && !retain && measured < all && (
           <Box sx={{ minWidth: 170 }}>
             <Box sx={{ height: 6, borderRadius: 99, bgcolor: "rgba(21,34,58,.08)", overflow: "hidden" }}>
               <Box sx={{ width: `${all ? (measured / all) * 100 : 0}%`, height: "100%", bgcolor: TINT[tint].fg, borderRadius: 99 }} />
