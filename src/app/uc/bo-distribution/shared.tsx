@@ -107,6 +107,9 @@ export function Detail({ r }: { r: Row }) {
       {r.legacy && line("Copy", `${r.legacy.ownerName ?? "nobody"} - ${r.legacy.method}${r.legacy.reasons.length ? ` (${r.legacy.reasons.join("; ")})` : ""}`)}
       {r.hub && line("Hub", `${r.hub.ownerName ?? "nobody"} - ${r.hub.method}${r.hub.reasons.length ? ` (${r.hub.reasons.join("; ")})` : ""}`)}
       {r.note && line("Note", r.note)}
+      {r.wrote && line("Live", r.wrote.ok
+        ? `written ${r.wrote.at.slice(11, 16)} UTC${r.wrote.ownerName ? ` - owner ${r.wrote.ownerName}` : ""}${r.wrote.what ? ` - ${r.wrote.what}` : ""}`
+        : <span style={{ color: r.wrote.error ? RED : MUTED }}>{r.wrote.error ? `failed: ${r.wrote.error}` : `not written: ${r.wrote.skipped ?? "?"}`}{r.wrote.what ? ` (${r.wrote.what})` : ""}</span>)}
       {r.actual?.distOwnerName && line("Distribution gave", r.actual.distOwnerName)}
       {r.actual?.dupsOwnerName && line("Then DUPS", `handed it to ${r.actual.dupsOwnerName}${r.actual.dupsNote ? ` ${r.actual.dupsNote}` : ""} - an older ticket on the same order (Duplicates & merges)`)}
       {r.actual && line("HubSpot now", `${r.actual.ownerName ?? "nobody"}${r.actual.ownerSetBy ? ` (last set by ${r.actual.ownerSetBy})` : ""} · ${r.actual.category ?? "no category"}${r.actual.subCategory ? ` / ${r.actual.subCategory}` : ""} · priority ${r.actual.priority ?? "—"}${r.actual.dispatch ? ` · ${r.actual.dispatch}` : ""}`)}

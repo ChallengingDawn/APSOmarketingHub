@@ -19,6 +19,8 @@ import { CATEGORIES, DROPDOWN_VALUES, KEYWORDS, classifyTicket, type Classificat
 import { FIXES, classifyTicketV2, type ClassificationV2 } from "./classifierV2";
 import { AI_PER_DAY, AI_PER_RUN, aiClassify, type AiAnswer } from "./aiClassify";
 import { getAnthropic } from "@/lib/ai/claude";
+import { hubspotToken } from "@/lib/integrations/status";
+import { NOTE_NO_O, anysealsToFolder, gqsTaskFor, mergeIntoGqs, note, noteNoMatch, oNumber, salesSplit, type Call } from "./codeSteps";
 import {
   BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
   assignBo, assignGqs, findSalesAgent, priorityFacts, priorityFor, route,
@@ -113,7 +115,7 @@ export type Row = {
    *  inherit_associations_from_linked_ticket) - read before deciding, written in live mode */
   inherit?: { from: string; contacts: string[]; companies: string[] } | null;
   /** live mode: what the hub wrote, or why it left the ticket to the workflow */
-  wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string };
+  wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string; what?: string };
   note?: string;
   actual?: Actual;
   error?: string;
@@ -594,7 +596,8 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
   if ((await workflowsOn())[row.pipeline] === true) return skip(`the HubSpot workflow "${WORKFLOWS[row.pipeline].name}" is still on - it assigns; switch it off to hand over`);
   if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
-  if (row.pipeline === "bo" && !(LIVE_STEPS.has(row.route?.assigner ?? "") && settings.hub.liveSteps.includes(row.route?.assigner ?? ""))) return skip("this path stays with the workflow");
+  // Back Office: with "SARCLA | BACK OFFICE MAIN ROUTING" off, the hub writes everything it wrote (actBo)
+  if (row.pipeline === "bo") return actBo(row, settings);
   // GQS without a contact or company of its own: the hub copies them from the linked ticket (row.inherit) before writing;
   // with none anywhere it still assigns - the code does too (no Sales Agent, then the GQS team)
   const owner = row.hub?.ownerId ?? null;
@@ -632,6 +635,82 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
     return { at, ownerId: owner, ownerName: row.hub!.ownerName, ok: true };
   } catch (e) {
     return { at, ownerId: owner, ownerName: row.hub!.ownerName, ok: false, error: (e as Error).message.slice(0, 200) };
+  }
+}
+
+/**
+ * Back Office, the workflow off (SARCLA 19.10.2026: "I want to migrate them"): everything "SARCLA | BACK OFFICE MAIN
+ * ROUTING" writes, from the same routing copy (rules.ts route()) - the properties of the path (category, sub-categories,
+ * order number, priority, dispatch, comment, the Rose subject), its stage, and the owner: the hub's pick for the
+ * distribution steps (#23 #27 #31 #42), Rose for a chat TSA sent back, and the code steps the hub took over -
+ * #50 Task Status Report into its GQS task, #75 the sales@ split to ESO, #67 the Anyseals stock file (codeSteps.ts).
+ * A ticket a person already owns keeps its owner (the workflow overwrote it); nobody available = it waits, the
+ * properties are written and "waiting for an owner" gives it one later.
+ */
+async function actBo(row: Row, settings: Settings): Promise<NonNullable<Row["wrote"]>> {
+  const at = new Date().toISOString();
+  const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
+  const r = row.route;
+  if (!r) return skip("not routed");
+  const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
+  if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
+  const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage,subject`);
+  if (now.properties.hs_pipeline !== BO || !(ENTRY_STAGES.bo as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
+  const cur = now.properties.hubspot_owner_id ?? "";
+  const free = !cur || cur === PEOPLE.backofficeTeam.id;
+  const call: Call = <T,>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hs<T>(path, method, body);
+  const names = await ownerNames();
+  const done: string[] = [];
+  const finish = (ownerId: string | null, extra: string[] = []) => ({ at, ownerId, ownerName: ownerId ? names.get(ownerId) ?? ownerId : null, ok: true, what: [...done, ...extra].join(" · ") || undefined });
+  try {
+    await writesThisHour(1);
+    // 1. the path's properties, as the workflow's "set property" actions and its classifier (#22) write them
+    const props: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r.sets)) if (k !== "hubspot_owner_id" && k !== "hs_pipeline_stage") props[k] = v;
+    if (Object.keys(props).length) { await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: props }); done.push(Object.keys(props).join(", ")); }
+
+    // 2. the code steps the hub took over
+    if (r.path.includes("ANYSEALS")) {
+      const a = await anysealsToFolder(call, hubspotToken() ?? "", row.ticketId).catch((e) => ({ ok: false, what: "Anyseals", error: (e as Error).message }));
+      await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: { hs_pipeline_stage: STAGE.resolved } }); // the workflow resolves whatever happened
+      await note(call, row.ticketId, `${a.ok ? "✅" : "⚠️"} ${a.what}${"error" in a && a.error ? ` (${a.error})` : ""}\nResolved.\n\n---\nAPSOhub (Back Office distribution - Anyseals stock file)`);
+      return finish(null, [a.what, "resolved"]);
+    }
+    if (r.assigner === "75") {
+      const s75 = await salesSplit(call, row.ticketId);
+      if (s75.ok) await note(call, row.ticketId, `✅ ${s75.what}\n\n---\nAPSOhub (Back Office distribution - sales split)`);
+      return finish(s75.ownerId ?? null, [s75.what]);
+    }
+    if (r.assigner === "50") {
+      const o = oNumber(now.properties.subject);
+      if (o) {
+        const task = await gqsTaskFor(call, o, row.ticketId);
+        if (task === undefined) return { ...finish(null, ["GQS task search failed - left for the next look"]), ok: false };
+        if (task) { const m = await mergeIntoGqs(call, row.ticketId, o, task); return { ...finish(m.ownerId ?? null, [m.what]), ok: m.ok, error: m.error }; }
+        await note(call, row.ticketId, noteNoMatch(o));
+      } else await note(call, row.ticketId, NOTE_NO_O);
+    }
+
+    // 3. the owner and the stage
+    const pick = r.sets.hubspot_owner_id ?? (r.assigner && ["23", "27", "31", "42", "50"].includes(r.assigner) ? row.hub?.ownerId ?? null : null);
+    const owner = free ? pick : null;
+    const stage = r.sets.hs_pipeline_stage ?? (pick ? (r.c2sStageAfter ? STAGE.cutToSizeIssue : STAGE.assigned) : null);
+    const move: Record<string, string> = {};
+    if (owner) move.hubspot_owner_id = owner;
+    if (stage && (owner || !pick || !free)) move.hs_pipeline_stage = stage;
+    if (Object.keys(move).length) await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: move });
+    if (owner && row.associate) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${row.associate}`, "PUT").catch(() => null);
+    if (!free && pick) done.push(`kept ${names.get(cur) ?? cur} (already owned)`);
+    if (!pick && r.assigner) done.push("nobody available - waits for an owner");
+    const c = r.classified;
+    if (settings.hub.note && (owner || c?.category)) await note(call, row.ticketId, [
+      ...(owner ? [`✅ Auto-Assigned to ${names.get(owner) ?? owner}`, "", `Method: ${row.hub?.method ?? "fixed"}`, ...(row.hub?.reasons.length ? [`Why: ${row.hub.reasons.join("; ")}`] : [])] : []),
+      ...(c?.category ? ["", `Category: ${c.category}${c.subCategory ? ` / ${c.subCategory}` : ""}${(c as { matched?: string[] }).matched?.length ? ` (keywords: ${(c as { matched?: string[] }).matched!.slice(0, 8).join(", ")})` : ""}`] : []),
+      `Path: ${r.path.join(" > ")}`, "", "---", "APSOhub (Back Office distribution)",
+    ].join("\n"));
+    return finish(owner);
+  } catch (e) {
+    return { at, ownerId: null, ownerName: null, ok: false, error: (e as Error).message.slice(0, 200), what: done.join(" · ") || undefined };
   }
 }
 

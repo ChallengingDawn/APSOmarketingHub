@@ -23,9 +23,8 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import type { HubOptions } from "@/lib/boDistribution/engine";
-import { STEP, type Data } from "./shared";
+import { type Data } from "./shared";
 
-const STEPS = ["27", "42", "31", "23"];
 const AVAIL: { key: HubOptions["availability"]; label: string; text: string }[] = [
   { key: "chat", label: "Chat dot (as the workflows)", text: "Available = the green dot of HubSpot chat. People who never open chat look away all day." },
   { key: "ooo", label: "Out of office", text: "Available unless HubSpot says the person is out of office - the same flag the Holiday redirection uses." },
@@ -109,7 +108,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                   {pipe === "gqs"
                     ? "Writes owner, stage “Open the GQS Task”, the GQS status and a note; a task without contact or company first gets them from its linked ticket, as the workflow does. To hand GQS to the hub, the workflow's code step is replaced by a 2-minute delay (its status and \u201cNEW GQS TASK\u201d notification stay)."
-                    : "Writes owner, stage Assigned, the company link and a note - for the steps ticked below. Task Status Report merges and the sales@ split stay with the workflow."}
+                    : "Writes everything the routing wrote: category, sub-categories, order number, priority, dispatch, the stage moves (Microsoft quarantine, chat parking, CAD, Anyseals) and the owner - with the Task Status Report merge into its GQS task, the sales@ split to ESO and the Anyseals stock file. A ticket a person already owns keeps its owner."}
                 </Typography>
               </Box>
             </Grid>
@@ -133,12 +132,12 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid size={{ xs: 12, md: 6 }}>
             <Box sx={box}>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Back Office steps the hub takes over</Typography>
-              {STEPS.map((st) => (
-                <FormControlLabel key={st} sx={{ m: 0, display: "flex" }} disabled={!d.admin}
-                  control={<Checkbox size="small" checked={hub.liveSteps.includes(st)} onChange={() => setHub((h) => ({ ...h, liveSteps: toggle(h.liveSteps, st) }))} />}
-                  label={<Typography sx={{ fontSize: "0.8rem" }}>{STEP[st]}</Typography>} />
-              ))}
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>How a pipeline is handed over</Typography>
+              <Typography component="ol" sx={{ fontSize: "0.8rem", color: INK, m: 0, pl: 2.25, display: "grid", gap: 0.4 }}>
+                <li>Switch the pipeline live here - while its HubSpot workflow is still on, the hub writes nothing (it shows why on each ticket).</li>
+                <li>Switch the workflow off in HubSpot - from the next ticket the hub writes, within about two minutes of entry.</li>
+                <li>Back: switch the workflow on again - the hub stops at once.</li>
+              </Typography>
             </Box>
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
