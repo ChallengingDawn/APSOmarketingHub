@@ -6,12 +6,13 @@
 // creates a company by itself (SARCLA: orders and companies, a person decides).
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { owners } from "@/lib/integrations/eshopActivity";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { INTERNAL, kindOf, rankCandidates, withOrderCompanies, type Candidate, type Unlinked, type UnlinkedRow } from "./shopAccountRules";
 
-// v2: the companies their orders are booked on (19.10)
-const KEY = "ticketAssoc:shopAccounts:v2";
+// v2: the companies their orders are booked on (19.10); v3: who each person is, their orders (19.10)
+const KEY = "ticketAssoc:shopAccounts:v3";
 const LINKS = "ticketAssoc:shopLinks:v1";
 const TTL_MS = 10 * 60 * 1000;
 
@@ -28,7 +29,8 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
       path: "/crm/v3/objects/contacts/search", method: "POST",
       body: {
         filterGroups: [{ filters: [{ propertyName: "eyemagine_customer_id", operator: "HAS_PROPERTY" }, { propertyName: "associatedcompanyid", operator: "NOT_HAS_PROPERTY" }] }],
-        properties: ["hs_email_domain", "company", "country", "createdate", "hs_analytics_last_visit_timestamp"],
+        properties: ["hs_email_domain", "company", "country", "createdate", "hs_analytics_last_visit_timestamp",
+          "firstname", "lastname", "email", "phone", "mobilephone", "jobtitle", "address", "zip", "city", "hubspot_owner_id"],
         sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
         limit: 100, ...(after ? { after } : {}),
       },
@@ -59,7 +61,8 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
   }
   // the companies each contact's orders are booked on (19.10: 56 of 609 have orders, 305 of their 308 orders on a company)
   if (progressKey) reportProgress(progressKey, "reading their orders");
-  const fromOrders = await orderCompanies(people.map((c) => c.id));
+  const { companies: fromOrders, orders: ordersOf } = await orderCompanies(people.map((c) => c.id));
+  const ownerName = await owners().catch(() => new Map<string, string>());
   const rows: UnlinkedRow[] = people.map((c) => {
     const d = dom(c);
     const typed = (c.properties.company ?? "").trim();
@@ -70,6 +73,13 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
       kind: kindOf(d, candidates.length > 0), candidates,
       match: candidates.length ? { id: candidates[0].id, name: candidates[0].name, more: candidates.length - 1 } : null,
       byOrder: own.length === 1,
+      person: {
+        name: [c.properties.firstname, c.properties.lastname].map((x) => (x ?? "").trim()).filter(Boolean).join(" "),
+        email: (c.properties.email ?? "").trim(), phone: (c.properties.phone || c.properties.mobilephone || "").trim(), jobtitle: (c.properties.jobtitle ?? "").trim(),
+        address: (c.properties.address ?? "").trim(), zip: (c.properties.zip ?? "").trim(), city: (c.properties.city ?? "").trim(),
+        owner: ownerName.get(String(c.properties.hubspot_owner_id ?? "")) ?? "",
+      },
+      orders: ordersOf.get(c.id) ?? { n: 0, last: null },
     };
   });
   const rank = { match: 0, business: 1, free: 2 } as const;
@@ -86,8 +96,8 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
   };
 }
 
-/** contact -> the companies its orders are booked on, with how many orders each. */
-async function orderCompanies(contactIds: string[]): Promise<Map<string, Candidate[]>> {
+/** contact -> the companies its orders are booked on (with how many orders each), and its orders: how many, the last one's day. */
+async function orderCompanies(contactIds: string[]): Promise<{ companies: Map<string, Candidate[]>; orders: Map<string, { n: number; last: string | null }> }> {
   type Assoc = { results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[] };
   const ordersOf = new Map<string, string[]>();
   for (let i = 0; i < contactIds.length; i += 1000) {
@@ -99,6 +109,17 @@ async function orderCompanies(contactIds: string[]): Promise<Map<string, Candida
   for (let i = 0; i < orders.length; i += 1000) {
     const r = await hubspotFetchJson<Assoc>({ path: "/crm/v4/associations/orders/companies/batch/read", method: "POST", body: { inputs: orders.slice(i, i + 1000).map((id) => ({ id })) } });
     for (const row of r.results ?? []) if (row.from?.id && row.to?.length) companyOf.set(row.from.id, String(row.to[0].toObjectId));
+  }
+  // each order's day, for "their last order"
+  const dayOf = new Map<string, string>();
+  for (let i = 0; i < orders.length; i += 100) {
+    const r = await hubspotFetchJson<Page>({ path: "/crm/v3/objects/orders/batch/read", method: "POST", body: { inputs: orders.slice(i, i + 100).map((id) => ({ id })), properties: ["order_order_date"] } });
+    for (const o of r.results ?? []) if (o.properties.order_order_date) dayOf.set(o.id, o.properties.order_order_date.slice(0, 10));
+  }
+  const counts = new Map<string, { n: number; last: string | null }>();
+  for (const [contact, list] of ordersOf) {
+    const days = list.map((o) => dayOf.get(o)).filter((d): d is string => !!d).sort();
+    counts.set(contact, { n: list.length, last: days.length ? days[days.length - 1] : null });
   }
   const ids = [...new Set(companyOf.values())];
   const named = new Map<string, { name: string; country: string }>();
@@ -112,7 +133,7 @@ async function orderCompanies(contactIds: string[]): Promise<Map<string, Candida
     for (const o of list) { const co = companyOf.get(o); if (co) n.set(co, (n.get(co) ?? 0) + 1); }
     if (n.size) out.set(contact, [...n].map(([id, orders]) => ({ id, name: named.get(id)?.name ?? id, country: named.get(id)?.country ?? "", orders })));
   }
-  return out;
+  return { companies: out, orders: counts };
 }
 
 /** The tab's read, kept 10 minutes (a link done here is taken off at once, see linked()). */

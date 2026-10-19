@@ -31,6 +31,10 @@ export type UnlinkedRow = {
   match: { id: string; name: string; more: number } | null;
   /** the contact's orders are all booked on ONE company - linked in one go with "Link all" */
   byOrder: boolean;
+  /** who the person is, to judge the match (SARCLA 19.10: "on contact we are looking for contact - it should have more contact information") */
+  person: { name: string; email: string; phone: string; jobtitle: string; address: string; zip: string; city: string; owner: string };
+  /** their shop orders in HubSpot: how many, the last one's day */
+  orders: { n: number; last: string | null };
 };
 export type Unlinked = {
   /** every shop account without a company, A+P's own staff left out */

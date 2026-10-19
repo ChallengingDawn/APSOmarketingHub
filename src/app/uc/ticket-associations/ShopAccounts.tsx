@@ -26,7 +26,7 @@ import AddLinkIcon from "@mui/icons-material/AddLink";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, GREEN, INK, KpiTile, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GlassCard, GREEN, INK, KpiTile, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Choice, usePaged } from "@/app/connectors/parts";
 import type { Unlinked, UnlinkedRow } from "@/lib/ticketAssoc/shopAccountRules";
 import type { LinkDone } from "@/lib/ticketAssoc/shopAccounts";
@@ -46,12 +46,18 @@ export function ShopAccountsTab() {
   const [done, setDone] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [allDone, setAllDone] = useState<string | null>(null);
+  const [q, setQ] = useState("");
   const computing = r?.state === "ok" && r.data.computing && !r.data.value;
   // a first read takes a few seconds: ask again until it is in
   useEffect(() => { if (!computing) return; const t = setTimeout(() => setN((x) => x + 1), 4000); return () => clearTimeout(t); }, [computing, n]);
 
   const u = r?.state === "ok" ? r.data.value : undefined;
-  const rows = useMemo(() => (u?.rows ?? []).filter((x) => x.kind === kind), [u, kind]);
+  // a search over who they are: name, e-mail, phone, the company they typed, the place
+  const rows = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const text = (x: UnlinkedRow) => [x.person?.name, x.person?.email, x.person?.phone, x.company, x.domain, x.person?.city, x.person?.zip, x.country, x.person?.owner].join(" ").toLowerCase();
+    return (u?.rows ?? []).filter((x) => x.kind === kind && words.every((w) => text(x).includes(w)));
+  }, [u, kind, q]);
   const { slice, pager } = usePaged(rows, 20);
 
   if (r === null) return <LoadingPanel label="Reading the shop accounts without a company…" />;
@@ -85,8 +91,8 @@ export function ShopAccountsTab() {
   return (
     <>
       <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-        People with a shop login whose HubSpot contact has no company: their logins and orders count for no company, so no report sees them as a known customer.
-        Pick the company and Link - the contact gets it as its primary company. Nothing is linked without that click.
+        Here you link a <b>person</b> - a HubSpot contact with a shop login - to the <b>company</b> they work for. No company is merged or changed: the person only gets the company as theirs.
+        Without it, their logins and orders count for no company, so no report sees them as a known customer. Nothing is linked without your click.
       </Typography>
       <Grid container spacing={2}>
         {[
@@ -104,12 +110,14 @@ export function ShopAccountsTab() {
           { key: "business", label: "No company yet", count: u.business },
           { key: "free", label: "Free e-mail address", count: u.free },
         ]} />
+        <Box component="input" type="search" value={q} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQ(e.target.value)} placeholder="Find a person, an e-mail, a company, a town…" aria-label="Find a person"
+          sx={{ font: "inherit", fontSize: "0.84rem", px: 1.25, py: 0.75, borderRadius: "10px", border: "1px solid #d5dbe4", minWidth: 280, bgcolor: "#fff", color: INK, ml: { md: "auto" } }} />
         {held.stale && <CircularProgress size={14} sx={{ color: MUTED }} />}
       </Box>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<LinkOffIcon />} tint="amber" title={kind === "match" ? "Link each one to its company" : kind === "business" ? "No company with their e-mail domain yet" : "A free e-mail address - only the company they typed says who they are"}
-            note={kind === "match" ? "The company their orders are booked on first, then the one named like the company they typed; open the list when there are several" : "The name opens the contact in HubSpot: find the company there, or create it"} />
+          <CardTitle icon={<LinkOffIcon />} tint="amber" title={kind === "match" ? "Link each person to their company" : kind === "business" ? "No company with their e-mail domain yet" : "A free e-mail address - only the company they typed says who they are"}
+            note={kind === "match" ? "We suggest the company their shop orders are booked on, else the one matching the company name they typed. Several candidates? Open the list and pick one." : "The name opens the person in HubSpot: find their company there, or create it"} />
           {kind === "match" && (clear.length > 0 || allDone) && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", mt: 1.25, mb: 0.5, px: 1.5, py: 1, borderRadius: "12px", bgcolor: "rgba(27,122,85,.07)" }}>
               {clear.length > 0 && (
@@ -123,29 +131,40 @@ export function ShopAccountsTab() {
             </Box>
           )}
         </Box>
+        {/* the table scrolls inside its card when the screen is narrow - never past the card's edge */}
+        <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
-          <TableHead><TableRow>{["Company they typed", "E-mail domain", "Country", "Account since", kind === "match" ? "Link to" : ""].filter(Boolean).map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Person", "Company they typed, where", "In the shop", "Contact owner", kind === "match" ? "Their company" : ""].filter(Boolean).map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
-            {!rows.length && <TableRow><TableCell colSpan={5} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>None left here.</TableCell></TableRow>}
+            {!rows.length && <TableRow><TableCell colSpan={5} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>{q ? "Nobody here matches the search." : "None left here."}</TableCell></TableRow>}
             {slice.map((row) => {
               const d = done[row.id];
               return (
                 <TableRow key={row.id} hover>
-                  <TableCell sx={bodyCell}>
-                    <Box component="a" href={`${HUBSPOT}/0-1/${row.id}`} target="_blank" rel="noreferrer" title="Open the contact in HubSpot" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{row.company || "(no company typed)"}</Box>
+                  {/* who the person is (SARCLA 19.10: "it should have more contact information to do the match") */}
+                  <TableCell sx={{ ...bodyCell, minWidth: 200, maxWidth: 270 }}>
+                    <Box component="a" href={`${HUBSPOT}/0-1/${row.id}`} target="_blank" rel="noreferrer" title="Open the person in HubSpot" sx={{ color: INK, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{row.person?.name || row.person?.email || "(no name)"}</Box>
+                    <Typography title={row.person?.email} sx={{ fontSize: "0.76rem", color: MUTED, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.person?.email || row.domain || "—"}</Typography>
+                    {(row.person?.phone || row.person?.jobtitle) && <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{[row.person?.jobtitle, row.person?.phone].filter(Boolean).join(" · ")}</Typography>}
                   </TableCell>
-                  <TableCell sx={{ ...bodyCell, color: MUTED }}>{row.domain || "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, color: MUTED }}>{row.country || "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, color: MUTED, whiteSpace: "nowrap" }}>{day(row.created)}</TableCell>
+                  <TableCell sx={{ ...bodyCell, minWidth: 170, maxWidth: 240 }}>
+                    <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{row.company || "(no company typed)"}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{[row.person?.address, [row.person?.zip, row.person?.city].filter(Boolean).join(" "), row.country].filter(Boolean).join(", ") || "—"}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCell, minWidth: 140, maxWidth: 190 }}>
+                    <Typography sx={{ fontSize: "0.8rem", color: INK }}>Account since {day(row.created)}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{row.orders?.n ? `${row.orders.n} ${row.orders.n === 1 ? "order" : "orders"}${row.orders.last ? `, the last ${day(row.orders.last)}` : ""}` : "No order yet"}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.8rem" }}>{row.person?.owner || "—"}</TableCell>
                   {kind === "match" && (
-                    <TableCell sx={{ ...bodyCell, minWidth: 340 }}>
+                    <TableCell sx={{ ...bodyCell, minWidth: 270 }}>
                       {d?.ok ? (
                         <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: GREEN, fontWeight: 700, fontSize: "0.84rem" }}><CheckIcon sx={{ fontSize: 18 }} />{d.text}</Box>
                       ) : (
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                           {row.candidates.length > 1 ? (
                             <select aria-label={`Company for ${row.company || row.domain}`} value={pick[row.id] ?? row.candidates[0].id} onChange={(e) => setPick((p) => ({ ...p, [row.id]: e.target.value }))}
-                              style={{ font: "inherit", fontSize: "0.84rem", padding: "5px 8px", borderRadius: 8, border: "1px solid #d5dbe4", maxWidth: 280, background: "#fff", color: INK }}>
+                              style={{ font: "inherit", fontSize: "0.84rem", padding: "5px 8px", borderRadius: 8, border: "1px solid #d5dbe4", maxWidth: 230, background: "#fff", color: INK }}>
                               {row.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.country ? ` - ${c.country}` : ""}{c.orders ? ` · ${c.orders} of their orders` : ""}</option>)}
                             </select>
                           ) : (
@@ -169,6 +188,7 @@ export function ShopAccountsTab() {
             })}
           </TableBody>
         </Table>
+        </Box>
         <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
       </GlassCard>
     </>
