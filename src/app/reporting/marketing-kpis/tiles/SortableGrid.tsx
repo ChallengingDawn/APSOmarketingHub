@@ -28,7 +28,8 @@ function Sortable({ item, canMove }: { item: SortItem; canMove: boolean }) {
   return (
     <Box ref={setNodeRef} {...(canMove ? listeners : {})}
       sx={{
-        minWidth: 0, position: "relative", ...item.sx,
+        // a grid of one, so the tile fills the row's height - every tile in a row the same (SARCLA 19.10: "they should fit the same")
+        minWidth: 0, position: "relative", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", ...item.sx,
         transform: CSS.Translate.toString(transform), transition,
         ...(isDragging ? { zIndex: 5, cursor: "grabbing", "& > *": { boxShadow: "0 18px 40px rgba(31,45,78,.22)", outline: "2px solid rgba(45,111,168,.35)" } } : {}),
       }}>

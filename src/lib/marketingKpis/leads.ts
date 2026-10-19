@@ -7,7 +7,7 @@
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
-import { channelOf, howOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
+import { LEADS_SHAPE, channelOf, howOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
 import { UCS } from "@/lib/lifecycle/config";
 import { associations, searchAll } from "@/lib/lifecycle/read";
 
@@ -25,7 +25,8 @@ type Page<T> = { results?: T[]; paging?: { next?: { after?: string } } };
 type Obj = { id: string; properties?: Record<string, string | null> };
 
 export function leadsData(): Promise<SlowState<LeadsData>> {
-  return slowReport(KEY, (v: LeadsData) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), buildLeads);
+  // an answer of an older shape is read again at once - shown meanwhile, so nobody waits for the change
+  return slowReport(KEY, (v: LeadsData) => ((v?.shape ?? 0) < LEADS_SHAPE ? 0 : Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), buildLeads);
 }
 
 /** A HubSpot date or datetime ("2026-09-14", "2026-09-14T08:00:00Z" or milliseconds) as milliseconds. */
@@ -175,6 +176,13 @@ export async function buildLeads(): Promise<LeadsData> {
       for (const o of j.results ?? []) owners[String(o.id)] = [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || String(o.id);
       after = j.paging?.next?.after;
     } while (after);
+    // and the ones who left: their companies keep them as owner (SARCLA 19.10: "Owner 31218632 should not appear like that")
+    after = undefined;
+    do {
+      const j: Page<{ id: string; firstName?: string; lastName?: string; email?: string }> = await hubspotFetchJson({ path: `/crm/v3/owners?limit=100&archived=true${after ? `&after=${after}` : ""}` });
+      for (const o of j.results ?? []) owners[String(o.id)] ??= `${[o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || String(o.id)} (left)`;
+      after = j.paging?.next?.after;
+    } while (after);
   } catch (e) {
     errors.owners = String((e as Error)?.message ?? e).slice(0, 200);
   }
@@ -203,5 +211,5 @@ export async function buildLeads(): Promise<LeadsData> {
     });
   }
   rows.sort((a, b) => (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
-  return { rows, owners, year, monthsDone: now.getUTCMonth(), contacts: perMonth, readAt: new Date().toISOString(), errors };
+  return { rows, owners, year, monthsDone: now.getUTCMonth(), contacts: perMonth, readAt: new Date().toISOString(), errors, shape: LEADS_SHAPE };
 }

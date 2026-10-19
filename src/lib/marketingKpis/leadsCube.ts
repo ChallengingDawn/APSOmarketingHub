@@ -56,7 +56,11 @@ export type LeadsData = {
   contacts: Record<string, { all: number; onNew: number; noCompany: number }>;
   readAt: string;
   errors: Record<string, string>;
+  /** what the read carries (LEADS_SHAPE): an older answer is shown while a new one is read */
+  shape?: number;
 };
+/** 4: owners who left HubSpot by name (19.10) */
+export const LEADS_SHAPE = 4;
 
 /** The channels, in the order the page lists them. */
 export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | "direct" | "people" | "other" }[] = [
@@ -182,7 +186,7 @@ export function pathBy(d: LeadsData, w: { start: number; end: number }, f: LeadF
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
 export type FlowStep = "all" | "how" | "source" | "contact" | "qualification" | "outcome";
-export type FlowNode = { id: string; step: FlowStep; label: string; tone: "source" | "sales" | "good" | "bad" | "none" };
+export type FlowNode = { id: string; step: FlowStep; label: string; tone: "source" | "sales" | "good" | "own" | "bad" | "none" };
 export type Flow = { steps: FlowStep[]; nodes: FlowNode[]; links: { from: string; to: string; value: number }[]; totals: Record<string, number> };
 
 /** Where a lead stands at each step - the node it passes through. */
@@ -203,7 +207,11 @@ function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
     case "qualification":
       return r.q === 1 ? { id: "q:yes", step, label: "Qualified", tone: "good" } : r.q === 0 ? { id: "q:no", step, label: "Not qualified", tone: "bad" } : { id: "q:open", step, label: "Not qualified yet", tone: "none" };
     case "outcome":
-      return r.f ? { id: "o:customer", step, label: "New customer", tone: "good" } : { id: "o:none", step, label: "No order yet", tone: "none" };
+      // the ones who bought before any task or ticket apart (SARCLA 19.10: the diagram showed no new
+      // customer without a sales touch - they were there, mixed in)
+      return !r.f ? { id: "o:none", step, label: "No order yet", tone: "none" }
+        : r.a ? { id: "o:own", step, label: "Bought on their own", tone: "own" }
+          : { id: "o:sales", step, label: "Bought after a sales contact", tone: "good" };
   }
 }
 
@@ -234,8 +242,30 @@ export function flowOf(d: LeadsData, w: { start: number; end: number }, f: LeadF
   const out = [...nodes.values()].sort((a, b) => steps.indexOf(a.step) - steps.indexOf(b.step) || rank(a) - rank(b));
   return { steps, nodes: out, links: [...links.values()], totals };
 }
-const ORDER = ["all", ...HOWS.map((h) => `how:${h.id}`), "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:customer", "o:none"];
+const ORDER = ["all", ...HOWS.map((h) => `how:${h.id}`), "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:sales", "o:own", "o:none"];
 
 /** What became of a lead so far - one answer each, for the months chart. */
 export type Outcome = "customer" | "qualified" | "notQualified" | "open";
 export const outcomeOf = (r: LeadRow): Outcome => (r.f ? "customer" : r.q === 1 ? "qualified" : r.q === 0 ? "notQualified" : "open");
+
+/* ── month by month, for the small graphs ─────────────────────────────── */
+
+/** Several months' paths as one (the months of a window). */
+export function sumPaths(ps: PathCounts[]): PathCounts {
+  const out = emptyPath();
+  for (const p of ps) for (const k of Object.keys(out) as (keyof PathCounts)[]) out[k] += p[k];
+  return out;
+}
+
+/** The rows picked month by month, this year and last - one path per month (a tile's small graph). */
+export function monthly(d: LeadsData, f: LeadFilters, pick: (r: LeadRow) => boolean = () => true): { cy: PathCounts[]; py: PathCounts[] } {
+  const cy = Array.from({ length: 12 }, emptyPath), py = Array.from({ length: 12 }, emptyPath);
+  for (const r of d.rows) {
+    if (!keep(r, f) || !pick(r)) continue;
+    const y = Number(r.m.slice(0, 4)), m = Number(r.m.slice(5, 7)) - 1;
+    if (m < 0 || m > 11) continue;
+    if (y === d.year) add(cy[m], r);
+    else if (y === d.year - 1) add(py[m], r);
+  }
+  return { cy, py };
+}

@@ -7,6 +7,10 @@
 // SARCLA 18.10: "we need more graphs to understand better" and the sources "as a diagram where they
 // split the number" - the path and the sources each open on a flow diagram (Sankey), the months show
 // what became of each month's leads and how many bought, the countries and the owners get bars.
+// 19.10: "split by new leads in different and individual graphs" - a small graph per source, country,
+// owner and step of the path, each one can go to the nutshell (LeadPromotedTile); the Sources diagram
+// is gone (the table and "which sources buy" say it); long tables page; the buyers split into after a
+// sales contact and on their own.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -36,7 +40,8 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { BarList } from "@/app/charts/BarList";
 import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
-import { CHANNELS, HOWS, channelLabel, howLabel, flowOf, inWin, keep, outcomeOf, pathBy, pathOf, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
+import { CHANNELS, HOWS, channelLabel, howLabel, flowOf, inWin, keep, monthly, outcomeOf, pathBy, pathOf, sumPaths, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadRow, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
+import type { TileSpec } from "@/lib/reporting/kpiActions";
 import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
@@ -132,7 +137,7 @@ function rowCells(label: React.ReactNode, e: { cur: PathCounts; prev: PathCounts
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
 const STEP_NAME: Record<FlowStep, string> = { all: "New leads", how: "Came in by", source: "Source", contact: "Sales contact", qualification: "Owner's qualification", outcome: "Outcome" };
-const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], sales: SERIES[3], good: SERIES[2], bad: SERIES[1], none: DEEMPHASIS };
+const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], sales: SERIES[3], good: SERIES[2], own: SERIES[0], bad: SERIES[1], none: DEEMPHASIS };
 
 function FlowCard({ flow, title, note, actions, height }: { flow: Flow; title: string; note: string; actions: React.ReactNode; height: number }) {
   const label = new Map(flow.nodes.map((n) => [n.id, n.label]));
@@ -154,6 +159,152 @@ function FlowCard({ flow, title, note, actions, height }: { flow: Flow; title: s
 }
 
 const pct = (v: number | null) => (v == null ? "—" : `${Number.isInteger(v) ? v : v.toFixed(1)}%`);
+
+/* ── small graphs: a tile per source, country, owner or step of the path (SARCLA 19.10) ── */
+
+type TileTab = "sources" | "countries" | "teams" | "months";
+type Measure = "leads" | "toSales" | "qualified" | "customers" | "conversion";
+const MEASURE: Record<Measure, { label: string; unit: string; of: (p: PathCounts) => number | null; pct?: boolean }> = {
+  leads: { label: "New leads", unit: "new leads", of: (p) => p.companies },
+  toSales: { label: "Handed to sales", unit: "to sales", of: (p) => p.toSales },
+  qualified: { label: "Qualified by the owner", unit: "qualified", of: (p) => p.qualified },
+  customers: { label: "New customers", unit: "new customers", of: (p) => p.customers },
+  conversion: { label: "Leads that bought", unit: "bought", of: (p) => (p.companies ? (p.customers / p.companies) * 100 : null), pct: true },
+};
+const TILE_GRID = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
+const TAB_TINT: Record<TileTab, Tint> = { sources: "amber", countries: "green", teams: "purple", months: "blue" };
+const tabIcon = (t: TileTab) => (t === "sources" ? <AltRouteIcon /> : t === "countries" ? <PublicOutlinedIcon /> : t === "teams" ? <GroupsOutlinedIcon /> : <TimelineOutlinedIcon />);
+const ownerLabel = (d: LeadsData, o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
+
+/** What a tile shows, from its tab and id - the same on the page and in the nutshell. */
+function tileOf(d: LeadsData, tab: TileTab, id: string): { title: string; measure: Measure; pick: (r: LeadRow) => boolean } {
+  switch (tab) {
+    case "sources": return { title: channelLabel(id), measure: "leads", pick: (r) => r.c === id };
+    case "countries": return { title: id, measure: "leads", pick: (r) => r.k === id };
+    case "teams": return { title: ownerLabel(d, id), measure: "leads", pick: (r) => r.o === id };
+    case "months": {
+      const m = (id in MEASURE ? id : "leads") as Measure;
+      return { title: MEASURE[m].label, measure: m, pick: () => true };
+    }
+  }
+}
+const tileKey = (tab: TileTab, id: string) => `lead:${tab}:tile:${id}`;
+const tileTitle = (tab: TileTab, title: string) => (tab === "months" ? `${title} by month` : `New leads - ${title}`);
+
+/** One small graph, drawn as the nutshell's KPI tiles: name, figure, change, its months, a line under. */
+function LeadTile({ tab, title, measure, d, f, pick, win, actions }: {
+  tab: TileTab; title: string; measure: Measure; d: LeadsData; f: LeadFilters; pick: (r: LeadRow) => boolean; win: MonthWindow; actions?: React.ReactNode;
+}) {
+  const m = MEASURE[measure];
+  const { cy, py } = monthly(d, f, pick);
+  const cur = sumPaths(cy.slice(win.start, win.end + 1)), prev = sumPaths(py.slice(win.start, win.end + 1));
+  const v = m.of(cur), p = m.of(prev);
+  const fmt = (x: number | null) => (m.pct ? pct(x == null ? null : Math.round(x * 10) / 10) : n0(x));
+  const delta = m.pct
+    ? (v != null && p != null ? { text: `${v - p > 0 ? "↑" : v - p < 0 ? "↓" : "±"} ${Math.abs(v - p).toFixed(1)} pts`, color: v - p > 0.05 ? GREEN : v - p < -0.05 ? RED : MUTED } : null)
+    : change(v, p);
+  const months = cy.map((x, i) => (i <= d.monthsDone - 1 ? m.of(x) : null)), last = py.map((x) => m.of(x));
+  const max = Math.max(0, ...months.map((x) => x ?? 0), ...last.map((x) => x ?? 0)) || 1;
+  const h = (x: number | null) => (!x ? 0 : Math.max(3, (x / max) * 100));
+  const foot = measure === "leads" ? `${ratio(cur.customers, cur.companies)} bought · ${ratio(cur.toSales, cur.companies)} to sales` : `of ${n0(cur.companies)} new leads`;
+  return (
+    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0, height: "100%", boxSizing: "border-box" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
+        <Badge icon={tabIcon(tab)} tint={TAB_TINT[tab]} size={32} />
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{title}</Typography>
+        {actions}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmt(v)}</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{m.unit} · {monthsLabel(win)}</Typography>
+      </Box>
+      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: delta?.color ?? FAINT }}>{delta ? `${delta.text} vs ${d.year - 1}` : `none in ${monthsLabel(win)} ${d.year - 1}`}</Typography>
+      <Box sx={{ mt: "auto", pt: 0.5 }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: "4px", alignItems: "end", height: 72 }} role="img"
+          aria-label={`${title}, ${m.unit} by month: ${months.map((x, i) => (x == null ? null : `${MONTHS[i]} ${fmt(x)}`)).filter(Boolean).join(", ")}`}>
+          {MONTHS.map((mo, i) => (
+            <Box key={mo} title={`${mo} ${d.year}: ${fmt(months[i])}${last[i] != null ? ` · ${d.year - 1}: ${fmt(last[i])}` : ""}`}
+              sx={{ position: "relative", height: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+              {!!last[i] && <Box sx={{ position: "absolute", bottom: 0, left: "8%", right: "8%", height: `${h(last[i])}%`, bgcolor: "#dfe3ea", borderRadius: "3px 3px 0 0" }} />}
+              {months[i] != null && <Box sx={{ position: "relative", width: "62%", height: `${h(months[i])}%`, bgcolor: "#2d6fa8", opacity: i < win.start || i > win.end ? 0.35 : 1, borderRadius: "3px 3px 0 0" }} />}
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: "4px", mt: 0.4 }}>
+          {MONTHS.map((mo) => <Typography key={mo} sx={{ fontSize: "0.62rem", color: FAINT, textAlign: "center" }}>{mo[0]}</Typography>)}
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: FAINT, borderTop: "1px solid rgba(21,34,58,.07)", pt: 0.75 }}>{foot}</Typography>
+    </Box>
+  );
+}
+
+/** A long table a page at a time, with "1-10 of 54" and the way back and on under it. */
+function Paged<T>({ items, size = 10, children }: { items: T[]; size?: number; children: (rows: T[]) => React.ReactNode }) {
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(items.length / size)), at = Math.min(page, pages - 1);
+  return (
+    <>
+      {children(items.slice(at * size, at * size + size))}
+      {pages > 1 && (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+          <Typography sx={{ fontSize: "0.78rem", color: FAINT, fontVariantNumeric: "tabular-nums" }}>{at * size + 1}–{Math.min(items.length, (at + 1) * size)} of {items.length}</Typography>
+          <Button size="small" disabled={at === 0} onClick={() => setPage(at - 1)} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Previous</Button>
+          <Button size="small" disabled={at >= pages - 1} onClick={() => setPage(at + 1)} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Next</Button>
+        </Box>
+      )}
+    </>
+  );
+}
+
+// The nutshell's lead tiles share one read of the leads (the answer is ~1 MB - not once per tile).
+const shared: { v: LeadsData | null; p: Promise<void> | null; subs: Set<() => void> } = { v: null, p: null, subs: new Set() };
+function loadShared() {
+  if (shared.p) return;
+  shared.p = fetch("/api/reporting/marketing-kpis/leads")
+    .then((r) => r.json())
+    .then((j) => { const v = j?.leads?.value as LeadsData | undefined; if (v) shared.v = v; })
+    .catch(() => {})
+    .finally(() => {
+      shared.p = null;
+      shared.subs.forEach((f) => f());
+      // still being read: ask again in a while, as long as a tile is on the screen
+      if (!shared.v) setTimeout(() => { if (shared.subs.size) loadShared(); }, 20_000);
+    });
+}
+function useSharedLeads(): LeadsData | null {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const f = () => tick((n) => n + 1);
+    shared.subs.add(f);
+    if (!shared.v) loadShared();
+    return () => { shared.subs.delete(f); };
+  }, []);
+  return shared.v;
+}
+
+/** A lead tile promoted to the nutshell: drawn from its key, with the filters and months it was promoted with. */
+export function LeadPromotedTile({ spec, actions }: { spec: TileSpec; actions: React.ReactNode }) {
+  const d = useSharedLeads();
+  const parts = spec.key.split(":");
+  const tab = parts[1] as TileTab, id = parts.slice(3).join(":");
+  if (!d || !["sources", "countries", "teams", "months"].includes(tab)) {
+    return (
+      <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, minWidth: 0, display: "grid", gap: 1, alignContent: "start" }}>
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25 }}>
+          <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, flex: 1, pt: 0.75 }}>{spec.title}</Typography>
+          {actions}
+        </Box>
+        <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Reading the leads…</Typography>
+      </Box>
+    );
+  }
+  const done = d.monthsDone, from = Number(spec.from), to = Number(spec.to);
+  const win: MonthWindow = from >= 1 && to >= from && to <= done ? { start: from - 1, end: to - 1 } : { start: 0, end: Math.max(0, done - 1) };
+  const ff = spec.filters ?? {};
+  const t = tileOf(d, tab, id);
+  return <LeadTile tab={tab} title={t.title} measure={t.measure} d={d} f={{ channel: ff.source, country: ff.country, how: ff.how }} pick={t.pick} win={win} actions={actions} />;
+}
 
 export function LeadExplorer({ state }: { state: MkState | null }) {
   const params = useSearchParams();
@@ -198,9 +349,8 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
   const countryRows = useMemo(() => (d ? [...pathBy(d, win, f, (r) => r.k).entries()].sort((a, b) => (FOCUS.includes(b[0]) ? 1 : 0) - (FOCUS.includes(a[0]) ? 1 : 0) || b[1].cur.companies - a[1].cur.companies) : []), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
   const countryOptions = useMemo(() => (d ? [...new Set(d.rows.map((r) => r.k))].sort((a, b) => (FOCUS.includes(b) ? 1 : 0) - (FOCUS.includes(a) ? 1 : 0) || a.localeCompare(b)) : []), [d]);
   const pathFlow = useMemo(() => (d ? flowOf(d, win, f, ["how", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sourceFlow = useMemo(() => (d ? flowOf(d, win, f, ["source", "contact", "qualification", "outcome"]) : null), [d, win.start, win.end, channels, countries, hows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!d || !path || !pathFlow || !sourceFlow) {
+  if (!d || !path || !pathFlow) {
     return (
       <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
         {!ld.error && <CircularProgress size={18} />}
@@ -240,9 +390,20 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
     if (r.q == null) e.n += 1;
     waiting.set(r.o, e);
   }
-  const ownerName = (o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
+  const ownerName = (o: string) => ownerLabel(d, o);
   const waitingRows = [...waiting.entries()].filter(([, e]) => e.n > 0).sort((a, b) => b[1].n - a[1].n).slice(0, 12).map(([o, e]) => ({ label: ownerName(o), value: e.n, secondary: `of ${n0(e.of)} with sales` }));
-  const countryBars = countryRows.slice().sort((a, b) => b[1].cur.companies - a[1].cur.companies).slice(0, 12).map(([k, e]) => ({ label: k, value: e.cur.companies, secondary: `${ratio(e.cur.customers, e.cur.companies)} bought` }));
+  const tile = (t: TileTab, id: string) => {
+    const x = tileOf(d, t, id), key = tileKey(t, id);
+    return (
+      <LeadTile key={key} tab={t} title={x.title} measure={x.measure} d={d} f={f} pick={x.pick} win={win}
+        actions={<TileActions where="tab" start="tab" edge={2.25} tile={{ key, page: "lead", tab: t, title: tileTitle(t, x.title), summary: `${monthsLabel(win)} ${year}`, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />} />
+    );
+  };
+  const tiles = (t: TileTab, ids: string[]) => <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: TILE_GRID }}>{ids.map((id) => tile(t, id))}</Box>;
+  const sourceIds = CHANNELS.filter((c) => bySource.has(c.id)).sort((a, b) => bySource.get(b.id)!.cur.companies - bySource.get(a.id)!.cur.companies).map((c) => c.id);
+  // the focus markets first, then the biggest - twelve; the rest are in the table
+  const countryIds = countryRows.slice(0, 12).map(([k]) => k);
+  const ownerIds = byOwner.filter(([o]) => o).slice(0, 12).map(([o]) => o);
 
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
@@ -282,14 +443,16 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "path" && (
         <>
           <FlowCard flow={pathFlow} height={340} title="How the leads split" actions={act("flow", "How the leads split")}
-            note={`${monthsLabel(win)} ${year} · every new lead by how it came in, then step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy · UC2 only picks up shop registrations, so the contacts sales and service add themselves get no UC2 task · hover a band for its count`} />
+            note={`${monthsLabel(win)} ${year} · every new lead by how it came in, then step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy - after a sales contact, or on their own before any task or ticket · UC2 only picks up shop registrations, so the contacts sales and service add themselves get no UC2 task · hover a band for its count`} />
           <PathCard cur={path.cur} prev={path.prev} w={win} year={year} actions={act("path", "From acquisition to purchase")} />
         </>
       )}
 
       {tab === "sources" && (
-        <FlowCard flow={sourceFlow} height={430} title="Where the leads came from, and where they went" actions={act("flow", "Where the leads came from, and where they went")}
-          note={`${monthsLabel(win)} ${year} · the six biggest sources by name, the rest together · hover a band for its count`} />
+        <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+          <CardTitle icon={<AltRouteIcon />} tint="amber" title="New leads by source" note={`${monthsLabel(win)} ${year} against ${year - 1}, month by month · each one can go to the nutshell (Actions)`} />
+          {tiles("sources", sourceIds)}
+        </GlassCard>
       )}
 
       {tab === "sources" && (
@@ -306,6 +469,13 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
           <CardTitle icon={<AltRouteIcon />} tint="amber" title="Where the leads came from" note={`${monthsLabel(win)} ${year} · the original source of each new company's first new contact · click a source to filter by it`} right={act("sources", "Where the leads came from")} />
           <Table head={["Source", ...head.slice(1)]} rows={CHANNELS.filter((c) => bySource.has(c.id)).map((c) => ({ key: c.id, on: channels.includes(c.id), onPick: () => setChannels(flip(channels, c.id)), cells: rowCells(c.label, bySource.get(c.id)!) }))} />
           <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>HubSpot&apos;s original source of the contact. &quot;Created by people&quot; are contacts entered by sales or service, &quot;Chat&quot; those from the website chat; SEA is split by search engine (Bing = Microsoft Ads). The change is against the same months of {year - 1}.</Typography>
+        </GlassCard>
+      )}
+
+      {tab === "months" && (
+        <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+          <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="The path, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · each one can go to the nutshell (Actions)`} />
+          {tiles("months", ["leads", "toSales", "qualified", "customers", "conversion"])}
         </GlassCard>
       )}
 
@@ -342,16 +512,17 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "countries" && (
         <GlassCard sx={{ display: "grid", gap: 1.25 }}>
           <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country" note={`${monthsLabel(win)} ${year} · our focus markets first · click a country to filter by it`} right={act("countries", "New leads by country")} />
-          <ChartFrame table={{ columns: ["Country", "New leads", "Bought"], rows: countryBars.map((r) => [r.label, r.value, r.secondary]), numeric: [1] }}>
-            <BarList rows={countryBars} format={(v) => n0(v)} labelWidth={180} onSelect={(k) => setCountries(flip(countries, k))} selectedLabel={countries.length === 1 ? countries[0] : null} />
-          </ChartFrame>
-          <Table head={["Country", ...head.slice(1)]} rows={countryRows.map(([k, e]) => ({ key: k, on: countries.includes(k), onPick: () => setCountries(flip(countries, k)), cells: rowCells(k, e) }))} />
+          {tiles("countries", countryIds)}
+          <Paged items={countryRows} size={10}>
+            {(rows) => <Table head={["Country", ...head.slice(1)]} rows={rows.map(([k, e]) => ({ key: k, on: countries.includes(k), onPick: () => setCountries(flip(countries, k)), cells: rowCells(k, e) }))} />}
+          </Paged>
         </GlassCard>
       )}
 
       {tab === "teams" && (
         <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-          <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="New leads by owner" note={`${monthsLabel(win)} ${year} · the company's owner in HubSpot today`} right={act("teams", "New leads by owner")} />
+          <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="New leads by owner" note={`${monthsLabel(win)} ${year} · the company's owner in HubSpot today, the twelve with the most new leads as graphs`} right={act("teams", "New leads by owner")} />
+          {tiles("teams", ownerIds)}
           <Box>
             <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Waiting for the owner&apos;s qualification</Typography>
             <Typography sx={{ fontSize: "0.76rem", color: FAINT, mb: 1 }}>Leads sent to sales (a UC2 task or an ESO/TSA ticket) with no answer yet in &quot;Qualified by company owner&quot;</Typography>
@@ -359,7 +530,9 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
               <BarList rows={waitingRows} format={(v) => n0(v)} labelWidth={200} emptyMessage="Every lead with sales has its qualification." />
             </ChartFrame>
           </Box>
-          <Table head={["Owner", "Leads", "To sales", "Qualified", "Not qualified", "Not yet", "New customers", "Revenue"]} rows={byOwner.map(([o, e]) => ({ key: o || "none", cells: [ownerName(o), withChange(n0(e.cur.companies), change(e.cur.companies, e.prev.companies)), n0(e.cur.toSales), n0(e.cur.qualified), n0(e.cur.notQualified), n0(e.cur.notYet), n0(e.cur.customers), eur(e.cur.rev)] }))} />
+          <Paged items={byOwner} size={15}>
+            {(rows) => <Table head={["Owner", "Leads", "To sales", "Qualified", "Not qualified", "Not yet", "New customers", "Revenue"]} rows={rows.map(([o, e]) => ({ key: o || "none", cells: [ownerName(o), withChange(n0(e.cur.companies), change(e.cur.companies, e.prev.companies)), n0(e.cur.toSales), n0(e.cur.qualified), n0(e.cur.notQualified), n0(e.cur.notYet), n0(e.cur.customers), eur(e.cur.rev)] }))} />}
+          </Paged>
         </GlassCard>
       )}
 

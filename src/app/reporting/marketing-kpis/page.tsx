@@ -29,6 +29,7 @@ import {
 } from "./data";
 import { CustomersPromoted, CustomersSummary } from "./Customers";
 import { ReachPromoted } from "./Reach";
+import { LeadPromotedTile } from "./Lead";
 import { SearchCustomersCard } from "./SearchCustomers";
 import { TileActions } from "./tiles/TileActions";
 import { LinkCard, rendererOf } from "./tiles/registry";
@@ -115,6 +116,8 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
   const rows: SortItem[] = [];
   for (const { spec } of list) {
     const tile = { key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind };
+    // a Lead Generation small graph joins the panel's tiles (SARCLA 19.10: "small graphs that we can bring to the nutshell")
+    if (spec.page === "lead" && /^lead:[a-z]+:tile:/.test(spec.key)) { tiles.push({ key: spec.key, node: <LeadPromotedTile spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} /> }); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
     if (v) { tiles.push({ key: spec.key, node: <KpiTileChart v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} /> }); continue; }
     const draw = rendererOf(spec.page);
