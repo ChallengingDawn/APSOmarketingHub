@@ -80,6 +80,61 @@ export function alertArticles(o: {
   return [...new Set(o.orderArticles.map(normArticle))].filter((a) => a.length === 10 && want.has(a)).sort();
 }
 
+/**
+ * One purchase, one mail (SARCLA 19.10.2026: "we send the mail twice"). A purchase lives in HubSpot
+ * as more than one order record - the shop's web record A26.667139.000 and the ERP's delivery
+ * A26.667139.001 (.002 ...) - and each record was its own alert: the owner of TSA ticket 433687111892
+ * got "please check your ticket" for both on 19.10. The mail is keyed on the A-number without its
+ * delivery part; anything else (no A-number) on the order itself.
+ */
+export function purchaseOf(orderNumber: string | null | undefined, orderId: string): string {
+  const n = String(orderNumber ?? "").trim();
+  return /^[AG]\d{2}\.\d{6}\.\d{3}$/.test(n) ? n.slice(0, 10) : n || `order ${orderId}`;
+}
+
+/** The order pipeline's Cancelled stage (connectors/steps/orderRules.ts CANCELLED). */
+const ORDER_CANCELLED = "5676846286";
+
+/** A credit note (G...) or a cancelled order is not the customer ordering - never an alert, never a ticket closed. */
+export const countsAsOrder = (orderNumber: string | null | undefined, orderStage: string | null | undefined): boolean =>
+  !/^G/i.test(String(orderNumber ?? "").trim()) && orderStage !== ORDER_CANCELLED;
+
+/**
+ * Why an order alert's mail does not go out - null when it goes. Asked only once the order is linked
+ * (a failed link is tried again first). `mailedNow`: the purchase this check already mailed the
+ * ticket's owner about - a second order on the same ticket in the same check is not a second mail.
+ */
+export function mailBlock(o: { ownerId: string | null; ownerEmail: string | null; relay: boolean; mailedNow: string | null }): string | null {
+  if (o.mailedNow) return `not mailed: the owner was mailed for this ticket a moment ago (${o.mailedNow})`;
+  if (!o.ownerId) return "the ticket has no owner";
+  if (!o.ownerEmail) return "the ticket's owner has no e-mail address";
+  // a team inbox (helpline@, support@, sales@ ...) would turn the alert into a new ticket
+  if (sharedMailbox(o.ownerEmail)) return `not mailed: the owner is the shared mailbox ${o.ownerEmail}`;
+  if (!o.relay) return "the hub's mail relay is not set up";
+  return null;
+}
+
+/** The value of "Ticket resolution ESO | TSA" (ticket_resolution_eso) the owners choose when the customer ordered. */
+export const RESOLUTION_ORDERED = "Ordered";
+
+/**
+ * The stage an alerted ticket is closed in (SARCLA 19.10.2026: "we need to also close the ticket ...
+ * when we send the mail"): its pipeline's one stage HubSpot marks CLOSED - by id, never by label. None,
+ * or more than one, and the hub does not guess: the ticket stays open and the alert says why.
+ */
+export function closedStageOf(stages: { id: string; archived?: boolean; metadata?: { ticketState?: string } }[]): string | null {
+  const closed = stages.filter((s) => !s.archived && s.metadata?.ticketState === "CLOSED");
+  return closed.length === 1 ? closed[0].id : null;
+}
+
+/**
+ * What closing writes: the closed stage, and the resolution "Ordered" - as the owners do by hand -
+ * unless a person already chose one (theirs is kept).
+ */
+export function closeProps(closedStage: string, resolution: string | null | undefined): Record<string, string> {
+  return { hs_pipeline_stage: closedStage, ...(String(resolution ?? "").trim() ? {} : { ticket_resolution_eso: RESOLUTION_ORDERED }) };
+}
+
 /** A HubSpot date or datetime property (ms or ISO) as epoch ms; NaN when it is neither. */
 export function msOf(v: string | null | undefined): number {
   if (!v) return NaN;

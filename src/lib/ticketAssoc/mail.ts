@@ -1,6 +1,7 @@
 // "PLEASE CHECK YOUR TICKET" - the mail Ticket associations sends a ticket's owner when the customer
 // has ordered an article from their open ESO / TSA ticket after it was opened (SARCLA, 17.10.2026).
-// One function renders it, for the real mail and for Settings > Mail's preview alike.
+// One function renders it, for the real mail and for Settings > Mail's preview alike. Since 19.10.2026
+// the ticket is closed when this mail goes out - one mail per ticket and purchase (orderAlerts.ts).
 
 import { esc, wrap } from "@/lib/notify/mailer";
 
@@ -26,7 +27,8 @@ const row = (k: string, v: string) =>
 export function renderOrderAlert(m: OrderAlertMail): { subject: string; html: string; text: string } {
   const subject = `Please check your ticket - an order was detected: ${m.ticketSubject ?? m.orderNumber}`.slice(0, 160);
   const greeting = m.ownerName ? `Hello ${m.ownerName},` : "Hello,";
-  const intro = `${greeting} the system detected an order on your ticket: the customer ordered an article from it after the ticket was opened. The order is now linked to the ticket.`;
+  // the hub closes the ticket right after this mail (SARCLA 19.10.2026), resolution "Ordered" unless one was chosen
+  const intro = `${greeting} the system detected an order on your ticket: the customer ordered an article from it after the ticket was opened. The order is now linked to the ticket and the ticket is closed as "Ordered" - open it again if there is more to do.`;
   const lines: [string, string][] = [
     ["Ticket", m.ticketSubject ?? "-"],
     ...(m.company ? [["Customer", m.company] as [string, string]] : []),

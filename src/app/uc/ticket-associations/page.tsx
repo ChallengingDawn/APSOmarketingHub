@@ -376,7 +376,10 @@ function CheckContacts({ c }: { c: unknown }) {
   );
 }
 
-const ALERT_MODE: Record<AlertMode, string> = { off: "Off", preview: "Preview - list only", link: "Link the order", mail: "Link and mail the owner" };
+// mail: since 19.10.2026 the ticket is closed ("Ordered") once its mail went out - one mail per ticket and purchase
+const ALERT_MODE: Record<AlertMode, string> = { off: "Off", preview: "Preview - list only", link: "Link the order", mail: "Link, mail the owner, close the ticket" };
+/** "not mailed: ..." is the alert working as meant (a shared mailbox, the purchase already mailed), not a problem. */
+const problem = (error: string | null) => !!error && !error.startsWith("not mailed:");
 
 /**
  * ORDER ALERTS (SARCLA 17.10.2026): an open ESO / TSA ticket names an article, the customer then orders
@@ -396,10 +399,10 @@ function AlertsTab({ d }: { d: Data }) {
       {a !== "off" && <LookBack admin={d.admin} mode={a} />}
       <Grid container spacing={2}>
         {[
-          { icon: <NotificationsActiveOutlinedIcon />, tint: "blue" as const, label: a === "preview" ? "Alerts it would send" : "Alerts", value: rows.length, note: "one per ticket and order" },
+          { icon: <NotificationsActiveOutlinedIcon />, tint: "blue" as const, label: a === "preview" ? "Alerts it would send" : "Alerts", value: rows.length, note: "one per ticket and order - one mail per purchase" },
           { icon: <ReceiptLongOutlinedIcon />, tint: "purple" as const, label: "Orders linked", value: rows.filter((r) => r.linked).length, note: "to the ticket" },
           { icon: <MarkEmailReadOutlinedIcon />, tint: "green" as const, label: "Owners mailed", value: rows.filter((r) => r.mailed_at).length, note: "“please check your ticket”" },
-          { icon: <ReportProblemOutlinedIcon />, tint: "pink" as const, label: "Problems", value: rows.filter((r) => r.error).length, note: "no owner, no mail address, a failed link" },
+          { icon: <ReportProblemOutlinedIcon />, tint: "pink" as const, label: "Problems", value: rows.filter((r) => problem(r.error)).length, note: "no owner, no mail address, a failed link or close" },
         ].map((k) => (
           <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={full(k.value)} note={k.note} /></Grid>
         ))}
@@ -420,8 +423,8 @@ function AlertsTab({ d }: { d: Data }) {
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.articles.join(", ")}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", ...clip(200) }}>{r.owner_email ?? "-"}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
-                  {r.mailed_at ? <Chip tint="green">mailed</Chip> : r.linked ? <Chip tint="purple">linked</Chip> : <Chip tint="slate">listed</Chip>}
-                  {r.error && <Typography sx={{ fontSize: "0.74rem", color: RED }}>{r.error}</Typography>}
+                  {r.mailed_at ? <Chip tint="green">{r.closed_at ? "mailed, closed" : "mailed"}</Chip> : r.linked ? <Chip tint="purple">linked</Chip> : <Chip tint="slate">listed</Chip>}
+                  {r.error && <Typography sx={{ fontSize: "0.74rem", color: problem(r.error) ? RED : MUTED }}>{r.error}</Typography>}
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
               </TableRow>
