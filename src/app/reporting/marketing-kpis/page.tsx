@@ -15,14 +15,11 @@ import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import UpcomingIcon from "@mui/icons-material/Upcoming";
-import AltRouteIcon from "@mui/icons-material/AltRoute";
 
 import { GUTTER } from "@/app/analytics/Shell";
-import { BarList } from "@/app/charts/BarList";
 import { Badge, CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ADDITIONAL_TRACKING, KPIS, PLANNED, STAGES, type KpiStage } from "@/lib/marketingKpis/catalogue";
 import { fmtValue } from "@/lib/marketingKpis/measures";
-import type { LiveKpis } from "@/lib/marketingKpis/live";
 import {
   Compare, LiveNote, MiniBars, StageGlyph, buildViews, isMeasured, nameOf, periodOf, stageKpis,
   stageHref, stageTint, upToOf, useMarketingKpis, type KpiView, type MkState,
@@ -38,16 +35,24 @@ import { WithActions } from "./tiles/WithActions";
 import { stageName } from "@/lib/marketingKpis/stageNames";
 import { placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
 import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
+import { ShopAccountsCompact, VISIT_NAMES, VisitTileChart, useVisitData } from "./VisitCompact";
+import type { VisitData } from "@/lib/marketingKpis/visitCube";
 
 const TILES = "repeat(auto-fill, minmax(min(100%, 228px), 1fr))";
 
 /** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months. */
-function KpiTileChart({ v, slug, tint, upTo, actions }: { v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode }) {
+function KpiTileChart({ v, slug, tint, upTo, actions, chart, title }: {
+  v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode;
+  /** the graph its card on the page draws, small (SARCLA 19.10: "the same graph in both levels") - else its months */
+  chart?: React.ReactNode;
+  /** the page's own name for the KPI, when it has one */
+  title?: string;
+}) {
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
         <Badge icon={<StageGlyph slug={slug} />} tint={tint} size={32} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{nameOf(v.id)}</Typography>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{title ?? nameOf(v.id)}</Typography>
         {actions}
       </Box>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
@@ -56,7 +61,7 @@ function KpiTileChart({ v, slug, tint, upTo, actions }: { v: KpiView; slug: stri
       </Box>
       <Compare v={v} size="0.78rem" />
       <Box sx={{ mt: "auto", pt: 0.5 }}>
-        {v.measure.agg.kind === "ytd" ? (
+        {chart ? chart : v.measure.agg.kind === "ytd" ? (
           // a count for the year so far: this year against last year whole, as two bars
           <Box sx={{ display: "grid", gap: 0.6 }}>
             {([["This year so far", v.ytd, TINT[tint].fg], [v.pyNote ?? "Last year", v.pyYtd, "#d3d8e0"]] as const).map(([label, x, color]) => {
@@ -78,18 +83,6 @@ function KpiTileChart({ v, slug, tint, upTo, actions }: { v: KpiView; slug: stri
   );
 }
 
-/** Traffic origin, the graph the visit stage carries beside its KPIs. */
-function TrafficOrigin({ live }: { live: LiveKpis }) {
-  const ch = live.breakdowns.channels;
-  const total = ch.reduce((s, c) => s + c.sessions, 0) || 1;
-  return (
-    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, minWidth: 0 }}>
-      <CardTitle icon={<AltRouteIcon />} tint="blue" title="Traffic origin" note={`GA4 sessions by channel, ${live.year} so far`} />
-      <BarList rows={ch.slice(0, 7).map((c) => ({ label: c.label, value: c.sessions, secondary: `${((c.sessions / total) * 100).toFixed(1)}%` }))} labelWidth={130} />
-    </Box>
-  );
-}
-
 /** A nutshell KPI tile's key - the same as on its page, so a move there is a move here. */
 const kpiKey = (slug: string, id: string) => `${slug}::${id}`;
 
@@ -100,8 +93,9 @@ function KpiActions({ v, slug }: { v: KpiView; slug: string }) {
   );
 }
 
-/** The cards the nutshell draws on its own, from the start - not "promoted". */
-const OWN = new Set(["customers::summary", "visit::traffic-origin", "reach:customers:search-customers"]);
+/** The cards the nutshell draws on its own, from the start - not "promoted" (the traffic origin card is gone,
+ *  SARCLA 19.10: "take out completely" - its key stays here so an old placement row draws nothing). */
+const OWN = new Set(["customers::summary", "visit::traffic-origin", "visit:customers:unlinked", "reach:customers:search-customers"]);
 
 /**
  * What was promoted from a page into its own panel (SARCLA 18.10: "they should go into their
@@ -131,7 +125,7 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
   return { tiles, rows };
 }
 
-function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<string, KpiView>; state: MkState; acts: ActionsState | null }) {
+function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Record<string, KpiView>; state: MkState; acts: ActionsState | null; visit: VisitData | null }) {
   const live = state.live?.value;
   const year = new Date().getFullYear();
   const tint = stageTint(s.slug);
@@ -141,15 +135,17 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
   const all = KPIS.filter((k) => k.stage === s.id).length;
   const measured = KPIS.filter((k) => k.stage === s.id && isMeasured(k.id)).length;
   const customers = s.slug === "customers";
-  const traffic = s.slug === "visit" && !!live?.breakdowns.channels.length;
   const promoted = promotedOf(s.slug, ids, views, state, acts);
   // the panel's tiles, then its full-width cards, each in the order someone dragged them
   const items: SortItem[] = [
-    ...tiles.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />} /> })),
+    // Visit's tiles draw their page's graphs, small (VisitCompact.tsx)
+    ...tiles.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
+      chart={s.slug === "visit" ? VisitTileChart({ id: v.id, views, d: visit, year }) ?? undefined : undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
     ...promoted.tiles,
-    ...(traffic && placementOf(acts, "visit::traffic-origin", "nutshell") === "nutshell" ? [{
-      key: "visit::traffic-origin", sx: { gridColumn: { sm: "span 2" } },
-      node: <WithActions where="nutshell" start="nutshell" top={18} tile={{ key: "visit::traffic-origin", page: "visit", title: "Traffic origin", kind: "card", href: stageHref("visit") }}><TrafficOrigin live={live!} /></WithActions>,
+    // the shop accounts without a company, compact (SARCLA 19.10) - fixed in Ticket/order/article associations
+    ...(s.slug === "visit" && visit?.unlinked && placementOf(acts, "visit:customers:unlinked", "nutshell") === "nutshell" ? [{
+      key: "visit:customers:unlinked",
+      node: <WithActions where="nutshell" start="nutshell" tile={{ key: "visit:customers:unlinked", page: "visit", tab: "customers", title: "Shop accounts without a company", kind: "card", href: stageHref("visit") }}><ShopAccountsCompact u={visit.unlinked} /></WithActions>,
     }] : []),
     // SEO and SEA in customers: new, reactivated, active (SARCLA 17.10)
     ...(s.slug === "reach" && placementOf(acts, "reach:customers:search-customers", "nutshell") === "nutshell" ? [{
@@ -219,6 +215,8 @@ function StagePanel({ s, views, state, acts }: { s: KpiStage; views: Record<stri
 export default function MarketingKpisMacro() {
   const [state] = useMarketingKpis();
   const { state: acts } = useActions("nutshell");
+  // the Visit page's read, so the Visit tiles draw the page's graphs (read once, shared with the page)
+  const visit = useVisitData();
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
   return (
@@ -232,7 +230,7 @@ export default function MarketingKpisMacro() {
       )}
       {views && state && (
         <>
-          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} />)}
+          {STAGES.map((s) => <StagePanel key={s.id} s={s} views={views} state={state} acts={acts} visit={visit.value} />)}
           {([["Additional tracking for the team - planned", ADDITIONAL_TRACKING], ["Also planned", PLANNED]] as const).filter(([, list]) => list.length).map(([title, list]) => (
             <GlassCard key={title}>
               <CardTitle icon={<UpcomingIcon />} tint="slate" title={title} />

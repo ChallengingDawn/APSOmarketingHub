@@ -31,7 +31,6 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { StackedColumns } from "@/app/charts/StackedColumns";
-import { BarList } from "@/app/charts/BarList";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
@@ -41,6 +40,7 @@ import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
 import { TileActions } from "./tiles/TileActions";
+import { VISIT_NAMES } from "./VisitCompact";
 import { SavedViews } from "./tiles/SavedViews";
 import { kpiSummary } from "./tiles/summary";
 
@@ -55,8 +55,8 @@ const TABS: { id: Tab; label: string; kpis: string[] }[] = [
 ];
 /** the focus markets in GA4's two-letter codes */
 const FOCUS2 = ["CH", "DE", "IT", "FR", "AT", "NL", "LI", "PL"];
-/** this page's own names for a KPI (the nutshell keeps the catalogue's) */
-const PAGE_NAMES: Record<string, string> = { V04: "Users per country" };
+/** this page's own names for a KPI - its nutshell tile too (VisitCompact.tsx) */
+const PAGE_NAMES = VISIT_NAMES;
 const names = (xs: string[], f: (x: string) => string) => {
   const n = xs.map(f);
   return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n[0] ?? "";
@@ -125,7 +125,7 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
     if (id === "V06S" && countries.length) v = { ...v, measure: { ...v.measure, note: `Only ${names(countries, countryName)} - GA4's login event${channels.length ? "; it has no channel, so the channel choice does not apply" : ""}` } };
     if (id === "V06S" && !countries.length && channels.length) v = { ...v, measure: { ...v.measure, note: `${v.measure.note} · GA4's login event has no channel: every channel` } };
     // "Users per country" on this page (SARCLA 18.10: "call it just users per country"); the figure stays the users outside Switzerland
-    if (id === "V04") v = { ...v, measure: { ...v.measure, definition: "The figure: GA4's users from every country but Switzerland, month by month added up - the chart: each country, Switzerland included" } };
+    if (id === "V04") v = { ...v, measure: { ...v.measure, definition: "Visitors - people on the shop, not companies (GA4's users, who accepted statistics cookies). The figure: every country but Switzerland, month by month added up; the chart: each country, Switzerland included" } };
     if (id === "V07" && vis.value?.prio.length) {
       const band = (b: string) => vis.value!.prio.find((p) => p.band === b);
       const say = (b: string) => { const p = band(b); return p ? `${b}: ${n0(p.cy)} of ${n0(p.all)} companies (${ratio(p.cy, p.all)})` : ""; };
@@ -250,9 +250,6 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
           <GlassCard sx={{ display: "grid", gap: 1.25 }}>
             <CardTitle icon={<AltRouteIcon />} tint="blue" title="Traffic origin - where the visits come from"
               note={`GA4 channels, ${w} ${year} against ${w} ${year - 1}${countries.length ? ` · ${names(countries, countryName)} only` : ""} · click a channel to filter by it`} right={tileFor("channels", "Traffic origin by channel")} />
-            {/* the nutshell's graph, here too (SARCLA 18.10: "graphs on the nutshell ... should be inside") */}
-            <BarList rows={rows.slice(0, 8).map((r) => ({ label: r.label, value: r.sessions, secondary: ratio(r.sessions, total) }))} labelWidth={130} format={(x) => n0(x)}
-              onSelect={(label) => toggleChannel(label)} selectedLabel={channels.length === 1 ? channels[0] : null} />
             <Table firstWidth="minmax(380px, 3fr)"
               head={["Channel - what it is", "Sessions", "Share", `Sessions ${year - 1}`, "Users", "New users"]}
               rows={rows.map((r) => ({
@@ -360,7 +357,7 @@ export function VisitExplorer({ state }: { state: MkState | null }) {
         </Box>
       )}
 
-      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} right={tileFor("unlinked", "Shop accounts without a company")} />}
+      {d && tab === "customers" && <UnlinkedCard u={d.unlinked} error={d.errors?.unlinked} right={<TileActions where="tab" start="nutshell" tile={{ key: "visit:customers:unlinked", page: "visit", tab: "customers", title: "Shop accounts without a company", kind: "card" }} />} />}
 
       <NotConnected list={missing} />
       <LiveNote state={state} typed={false} sources="GA4 (users, sessions, channels, countries, landing pages) and HubSpot (Datatracker logins)" />
@@ -476,7 +473,7 @@ function AbroadChart({ d, year, months, filters, chosen, w }: { d: VisitData; ye
   if (!shown.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No visitors in the choice.</Typography>;
   return (
     <Box sx={{ display: "grid", gap: 0.75 }}>
-      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Users by country, {w} {year} against {w} {year - 1}</Typography>
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Visitors by country, {w} {year} against {w} {year - 1}</Typography>
       <ChartFrame table={{ columns: ["Country", String(year), String(year - 1)], rows: rows.slice(0, 25).map((r) => [r.label, r.users, r.pyUsers]), numeric: [1, 2] }}>
         <GroupedColumns height={240} format={(x) => n0(x)} data={shown.map((r) => ({ x: r.label, current: r.users, prior: r.pyUsers || null }))} currentLabel={String(year)} priorLabel={String(year - 1)} />
       </ChartFrame>
