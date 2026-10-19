@@ -11,6 +11,7 @@
 
 import { hubspotFetchJson } from "../integrations/hubspot";
 import { hubspotToken, ticketsToken } from "../integrations/status";
+import { ROLE_OVERRIDE } from "../connectors/steps/ticketRules";
 
 /** The HubSpot primary teams shown, in this order. */
 export const TEAMS = ["ESO", "TSA", "Backoffice Team"] as const;
@@ -60,7 +61,11 @@ export function absences(raw: string | null | undefined, nowMs: number): { now: 
   return { now, next: next ? { from: isoDay(next.s), to: isoDay(next.e) } : null };
 }
 
+/** The person's team: the role the business states for people whose HubSpot team is stale (the wrong-owner check's
+ *  ROLE_OVERRIDE - SARCLA 19.10.2026: Bernd Rausmann, "APSO Management" in HubSpot, was missing), else the primary team. */
 function primaryTeam(o: OwnerRow): string | null {
+  const name = `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim();
+  if (name in ROLE_OVERRIDE) return ROLE_OVERRIDE[name];
   const teams = o.teams ?? [];
   return (teams.find((t) => t.primary)?.name ?? teams[0]?.name ?? null) || null;
 }
