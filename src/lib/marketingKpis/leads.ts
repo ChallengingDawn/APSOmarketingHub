@@ -10,6 +10,7 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { LEADS_SHAPE, channelOf, howOf, qualOf, type LeadRow, type LeadsData } from "./leadsCube";
 import { UCS } from "@/lib/lifecycle/config";
 import { associations, searchAll } from "@/lib/lifecycle/read";
+import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
 
 // v2: the UC2 qualification tasks counted as the way to sales too; v3: how the first contact was
 // made, and a ticket or task counted from the first contact on (both 18.10)
@@ -231,5 +232,22 @@ export async function buildLeads(): Promise<LeadsData> {
     });
   }
   rows.sort((a, b) => (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
-  return { rows, owners, year, monthsDone: now.getUTCMonth(), contacts: perMonth, readAt: new Date().toISOString(), errors, shape: LEADS_SHAPE };
+
+  // GA4's shop registrations by traffic channel, month by month - HubSpot does not know the traffic of most
+  // of them, the shop connector makes the contact (SARCLA 19.10). A report reaches 365 days: a year at a time.
+  const signups: { m: string; ch: string; n: number }[] = [];
+  reportProgress(KEY, "reading the shop registrations' traffic from GA4");
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [from, to] of [[`${py}-01-01`, `${py}-12-31`], [`${year}-01-01`, today]]) {
+      const r = await fetchGa4Report({ name: "signupChannelsMonthly", from, to });
+      for (const row of r.rows) {
+        const ymRaw = row.keys[0] ?? "";
+        if (/^\d{6}$/.test(ymRaw)) signups.push({ m: `${ymRaw.slice(0, 4)}-${ymRaw.slice(4, 6)}`, ch: row.keys[1] ?? "", n: row.values[0] ?? 0 });
+      }
+    }
+  } catch (e) {
+    errors.ga4 = String((e as Error)?.message ?? e).slice(0, 200);
+  }
+  return { rows, owners, year, monthsDone: now.getUTCMonth(), contacts: perMonth, readAt: new Date().toISOString(), errors, shape: LEADS_SHAPE, signups };
 }

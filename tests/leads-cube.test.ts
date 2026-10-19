@@ -135,3 +135,21 @@ test("what the owners answered: the answer as written, why not, and why no order
   // two reasons in one field count once each
   assert.deepEqual(Object.fromEntries(a.noOrder), { "Delivery time": 2, "Only looking for info": 1 });
 });
+
+test("the traffic step: the shop registrations only, split by GA4's share of sign-ups in the same months", () => {
+  const d = data([row({ h: "shop" }), row({ h: "shop" }), row({ h: "shop" }), row({ h: "person" })]);
+  d.signups = [
+    { m: "2026-03", ch: "Direct", n: 20 }, { m: "2026-03", ch: "Organic Search", n: 10 },
+    { m: "2025-03", ch: "Paid Search", n: 99 }, // last year: not in the months chosen
+  ];
+  const fl = flowOf(d, { start: 0, end: 8 }, {}, ["traffic", "how", "contact"]);
+  assert.equal(fl.steps[0], "traffic");
+  // three shop registrations: two thirds direct, one third organic - and they add up
+  assert.equal(fl.totals["traffic:Direct"], 2);
+  assert.equal(fl.totals["traffic:Organic search (SEO)"], 1);
+  assert.ok(fl.links.every((l) => !l.from.startsWith("traffic:") || l.to === "how:shop"));
+  // the other ways in have no traffic step
+  assert.equal(fl.totals["how:person"], 1);
+  // no GA4 figures: no traffic step
+  assert.equal(flowOf(data([row({ h: "shop" })]), { start: 0, end: 8 }, {}, ["traffic", "how"]).steps[0], "how");
+});

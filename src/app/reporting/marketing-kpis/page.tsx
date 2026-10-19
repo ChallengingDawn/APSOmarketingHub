@@ -134,9 +134,9 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
       continue;
     }
     // a Lead Generation card is the same graph as on its page (SARCLA 19.10: "not all the promoted come here")
-    if (spec.page === "lead") { rows.push(row(spec.key, <LeadPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
+    if (spec.page === "lead") { rows.push(row(spec.key, <LeadPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     // a Hand-over card too (SARCLA 19.10: how the teams handle the incoming leads)
-    if (spec.page === "handover") { rows.push(row(spec.key, <HandoverPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
+    if (spec.page === "handover") { rows.push(row(spec.key, <HandoverPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
     // a KPI at half or the whole width is its page's card
     const full = v && fmt !== "tile" && spec.kpiId ? fullCardFor(spec.page, spec.kpiId, <TileActions where="nutshell" start="tab" tile={tile} />) : null;
@@ -189,7 +189,8 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   for (const t of leadTiles) if (t.fmt === "half") fullRows.push(row(t.key, t.node, "half"));
   const handoverCards = handover ? HANDOVER_NUTSHELL_CARDS.filter((t) => placementOf(acts, t.key, "nutshell") === "nutshell").map((t) => {
     const tile = { key: t.key, page: "handover", tab: t.key.split(":")[1], title: t.title, kind: "card" as const, href: stageHref("handover") };
-    return row(t.key, <HandoverPromoted spec={tile} actions={<TileActions where="nutshell" start="nutshell" tile={tile} />} />, formatOf(acts, tile));
+    const fmt = formatOf(acts, tile);
+    return row(t.key, <HandoverPromoted spec={tile} half={fmt === "half"} actions={<TileActions where="nutshell" start="nutshell" tile={tile} />} />, fmt);
   }) : [];
   const rows = [...fullRows, ...handoverCards, ...promoted.rows];
   // the panel's tiles, then its full-width cards, each in the order someone dragged them

@@ -12,7 +12,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import { CHROME, FONT } from "./palette";
 
-export type SankeyNode = { id: string; column: number; label: string; color: string };
+export type SankeyNode = {
+  id: string; column: number; label: string; color: string;
+  /** the share is of this, not of everything - a step that splits one node only (Lead Generation's shop traffic) */
+  of?: { value: number; label: string };
+};
 export type SankeyLink = { from: string; to: string; value: number };
 
 const NODE_W = 14;
@@ -150,7 +154,7 @@ export function Sankey({
       return { head: `${s.label} → ${t.label}`, value: format(b.value), note: `${share(b.value, s.value)} of ${s.label}` };
     }
     const p = layout.placed.get(hover.id);
-    return p ? { head: p.label, value: format(p.value), note: `${share(p.value, layout.total)} of all` } : null;
+    return p ? { head: p.label, value: format(p.value), note: p.of ? `${share(p.value, p.of.value)} of ${p.of.label}` : `${share(p.value, layout.total)} of all` } : null;
   })();
 
   return (
@@ -189,8 +193,8 @@ export function Sankey({
                 style={{ fontSize: 12, paintOrder: "stroke", stroke: l.halo ? CHROME.surface : "none", strokeWidth: 4, strokeLinejoin: "round", opacity: nodeLit(l.id) ? 1 : 0.4 }}>
                 <tspan style={{ fill: CHROME.ink, fontWeight: 600 }}>{p.label}</tspan>
                 {l.two
-                  ? <tspan x={l.x} dy="1.25em" style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, layout.total)}</tspan>
-                  : <tspan dx={6} style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, layout.total)}</tspan>}
+                  ? <tspan x={l.x} dy="1.25em" style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, p.of?.value ?? layout.total)}</tspan>
+                  : <tspan dx={6} style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, p.of?.value ?? layout.total)}</tspan>}
               </text>
             );
           })}

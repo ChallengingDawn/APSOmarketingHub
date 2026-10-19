@@ -9,7 +9,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { UCS } from "@/lib/lifecycle/config";
 import { batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
-import { classify, workingHours, type HandoverData, type HandoverRow } from "./handoverCube";
+import { HANDOVER_SHAPE, classify, workingHours, type HandoverData, type HandoverRow } from "./handoverCube";
 
 const KEY = "marketingKpis:handover:v1";
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -23,7 +23,7 @@ const PROPS = [
 ];
 
 export function handoverData(): Promise<SlowState<HandoverData>> {
-  return slowReport(KEY, (v: HandoverData) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), buildHandover);
+  return slowReport(KEY, (v: HandoverData) => ((v?.shape ?? 0) < HANDOVER_SHAPE ? 0 : Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS : TTL_MS), buildHandover);
 }
 
 const ms = (v: string | null | undefined): number | null => {
@@ -120,5 +120,5 @@ export async function buildHandover(): Promise<HandoverData> {
     };
   });
   rows.sort((a, b) => (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
-  return { rows, owners, year, monthsDone: new Date(now).getUTCMonth(), readAt: new Date(now).toISOString(), errors, skipped };
+  return { rows, owners, year, monthsDone: new Date(now).getUTCMonth(), readAt: new Date(now).toISOString(), errors, skipped, shape: HANDOVER_SHAPE };
 }

@@ -21,6 +21,8 @@ test("what a ticket is: a customer's request, a new registrant, a lifecycle hand
   assert.ok("skip" in classify({ subject: "x", sourceType: "EMAIL", objectSource: "CONVERSATIONS", resolution: "Not a sales topic" }, LIFECYCLE));
   assert.ok("skip" in classify({ subject: "TSA | MAIL FROM FINANCE | invoice", sourceType: "EMAIL", objectSource: "CONVERSATIONS" }, LIFECYCLE));
   assert.ok("skip" in classify({ subject: "EROSION | Muster AG", objectSource: "INTEGRATION", tags: "42249278" }, LIFECYCLE));
+  // sales asking inside the company is not a customer's lead
+  assert.ok("skip" in classify({ subject: "Special price request | Muster AG", objectSource: "CRM_UI" }, LIFECYCLE));
 });
 
 test("what became of it: won is ordered - or qualified for a new registrant", () => {

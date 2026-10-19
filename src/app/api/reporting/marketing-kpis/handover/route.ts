@@ -1,4 +1,4 @@
-// Hand-over to ESO/TSA: how the teams handle the incoming leads (src/lib/marketingKpis/handover.ts).
+// Hand-over to ESO/TSA: how the teams handle the ticket leads (src/lib/marketingKpis/handover.ts).
 // Advanced reporting's grant to read.
 import { NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";

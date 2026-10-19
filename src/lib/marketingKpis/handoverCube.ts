@@ -4,12 +4,12 @@
 //
 //   what      ESO and TSA tickets of three kinds (SARCLA 19.10, chosen in a question):
 //               request    a customer asked us: a website form, the chat, an e-mail, a request the ESO
-//                          typed in ("Direct ESO request"), one redirected from Back Office, the helpline,
-//                          a special price request
+//                          typed in ("Direct ESO request"), one redirected from Back Office, the helpline
 //               new lead   a new registrant to qualify (UC2 tickets, since 1 October 2026)
 //               lifecycle  what the lifecycle workflows hand over: Lost Leads, Second Purchase, Thank you
 //                          (a poor rating), Abandoned Cart
-//             left out: campaigns typed in by hand, auto-logged mails, Finance mails, "Not a sales topic",
+//             left out: campaigns typed in by hand, auto-logged mails, Finance mails, special price requests
+//             (sales asking inside the company), "Not a sales topic",
 //             "TSA NON QUALIFIED", Bisphenol - the rules of the Swiss SLA and territory reports (Sept-Oct 2026)
 //   speed     for a customer's request: the first reply from the ticket (first_agent_reply_date) in
 //             working hours, Mon-Fri 8-17 Zurich; a reply by phone or from Outlook is not in the ticket and
@@ -52,7 +52,12 @@ export type HandoverData = {
   errors: Record<string, string>;
   /** tickets read and left out, by why - for the note under the page */
   skipped: Record<string, number>;
+  /** what the read carries (HANDOVER_SHAPE): an older answer is shown while a new one is read */
+  shape?: number;
 };
+
+/** 2: special price requests left out (19.10) */
+export const HANDOVER_SHAPE = 2;
 
 export const KINDS: { id: Kind; label: string }[] = [
   { id: "request", label: "Customer requests" },
@@ -68,7 +73,6 @@ export const CHANNELS: { id: string; label: string; kind: Kind }[] = [
   { id: "direct", label: "Direct request to the ESO", kind: "request" },
   { id: "bo", label: "Redirected from Back Office", kind: "request" },
   { id: "helpline", label: "Helpline", kind: "request" },
-  { id: "special", label: "Special price request", kind: "request" },
   { id: "uc2", label: "New registrant (UC2)", kind: "newlead" },
   { id: "uc15", label: "Lost Leads (UC15)", kind: "lifecycle" },
   { id: "uc9", label: "Second purchase (UC9)", kind: "lifecycle" },
@@ -116,7 +120,8 @@ export function classify(t: TicketIn, lifecycle: Record<string, string>): { g: K
   if (s.startsWith("HELPLINE")) return { g: "request", c: "helpline" };
   if (s.startsWith("CUSTOMER FORM") || (inbox && src === "FORM")) return { g: "request", c: "form" };
   if (s.startsWith("REQUEST FROM CHAT") || (inbox && (src === "CHAT" || ost === "BOT"))) return { g: "request", c: "chat" };
-  if (s.startsWith("SPECIAL PRICE REQUEST")) return { g: "request", c: "special" };
+  // a special price request is sales asking inside the company, not a customer's lead (SARCLA 19.10: "a mistake")
+  if (s.startsWith("SPECIAL PRICE REQUEST")) return { skip: "special price request" };
   if (inbox) return { g: "request", c: "email" };
   return { skip: "campaign or typed in by hand" };
 }

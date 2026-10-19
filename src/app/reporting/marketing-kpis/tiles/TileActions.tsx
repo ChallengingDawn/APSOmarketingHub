@@ -57,11 +57,14 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
 
   return (
     <>
+      {/* the tab hangs from its place without taking height: a two-line title stays two lines high, and the
+          card's content starts right under it (SARCLA 19.10: "still stupid top padding everywhere") */}
+      <Box sx={{ mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start", position: "relative", width: 20, height: 0 }}>
       <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · In a nutshell" : ""}` : `Actions${placed === "nutshell" ? " · In a nutshell" : ""}`}>
         <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); setOpen(true); }}
           sx={{
             // on the card's right edge, rounded on the inside only
-            mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start",
+            position: "absolute", top: 0, right: 0, zIndex: 1,
             display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.35, py: 1, minHeight: 70,
             writingMode: "vertical-rl", transform: "rotate(180deg)",
             border: `1px solid ${running ? TINT.amber.fg : HAIRLINE}`, borderLeft: 0, borderRadius: "0 9px 9px 0",
@@ -79,6 +82,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
           Actions
         </Box>
       </Tooltip>
+      </Box>
       {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move} canWrite={state?.canWrite ?? false} />}
     </>
   );

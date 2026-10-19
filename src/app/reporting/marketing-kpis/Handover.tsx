@@ -1,10 +1,12 @@
 "use client";
-// HAND-OVER TO ESO/TSA - HOW THE TEAMS HANDLE THE INCOMING LEADS (SARCLA 19.10.2026: "the concept is a little
+// HAND-OVER TO ESO/TSA - HOW THE TEAMS HANDLE THE TICKET LEADS (SARCLA 19.10.2026: "the concept is a little
 // wrong - the idea is a view on what they do with the leads they handle, how they handle them, what the win
-// rate is; I want to see how the teams perform with incoming leads"). Laid out as Lead Generation: the title
+// rate is; I want to see how the teams perform with ticket leads"). Laid out as Lead Generation: the title
 // with its figures top right, tabs - teams, months, outcomes, channels, countries, people - and the Filters
 // window. Every card is drawn from the tickets, the filters and the months alone (CARDS), so a promoted one is
 // the same graph in the nutshell (HandoverPromoted). The rules are in handoverCube.ts.
+// 19.10 later: "ticket leads" (SARCLA: "call it ticket leads?"), what counts said on the page, special price
+// requests out, ESO and TSA side by side as graphs (the table "is shit"), won-lost-open per team and why lost.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -34,14 +36,14 @@ import { BarList } from "@/app/charts/BarList";
 import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import {
-  CHANNELS, KINDS, OUTCOMES, channelLabel, flowOf, inDayRate, inWin, keep, kindLabel, median, statsBy, statsOf, winRate,
+  CHANNELS, KINDS, OUTCOMES, channelLabel, emptyStats, flowOf, inDayRate, inWin, keep, kindLabel, median, statsBy, statsOf, winRate,
   type HFilters, type HFlowNode, type HandoverData, type Outcome, type Stats,
 } from "@/lib/marketingKpis/handoverCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio } from "./ExplorerKit";
-import { Paged, Pick } from "./Lead";
+import { HALF_ROWS, Paged, Pick } from "./Lead";
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
 
@@ -70,7 +72,7 @@ function yearEarlierOk(d: HandoverData, w: MonthWindow): boolean {
 /** The figures top right. */
 function Figures({ cur, prev, py }: { cur: Stats; prev: Stats; py: boolean }) {
   const items: { label: string; icon: React.ReactNode; tint: Tint; v: string; d?: { text: string; color: string } | null; sub: string }[] = [
-    { label: "Incoming leads", icon: <ForwardToInboxOutlinedIcon />, tint: "blue", v: n0(cur.incoming), d: py ? change(cur.incoming, prev.incoming) : null, sub: `${n0(cur.requests)} customer requests` },
+    { label: "Ticket leads", icon: <ForwardToInboxOutlinedIcon />, tint: "blue", v: n0(cur.incoming), d: py ? change(cur.incoming, prev.incoming) : null, sub: `${n0(cur.requests)} customer requests` },
     { label: "Answered in a working day", icon: <TimerOutlinedIcon />, tint: "amber", v: pct(inDayRate(cur)), sub: `of the requests · median ${hours(median(cur.firstHours))}` },
     { label: "Win rate", icon: <EmojiEventsOutlinedIcon />, tint: "green", v: pct(winRate(cur)), sub: `${n0(cur.won)} won of ${n0(cur.resolved)} closed` },
     { label: "Still open", icon: <HourglassBottomOutlinedIcon />, tint: "purple", v: n0(cur.open), sub: `${n0(cur.stale)} open more than 30 days` },
@@ -141,14 +143,18 @@ function OutcomeBars({ rows, page = 12 }: { rows: { key: string; label: string; 
 }
 
 const twinOf = (rows: { label: string; s: Stats }[]) => ({
-  columns: ["", "Incoming", ...OUTCOMES.map((o) => o.label), "Win rate"],
+  columns: ["", "Ticket leads", ...OUTCOMES.map((o) => o.label), "Win rate"],
   rows: rows.map((r) => [r.label, r.s.incoming, ...OUTCOMES.map((o) => r.s.outcomes[o.id]), pct(winRate(r.s))]),
   numeric: [1, ...OUTCOMES.map((_, i) => i + 2)],
 });
 
 /* ── the cards ─────────────────────────────────────────────────────────── */
 
-type Ctx = { d: HandoverData; f: HFilters; win: MonthWindow; py: boolean; actions?: React.ReactNode; onChannel?: (id: string) => void; onCountry?: (k: string) => void };
+type Ctx = {
+  d: HandoverData; f: HFilters; win: MonthWindow; py: boolean; actions?: React.ReactNode; onChannel?: (id: string) => void; onCountry?: (k: string) => void;
+  /** drawn at half width in the nutshell: the compact form - a few rows a page, the first card of a pair (Lead's HALF_ROWS) */
+  half?: boolean;
+};
 
 const TONE: Record<HFlowNode["tone"], string> = { source: SERIES[0], eso: "#1c5cab", tsa: SERIES[1], good: SERIES[2], bad: "#c0571f", none: DEEMPHASIS };
 
@@ -157,11 +163,11 @@ function FlowCard({ d, f, win, actions }: Ctx) {
   const label = new Map(fl.nodes.map((n) => [n.id, n.label]));
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<AltRouteIcon />} tint="blue" title="What happens to the incoming leads" note={`${monthsLabel(win)} ${d.year} · every incoming lead: how it came in, which team got it, how fast a customer's request got its first reply, and what became of it · hover a band for its count`} right={actions} />
-      <ChartFrame table={{ columns: ["From", "To", "Leads"], rows: fl.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value]), numeric: [2] }} empty={fl.nodes.length ? null : "No incoming leads for this choice."}>
+      <CardTitle icon={<AltRouteIcon />} tint="blue" title="What happens to the ticket leads" note={`${monthsLabel(win)} ${d.year} · every ticket lead: how it came in, which team got it, how fast a customer's request got its first reply, and what became of it · hover a band for its count`} right={actions} />
+      <ChartFrame table={{ columns: ["From", "To", "Leads"], rows: fl.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value]), numeric: [2] }} empty={fl.nodes.length ? null : "No ticket leads for this choice."}>
         <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
           <Box sx={{ minWidth: 760 }}>
-            <Sankey height={420} columns={fl.columns} label="What happens to the incoming leads" links={fl.links}
+            <Sankey height={420} columns={fl.columns} label="What happens to the ticket leads" links={fl.links}
               nodes={fl.nodes.map((n) => ({ id: n.id, column: n.column, label: n.label, color: TONE[n.tone] }))} />
           </Box>
         </Box>
@@ -170,48 +176,51 @@ function FlowCard({ d, f, win, actions }: Ctx) {
   );
 }
 
-/** ESO and TSA side by side: the same figures, so the difference reads at a glance. */
-function CompareCard({ d, f, win, py, actions }: Ctx) {
+const TEAM_COLOR: Record<string, string> = { ESO: SERIES[0], TSA: SERIES[1] };
+
+/**
+ * ESO and TSA side by side, as graphs: each figure a small graph with the two teams' bars, the better of the
+ * two in green (SARCLA 19.10: the table "is shit").
+ */
+function CompareCard({ d, f, win, actions, half }: Ctx) {
   const by = statsBy(d, win, f, (r) => r.t);
-  const lines: { label: string; v: (s: Stats) => string; better?: (a: Stats, b: Stats) => number }[] = [
-    { label: "Incoming leads", v: (s) => n0(s.incoming) },
-    { label: "… customer requests", v: (s) => n0(s.requests) },
-    { label: "Answered within a working day", v: (s) => pct(inDayRate(s)), better: (a, b) => (inDayRate(a) ?? 0) - (inDayRate(b) ?? 0) },
-    { label: "Median first reply", v: (s) => hours(median(s.firstHours)), better: (a, b) => (median(b.firstHours) ?? 0) - (median(a.firstHours) ?? 0) },
-    { label: "No reply from the ticket", v: (s) => `${n0(s.noReply)} (${ratio(s.noReply, s.requests)})`, better: (a, b) => (b.noReply / Math.max(1, b.requests)) - (a.noReply / Math.max(1, a.requests)) },
-    { label: "Win rate", v: (s) => pct(winRate(s)), better: (a, b) => (winRate(a) ?? 0) - (winRate(b) ?? 0) },
-    { label: "Won", v: (s) => n0(s.won) },
-    { label: "Median days to close", v: (s) => { const m = median(s.closeDays); return m == null ? "—" : `${Math.round(m)} days`; } },
-    { label: "Still open", v: (s) => n0(s.open) },
-    { label: "… open more than 30 days", v: (s) => `${n0(s.stale)} (${ratio(s.stale, s.open)})`, better: (a, b) => (b.stale / Math.max(1, b.open)) - (a.stale / Math.max(1, a.open)) },
+  const of = (t: string) => by.get(t)?.cur ?? emptyStats();
+  const share = (n: number, base: number) => (base ? (n / base) * 100 : null);
+  const metrics: { title: string; note: string; v: (s: Stats) => number | null; fmt: (v: number | null) => string; max?: number; up?: boolean }[] = [
+    { title: "Ticket leads", note: "came in, all kinds", v: (s) => s.incoming, fmt: (v) => n0(v) },
+    { title: "Answered within a working day", note: "the customer requests, first reply from the ticket", v: inDayRate, fmt: pct, max: 100, up: true },
+    { title: "Median first reply", note: "the customer requests, in working hours", v: (s) => median(s.firstHours), fmt: hours, up: false },
+    { title: "No reply in the ticket", note: "the customer requests - a call or an Outlook mail is not in it", v: (s) => share(s.noReply, s.requests), fmt: pct, max: 100, up: false },
+    { title: "Win rate", note: "won of the closed with a resolution", v: winRate, fmt: pct, max: 100, up: true },
+    { title: "Open for more than 30 days", note: "of the ticket leads still open", v: (s) => share(s.stale, s.open), fmt: pct, max: 100, up: false },
   ];
-  const s = (t: string) => by.get(t)?.cur ?? statsOf({ ...d, rows: [] }, win, f).cur;
-  const p = (t: string) => by.get(t)?.prev;
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="ESO and TSA side by side" note={`${monthsLabel(win)} ${d.year} · the same figures for both teams - the better of the two in green${py ? ` · win rate a year earlier under it` : ""}`} right={actions} />
-      <Box sx={{ display: "grid", gridTemplateColumns: "minmax(160px, 1.4fr) repeat(2, minmax(0, 1fr))", rowGap: 0.25 }}>
-        <Box />
-        {TEAMS.map((t) => <Typography key={t} sx={{ fontSize: "0.78rem", fontWeight: 800, color: MUTED, textAlign: "right", letterSpacing: "0.04em", pb: 0.5 }}>{t}</Typography>)}
-        {lines.map((l) => {
-          const a = s("ESO"), b = s("TSA");
-          const diff = l.better ? l.better(a, b) : 0;
-          return [
-            <Typography key={`${l.label}-l`} sx={{ fontSize: "0.84rem", color: l.label.startsWith("…") ? FAINT : INK, py: 0.6, borderTop: "1px solid rgba(21,34,58,.06)" }}>{l.label}</Typography>,
-            ...TEAMS.map((t, i) => {
-              const good = l.better && Math.abs(diff) > 1e-9 && (i === 0 ? diff > 0 : diff < 0);
-              const prev = l.label === "Win rate" && py ? p(t) : undefined;
-              return (
-                <Box key={`${l.label}-${t}`} sx={{ textAlign: "right", py: 0.6, borderTop: "1px solid rgba(21,34,58,.06)" }}>
-                  <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: good ? GREEN : INK, fontVariantNumeric: "tabular-nums" }}>{l.v(t === "ESO" ? a : b)}</Typography>
-                  {prev && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>a year earlier {pct(winRate(prev))}</Typography>}
+      <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="ESO and TSA side by side" note={`${monthsLabel(win)} ${d.year} · the same six figures for both teams - the better of the two in green`} right={actions} />
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", [half ? "xl" : "lg"]: "repeat(3, minmax(0, 1fr))" } }}>
+        {metrics.map((m) => {
+          const a = m.v(of("ESO")), b = m.v(of("TSA"));
+          const top = m.max ?? Math.max(a ?? 0, b ?? 0, 1);
+          const better = m.up == null || a == null || b == null || a === b ? null : (a > b) === m.up ? "ESO" : "TSA";
+          return (
+            <Box key={m.title} sx={{ ...glass, borderRadius: "16px", p: 1.75, display: "grid", gap: 1, alignContent: "start", minWidth: 0 }}>
+              <Box>
+                <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{m.title}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{m.note}</Typography>
+              </Box>
+              {([["ESO", a], ["TSA", b]] as const).map(([t, v]) => (
+                <Box key={t} sx={{ display: "grid", gridTemplateColumns: "34px minmax(0, 1fr) 64px", gap: 1, alignItems: "center" }}>
+                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: MUTED }}>{t}</Typography>
+                  <Box sx={{ height: 14, bgcolor: "rgba(21,34,58,.05)", borderRadius: "0 4px 4px 0" }}>
+                    <Box sx={{ height: "100%", width: `${v == null ? 0 : Math.max(2, Math.min(100, (v / top) * 100))}%`, bgcolor: TEAM_COLOR[t], borderRadius: "0 4px 4px 0" }} />
+                  </Box>
+                  <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, textAlign: "right", color: better === t ? GREEN : INK, fontVariantNumeric: "tabular-nums" }}>{m.fmt(v)}</Typography>
                 </Box>
-              );
-            }),
-          ];
+              ))}
+            </Box>
+          );
         })}
       </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Speed counts the customer requests only: a new registrant or a lifecycle hand-over is worked by phone or mail, and a reply by phone or from Outlook is not in the ticket. Win rate = closed as Ordered (a one-shot order too) - for a new registrant, closed Qualified - of the tickets closed with a resolution.</Typography>
     </GlassCard>
   );
 }
@@ -226,7 +235,7 @@ function MonthVolumeCard({ d, f, win, actions }: Ctx) {
   });
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="Incoming leads by month" note={`${d.year}, ESO and TSA - the running month so far`} right={actions} />
+      <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="Ticket leads by month" note={`${d.year}, ESO and TSA - the running month so far`} right={actions} />
       <ChartFrame table={{ columns: ["Month", "ESO", "TSA"], rows: data.map((m) => [m.x, m.ESO, m.TSA]), numeric: [1, 2] }}>
         <StackedColumns height={240} format={(v) => n0(v)} data={data} parts={[{ key: "ESO", label: "ESO" }, { key: "TSA", label: "TSA" }]} />
       </ChartFrame>
@@ -253,19 +262,82 @@ function MonthRateCard({ d, f, win, actions, which }: Ctx & { which: "win" | "sp
   );
 }
 
+const LOST_IDS: Outcome[] = ["price", "supply", "delivery", "info", "noreply", "disq"];
+const BIG: { id: string; label: string; color: string; of: (s: Stats) => number }[] = [
+  { id: "won", label: "Won", color: SERIES[2], of: (s) => s.outcomes.won },
+  { id: "lost", label: "Lost or disqualified", color: SERIES[1], of: (s) => LOST_IDS.reduce((a, k) => a + s.outcomes[k], 0) },
+  { id: "other", label: "Closed otherwise", color: "#c9cfd8", of: (s) => s.outcomes.other },
+  { id: "open", label: "Still open", color: DEEMPHASIS, of: (s) => s.outcomes.open },
+];
+
+/** Won, lost or still open - each team's ticket leads as one bar of 100% (SARCLA 19.10: the nine-part bars were not clear). */
 function SplitCard({ d, f, win, actions }: Ctx) {
-  const by = statsBy(d, win, f, (r) => `${r.t} · ${kindLabel(r.g)}`);
-  const rows = [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, e]) => ({ key: k, label: k, s: e.cur }));
+  const by = statsBy(d, win, f, (r) => r.t);
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="What became of them, by team" note={`${monthsLabel(win)} ${d.year} · each team's incoming leads by kind: won, lost and why, closed otherwise, still open`} right={actions} />
-      <Legend />
-      <ChartFrame table={twinOf(rows)}><OutcomeBars rows={rows} /></ChartFrame>
+      <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="Won, lost or still open" note={`${monthsLabel(win)} ${d.year} · each team's ticket leads - choose the kind of lead in Filters`} right={actions} />
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        {BIG.map((g) => (
+          <Box key={g.id} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: g.color }} />
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{g.label}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <ChartFrame table={{ columns: ["Team", "Ticket leads", ...BIG.map((g) => g.label)], rows: TEAMS.map((t) => { const s = by.get(t)?.cur ?? emptyStats(); return [t, s.incoming, ...BIG.map((g) => `${n0(g.of(s))} (${ratio(g.of(s), s.incoming)})`)]; }), numeric: [1] }}>
+        <Box sx={{ display: "grid", gap: 1.5 }}>
+          {TEAMS.map((t) => {
+            const s = by.get(t)?.cur ?? emptyStats();
+            return (
+              <Box key={t} sx={{ display: "grid", gridTemplateColumns: "44px minmax(0, 1fr) auto", gap: 1.5, alignItems: "center" }}>
+                <Typography sx={{ fontSize: "0.92rem", fontWeight: 800, color: INK }}>{t}</Typography>
+                <Box sx={{ display: "flex", gap: "2px", height: 30, borderRadius: "8px", overflow: "hidden" }}>
+                  {BIG.filter((g) => g.of(s) > 0).map((g) => {
+                    const sh = s.incoming ? g.of(s) / s.incoming : 0;
+                    return (
+                      <Box key={g.id} title={`${g.label}: ${n0(g.of(s))} (${ratio(g.of(s), s.incoming)})`}
+                        sx={{ flex: `${g.of(s)} 0 0`, minWidth: 3, bgcolor: g.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {sh > 0.08 && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: g.id === "other" || g.id === "open" ? INK : "#fff" }}>{Math.round(sh * 100)}%</Typography>}
+                      </Box>
+                    );
+                  })}
+                </Box>
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{n0(s.incoming)}</Typography>
+              </Box>
+            );
+          })}
+        </Box>
+      </ChartFrame>
     </GlassCard>
   );
 }
 
-function ReasonsCard({ d, f, win, actions }: Ctx) {
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** Why they were lost, ESO next to TSA: the reason groups as a share of each team's lost ticket leads. */
+function LostCard({ d, f, win, actions, half }: Ctx) {
+  const by = statsBy(d, win, f, (r) => r.t);
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <CardTitle icon={<FactCheckOutlinedIcon />} tint="amber" title="Why they were lost" note={`${monthsLabel(win)} ${d.year} · the resolutions of the lost ticket leads, in groups - "only looking for info" is a lost sale`} right={actions} />
+      <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" } }}>
+        {TEAMS.map((t) => {
+          const s = by.get(t)?.cur ?? emptyStats();
+          const lost = LOST_IDS.reduce((a, k) => a + s.outcomes[k], 0);
+          const rows = LOST_IDS.map((k) => ({ label: cap(OUTCOMES.find((o) => o.id === k)!.label.replace(/^Lost - /, "")), value: s.outcomes[k], secondary: ratio(s.outcomes[k], lost) })).filter((r) => r.value > 0).sort((x, y) => y.value - x.value);
+          return (
+            <Box key={t} sx={{ minWidth: 0, display: "grid", gap: 0.75, alignContent: "start" }}>
+              <Typography sx={{ fontSize: "0.92rem", fontWeight: 800, color: INK }}>{t} <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 600, color: FAINT }}>{n0(lost)} lost</Box></Typography>
+              <BarList rows={rows} format={(v) => n0(v)} labelWidth={half ? 150 : 200} emptyMessage="None lost in these months." />
+            </Box>
+          );
+        })}
+      </Box>
+    </GlassCard>
+  );
+}
+
+function ReasonsCard({ d, f, win, actions, half }: Ctx) {
   const per = new Map<string, number>();
   let all = 0;
   for (const r of d.rows) {
@@ -278,13 +350,15 @@ function ReasonsCard({ d, f, win, actions }: Ctx) {
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<FactCheckOutlinedIcon />} tint="amber" title="How they were closed" note={`${monthsLabel(win)} ${d.year} · the resolution the team set, of the ${n0(all)} closed with one - the 25 most used`} right={actions} />
       <ChartFrame table={{ columns: ["Resolution", "Tickets", "Share"], rows: rows.map((r) => [r.label, r.value, r.secondary]), numeric: [1] }}>
-        <BarList rows={rows} format={(v) => n0(v)} labelWidth={280} maxLabel={52} />
+        {half
+          ? <Paged items={rows} size={HALF_ROWS}>{(page) => <BarList rows={page} format={(v) => n0(v)} labelWidth={220} maxLabel={40} max={rows[0]?.value} />}</Paged>
+          : <BarList rows={rows} format={(v) => n0(v)} labelWidth={280} maxLabel={52} />}
       </ChartFrame>
     </GlassCard>
   );
 }
 
-function BreakdownCard({ d, f, win, actions, by: keyOf, title, note, icon, tint, labelOf, sortFocus, onPick }: Ctx & {
+function BreakdownCard({ d, f, win, actions, half, by: keyOf, title, note, icon, tint, labelOf, sortFocus, onPick }: Ctx & {
   by: "c" | "k"; title: string; note: string; icon: React.ReactNode; tint: Tint; labelOf: (k: string) => string; sortFocus?: boolean; onPick?: (k: string) => void;
 }) {
   const by = statsBy(d, win, f, (r) => r[keyOf]);
@@ -295,13 +369,13 @@ function BreakdownCard({ d, f, win, actions, by: keyOf, title, note, icon, tint,
       <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
         <CardTitle icon={icon} tint={tint} title={title} note={note} right={actions} />
         <Legend />
-        <ChartFrame table={twinOf(rows)}><OutcomeBars rows={rows} /></ChartFrame>
+        <ChartFrame table={twinOf(rows)}><OutcomeBars rows={rows} page={half ? HALF_ROWS : 12} /></ChartFrame>
       </GlassCard>
-      <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      {!half && <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
         <CardTitle icon={icon} tint={tint} title={`${title} - the figures`} note={`${monthsLabel(win)} ${d.year}${onPick ? " · click a row to filter by it" : ""}`} />
         <Paged items={list} size={12}>
           {(page) => (
-            <Table head={["", "Incoming", "ESO", "TSA", "Answered in a day", "Median reply", "Win rate", "Still open"]}
+            <Table head={["", "Ticket leads", "ESO", "TSA", "Answered in a day", "Median reply", "Win rate", "Still open"]}
               rows={page.map(([k, e]) => {
                 const t = statsBy({ ...d, rows: d.rows.filter((r) => r[keyOf] === k) }, win, f, (r) => r.t);
                 return {
@@ -311,12 +385,12 @@ function BreakdownCard({ d, f, win, actions, by: keyOf, title, note, icon, tint,
               })} />
           )}
         </Paged>
-      </GlassCard>
+      </GlassCard>}
     </>
   );
 }
 
-function PeopleCard({ d, f, win, actions }: Ctx) {
+function PeopleCard({ d, f, win, actions, half }: Ctx) {
   const by = statsBy(d, win, f, (r) => `${r.o}|${r.t}`);
   const list = [...by.entries()].sort((a, b) => b[1].cur.incoming - a[1].cur.incoming);
   const name = (o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
@@ -324,10 +398,13 @@ function PeopleCard({ d, f, win, actions }: Ctx) {
   return (
     <>
       <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-        <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="Who handles the incoming leads" note={`${monthsLabel(win)} ${d.year} · each person's incoming leads in their team: speed, outcome, what is still open - the ticket's owner today, those who left marked "(left)"`} right={actions} />
-        <Paged items={list} size={15}>
-          {(page) => (
-            <Table head={["Person", "Team", "Incoming", "Answered in a day", "Median reply", "Closed", "Won", "Win rate", "Open > 30 days"]}
+        <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="Who handles the ticket leads" note={`${monthsLabel(win)} ${d.year} · each person's ticket leads in their team: speed, outcome, what is still open - the ticket's owner today, those who left marked "(left)"`} right={actions} />
+        <Paged items={list} size={half ? HALF_ROWS : 15}>
+          {(page) => half ? (
+            <Table head={["Person", "Team", "Ticket leads", "Win rate", "Open > 30 days"]}
+              rows={page.map(([k, e]) => { const [o, t] = k.split("|"), s = e.cur; return { key: k, cells: [name(o), t, n0(s.incoming), pct(winRate(s)), n0(s.stale)] }; })} />
+          ) : (
+            <Table head={["Person", "Team", "Ticket leads", "Answered in a day", "Median reply", "Closed", "Won", "Win rate", "Open > 30 days"]}
               rows={page.map(([k, e]) => {
                 const [o, t] = k.split("|"), s = e.cur;
                 return { key: k, cells: [name(o), t, n0(s.incoming), pct(inDayRate(s)), hours(median(s.firstHours)), n0(s.closed), n0(s.won), pct(winRate(s)), n0(s.stale)] };
@@ -335,12 +412,12 @@ function PeopleCard({ d, f, win, actions }: Ctx) {
           )}
         </Paged>
       </GlassCard>
-      <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      {!half && <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
         <CardTitle icon={<EmojiEventsOutlinedIcon />} tint="green" title="Win rate by person" note={`${monthsLabel(win)} ${d.year} · people with 20 or more leads closed with a resolution`} />
         <ChartFrame table={{ columns: ["Person", "Win rate", "Won"], rows: ranked.map((r) => [r.label, pct(r.value), r.secondary]), numeric: [1] }}>
           <BarList rows={ranked} format={pct} labelWidth={260} maxLabel={44} emptyMessage="Nobody has 20 leads closed in these months." />
         </ChartFrame>
-      </GlassCard>
+      </GlassCard>}
     </>
   );
 }
@@ -348,15 +425,16 @@ function PeopleCard({ d, f, win, actions }: Ctx) {
 /** Every card of the page by its key "<tab>:<card>" - the page draws them, and so does the nutshell. */
 const CARDS: Record<string, { title: string; draw: (c: Ctx) => React.ReactNode }> = {
   "teams:compare": { title: "ESO and TSA side by side", draw: (c) => <CompareCard {...c} /> },
-  "teams:flow": { title: "What happens to the incoming leads", draw: (c) => <FlowCard {...c} /> },
-  "months:volume": { title: "Incoming leads by month", draw: (c) => <MonthVolumeCard {...c} /> },
+  "teams:flow": { title: "What happens to the ticket leads", draw: (c) => <FlowCard {...c} /> },
+  "months:volume": { title: "Ticket leads by month", draw: (c) => <MonthVolumeCard {...c} /> },
   "months:win": { title: "Win rate by month", draw: (c) => <MonthRateCard {...c} which="win" /> },
   "months:speed": { title: "Answered within a working day, by month", draw: (c) => <MonthRateCard {...c} which="speed" /> },
-  "outcomes:split": { title: "What became of them, by team", draw: (c) => <SplitCard {...c} /> },
+  "outcomes:split": { title: "Won, lost or still open", draw: (c) => <SplitCard {...c} /> },
+  "outcomes:lost": { title: "Why they were lost", draw: (c) => <LostCard {...c} /> },
   "outcomes:reasons": { title: "How they were closed", draw: (c) => <ReasonsCard {...c} /> },
   "channels:channels": { title: "By channel", draw: (c) => <BreakdownCard {...c} by="c" title="By channel" icon={<AltRouteIcon />} tint="amber" labelOf={channelLabel} onPick={c.onChannel} note={`${monthsLabel(c.win)} ${c.d.year} · how the leads came in, and what became of them`} /> },
   "countries:countries": { title: "By country", draw: (c) => <BreakdownCard {...c} by="k" title="By country" icon={<PublicOutlinedIcon />} tint="green" labelOf={(k) => k} sortFocus onPick={c.onCountry} note={`${monthsLabel(c.win)} ${c.d.year} · the company's country - our focus markets first`} /> },
-  "people:people": { title: "Who handles the incoming leads", draw: (c) => <PeopleCard {...c} /> },
+  "people:people": { title: "Who handles the ticket leads", draw: (c) => <PeopleCard {...c} /> },
 };
 
 // The nutshell's hand-over cards share one read of the tickets.
@@ -377,7 +455,7 @@ function useSharedHandover(): HandoverData | null {
 export const HANDOVER_NUTSHELL_CARDS = [{ key: "handover:teams:compare", title: "ESO and TSA side by side" }];
 
 /** A hand-over card promoted to the nutshell - the same graph as on the page, with its filters and months. */
-export function HandoverPromoted({ spec, actions }: { spec: TileSpec; actions: React.ReactNode }) {
+export function HandoverPromoted({ spec, actions, half }: { spec: TileSpec; actions: React.ReactNode; half?: boolean }) {
   const d = useSharedHandover();
   const [, tab, card] = spec.key.split(":");
   const c = CARDS[`${tab}:${card}`];
@@ -387,7 +465,7 @@ export function HandoverPromoted({ spec, actions }: { spec: TileSpec; actions: R
   const from = Number(spec.from), to = Number(spec.to);
   const win: MonthWindow = from >= 1 && to >= from && to <= d.monthsDone + 1 ? { start: from - 1, end: to - 1 } : { start: 0, end: d.monthsDone };
   const ff = spec.filters ?? {};
-  return <>{c.draw({ d, f: { team: ff.team, kind: ff.kind, channel: ff.channel, country: ff.country }, win, py: yearEarlierOk(d, win), actions })}</>;
+  return <>{c.draw({ d, f: { team: ff.team, kind: ff.kind, channel: ff.channel, country: ff.country }, win, py: yearEarlierOk(d, win), actions, half })}</>;
 }
 
 export function HandoverExplorer({ state }: { state: MkState | null }) {
@@ -430,7 +508,7 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
   const clearAll = () => { setTeams([]); setKinds([]); setChannels([]); setCountries([]); setChosenWin(null); };
   const act = (key: string, title: string) => (
     <TileActions where="tab" start={`handover:${tab}:${key}` === HANDOVER_NUTSHELL_CARDS[0].key ? "nutshell" : "tab"}
-      tile={{ key: `handover:${tab}:${key}`, page: "handover", tab, title, summary: stats ? `${n0(stats.cur.incoming)} incoming leads, win rate ${pct(winRate(stats.cur))}, ${monthsLabel(win)} ${year}` : undefined, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />
+      tile={{ key: `handover:${tab}:${key}`, page: "handover", tab, title, summary: stats ? `${n0(stats.cur.incoming)} ticket leads, win rate ${pct(winRate(stats.cur))}, ${monthsLabel(win)} ${year}` : undefined, filters, ...(isDefault ? {} : { from: String(win.start + 1), to: String(win.end + 1) }), kind: "card" }} />
   );
 
   if (!d || !stats) {
@@ -460,7 +538,10 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
             Hand-over to ESO/TSA
           </Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{monthsLabel(win)} {year}</b>{win.end === now ? ` (${MONTHS[now]} so far)` : ""} · how ESO and TSA handle the incoming leads: how fast, what they do with them, how many they win{py ? ` · against the same months of ${year - 1}` : ` · no year earlier to compare: the ESO and TSA pipelines started in July ${year - 1}`}{ld.computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{monthsLabel(win)} {year}</b>{win.end === now ? ` (${MONTHS[now]} so far)` : ""} · how ESO and TSA handle the ticket leads: how fast, what they do with them, how many they win{py ? ` · against the same months of ${year - 1}` : ` · no year earlier to compare: the ESO and TSA pipelines started in July ${year - 1}`}{ld.computing ? " · reading HubSpot again" : ""}
+          </Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: FAINT, lineHeight: 1.45 }}>
+            Ticket leads = every ESO or TSA ticket a customer started (a website form, the chat, an e-mail, a request the ESO typed in, one redirected from Back Office or the helpline), every new registrant to qualify, and what the lifecycle workflows hand over. Not counted: campaigns, auto-logged mails, special price requests, non-sales topics.
           </Typography>
           {chosenCount > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
@@ -490,7 +571,7 @@ export function HandoverExplorer({ state }: { state: MkState | null }) {
 
       {tab === "teams" && <>{card("compare")}{card("flow")}</>}
       {tab === "months" && <>{card("volume")}{pair("win", "speed")}</>}
-      {tab === "outcomes" && <>{card("split")}{card("reasons")}</>}
+      {tab === "outcomes" && <>{card("split")}{card("lost")}{card("reasons")}</>}
       {tab === "channels" && card("channels")}
       {tab === "countries" && card("countries")}
       {tab === "people" && card("people")}

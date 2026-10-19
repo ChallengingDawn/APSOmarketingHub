@@ -27,6 +27,7 @@ export function BarList({
   emptyMessage = "Nothing to show for this window.",
   onSelect,
   selectedLabel,
+  max: fixedMax,
 }: {
   rows: BarRow[];
   format?: (v: number | null) => string;
@@ -36,9 +37,11 @@ export function BarList({
   /** Makes rows clickable — used where a bar filters a list below it. */
   onSelect?: (label: string) => void;
   selectedLabel?: string | null;
+  /** The value of a full bar - a list shown a page at a time keeps one scale across its pages. */
+  max?: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const max = Math.max(0, ...rows.map((r) => (typeof r.value === "number" ? r.value : 0)));
+  const max = fixedMax ?? Math.max(0, ...rows.map((r) => (typeof r.value === "number" ? r.value : 0)));
 
   if (rows.length === 0) {
     return (

@@ -64,9 +64,12 @@ export type LeadsData = {
   errors: Record<string, string>;
   /** what the read carries (LEADS_SHAPE): an older answer is shown while a new one is read */
   shape?: number;
+  /** GA4's shop registrations (sign_up events) by traffic channel, month by month - "2026-03" */
+  signups?: { m: string; ch: string; n: number }[];
 };
-/** 4: owners who left HubSpot by name; 5: no "shop registration" source; 6: the owners' answers and reasons (all 19.10) */
-export const LEADS_SHAPE = 6;
+/** 4: owners who left HubSpot by name; 5: no "shop registration" source; 6: the owners' answers and reasons;
+ *  7: GA4's sign-ups by traffic channel (all 19.10) */
+export const LEADS_SHAPE = 7;
 
 /** The channels, in the order the page lists them. */
 export const CHANNELS: { id: string; label: string; group: "paid" | "organic" | "direct" | "people" | "other" }[] = [
@@ -192,13 +195,14 @@ export function pathBy(d: LeadsData, w: { start: number; end: number }, f: LeadF
 
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
-export type FlowStep = "all" | "how" | "source" | "contact" | "qualification" | "outcome";
+export type FlowStep = "traffic" | "all" | "how" | "source" | "contact" | "qualification" | "outcome";
 export type FlowNode = { id: string; step: FlowStep; label: string; tone: "source" | "sales" | "good" | "own" | "bad" | "none" };
 export type Flow = { steps: FlowStep[]; nodes: FlowNode[]; links: { from: string; to: string; value: number }[]; totals: Record<string, number> };
 
 /** Where a lead stands at each step - the node it passes through. */
 function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
   switch (step) {
+    case "traffic": // drawn by withTraffic, before the shop registrations only
     case "all":
       return { id: "all", step, label: "New leads", tone: "source" };
     case "how":
@@ -228,6 +232,7 @@ function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
  * they split the number") - the biggest sources by name, the rest together.
  */
 export function flowOf(d: LeadsData, w: { start: number; end: number }, f: LeadFilters, steps: FlowStep[], topSources = 6): Flow {
+  if (steps[0] === "traffic") return withTraffic(flowOf(d, w, f, steps.slice(1), topSources), d, w);
   const rows = d.rows.filter((r) => keep(r, f) && inWin(r.m, d.year, w));
   const bySource = new Map<string, number>();
   for (const r of rows) bySource.set(r.c, (bySource.get(r.c) ?? 0) + 1);
@@ -305,4 +310,41 @@ export function answersOf(d: LeadsData, w: { start: number; end: number }, f: Le
     if (r.q === 1 && !r.f) { const w = each(r.np); if (w.length) for (const x of w) bump(out.noOrder, x); else bump(out.noOrder, "No reason given"); }
   }
   return out;
+}
+
+/* ── where the shop registrations' traffic came from ───────────────────── */
+
+const GA4_CHANNEL: Record<string, string> = {
+  "Direct": "Direct", "Organic Search": "Organic search (SEO)", "Paid Search": "Paid search (SEA)", "Referral": "Other websites",
+  "Organic Social": "Social media", "Paid Social": "Social media", "Email": "E-mail", "Organic Shopping": "Shopping", "Paid Shopping": "Shopping",
+  "Cross-network": "Paid search (SEA)", "Unassigned": "Not known", "(other)": "Not known",
+};
+export const trafficLabel = (ch: string) => GA4_CHANNEL[ch] ?? ch;
+
+/**
+ * The traffic step, before the shop registrations only (SARCLA 19.10: "a breakdown of the shop registrations,
+ * and only for them, by where the traffic came from"). HubSpot does not know it for most of them - the shop
+ * connector makes the contact - so the shop registrations are split by GA4's share of sign-ups by channel in
+ * the same months: a share, not a link per company. The other ways in start at "came in by".
+ */
+export function withTraffic(flow: Flow, d: LeadsData, w: { start: number; end: number }): Flow {
+  const shop = flow.totals["how:shop"] ?? 0;
+  const per = new Map<string, number>();
+  for (const s of d.signups ?? []) if (inWin(s.m, d.year, w)) per.set(trafficLabel(s.ch), (per.get(trafficLabel(s.ch)) ?? 0) + s.n);
+  const all = [...per.values()].reduce((a, b) => a + b, 0);
+  if (!shop || !all) return flow;
+  // the shop registrations in shares, rounded so they add up (largest remainder)
+  const parts = [...per.entries()].map(([label, n]) => ({ label, exact: (shop * n) / all })).map((p) => ({ ...p, v: Math.floor(p.exact) }));
+  let left = shop - parts.reduce((a, p) => a + p.v, 0);
+  for (const p of [...parts].sort((a, b) => (b.exact - b.v) - (a.exact - a.v))) { if (left <= 0) break; p.v += 1; left -= 1; }
+  const kept = parts.filter((p) => p.v > 0).sort((a, b) => b.v - a.v);
+  const nodes: FlowNode[] = kept.map((p) => ({ id: `traffic:${p.label}`, step: "traffic", label: p.label, tone: "source" }));
+  const totals = { ...flow.totals };
+  for (const p of kept) totals[`traffic:${p.label}`] = p.v;
+  return {
+    steps: ["traffic", ...flow.steps],
+    nodes: [...nodes, ...flow.nodes],
+    links: [...kept.map((p) => ({ from: `traffic:${p.label}`, to: "how:shop", value: p.v })), ...flow.links],
+    totals,
+  };
 }

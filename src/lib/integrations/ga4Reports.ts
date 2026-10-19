@@ -29,6 +29,7 @@ export type Ga4ReportName =
   | "pageTrend"
   | "revenueTotals"
   | "signupsMonthly"
+  | "signupChannelsMonthly"
   | "purchaserTotals"
   | "conversionTotals"
   | "newChannelsDaily"
@@ -153,6 +154,15 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     metrics: ["keyEvents"],
     orderBy: { dimension: "yearMonth" },
     limit: 24,
+  },
+  // the shop registrations (sign_up) by the session's traffic channel, month by month - Lead Generation's
+  // traffic step (9f, 19.10: HubSpot does not know the traffic of most registrations, the connector makes them)
+  signupChannelsMonthly: {
+    dimensions: ["yearMonth", "sessionDefaultChannelGroup"],
+    metrics: ["eventCount"],
+    filter: { field: "eventName", value: "sign_up" },
+    orderBy: { dimension: "yearMonth" },
+    limit: 500,
   },
   purchaserTotals: {
     dimensions: [],
