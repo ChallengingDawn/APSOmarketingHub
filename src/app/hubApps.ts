@@ -25,7 +25,7 @@ export type SubApp = {
 export type IconKey =
   | "groups" | "description" | "inventory" | "bar" | "layers" | "edit" | "photo"
   | "search" | "filter" | "tag" | "sync" | "route" | "health" | "ads" | "target"
-  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat";
+  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat" | "tree" | "assign" | "copy";
 
 export type HubApp = {
   key: string;
@@ -185,9 +185,9 @@ export const APPS: HubApp[] = [
       { name: "Owner redirection", note: "Companies to the right owner, by country or person", href: "/uc/owner-redirection", icon: "groups", ...GREEN },
       { name: "Ticket/order/article associations", note: "Tickets linked to the orders and articles they name; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
       { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
-      { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "groups", ...TEAL },
-      { name: "Duplicates & merges", note: "Back Office tickets about the same order - shadow mode, side by side with the DUPS workflow", href: "/uc/ticket-duplicates", icon: "layers", ...PURPLE },
-      { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "route", ...PURPLE },
+      { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
+      { name: "Duplicates & merges", note: "Back Office tickets about the same order - shadow mode, side by side with the DUPS workflow", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
+      { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "tree", ...PURPLE },
       { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },

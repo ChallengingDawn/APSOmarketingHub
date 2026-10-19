@@ -181,3 +181,37 @@ test("teams changed on the page drive the hub's answer, never the copy's", () =>
   assert.equal(assignBo("27", { ...base, sa: noSa, saHub: sa }, "hub").owner?.id, claudia.id);
   assert.equal(assignBo("27", { ...base, sa: noSa, saHub: sa }, "legacy").owner?.id, sara.id);
 });
+
+import { DEFAULT_PRIORITY, priorityFacts, priorityFor } from "../src/lib/boDistribution/rules";
+
+test("priority: the workflow's unless the page changes a line or a switched-on signal applies", () => {
+  const facts = priorityFacts("Bitte dringend - Bandstillstand bei uns", "P1", DEFAULT_PRIORITY);
+  assert.deepEqual(facts.urgentHits.slice(0, 2), ["dringend", "stillstand"]);
+  // nothing switched on: the workflow's
+  assert.equal(priorityFor("MEDIUM", "Invoicing & Accounting", "Invoice not received", facts, DEFAULT_PRIORITY)!.value, "MEDIUM");
+  // a line changed on the page
+  assert.equal(priorityFor("MEDIUM", "Invoicing & Accounting", "Invoice not received", facts, { ...DEFAULT_PRIORITY, overrides: { "Invoicing & Accounting|Invoice not received": "HIGH" } })!.value, "HIGH");
+  // "any other" line of the category applies to an unlisted sub-category
+  assert.equal(priorityFor("LOW", "Invoicing & Accounting", "Other invoicing issue", null, { ...DEFAULT_PRIORITY, overrides: { "Invoicing & Accounting|*": "MEDIUM" } })!.value, "MEDIUM");
+  // urgent words and a key customer each raise one level, never past URGENT
+  const both = priorityFor("MEDIUM", "Delivery", null, facts, { ...DEFAULT_PRIORITY, raiseOnUrgentWords: true, raiseKeyCustomers: true })!;
+  assert.equal(both.value, "URGENT");
+  assert.equal(both.why.length, 2);
+  // newsletters go to LOW
+  const news = priorityFacts("Our newsletter - unsubscribe here", null, DEFAULT_PRIORITY);
+  assert.equal(priorityFor("HIGH", "Product Information", null, news, { ...DEFAULT_PRIORITY, lowerNewsletters: true })!.value, "LOW");
+  assert.equal(priorityFor(null, "Delivery", null, facts, DEFAULT_PRIORITY), null);
+});
+
+test("hub only: out-of-office availability and a limit per person; the copy ignores both", () => {
+  const base = input([[claudia.id, "away"], [claudioG.id, "available"], [sara.id, "available"]], [[claudia.id, 2], [claudioG.id, 9], [sara.id, 4]]);
+  // the chat dot says Claudia is away; out of office says she is in
+  const availabilityHub = new Map([[claudia.id, "available"], [claudioG.id, "available"], [sara.id, "available"]]) as Availability;
+  assert.equal(assignBo("27", { ...base, availabilityHub }, "hub").owner?.id, claudia.id);
+  assert.equal(assignBo("27", { ...base, availabilityHub }, "legacy").owner?.id, sara.id);
+  // a limit of 3 open tickets passes Sara (4) over
+  const capped = input([[claudioG.id, "available"], [sara.id, "available"]], [[claudioG.id, 6], [sara.id, 4]]);
+  assert.equal(assignBo("27", { ...capped, pools: { team27: [claudioG, sara] }, cap: 5 }, "hub").owner?.id, sara.id);
+  assert.equal(assignBo("27", { ...capped, pools: { team27: [claudioG, sara] }, cap: 3 }, "hub").owner?.id, sara.id); // everyone over: the limit is ignored
+  assert.equal(assignBo("27", { ...capped, pools: { team27: [claudioG, sara] }, cap: 5, workloadHub: new Map([[claudioG.id, 1], [sara.id, 7]]) }, "hub").owner?.id, claudioG.id);
+});

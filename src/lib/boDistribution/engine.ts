@@ -16,9 +16,11 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { CATEGORIES, DROPDOWN_VALUES, KEYWORDS, classifyTicket, type Classification } from "./classifier";
+import { FIXES, classifyTicketV2, type ClassificationV2 } from "./classifierV2";
 import {
-  BO, BO_OPEN_STAGES, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
-  assignBo, assignGqs, findSalesAgent, route,
+  BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
+  assignBo, assignGqs, findSalesAgent, priorityFacts, priorityFor, route,
+  type Priority, type PriorityFacts, type PrioritySettings,
   type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload,
 } from "./rules";
 
@@ -35,7 +37,26 @@ const MAX_PER_RUN = 40;
 
 /** rosters: the page's lists (hub mode); a list left out = the workflow's own. */
 /** live: the hub WRITES the owner for that pipeline (SARCLA 19.10.2026, "build it now"); off = shadow only. */
-export type Settings = { mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; live: { bo: boolean; gqs: boolean }; by: string | null; at: string | null };
+export type Settings = {
+  mode: "off" | "shadow"; rosters: Partial<Record<RosterKey, Person[]>>; live: { bo: boolean; gqs: boolean };
+  hub: HubOptions; priority: PrioritySettings; by: string | null; at: string | null;
+};
+/** The hub's own rules (Settings tab, SARCLA 19.10.2026 "settings should be more developed") - the copy never uses them. */
+export type HubOptions = {
+  /** who is available: the chat dot (the workflows), HubSpot's out-of-office, or both */
+  availability: "chat" | "ooo" | "both";
+  /** the stages that count as someone's open tickets */
+  boStages: string[]; gqsStages: string[];
+  /** at most this many open tickets before the least-busy step passes a person over; null = no limit */
+  cap: number | null;
+  /** live mode: the steps the hub takes over */
+  liveSteps: string[];
+  note: boolean;
+  breaker: number;
+};
+/** GQS counted on the real "Waiting on APSO" (6078992599) instead of the deleted 3279663337 the workflow counts. */
+export const GQS_OPEN_STAGES_FIXED = ["2338266316", "4704538856", "2964068584", "6078992599"];
+export const DEFAULT_HUB: HubOptions = { availability: "chat", boStages: BO_OPEN_STAGES, gqsStages: GQS_OPEN_STAGES_FIXED, cap: null, liveSteps: ["23", "27", "31", "42"], note: true, breaker: 40 };
 export type Answer = { ownerId: string | null; ownerName: string | null; method: string; reasons: string[] };
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
@@ -44,6 +65,8 @@ export type Actual = {
   distOwnerId?: string | null; distOwnerName?: string | null;
   /** a later hand-over by the DUPS workflow (owner of an older ticket on the same order) */
   dupsOwnerId?: string | null; dupsOwnerName?: string | null; dupsNote?: string | null;
+  /** the category a PERSON set after entry (CRM_UI) - the truth the classifier is measured against */
+  catByPerson?: string | null;
   /** 2 = read with the two above */
   v?: number;
 };
@@ -56,6 +79,17 @@ export type Row = {
   hub: Answer | null;
   /** replayed from the last 7 days: availability and workload are today's, not the ones at the time */
   approx?: boolean;
+  /** GQS: the type of request (DT - New Business, Running Business ...) and the GQS status at entry */
+  gqsType?: string | null;
+  gqsStatus?: string | null;
+  /** the IMPROVED classifier (classifierV2.ts) on the same e-mail, and the way the workflow would have sent the ticket
+   *  with its answer - shown beside the workflow's, not used for routing while the workflow files the category */
+  v2?: { category: string | null; subCategory: string | null; fixes: string[]; path: string[]; assigner: string | null; priority: string | null; dispatch: string | null } | null;
+  /** what the priority signals read in it, and the hub's priority (Priority tab) */
+  priorityFacts?: PriorityFacts | null;
+  priorityHub?: { value: Priority; base: Priority | null; why: string[] } | null;
+  /** the ticket's first company and its sales priority (P1..P4) - the Priority tab's signals */
+  company?: { name: string; salesPriority: string | null } | null;
   /** the company the workflow step links when the sales agent came from a contact and the ticket has no company */
   associate?: string | null;
   /** live mode: what the hub wrote, or why it left the ticket to the workflow */
@@ -74,9 +108,15 @@ const BACKFILL_PER_RUN = 15;
 
 export async function getSettings(): Promise<Settings> {
   const x = await kvGet<Partial<Settings>>(KV.settings);
-  return { mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs }, by: x?.by ?? null, at: x?.at ?? null };
+  return {
+    mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs },
+    hub: { ...DEFAULT_HUB, ...(x?.hub ?? {}) }, priority: { ...DEFAULT_PRIORITY, ...(x?.priority ?? {}) }, by: x?.by ?? null, at: x?.at ?? null,
+  };
 }
-export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>>; live?: Partial<Settings["live"]> }, by: string): Promise<Settings> {
+export async function saveSettings(patch: {
+  mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>>; live?: Partial<Settings["live"]>;
+  hub?: Partial<HubOptions>; priority?: Partial<PrioritySettings>;
+}, by: string): Promise<Settings> {
   const cur = await getSettings();
   const rosters = { ...cur.rosters };
   for (const [k, v] of Object.entries(patch.rosters ?? {}) as [RosterKey, Person[] | null][]) {
@@ -85,7 +125,24 @@ export async function saveSettings(patch: { mode?: "off" | "shadow"; rosters?: P
     rosters[k] = v.filter((x) => /^\d+$/.test(String(x.id)) && String(x.name ?? "").trim()).slice(0, 15).map((x) => ({ id: String(x.id), name: String(x.name).trim() }));
   }
   const live = { bo: patch.live?.bo ?? cur.live.bo, gqs: patch.live?.gqs ?? cur.live.gqs };
-  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, rosters, live, by, at: new Date().toISOString() };
+  const h = { ...cur.hub, ...(patch.hub ?? {}) };
+  const ids = (a: unknown) => (Array.isArray(a) ? a.map(String).filter((x) => /^\d+$/.test(x)).slice(0, 20) : []);
+  const hub: HubOptions = {
+    availability: h.availability === "ooo" || h.availability === "both" ? h.availability : "chat",
+    boStages: ids(h.boStages).length ? ids(h.boStages) : DEFAULT_HUB.boStages, gqsStages: ids(h.gqsStages).length ? ids(h.gqsStages) : DEFAULT_HUB.gqsStages,
+    cap: h.cap === null || h.cap === undefined || !Number(h.cap) ? null : Math.min(500, Math.max(1, Math.round(Number(h.cap)))),
+    liveSteps: (Array.isArray(h.liveSteps) ? h.liveSteps : DEFAULT_HUB.liveSteps).map(String).filter((x) => ["23", "27", "31", "42"].includes(x)),
+    note: h.note !== false, breaker: Math.min(200, Math.max(1, Math.round(Number(h.breaker) || 40))),
+  };
+  const pr = { ...cur.priority, ...(patch.priority ?? {}) };
+  const words = (a: unknown, d: string[]) => (Array.isArray(a) ? a.map((x) => String(x).trim().toLowerCase()).filter(Boolean).slice(0, 60) : d);
+  const priority: PrioritySettings = {
+    overrides: Object.fromEntries(Object.entries(pr.overrides ?? {}).filter(([k, v]) => /^[^|]+\|[^|]+$/.test(k) && ["LOW", "MEDIUM", "HIGH", "URGENT"].includes(String(v)))) as Record<string, Priority>,
+    raiseOnUrgentWords: !!pr.raiseOnUrgentWords, urgentWords: words(pr.urgentWords, DEFAULT_PRIORITY.urgentWords),
+    raiseKeyCustomers: !!pr.raiseKeyCustomers, keyCustomerPriorities: words(pr.keyCustomerPriorities, DEFAULT_PRIORITY.keyCustomerPriorities).map((x) => x.toUpperCase()),
+    lowerNewsletters: !!pr.lowerNewsletters, newsletterWords: words(pr.newsletterWords, DEFAULT_PRIORITY.newsletterWords),
+  };
+  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, rosters, live, hub, priority, by, at: new Date().toISOString() };
   await kvSet(KV.settings, next);
   return next;
 }
@@ -113,7 +170,7 @@ type TicketFull = {
 
 const CAT_PROPS = ["enquiry_category", SUB.website, SUB.price, SUB.delivery, SUB.delivery2, SUB.invoicing, SUB.product];
 const READ = ["subject", "content", "source_type", "ai_chat_source", "c2s_problem_order", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id",
-  "gqs_type_of_request", "hs_ticket_priority", "dispatch", "createdate", "dup_reason_and_id", ...CAT_PROPS];
+  "gqs_type_of_request", "status_of_gqs", "hs_ticket_priority", "dispatch", "createdate", "dup_reason_and_id", ...CAT_PROPS];
 
 async function ticket(id: string, withHistory: string[]): Promise<TicketFull> {
   return hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=${READ.join(",")}&propertiesWithHistory=${withHistory.join(",")}&associations=contacts,companies,emails`);
@@ -125,23 +182,31 @@ function valueAt(h: Hist[] | undefined, at: number): string | null {
 }
 
 /** Everyone's chat status: all pages, and the first page alone (code #23 never pages). */
-async function availability(): Promise<{ all: Availability; first: Availability }> {
-  const all: Availability = new Map(), first: Availability = new Map();
+async function availability(): Promise<{ all: Availability; first: Availability; ooo: Set<string> }> {
+  const all: Availability = new Map(), first: Availability = new Map(), ooo = new Set<string>();
   let after: string | undefined;
   for (let page = 0; page < 20; page++) {
     const r = await hs<{ results?: { properties?: Record<string, string | null> }[]; paging?: { next?: { after?: string } } }>(
-      `/crm/v3/objects/users?limit=100&properties=hs_availability_status,hubspot_owner_id${after ? `&after=${after}` : ""}`);
+      `/crm/v3/objects/users?limit=100&properties=hs_availability_status,hubspot_owner_id,hs_is_out_of_office${after ? `&after=${after}` : ""}`);
     for (const u of r.results ?? []) {
       const o = u.properties?.hubspot_owner_id;
       if (!o) continue;
       const st = u.properties?.hs_availability_status ?? null;
       all.set(String(o), st ? st.toLowerCase() : null);
+      if (String(u.properties?.hs_is_out_of_office ?? "").toLowerCase() === "true") ooo.add(String(o));
       if (page === 0) first.set(String(o), st ? st.toLowerCase() : null);
     }
     after = r.paging?.next?.after;
     if (!after) break;
   }
-  return { all, first };
+  return { all, first, ooo };
+}
+/** The hub's availability (Settings): the chat dot as the workflows, out of office, or both. */
+function hubAvailability(a: { all: Availability; ooo: Set<string> }, how: HubOptions["availability"]): Availability {
+  if (how === "chat") return a.all;
+  const out: Availability = new Map();
+  for (const [id, st] of a.all) out.set(id, a.ooo.has(id) ? "away" : how === "ooo" ? "available" : st);
+  return out;
 }
 
 let archivedCache: { at: number; ids: Set<string> } | null = null;
@@ -179,13 +244,13 @@ async function counts(pipeline: string, stages: string[], people: Person[]): Pro
 }
 const uniq = (lists: Person[][]) => [...new Map(lists.flat().map((p) => [p.id, p])).values()];
 
-async function salesAgentFacts(t: TicketFull): Promise<{ companies: CompanyFacts[]; contacts: ContactFacts[] }> {
-  const companies: CompanyFacts[] = [], contacts: ContactFacts[] = [];
+async function salesAgentFacts(t: TicketFull): Promise<{ companies: (CompanyFacts & { salesPriority?: string | null })[]; contacts: ContactFacts[] }> {
+  const companies: (CompanyFacts & { salesPriority?: string | null })[] = [], contacts: ContactFacts[] = [];
   for (const { id } of t.associations?.companies?.results ?? []) {
     try {
-      const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${id}?properties=name,domain,website,sa__sales_agent,sales_agent_sub`);
+      const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${id}?properties=name,domain,website,sa__sales_agent,sales_agent_sub,sales_priority`);
       const p = c.properties;
-      companies.push({ id, name: p.name ?? `Company ${id}`, domain: p.domain, website: p.website, sa: p.sa__sales_agent, saSub: p.sales_agent_sub });
+      companies.push({ id, name: p.name ?? `Company ${id}`, domain: p.domain, website: p.website, sa: p.sa__sales_agent, saSub: p.sales_agent_sub, salesPriority: p.sales_priority ?? null });
     } catch { /* the code skips a company it cannot read */ }
   }
   for (const { id } of t.associations?.contacts?.results ?? []) {
@@ -230,7 +295,7 @@ async function gqsTaskOwner(oNumber: string): Promise<Person | null> {
 const answer = (p: RulePick): Answer => ({ ownerId: p.owner?.id ?? null, ownerName: p.owner?.name ?? null, method: p.method, reasons: p.reasons });
 const fixed = (owner: Person | null, method: string): Answer => ({ ownerId: owner?.id ?? null, ownerName: owner?.name ?? null, method, reasons: [] });
 
-type Shared = { settings?: Settings; avail?: { all: Availability; first: Availability }; archived?: Set<string>; boLoad?: Workload; gqsLoad?: Workload };
+type Shared = { settings?: Settings; avail?: { all: Availability; first: Availability; ooo: Set<string> }; archived?: Set<string>; boLoad?: Workload; gqsLoad?: Workload; boLoadHub?: Workload; gqsLoadHub?: Workload };
 /** Everyone a list names - the workflow's and the page's. */
 function everyone(settings: Settings, keys: RosterKey[]): Person[] {
   return uniq(keys.flatMap((k) => [LEGACY[k], settings.rosters[k] ?? []]));
@@ -254,17 +319,30 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const load = pipeline === "bo"
     ? (shared.boLoad ??= await counts(BO, BO_OPEN_STAGES, people))
     : (shared.gqsLoad ??= await counts(GQS, GQS_OPEN_STAGES_LEGACY, people));
+  const hubStages = pipeline === "bo" ? settings.hub.boStages : settings.hub.gqsStages;
+  const legacyStages = pipeline === "bo" ? BO_OPEN_STAGES : GQS_OPEN_STAGES_LEGACY;
+  const sameStages = hubStages.join() === legacyStages.join();
+  const loadHub = sameStages ? load : pipeline === "bo"
+    ? (shared.boLoadHub ??= await counts(BO, hubStages, people))
+    : (shared.gqsLoadHub ??= await counts(GQS, hubStages, people));
   // leave this ticket out of its current owner's count - it may already be assigned
-  const workload: Workload = new Map(load);
   const cur = p.hubspot_owner_id ?? "";
-  const counted = pipeline === "bo" ? BO_OPEN_STAGES : GQS_OPEN_STAGES_LEGACY;
-  if (cur && counted.includes(p.hs_pipeline_stage ?? "") && typeof workload.get(cur) === "number") workload.set(cur, Math.max(0, (workload.get(cur) as number) - 1));
+  const without = (l: Workload, stages: string[]) => {
+    const w: Workload = new Map(l);
+    if (cur && stages.includes(p.hs_pipeline_stage ?? "") && typeof w.get(cur) === "number") w.set(cur, Math.max(0, (w.get(cur) as number) - 1));
+    return w;
+  };
+  const workload = without(load, legacyStages);
+  const workloadHub = without(loadHub, hubStages);
 
   const { companies, contacts } = await salesAgentFacts(t);
+  const firstCo = companies.find((c) => !/apsoparts|angst/i.test(`${c.name} ${c.domain ?? ""}`));
+  row.company = firstCo ? { name: firstCo.name, salesPriority: firstCo.salesPriority ?? null } : null;
   const input = (saKey: "saToOwnerBo" | "saToOwnerGqs"): AssignInput => ({
     sa: findSalesAgent(companies, contacts, LEGACY[saKey]),
     saHub: findSalesAgent(companies, contacts, settings.rosters[saKey] ?? LEGACY[saKey]),
     availability: shared.avail!.all, availabilityFirstPage: shared.avail!.first, workload, archived: shared.archived!, pools: settings.rosters,
+    availabilityHub: hubAvailability(shared.avail!, settings.hub.availability), workloadHub, cap: settings.hub.cap,
   });
 
   if (pipeline === "gqs") {
@@ -272,6 +350,8 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
     row.associate = inp.saHub?.companyToAssociate ?? inp.sa.companyToAssociate ?? null;
     (row as Row & { hasParty?: boolean }).hasParty = !!(t.associations?.companies?.results?.length || t.associations?.contacts?.results?.length);
     const gqsType = p.gqs_type_of_request ?? "";
+    row.gqsType = gqsType || null;
+    row.gqsStatus = p.status_of_gqs ?? null;
     row.legacy = answer(assignGqs(gqsType, inp, "legacy"));
     row.hub = answer(assignGqs(gqsType, inp, "hub"));
     return row;
@@ -291,6 +371,18 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   // as the live step gets them: an empty subject or body comes as null, and the step then writes nothing
   const r = route(facts, () => classifyTicket({ subject: p.subject, content: p.content }));
   row.route = { path: r.path, assigner: r.assigner, sets: r.sets, classified: r.classified, c2sStageAfter: r.c2sStageAfter };
+  if (r.classified) {
+    const c2 = classifyTicketV2({ subject: p.subject, content: p.content });
+    const r2 = route(facts, () => c2);
+    row.v2 = { category: c2.category, subCategory: c2.subCategory, fixes: c2.fixes, path: r2.path, assigner: r2.assigner, priority: r2.sets.hs_ticket_priority ?? null, dispatch: r2.sets.dispatch ?? null };
+  }
+  // the priority: what the signals read, and the hub's priority with the Priority tab's rules
+  const text = `${p.subject ?? ""} ${String(p.content ?? "").replace(/<[^>]+>/g, " ")}`;
+  row.priorityFacts = priorityFacts(text, row.company?.salesPriority ?? null, settings.priority);
+  const cat = r.sets.enquiry_category ?? facts.category;
+  const subKey = { "Website Issue": SUB.website, "Product Price": SUB.price, Delivery: SUB.delivery, "Invoicing & Accounting": SUB.invoicing, "Product Information": SUB.product }[cat ?? ""];
+  const sub = subKey ? r.sets[subKey] ?? facts.subs[subKey] ?? null : null;
+  row.priorityHub = priorityFor((r.sets.hs_ticket_priority as Priority | undefined) ?? null, cat ?? null, sub, row.priorityFacts, settings.priority);
   if (r.sets.hubspot_owner_id) {
     const rose = fixed({ id: r.sets.hubspot_owner_id, name: (await ownerNames()).get(r.sets.hubspot_owner_id) ?? r.sets.hubspot_owner_id }, "Chat request resent by TSA");
     row.legacy = rose; row.hub = rose; return row;
@@ -318,7 +410,7 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
 const DISTRIBUTION_APP = "30109717", DUPS_APP = "22343290";
 
 async function outcome(row: Row): Promise<Actual> {
-  const t = await ticket(row.ticketId, ["hubspot_owner_id", "dup_reason_and_id"]);
+  const t = await ticket(row.ticketId, ["hubspot_owner_id", "dup_reason_and_id", "enquiry_category"]);
   const p = t.properties;
   const hist = t.propertiesWithHistory?.hubspot_owner_id ?? [];
   const last = hist[0];
@@ -339,6 +431,7 @@ async function outcome(row: Row): Promise<Actual> {
     distOwnerId: dist?.value || null, distOwnerName: dist?.value ? names.get(dist.value) ?? dist.value : null,
     dupsOwnerId: dups?.value || null, dupsOwnerName: dups?.value ? names.get(dups.value) ?? dups.value : null,
     dupsNote: dups ? (/\(owner of ticket (\d+)\)/.exec(p.dup_reason_and_id ?? "")?.[0] ?? null) : null,
+    catByPerson: [...(t.propertiesWithHistory?.enquiry_category ?? [])].find((h) => h.sourceType === "CRM_UI" && Date.parse(h.timestamp) >= since)?.value || null,
     v: 2,
   };
 }
@@ -378,11 +471,12 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
   if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
-  if (row.pipeline === "bo" && !LIVE_STEPS.has(row.route?.assigner ?? "")) return skip("this path stays with the workflow");
+  if (row.pipeline === "bo" && !(LIVE_STEPS.has(row.route?.assigner ?? "") && settings.hub.liveSteps.includes(row.route?.assigner ?? ""))) return skip("this path stays with the workflow");
   if (row.pipeline === "gqs" && !(row as Row & { hasParty?: boolean }).hasParty) return skip("no contact or company - the workflow copies them from the linked ticket");
   const owner = row.hub?.ownerId ?? null;
   if (!owner) return skip("the hub found nobody");
-  if ((await writesThisHour()) >= LIVE_MAX_PER_HOUR) return skip(`breaker: ${LIVE_MAX_PER_HOUR} writes this hour - look at the page before raising it`);
+  const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
+  if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   // the ticket as it is NOW: still in its entry stage, still nobody's (Backoffice Team or empty)
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage`);
   const cur = now.properties.hubspot_owner_id ?? "";
@@ -398,7 +492,7 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
       ...(row.route ? [`Path: ${row.route.path.join(" > ")}`] : []),
       "", "---", "Auto-assigned by APSOhub (Back Office distribution)",
     ].join("<br>");
-    await hs("/crm/v3/objects/notes", "POST", {
+    if (settings.hub.note) await hs("/crm/v3/objects/notes", "POST", {
       properties: { hs_timestamp: at, hs_note_body: body },
       associations: [{ to: { id: row.ticketId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 228 }] }],
     }).catch(() => null);
@@ -436,6 +530,15 @@ export async function people(): Promise<{ people: PersonRow[]; owners: Person[];
   peopleCache = { at: Date.now(), data: { people: rows, owners } };
   return { people: rows, owners, at: new Date().toISOString() };
 }
+let stagesCache: { at: number; data: { bo: { id: string; label: string }[]; gqs: { id: string; label: string }[] } } | null = null;
+/** Back Office and GQS stages with their names - the Settings tab's workload pickers. */
+export async function pipelineStages() {
+  if (stagesCache && Date.now() - stagesCache.at < 60 * 60_000) return stagesCache.data;
+  const r = await hs<{ results?: { id: string; stages?: { id: string; label: string }[] }[] }>("/crm/v3/pipelines/tickets");
+  const of = (id: string) => (r.results ?? []).find((x) => x.id === id)?.stages?.map((x) => ({ id: x.id, label: x.label })) ?? [];
+  stagesCache = { at: Date.now(), data: { bo: of(BO), gqs: of(GQS) } };
+  return stagesCache.data;
+}
 export const rosterLabels = ROSTER_LABEL;
 export const legacyRosters = LEGACY;
 export { PEOPLE };
@@ -449,8 +552,10 @@ export function classifierInfo() {
     subs: Object.entries(KEYWORDS[c].sub).map(([k, words]) => ({ key: k, value: DROPDOWN_VALUES[c]?.[k] ?? k, keywords: words.length, sample: words.slice(0, 12) })),
   }));
 }
-/** The page's "try it": a subject and a body through the classifier, exactly as the workflow step would read them. */
-export const tryClassifier = (subject: string, content: string): Classification => classifyTicket({ subject, content });
+/** The page's "try it": a subject and a body through the workflow's classifier and through the improved one. */
+export const tryClassifier = (subject: string, content: string): { v1: Classification; v2: ClassificationV2 } =>
+  ({ v1: classifyTicket({ subject, content }), v2: classifyTicketV2({ subject, content }) });
+export const classifierFixes = FIXES;
 
 /* ── the run ─────────────────────────────────────────────────────────────── */
 

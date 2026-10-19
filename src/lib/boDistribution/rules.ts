@@ -292,6 +292,11 @@ export type AssignInput = {
   archived: Set<string>;
   /** hub mode: the lists from the page (default = the legacy lists; archived people are always left out) */
   pools?: Partial<Record<RosterKey, Person[]>>;
+  /** hub mode, from Settings: who counts as available (chat dot / out of office / both), the workload counted on the
+   *  page's stages, and the most open tickets a person may have before the least-busy step passes them over */
+  availabilityHub?: Availability;
+  workloadHub?: Workload;
+  cap?: number | null;
 };
 
 const isAvailable = (a: Availability, id: string, missing: boolean) => (a.has(id) ? a.get(id) === "available" : missing);
@@ -302,11 +307,18 @@ function pool(inp: AssignInput, key: RosterKey, mode: Mode): Person[] {
   return (inp.pools?.[key] ?? LEGACY[key]).filter((x) => !inp.archived.has(x.id));
 }
 const salesAgent = (inp: AssignInput, mode: Mode) => (mode === "hub" ? inp.saHub ?? inp.sa : inp.sa);
+const availOf = (inp: AssignInput, mode: Mode) => (mode === "hub" ? inp.availabilityHub ?? inp.availability : inp.availability);
 
 /** Least busy of a pool. legacy: count failure = `onFail` (0, or 999 in the GQS code); everyone away -> everyone.
  *  hub: a failed count leaves the person out, an archived person is never in it. */
 function balance(people: Person[], inp: AssignInput, mode: Mode, avail: (id: string) => boolean, onFail: number, reasons: string[]): Person | null {
-  const all = people.map((p) => ({ p, n: inp.workload.get(p.id), up: avail(p.id) }));
+  const load = mode === "hub" ? inp.workloadHub ?? inp.workload : inp.workload;
+  let all = people.map((p) => ({ p, n: load.get(p.id), up: avail(p.id) }));
+  if (mode === "hub" && inp.cap) {
+    const under = all.filter((x) => typeof x.n !== "number" || x.n < inp.cap!);
+    if (under.length && under.length < all.length) reasons.push(`at the limit of ${inp.cap} open tickets: ${all.filter((x) => !under.includes(x)).map((x) => x.p.name).join(", ")}`);
+    if (under.length) all = under;
+  }
   const known = mode === "hub" ? all.filter((x) => x.n !== null && x.n !== undefined) : all;
   if (mode === "hub" && known.length < all.length) reasons.push(`count failed for ${all.filter((x) => !known.includes(x)).map((x) => x.p.name).join(", ")} - left out`);
   const scored = known.map((x) => ({ p: x.p, n: x.n ?? onFail, up: x.up }));
@@ -322,7 +334,7 @@ export function assignBo(step: "23" | "27" | "31" | "42" | "50", inp: AssignInpu
   const reasons: string[] = [];
   const archivedOut = (p: Person | null) => (p && mode === "hub" && inp.archived.has(p.id) ? (reasons.push(`${p.name} is deactivated - skipped`), null) : p);
   if (step === "23") {
-    const a = mode === "legacy" ? inp.availabilityFirstPage : inp.availability;
+    const a = mode === "legacy" ? inp.availabilityFirstPage : availOf(inp, mode);
     for (const [i, p] of pool(inp, "primary23", mode).entries()) {
       if (isAvailable(a, p.id, false)) return { owner: p, method: i === 0 ? `Primary (${p.name})` : `Deputy (${p.name})`, reasons };
       reasons.push(`${p.name} away`);
@@ -331,11 +343,11 @@ export function assignBo(step: "23" | "27" | "31" | "42" | "50", inp: AssignInpu
   }
   if (step === "50") {
     // no GQS task to merge into: least busy; a user missing from the list, or with no status, counts as AVAILABLE (legacy)
-    const avail = (id: string) => (mode === "legacy" ? !inp.availability.has(id) || inp.availability.get(id) === null || inp.availability.get(id) === "available" : isAvailable(inp.availability, id, false));
+    const avail = (id: string) => (mode === "legacy" ? !inp.availability.has(id) || inp.availability.get(id) === null || inp.availability.get(id) === "available" : isAvailable(availOf(inp, mode), id, false));
     return { owner: balance(pool(inp, "team50", mode), inp, mode, avail, 999, reasons), method: "Least busy (no GQS task)", reasons };
   }
   // #27 / #42 / #31: SA -> SA Sub (availability only, no cap) -> least busy
-  const avail = (id: string) => isAvailable(inp.availability, id, false);
+  const avail = (id: string) => isAvailable(availOf(inp, mode), id, false);
   const found = salesAgent(inp, mode);
   const sa = archivedOut(found.sa);
   if (sa) { if (avail(sa.id)) return { owner: sa, method: `Sales Agent (${found.source})`, reasons }; reasons.push(`SA ${sa.name} away`); }
@@ -349,8 +361,8 @@ export function assignBo(step: "23" | "27" | "31" | "42" | "50", inp: AssignInpu
 export function assignGqs(gqsType: string, inp: AssignInput, mode: Mode): Pick {
   const reasons: string[] = [];
   // legacy: for SA / SA Sub a user missing from the list is away; for DT and the team he is AVAILABLE
-  const saAvail = (id: string) => isAvailable(inp.availability, id, false);
-  const teamAvail = (id: string) => isAvailable(inp.availability, id, mode === "legacy");
+  const saAvail = (id: string) => isAvailable(availOf(inp, mode), id, false);
+  const teamAvail = (id: string) => isAvailable(availOf(inp, mode), id, mode === "legacy");
   const found = salesAgent(inp, mode);
   for (const [p, label] of [[found.sa, "Sales Agent"], [found.saSub, "SA Sub"]] as const) {
     if (!p) continue;
@@ -366,4 +378,61 @@ export function assignGqs(gqsType: string, inp: AssignInput, mode: Mode): Pick {
     }
   }
   return { owner: balance(pool(inp, "gqsTeam", mode), inp, mode, teamAvail, 999, reasons), method: "Least busy", reasons };
+}
+
+/* ── priority (SARCLA 19.10.2026: "a priority tab, to set the priority more accurately") ─────────────────────── */
+
+export type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+export const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+/** The category router's priorities in MAIN ROUTING (18.10.2026); sub null = any other sub-category of that category. */
+export const PRIORITY_TABLE: { key: string; category: string; sub: string | null; priority: Priority }[] = [
+  ["Website Issue", "Login Issue", "HIGH"], ["Website Issue", null, "MEDIUM"],
+  ["Product Price", "Price is not visible", "HIGH"], ["Product Price", "Request for quotation", "URGENT"], ["Product Price", null, "HIGH"],
+  ["Delivery", "Existing Order", "URGENT"], ["Delivery", "Previous Order", "URGENT"], ["Delivery", null, "HIGH"],
+  ["Invoicing & Accounting", "Invoice not received", "MEDIUM"], ["Invoicing & Accounting", null, "LOW"],
+  ["Order Cancellation", null, "URGENT"],
+  ["Product Information", "Technical question on a product", "HIGH"], ["Product Information", "Minimum order quantity for a product", "HIGH"],
+  ["Product Information", "I need an alternative on a existing product", "HIGH"], ["Product Information", "Product cannot be found in the shop/Alternative products", "HIGH"],
+  ["Product Information", "Technical Data Sheet request", "MEDIUM"], ["Product Information", "3D Model request", "LOW"], ["Product Information", null, "HIGH"],
+  ["Others", null, "MEDIUM"],
+].map(([category, sub, priority]) => ({ key: `${category}|${sub ?? "*"}`, category: category as string, sub: sub as string | null, priority: priority as Priority }));
+
+export type PrioritySettings = {
+  /** a line of the table set to another priority, by key "Category|Sub" or "Category|*" */
+  overrides: Record<string, Priority>;
+  raiseOnUrgentWords: boolean; urgentWords: string[];
+  raiseKeyCustomers: boolean; keyCustomerPriorities: string[];
+  lowerNewsletters: boolean; newsletterWords: string[];
+};
+export const DEFAULT_PRIORITY: PrioritySettings = {
+  overrides: {},
+  raiseOnUrgentWords: false,
+  urgentWords: ["dringend", "eilt", "sofort", "urgent", "urgente", "urgentissimo", "asap", "as soon as possible", "pilne", "spoed", "dringende", "immédiatement", "stillstand", "line down", "production stop", "produktionsstopp", "arrêt de production"],
+  raiseKeyCustomers: false, keyCustomerPriorities: ["P1"],
+  lowerNewsletters: false,
+  newsletterWords: ["newsletter", "unsubscribe", "abmelden", "désinscrire", "disiscriviti", "advent calendar", "adventskalender", "webinar", "no-reply", "noreply"],
+};
+/** What a ticket says that the priority signals read - found once, when the hub decides. */
+export type PriorityFacts = { urgentHits: string[]; newsletterHits: string[]; salesPriority: string | null };
+export function priorityFacts(text: string, salesPriority: string | null, s: PrioritySettings): PriorityFacts {
+  const t = ` ${text.toLowerCase()} `;
+  const hit = (words: string[]) => [...new Set(words.map((w) => w.trim().toLowerCase()).filter((w) => w && t.includes(w)))];
+  return { urgentHits: hit(s.urgentWords), newsletterHits: hit(s.newsletterWords), salesPriority };
+}
+const step = (p: Priority, d: 1 | -1): Priority => PRIORITIES[Math.min(3, Math.max(0, PRIORITIES.indexOf(p) + d))];
+/** The hub's priority: the workflow's (or the table line changed on the page), then the signals switched on. */
+export function priorityFor(
+  base: Priority | null, category: string | null, sub: string | null, facts: PriorityFacts | null | undefined, s: PrioritySettings,
+): { value: Priority; base: Priority | null; why: string[] } | null {
+  if (!base) return null;
+  const why: string[] = [];
+  let p = base;
+  const line = (category && (s.overrides[`${category}|${sub ?? "*"}`] ?? (sub ? s.overrides[`${category}|*`] : undefined))) || null;
+  if (line && line !== p) { why.push(`${category}${sub ? ` / ${sub}` : ""}: ${line} on the page (workflow ${p})`); p = line; }
+  if (facts) {
+    if (s.lowerNewsletters && facts.newsletterHits.length && p !== "LOW") { why.push(`newsletter / advertising ("${facts.newsletterHits[0]}") -> LOW`); return { value: "LOW", base, why }; }
+    if (s.raiseOnUrgentWords && facts.urgentHits.length && p !== "URGENT") { const n = step(p, 1); why.push(`"${facts.urgentHits[0]}" in the e-mail -> ${n}`); p = n; }
+    if (s.raiseKeyCustomers && facts.salesPriority && s.keyCustomerPriorities.includes(facts.salesPriority) && p !== "URGENT") { const n = step(p, 1); why.push(`key customer (${facts.salesPriority}) -> ${n}`); p = n; }
+  }
+  return { value: p, base, why };
 }

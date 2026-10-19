@@ -28,6 +28,9 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import RouteIcon from "@mui/icons-material/Route";
 import QueryStatsIcon from "@mui/icons-material/QueryStats";
 import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
@@ -336,9 +339,9 @@ const navSections: NavSection[] = [
       // every morning a partner's article list with our stock, MOQ and status (SARCLA, 18.10.2026)
       { group: "HubSpot apps", label: "Stock to Partners", href: "/uc/partner-stock", icon: <Inventory2OutlinedIcon fontSize="small" /> },
       // the Smart Sub-Ticket card and 7 more, moved from "SARCLA - Smart Ticket Creator" (SARCLA, 18.10.2026)
-      { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <LinkOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Back Office Distribution", href: "/uc/bo-distribution", icon: <LinkOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Duplicates & Merges", href: "/uc/ticket-duplicates", icon: <LinkOutlinedIcon fontSize="small" /> },
+      { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
+      { group: "HubSpot apps", label: "Back Office Distribution", href: "/uc/bo-distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
+      { group: "HubSpot apps", label: "Duplicates & Merges", href: "/uc/ticket-duplicates", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },

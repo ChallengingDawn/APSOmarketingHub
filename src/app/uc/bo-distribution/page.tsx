@@ -50,47 +50,14 @@ import type { PersonRow, Row, RunInfo, Settings } from "@/lib/boDistribution/eng
 import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
-type ClassInfo = { category: string; keywords: number; sample: string[]; subs: { key: string; value: string; keywords: number; sample: string[] }[] }[];
-type Data = {
-  settings: Settings; last: RunInfo | null; backfill: { from: number; cursor: number; done: boolean; startedAt: string } | null; everyMinutes: number;
-  rows: Row[]; admin: boolean; legacy: Record<RosterKey, Person[]>; labels: Record<RosterKey, string>; deactivated: Person[]; classifier: ClassInfo;
-};
-type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
-type View = "overview" | "tickets" | "flow" | "detection" | "people" | "gqs" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", people: "#people", gqs: "#gqs", settings: "#settings" };
-const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
-const STEP: Record<string, string> = {
-  "23": "Assignment System - Maida, Sara, team", "27": "General Distribution", "42": "General Distribution, then ESO/TSA",
-  "31": "Load Balancer", "50": "Task Status Report merge", "75": "Sales split to ESO",
-};
-const CHAT_LABEL: Record<string, string> = { available: "Available", away: "Away" };
-/** What the distribution step gave: its own write; a later DUPS hand-over is shown apart (19.10.2026). */
-const gave = (r: Row) => (r.actual ? { id: r.actual.distOwnerId ?? r.actual.ownerId, name: r.actual.distOwnerName ?? r.actual.ownerName } : null);
-const sameOwner = (r: Row) => !!r.actual && !!r.legacy && gave(r)!.id === r.legacy.ownerId;
-const fixesDiffer = (r: Row) => !!r.legacy && r.hub?.ownerId !== r.legacy.ownerId;
-
-/* ── figures ── */
-
-function measure(rows: Row[]) {
-  const bo = rows.filter((r) => r.pipeline === "bo"), gqs = rows.filter((r) => r.pipeline === "gqs");
-  const owned = rows.filter((r) => r.legacy?.ownerId && r.actual);
-  const live = owned.filter((r) => !r.approx), replay = owned.filter((r) => r.approx);
-  const cat = rows.filter((r) => r.actual && r.route?.sets.enquiry_category);
-  const prio = rows.filter((r) => r.actual && r.route?.sets.hs_ticket_priority);
-  return {
-    total: rows.length, bo: bo.length, gqs: gqs.length,
-    live: live.length, liveSame: live.filter(sameOwner).length, replay: replay.length, replaySame: replay.filter(sameOwner).length,
-    cat: cat.length, catSame: cat.filter((r) => r.route!.sets.enquiry_category === r.actual!.category).length,
-    prio: prio.length, prioSame: prio.filter((r) => r.route!.sets.hs_ticket_priority === r.actual!.priority).length,
-    fixes: rows.filter(fixesDiffer).length, noDistribution: rows.filter((r) => !r.legacy && !r.error).length, errors: rows.filter((r) => r.error).length,
-  };
-}
-const count = <T,>(xs: T[], key: (x: T) => string | null | undefined) => {
-  const m = new Map<string, number>();
-  for (const x of xs) { const k = key(x); if (k) m.set(k, (m.get(k) ?? 0) + 1); }
-  return [...m].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
-};
-
+import {
+  CHAT_LABEL, Detail, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, measure, pct, sameOwner,
+  type Data, type PeopleData, type View,
+} from "./shared";
+import { FlowTab } from "./FlowTab";
+import { GqsTab } from "./GqsTab";
+import { PriorityTab } from "./PriorityTab";
+import { SettingsTab } from "./SettingsTab";
 /* ── Overview ── */
 
 function Overview({ d }: { d: Data }) {
@@ -113,7 +80,9 @@ function Overview({ d }: { d: Data }) {
   ];
   const owners = count(d.rows.filter((r) => r.actual), (r) => gave(r)!.name);
   const steps = count(d.rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
-  const cats = count(d.rows.filter((r) => r.actual), (r) => r.actual!.category);
+  const cats = count(d.rows.filter((r) => r.actual), (r) => r.actual!.category ?? "No category");
+  const [cat, setCat] = useState<string | null>(null);
+  const inCat = cat ? d.rows.filter((r) => r.actual && (r.actual.category ?? "No category") === cat) : [];
   return (
     <>
       <Info>
@@ -131,76 +100,19 @@ function Overview({ d }: { d: Data }) {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PersonOutlineOutlinedIcon />} tint="green" title="Who got them" note="Owner in HubSpot" /><BarList rows={owners} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which step picked" note="The workflow step on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Categories" note="As HubSpot has them now" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Categories" note="As HubSpot has them now - click one to see its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
       </Grid>
+      {cat && (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} - ${full(inCat.length)} tickets`}
+            note={cat === "Others" ? "Others = the keyword classifier recognised nothing in the e-mail (or a form / hub ticket came without a known category) - the workflow then sets Others and the Load Balancer picks. Detection > Not recognised shows why." : "Click the category again to close"} />
+          <TicketTable rows={inCat} empty="No ticket." />
+        </GlassCard>
+      )}
     </>
   );
 }
 
-/* ── Tickets ── */
-
-function Detail({ r }: { r: Row }) {
-  const line = (k: string, v: React.ReactNode) => <Box sx={{ display: "flex", gap: 1, fontSize: "0.8rem", py: 0.25 }}><Box sx={{ color: MUTED, minWidth: 140 }}>{k}</Box><Box sx={{ color: INK }}>{v}</Box></Box>;
-  const sets = r.route ? Object.entries(r.route.sets) : [];
-  return (
-    <Box sx={{ display: "grid", gap: 0.25 }}>
-      {r.approx && line("Replayed", "availability and workload are today's - the owner comparison is only a rough one")}
-      {r.error && line("Error", <span style={{ color: RED }}>{r.error}</span>)}
-      {r.route && line("Path", r.route.path.join(" › ") + (r.route.assigner ? ` › ${STEP[r.route.assigner]}` : ""))}
-      {r.route?.classified && line("Classifier", `${r.route.classified.category ?? "nothing recognised"}${r.route.classified.subCategory ? ` / ${r.route.classified.subCategory}` : ""}`)}
-      {!!sets.length && line("Workflow sets", sets.map(([k, v]) => `${k.replace(/^enquiry_sub_category___/, "sub ").replace(/_+\d?$/, "")} = ${v}`).join(" · "))}
-      {r.legacy && line("Copy", `${r.legacy.ownerName ?? "nobody"} - ${r.legacy.method}${r.legacy.reasons.length ? ` (${r.legacy.reasons.join("; ")})` : ""}`)}
-      {r.hub && line("Hub", `${r.hub.ownerName ?? "nobody"} - ${r.hub.method}${r.hub.reasons.length ? ` (${r.hub.reasons.join("; ")})` : ""}`)}
-      {r.note && line("Note", r.note)}
-      {r.actual?.distOwnerName && line("Distribution gave", r.actual.distOwnerName)}
-      {r.actual?.dupsOwnerName && line("Then DUPS", `handed it to ${r.actual.dupsOwnerName}${r.actual.dupsNote ? ` ${r.actual.dupsNote}` : ""} - an older ticket on the same order (Duplicates & merges)`)}
-      {r.actual && line("HubSpot now", `${r.actual.ownerName ?? "nobody"}${r.actual.ownerSetBy ? ` (last set by ${r.actual.ownerSetBy})` : ""} · ${r.actual.category ?? "no category"}${r.actual.subCategory ? ` / ${r.actual.subCategory}` : ""} · priority ${r.actual.priority ?? "—"}${r.actual.dispatch ? ` · ${r.actual.dispatch}` : ""}`)}
-    </Box>
-  );
-}
-function Verdict({ r }: { r: Row }) {
-  if (r.error) return <Chip tint="pink">error</Chip>;
-  if (!r.legacy) return <Chip tint="slate">no distribution</Chip>;
-  if (!r.actual) return <Chip tint="slate">waiting</Chip>;
-  return sameOwner(r) ? <Chip tint="green">same owner</Chip> : <Chip tint="amber">{r.approx ? "differs (rough)" : "differs"}</Chip>;
-}
-function TicketTable({ rows, empty }: { rows: Row[]; empty: string }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const { slice, pager } = usePaged(rows, 15);
-  return (
-    <>
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small">
-          <TableHead><TableRow>{["Entered", "Ticket", "Path", "Distribution gave", "Copy gives", "Hub gives", ""].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
-          <TableBody>
-            {slice.map((r) => (
-              <Fragment key={r.key}>
-                <TableRow hover onClick={() => setOpen(open === r.key ? null : r.key)} sx={{ cursor: "pointer" }}>
-                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", color: MUTED, fontSize: "0.8rem" }}>{when(r.enteredAt)}{r.approx && <Box component="span" sx={{ ml: 0.5 }}><Chip tint="slate">replayed</Chip></Box>}</TableCell>
-                  <TableCell sx={bodyCell}>
-                    <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(300) }}>{r.subject || r.ticketId}</Box>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{r.pipeline === "gqs" ? "GQS" : "Back Office"}{r.source ? ` · ${r.source}` : ""}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, ...clip(240) }}>{r.route ? (r.route.assigner ? STEP[r.route.assigner] : r.route.path[r.route.path.length - 1]) : r.pipeline === "gqs" ? (r.legacy?.method ?? "GQS") : "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
-                    {r.actual ? gave(r)!.name ?? "nobody" : "…"}
-                    {r.actual?.dupsOwnerName && r.actual.dupsOwnerId !== gave(r)!.id && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>then DUPS → {r.actual.dupsOwnerName}</Typography>}
-                  </TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{r.legacy?.ownerName ?? "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", fontWeight: fixesDiffer(r) ? 700 : 400 }}>{r.hub?.ownerName ?? "—"}</TableCell>
-                  <TableCell sx={bodyCell}><Verdict r={r} /></TableCell>
-                </TableRow>
-                {open === r.key && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.04)" }}><Detail r={r} /></TableCell></TableRow>}
-              </Fragment>
-            ))}
-          </TableBody>
-        </Table>
-      </Box>
-      {pager}
-      {!rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{empty}</Typography>}
-    </>
-  );
-}
 function Tickets({ d }: { d: Data }) {
   const [filter, setFilter] = useState<"all" | "different" | "fixes" | "live">("all");
   const [pipe, setPipe] = useState<"all" | "bo" | "gqs">("all");
@@ -237,107 +149,9 @@ function Tickets({ d }: { d: Data }) {
   );
 }
 
-/* ── Flow ── */
-
-type Node = { label: string; text: string; match?: string | string[]; step?: string; tone?: "blue" | "green" | "amber" | "purple" | "slate" | "pink" };
-const FLOW: { title: string; note: string; nodes: Node[] }[] = [
-  { title: "1 · Entry checks", note: "One minute after the ticket enters Back Office New", nodes: [
-    { label: "C2S problem", text: "Delivery / late / URGENT, then the category router", match: "C2S Problem", tone: "pink" },
-    { label: "Anyseals stock file", text: "Processed and resolved - nobody assigned", match: "ANYSEALS", tone: "slate" },
-  ] },
-  { title: "2 · Where it comes from", note: "First match wins", nodes: [
-    { label: "Chat / AI chat", text: "Never distributed: parked in New BO Topic, or to Rose when TSA sends it back", match: ["CHAT", "AI CHAT"], tone: "slate" },
-    { label: "E-mail", text: "The e-mail rules, then the classifier", match: "EMAIL", tone: "blue" },
-    { label: "Form", text: "Its category goes straight to the router", match: "FORM", tone: "blue" },
-    { label: "API / hub / UI", text: "CERTIFICATES and MAIL TO CUSTOMER stop; the rest to the router", match: "ELSE (API / hub / UI)", tone: "blue" },
-  ] },
-  { title: "3 · E-mail rules", note: "Before the classifier", nodes: [
-    { label: "Task Status Report", text: "Merged into its GQS task (owner = the task's)", match: "GQS EXCLUSION AND MAILS", tone: "purple" },
-    { label: "Billing address / ERP export", text: "To Maida, then Sara", match: "CHANGES OF ACCOUNT ADDRESS", tone: "purple" },
-    { label: "Mail to sales@ from a rep", text: "To ESO New with that rep", match: "Sales", tone: "purple" },
-    { label: "PERFORMIS / AVOR stopped order", text: "Late delivery, HIGH", match: "STOPPED ORDERS", tone: "purple" },
-    { label: "Back from ESO / TSA", text: "Load Balancer, no classification", match: "ESO/TSA PIPELINE REDIRECT", tone: "purple" },
-    { label: "Keyword classifier", text: "Category and sub-category from subject and body", match: "#22 classifier", tone: "blue" },
-  ] },
-  { title: "4 · Category router", note: "Sets the priority and the step", nodes: [
-    { label: "Website issue", text: "Login issue → Assignment System; else General Distribution", match: "Registration/Website issue", tone: "blue" },
-    { label: "Product price", text: "Quotation → General then ESO/TSA (URGENT); else General", match: "PRODUCT PRICE", tone: "blue" },
-    { label: "Delivery", text: "Existing / previous order URGENT, else HIGH", match: "DELIVERY", tone: "blue" },
-    { label: "Microsoft quarantine", text: "Resolved - nobody assigned", match: "MICROSOFT EXCLUSION", tone: "slate" },
-    { label: "Invoicing & accounting", text: "Invoice not received MEDIUM, else LOW", match: "INVOICING AND ACCOUNTING", tone: "blue" },
-    { label: "Order cancellation", text: "URGENT", match: "ORDER CANCELLATION", tone: "blue" },
-    { label: "Product information", text: "Technical question / MOQ → General then ESO/TSA; else General", match: "PRODUCT INFORMATION", tone: "blue" },
-    { label: "Nothing recognised", text: "Others, MEDIUM, Load Balancer", match: "ELSE -> Others", tone: "amber" },
-  ] },
-  { title: "5 · Who gets it", note: "The step's rule picks the owner", nodes: [
-    { label: "General Distribution", text: "Sales Agent if available, SA Sub, else the least busy available of the team", step: "27", tone: "green" },
-    { label: "… then to ESO / TSA", text: "Same pick, then BO DISPATCH moves it to the contact owner's team", step: "42", tone: "green" },
-    { label: "Load Balancer", text: "Same rule, Sara third in the team", step: "31", tone: "green" },
-    { label: "Assignment System", text: "Maida, else Sara, else least busy", step: "23", tone: "green" },
-    { label: "Task Status Report merge", text: "The GQS task's owner, else least busy", step: "50", tone: "green" },
-    { label: "Sales split", text: "The forwarding rep, in ESO", step: "75", tone: "green" },
-  ] },
-];
-const TONE: Record<string, string> = { blue: "#2459d1", green: "#1b7a55", amber: "#a96a12", purple: "#6b4bc4", slate: "#5d6b85", pink: "#c2185b" };
-
-function Flow({ d }: { d: Data }) {
-  const bo = d.rows.filter((r) => r.pipeline === "bo" && r.route);
-  const n = (node: Node) => node.step ? bo.filter((r) => r.route!.assigner === node.step).length
-    : bo.filter((r) => (Array.isArray(node.match) ? node.match : [node.match]).some((m) => r.route!.path.includes(m!))).length;
-  const gqs = d.rows.filter((r) => r.pipeline === "gqs" && r.legacy);
-  const g = (p: RegExp) => gqs.filter((r) => p.test(r.legacy!.method)).length;
-  return (
-    <>
-      <Info>How the two HubSpot workflows decide, step by step, with how many of the last 7 days&apos; {full(bo.length)} Back Office tickets took each branch. Read from HubSpot on 18.10.2026 - this is what the hub copies.</Info>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="Back Office - SARCLA | BACK OFFICE MAIN ROUTING" note="Left to right; in each column the first box that matches wins" />
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(5, minmax(0, 1fr))" }, gap: 1.5, alignItems: "start" }}>
-          {FLOW.map((col, ci) => (
-            <Box key={col.title} sx={{ position: "relative" }}>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: INK }}>{col.title}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: MUTED, mb: 1 }}>{col.note}</Typography>
-              <Box sx={{ display: "grid", gap: 1 }}>
-                {col.nodes.map((node) => {
-                  const c = n(node);
-                  return (
-                    <Box key={node.label} sx={{ border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${TONE[node.tone ?? "blue"]}`, borderRadius: "10px", p: 1, bgcolor: c ? "rgba(255,255,255,.85)" : "rgba(255,255,255,.4)", opacity: c ? 1 : 0.7 }}>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
-                        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{node.label}</Typography>
-                        <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: TONE[node.tone ?? "blue"] }}>{full(c)}</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>{node.text}</Typography>
-                    </Box>
-                  );
-                })}
-              </Box>
-              {ci < FLOW.length - 1 && <Box sx={{ display: { xs: "none", md: "block" }, position: "absolute", top: 4, right: -14, color: MUTED, fontSize: "1rem" }}>›</Box>}
-            </Box>
-          ))}
-        </Box>
-      </GlassCard>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="GQS - NEW FOR BACK-OFFICE GQS DISTRIBUTION" note={`On "New for Back-Office"; ${full(gqs.length)} GQS tickets in the last 7 days`} />
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(4, minmax(0, 1fr))" }, gap: 1.5 }}>
-          {[
-            { label: "Sales Agent", text: "The company's / contact's Sales Agent, if available - no limit", c: g(/^Sales Agent/) },
-            { label: "SA Sub", text: "If available", c: g(/^SA Sub/) },
-            { label: "DT New Business", text: "Claudio Gabinato, then Leart Asllani", c: g(/^DT New Business/) },
-            { label: "Least busy", text: "Of the GQS team (Claudia, Claudio, Leart, Sara)", c: g(/^Least busy/) },
-          ].map((x) => (
-            <Box key={x.label} sx={{ border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${TONE.purple}`, borderRadius: "10px", p: 1 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 700 }}>{x.label}</Typography><Typography sx={{ fontWeight: 800, color: TONE.purple }}>{full(x.c)}</Typography></Box>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{x.text}</Typography>
-            </Box>
-          ))}
-        </Box>
-      </GlassCard>
-    </>
-  );
-}
-
 /* ── Detection ── */
 
-const WEAK = [
+const WEAK_UNUSED = [
   "\"received\" is a Delivery keyword, so a forwarded \"Invoice not received\" goes to Delivery",
   "\"reach\" is listed several times, so \"reach out\" files a ticket as a certificate request",
   "Short lines with \"inc\", \"ltd\", \"co.\" or \"kg\" are dropped as company lines - \"incorrect delivery\", \"50 kg…\" only count from the subject",
@@ -349,18 +163,26 @@ const WEAK = [
 function Detection({ d }: { d: Data }) {
   const [subject, setSubject] = useState("");
   const [content, setContent] = useState("");
-  const [res, setRes] = useState<Classification | null>(null);
+  const [res, setRes] = useState<{ v1: Classification; v2: Classification & { fixes: string[] } } | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
     try {
       const r = await fetch("/api/uc/bo-distribution", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "classify", subject, content: content.slice(0, 6000) }) });
-      const j = (await r.json()) as { ok: boolean; data?: Classification };
+      const j = (await r.json()) as { ok: boolean; data?: { v1: Classification; v2: Classification & { fixes: string[] } } };
       setRes(j.ok && j.data ? j.data : null);
     } finally { setBusy(false); }
   };
   const read = d.rows.filter((r) => r.route?.classified && r.actual);
   const recognised = read.filter((r) => r.route!.classified!.category);
+  const notRecognised = read.filter((r) => !r.route!.classified!.category);
+  // the truth: a category a PERSON set afterwards (HubSpot's own category is this classifier's answer - comparing with it measures nothing)
+  const corrected = read.filter((r) => r.actual!.catByPerson);
+  const right = corrected.filter((r) => r.actual!.catByPerson === (r.route!.classified!.category ?? "Others"));
+  const withV2 = read.filter((r) => r.v2);
+  const v2Recognised = withV2.filter((r) => r.v2!.category);
+  const rightV2 = corrected.filter((r) => r.v2 && r.actual!.catByPerson === (r.v2.category ?? "Others"));
+  const v2Changes = withV2.filter((r) => (r.v2!.category ?? null) !== (r.route!.classified!.category ?? null));
   const byCat = new Map<string, { n: number; same: number }>();
   for (const r of recognised) {
     const c = r.route!.classified!.category!;
@@ -372,8 +194,8 @@ function Detection({ d }: { d: Data }) {
     <>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CategoryOutlinedIcon />} tint="purple" label="Read by the classifier" value={full(read.length)} note="E-mails of the last 7 days that went through it" /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised" value={pct(recognised.length, read.length)} note={`${full(read.length - recognised.length)} not recognised → Others, Load Balancer`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Same category in HubSpot" value={pct([...byCat.values()].reduce((a, b) => a + b.same, 0), recognised.length)} note="When it recognised one - a person may have changed it since" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: workflow → improved" value={`${pct(recognised.length, read.length)} → ${pct(v2Recognised.length, withV2.length)}`} note={`${full(read.length - recognised.length)} not recognised today → Others, Load Balancer`} /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Right when a person changed it" value={`${pct(right.length, corrected.length)} → ${pct(rightV2.length, corrected.length)}`} note={`Workflow → improved, on the ${full(corrected.length)} tickets whose category a person set afterwards. On 30 days: 10% → 26%; on the 90 before: 13% → 46%`} /></Grid>
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="blue" title="Try it" note="Paste a subject and an e-mail: what the workflow's classifier makes of it, and why (up to 6,000 characters)" />
@@ -383,28 +205,49 @@ function Detection({ d }: { d: Data }) {
           <Box><Button variant="contained" size="small" disabled={busy || (!subject && !content)} onClick={() => void run()} sx={{ textTransform: "none" }}>Classify</Button></Box>
         </Box>
         {res && (
-          <Box sx={{ mt: 2, display: "grid", gap: 0.5, fontSize: "0.84rem" }}>
-            <Typography sx={{ fontWeight: 800, color: INK }}>{res.category ?? "Nothing recognised - the ticket would go to Others"}{res.subCategory ? ` / ${res.subCategory}` : ""}</Typography>
-            <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{res.explanation}{res.orderNumber ? ` · order number ${res.orderNumber}` : ""}</Typography>
-            {!!res.matched.length && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>{res.matched.slice(0, 30).map((k) => <Chip key={k} tint="purple">{k}</Chip>)}</Box>}
-            <Box sx={{ maxWidth: 520, mt: 1 }}><BarList rows={Object.entries(res.scores).map(([label, value]) => ({ label, value })).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))} labelWidth={170} format={(v) => String(v ?? 0)} /></Box>
-          </Box>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            {([["The workflow's classifier (today)", res.v1, [] as string[]], ["The improved classifier", res.v2, res.v2.fixes]] as const).map(([title, c, fx]) => (
+              <Grid key={title} size={{ xs: 12, md: 6 }}>
+                <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, display: "grid", gap: 0.5 }}>
+                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</Typography>
+                  <Typography sx={{ fontWeight: 800, color: INK }}>{c.category ?? "Nothing recognised → Others"}{c.subCategory ? ` / ${c.subCategory}` : ""}</Typography>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{c.explanation}{c.orderNumber ? ` · order ${c.orderNumber}` : ""}</Typography>
+                  {!!fx.length && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>{fx.map((f) => <Chip key={f} tint="green">{d.fixes.find((x) => x.id === f)?.title ?? f}</Chip>)}</Box>}
+                  {!!c.matched.length && <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>{c.matched.slice(0, 20).map((k) => <Chip key={k} tint="purple">{k}</Chip>)}</Box>}
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
         )}
       </GlassCard>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<InsightsOutlinedIcon />} tint="green" title="What it recognised" note="Last 7 days; second figure = how often HubSpot still has that category" />
+            <CardTitle icon={<InsightsOutlinedIcon />} tint="green" title="What it recognised" note="Last 7 days; second figure = how often HubSpot still has it (high by nature: HubSpot's category IS this answer unless a person changes it)" />
             <BarList rows={[...byCat].sort((a, b) => b[1].n - a[1].n).map(([label, v]) => ({ label, value: v.n, secondary: pct(v.same, v.n) }))} labelWidth={170} format={(v) => full(v ?? 0)} />
           </GlassCard>
         </Grid>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<ReportProblemOutlinedIcon />} tint="amber" title="Weak spots found while copying it" note="Kept 1:1 in the copy; the hub fixes them only after shadow mode shows the effect" />
-            <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5 }}>{WEAK.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}</Box>
+            <CardTitle icon={<ReportProblemOutlinedIcon />} tint="green" title="What the improved classifier fixes" note="Each fix can be switched off on its own; all off = exactly the workflow's answer" />
+            <Box component="ol" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.4 }}>{d.fixes.map((f) => <Typography component="li" key={f.id} sx={{ fontSize: "0.78rem", color: INK }}><b>{f.title}</b> - {f.description}</Typography>)}</Box>
           </GlassCard>
         </Grid>
       </Grid>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="green" title={`The improved classifier changes ${full(v2Changes.length)} of ${full(withV2.length)}`} note="Workflow → improved, last 7 days - not used for routing while the workflow files the category" />
+        <BarList rows={count(v2Changes, (r) => `${r.route!.classified!.category ?? "Others"} → ${r.v2!.category ?? "Others"}`)} labelWidth={320} format={(v) => full(v ?? 0)} />
+      </GlassCard>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<ReportProblemOutlinedIcon />} tint="amber" title={`Not recognised - ${full(notRecognised.length)} e-mails`} note="No keyword matched: the workflow sets Others and the Load Balancer picks. These are what the improved classifier has to catch" />
+        <TicketTable rows={notRecognised} empty="None." />
+      </GlassCard>
+      {!!corrected.length && (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="blue" title="Changed by a person" note="The classifier's category against the one a person set afterwards" />
+          <BarList rows={count(corrected, (r) => `${r.route!.classified!.category ?? "Others"} → ${r.actual!.catByPerson}`)} labelWidth={320} format={(v) => full(v ?? 0)} />
+        </GlassCard>
+      )}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="The keyword lists" note="Six languages; the subject counts ten times; the highest score wins, then the sub-category" />
         <Grid container spacing={2}>
@@ -512,73 +355,6 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
   );
 }
 
-/* ── GQS ── */
-
-function Gqs({ d }: { d: Data }) {
-  const rows = d.rows.filter((r) => r.pipeline === "gqs");
-  const settled = rows.filter((r) => r.legacy?.ownerId && r.actual);
-  const methods = count(rows.filter((r) => r.legacy), (r) => r.legacy!.method.replace(/ \(.*$/, ""));
-  return (
-    <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="purple" label="GQS tickets, 7 days" value={full(rows.length)} note="Entered New for Back-Office" /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label="Same owner as HubSpot" value={pct(settled.filter(sameOwner).length, settled.length)} note={`${full(settled.filter(sameOwner).length)} of ${full(settled.length)}`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Fixes change the owner" value={full(rows.filter(fixesDiffer).length)} note="Deactivated people, failed counts, unknown users" /></Grid>
-      </Grid>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 5 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="How GQS tickets were picked" note="By the copy of the rules" />
-            <BarList rows={methods} labelWidth={170} format={(v) => full(v ?? 0)} />
-            <Box component="ul" sx={{ m: 0, mt: 2, pl: 2.5, display: "grid", gap: 0.5 }}>
-              {["Sales Agent, then SA Sub - if available, no limit", "DT New Business: Claudio Gabinato, then Leart Asllani - a user missing from HubSpot's list counts as available", "Else the least busy of the GQS team; nobody available → least busy of everyone",
-                "The workload counts a deleted stage and misses the real 'Waiting on APSO' (see People)"].map((t) => <Typography component="li" key={t} sx={{ fontSize: "0.8rem" }}>{t}</Typography>)}
-            </Box>
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 7 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="GQS tickets" note="Click a row for the reasons" />
-            <TicketTable rows={rows} empty="No GQS ticket in the last 7 days yet." />
-          </GlassCard>
-        </Grid>
-      </Grid>
-    </>
-  );
-}
-
-/* ── Settings ── */
-
-function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const call = async (method: "PUT" | "POST", body: object) => {
-    setBusy(true); setMsg(null);
-    try {
-      const r = await fetch("/api/uc/bo-distribution", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = (await r.json()) as { ok: boolean; error?: string };
-      setMsg(j.ok ? "Done." : j.error ?? `HTTP ${r.status}`);
-      onChanged();
-    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
-  };
-  return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes; nothing is written to HubSpot in shadow mode`} />
-      <Box sx={{ display: "grid", gap: 1.5 }}>
-        <Choice<"off" | "shadow"> value={d.settings.mode} onChange={(m) => d.admin && void call("PUT", { mode: m })} options={[{ key: "shadow", label: "Shadow - compare, write nothing" }, { key: "off", label: "Off" }]} />
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Replay of the last 7 days: {d.backfill ? (d.backfill.done ? `done (started ${when(d.backfill.startedAt)})` : `running - up to ${when(new Date(d.backfill.cursor).toISOString())}`) : "starts with the next run"}</Typography>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <Button variant="outlined" size="small" disabled={!d.admin || busy} onClick={() => void call("POST", { action: "run" })} sx={{ textTransform: "none" }}>Look now</Button>
-          <Button variant="outlined" size="small" disabled={!d.admin || busy} onClick={() => void call("POST", { action: "replay" })} sx={{ textTransform: "none" }}>Replay the last 7 days</Button>
-          {busy && <CircularProgress size={14} />}
-          {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{msg}</Typography>}
-        </Box>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>No live mode yet: the hub takes over one pipeline at a time once the comparison is clean, with the matching workflow steps switched off in the same minute.</Typography>
-      </Box>
-    </GlassCard>
-  );
-}
-
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
@@ -590,11 +366,12 @@ export default function BoDistribution() {
   if (r === null) body = <LoadingPanel label="Reading the Back Office tickets…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
   else if (view === "tickets") body = <Tickets d={r.data} />;
-  else if (view === "flow") body = <Flow d={r.data} />;
+  else if (view === "flow") body = <FlowTab d={r.data} />;
   else if (view === "detection") body = <Detection d={r.data} />;
   else if (view === "people") body = <People d={r.data} onSaved={reload} />;
-  else if (view === "gqs") body = <Gqs d={r.data} />;
-  else if (view === "settings") body = <SettingsTab d={r.data} onChanged={reload} />;
+  else if (view === "gqs") body = <GqsTab d={r.data} />;
+  else if (view === "settings") body = <SettingsTab key={r.data.settings.at ?? "s"} d={r.data} onChanged={reload} />;
+  else if (view === "priority") body = <PriorityTab key={r.data.settings.at ?? "p"} d={r.data} onSaved={reload} />;
   else body = <Overview d={r.data} />;
   const rows = r?.state === "ok" ? r.data.rows : [];
   return (
@@ -615,6 +392,7 @@ export default function BoDistribution() {
           { id: "tickets", label: "Tickets", count: rows.length ? full(rows.length) : null },
           { id: "flow", label: "Flow", count: null },
           { id: "detection", label: "Detection", count: null },
+          { id: "priority", label: "Priority", count: null },
           { id: "people", label: "People", count: null },
           { id: "gqs", label: "GQS", count: rows.filter((x) => x.pipeline === "gqs").length ? full(rows.filter((x) => x.pipeline === "gqs").length) : null },
           { id: "settings", label: "Settings", count: null },

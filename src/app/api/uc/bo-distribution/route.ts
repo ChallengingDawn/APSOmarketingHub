@@ -12,10 +12,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import {
-  backfillState, checkTicket, classifierInfo, getSettings, lastRun, legacyRosters, people, recentRows, replayFrom,
+  backfillState, checkTicket, classifierFixes, classifierInfo, getSettings, lastRun, legacyRosters, people, pipelineStages, recentRows, replayFrom,
   rosterLabels, runOnce, saveSettings, tryClassifier,
 } from "@/lib/boDistribution/engine";
-import { PEOPLE, type Person, type RosterKey } from "@/lib/boDistribution/rules";
+import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
+import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,12 +30,13 @@ export async function GET(req: NextRequest) {
     if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
     const t = sp.get("ticket");
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
-    const [settings, last, rows, backfill] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState()]);
+    const [settings, last, rows, backfill, stages] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [] }))]);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
         settings, last, backfill, everyMinutes: 2, rows: rows.slice(0, 1500), admin: access.role === "admin",
-        legacy: legacyRosters, labels: rosterLabels, deactivated: [PEOPLE.adriana, PEOPLE.vanessa], classifier: classifierInfo(),
+        legacy: legacyRosters, labels: rosterLabels, deactivated: [PEOPLE.adriana, PEOPLE.vanessa], classifier: classifierInfo(), fixes: classifierFixes, stages,
+        priorityTable: PRIORITY_TABLE, defaults: { hub: DEFAULT_HUB, priority: DEFAULT_PRIORITY },
       },
     });
   } catch (err) {
@@ -46,7 +48,10 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>> };
+  const b = (await req.json().catch(() => ({}))) as {
+    mode?: "off" | "shadow"; rosters?: Partial<Record<RosterKey, Person[] | null>>; live?: Partial<Settings["live"]>;
+    hub?: Partial<HubOptions>; priority?: Partial<PrioritySettings>;
+  };
   return NextResponse.json({ ok: true, data: await saveSettings(b, `user ${access.userId}`) });
 }
 
