@@ -125,6 +125,8 @@ export type ToolCount = {
   unit: string; unit2: string | null;
   /** [day, figure, second figure] */
   days: [string, number, number][];
+  /** [month, figure, second figure] - when a read has no days (the search bar read before 19.10.2026) */
+  months?: [string, number, number][];
   /** framed on the shop's production pages */
   onShop: boolean;
   error?: string;
@@ -139,12 +141,40 @@ export const LOST: { key: LostReason; label: string; what: string }[] = [
   { key: "looked", label: "Only looked", what: "Opened the article, no quantity typed" },
 ];
 
+/**
+ * Where we lost them as a path (SARCLA 19.10: "a diagram like the other one, to see the path"): every
+ * article looked at, step by step as the shop goes - on the shelf, a quantity typed, into the cart, ordered -
+ * and at each step the ones that went no further. It follows rules.lostReason's order, so each look
+ * leaves at one step only; an article ordered passes every step.
+ */
+export function lostPath(l: { looks: Record<LostReason, number>; ordered: number }): { columns: string[]; nodes: { id: string; column: number; label: string; lost: LostReason | "won" | null }[]; links: { from: string; to: string; value: number }[] } {
+  const lost = l.looks;
+  const all = l.ordered + Object.values(lost).reduce((a, n) => a + n, 0);
+  const onShelf = all - lost.shelf, further = onShelf - lost.looked, cart = further - lost.moq - lost.price;
+  const links = [
+    { from: "all", to: "shelf-ok", value: onShelf }, { from: "all", to: "shelf", value: lost.shelf },
+    { from: "shelf-ok", to: "typed", value: further }, { from: "shelf-ok", to: "looked", value: lost.looked },
+    { from: "typed", to: "cart-in", value: cart }, { from: "typed", to: "moq", value: lost.moq }, { from: "typed", to: "price", value: lost.price },
+    { from: "cart-in", to: "won", value: l.ordered }, { from: "cart-in", to: "cart", value: lost.cart },
+  ].filter((x) => x.value > 0);
+  const nodes = [
+    { id: "all", column: 0, label: "Articles looked at", lost: null },
+    { id: "shelf-ok", column: 1, label: "On the shelf", lost: null }, { id: "shelf", column: 1, label: "Not, or not enough, on the shelf", lost: "shelf" },
+    { id: "typed", column: 2, label: "A quantity typed", lost: null }, { id: "looked", column: 2, label: "Only looked", lost: "looked" },
+    { id: "cart-in", column: 3, label: "Into the cart", lost: null }, { id: "moq", column: 3, label: "Below the minimum quantity", lost: "moq" }, { id: "price", column: 3, label: "Saw the price and left", lost: "price" },
+    { id: "won", column: 4, label: "Ordered", lost: "won" }, { id: "cart", column: 4, label: "Left in the cart", lost: "cart" },
+  ] as const;
+  const used = new Set(links.flatMap((x) => [x.from, x.to]));
+  return { columns: ["Looked at", "On the shelf?", "A quantity typed?", "Into the cart?", "Ordered?"], nodes: nodes.filter((n) => used.has(n.id)).map((n) => ({ ...n })), links };
+}
+
 /** The search bar as one of the tools (SARCLA 19.10: "merge as a tool, only the number"): its searches each day, those that found something. */
 export function searchTool(d: EngageData): ToolCount | null {
   const s = d.search;
   if (!s) return d.errors.search ? { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log", since: null, unit: "Searches", unit2: "Found something", days: [], onShop: true, error: d.errors.search } : null;
   const days = s.byDay ?? [];
-  return { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log - every search, cookies or not", since: s.since, unit: "Searches", unit2: "Found something", days, onShop: true };
+  const months = Object.keys(s.byMonth).sort().map((m) => [m, s.byMonth[m][0], s.byMonth[m][1]] as [string, number, number]);
+  return { key: "search", name: "Search bar", what: "The shop's search bar - searches, and those that found something", source: "its own log - every search, cookies or not", since: s.since, unit: "Searches", unit2: "Found something", days, months, onShop: true };
 }
 
 export type MoqRow = { day: string; company: string; companyId: string; article: string; description: string | null; pc: string | null; qty: number; minimum: number | null; unit: string | null };

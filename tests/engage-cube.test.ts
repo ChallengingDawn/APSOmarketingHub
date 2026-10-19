@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engageSeries, engageTable, engageYtd, madeToOrderIn, minSec, productTable, searchKind, searchSample, searchTool, siteSearchGa4, toolTotals, viewPage, viewsByPc, type EngageData } from "../src/lib/marketingKpis/engageCube";
+import { engageSeries, engageTable, engageYtd, lostPath, madeToOrderIn, minSec, productTable, searchKind, searchSample, searchTool, siteSearchGa4, toolTotals, viewPage, viewsByPc, type EngageData } from "../src/lib/marketingKpis/engageCube";
 import { lostReason } from "../src/lib/datatracker/rules";
 
 const m24 = (cells: Record<number, number>) => Array.from({ length: 24 }, (_, i) => cells[i] ?? 0);
@@ -138,4 +138,23 @@ test("the search bar as one of the tools: its searches each day and those that f
   assert.deepEqual([t.key, t.since, t.unit, t.unit2, t.days.length, t.onShop], ["search", "2026-07-05", "Searches", "Found something", 2, true]);
   assert.equal(searchTool({ ...d, search: null, errors: {} }), null);
   assert.equal(searchTool({ ...d, search: null, errors: { search: "timeout" } })?.error, "timeout");
+});
+
+test("where we lost them as a path: each look stops at one step, the ordered pass every step - each column adds up", () => {
+  const p = lostPath({ looks: { shelf: 879, moq: 10, cart: 1077, price: 184, looked: 947 }, ordered: 2285 });
+  const v = (from: string, to: string) => p.links.find((x) => x.from === from && x.to === to)?.value;
+  assert.equal(p.columns.length, 5);
+  assert.equal(v("all", "shelf-ok")! + v("all", "shelf")!, 5382);
+  assert.deepEqual([v("shelf-ok", "typed"), v("shelf-ok", "looked")], [5382 - 879 - 947, 947]);
+  assert.deepEqual([v("typed", "cart-in"), v("typed", "moq"), v("typed", "price")], [2285 + 1077, 10, 184]);
+  assert.deepEqual([v("cart-in", "won"), v("cart-in", "cart")], [2285, 1077]);
+  // a step nobody stopped at draws no band and no node
+  const q = lostPath({ looks: { shelf: 5, moq: 0, cart: 2, price: 1, looked: 3 }, ordered: 4 });
+  assert.equal(q.nodes.some((n) => n.id === "moq"), false);
+  assert.equal(q.links.some((x) => x.to === "moq"), false);
+});
+
+test("the search bar card falls back to its months when a read has no days", () => {
+  const t = searchTool({ ...d, search: { ...d.search!, byDay: undefined, byMonth: { "2026-07": [100, 70], "2026-08": [200, 150] } } })!;
+  assert.deepEqual([t.days.length, t.months], [0, [["2026-07", 100, 70], ["2026-08", 200, 150]]]);
 });

@@ -31,16 +31,18 @@ import { CardTitle, FAINT, GlassCard, GREEN, HAIRLINE, INK, MUTED, RED, TINT } f
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
+import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { countryName } from "@/lib/marketingKpis/countries";
 import { CHANNEL_INFO } from "@/lib/marketingKpis/visitCube";
-import { LOST, PROFIT_CENTRES, engageSeries, engageTable, madeToOrderIn, minSec, pcLabel, productTable, searchTool, toolTotals, viewsByPc, type EngageData, type EngageFilters, type EngageRow, type ToolCount } from "@/lib/marketingKpis/engageCube";
+import { LOST, PROFIT_CENTRES, engageSeries, lostPath, engageTable, madeToOrderIn, minSec, pcLabel, productTable, searchTool, toolTotals, viewsByPc, type EngageData, type EngageFilters, type EngageRow, type ToolCount } from "@/lib/marketingKpis/engageCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import { KpiCard, LiveNote, MONTHS, NotConnected, StageGlyph, buildViews, nameOf, periodOf, stageKpis, stageTint, upToOf, useMarketingKpis, useSlow, type KpiView, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { FigureCards, Pager, PeriodPicker, Table, change, monthsLabel, n0, ratio, usePaged, withChange } from "./ExplorerKit";
 import { TileActions, type TileInfo } from "./tiles/TileActions";
+import { formatOf, useActions } from "./tiles/store";
 import { SavedViews } from "./tiles/SavedViews";
 import { kpiSummary } from "./tiles/summary";
 
@@ -255,6 +257,9 @@ export function EngageExplorer({ state }: { state: MkState | null }) {
 export function EngagePromoted({ spec }: { spec: TileSpec }) {
   const [state] = useMarketingKpis();
   const eng = useEngageData();
+  // at half the width a card draws its compact form - six rows a page, the key columns (as Lead's and Hand-over's)
+  const { state: acts } = useActions("nutshell");
+  const compact = formatOf(acts, { key: spec.key, kind: spec.kind }) === "half";
   const live = state?.live?.value;
   const d = eng.value;
   const actions = <TileActions where="nutshell" start="tab" tile={{ key: spec.key, page: spec.page, tab: spec.tab, kpiId: spec.kpiId, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind }} />;
@@ -268,13 +273,13 @@ export function EngagePromoted({ spec }: { spec: TileSpec }) {
   const card = spec.key.split(":")[2] ?? "";
   const tools = [...d.tools.slice(0, 3), ...(searchTool(d) ? [searchTool(d)!] : []), ...d.tools.slice(3)];
   switch (card) {
-    case "channels": return <EngagementCard d={d} year={year} months={months} w={w} by="channel" filters={filters} chosen={[]} actions={actions} />;
-    case "countries": return <EngagementCard d={d} year={year} months={months} w={w} by="country" filters={filters} chosen={[]} actions={actions} />;
-    case "profit-centres": return <PcCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} />;
-    case "top-articles": return <ProductsCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} />;
-    case "lost": return d.prices?.lost ? <LostCard p={d.prices} actions={actions} /> : null;
-    case "moq": return d.prices ? <MoqCard p={d.prices} actions={actions} /> : null;
-    case "shelf": return d.prices ? <ShelfCard p={d.prices} actions={actions} /> : null;
+    case "channels": return <EngagementCard d={d} year={year} months={months} w={w} by="channel" filters={filters} chosen={[]} actions={actions} compact={compact} />;
+    case "countries": return <EngagementCard d={d} year={year} months={months} w={w} by="country" filters={filters} chosen={[]} actions={actions} compact={compact} />;
+    case "profit-centres": return <PcCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} compact={compact} />;
+    case "top-articles": return <ProductsCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} compact={compact} />;
+    case "lost": return d.prices?.lost ? <LostCard p={d.prices} actions={actions} compact={compact} /> : null;
+    case "moq": return d.prices ? <MoqCard p={d.prices} actions={actions} compact={compact} /> : null;
+    case "shelf": return d.prices ? <ShelfCard p={d.prices} actions={actions} compact={compact} /> : null;
     case "tool-graphs": return <ToolGrid d={d} year={year} months={months} where="nutshell" actions={actions} />;
   }
   const tool = card.startsWith("tool-") ? tools.find((x) => x.key === card.slice(5)) : undefined;
@@ -309,23 +314,27 @@ function PriceDays({ d }: { d: EngageData }) {
  * for engagement by country"): each country's sessions, engaged and bounced, its engagement rate and time.
  * A page at a time; a row picks a filter on the page.
  */
-function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actions }: {
-  d: EngageData; year: number; months: number[]; w: string; by: "channel" | "country"; filters: EngageFilters; chosen: string[]; onPick?: (k: string) => void; actions?: React.ReactNode;
+function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actions, compact = false }: {
+  d: EngageData; year: number; months: number[]; w: string; by: "channel" | "country"; filters: EngageFilters; chosen: string[]; onPick?: (k: string) => void; actions?: React.ReactNode; compact?: boolean;
 }) {
   const rows = engageTable(d, year, months, by, filters);
   const other = by === "channel" ? filters.country ?? [] : filters.channel ?? [];
   const only = other.length ? ` · ${names(other, by === "channel" ? countryName : (x) => x)} only` : "";
   const rate = (r: EngageRow) => (r.sessions ? r.engaged / r.sessions : null), pyRate = (r: EngageRow) => (r.pySessions ? r.pyEngaged / r.pySessions : null);
   const time = (r: EngageRow) => (r.users ? r.seconds / r.users : null), pyTime = (r: EngageRow) => (r.pyUsers ? r.pySeconds / r.pyUsers : null);
-  const paged = usePaged(rows, PAGE);
+  const size = compact ? 6 : PAGE;
+  const paged = usePaged(rows, size);
   const max = Math.max(1, ...rows.map((r) => r.sessions));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={by === "channel" ? <AltRouteIcon /> : <PublicOutlinedIcon />} tint={by === "channel" ? "blue" : "green"}
         title={by === "channel" ? "Engagement by where the visit came from" : "Engagement by country"}
         note={`GA4, ${w} ${year} against ${w} ${year - 1}${only}${onPick ? " · click a row to filter by it" : ""}`} right={actions} />
-      {by === "channel" ? (
-        <Table firstWidth="minmax(320px, 2.6fr)" pageSize={PAGE}
+      {by === "channel" && compact ? (
+        <Table firstWidth="minmax(150px, 1.6fr)" pageSize={size} minWidth={0} head={["Channel", "Sessions", "Engagement rate"]}
+          rows={rows.map((r) => ({ key: r.key, cells: [r.label, withChange(n0(r.sessions), change(r.sessions, r.pySessions)), withChange(ratio(r.engaged, r.sessions), pts(rate(r), pyRate(r)))] }))} />
+      ) : by === "channel" ? (
+        <Table firstWidth="minmax(320px, 2.6fr)" pageSize={size}
           head={["Channel - what it is", "Sessions", "Engagement rate", "Bounce rate", "Engagement time per visitor"]}
           rows={rows.map((r) => ({
             key: r.key, on: chosen.includes(r.key), onPick: onPick ? () => onPick(r.key) : undefined,
@@ -342,10 +351,10 @@ function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actio
           }))} />
       ) : (
         <>
-          {legend([{ c: "Engaged sessions - 10 s or more, a second page or an order", color: SERIES[0] }, { c: "Bounced - left at once", color: DEEMPHASIS }])}
+          {legend(compact ? [{ c: "Engaged", color: SERIES[0] }, { c: "Bounced", color: DEEMPHASIS }] : [{ c: "Engaged sessions - 10 s or more, a second page or an order", color: SERIES[0] }, { c: "Bounced - left at once", color: DEEMPHASIS }])}
           <Box sx={{ overflowX: "auto" }}>
-            <Box sx={{ minWidth: 760, display: "grid", gridTemplateColumns: "minmax(150px, 1fr) minmax(180px, 2.4fr) 104px 112px 120px", columnGap: 1.25, alignItems: "center" }}>
-              {["Country", "", "Sessions", "Engagement rate", "Time per visitor"].map((h, i) => <Typography key={i} sx={{ ...head, textAlign: i >= 2 ? "right" : "left" }}>{h}</Typography>)}
+            <Box sx={{ minWidth: compact ? 0 : 760, display: "grid", gridTemplateColumns: compact ? "minmax(100px, 1fr) minmax(60px, 1.2fr) 92px 100px" : "minmax(150px, 1fr) minmax(180px, 2.4fr) 104px 112px 120px", columnGap: 1.25, alignItems: "center" }}>
+              {(compact ? ["Country", "", "Sessions", "Engaged"] : ["Country", "", "Sessions", "Engagement rate", "Time per visitor"]).map((h, i) => <Typography key={i} sx={{ ...head, textAlign: i >= 2 ? "right" : "left" }}>{h}</Typography>)}
               {paged.shown.map((r) => {
                 const on = chosen.includes(r.key), cell = { py: 0.8, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "transparent", minWidth: 0 };
                 const t = time(r), pt = pyTime(r);
@@ -355,8 +364,8 @@ function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actio
                     sx={{ display: "contents", cursor: onPick ? "pointer" : "default", "&:hover > *": onPick ? { bgcolor: on ? TINT.blue.bg : "#f7f9fc" } : {} }}>
                     <Box sx={{ ...cell, display: "flex", alignItems: "center", gap: 0.5 }}>
                       {on && <CheckIcon sx={{ fontSize: 16, color: TINT.blue.fg }} />}
-                      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{r.label}</Typography>
-                      {FOCUS2.includes(r.key) && <Box component="span" sx={{ fontSize: "0.64rem", fontWeight: 700, color: "#2459d1" }}>focus</Box>}
+                      <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{r.label}</Typography>
+                      {FOCUS2.includes(r.key) && !compact && <Box component="span" sx={{ fontSize: "0.64rem", fontWeight: 700, color: "#2459d1" }}>focus</Box>}
                     </Box>
                     <Box sx={{ ...cell, display: "flex", alignItems: "center", height: "100%" }}>
                       <Box role="img" aria-label={`${r.label}: ${n0(r.engaged)} engaged, ${n0(r.sessions - r.engaged)} bounced`} sx={{ display: "flex", height: 16, width: `${Math.max(1, (100 * r.sessions) / max)}%`, borderRadius: "4px", overflow: "hidden", gap: "2px" }}>
@@ -366,7 +375,7 @@ function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actio
                     </Box>
                     <Box sx={{ ...cell, textAlign: "right" }}>{withChange(n0(r.sessions), change(r.sessions, r.pySessions))}</Box>
                     <Box sx={{ ...cell, textAlign: "right" }}>{withChange(ratio(r.engaged, r.sessions), pts(rate(r), pyRate(r)))}</Box>
-                    <Box sx={{ ...cell, textAlign: "right" }}>{withChange(minSec(t), t != null && pt ? change(t, pt) : null)}</Box>
+                    {!compact && <Box sx={{ ...cell, textAlign: "right" }}>{withChange(minSec(t), t != null && pt ? change(t, pt) : null)}</Box>}
                   </Box>
                 );
               })}
@@ -376,7 +385,7 @@ function EngagementCard({ d, year, months, w, by, filters, chosen, onPick, actio
         </>
       )}
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        An engaged session lasts 10 seconds or more, sees two pages or ends in an order (GA4). Engagement time = the time the shop was in front, per visitor; visitors are counted per month and {by}.
+        {compact ? "Engaged: 10 seconds or more, a second page or an order (GA4)." : `An engaged session lasts 10 seconds or more, sees two pages or ends in an order (GA4). Engagement time = the time the shop was in front, per visitor; visitors are counted per month and ${by}.`}
       </Typography>
     </GlassCard>
   );
@@ -401,19 +410,19 @@ function ArticleCards({ d, year, months, w, tileFor }: { d: EngageData; year: nu
  * centre), the search results. An ARTICLE bought (10 digits) is tied to its product the same way.
  */
 const LIST = "#cfdcec";
-function PcCard({ d, year, months, w, pcs, onPick, actions }: { d: EngageData; year: number; months: number[]; w: string; pcs: string[]; onPick?: (k: string) => void; actions?: React.ReactNode }) {
+function PcCard({ d, year, months, w, pcs, onPick, actions, compact = false }: { d: EngageData; year: number; months: number[]; w: string; pcs: string[]; onPick?: (k: string) => void; actions?: React.ReactNode; compact?: boolean }) {
   const rows = viewsByPc(d, year, months);
   const max = Math.max(1, ...rows.map((r) => r.views));
   const made = madeToOrderIn(d, year, months);
   const total = rows.reduce((a, r) => a + r.views, 0), productViews = rows.reduce((a, r) => a + r.productViews, 0);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<Inventory2OutlinedIcon />} tint="purple" title="Article views by profit centre - bought or not"
         note={`GA4, ${w} ${year} against ${w} ${year - 1} · ${n0(total)} views, ${ratio(productViews, total)} of them on a product page${onPick ? " · click a profit centre to see its products below" : ""}`} right={actions} />
-      {legend([{ c: "A category list", color: LIST }, { c: "A product page - the product was bought online in those months", color: SERIES[0] }, { c: "A product page - not bought", color: SERIES[1] }])}
+      {legend(compact ? [{ c: "Category list", color: LIST }, { c: "Product page, bought", color: SERIES[0] }, { c: "Product page, not bought", color: SERIES[1] }] : [{ c: "A category list", color: LIST }, { c: "A product page - the product was bought online in those months", color: SERIES[0] }, { c: "A product page - not bought", color: SERIES[1] }])}
       <Box sx={{ overflowX: "auto" }}>
-        <Box sx={{ minWidth: 960, display: "grid", gridTemplateColumns: "minmax(190px, 1.2fr) minmax(140px, 1.6fr) 88px 66px 128px minmax(160px, 1fr) 112px", columnGap: 1.25, alignItems: "center" }}>
-          {["Profit centre", "", "Views", "", "Articles bought online", "Product pages - products, bought", "Product page views on a product bought"].map((h, i) => (
+        <Box sx={{ minWidth: compact ? 0 : 960, display: "grid", gridTemplateColumns: compact ? "minmax(110px, 1.2fr) minmax(50px, 1fr) 84px 92px 76px" : "minmax(190px, 1.2fr) minmax(140px, 1.6fr) 88px 66px 128px minmax(160px, 1fr) 112px", columnGap: 1.25, alignItems: "center" }}>
+          {(compact ? ["Profit centre", "", "Views", "Bought online", "Page bought"] : ["Profit centre", "", "Views", "", "Articles bought online", "Product pages - products, bought", "Product page views on a product bought"]).map((h, i) => (
             <Typography key={i} sx={{ ...head, display: "flex", alignItems: "flex-end", justifyContent: i >= 2 ? "flex-end" : "flex-start", height: "100%", textAlign: i >= 2 ? "right" : "left" }}>{h}</Typography>
           ))}
           {rows.map((r) => {
@@ -428,7 +437,7 @@ function PcCard({ d, year, months, w, pcs, onPick, actions }: { d: EngageData; y
                 sx={{ display: "contents", cursor: pick ? "pointer" : "default", "&:hover > *": pick ? { bgcolor: on ? TINT.blue.bg : "#f7f9fc" } : {} }}>
                 <Box sx={{ ...cell, display: "flex", alignItems: "center", gap: 0.5 }}>
                   {on && <CheckIcon sx={{ fontSize: 16, color: TINT.blue.fg }} />}
-                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: PROFIT_CENTRES[r.key] ? INK : MUTED }}>{r.label}</Typography>
+                  <Typography sx={{ fontSize: compact ? "0.8rem" : "0.86rem", fontWeight: 700, color: PROFIT_CENTRES[r.key] ? INK : MUTED, lineHeight: 1.25 }}>{compact ? (PROFIT_CENTRES[r.key] ? `${r.key} · ${PROFIT_CENTRES[r.key].split(" - ")[0]}` : r.key === "search" ? "Search results" : "Other pages") : r.label}</Typography>
                 </Box>
                 <Box sx={{ ...cell, display: "flex", alignItems: "center", height: "100%" }}>
                   <Box role="img" aria-label={`${r.label}: ${n0(list)} on a category list, ${n0(r.viewsBought)} on a product page bought, ${n0(notBought)} on a product page not bought`}
@@ -438,30 +447,34 @@ function PcCard({ d, year, months, w, pcs, onPick, actions }: { d: EngageData; y
                     {notBought > 0 && <Box title={`A product page, not bought: ${n0(notBought)} views`} sx={{ flex: `${notBought} 0 0`, bgcolor: SERIES[1] }} />}
                   </Box>
                 </Box>
-                <Typography sx={{ ...cell, fontSize: "0.86rem", fontWeight: 600, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n0(r.views)}</Typography>
-                <Typography sx={{ ...cell, fontSize: "0.76rem", fontWeight: 700, color: c?.color ?? FAINT, textAlign: "right" }}>{c?.text ?? ""}</Typography>
+                {compact ? <Box sx={{ ...cell, textAlign: "right" }}>{withChange(n0(r.views), c)}</Box> : <>
+                  <Typography sx={{ ...cell, fontSize: "0.86rem", fontWeight: 600, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n0(r.views)}</Typography>
+                  <Typography sx={{ ...cell, fontSize: "0.76rem", fontWeight: 700, color: c?.color ?? FAINT, textAlign: "right" }}>{c?.text ?? ""}</Typography>
+                </>}
                 <Box sx={{ ...cell, textAlign: "right" }}>{r.bought || r.pyBought ? withChange(n0(r.bought), change(r.bought, r.pyBought)) : "—"}</Box>
-                <Typography sx={{ ...cell, fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.products ? <>{n0(r.productViews)} views - {n0(r.products)} products, <b>{n0(r.productsBought)}</b> bought</> : "—"}</Typography>
-                <Box sx={{ ...cell, textAlign: "right" }}>{r.productViews ? withChange(ratio(r.viewsBought, r.productViews), pts(share, pyShare)) : "—"}</Box>
+                {!compact && <Typography sx={{ ...cell, fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.products ? <>{n0(r.productViews)} views - {n0(r.products)} products, <b>{n0(r.productsBought)}</b> bought</> : "—"}</Typography>}
+                <Box sx={{ ...cell, textAlign: "right" }}>{r.productViews ? (compact ? ratio(r.viewsBought, r.productViews) : withChange(ratio(r.viewsBought, r.productViews), pts(share, pyShare))) : "—"}</Box>
               </Box>
             );
           })}
         </Box>
       </Box>
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+      {compact ? (
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>A view = a page showing articles (GA4). Bought online = the profit centre&apos;s articles in an online order. Page bought = product page views on a product that sold.{made > 0 ? ` Made to order apart: ${n0(made)} articles.` : ""}</Typography>
+      ) : <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
         A view = a page that shows articles (GA4 view_item, visitors who accepted cookies): a category list, a product page or the search results - the rows add up to the Article views. Articles bought online = the profit centre&apos;s articles in an online order (GA4 purchase), each once a month. A product page is bought when one of its articles was in an online order in the same months.
         {made > 0 && <> Made to order is apart: <b style={{ color: INK }}>{n0(made)}</b> articles made to order (8001…, cut pieces and special O-rings) were bought online - they belong to no product page, so a plate or rod mostly sold cut to size shows as not bought.</>}
-      </Typography>
+      </Typography>}
     </GlassCard>
   );
 }
 
 /** The products viewed most (their product pages): profit centre, views, bought online or not - a page at a time. */
-function ProductsCard({ d, year, months, w, pcs, onClear, actions }: { d: EngageData; year: number; months: number[]; w: string; pcs: string[]; onClear?: () => void; actions?: React.ReactNode }) {
+function ProductsCard({ d, year, months, w, pcs, onClear, actions, compact = false }: { d: EngageData; year: number; months: number[]; w: string; pcs: string[]; onClear?: () => void; actions?: React.ReactNode; compact?: boolean }) {
   const [sold, setSold] = useState<"all" | "bought" | "not">("all");
   const products = productTable(d, year, months, { pc: pcs.map((k) => (k === "other" ? null : k)), bought: sold === "all" ? undefined : sold === "bought" });
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<Inventory2OutlinedIcon />} tint="purple" title="The most viewed products"
         note={`GA4, product pages only, ${w} ${year}${pcs.length ? ` · ${pcs.map((x) => (x === "other" ? "not in Products & Pricing" : pcLabel(x))).join(", ")} only` : " · every profit centre"} · ${n0(products.length)} products`} right={actions} />
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
@@ -471,7 +484,20 @@ function ProductsCard({ d, year, months, w, pcs, onClear, actions }: { d: Engage
         ))}
         {pcs.length > 0 && onClear && <Button size="small" onClick={onClear} sx={{ textTransform: "none", fontWeight: 600 }}>Every profit centre</Button>}
       </Box>
-      <Table key={`${sold}-${pcs.join(",")}`} firstWidth="minmax(300px, 3fr)" head={["Product", "Profit centre", "Views", "Bought online"]} widths={["minmax(150px, 1fr)", "minmax(120px, 0.8fr)", "minmax(130px, 0.9fr)"]} pageSize={PAGE}
+      {compact ? (
+        <Table key={`c-${sold}`} firstWidth="minmax(160px, 2.4fr)" head={["Product", "Views", "Bought online"]} widths={["minmax(84px, 0.8fr)", "minmax(96px, 0.9fr)"]} pageSize={6} minWidth={0}
+          rows={products.map((r) => ({
+            key: r.id,
+            cells: [
+              <Box key="p" sx={{ display: "grid", gap: 0.1, minWidth: 0 }}>
+                <Box component="span" title={r.name} sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.id}</Box>
+                <Box component="span" sx={{ fontSize: "0.72rem", fontWeight: 400, color: MUTED }}>{r.id}{r.pc ? ` · ${r.pc}` : ""}</Box>
+              </Box>,
+              withChange(n0(r.views), change(r.views, r.pyViews)),
+              r.bought ? `${n0(r.bought)} article${r.bought === 1 ? "" : "s"}` : <Box key="b" component="span" sx={{ color: RED, fontWeight: 700 }}>Not bought</Box>,
+            ],
+          }))} />
+      ) : <Table key={`${sold}-${pcs.join(",")}`} firstWidth="minmax(300px, 3fr)" head={["Product", "Profit centre", "Views", "Bought online"]} widths={["minmax(150px, 1fr)", "minmax(120px, 0.8fr)", "minmax(130px, 0.9fr)"]} pageSize={PAGE}
         rows={products.map((r) => ({
           key: r.id,
           cells: [
@@ -484,17 +510,17 @@ function ProductsCard({ d, year, months, w, pcs, onClear, actions }: { d: Engage
             r.bought ? <Box key="b" component="span">{n0(r.bought)} article{r.bought === 1 ? "" : "s"}</Box>
               : <Box key="b" component="span" sx={{ color: RED, fontWeight: 700 }}>Not bought</Box>,
           ],
-        }))} />
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Bought online counts each article of the product that was in an online order, once a month. Not bought: viewed, and none of its articles ordered online in those months - the first place to look for a price, a size or a stock that is missing.</Typography>
+        }))} />}
+      {!compact && <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Bought online counts each article of the product that was in an online order, once a month. Not bought: viewed, and none of its articles ordered online in those months - the first place to look for a price, a size or a stock that is missing.</Typography>}
     </GlassCard>
   );
 }
 
 /** A small graph of bars: [label, figure, the part of it that went further] - the part darker. */
-function MiniBars({ bars, unit, unit2 }: { bars: { x: string; a: number | null; b?: number | null }[]; unit: string; unit2?: string | null }) {
+function MiniBars({ bars, unit, unit2, fill = false }: { bars: { x: string; a: number | null; b?: number | null }[]; unit: string; unit2?: string | null; fill?: boolean }) {
   const max = Math.max(1, ...bars.map((r) => r.a ?? 0));
   return (
-    <Box role="img" aria-label={`${unit} - ${bars.map((r) => `${r.x} ${n0(r.a)}`).join(", ")}`} sx={{ display: "flex", alignItems: "flex-end", gap: bars.length > 31 ? "1px" : "3px", height: 64, borderBottom: `1px solid ${HAIRLINE}` }}>
+    <Box role="img" aria-label={`${unit} - ${bars.map((r) => `${r.x} ${n0(r.a)}`).join(", ")}`} sx={{ display: "flex", alignItems: "flex-end", gap: bars.length > 31 ? "1px" : "3px", height: fill ? "100%" : 64, minHeight: 64, flex: fill ? "1 1 auto" : "0 0 auto", borderBottom: `1px solid ${HAIRLINE}` }}>
       {bars.map((r) => (
         <Box key={r.x} title={`${r.x}: ${n0(r.a)} ${unit.toLowerCase()}${unit2 && r.b != null ? `, ${n0(r.b)} ${unit2.toLowerCase()}` : ""}`}
           sx={{ flex: "1 1 0", minWidth: 0, height: `${Math.max(r.a ? 4 : 0, (100 * (r.a ?? 0)) / max)}%`, bgcolor: "#cfdcec", borderRadius: "2px 2px 0 0", display: "flex", alignItems: "flex-end" }}>
@@ -513,7 +539,7 @@ function ToolGrid({ d, year, months, where, actions }: { d: EngageData; year: nu
   const search = searchTool(d);
   const tools = [...d.tools.slice(0, 3), ...(search ? [search] : []), ...d.tools.slice(3)];
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<BuildOutlinedIcon />} tint="blue" title="Each tool - its own count"
         note="What each tool counts itself, every visitor (no cookie needed) - from the day it started counting · each one can go to In a nutshell on its own" right={actions} />
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fill, minmax(300px, 1fr))" } }}>
@@ -536,8 +562,11 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
       days.push({ x: dayLabel(k), a: v?.[0] ?? 0, b: v?.[1] ?? 0 });
     }
   }
-  const shown = days.slice(-62);
-  const sum = (k: "a" | "b") => t.days.reduce((s, r) => s + (k === "a" ? r[1] : r[2]), 0);
+  // a read with no days (the search bar's, before 19.10.2026) shows its months
+  const monthly = !t.days.length && !!t.months?.length;
+  const shown = monthly ? t.months!.map(([m, a, b]) => ({ x: `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`, a, b })) : days.slice(-62);
+  const counted = monthly ? t.months! : t.days;
+  const sum = (k: "a" | "b") => counted.reduce((s, r) => s + (k === "a" ? r[1] : r[2]), 0);
   const ga4Sum = ga4 ? months.reduce((s, i) => s + (ga4[i]?.a ?? 0), 0) : 0;
   const stacked = t.key === "directcut" || t.key === "directup" || t.key === "search";
   // what GA4 sees of the shop's own DirectUP upload form (SARCLA 19.10: the GA4 table was not understood - its figures go here)
@@ -545,7 +574,7 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
   const sample = t.key === "search" ? d.search?.sample : null;
   const status = t.error ? { text: "Could not be read", color: RED, bg: "#fdecec" } : t.onShop || ga4 ? { text: "On the shop", color: GREEN, bg: TINT.green.bg } : { text: "Not on the shop yet", color: MUTED, bg: "rgba(21,34,58,.06)" };
   return (
-    <Box sx={{ ...(plain ? {} : { border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, bgcolor: "#fff" }), position: "relative", display: "grid", gap: 0.75, alignContent: "start", minWidth: 0 }}>
+    <Box sx={{ ...(plain ? { height: "100%" } : { border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, bgcolor: "#fff" }), position: "relative", display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, pr: actions ? 2.5 : 0 }}>
         <Typography sx={{ flex: 1, fontSize: plain ? "1rem" : "0.92rem", fontWeight: 700, color: INK }}>{t.name}</Typography>
         <Box component="span" sx={{ fontSize: "0.68rem", fontWeight: 700, color: status.color, bgcolor: status.bg, px: 0.9, py: 0.2, borderRadius: 99, whiteSpace: "nowrap" }}>{status.text}</Box>
@@ -556,7 +585,7 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
       {ga4 ? (
         <>
           <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{n0(ga4Sum)} <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>rings put in the cart, {monthsLabel({ start: months[0] ?? 0, end: months[months.length - 1] ?? 0 })}</Box></Typography>
-          <MiniBars bars={ga4.slice(0, Math.max(1, new Date().getMonth() + 1))} unit="Put in the cart" />
+          <MiniBars bars={ga4.slice(0, Math.max(1, new Date().getMonth() + 1))} unit="Put in the cart" fill={plain} />
           <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>GA4 (visitors who accepted cookies) - the O-Ring Expert the shop has today. Its new version counts itself: {n0(sum("a"))} opens since {t.since ? dayLabel(t.since) : "—"}, not framed by the shop yet.</Typography>
         </>
       ) : t.error ? (
@@ -566,7 +595,7 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
           <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
             {n0(sum("a"))} <Box component="span" sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>{t.unit.toLowerCase()}{t.unit2 ? ` · ${n0(sum("b"))} ${t.unit2.toLowerCase()}` : ""}, since {t.since ? dayLabel(t.since) : "—"}</Box>
           </Typography>
-          {shown.length > 0 ? <MiniBars bars={shown.map((r) => ({ x: r.x, a: r.a, b: stacked ? r.b : null }))} unit={t.unit} unit2={t.unit2} /> : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Nothing counted yet.</Typography>}
+          {shown.length > 0 ? <MiniBars bars={shown.map((r) => ({ x: r.x, a: r.a, b: stacked ? r.b : null }))} unit={t.unit} unit2={t.unit2} fill={plain} /> : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Nothing counted yet.</Typography>}
           {legend([{ c: t.unit, color: "#cfdcec" }, ...(stacked && t.unit2 ? [{ c: t.unit2, color: SERIES[0] }] : [])])}
           {sample && sum("a") > 0 && (
             <Typography sx={{ fontSize: "0.74rem", color: INK }}>
@@ -578,7 +607,7 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
               The shop&apos;s upload form (GA4, cookies accepted), {monthsLabel({ start: months[0] ?? 0, end: months[months.length - 1] ?? 0 })}: {form.map((x, i) => <span key={x.event}>{i ? " · " : ""}<b>{n0(x.count)}</b> {x.event === "directup_form_submit_manualupload" ? "files uploaded" : "requests sent"} {(() => { const c = change(x.count, x.pyCount); return c ? <Box component="span" sx={{ color: c.color, fontWeight: 700 }}>{c.text}</Box> : null; })()}</span>)}
             </Typography>
           )}
-          <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{t.source}{shown.length < days.length ? ` · the last ${shown.length} days` : " · each day"}{!t.onShop ? " · only tests and direct links so far" : ""}</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{t.source}{monthly ? " · each month" : shown.length < days.length ? ` · the last ${shown.length} days` : " · each day"}{!t.onShop ? " · only tests and direct links so far" : ""}</Typography>
         </>
       )}
     </Box>
@@ -591,22 +620,25 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
  * those that ended in an order, and the others by the first reason that applies (datatracker/rules.lostReason).
  */
 const LOST_COLOUR: Record<string, string> = { won: GREEN, shelf: SERIES[1], moq: SERIES[3], cart: "#8e5bd0", price: SERIES[0], looked: DEEMPHASIS };
-function LostCard({ p, actions }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode }) {
+function LostCard({ p, actions, compact = false }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode; compact?: boolean }) {
   const l = p.lost!;
   const all = l.total + l.ordered;
   const parts = [{ key: "won", label: "Ordered", what: "The article was ordered", n: l.ordered, companies: l.orderedCompanies }, ...LOST.map((x) => ({ ...x, n: l.looks[x.key], companies: l.companies[x.key] }))];
+  const path = lostPath(l);
+  const name = new Map(path.nodes.map((x) => [x.id, x.label]));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<CallSplitIcon />} tint="pink" title="Where we lost them"
         note={`Logged-in customers since ${dayLabel(p.since)}: ${n0(all)} articles looked at (one customer, one article, one day) - ${n0(l.ordered)} ordered, ${n0(l.total)} not, and why`} right={actions} />
-      <Box role="img" aria-label={parts.map((x) => `${x.label} ${n0(x.n)}`).join(", ")} sx={{ display: "flex", height: 26, borderRadius: "8px", overflow: "hidden", gap: "2px" }}>
-        {parts.filter((x) => x.n > 0).map((x) => (
-          <Box key={x.key} title={`${x.label}: ${n0(x.n)} (${ratio(x.n, all)})`} sx={{ flex: `${x.n} 0 0`, bgcolor: LOST_COLOUR[x.key], color: "#fff", fontSize: "0.72rem", fontWeight: 700, display: "flex", alignItems: "center", px: 0.75, overflow: "hidden", whiteSpace: "nowrap" }}>
-            {x.n / all > 0.09 ? `${x.label} ${ratio(x.n, all)}` : ""}
+      <ChartFrame title="The path - step by step, and where each one stopped" table={{ columns: ["From", "To", "Articles"], rows: path.links.map((x) => [name.get(x.from) ?? x.from, name.get(x.to) ?? x.to, x.value]), numeric: [2] }}>
+        <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
+          <Box sx={{ minWidth: compact ? 560 : 820 }}>
+            <Sankey height={compact ? 300 : 360} columns={path.columns} label="Where we lost them - the path" links={path.links} format={(n) => n0(n)}
+              nodes={path.nodes.map((x) => ({ id: x.id, column: x.column, label: x.label, color: x.lost ? LOST_COLOUR[x.lost] : SERIES[0] }))} />
           </Box>
-        ))}
-      </Box>
-      <Box sx={{ overflowX: "auto" }}>
+        </Box>
+      </ChartFrame>
+      {!compact && <Box sx={{ overflowX: "auto" }}>
         <Box sx={{ minWidth: 640, display: "grid", gridTemplateColumns: "minmax(260px, 2.4fr) minmax(120px, 1fr) 90px 70px 100px", columnGap: 1.25, alignItems: "center" }}>
           {["", "", "Articles", "Share", "Companies"].map((h, i) => <Typography key={i} sx={{ ...head, textAlign: i >= 2 ? "right" : "left" }}>{h}</Typography>)}
           {parts.map((x) => {
@@ -630,31 +662,31 @@ function LostCard({ p, actions }: { p: NonNullable<EngageData["prices"]>; action
             );
           })}
         </Box>
-      </Box>
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The live shop tracker on each logged-in company (every look, cookies or not); a look not ordered counts once, under the first reason that applies, in this order. A company can be under several reasons. The price checks, the minimum quantities and the shelf come next, each with its days and its looks.</Typography>
+      </Box>}
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The live shop tracker on each logged-in company (every look, cookies or not). A look not ordered stops at one step only - the first that applies, in the order above; an article ordered passes every step. A company can stop at several. The price checks, the minimum quantities and the shelf come next, each with its days and its looks.</Typography>
     </GlassCard>
   );
 }
 
 /** Did not buy - the minimum order quantity: asked for fewer than we sell, each day, then each look. */
-function MoqCard({ p, actions }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode }) {
+function MoqCard({ p, actions, compact = false }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode; compact?: boolean }) {
   const m = p.moq;
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<Inventory2OutlinedIcon />} tint="purple" title="Did not buy - the minimum order quantity"
         note={`Logged-in customers who asked for fewer than the article's minimum and did not order it, since ${dayLabel(p.since)} · ${n0(m.total)} times`} right={actions} />
       {m.byDay.length ? (
         <ChartFrame title="Each day - the articles asked below their minimum" table={{ columns: ["Day", "Articles", "Companies"], rows: m.byDay.map(([day, n, c]) => [dayLabel(day), n, c]), numeric: [1, 2] }}>
-          <StackedColumns height={170} format={(x) => n0(x)} parts={[{ key: "n", label: "Articles asked below the minimum" }]} data={m.byDay.map(([day, n]) => ({ x: dayLabel(day), n }))} />
+          <StackedColumns height={compact ? 130 : 170} format={(x) => n0(x)} parts={[{ key: "n", label: "Articles asked below the minimum" }]} data={m.byDay.map(([day, n]) => ({ x: dayLabel(day), n }))} />
         </ChartFrame>
       ) : <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>Nobody asked below a minimum yet.</Typography>}
       {m.rows.length > 0 && (
-        <Table firstWidth="minmax(80px, 0.5fr)" head={["Day", "Company", "Article", "Asked", "Minimum"]} widths={["minmax(180px, 1.4fr)", "minmax(240px, 2fr)", "minmax(80px, 0.6fr)", "minmax(90px, 0.6fr)"]} minWidth={760} left={[1, 2]} pageSize={PAGE}
+        <Table firstWidth={compact ? "64px" : "minmax(80px, 0.5fr)"} head={["Day", "Company", "Article", "Asked", "Minimum"]} widths={compact ? ["minmax(90px, 1.2fr)", "minmax(96px, 1fr)", "minmax(64px, 0.6fr)", "minmax(64px, 0.6fr)"] : ["minmax(180px, 1.4fr)", "minmax(240px, 2fr)", "minmax(80px, 0.6fr)", "minmax(90px, 0.6fr)"]} minWidth={compact ? 0 : 760} left={[1, 2]} pageSize={compact ? 6 : PAGE}
           rows={m.rows.map((r, i) => ({
             key: `${r.companyId}-${r.article}-${r.day}-${i}`,
-            cells: [dayLabel(r.day),
+            cells: [<Box key="d" component="span" sx={{ whiteSpace: "nowrap" }}>{dayLabel(r.day)}</Box>,
               <Box key="c" component="a" href={HS_COMPANY(r.companyId)} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>{r.company}</Box>,
-              <Box key="a" sx={{ display: "grid", gap: 0.1, minWidth: 0, width: "100%" }}><Box component="span" sx={{ fontWeight: 600 }}>{r.article}{r.pc ? ` · ${r.pc}` : ""}</Box><Box component="span" title={r.description ?? ""} sx={{ fontSize: "0.74rem", fontWeight: 400, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description ?? "—"}</Box></Box>,
+              <Box key="a" title={r.description ?? ""} sx={{ display: "grid", gap: 0.1, minWidth: 0, width: "100%" }}><Box component="span" sx={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.article}{r.pc ? ` · ${r.pc}` : ""}</Box>{!compact && <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 400, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description ?? "—"}</Box>}</Box>,
               `${n0(r.qty)}${r.unit ? ` ${r.unit}` : ""}`, <Box key="m" component="span" sx={{ color: RED, fontWeight: 700 }}>{n0(r.minimum)}</Box>],
           }))} />
       )}
@@ -664,25 +696,25 @@ function MoqCard({ p, actions }: { p: NonNullable<EngageData["prices"]>; actions
 }
 
 /** Did not buy - availability: nothing on the shelf, or not as much as they asked for, each day, then each look. */
-function ShelfCard({ p, actions }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode }) {
+function ShelfCard({ p, actions, compact = false }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode; compact?: boolean }) {
   const s = p.shelf;
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<Inventory2OutlinedIcon />} tint="pink" title="Did not buy - availability"
         note={`Logged-in customers who looked at an article we did not have (or not enough of) and did not order it, since ${dayLabel(p.since)} · ${n0(s.total)} times`} right={actions} />
       {s.byDay.length ? (
         <ChartFrame title="Each day - nothing on the shelf, or not enough" table={{ columns: ["Day", "Nothing on the shelf", "Not enough"], rows: s.byDay.map(([day, a, b]) => [dayLabel(day), a, b]), numeric: [1, 2] }}>
-          <StackedColumns height={170} format={(x) => n0(x)} parts={[{ key: "none", label: "Nothing on the shelf" }, { key: "short", label: "Not as much as they asked for" }]} data={s.byDay.map(([day, a, b]) => ({ x: dayLabel(day), none: a, short: b }))} />
+          <StackedColumns height={compact ? 130 : 170} format={(x) => n0(x)} parts={[{ key: "none", label: "Nothing on the shelf" }, { key: "short", label: "Not as much as they asked for" }]} data={s.byDay.map(([day, a, b]) => ({ x: dayLabel(day), none: a, short: b }))} />
         </ChartFrame>
       ) : <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No look at an empty shelf yet.</Typography>}
       {s.rows.length > 0 && (
-        <Table firstWidth="minmax(80px, 0.5fr)" head={["Day", "Company", "Article", "Asked", "In stock", "Short by"]} widths={["minmax(180px, 1.4fr)", "minmax(240px, 2fr)", "minmax(80px, 0.6fr)", "minmax(80px, 0.6fr)", "minmax(80px, 0.6fr)"]} minWidth={840} left={[1, 2]} pageSize={PAGE}
+        <Table firstWidth={compact ? "64px" : "minmax(80px, 0.5fr)"} head={compact ? ["Day", "Company", "Article", "Asked", "In stock"] : ["Day", "Company", "Article", "Asked", "In stock", "Short by"]} widths={compact ? ["minmax(90px, 1.2fr)", "minmax(96px, 1fr)", "minmax(64px, 0.6fr)", "minmax(56px, 0.5fr)"] : ["minmax(180px, 1.4fr)", "minmax(240px, 2fr)", "minmax(80px, 0.6fr)", "minmax(80px, 0.6fr)", "minmax(80px, 0.6fr)"]} minWidth={compact ? 0 : 840} left={[1, 2]} pageSize={compact ? 6 : PAGE}
           rows={s.rows.map((r, i) => ({
             key: `${r.companyId}-${r.article}-${r.day}-${i}`,
-            cells: [dayLabel(r.day),
+            cells: [<Box key="d" component="span" sx={{ whiteSpace: "nowrap" }}>{dayLabel(r.day)}</Box>,
               <Box key="c" component="a" href={HS_COMPANY(r.companyId)} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>{r.company}</Box>,
-              <Box key="a" sx={{ display: "grid", gap: 0.1, minWidth: 0, width: "100%" }}><Box component="span" sx={{ fontWeight: 600 }}>{r.article}{r.pc ? ` · ${r.pc}` : ""}</Box><Box component="span" title={r.description ?? ""} sx={{ fontSize: "0.74rem", fontWeight: 400, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description ?? "—"}</Box></Box>,
-              r.qty == null ? "—" : `${n0(r.qty)}${r.unit ? ` ${r.unit}` : ""}`, <Box key="s" component="span" sx={{ color: r.stock === 0 ? RED : INK, fontWeight: r.stock === 0 ? 700 : 500 }}>{n0(r.stock)}</Box>, r.short == null ? "—" : n0(r.short)],
+              <Box key="a" title={r.description ?? ""} sx={{ display: "grid", gap: 0.1, minWidth: 0, width: "100%" }}><Box component="span" sx={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.article}{r.pc ? ` · ${r.pc}` : ""}</Box>{!compact && <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 400, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description ?? "—"}</Box>}</Box>,
+              r.qty == null ? "—" : `${n0(r.qty)}${r.unit ? ` ${r.unit}` : ""}`, <Box key="s" component="span" sx={{ color: r.stock === 0 ? RED : INK, fontWeight: r.stock === 0 ? 700 : 500 }}>{n0(r.stock)}</Box>, ...(compact ? [] : [r.short == null ? "—" : n0(r.short)])],
           }))} />
       )}
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The shelf as Products &amp; Pricing has it today. An article with no stock figure is left out - unknown is not empty. The latest first; Datatracker › Availability has every look.</Typography>
