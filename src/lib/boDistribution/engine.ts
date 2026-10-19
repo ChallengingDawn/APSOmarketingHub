@@ -671,10 +671,24 @@ async function actBo(row: Row, settings: Settings): Promise<NonNullable<Row["wro
 
     // 2. the code steps the hub took over
     if (r.path.includes("ANYSEALS")) {
-      const a = await anysealsToFolder(call, hubspotToken() ?? "", row.ticketId).catch((e) => ({ ok: false, what: "Anyseals", error: (e as Error).message }));
-      await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: { hs_pipeline_stage: STAGE.resolved } }); // the workflow resolves whatever happened
-      await note(call, row.ticketId, `${a.ok ? "✅" : "⚠️"} ${a.what}${"error" in a && a.error ? ` (${a.error})` : ""}\nResolved.\n\n---\nAPSOhub (Back Office distribution - Anyseals stock file)`);
-      return finish(null, [a.what, "resolved"]);
+      const a = await anysealsToFolder(call, hubspotToken() ?? "", row.ticketId).catch((e) => ({ ok: false, what: "Anyseals stock file: the copy broke off", error: (e as Error).message }));
+      const err = "error" in a && a.error ? ` (${a.error})` : "";
+      if (a.ok) {
+        await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: { hs_pipeline_stage: STAGE.resolved } });
+        await note(call, row.ticketId, `✅ ${a.what}\nResolved.\n\n---\nAPSOhub (Back Office distribution - Anyseals stock file)`);
+        return finish(null, [a.what, "resolved"]);
+      }
+      // SARCLA 19.10.2026: a failed copy must not be silent (the workflow resolved the ticket whatever happened) - the
+      // ticket stays open in New, says what to do, and "waiting for an owner" gives it to a person within 15 minutes
+      console.warn(`[bo-distribution] Anyseals ticket ${row.ticketId}: ${a.what}${err}`);
+      await note(call, row.ticketId, [
+        "⚠️ ANYSEALS STOCK FILE NOT COPIED", "", `${a.what}${err}`, "",
+        "The Anyseals stock sync keeps using the last good file until this one is in the folder.", "", "Action Required:",
+        "- Download the CSV from this e-mail",
+        "- Upload it on APSOPricingHub > Anyseals Stock (or into the HubSpot File Manager folder 397778236611)",
+        "- Then close this ticket", "", "---", "APSOhub (Back Office distribution - Anyseals stock file)",
+      ].join("\n"));
+      return { ...finish(null, [a.what, "NOT resolved - left open for a person"]), ok: false, error: `Anyseals copy failed${err}` };
     }
     if (r.assigner === "75") {
       const s75 = await salesSplit(call, row.ticketId);
