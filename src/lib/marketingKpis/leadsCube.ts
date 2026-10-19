@@ -210,7 +210,7 @@ function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
     case "contact":
       // the UC2 task was replaced by the ticket and the outcome is the same - one way, not two
       // (SARCLA 19.10: "don't split them, just qualified or not qualified")
-      return r.via ? { id: "contact:sales", step, label: "Sent to sales for qualification", tone: "sales" }
+      return r.via ? { id: "contact:sales", step, label: "Sent for qualification", tone: "sales" }
         : { id: "contact:none", step, label: "No sales contact", tone: "none" };
     case "qualification":
       return r.q === 1 ? { id: "q:yes", step, label: "Qualified", tone: "good" } : r.q === 0 ? { id: "q:no", step, label: "Not qualified", tone: "bad" } : { id: "q:open", step, label: "Not qualified yet", tone: "none" };

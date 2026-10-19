@@ -243,7 +243,7 @@ function LeadTile({ tab, title, measure, d, f, pick, win, actions }: {
 }
 
 /** A long table a page at a time, with "1-10 of 54" and the way back and on under it. */
-function Paged<T>({ items, size = 10, children }: { items: T[]; size?: number; children: (rows: T[]) => React.ReactNode }) {
+export function Paged<T>({ items, size = 10, children }: { items: T[]; size?: number; children: (rows: T[]) => React.ReactNode }) {
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(items.length / size)), at = Math.min(page, pages - 1);
   return (
@@ -320,8 +320,9 @@ type Ctx = {
 
 function SplitCard({ d, f, win, actions }: Ctx) {
   return (
-    <FlowCard flow={flowOf(d, win, f, ["how", "contact", "qualification", "outcome"])} height={340} title="How the leads split" actions={actions}
-      note={`${monthsLabel(win)} ${d.year} · every new lead by how it came in, then step by step: was it sent to sales for qualification (a UC2 task until 1 October, a ticket since - the same step), did the owner qualify it, did it buy - after a sales contact, or on their own before it · hover a band for its count`} />
+    // the source first, then how it came in (SARCLA 19.10: "another stage before, to show what the shop registrations come from - direct, SEO, GEO…")
+    <FlowCard flow={flowOf(d, win, f, ["source", "how", "contact", "qualification", "outcome"])} height={420} title="How the leads split" actions={actions}
+      note={`${monthsLabel(win)} ${d.year} · every new lead by where it came from (the six biggest sources by name) and how it came in, then step by step: was it sent to sales for qualification (a UC2 task until 1 October, a ticket since - the same step), did the owner qualify it, did it buy - after a sales contact, or on their own before it · hover a band for its count`} />
   );
 }
 
@@ -820,7 +821,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
   );
 }
 
-function Pick({ on, label, note, onClick }: { on: boolean; label: string; note?: string; onClick: () => void }) {
+export function Pick({ on, label, note, onClick }: { on: boolean; label: string; note?: string; onClick: () => void }) {
   return (
     <Box component="button" type="button" onClick={onClick} aria-pressed={on}
       sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%", border: 0, bgcolor: on ? TINT.blue.bg : "transparent", font: "inherit", textAlign: "left", px: 1, py: 0.6, borderRadius: "10px", cursor: "pointer", "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.04)" } }}>

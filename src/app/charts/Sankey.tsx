@@ -105,24 +105,29 @@ export function Sankey({
     }
     for (const l of byOut) bands.push({ ...l, sy: sy.get(l.i)!, ty: ty.get(l.i)!, w: Math.max(1, l.value * k), color: placed.get(l.to)!.color });
     // labels: beside their node, pushed apart where small nodes sit close
-    const labels: { id: string; x: number; y: number; anchor: "start" | "end"; halo: boolean }[] = [];
+    const labels: { id: string; x: number; y: number; anchor: "start" | "end"; halo: boolean; two: boolean }[] = [];
+    // with many steps the columns sit close: a middle column's figures go under its name, so a long name
+    // does not run into the next column (SARCLA 19.10, the five-step lead diagram)
+    const narrow = n > 2 && colX(1) - colX(0) < 300;
     cols.forEach((c, ci) => {
       const last = ci === columns.length - 1;
       const left = wide ? ci === 0 : last;
+      const two = narrow && ci > 0 && !last;
+      const gap = two ? 2 * LINE : LINE;
       const ys: number[] = [];
       c.forEach((x, i) => {
         const p = placed.get(x.id)!;
         const want = p.y + p.h / 2;
-        ys.push(i ? Math.max(want, ys[i - 1] + LINE) : want);
+        ys.push(i ? Math.max(want, ys[i - 1] + gap) : want);
       });
-      const over = ys.length ? ys[ys.length - 1] - (height - 6) : 0;
+      const over = ys.length ? ys[ys.length - 1] - (height - (two ? 16 : 6)) : 0;
       if (over > 0) {
         ys[ys.length - 1] -= over;
-        for (let i = ys.length - 2; i >= 0; i--) ys[i] = Math.min(ys[i], ys[i + 1] - LINE);
+        for (let i = ys.length - 2; i >= 0; i--) ys[i] = Math.min(ys[i], ys[i + 1] - gap);
       }
       c.forEach((x, i) => {
         const p = placed.get(x.id)!;
-        labels.push({ id: x.id, x: left ? p.x - 7 : p.x + NODE_W + 7, y: ys[i], anchor: left ? "end" : "start", halo: !(wide && (ci === 0 || last)) });
+        labels.push({ id: x.id, x: left ? p.x - 7 : p.x + NODE_W + 7, y: ys[i], anchor: left ? "end" : "start", halo: !(wide && (ci === 0 || last)), two });
       });
     });
     return { placed, bands, labels, colX, total: Math.max(0, ...cols.map((c) => c.reduce((a, x) => a + valueOf(x.id), 0))) };
@@ -180,10 +185,12 @@ export function Sankey({
           {layout.labels.map((l) => {
             const p = layout.placed.get(l.id)!;
             return (
-              <text key={l.id} x={l.x} y={l.y} dy="0.35em" textAnchor={l.anchor} pointerEvents="none"
+              <text key={l.id} x={l.x} y={l.two ? l.y - 7 : l.y} dy="0.35em" textAnchor={l.anchor} pointerEvents="none"
                 style={{ fontSize: 12, paintOrder: "stroke", stroke: l.halo ? CHROME.surface : "none", strokeWidth: 4, strokeLinejoin: "round", opacity: nodeLit(l.id) ? 1 : 0.4 }}>
                 <tspan style={{ fill: CHROME.ink, fontWeight: 600 }}>{p.label}</tspan>
-                <tspan dx={6} style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, layout.total)}</tspan>
+                {l.two
+                  ? <tspan x={l.x} dy="1.25em" style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, layout.total)}</tspan>
+                  : <tspan dx={6} style={{ fill: CHROME.muted, fontVariantNumeric: "tabular-nums" }}>{format(p.value)} · {share(p.value, layout.total)}</tspan>}
               </text>
             );
           })}
