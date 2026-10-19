@@ -66,6 +66,8 @@ type Sized = { key: string; kind?: "kpi" | "card"; kpiId?: string };
  */
 export function formatsFor(t: Sized): TileFormat[] {
   if (/:tile:/.test(t.key)) return ["tile", "half"];
+  // an Engagements tool is a small tile in the nutshell (SARCLA 19.10: "they should be small, the services")
+  if (/^engage:tools:tool-/.test(t.key)) return ["tile"];
   if ((t.kind ?? (t.kpiId ? "kpi" : "card")) === "kpi" && t.kpiId) return ["tile", "half", "card"];
   return ["half", "card"];
 }

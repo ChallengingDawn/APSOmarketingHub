@@ -134,38 +134,41 @@ export type ToolCount = {
 
 /** Where a look that ended in no order was lost, in plain words - the order the diagram reads. */
 export const LOST: { key: LostReason; label: string; what: string }[] = [
-  { key: "shelf", label: "Availability", what: "Nothing on the shelf, or less than they asked for" },
-  { key: "moq", label: "Minimum order quantity", what: "They asked for fewer than we sell" },
+  { key: "shelf", label: "Availability", what: "Not in stock, or less in stock than they asked for" },
+  { key: "moq", label: "MOQ - minimum order quantity", what: "They asked for fewer than we sell" },
   { key: "cart", label: "Left in the cart", what: "Put in the cart, never ordered" },
-  { key: "price", label: "The price", what: "They typed a quantity, saw the price, and left" },
+  { key: "price", label: "Price", what: "They typed a quantity, saw the price, and left" },
   { key: "looked", label: "Only looked", what: "Opened the article, no quantity typed" },
 ];
 
 /**
- * Where we lost them as a path (SARCLA 19.10: "a diagram like the other one, to see the path"): every
- * article looked at, step by step as the shop goes - on the shelf, a quantity typed, into the cart, ordered -
- * and at each step the ones that went no further. It follows rules.lostReason's order, so each look
- * leaves at one step only; an article ordered passes every step.
+ * Where we lost them as a path (SARCLA 19.10: "a diagram like the other one, to see the path"; "call it
+ * stock, in stock, split by availability / MOQ / price"): every article looked at, step by step as the shop
+ * goes - in stock, a quantity typed, at least the minimum, into the cart, ordered - and at each step the
+ * one reason that stops there, so no two reasons share a column. It follows rules.lostReason, so each look
+ * leaves at one step only and every column adds up; an article ordered passes every step.
  */
 export function lostPath(l: { looks: Record<LostReason, number>; ordered: number }): { columns: string[]; nodes: { id: string; column: number; label: string; lost: LostReason | "won" | null }[]; links: { from: string; to: string; value: number }[] } {
   const lost = l.looks;
   const all = l.ordered + Object.values(lost).reduce((a, n) => a + n, 0);
-  const onShelf = all - lost.shelf, further = onShelf - lost.looked, cart = further - lost.moq - lost.price;
+  const inStock = all - lost.shelf, typed = inStock - lost.looked, minimum = typed - lost.moq, cart = minimum - lost.price;
   const links = [
-    { from: "all", to: "shelf-ok", value: onShelf }, { from: "all", to: "shelf", value: lost.shelf },
-    { from: "shelf-ok", to: "typed", value: further }, { from: "shelf-ok", to: "looked", value: lost.looked },
-    { from: "typed", to: "cart-in", value: cart }, { from: "typed", to: "moq", value: lost.moq }, { from: "typed", to: "price", value: lost.price },
+    { from: "all", to: "stock", value: inStock }, { from: "all", to: "shelf", value: lost.shelf },
+    { from: "stock", to: "typed", value: typed }, { from: "stock", to: "looked", value: lost.looked },
+    { from: "typed", to: "minimum", value: minimum }, { from: "typed", to: "moq", value: lost.moq },
+    { from: "minimum", to: "cart-in", value: cart }, { from: "minimum", to: "price", value: lost.price },
     { from: "cart-in", to: "won", value: l.ordered }, { from: "cart-in", to: "cart", value: lost.cart },
   ].filter((x) => x.value > 0);
   const nodes = [
-    { id: "all", column: 0, label: "Articles looked at", lost: null },
-    { id: "shelf-ok", column: 1, label: "On the shelf", lost: null }, { id: "shelf", column: 1, label: "Not, or not enough, on the shelf", lost: "shelf" },
-    { id: "typed", column: 2, label: "A quantity typed", lost: null }, { id: "looked", column: 2, label: "Only looked", lost: "looked" },
-    { id: "cart-in", column: 3, label: "Into the cart", lost: null }, { id: "moq", column: 3, label: "Below the minimum quantity", lost: "moq" }, { id: "price", column: 3, label: "Saw the price and left", lost: "price" },
-    { id: "won", column: 4, label: "Ordered", lost: "won" }, { id: "cart", column: 4, label: "Left in the cart", lost: "cart" },
+    { id: "all", column: 0, label: "Looked at", lost: null },
+    { id: "stock", column: 1, label: "In stock", lost: null }, { id: "shelf", column: 1, label: "Availability", lost: "shelf" },
+    { id: "typed", column: 2, label: "Quantity typed", lost: null }, { id: "looked", column: 2, label: "Only looked", lost: "looked" },
+    { id: "minimum", column: 3, label: "Minimum met", lost: null }, { id: "moq", column: 3, label: "MOQ", lost: "moq" },
+    { id: "cart-in", column: 4, label: "In the cart", lost: null }, { id: "price", column: 4, label: "Price", lost: "price" },
+    { id: "won", column: 5, label: "Ordered", lost: "won" }, { id: "cart", column: 5, label: "Left in the cart", lost: "cart" },
   ] as const;
   const used = new Set(links.flatMap((x) => [x.from, x.to]));
-  return { columns: ["Looked at", "On the shelf?", "A quantity typed?", "Into the cart?", "Ordered?"], nodes: nodes.filter((n) => used.has(n.id)).map((n) => ({ ...n })), links };
+  return { columns: ["Looked at", "In stock?", "Quantity?", "Minimum?", "Cart?", "Ordered?"], nodes: nodes.filter((n) => used.has(n.id)).map((n) => ({ ...n })), links };
 }
 
 /** The search bar as one of the tools (SARCLA 19.10: "merge as a tool, only the number"): its searches each day, those that found something. */

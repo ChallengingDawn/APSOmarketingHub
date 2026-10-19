@@ -145,6 +145,9 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
     if (full) { rows.push(row(spec.key, full, fmt)); continue; }
     if (v) { tiles.push({ key: spec.key, node: <KpiTileChart v={v} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={tile} />} /> }); continue; }
     const draw = rendererOf(spec.page);
+    // a page's small graph asked for as a tile joins the panel's tiles - its renderer draws the tile
+    // (SARCLA 19.10: Engagements' tools "should be small" in the nutshell)
+    if (fmt === "tile" && draw) { tiles.push({ key: spec.key, node: draw(spec) }); continue; }
     rows.push(row(spec.key,
       spec.page === "reach" ? <ReachPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />
         : spec.page === "customers" ? <CustomersPromoted spec={spec} actions={<TileActions where="nutshell" start="tab" edge={2} tile={tile} />} />

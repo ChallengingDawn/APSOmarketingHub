@@ -27,7 +27,7 @@ import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 
-import { CardTitle, FAINT, GlassCard, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { Badge, CardTitle, FAINT, GlassCard, GREEN, HAIRLINE, INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
@@ -201,6 +201,7 @@ export function EngageExplorer({ state }: { state: MkState | null }) {
 
       {/* did not buy opens with where we lost them - the price, the minimum and the shelf come after it */}
       {d && tab === "prices" && d.prices?.lost && <LostCard p={d.prices} actions={tileFor("lost", "Where we lost them")} />}
+      {d && tab === "prices" && d.prices?.lost && <LostReasonsCard p={d.prices} actions={tileFor("lost-reasons", "Why they did not buy - each reason")} />}
 
       {kpis.length > 0 && <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fit, minmax(380px, 1fr))" } }}>{kpis}</Box>}
 
@@ -278,11 +279,15 @@ export function EngagePromoted({ spec }: { spec: TileSpec }) {
     case "profit-centres": return <PcCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} compact={compact} />;
     case "top-articles": return <ProductsCard d={d} year={year} months={months} w={w} pcs={[]} actions={actions} compact={compact} />;
     case "lost": return d.prices?.lost ? <LostCard p={d.prices} actions={actions} compact={compact} /> : null;
+    case "lost-reasons": return d.prices?.lost ? <LostReasonsCard p={d.prices} actions={actions} compact={compact} /> : null;
     case "moq": return d.prices ? <MoqCard p={d.prices} actions={actions} compact={compact} /> : null;
     case "shelf": return d.prices ? <ShelfCard p={d.prices} actions={actions} compact={compact} /> : null;
     case "tool-graphs": return <ToolGrid d={d} year={year} months={months} where="nutshell" actions={actions} />;
   }
   const tool = card.startsWith("tool-") ? tools.find((x) => x.key === card.slice(5)) : undefined;
+  if (tool && formatOf(acts, { key: spec.key, kind: spec.kind }) === "tile") {
+    return <ToolTile t={tool} d={d} year={year} months={months} actions={<TileActions where="nutshell" start="tab" edge={2.25} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, href: spec.href, kind: spec.kind }} />} />;
+  }
   if (tool) {
     return (
       <Box sx={{ position: "relative", minWidth: 0, height: "100%", "& > :first-of-type": { height: "100%" } }}>
@@ -615,6 +620,54 @@ function ToolCard({ t, d, year, months, actions, plain = false }: { t: ToolCount
 }
 
 /**
+ * A tool in the nutshell's row of small tiles, drawn as a KPI's tile is (SARCLA 19.10: "the nutshell graphs
+ * should be small, on the services"): its name, its figure, the second one, its days in small bars.
+ */
+function ToolTile({ t, d, year, months, actions }: { t: ToolCount; d: EngageData; year: number; months: number[]; actions?: React.ReactNode }) {
+  const ga4 = t.key === "oring" ? MONTHS.map((m, i) => ({ x: m, a: d.events[`${year}-${String(i + 1).padStart(2, "0")}`]?.oring_expert_add_to_cart?.[0] ?? null })).slice(0, Math.max(1, new Date().getMonth() + 1)) : null;
+  const monthly = !t.days.length && !!t.months?.length;
+  const counted = monthly ? t.months! : t.days;
+  const sum = (k: "a" | "b") => counted.reduce((s, r) => s + (k === "a" ? r[1] : r[2]), 0);
+  // the last 31 days, the empty ones too - or the months
+  const days: { x: string; a: number; b: number }[] = [];
+  if (!monthly && t.days.length) {
+    const by = new Map(t.days.map(([day, a, b]) => [day, [a, b] as const]));
+    const end = new Date().toISOString().slice(0, 10);
+    for (let x = new Date(`${t.days[0][0]}T00:00:00Z`); x.toISOString().slice(0, 10) <= end; x.setUTCDate(x.getUTCDate() + 1)) {
+      const k = x.toISOString().slice(0, 10), v = by.get(k);
+      days.push({ x: dayLabel(k), a: v?.[0] ?? 0, b: v?.[1] ?? 0 });
+    }
+  }
+  const bars = ga4 ?? (monthly ? t.months!.map(([m, a, b]) => ({ x: MONTHS[Number(m.slice(5, 7)) - 1], a, b })) : days.slice(-31));
+  const stacked = t.key === "directcut" || t.key === "directup" || t.key === "search";
+  const figure = ga4 ? months.reduce((s, i) => s + (ga4[i]?.a ?? 0), 0) : sum("a");
+  const unit = ga4 ? "rings put in the cart" : t.unit.toLowerCase();
+  const second = ga4 ? null : t.key === "search" && sum("a") ? `${ratio(sum("a") - sum("b"), sum("a"))} found nothing` : t.unit2 ? `${n0(sum("b"))} ${t.unit2.toLowerCase()}` : null;
+  const since = ga4 ? `GA4, ${monthsLabel({ start: months[0] ?? 0, end: months[months.length - 1] ?? 0 })}` : t.since ? `Since ${dayLabel(t.since)}${t.onShop ? "" : " · not on the shop yet"}` : "Nothing counted yet";
+  return (
+    // as high as its row of tiles, never more: beside a taller card (the grid packs one next to tiles) it stays a tile
+    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0, height: "100%", maxHeight: 360, alignSelf: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
+        <Badge icon={<BuildOutlinedIcon />} tint="blue" size={32} />
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{t.name}</Typography>
+        {actions}
+      </Box>
+      {t.error ? <Typography sx={{ fontSize: "0.78rem", color: RED }}>Could not be read</Typography> : (
+        <>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{n0(figure)}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{unit}</Typography>
+          </Box>
+          {second && <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED }}>{second}</Typography>}
+          <Box sx={{ mt: "auto", pt: 0.5 }}>{bars.length > 0 && <MiniBars bars={bars.map((r) => ({ x: r.x, a: r.a, b: stacked && "b" in r ? (r as { b: number }).b : null }))} unit={ga4 ? "Put in the cart" : t.unit} unit2={t.unit2} />}</Box>
+        </>
+      )}
+      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: FAINT, borderTop: "1px solid rgba(21,34,58,.07)", pt: 0.75 }}>{since}</Typography>
+    </Box>
+  );
+}
+
+/**
  * Where we lost them (SARCLA 19.10: "for did not buy also a diagram to see where we lost them"): every
  * article a logged-in customer looked at since the tracker started - one customer, one article, one day -
  * those that ended in an order, and the others by the first reason that applies (datatracker/rules.lostReason).
@@ -623,24 +676,38 @@ const LOST_COLOUR: Record<string, string> = { won: GREEN, shelf: SERIES[1], moq:
 function LostCard({ p, actions, compact = false }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode; compact?: boolean }) {
   const l = p.lost!;
   const all = l.total + l.ordered;
-  const parts = [{ key: "won", label: "Ordered", what: "The article was ordered", n: l.ordered, companies: l.orderedCompanies }, ...LOST.map((x) => ({ ...x, n: l.looks[x.key], companies: l.companies[x.key] }))];
   const path = lostPath(l);
   const name = new Map(path.nodes.map((x) => [x.id, x.label]));
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<CallSplitIcon />} tint="pink" title="Where we lost them"
-        note={`Logged-in customers since ${dayLabel(p.since)}: ${n0(all)} articles looked at (one customer, one article, one day) - ${n0(l.ordered)} ordered, ${n0(l.total)} not, and why`} right={actions} />
-      <ChartFrame title="The path - step by step, and where each one stopped" table={{ columns: ["From", "To", "Articles"], rows: path.links.map((x) => [name.get(x.from) ?? x.from, name.get(x.to) ?? x.to, x.value]), numeric: [2] }}>
+        note={`Logged-in customers since ${dayLabel(p.since)}: ${n0(all)} articles looked at (one customer, one article, one day) - ${n0(l.ordered)} ordered, ${n0(l.total)} not - step by step, and where each one stopped`} right={actions} />
+      <ChartFrame table={{ columns: ["From", "To", "Articles"], rows: path.links.map((x) => [name.get(x.from) ?? x.from, name.get(x.to) ?? x.to, x.value]), numeric: [2] }}>
         <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
-          <Box sx={{ minWidth: compact ? 560 : 820 }}>
-            <Sankey height={compact ? 300 : 360} columns={path.columns} label="Where we lost them - the path" links={path.links} format={(n) => n0(n)}
+          <Box sx={{ minWidth: compact ? 640 : 900 }}>
+            <Sankey height={compact ? 320 : 380} columns={path.columns} label="Where we lost them - the path" links={path.links} format={(n) => n0(n)}
               nodes={path.nodes.map((x) => ({ id: x.id, column: x.column, label: x.label, color: x.lost ? LOST_COLOUR[x.lost] : SERIES[0] }))} />
           </Box>
         </Box>
       </ChartFrame>
-      {!compact && <Box sx={{ overflowX: "auto" }}>
-        <Box sx={{ minWidth: 640, display: "grid", gridTemplateColumns: "minmax(260px, 2.4fr) minmax(120px, 1fr) 90px 70px 100px", columnGap: 1.25, alignItems: "center" }}>
-          {["", "", "Articles", "Share", "Companies"].map((h, i) => <Typography key={i} sx={{ ...head, textAlign: i >= 2 ? "right" : "left" }}>{h}</Typography>)}
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The live shop tracker on each logged-in company (every look, cookies or not). A look not ordered stops at one step only - the first that applies; an article ordered passes every step. Each reason, with its companies, is in the next card.</Typography>
+    </GlassCard>
+  );
+}
+
+/** Each reason a look ended in no order - the articles, their share, the companies (the path's figures as a table, a card of its own). */
+function LostReasonsCard({ p, actions, compact = false }: { p: NonNullable<EngageData["prices"]>; actions?: React.ReactNode; compact?: boolean }) {
+  const l = p.lost!;
+  const all = l.total + l.ordered;
+  const parts = [{ key: "won", label: "Ordered", what: "The article was ordered", n: l.ordered, companies: l.orderedCompanies }, ...LOST.map((x) => ({ ...x, n: l.looks[x.key], companies: l.companies[x.key] }))];
+  const max = Math.max(1, ...parts.map((y) => y.n));
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <CardTitle icon={<CallSplitIcon />} tint="pink" title="Why they did not buy - each reason"
+        note={`Logged-in customers since ${dayLabel(p.since)}: the ${n0(all)} articles looked at, by how each one ended`} right={actions} />
+      <Box sx={{ overflowX: "auto" }}>
+        <Box sx={{ minWidth: compact ? 0 : 640, display: "grid", gridTemplateColumns: compact ? "minmax(150px, 2fr) 76px 60px 84px" : "minmax(260px, 2.4fr) minmax(120px, 1fr) 90px 70px 100px", columnGap: 1.25, alignItems: "center" }}>
+          {(compact ? ["", "Articles", "Share", "Companies"] : ["", "", "Articles", "Share", "Companies"]).map((h, i) => <Typography key={i} sx={{ ...head, textAlign: i >= (compact ? 1 : 2) ? "right" : "left" }}>{h}</Typography>)}
           {parts.map((x) => {
             const cell = { py: 0.8, borderBottom: `1px solid ${HAIRLINE}`, minWidth: 0 };
             return (
@@ -649,12 +716,14 @@ function LostCard({ p, actions, compact = false }: { p: NonNullable<EngageData["
                   <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: LOST_COLOUR[x.key], mt: 0.6 }} />
                   <Box sx={{ minWidth: 0 }}>
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{x.label}</Typography>
-                    <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{x.what}</Typography>
+                    {!compact && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{x.what}</Typography>}
                   </Box>
                 </Box>
-                <Box sx={{ ...cell, display: "flex", alignItems: "center", height: "100%" }}>
-                  <Box sx={{ height: 10, borderRadius: 99, bgcolor: LOST_COLOUR[x.key], width: `${Math.max(1, (100 * x.n) / Math.max(1, ...parts.map((y) => y.n)))}%` }} />
-                </Box>
+                {!compact && (
+                  <Box sx={{ ...cell, display: "flex", alignItems: "center", height: "100%" }}>
+                    <Box sx={{ height: 10, borderRadius: 99, bgcolor: LOST_COLOUR[x.key], width: `${Math.max(1, (100 * x.n) / max)}%` }} />
+                  </Box>
+                )}
                 <Typography sx={{ ...cell, fontSize: "0.86rem", fontWeight: 600, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n0(x.n)}</Typography>
                 <Typography sx={{ ...cell, fontSize: "0.8rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ratio(x.n, all)}</Typography>
                 <Typography sx={{ ...cell, fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n0(x.companies)}</Typography>
@@ -662,8 +731,8 @@ function LostCard({ p, actions, compact = false }: { p: NonNullable<EngageData["
             );
           })}
         </Box>
-      </Box>}
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The live shop tracker on each logged-in company (every look, cookies or not). A look not ordered stops at one step only - the first that applies, in the order above; an article ordered passes every step. A company can stop at several. The price checks, the minimum quantities and the shelf come next, each with its days and its looks.</Typography>
+      </Box>
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>A look not ordered counts under the first reason that applies, in this order. A company can be under several reasons.</Typography>
     </GlassCard>
   );
 }

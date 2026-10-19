@@ -140,18 +140,20 @@ test("the search bar as one of the tools: its searches each day and those that f
   assert.equal(searchTool({ ...d, search: null, errors: { search: "timeout" } })?.error, "timeout");
 });
 
-test("where we lost them as a path: each look stops at one step, the ordered pass every step - each column adds up", () => {
+test("where we lost them as a path: one reason a step - in stock, a quantity typed, the minimum, the cart, ordered - each column adds up", () => {
   const p = lostPath({ looks: { shelf: 879, moq: 10, cart: 1077, price: 184, looked: 947 }, ordered: 2285 });
   const v = (from: string, to: string) => p.links.find((x) => x.from === from && x.to === to)?.value;
-  assert.equal(p.columns.length, 5);
-  assert.equal(v("all", "shelf-ok")! + v("all", "shelf")!, 5382);
-  assert.deepEqual([v("shelf-ok", "typed"), v("shelf-ok", "looked")], [5382 - 879 - 947, 947]);
-  assert.deepEqual([v("typed", "cart-in"), v("typed", "moq"), v("typed", "price")], [2285 + 1077, 10, 184]);
+  assert.deepEqual(p.columns, ["Looked at", "In stock?", "Quantity?", "Minimum?", "Cart?", "Ordered?"]);
+  assert.deepEqual([v("all", "stock"), v("all", "shelf")], [5382 - 879, 879]);
+  assert.deepEqual([v("stock", "typed"), v("stock", "looked")], [5382 - 879 - 947, 947]);
+  assert.deepEqual([v("typed", "minimum"), v("typed", "moq")], [5382 - 879 - 947 - 10, 10]);
+  assert.deepEqual([v("minimum", "cart-in"), v("minimum", "price")], [2285 + 1077, 184]);
   assert.deepEqual([v("cart-in", "won"), v("cart-in", "cart")], [2285, 1077]);
+  // each column holds one way on and at most one reason
+  for (let c = 1; c < p.columns.length; c++) assert.ok(p.nodes.filter((n) => n.column === c && n.lost && n.lost !== "won").length <= 1);
   // a step nobody stopped at draws no band and no node
   const q = lostPath({ looks: { shelf: 5, moq: 0, cart: 2, price: 1, looked: 3 }, ordered: 4 });
   assert.equal(q.nodes.some((n) => n.id === "moq"), false);
-  assert.equal(q.links.some((x) => x.to === "moq"), false);
 });
 
 test("the search bar card falls back to its months when a read has no days", () => {
