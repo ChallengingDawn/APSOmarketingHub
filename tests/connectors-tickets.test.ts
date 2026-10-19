@@ -5,7 +5,7 @@ import {
   articleCandidates, articleSearchValues, articlesFromCache, assocPlan, companyKey, createdMsIso, createdUtcMs, deputyDecision,
   deputyNote, deputyTarget, hasArticleType, hasDefaultType, isSystemSubject, isoDay, mentionsC2S, offerHit, oooWindow, orderRefs,
   positionArticles, pyCmp, pySlice, pyStrip, pyZfill, rememberMissing, stageIndex, userState, verdict, wantedOrderNumbers,
-  wrongOwnerAction, wrongOwnerSearch, type FoundOrder, type OwnerInfo, type UserState,
+  wrongOwnerAction, wrongOwnerSearch, handBack, BO_QUEUE, type FoundOrder, type OwnerInfo, type UserState,
 } from "../src/lib/connectors/steps/ticketRules";
 
 // Expected values below come from the Compass connector's Python (08.10.2026).
@@ -30,6 +30,20 @@ const who = new Map<string, OwnerInfo>([
   ["6", { name: "Monika Zihlmann", primary: "ESO" }], // Management
   ["7", { name: "Tim Roth", primary: null }],
 ]);
+
+test("wrong owners: a Back Office owner an app put there goes back to the earlier owner (SARCLA 19.10.2026)", () => {
+  const h = (value: string, sourceType: string, sourceId = "") => ({ value, sourceType, sourceId, timestamp: "2026-10-19T06:41:57Z" });
+  // the cascade: app 50521064 gave Peter (ESO) the ticket Anna (Back Office) had, the inbox echoed it a second later
+  const cascade = [h("2", "HELP_DESK"), h("2", "INTEGRATION", "50521064"), h("1", "INTEGRATION", "30109717"), h(BO_QUEUE, "AUTOMATION_PLATFORM")];
+  assert.deepEqual(handBack(BO, cascade, who), { owner: "1", app: "50521064", reason: "Peter Keller was put on it by app 50521064, not by a person - back to Anna Muster" });
+  assert.equal(handBack(ESO, cascade, who), null); // ESO / TSA: an app's owner is meant (the France rule)
+  assert.equal(handBack(BO, [h("2", "CRM_UI"), h("1", "INTEGRATION", "30109717")], who), null); // a person chose Peter: the flag rule
+  assert.equal(handBack(BO, [h("2", "INTEGRATION", "22343290"), h(BO_QUEUE, "AUTOMATION_PLATFORM")], who), null); // before: only the queue
+  assert.equal(handBack(BO, [h("3", "INTEGRATION", "50521064"), h("2", "INTEGRATION", "30109717")], who), null); // before: ESO too
+  assert.equal(handBack(BO, [h("2", "INTEGRATION", "50521064"), h("99", "CRM_UI")], who), null); // before: deactivated / unknown
+  assert.equal(handBack(BO, [h("2", "INTEGRATION", "50521064")], who), null); // nobody before
+  assert.equal(handBack(BO, [], who), null);
+});
 
 test("wrong owners: the verdict per pipeline and role", () => {
   assert.deepEqual(verdict(ESO, "1", who), { pipe: BO, stage: BO_REMIND, owner: MAIDA, reason: "Anna Muster is Back Office; the ticket was open in the ESO pipeline" });

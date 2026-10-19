@@ -51,6 +51,7 @@ function Rules() {
       {rule(2, <>A ticket in ESO or TSA whose owner is from <b>Back Office</b> goes back to Back Office and is given to Maida.</>)}
       {rule(3, <>The subject starts with <b>&quot;WRONG OWNER PLEASE CORRECT IT -&quot;</b> so the team sees it. The original subject comes back as soon as somebody else takes the ticket over, or it is closed.</>)}
       {rule(4, <>Left alone: closed tickets, campaign tickets, owners from Management or E-Commerce, and people who work in more than one team.</>)}
+      {rule(5, <>A <b>Back Office</b> ticket whose sales owner was put there by an <b>app</b> (Owner redirection after an ERP owner change, a DUPS hand-over), not by a person, is not moved: it goes back to the Back Office person who had it before, without a flag.</>)}
     </GlassCard>
   );
 }
@@ -131,7 +132,7 @@ function Board({ d, act, note }: { d: Data; act: (action: string) => void; note:
           <KpiTile icon={<ManageAccountsOutlinedIcon />} tint="blue" label="Open tickets checked" value={num(r, "tickets_open_or_flagged") === null ? "—" : full(num(r, "tickets_open_or_flagged"))} note="last run" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiTile icon={<FlagOutlinedIcon />} tint="amber" label="Moved and flagged" value={num(r, "flagged") === null ? "—" : full(num(r, "flagged"))} note="last run" />
+          <KpiTile icon={<FlagOutlinedIcon />} tint="amber" label="Moved and flagged" value={num(r, "flagged") === null ? "—" : full(num(r, "flagged"))} note={`last run${num(r, "handed_back") ? ` · ${full(num(r, "handed_back")!)} handed back (rule 5)` : ""}`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<OutlinedFlagIcon />} tint="green" label="Flags removed" value={num(r, "restored") === null ? "—" : full(num(r, "restored"))} note="taken over or closed" />

@@ -209,6 +209,34 @@ export function wrongOwnerAction(p: Props, stages: Map<string, StageInfo>, who: 
   };
 }
 
+/** hubspot_owner_id's history as HubSpot returns it, newest first. */
+export type OwnerHist = { value?: string | null; timestamp?: string; sourceType?: string; sourceId?: string | null };
+/** The Back Office queue account (support@apsoparts.com) - never a person to hand a ticket back to. */
+export const BO_QUEUE = "76164822";
+
+/**
+ * SARCLA 19.10.2026 - "we need to fix wrong owner if the logic was different". A Back Office ticket with a sales owner
+ * is flagged as sitting in the wrong pipeline and moved to the owner's (rule 1). But when an APP put that owner there -
+ * Owner redirection's cascade after the ERP changed the company owner, a DUPS hand-over - and not a person, it is the
+ * OWNER that is wrong: the ticket goes back to the owner it had before, when that one is active and the check itself
+ * accepts in Back Office. No move, no prefix. Back Office only: on ESO / TSA an app's owner (the France rule) is meant.
+ * Returns null when the flag rule stays.
+ */
+export function handBack(pipe: string, hist: OwnerHist[], who: Map<string, OwnerInfo>): { owner: string; app: string; reason: string } | null {
+  if (pipe !== BO || !hist.length) return null;
+  const cur = String(hist[0].value ?? "");
+  if (!cur) return null;
+  // the inbox echoes an owner a second later (HELP_DESK OWNER_SYNC): who set it is the oldest entry of the current value
+  let i = 0;
+  while (i + 1 < hist.length && String(hist[i + 1].value ?? "") === cur) i++;
+  const setter = hist[i];
+  if (setter.sourceType !== "INTEGRATION") return null;
+  const prev = String(hist[i + 1]?.value ?? "");
+  if (!prev || prev === BO_QUEUE || !who.has(prev) || verdict(BO, prev, who) !== null) return null;
+  const app = String(setter.sourceId ?? "?");
+  return { owner: prev, app, reason: `${who.get(cur)?.name ?? cur} was put on it by app ${app}, not by a person - back to ${who.get(prev)!.name}` };
+}
+
 /**
  * The search that finds every ticket wrongOwnerAction can act on in one pipeline: not in
  * a closed stage (of ANY pipeline - exactly the connector's "st.closed" skip, so a stage

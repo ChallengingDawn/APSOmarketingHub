@@ -18,7 +18,7 @@ import {
   WRONG_OWNER_PROPS, absorbArticles, addOwners, articleCandidates, articleSearchValues, articlesFromCache, articlesToCheck, assocPlan,
   companyKey, createdMsIso, deputyDecision, deputyNote, foundOrder, hasArticleType, hasDefaultType, mentionsC2S, offerHit, offerSearch, productCandidates,
   orderRefs, pySlice, pySorted, rememberMissing, shopLinks, stageIndex, ticketBlob, userState, utcDay, wantedOrderNumbers, wrongOwnerAction,
-  wrongOwnerSearch, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
+  wrongOwnerSearch, handBack, type OwnerHist, type AssocPlan, type FoundOrder, type OfferHit, type OwnerInfo, type Props, type UserState,
 } from "./ticketRules";
 
 type Obj = { id: string; properties?: Props };
@@ -124,16 +124,31 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
       if (++pages % 20 === 0) await beat();
     }
   }
+  // a Back Office ticket whose sales owner an APP put there goes back to its earlier owner instead (handBack)
+  const handed: (Row & { reason: string; subject: string })[] = [];
+  const boFlags = flags.filter((f) => f.from === PIPE_NAME[BO]);
+  for (let i = 0; i < boFlags.length; i += 50) {
+    const j = await tix<{ results?: { id: string; propertiesWithHistory?: Record<string, OwnerHist[]> }[] }>("/crm/v3/objects/tickets/batch/read", "POST", {
+      properties: ["hubspot_owner_id"], propertiesWithHistory: ["hubspot_owner_id"], inputs: boFlags.slice(i, i + 50).map((f) => ({ id: f.id })),
+    });
+    for (const t of j.results ?? []) {
+      const hb = handBack(BO, t.propertiesWithHistory?.hubspot_owner_id ?? [], who);
+      if (hb) handed.push({ id: t.id, properties: { hubspot_owner_id: hb.owner }, reason: hb.reason, subject: boFlags.find((f) => f.id === t.id)?.subject ?? "" });
+    }
+  }
+  const handedIds = new Set(handed.map((h) => h.id));
+  const toFlag = flags.filter((f) => !handedIds.has(f.id));
   const out: StepResult = {
     scope: [BO, ESO, TSA].map((p) => PIPE_NAME[p]), dry_run: !live, missing_properties: missing,
-    tickets_open_or_flagged: read, flagged: flags.length, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
+    tickets_open_or_flagged: read, flagged: toFlag.length, handed_back: handed.length, restored: restores.length, skipped_campaign: skippedCampaign, failed: 0,
   };
-  let flagged = flags, restored = restores;
-  if (live && (flags.length || restores.length)) {
-    const w = await updateTickets([...restores, ...flags].map(({ id, properties }) => ({ id, properties })));
-    flagged = flags.filter((f) => w.ok.has(f.id));
+  let flagged = toFlag, restored = restores, handedBack = handed;
+  if (live && (toFlag.length || restores.length || handed.length)) {
+    const w = await updateTickets([...restores, ...handed, ...toFlag].map(({ id, properties }) => ({ id, properties })));
+    flagged = toFlag.filter((f) => w.ok.has(f.id));
     restored = restores.filter((r) => w.ok.has(r.id));
-    Object.assign(out, { flagged: flagged.length, restored: restored.length, failed: w.failed, errors: w.errors });
+    handedBack = handed.filter((h) => w.ok.has(h.id));
+    Object.assign(out, { flagged: flagged.length, handed_back: handedBack.length, restored: restored.length, failed: w.failed, errors: w.errors });
   }
   const byMove: Record<string, number> = {};
   for (const f of flagged) byMove[`${f.from} -> ${f.to}`] = (byMove[`${f.from} -> ${f.to}`] ?? 0) + 1;
@@ -141,6 +156,7 @@ export async function wrongOwners(live: boolean, beat: Beat): Promise<StepResult
   out.examples = [
     ...flagged.slice(0, 20).map((f) => ({ action: "flag", id: f.id, from: f.from, to: f.to, reason: f.reason, subject: f.subject })),
     ...restored.slice(0, 20).map((r) => ({ action: "restore", id: r.id, why: r.why, subject: r.subject })),
+    ...handedBack.slice(0, 20).map((h) => ({ action: "hand back", id: h.id, reason: h.reason, subject: h.subject })),
   ];
   return { ...out, seconds: Math.round((Date.now() - t0) / 1000) };
 }
