@@ -202,9 +202,10 @@ function nodeOf(r: LeadRow, step: FlowStep, sources: Set<string>): FlowNode {
       return { id: `source:${c}`, step, label: c === "rest" ? "Other sources" : channelLabel(c), tone: "source" };
     }
     case "contact":
-      return r.via === "task" ? { id: "contact:task", step, label: "Qualification task (UC2)", tone: "sales" }
-        : r.via === "ticket" ? { id: "contact:ticket", step, label: "ESO/TSA ticket", tone: "sales" }
-          : { id: "contact:none", step, label: "No sales contact", tone: "none" };
+      // the UC2 task was replaced by the ticket and the outcome is the same - one way, not two
+      // (SARCLA 19.10: "don't split them, just qualified or not qualified")
+      return r.via ? { id: "contact:sales", step, label: "Sent to sales for qualification", tone: "sales" }
+        : { id: "contact:none", step, label: "No sales contact", tone: "none" };
     case "qualification":
       return r.q === 1 ? { id: "q:yes", step, label: "Qualified", tone: "good" } : r.q === 0 ? { id: "q:no", step, label: "Not qualified", tone: "bad" } : { id: "q:open", step, label: "Not qualified yet", tone: "none" };
     case "outcome":
@@ -243,7 +244,7 @@ export function flowOf(d: LeadsData, w: { start: number; end: number }, f: LeadF
   const out = [...nodes.values()].sort((a, b) => steps.indexOf(a.step) - steps.indexOf(b.step) || rank(a) - rank(b));
   return { steps, nodes: out, links: [...links.values()], totals };
 }
-const ORDER = ["all", ...HOWS.map((h) => `how:${h.id}`), "contact:task", "contact:ticket", "contact:none", "q:yes", "q:no", "q:open", "o:sales", "o:own", "o:none"];
+const ORDER = ["all", ...HOWS.map((h) => `how:${h.id}`), "contact:sales", "contact:none", "q:yes", "q:no", "q:open", "o:sales", "o:own", "o:none"];
 
 /** What became of a lead so far - one answer each, for the months chart. */
 export type Outcome = "customer" | "qualified" | "notQualified" | "open";

@@ -62,17 +62,18 @@ test("the UC2 task counts as the way to sales, and the leads flow through the st
   // two sources by name (seo has 2), the rest together
   assert.equal(fl.totals["source:seo"], 2);
   assert.equal(fl.totals["source:rest"], 1);
-  assert.equal(fl.totals["contact:task"], 1);
+  // the task and the ticket are one way to sales
+  assert.equal(fl.totals["contact:sales"], 2);
   assert.equal(fl.totals["contact:none"], 2);
   // the buyers split: after a sales contact, or on their own (before any task or ticket)
   assert.equal(fl.totals["o:sales"], 1);
   assert.equal(fl.totals["o:own"], 1);
-  const l = fl.links.find((x) => x.from === "source:seo" && x.to === "contact:task");
-  assert.equal(l?.value, 1);
+  const l = fl.links.find((x) => x.from === "source:seo" && x.to === "contact:sales");
+  assert.equal(l?.value, 2);
   // every lead leaves each step once
   assert.equal(fl.links.filter((x) => x.from.startsWith("source:")).reduce((a, x) => a + x.value, 0), 4);
   // the nodes top to bottom: biggest source first, the rest last; the task before the ticket before none
-  assert.deepEqual(fl.nodes.map((n) => n.id), ["source:seo", "source:sea-google", "source:rest", "contact:task", "contact:ticket", "contact:none", "o:sales", "o:own", "o:none"]);
+  assert.deepEqual(fl.nodes.map((n) => n.id), ["source:seo", "source:sea-google", "source:rest", "contact:sales", "contact:none", "o:sales", "o:own", "o:none"]);
   const all = flowOf(d, { start: 0, end: 8 }, {}, ["all", "qualification"]);
   assert.equal(all.totals.all, 4);
   assert.deepEqual(all.nodes.map((n) => n.id), ["all", "q:yes", "q:no", "q:open"]);
@@ -94,8 +95,9 @@ test("how the first contact was made: the shop, a person, the chat, a form", () 
   const d = data([row({ h: "person" }), row({ h: "shop", s: true, via: "task" }), row({ h: "person", s: true, via: "ticket" })]);
   assert.equal(pathOf(d, { start: 0, end: 8 }, { how: ["person"] }).cur.companies, 2);
   const fl = flowOf(d, { start: 0, end: 8 }, {}, ["how", "contact"]);
-  assert.deepEqual(fl.nodes.map((n) => n.id), ["how:shop", "how:person", "contact:task", "contact:ticket", "contact:none"]);
+  assert.deepEqual(fl.nodes.map((n) => n.id), ["how:shop", "how:person", "contact:sales", "contact:none"]);
   assert.equal(fl.links.find((l) => l.from === "how:person" && l.to === "contact:none")?.value, 1);
+  assert.equal(fl.links.find((l) => l.from === "how:person" && l.to === "contact:sales")?.value, 1);
 });
 
 test("month by month for the small graphs: this year and last, the window summed", () => {

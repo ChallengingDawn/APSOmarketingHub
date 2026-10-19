@@ -66,7 +66,7 @@ const eur = (n: number) => `€${Math.round(n).toLocaleString("en")}`;
 function Figures({ cur, prev }: { cur: PathCounts; prev: PathCounts }) {
   const items: { label: string; icon: React.ReactNode; tint: Tint; v: number; p: number; fmt?: (n: number) => string; sub?: string }[] = [
     { label: "New leads", icon: <PersonAddAltOutlinedIcon />, tint: "blue", v: cur.companies, p: prev.companies, sub: `${n0(cur.contacts)} new contacts` },
-    { label: "To sales", icon: <SupportAgentOutlinedIcon />, tint: "amber", v: cur.toSales, p: prev.toSales, sub: `${ratio(cur.toSales, cur.companies)} · ${n0(cur.viaTask)} by task, ${n0(cur.viaTicket)} by ticket` },
+    { label: "To sales", icon: <SupportAgentOutlinedIcon />, tint: "amber", v: cur.toSales, p: prev.toSales, sub: `${ratio(cur.toSales, cur.companies)} of the leads` },
     { label: "Qualified", icon: <VerifiedOutlinedIcon />, tint: "purple", v: cur.qualified, p: prev.qualified, sub: `${n0(cur.notQualified)} not, ${n0(cur.notYet)} not yet` },
     { label: "New customers", icon: <ShoppingCartOutlinedIcon />, tint: "green", v: cur.customers, p: prev.customers, sub: ratio(cur.customers, cur.companies) + " of the leads" },
     { label: "Their revenue", icon: <EuroOutlinedIcon />, tint: "green", v: cur.rev, p: prev.rev, fmt: eur, sub: `${n0(cur.orders)} orders` },
@@ -97,14 +97,14 @@ function Figures({ cur, prev }: { cur: PathCounts; prev: PathCounts }) {
 function PathCard({ cur, prev, w, year, actions }: { cur: PathCounts; prev: PathCounts; w: MonthWindow; year: number; actions: React.ReactNode }) {
   const steps: { label: string; note: string; v: number; p: number; tint: Tint }[] = [
     { label: "New leads", note: "new companies, with their first new contact", v: cur.companies, p: prev.companies, tint: "blue" },
-    { label: "Handed to sales", note: `a UC2 qualification task (until 1 October) or an ESO/TSA ticket after they came in · ${n0(cur.viaTask)} by task, ${n0(cur.viaTicket)} by ticket`, v: cur.toSales, p: prev.toSales, tint: "amber" },
+    { label: "Sent to sales for qualification", note: "after they came in - a UC2 task until 1 October, a ticket since: the same step", v: cur.toSales, p: prev.toSales, tint: "amber" },
     { label: "Qualified by the owner", note: `${n0(cur.notQualified)} not qualified, ${n0(cur.notYet)} not yet${cur.taskDoneNoAnswer ? ` (${n0(cur.taskDoneNoAnswer)} of them with the task done but no answer on the company)` : ""}`, v: cur.qualified, p: prev.qualified, tint: "purple" },
     { label: "New customers", note: "their first order", v: cur.customers, p: prev.customers, tint: "green" },
     { label: "… of them on their own", note: "ordered before any UC2 task or ESO/TSA ticket", v: cur.onOwn, p: prev.onOwn, tint: "green" },
   ];
   const top = Math.max(cur.companies, prev.companies, 1);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
       <CardTitle icon={<AltRouteIcon />} tint="blue" title="From acquisition to purchase" note={`${monthsLabel(w)} ${year} against ${monthsLabel(w)} ${year - 1} - new companies that came in, and what became of them`} right={actions} />
       <Box sx={{ display: "grid", gap: 1.5 }}>
         {steps.map((s) => (
@@ -139,14 +139,14 @@ function rowCells(label: React.ReactNode, e: { cur: PathCounts; prev: PathCounts
 
 /* ── the flow diagram ─────────────────────────────────────────────────── */
 
-const STEP_NAME: Record<FlowStep, string> = { all: "New leads", how: "Came in by", source: "Source", contact: "Sales contact", qualification: "Owner's qualification", outcome: "Outcome" };
+const STEP_NAME: Record<FlowStep, string> = { all: "New leads", how: "Came in by", source: "Source", contact: "Sent to sales", qualification: "Owner's qualification", outcome: "Outcome" };
 const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], sales: SERIES[3], good: SERIES[2], own: SERIES[0], bad: SERIES[1], none: DEEMPHASIS };
 
 function FlowCard({ flow, title, note, actions, height }: { flow: Flow; title: string; note: string; actions: React.ReactNode; height: number }) {
   const label = new Map(flow.nodes.map((n) => [n.id, n.label]));
   const twin = { columns: ["From", "To", "Leads", "Share of from"], rows: flow.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value, ratio(l.value, flow.totals[l.from])]), numeric: [2, 3] };
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<AltRouteIcon />} tint="blue" title={title} note={note} right={actions} />
       <ChartFrame table={twin} empty={flow.nodes.length ? null : "No new leads for this choice."}>
         {/* the diagram needs its width: on a phone it scrolls inside the card, the page does not */}
@@ -321,7 +321,7 @@ type Ctx = {
 function SplitCard({ d, f, win, actions }: Ctx) {
   return (
     <FlowCard flow={flowOf(d, win, f, ["how", "contact", "qualification", "outcome"])} height={340} title="How the leads split" actions={actions}
-      note={`${monthsLabel(win)} ${d.year} · every new lead by how it came in, then step by step: did sales get it (a UC2 task or an ESO/TSA ticket), did the owner qualify it, did it buy - after a sales contact, or on their own before any task or ticket · UC2 only picks up shop registrations, so the contacts sales and service add themselves get no UC2 task · hover a band for its count`} />
+      note={`${monthsLabel(win)} ${d.year} · every new lead by how it came in, then step by step: was it sent to sales for qualification (a UC2 task until 1 October, a ticket since - the same step), did the owner qualify it, did it buy - after a sales contact, or on their own before it · hover a band for its count`} />
   );
 }
 
@@ -335,7 +335,7 @@ function SourceBuyCard({ d, f, win, actions, onSource, chosenSources }: Ctx) {
   // the sources with at least 20 leads, best first
   const rows = CHANNELS.flatMap((c) => { const e = by.get(c.id); return e && e.cur.companies >= 20 ? [{ id: c.id, label: c.label, value: (e.cur.customers / e.cur.companies) * 100, secondary: `${n0(e.cur.customers)} of ${n0(e.cur.companies)}` }] : []; }).sort((a, b) => b.value - a.value);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Which sources buy" note={`${monthsLabel(win)} ${d.year} · the share of each source's new leads that placed an order · sources with 20 leads or more${onSource ? " · click one to filter by it" : ""}`} right={actions} />
       <ChartFrame table={{ columns: ["Source", "Bought", "New customers"], rows: rows.map((r) => [r.label, pct(r.value), r.secondary]), numeric: [1] }}>
         <BarList rows={rows} format={pct} labelWidth={240} onSelect={onSource ? (l) => { const c = CHANNELS.find((x) => x.label === l); if (c) onSource(c.id); } : undefined}
@@ -348,7 +348,7 @@ function SourceBuyCard({ d, f, win, actions, onSource, chosenSources }: Ctx) {
 function SourceTableCard({ d, f, win, actions, onSource, chosenSources }: Ctx) {
   const by = pathBy(d, win, f, (r) => r.c);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<AltRouteIcon />} tint="amber" title="Where the leads came from" note={`${monthsLabel(win)} ${d.year} · the original source of each new company's first new contact${onSource ? " · click a source to filter by it" : ""}`} right={actions} />
       <Table head={["Source", ...head.slice(1)]} rows={CHANNELS.filter((c) => by.has(c.id)).map((c) => ({ key: c.id, on: !!chosenSources?.includes(c.id), onPick: onSource ? () => onSource(c.id) : undefined, cells: rowCells(c.label, by.get(c.id)!) }))} />
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>HubSpot&apos;s original source of the contact. A shop registration is a step on the way, not a source: it counts under the way the person reached the shop (direct, search, ads). &quot;Created by people&quot; are contacts entered by sales or service, &quot;Chat&quot; those from the website chat; SEA is split by search engine (Bing = Microsoft Ads). The change is against the same months of {d.year - 1}.</Typography>
@@ -363,7 +363,7 @@ function MonthLeadsCard({ d, f, actions }: Ctx) {
   const by = byMonthOf(d, f);
   const data = MONTHS.map((x, i) => ({ x, current: i <= d.monthsDone - 1 ? by.get(mm(i))?.cur.companies ?? 0 : null, prior: by.get(mm(i))?.prev.companies ?? 0, partial: false }));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="New leads by month" note={`Every month of ${d.year} against ${d.year - 1}${f.channel?.length || f.country?.length || f.how?.length ? " · the sources, countries and ways in chosen" : ""}`} right={actions} />
       <ChartFrame table={{ columns: ["Month", String(d.year), String(d.year - 1)], rows: data.map((m) => [m.x, m.current ?? "", m.prior]), numeric: [1, 2] }}>
         <GroupedColumns height={240} format={(x) => n0(x)} data={data} currentLabel={String(d.year)} priorLabel={String(d.year - 1)} />
@@ -380,7 +380,7 @@ function MonthOutcomeCard({ d, f, actions }: Ctx) {
     return o;
   });
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="What became of each month's leads" note={`${d.year} so far - the newest months have had the least time`} right={actions} />
       <ChartFrame table={{ columns: ["Month", "New customer", "Not qualified", "Qualified, no order yet", "Not qualified yet"], rows: data.map((o) => [o.x, o.customer, o.notQualified, o.qualified, o.open]), numeric: [1, 2, 3, 4] }}>
         <StackedColumns height={260} format={(v) => n0(v)} data={data}
@@ -395,7 +395,7 @@ function MonthBoughtCard({ d, f, actions }: Ctx) {
   const c = (p?: PathCounts) => (p && p.companies ? (p.customers / p.companies) * 100 : null);
   const data = MONTHS.map((x, i) => ({ x, current: i <= d.monthsDone - 1 ? c(by.get(mm(i))?.cur) : null, prior: c(by.get(mm(i))?.prev), partial: false }));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="How many bought" note={`The share of each month's new leads with an order, ${d.year} against ${d.year - 1} - ${d.year - 1}'s leads have had a year longer`} right={actions} />
       <ChartFrame table={{ columns: ["Month", String(d.year), String(d.year - 1)], rows: data.map((m) => [m.x, pct(m.current), pct(m.prior)]), numeric: [1, 2] }}>
         <GroupedColumns height={240} format={pct} data={data} currentLabel={String(d.year)} priorLabel={String(d.year - 1)} />
@@ -408,7 +408,7 @@ function MonthTableCard({ d, f, win, actions }: Ctx) {
   const by = byMonthOf(d, f);
   const none = { cur: emptyPath(), prev: emptyPath() };
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="The months in figures" note={`Every month of ${d.year} so far, against the same month of ${d.year - 1} · ${monthsLabel(win)} chosen`} right={actions} />
       <Table head={["Month", ...head.slice(1)]} rows={MONTHS.slice(0, Math.max(1, d.monthsDone)).map((m, i) => ({ key: m, cells: rowCells(m, by.get(mm(i)) ?? none) }))} />
     </GlassCard>
@@ -421,7 +421,7 @@ const countryRowsOf = (d: LeadsData, f: LeadFilters, win: MonthWindow) =>
 function CountryTableCard({ d, f, win, actions, onCountry, chosenCountries }: Ctx) {
   const rows = countryRowsOf(d, f, win);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country" note={`${monthsLabel(win)} ${d.year} · our focus markets first, then the biggest${onCountry ? " · click a country to filter by it" : ""}`} right={actions} />
       <Paged items={rows} size={10}>
         {(page) => <Table head={["Country", ...head.slice(1)]} rows={page.map(([k, e]) => ({ key: k, on: !!chosenCountries?.includes(k), onPick: onCountry ? () => onCountry(k) : undefined, cells: rowCells(k, e) }))} />}
@@ -453,7 +453,7 @@ function OwnerSplitCard({ d, f, win, actions }: Ctx) {
   const rows = [...m.entries()].sort((a, b) => b[1].all - a[1].all);
   const max = Math.max(1, ...rows.map(([, e]) => e.all));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="What became of each owner's leads" note={`${monthsLabel(win)} ${d.year} · each owner's new leads, from the first order to never reached by sales · the company's owner in HubSpot today, the most leads first`} right={actions} />
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
         {OWNER_PARTS.map((p) => (
@@ -500,7 +500,7 @@ function OwnerWaitingCard({ d, f, win, actions }: Ctx) {
   }
   const rows = [...waiting.entries()].filter(([, e]) => e.n > 0).sort((a, b) => b[1].n - a[1].n).slice(0, 15).map(([o, e]) => ({ label: ownerLabel(d, o), value: e.n, secondary: `of ${n0(e.of)} with sales` }));
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<VerifiedOutlinedIcon />} tint="amber" title="Waiting for the owner's qualification" note={`${monthsLabel(win)} ${d.year} · leads sent to sales (a UC2 task or an ESO/TSA ticket) with no answer yet in "Qualified by company owner"`} right={actions} />
       <ChartFrame table={{ columns: ["Owner", "Not qualified yet", "With sales"], rows: rows.map((r) => [r.label, r.value, r.secondary]), numeric: [1] }}>
         <BarList rows={rows} format={(v) => n0(v)} labelWidth={210} emptyMessage="Every lead with sales has its qualification." />
@@ -509,16 +509,46 @@ function OwnerWaitingCard({ d, f, win, actions }: Ctx) {
   );
 }
 
+/**
+ * Whose leads buy, and how: the share of each owner's new leads that bought after a sales contact,
+ * and the share that bought on their own before it (SARCLA 19.10: "the share per owner of converted
+ * leads, or the ones who bought on their own").
+ */
 function OwnerBuyCard({ d, f, win, actions }: Ctx) {
   const by = pathBy(d, win, f, (r) => r.o);
-  const rows = [...by.entries()].filter(([o, e]) => o && e.cur.companies >= 20)
-    .map(([o, e]) => ({ label: ownerLabel(d, o), value: (e.cur.customers / e.cur.companies) * 100, secondary: `${n0(e.cur.customers)} of ${n0(e.cur.companies)}` }))
-    .sort((a, b) => b.value - a.value);
+  const rows = [...by.entries()].filter(([o, e]) => o && e.cur.companies >= 20).map(([o, e]) => {
+    const c = e.cur, own = c.onOwn, after = c.customers - c.onOwn;
+    return { o, name: ownerLabel(d, o), all: c.companies, after, own, afterPct: (after / c.companies) * 100, ownPct: (own / c.companies) * 100 };
+  }).sort((a, b) => b.afterPct + b.ownPct - (a.afterPct + a.ownPct));
+  const max = Math.max(1, ...rows.map((r) => r.afterPct + r.ownPct));
+  const parts = [{ key: "after", label: "Bought after a sales contact", color: SERIES[2] }, { key: "own", label: "Bought on their own", color: SERIES[0] }] as const;
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
-      <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Whose leads buy" note={`${monthsLabel(win)} ${d.year} · the share of each owner's new leads that placed an order · owners with 20 leads or more`} right={actions} />
-      <ChartFrame table={{ columns: ["Owner", "Bought", "New customers"], rows: rows.map((r) => [r.label, pct(r.value), r.secondary]), numeric: [1] }}>
-        <BarList rows={rows} format={pct} labelWidth={210} />
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <CardTitle icon={<ShoppingCartOutlinedIcon />} tint="green" title="Whose leads buy" note={`${monthsLabel(win)} ${d.year} · the share of each owner's new leads that bought - after a sales contact, or on their own before it · owners with 20 leads or more`} right={actions} />
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        {parts.map((p) => (
+          <Box key={p.key} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: p.color }} />
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{p.label}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <ChartFrame table={{ columns: ["Owner", "Bought after a sales contact", "Bought on their own", "New leads"], rows: rows.map((r) => [r.name, `${pct(Math.round(r.afterPct * 10) / 10)} (${n0(r.after)})`, `${pct(Math.round(r.ownPct * 10) / 10)} (${n0(r.own)})`, r.all]), numeric: [1, 2, 3] }}>
+        <Box sx={{ display: "grid", gap: 0.9 }}>
+          {rows.map((r) => (
+            <Box key={r.o} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "190px minmax(0, 1fr) 170px" }, gap: { xs: 0.4, md: 1.5 }, alignItems: "center" }}>
+              <Typography noWrap title={r.name} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{r.name}</Typography>
+              <Box sx={{ display: "flex", gap: "2px", height: 16, width: `${((r.afterPct + r.ownPct) / max) * 100}%`, minWidth: 4 }}>
+                {r.after > 0 && <Box title={`Bought after a sales contact: ${n0(r.after)} of ${n0(r.all)}`} sx={{ flex: `${r.after} 0 0`, minWidth: 2, bgcolor: SERIES[2], borderRadius: r.own > 0 ? 0 : "0 4px 4px 0" }} />}
+                {r.own > 0 && <Box title={`Bought on their own: ${n0(r.own)} of ${n0(r.all)}`} sx={{ flex: `${r.own} 0 0`, minWidth: 2, bgcolor: SERIES[0], borderRadius: "0 4px 4px 0" }} />}
+              </Box>
+              <Typography sx={{ fontSize: "0.8rem", color: INK, textAlign: { md: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                <b>{pct(Math.round((r.afterPct + r.ownPct) * 10) / 10)}</b>
+                <Box component="span" sx={{ color: FAINT }}> · {pct(Math.round(r.afterPct * 10) / 10)} after, {pct(Math.round(r.ownPct * 10) / 10)} own</Box>
+              </Typography>
+            </Box>
+          ))}
+        </Box>
       </ChartFrame>
     </GlassCard>
   );
@@ -527,7 +557,7 @@ function OwnerBuyCard({ d, f, win, actions }: Ctx) {
 function OwnerTableCard({ d, f, win, actions }: Ctx) {
   const rows = [...pathBy(d, win, f, (r) => r.o).entries()].sort((a, b) => b[1].cur.companies - a[1].cur.companies);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="New leads by owner" note={`${monthsLabel(win)} ${d.year} · the company's owner in HubSpot today · those who left HubSpot marked "(left)"`} right={actions} />
       <Paged items={rows} size={15}>
         {(page) => <Table head={["Owner", "Leads", "To sales", "Qualified", "Not qualified", "Not yet", "New customers", "Revenue"]} rows={page.map(([o, e]) => ({ key: o || "none", cells: [ownerLabel(d, o), withChange(n0(e.cur.companies), change(e.cur.companies, e.prev.companies)), n0(e.cur.toSales), n0(e.cur.qualified), n0(e.cur.notQualified), n0(e.cur.notYet), n0(e.cur.customers), eur(e.cur.rev)] }))} />}
@@ -564,7 +594,7 @@ export function LeadPromoted({ spec, actions }: { spec: TileSpec; actions: React
   const c = CARDS[`${tab}:${card}`];
   if (!d || !c) {
     return (
-      <GlassCard sx={{ display: "grid", gap: 1 }}>
+      <GlassCard sx={{ display: "grid", gap: 1, alignContent: "start" }}>
         <CardTitle icon={<AltRouteIcon />} tint="blue" title={c?.title ?? spec.title} note={d ? "This card is no longer on the Lead Generation page." : "Reading the leads…"} right={actions} />
       </GlassCard>
     );
@@ -684,7 +714,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
 
       {tab === "sources" && (
         <>
-          <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+          <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
             <CardTitle icon={<AltRouteIcon />} tint="amber" title="New leads by source" note={`${monthsLabel(win)} ${year} against ${year - 1}, month by month · each one can go to the nutshell (Actions)`} />
             {tiles("sources", sourceIds)}
           </GlassCard>
@@ -695,7 +725,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
 
       {tab === "months" && (
         <>
-          <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+          <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
             <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="The path, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · these five start in the nutshell; each can be moved (Actions)`} />
             {tiles("months", ["leads", "toSales", "qualified", "customers", "conversion"])}
           </GlassCard>
@@ -710,7 +740,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
 
       {tab === "countries" && (
         <>
-          <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+          <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
             <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · our focus markets first, then the biggest - twelve; every country in the table · each one can go to the nutshell (Actions)`} />
             {tiles("countries", countryIds)}
           </GlassCard>
