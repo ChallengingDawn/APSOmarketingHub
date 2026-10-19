@@ -52,6 +52,11 @@ export type Ga4ReportName =
   | "visitLanding"
   | "visitCountryUsers"
   | "visitLoginUsers"
+  | "engageMonthly"
+  | "engageCube"
+  | "viewItemMonthly"
+  | "topItemsViewed"
+  | "engageEvents"
   | "transactionsChannel";
 
 type ReportSpec = {
@@ -59,8 +64,8 @@ type ReportSpec = {
   metrics: string[];
   /** Absent on dimensionless reports — GA4 rejects an orderBy there. */
   orderBy?: { metric?: string; dimension?: string; desc?: boolean };
-  /** A filter the report always carries, ANDed with any request filter. */
-  filter?: { field: string; value: string };
+  /** A filter the report always carries, ANDed with any request filter - one value, or any of a list. */
+  filter?: { field: string; value: string; values?: undefined } | { field: string; values: string[]; value?: undefined };
   limit: number;
 };
 
@@ -243,6 +248,39 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     filter: { field: "eventName", value: "login" },
     limit: 10000,
   },
+  // Engage (SARCLA 19.10: "let's tackle Engage next"): engagement per month, exact and by country x channel,
+  // the article views, the most viewed articles, the tools' and the site search's events
+  engageMonthly: {
+    dimensions: ["yearMonth"],
+    metrics: ["sessions", "engagedSessions", "userEngagementDuration", "activeUsers"],
+    orderBy: { dimension: "yearMonth" },
+    limit: 24,
+  },
+  engageCube: {
+    dimensions: ["yearMonth", "countryId", "sessionDefaultChannelGroup"],
+    metrics: ["sessions", "engagedSessions", "userEngagementDuration", "activeUsers"],
+    limit: 100000,
+  },
+  viewItemMonthly: {
+    dimensions: ["yearMonth"],
+    metrics: ["eventCount", "activeUsers"],
+    filter: { field: "eventName", value: "view_item" },
+    orderBy: { dimension: "yearMonth" },
+    limit: 24,
+  },
+  topItemsViewed: {
+    dimensions: ["itemName", "itemId"],
+    metrics: ["itemsViewed"],
+    orderBy: { metric: "itemsViewed", desc: true },
+    limit: 50,
+  },
+  engageEvents: {
+    // DirectUp (uploads, requests sent), the O-ring Expert, and the site search (searches, a result clicked)
+    dimensions: ["yearMonth", "eventName"],
+    metrics: ["eventCount", "activeUsers"],
+    filter: { field: "eventName", values: ["directup_form_submit_manualupload", "directup_form_submit", "oring_expert_add_to_cart", "view_search_results", "search_results_click"] },
+    limit: 200,
+  },
   transactionsChannel: {
     // Each web order GA4 saw, by its order number and the channel of the session it came in:
     // the hub matches the number to the HubSpot order and its company (customers from search).
@@ -392,7 +430,7 @@ export async function fetchGa4Report(params: {
       ...(() => {
         const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value } } });
         const filters = [
-          ...(spec.filter ? [exact(spec.filter.field, spec.filter.value)] : []),
+          ...(spec.filter ? [spec.filter.values ? { filter: { fieldName: spec.filter.field, inListFilter: { values: spec.filter.values } } } : exact(spec.filter.field, spec.filter.value!)] : []),
           ...(params.pagePath ? [exact("pagePath", params.pagePath)] : []),
           ...(params.channelGroup ? [exact("sessionDefaultChannelGroup", params.channelGroup)] : []),
           ...(params.eventName ? [exact("eventName", params.eventName)] : []),

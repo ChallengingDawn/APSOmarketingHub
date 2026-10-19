@@ -7,7 +7,7 @@
 //          check-out abandonment and the GA4 figures as reported come from it)
 //   live   read by the hub itself (HubSpot, GA4, Search Console)
 
-export type Fmt = "int" | "pct" | "eur" | "chf" | "dec1" | "dec2" | "x";
+export type Fmt = "int" | "pct" | "eur" | "chf" | "dec1" | "dec2" | "x" | "sec";
 export type Agg =
   | { kind: "sum" }
   | { kind: "avg" }
@@ -72,8 +72,23 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   M({ id: "V06G", label: "Visitors who logged in", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4",
     note: "GA4's users per month with a login event" }),
   M({ id: "V06U", label: "Visitors (for the logins)", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
-  M({ id: "E01", label: "Bounce rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false, note: "Max 50%, lower is better" }),
-  M({ id: "E02", label: "Engagement rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", note: "60% B2B standard, 75% strong" }),
+  // Engage live from GA4, the search bar's log and the live shop tracker (SARCLA 19.10: "let's tackle Engage next");
+  // E01/E02 were typed - the typed months stand in when GA4 does not answer, the targets stay
+  M({ id: "E01", label: "Bounce rate", fmt: "pct", agg: { kind: "ratio", num: "E01N", den: "E02D" }, origin: "live", liveSource: "GA4", goodWhenUp: false, definition: "Sessions without engagement / all sessions (GA4: 1 - engagement rate)", note: "Max 50%, lower is better" }),
+  M({ id: "E02", label: "Engagement rate", fmt: "pct", agg: { kind: "ratio", num: "E02N", den: "E02D" }, origin: "live", liveSource: "GA4", definition: "Engaged sessions / all sessions (GA4: 10 seconds or more, 2 pages, or an order)", note: "60% B2B standard, 75% strong" }),
+  M({ id: "E01N", label: "Sessions without engagement", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E02N", label: "Engaged sessions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E02D", label: "Sessions (engagement)", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E03", label: "Average engagement time", fmt: "sec", agg: { kind: "ratio", num: "E03S", den: "E03U" }, origin: "live", liveSource: "GA4", definition: "GA4's engagement time per visitor - the time the shop was in front, month by month" }),
+  M({ id: "E03S", label: "Engagement seconds", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E03U", label: "Visitors (engagement)", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E04", label: "Article views", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "Article pages viewed (GA4's view_item), month by month - the most viewed below" }),
+  M({ id: "E04U", label: "Visitors who viewed an article", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E05", label: "Site searches", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "the search bar", definition: "Searches in the shop's search bar, from its own log (every search, cookies or not)" }),
+  M({ id: "E05N", label: "Searches that found nothing", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true }),
+  M({ id: "E05Z", label: "Searches that found nothing", fmt: "pct", agg: { kind: "ratio", num: "E05N", den: "E05" }, origin: "live", notCatalogue: true, goodWhenUp: false, liveSource: "the search bar", note: "Of the searches in the search bar, the share without a result" }),
+  M({ id: "E06", label: "Tool usage", fmt: "int", agg: { kind: "sum" }, origin: "live", liveSource: "GA4", definition: "DirectUp drawings uploaded and requests sent, O-ring Expert to the cart (GA4 events) - DirectCut and C2S send none yet" }),
+  M({ id: "E07", label: "Price checks", fmt: "int", agg: { kind: "ytd" }, origin: "live", liveSource: "the live shop tracker", definition: "Customers who priced 3+ KT/DT articles in a day and did not order (the Datatracker's rule) - since the live shop tracker started" }),
   M({ id: "K02", label: "Cart abandonment rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false }),
   M({ id: "K03", label: "Check-out abandonment rate", fmt: "pct", agg: { kind: "avg" }, origin: "sheet", goodWhenUp: false }),
   M({ id: "P01", label: "Purchases (online orders)", fmt: "int", agg: { kind: "sum" }, origin: "sheet" }),
@@ -192,5 +207,7 @@ export function fmtValue(fmt: Fmt, v: number | null | undefined): string {
     case "dec1": return v.toFixed(1);
     case "dec2": return v.toFixed(2);
     case "x": return v.toFixed(1);
+    // engagement time: "4 min 41 s"
+    case "sec": return `${Math.floor(v / 60)} min ${String(Math.round(v % 60)).padStart(2, "0")} s`;
   }
 }

@@ -9,6 +9,8 @@ import { aeoData } from "@/lib/aeo/read";
 import { assistantWindows, citedWindows, r10Series } from "@/lib/aeo/model";
 import { visitData } from "@/lib/marketingKpis/visit";
 import { visitSeries, visitYtd } from "@/lib/marketingKpis/visitCube";
+import { engageData } from "@/lib/marketingKpis/engage";
+import { engageSeries, engageYtd } from "@/lib/marketingKpis/engageCube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +20,14 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("reporting")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [inputs, live, aeo, visit] = await Promise.all([readInputs(), marketingKpisLive(), aeoData().catch(() => null), visitData().catch(() => null)]);
+    const [inputs, live, aeo, visit, engage] = await Promise.all([readInputs(), marketingKpisLive(), aeoData().catch(() => null), visitData().catch(() => null), engageData().catch(() => null)]);
     // Visit & traffic origin from GA4 (V01-V08), as current as that read (SARCLA 18.10)
     if (live.value && visit?.value) {
       live.value = { ...live.value, series: { ...live.value.series, ...visitSeries(visit.value, live.value.year) }, ytd: { ...live.value.ytd, ...visitYtd(visit.value) } };
+    }
+    // Engage from GA4, the search bar's log and the live shop tracker (E01-E07, SARCLA 19.10)
+    if (live.value && engage?.value) {
+      live.value = { ...live.value, series: { ...live.value.series, ...engageSeries(engage.value, live.value.year) }, ytd: { ...live.value.ytd, ...engageYtd(engage.value) } };
     }
     // R10 "AI search visibility (GEO)" from the AEO answers the hub keeps, as current as that read (SARCLA 17.10)
     if (live.value && aeo?.value?.runs.length) {

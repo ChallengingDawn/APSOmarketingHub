@@ -38,7 +38,9 @@ test("derived months come from their parts, and stop where a part is missing", (
 });
 
 test("averages and empty years", () => {
-  assert.equal(Math.round(ytd("E01")! * 10000) / 10000, 0.2926);  // mean of the typed months
+  assert.equal(Math.round(ytd("K02")! * 10000) / 10000, 0.3004);  // mean of the typed months (E01 is GA4's ratio since 19.10)
+  assert.equal(MEASURES.E01.origin, "live");
+  assert.equal(fmtValue("sec", 281), "4 min 41 s");
   assert.equal(total("V01", typed("V01"), "py", get, 9), null);  // no last year in the sheet
 });
 
@@ -59,11 +61,11 @@ test("the catalogue is SARCLA's: 74 KPIs in 10 stages, his renames, tags, notes 
 
 test("every measured KPI is in the catalogue (SEA cost is the journey's extra), and typing covers the sheet", () => {
   // X01 is the journey's extra, R08B the brand clicks the brand share (R08) is made of; R11's open and click rates and their parts sit beside it
-  for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D", "R11O", "R11C", "R11OP", "R11CL", "MSV", "MSO", "MSR", "R01M", "R02M", "X01M", "V02N", "V06S", "V06G", "V06U", "R03M", "R01T", "R02T"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
+  for (const id of Object.keys(MEASURES)) if (!["X01", "R08B", "R10N", "R10D", "R11O", "R11C", "R11OP", "R11CL", "MSV", "MSO", "MSR", "R01M", "R02M", "X01M", "V02N", "V06S", "V06G", "V06U", "R03M", "R01T", "R02T", "E01N", "E02N", "E02D", "E03S", "E03U", "E04U", "E05N", "E05Z"].includes(id)) assert.ok(KPIS.some((k) => k.id === id), id);
   // Reach is live since 17.10.2026 - SEO from Search Console, SEA from Google Ads: R01, R02, R04-R07 are no longer typed
   // Microsoft Ads' impressions, clicks and cost come from the script's sheet - never typed (18.10.2026)
   // V01 live from GA4 since 18.10.2026 (the Visit page)
-  assert.deepEqual([...TYPED].sort(), ["E01", "E02", "K02", "K03", "P01", "P05", "P07", "X01"]);
+  assert.deepEqual([...TYPED].sort(), ["K02", "K03", "P01", "P05", "P07", "X01"]); // E01/E02 live from GA4 since 19.10
 });
 
 test("formats", () => {
