@@ -130,7 +130,7 @@ function loadLayers(cc: string): Promise<LayerData | null> {
   return p;
 }
 
-function useLayers(cc: string): { data: LayerData | null; loading: boolean } {
+export function useLayers(cc: string): { data: LayerData | null; loading: boolean } {
   const [got, setGot] = useState<{ cc: string; data: LayerData | null } | null>(null);
   useEffect(() => {
     let live = true;

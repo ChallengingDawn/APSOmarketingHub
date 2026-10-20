@@ -60,7 +60,7 @@ function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n,
       <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft}
         top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />} onRules={() => setRulesOpen(true)} />
       <RulesDialog open={rulesOpen} onClose={() => setRulesOpen(false)} cc={cc} setCc={setCc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette}
-        rev={rev} byZone={m.status === "ok" ? m.byZone : null} n={n} dirty={dirty} busy={busy} check={check} msg={msg} onSave={onSave} onUndo={onUndo}
+        rev={rev} m={m} n={n} dirty={dirty} busy={busy} check={check} msg={msg} onSave={onSave} onUndo={onUndo}
         seededNow={seededNow} onSeeded={onSeeded} />
     </>
   );

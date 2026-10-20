@@ -1,14 +1,16 @@
 "use client";
 
-// MAP ASSIGNMENT - the rules, in a big window (SARCLA 20.10.2026: "menus are still really complicated - open a big popup
-// with tabs to separate the jobs, and in order to steer"). One tab per job, in the order the engine decides:
-//   1 · Performis SAE     rule 1: each SAE of the country -> the workflow's person; overrule it for this country
-//                         (CountryRule.saeOverride); rule 1 on or off for the country
-//   2 · Postcodes         rule 2, the fallback for companies without an SAE yet: the zones (swap the person, the
-//                         postcodes, whole regions), and where a postcode in no zone goes
-//   Key accounts          ERP customers that go to one person whatever the rules say
-//   Who works {country}   an SAE whose person is not in this list is not used there - rule 2 decides
-//   SAE table             the workflow's table, every country: SAE -> person
+// MAP ASSIGNMENT - the rules, in a big window. SARCLA 20.10.2026: "menus are still really complicated - open a big popup
+// with tabs to separate the jobs, and in order to steer"; then "still too confusing: I want to see per country rule 1 -
+// columns SAE Performis -> Region responsibility -> Company owner -> Contact owner -> Override, inline owner per column;
+// the override column replaces the person of an SAE for that country (redirection); then the same per zip code as rule
+// 2, with the list of zip codes at the end (also selectable on the map) - new contacts often go through the zip one;
+// problems and stuff should not be on this first window; a toggle KPI shows what we see today. Build this one, then the
+// other tabs." So:
+//   Rules       rule 1 (each SAE of the country: the three properties it fills, the person, an override) and rule 2
+//               (each postcode zone the same way, its postcodes at the end; and where a postcode in no zone goes);
+//               the KPI toggle turns the same rows into figures: companies, contacts, owner now -> after
+//   Key accounts, Who works {country}, SAE table (every country) - the other jobs, one tab each
 // Every edit is the page's draft (the map behind recolours at once); Save here or on the page's bar keeps it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,17 +27,20 @@ import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { full } from "@/app/charts/format";
 import { FAINT, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { Chip, Choice, usePaged } from "@/app/connectors/parts";
-import { saeKey, type AssignRules, type CountryRule, type OwnerId, type Zone } from "@/lib/mapAssign/rules";
-import type { MapData, PerformisData, SaeStat } from "@/lib/mapAssign/api";
+import { Chip, Choice } from "@/app/connectors/parts";
+import { saeKey, type AssignRules, type CountryRule, type Zone } from "@/lib/mapAssign/rules";
+import type { MapData, PerformisData } from "@/lib/mapAssign/api";
 import {
   API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, newId, prefixProblem, saeTarget, splitIds, splitPrefixes,
-  splitRegions, useCountryGeo, withOverride, type Names, type Palette, type SetDraft,
+  splitRegions, withOverride, type Names, type Palette, type SetDraft,
 } from "./shared";
 import { CountryMenu, PillGroup } from "./mapTabs";
-import { RuleTag } from "./SidePanel";
+import { OwnerTable, RuleTag, km2Text, nowAfter } from "./SidePanel";
+import { useLayers, type CountryMap } from "./MapPanel";
+import { joinLayer } from "./mapModel";
 
-type Tab = "sae" | "zones" | "keys" | "people" | "table";
+type Tab = "rules" | "keys" | "people" | "table";
+type Mode = "rules" | "kpi";
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
 const head = { fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.05em" };
 const row = { display: "grid", gap: 1.25, alignItems: "center", px: 1.25, py: 0.9, borderBottom: `1px solid ${HAIRLINE}` };
@@ -54,107 +59,36 @@ function usePerformis(n: number): Got {
   return { state: "error", error: r.state === "error" ? r.error : "not configured" };
 }
 
-/* ── 1 · Performis SAE ── */
+/* ── the rules: rule 1 and rule 2, one table each ── */
 
-function SaeTab({ cc, got, rules, setDraft, names, palette, admin }: {
-  cc: string; got: Got; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean;
-}) {
-  const c = countryName(cc);
-  const rule = rules.countries[cc];
-  const off = rule?.source === "map";
-  const fallback = rule?.defaultOwner || rules.defaultOwner;
-  const [q, setQ] = useState("");
-  const [only, setOnly] = useState<"all" | "overruled" | "rule2">("all");
-  const all = useMemo(() => (got.state === "ok" ? got.data.sae.filter((s) => (s.country || "??") === cc && s.sae) : []).sort((a, b) => b.companies - a.companies), [got, cc]);
-  const noSae = got.state === "ok" ? got.data.sae.find((s) => (s.country || "??") === cc && !s.sae) : undefined;
-  const setRule = (f: (r: CountryRule) => CountryRule) => setDraft((dr) => ({ ...dr, countries: { ...dr.countries, [cc]: f(dr.countries[cc] ?? emptyRule(cc)) } }));
-  const redirect = (sae: string, owner: OwnerId | null) => setRule((r) => withOverride(r, sae, owner));
-  const tableOf = (s: string) => { const k = Object.keys(rules.sae).find((x) => saeKey(x) === saeKey(s)); return k !== undefined ? String(rules.sae[k]) : null; };
-  const kind = (s: SaeStat) => { const t = saeTarget(rules, cc, s.sae); return t.how === "redirect" ? "overruled" : t.how === "unmapped" || t.how === "not-in-country" ? "rule2" : "table"; };
-  const needle = q.trim().toLowerCase();
-  const rows = all.filter((s) => (only === "all" || kind(s) === only) && (!needle || s.sae.toLowerCase().includes(needle) || names.name(tableOf(s.sae) ?? "").toLowerCase().includes(needle)));
-  const { slice, pager } = usePaged(rows, 15);
-  const cols = { xs: "minmax(0, 1fr)", md: "minmax(160px, 1.2fr) 90px 90px minmax(150px, 1fr) minmax(220px, 1.3fr)" };
+/** A person in a cell: the colour and the name; "over" = an override decided it. */
+function Who({ owner, names, palette, over, empty }: { owner: string | null; names: Names; palette: Palette; over?: boolean; empty?: string }) {
+  if (!owner) return <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>{empty ?? "—"}</Typography>;
   return (
-    <Box sx={{ display: "grid", gap: 1.5 }}>
-      <Typography sx={hint}>
-        <RuleTag n={1} />As the workflow <b>SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS</b>: each company&apos;s SAE goes to its person - the company&apos;s owner and region responsibility, and each contact&apos;s owner, region responsibility and SAE. <b>Overrule</b> an SAE to give its companies in {c} to someone else.
-      </Typography>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>Rule 1 in {c}</Typography>
-        <Choice<"sae" | "map"> value={rule?.source ?? "sae"} onChange={(source) => admin && setRule((r) => ({ ...r, source }))} options={[
-          { key: "sae", label: "On - the SAE first" },
-          { key: "map", label: "Off - postcodes only" },
-        ]} />
-      </Box>
-      {off ? <Typography sx={{ ...hint, color: "#a96a12" }}>Rule 1 is off in {c}: the postcodes (tab 2) decide every company.</Typography> : (
-        <>
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-            <Choice<"all" | "overruled" | "rule2"> value={only} onChange={setOnly} options={[
-              { key: "all", label: "All", count: all.length },
-              { key: "overruled", label: "Overruled", count: all.filter((s) => kind(s) === "overruled").length },
-              { key: "rule2", label: "Fall to rule 2", count: all.filter((s) => kind(s) === "rule2").length },
-            ]} />
-            <Box sx={{ flex: 1 }} />
-            <TextField size="small" placeholder="find an SAE or person" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: { xs: "100%", sm: 240 } }} />
-          </Box>
-          {got.state === "loading" && <Box sx={{ display: "flex", gap: 1, alignItems: "center", color: MUTED }}><CircularProgress size={14} /><Typography sx={hint}>Reading the SAE values of {c}…</Typography></Box>}
-          {got.state === "error" && <Typography sx={{ ...hint, color: RED }}>Not readable: {got.error}</Typography>}
-          {got.state === "ok" && (
-            <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
-              <Box sx={{ ...row, gridTemplateColumns: cols, display: { xs: "none", md: "grid" }, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
-                <Typography sx={head}>SAE (Performis)</Typography>
-                <Typography sx={{ ...head, textAlign: "right" }}>Companies</Typography>
-                <Typography sx={{ ...head, textAlign: "right" }}>Contacts</Typography>
-                <Typography sx={head}>The workflow gives</Typography>
-                <Typography sx={head}>Overrule in {c}</Typography>
-              </Box>
-              {slice.map((s) => {
-                const t = saeTarget(rules, cc, s.sae);
-                const table = tableOf(s.sae);
-                const left = !!t.owner && (t.how === "table" || t.how === "redirect") && !names.active(t.owner);
-                const note = t.how === "redirect" ? `overruled: ${names.name(t.owner)} instead of ${table ? names.name(table) : "nobody"}`
-                  : t.how === "unmapped" ? "nobody - rule 2 decides" : t.how === "not-in-country" ? `${names.name(t.owner)} does not work ${c} - rule 2 decides`
-                  : left ? `${names.name(t.owner)} has left - ${names.name(fallback)}` : null;
-                return (
-                  <Box key={s.sae} sx={{ ...row, gridTemplateColumns: cols, bgcolor: t.how === "redirect" ? "rgba(98,80,214,.05)" : "transparent" }}>
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s.sae}>{s.sae}</Typography>
-                      {note && <Typography sx={{ fontSize: "0.74rem", color: t.how === "redirect" ? "#6250d6" : "#a96a12", fontWeight: t.how === "redirect" ? 600 : 400 }}>{note}</Typography>}
-                    </Box>
-                    <Typography sx={numSx}>{full(s.companies)}<Box component="span" sx={{ display: { md: "none" }, color: MUTED }}> companies · {full(s.contacts)} contacts</Box></Typography>
-                    <Typography sx={{ ...numSx, display: { xs: "none", md: "block" } }}>{full(s.contacts)}</Typography>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
-                      {table ? <><Swatch paint={palette(table)} size={12} /><Typography sx={{ fontSize: "0.84rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names.name(table)}</Typography></>
-                        : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>nobody</Typography>}
-                    </Box>
-                    <OwnerPicker value={t.how === "redirect" ? t.owner ?? "" : ""} names={names} disabled={!admin} allowEmpty placeholder="keep the workflow's person"
-                      onChange={(o) => redirect(s.sae, o || null)} />
-                  </Box>
-                );
-              })}
-              {!rows.length && <Typography sx={{ ...hint, p: 1.5 }}>{all.length ? "Nothing with this filter." : `No company in ${c} has a Performis SAE.`}</Typography>}
-            </Box>
-          )}
-          {pager}
-          {noSae && <Typography sx={hint}>{full(noSae.companies)} companies in {c} have no SAE yet - the postcodes (tab 2) decide them until the ERP sends one.</Typography>}
-        </>
-      )}
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+      <Swatch paint={palette(owner)} size={12} />
+      <Typography sx={{ fontSize: "0.84rem", fontWeight: over ? 700 : 500, color: over ? "#5b45c9" : INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names.name(owner)}</Typography>
     </Box>
   );
 }
 
-/* ── 2 · Postcodes ── */
+function Table({ cols, heads, children }: { cols: string; heads: React.ReactNode[]; children: React.ReactNode }) {
+  return (
+    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
+      <Box sx={{ ...row, gridTemplateColumns: cols, display: { xs: "none", md: "grid" }, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
+        {heads.map((h, i) => <Typography key={i} component="div" sx={head}>{h}</Typography>)}
+      </Box>
+      {children}
+    </Box>
+  );
+}
 
-const shortRegions = (regions: string[] | undefined, cc: string) => (regions ?? []).map((r) => (r.startsWith(`${cc}-`) ? r.slice(cc.length + 1) : r)).join(", ");
+const PROPS = ["Region responsibility", "Company owner", "Contact owner"];
 
-function ZoneRow({ zone, i, cc, names, palette, count, admin, regionNames, onChange, onRemove }: {
-  zone: Zone; i: number; cc: string; names: Names; palette: Palette; count: number | null; admin: boolean;
-  regionNames: Map<string, string> | null; onChange: (z: Zone) => void; onRemove: () => void;
-}) {
+/** Postcodes and regions of a zone, as typed; a click on the map shows here, what is being typed stays as typed. */
+function ZoneCodes({ zone, cc, admin, onChange }: { zone: Zone; cc: string; admin: boolean; onChange: (z: Zone) => void }) {
   const [text, setText] = useState(zone.prefixes.join(", "));
   const [rtext, setRtext] = useState(shortRegions(zone.regions, cc));
-  // a click on the map shows here; what is being typed stays as typed
   useEffect(() => {
     if (canon(splitPrefixes(text)) !== canon(zone.prefixes)) setText(zone.prefixes.join(", "));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,73 +98,204 @@ function ZoneRow({ zone, i, cc, names, palette, count, admin, regionNames, onCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zone.regions, cc]);
   const bad = zone.prefixes.map(prefixProblem).filter((x): x is string => !!x);
-  const regions = zone.regions ?? [];
-  const unknown = regionNames ? regions.filter((r) => !regionNames.has(r)) : [];
-  const known = regionNames ? regions.filter((r) => regionNames.has(r)).map((r) => regionNames.get(r)!) : [];
   return (
-    <Box sx={{ ...row, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "28px minmax(200px, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) 80px 36px" } }}>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, pt: 1, display: { xs: "none", md: "block" } }}>{i + 1}</Typography>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
-        <Swatch paint={palette(zone.owner)} size={13} />
-        <OwnerPicker value={zone.owner} names={names} disabled={!admin} onChange={(owner) => onChange({ ...zone, owner })} sx={{ flex: 1, minWidth: 0 }} />
-      </Box>
-      <TextField size="small" multiline maxRows={4} value={text} disabled={!admin} placeholder="postcodes: 30-38, 40-49, 869" error={bad.length > 0}
-        aria-label={`Zone ${i + 1} postcodes`} helperText={bad.length ? bad.join("; ") : undefined}
+    <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
+      <TextField size="small" multiline maxRows={3} value={text} disabled={!admin} placeholder="zip codes: 30-38, 40-49" error={bad.length > 0}
+        helperText={bad.length ? bad.join("; ") : undefined} aria-label="Zip codes of the zone"
         onChange={(e) => { setText(e.target.value); onChange({ ...zone, prefixes: splitPrefixes(e.target.value) }); }} />
-      <TextField size="small" multiline maxRows={3} value={rtext} disabled={!admin} placeholder="or whole regions: BE, VS" error={unknown.length > 0}
-        aria-label={`Zone ${i + 1} regions`}
-        helperText={unknown.length ? `${unknown.join(", ")}: not a region of ${countryName(cc)}` : known.length ? known.slice(0, 3).join(", ") + (known.length > 3 ? ` +${known.length - 3}` : "") : undefined}
-        onChange={(e) => {
-          setRtext(e.target.value);
-          const next = splitRegions(e.target.value, cc);
-          const z: Zone = { ...zone, regions: next };
-          if (!next.length) delete z.regions;
-          onChange(z);
-        }} />
-      <Typography sx={{ ...numSx, pt: { md: 1 } }}>{count !== null ? `${full(count)}` : "—"}<Box component="span" sx={{ display: { md: "none" }, color: MUTED }}> postcodes on the map</Box></Typography>
-      {admin ? <IconButton size="small" onClick={onRemove} aria-label={`Remove zone ${i + 1}`} sx={{ justifySelf: { xs: "end", md: "center" } }}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
+      {(admin || (zone.regions ?? []).length > 0) && (
+        <TextField size="small" value={rtext} disabled={!admin} placeholder="or whole regions: BE, VS" aria-label="Regions of the zone"
+          onChange={(e) => {
+            setRtext(e.target.value);
+            const next = splitRegions(e.target.value, cc);
+            const z: Zone = { ...zone, regions: next };
+            if (!next.length) delete z.regions;
+            onChange(z);
+          }} />
+      )}
     </Box>
   );
 }
 
-function ZonesTab({ cc, rules, setDraft, names, palette, admin, rev, byZone }: {
-  cc: string; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean; rev: number; byZone: Map<string, number> | null;
+const shortRegions = (regions: string[] | undefined, cc: string) => (regions ?? []).map((r) => (r.startsWith(`${cc}-`) ? r.slice(cc.length + 1) : r)).join(", ");
+
+function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, mode }: {
+  cc: string; got: Got; rules: AssignRules; d: MapData; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean; rev: number;
+  m: CountryMap; mode: Mode;
 }) {
   const c = countryName(cc);
   const rule = rules.countries[cc];
-  const geo = useCountryGeo(cc);
-  const regionNames = useMemo(() => (geo?.shapes ? new Map(geo.shapes.regions.map((r) => [r.code, r.name])) : null), [geo]);
+  const seeded = d.seeded.countries[cc];
+  const off = rule?.source === "map";
   const setRule = (f: (r: CountryRule) => CountryRule) => setDraft((dr) => ({ ...dr, countries: { ...dr.countries, [cc]: f(dr.countries[cc] ?? emptyRule(cc)) } }));
-  const zones = rule?.zones ?? [];
-  return (
-    <Box sx={{ display: "grid", gap: 1.5 }}>
-      <Typography sx={hint}>
-        <RuleTag n={2} />The fallback for companies <b>without an SAE yet</b> - new companies and contacts the ERP has not sent. {rule?.source === "map" ? `Rule 1 is off in ${c}: these zones decide every company.` : "Once the ERP sends an SAE, rule 1 takes over."} <b>Swap</b> a zone by picking another person; or click a region or postcode on the map.
-      </Typography>
-      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
-        <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: "28px minmax(200px, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) 80px 36px", bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
-          <span />
-          <Typography sx={head}>Person</Typography>
-          <Typography sx={head}>Postcodes (prefixes, ranges)</Typography>
-          <Typography sx={head}>Or whole regions</Typography>
-          <Typography sx={{ ...head, textAlign: "right" }}>On map</Typography>
-          <span />
-        </Box>
-        {zones.map((z, i) => (
-          <ZoneRow key={`${rev}-${z.id}`} zone={z} i={i} cc={cc} names={names} palette={palette} admin={admin} regionNames={regionNames}
-            count={byZone ? byZone.get(z.id) ?? 0 : null}
-            onChange={(nz) => setRule((r) => ({ ...r, zones: r.zones.map((x) => (x.id === z.id ? nz : x)) }))}
-            onRemove={() => setRule((r) => ({ ...r, zones: r.zones.filter((x) => x.id !== z.id) }))} />
-        ))}
-        {!zones.length && <Typography sx={{ ...hint, p: 1.5 }}>No zones: every postcode goes to the person below.</Typography>}
-      </Box>
-      {admin && <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", justifySelf: "start" }}
-        onClick={() => setRule((r) => ({ ...r, zones: [...r.zones, { id: newId("z"), owner: "", prefixes: [] }] }))}>Add a zone</Button>}
+  const tableOf = (sae: string) => { const k = Object.keys(rules.sae).find((x) => saeKey(x) === saeKey(sae)); return k !== undefined ? String(rules.sae[k]) : null; };
+  const saes = useMemo(() => (got.state === "ok" ? got.data.sae.filter((x) => (x.country || "??") === cc && x.sae) : []).sort((a, b) => b.companies - a.companies), [got, cc]);
+  const kpi = mode === "kpi";
+
+  // rule 2 figures per zone (KPI): postcodes and km² from the map, companies the postcodes decide from the scan
+  const layers = useLayers(cc);
+  const zoneFig = useMemo(() => {
+    const out = new Map<string, { postcodes: number; km2: number; companies: number }>();
+    const base = m.base;
+    if (!base) return out;
+    const joined = layers.data ? joinLayer(base, layers.data) : null;
+    const at = (id: string) => out.get(id) ?? (out.set(id, { postcodes: 0, km2: 0, companies: 0 }), out.get(id)!);
+    base.points.forEach((pt, i) => { const f = at(m.picks[i]?.zoneId ?? ""); f.postcodes++; f.km2 += pt.km2; });
+    if (joined) base.cells.forEach((pts, ci) => {
+      const v = joined.cells[ci]?.via;
+      if (v) at(m.picks[pts[0]]?.zoneId ?? "").companies += (v.zone ?? 0) + (v.default ?? 0);
+    });
+    return out;
+  }, [m, layers.data]);
+
+  /* rule 1 */
+  const r1Rules = "minmax(150px, 1.1fr) repeat(3, minmax(130px, 1fr)) minmax(210px, 1.2fr)";
+  const r1Kpi = "minmax(150px, 1.1fr) 100px 100px minmax(170px, 1.3fr) minmax(140px, 1fr) 100px";
+  const rule1 = (
+    <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>A postcode in no zone goes to</Typography>
-        <OwnerPicker value={rule?.defaultOwner ?? ""} names={names} disabled={!admin} allowEmpty placeholder={`${names.name(rules.defaultOwner)} (everywhere)`}
-          onChange={(o) => setRule((r) => ({ ...r, defaultOwner: o || null }))} sx={{ minWidth: 260 }} />
+        <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={1} />Performis SAE</Typography>
+        <Typography sx={{ ...hint, flex: 1, minWidth: 220 }}>Each SAE goes to its person, as the workflow SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS.</Typography>
+        <Choice<"sae" | "map"> value={rule?.source ?? "sae"} onChange={(source) => admin && setRule((r) => ({ ...r, source }))} options={[
+          { key: "sae", label: "On" }, { key: "map", label: "Off" },
+        ]} />
       </Box>
+      {off ? <Typography sx={hint}>Rule 1 is off in {c}: rule 2 decides every company.</Typography>
+        : got.state === "loading" ? <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={14} /><Typography sx={hint}>Reading the SAE values of {c}…</Typography></Box>
+        : got.state === "error" ? <Typography sx={{ ...hint, color: RED }}>Not readable: {got.error}</Typography>
+        : (
+          <Table cols={kpi ? r1Kpi : r1Rules} heads={kpi
+            ? ["SAE Performis", <Box key="c" sx={{ textAlign: "right" }}>Companies</Box>, <Box key="k" sx={{ textAlign: "right" }}>Contacts</Box>, "Owner in HubSpot now", "After", <Box key="m" sx={{ textAlign: "right" }}>To change</Box>]
+            : ["SAE Performis", ...PROPS, "Override"]}>
+            {saes.map((x) => {
+              const t = saeTarget(rules, cc, x.sae);
+              const person = t.how === "table" || t.how === "redirect" ? t.owner : null;
+              const over = t.how === "redirect";
+              const wf = tableOf(x.sae);
+              return (
+                <Box key={x.sae} sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: kpi ? r1Kpi : r1Rules }, bgcolor: over ? "rgba(98,80,214,.05)" : "transparent" }}>
+                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={x.sae}>{x.sae}</Typography>
+                  {kpi ? (
+                    <>
+                      <Typography sx={numSx}>{full(x.companies)}</Typography>
+                      <Typography sx={numSx}>{full(x.contacts)}</Typography>
+                      <Box sx={{ display: "grid", gap: 0.25, minWidth: 0 }}>
+                        {[...x.ownerNow].sort((a, b) => b.companies - a.companies).slice(0, 3).map((o) => (
+                          <Box key={o.owner ?? "none"} sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}><Who owner={o.owner} names={names} palette={palette} empty="nobody" /></Box>
+                            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(o.companies)}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                      <Who owner={person} names={names} palette={palette} over={over} empty="rule 2" />
+                      <Typography sx={{ ...numSx, fontWeight: x.companiesOff ? 700 : 400, color: x.companiesOff ? "#8a560c" : FAINT }}>{x.companiesOff ? full(x.companiesOff) : "—"}</Typography>
+                    </>
+                  ) : (
+                    <>
+                      {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0 }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={person} names={names} palette={palette} over={over} empty="rule 2 (zip)" /></Box>)}
+                      <OwnerPicker value={over ? t.owner ?? "" : ""} names={names} disabled={!admin} allowEmpty placeholder={wf ? `keep ${names.name(wf)}` : "pick someone"}
+                        onChange={(o) => setRule((r) => withOverride(r, x.sae, o || null))} />
+                    </>
+                  )}
+                </Box>
+              );
+            })}
+            {!saes.length && <Typography sx={{ ...hint, p: 1.5 }}>No company in {c} has a Performis SAE.</Typography>}
+          </Table>
+        )}
+    </Box>
+  );
+
+  /* rule 2 */
+  const zones = rule?.zones ?? [];
+  const r2Rules = "minmax(120px, 0.8fr) repeat(3, minmax(130px, 1fr)) minmax(190px, 1fr) minmax(220px, 1.5fr) 36px";
+  const r2Kpi = "minmax(120px, 0.8fr) minmax(150px, 1fr) 100px 110px 120px minmax(160px, 1.4fr)";
+  const seededOwner = (id: string) => seeded?.zones.find((z) => z.id === id)?.owner ?? null;
+  const countryDefault = rule?.defaultOwner || null;
+  const defaultPerson = countryDefault || rules.defaultOwner;
+  const rule2 = (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
+        <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={2} />Zip codes</Typography>
+        <Typography sx={{ ...hint, flex: 1, minWidth: 220 }}>{off ? `Every company in ${c}.` : "Companies and new contacts without an SAE yet - until the ERP sends one."} Change a zone here or click it on the map.</Typography>
+      </Box>
+      <Table cols={kpi ? r2Kpi : r2Rules} heads={kpi
+        ? ["Zone", "Person", <Box key="p" sx={{ textAlign: "right" }}>Zip codes</Box>, <Box key="k" sx={{ textAlign: "right" }}>km²</Box>, <Box key="c" sx={{ textAlign: "right" }}>Companies</Box>, "Zip codes"]
+        : ["Zone", ...PROPS, "Override", "Zip codes", ""]}>
+        {zones.map((z, i) => {
+          const was = seededOwner(z.id);
+          const over = !!was && z.owner !== was;
+          const f = zoneFig.get(z.id);
+          return (
+            <Box key={`${rev}-${z.id}`} sx={{ ...row, alignItems: kpi ? "center" : "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: kpi ? r2Kpi : r2Rules }, bgcolor: over ? "rgba(98,80,214,.05)" : "transparent" }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, pt: kpi ? 0 : 0.75 }}>{z.label || `Zone ${i + 1}`}</Typography>
+              {kpi ? (
+                <>
+                  <Who owner={z.owner || null} names={names} palette={palette} over={over} />
+                  <Typography sx={numSx}>{f ? full(f.postcodes) : "—"}</Typography>
+                  <Typography sx={numSx}>{f ? km2Text(f.km2) : "—"}</Typography>
+                  <Typography sx={numSx}>{f && layers.data ? full(f.companies) : "—"}</Typography>
+                  <Typography sx={{ fontSize: "0.8rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={z.prefixes.join(", ")}>{[z.prefixes.join(", "), shortRegions(z.regions, cc)].filter(Boolean).join(" · ") || "—"}</Typography>
+                </>
+              ) : (
+                <>
+                  {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0, pt: { md: 0.9 } }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={z.owner || null} names={names} palette={palette} over={over} empty="pick a person" /></Box>)}
+                  <OwnerPicker value={was ? (over ? z.owner : "") : z.owner} names={names} disabled={!admin} allowEmpty={!!was}
+                    placeholder={was ? `keep ${names.name(was)}` : "pick a person"}
+                    onChange={(o) => setRule((r) => ({ ...r, zones: r.zones.map((x) => (x.id === z.id ? { ...x, owner: String(o || was || x.owner) } : x)) }))} />
+                  <ZoneCodes zone={z} cc={cc} admin={admin} onChange={(nz) => setRule((r) => ({ ...r, zones: r.zones.map((x) => (x.id === z.id ? nz : x)) }))} />
+                  {admin ? <IconButton size="small" onClick={() => setRule((r) => ({ ...r, zones: r.zones.filter((x) => x.id !== z.id) }))} aria-label={`Remove zone ${i + 1}`} sx={{ mt: 0.5 }}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
+                </>
+              )}
+            </Box>
+          );
+        })}
+        {/* the rest of the country */}
+        {(() => {
+          const was = seeded?.defaultOwner || null;
+          const over = (countryDefault || null) !== (was || null);
+          const f = zoneFig.get("");
+          return (
+            <Box sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: kpi ? r2Kpi : r2Rules }, bgcolor: "rgba(21,34,58,.02)" }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED }}>Every other zip code</Typography>
+              {kpi ? (
+                <>
+                  <Who owner={defaultPerson} names={names} palette={palette} over={over} />
+                  <Typography sx={numSx}>{f ? full(f.postcodes) : "—"}</Typography>
+                  <Typography sx={numSx}>{f ? km2Text(f.km2) : "—"}</Typography>
+                  <Typography sx={numSx}>{f && layers.data ? full(f.companies) : "—"}</Typography>
+                  <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>in no zone</Typography>
+                </>
+              ) : (
+                <>
+                  {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0 }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={defaultPerson} names={names} palette={palette} over={over} /></Box>)}
+                  <OwnerPicker value={over ? countryDefault ?? "" : ""} names={names} disabled={!admin} allowEmpty
+                    placeholder={`keep ${names.name(was || rules.defaultOwner)}`}
+                    onChange={(o) => setRule((r) => ({ ...r, defaultOwner: o || was || null }))} />
+                  <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>in no zone</Typography>
+                  <span />
+                </>
+              )}
+            </Box>
+          );
+        })()}
+      </Table>
+      {admin && !kpi && <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", justifySelf: "start" }}
+        onClick={() => setRule((r) => ({ ...r, zones: [...r.zones, { id: newId("z"), owner: "", prefixes: [] }] }))}>Add a zone</Button>}
+    </Box>
+  );
+
+  const na = kpi ? nowAfter(d, cc) : null;
+  return (
+    <Box sx={{ display: "grid", gap: 3 }}>
+      {na && (
+        <Box sx={{ display: "grid", gap: 1, maxWidth: 640 }}>
+          <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Owners in {c} - HubSpot now and with these rules</Typography>
+          <OwnerTable now={na.now} after={na.after} names={names} palette={palette} />
+        </Box>
+      )}
+      {rule1}
+      {rule2}
     </Box>
   );
 }
@@ -330,18 +395,21 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
 
 /* ── the window ── */
 
-export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, names, palette, rev, byZone, n, dirty, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
+export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, names, palette, rev, m, n, dirty, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
   open: boolean; onClose: () => void; cc: string; setCc: (cc: string) => void;
   d: MapData; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette;
   /** the page's rules version: a save or an undo re-reads every field */
-  rev: number; byZone: Map<string, number> | null;
+  rev: number;
+  /** the country on the map (its postcodes, decided by the rules on screen) */
+  m: CountryMap;
   /** the page's reload counter */
   n: number;
   dirty: boolean; busy: boolean; check: { errors: string[] }; msg: { ok: boolean; text: string } | null; onSave: () => void; onUndo: () => void;
   /** the rules as first read from the HubSpot workflows, every country */
   seededNow: boolean; onSeeded: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("sae");
+  const [tab, setTab] = useState<Tab>("rules");
+  const [mode, setMode] = useState<Mode>("rules");
   const got = usePerformis(n);
   const c = countryName(cc);
   const rule = rules.countries[cc];
@@ -349,9 +417,8 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
   const [kv, setKv] = useState(0);
   const setRule = (f: (r: CountryRule) => CountryRule) => setDraft((dr) => ({ ...dr, countries: { ...dr.countries, [cc]: f(dr.countries[cc] ?? emptyRule(cc)) } }));
   const keys = rule?.keyAccounts ?? [];
-  const overruled = Object.keys(rule?.saeOverride ?? {}).length;
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" aria-label={`Rules of ${c}`}
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl" aria-label={`Rules of ${c}`}
       slotProps={{ paper: { sx: { borderRadius: { xs: 0, sm: "18px" }, height: { xs: "100%", sm: "88vh" }, maxHeight: { xs: "100%", sm: "88vh" }, m: { xs: 0, sm: 2 }, width: { xs: "100%", sm: undefined } } } }}>
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
         <Box sx={{ px: { xs: 2, md: 3 }, pt: 2, pb: 1.5, borderBottom: `1px solid ${HAIRLINE}`, display: "grid", gap: 1.25 }}>
@@ -360,19 +427,18 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
             <CountryMenu list={countryList(d, rules)} cc={cc} onPick={setCc} label={countryName} />
             {d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
             <Box sx={{ flex: 1 }} />
+            {tab === "rules" && <PillGroup<Mode> name="Rules or KPI" small value={mode} onChange={setMode} options={[{ key: "rules", label: "Rules" }, { key: "kpi", label: "KPI" }]} />}
             <IconButton onClick={onClose} aria-label="Close the rules"><CloseIcon /></IconButton>
           </Box>
-          <PillGroup<Tab> name="Rules" value={tab} onChange={setTab} options={[
-            { key: "sae", label: "1 · Performis SAE", count: overruled ? `${overruled} overruled` : null },
-            { key: "zones", label: "2 · Postcodes", count: String(rule?.zones.length ?? 0) },
+          <PillGroup<Tab> name="Jobs" value={tab} onChange={setTab} options={[
+            { key: "rules", label: `Rules of ${c}` },
             { key: "keys", label: "Key accounts", count: keys.length ? String(keys.length) : null },
             { key: "people", label: `Who works ${c}`, count: (rule?.people ?? []).length ? String(rule!.people!.length) : null },
             { key: "table", label: "SAE table · all countries", count: String(Object.keys(rules.sae).length) },
           ]} />
         </Box>
         <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2 }}>
-          {tab === "sae" && <SaeTab key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} />}
-          {tab === "zones" && <ZonesTab key={`${cc}-${rev}`} cc={cc} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} rev={rev} byZone={byZone} />}
+          {tab === "rules" && <RulesTab key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} rev={rev} m={m} mode={mode} />}
           {tab === "keys" && (
             <Box sx={{ display: "grid", gap: 1.5 }}>
               <Typography sx={hint}>ERP customers that go to one person whatever the postcode{rule?.source !== "map" ? " - only when the company has no SAE (rule 1 first)" : ""}.</Typography>

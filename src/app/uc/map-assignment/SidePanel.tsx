@@ -422,7 +422,7 @@ const layerTitle: Record<LayerKey, string> = {
 };
 
 /** The country now and after: after = the rules' decision per person; now = after, less what comes, plus what goes. */
-function nowAfter(d: MapData, cc: string): { now: Record<string, number>; after: Record<string, number> } {
+export function nowAfter(d: MapData, cc: string): { now: Record<string, number>; after: Record<string, number> } {
   const after: Record<string, number> = {};
   for (const b of d.countries.find((c) => c.country === cc)?.byOwner ?? []) after[String(b.owner)] = (after[String(b.owner)] ?? 0) + b.companies;
   const now: Record<string, number> = { ...after };
