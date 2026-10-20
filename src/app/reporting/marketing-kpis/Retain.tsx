@@ -1,16 +1,13 @@
 "use client";
 // RETAIN & GROW - EROSION AT STAKE, FROM SARCLA'S EROSION EXCEL (ErosionArticle-2021-2025-Over2-5k, February
-// 2025: one line a customer x article - each year 2021-2025, the open orders, the best year, the gap; then
-// Resp. action, Action, Result, Comment). Reworked twice on 20.10.2026 ("the graphs are bad on the design and
-// the logic"; then "stopped recently - put the number of months", "the table on a new tab, better than the
-// Excel list", and the erosion tickets out: "here you are only measuring the erosion articles"). Two tabs:
-//   Overview   what is at stake: still buying less, or stopped - no order for 12 to 24 months - per owner in one
-//              split graph (a click opens the owner's lines in the list); lost over 24 months, one year only and
-//              made to order (800x) shown apart, each able to join
-//   The list   one line a customer x article, as the Excel's but readable: the five years shaded against the
-//              best one, the last 12 months and what is on order, what is at stake, the months since the last
-//              invoice and the status - searched, sorted, a page at a time, downloadable for Excel
-// The rules are in retainCube.ts; the read in retain.ts.
+// 2025: one line a customer x article - each year 2021-2025, the open orders, the best year, the gap). Drawn as
+// the other tabs are (SARCLA 20.10.2026: "it's still horrible - learn from the other tabs"), Who are our
+// customers' layout: the figures top right, a tab per breakdown - owner, country, profit centre, customer,
+// article - each one card with two charts whose bars are the filter (at stake; the last 12 months against the
+// best year) and all the figures in a table under them, then the list of every customer and article.
+// Counted (SARCLA chose 20.10): a customer still buying an article but less than in its best year, or stopped -
+// no order for 12 to 24 months; lost over 24 months, one year only and made to order (800x) are left out and
+// can be added under Filters. The rules are in retainCube.ts; the read in retain.ts.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -19,47 +16,83 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import TextField from "@mui/material/TextField";
-import InputAdornment from "@mui/material/InputAdornment";
+import InputBase from "@mui/material/InputBase";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import TableSortLabel from "@mui/material/TableSortLabel";
+import CheckIcon from "@mui/icons-material/Check";
+import SearchIcon from "@mui/icons-material/Search";
 import TuneIcon from "@mui/icons-material/Tune";
 import TrendingDownOutlinedIcon from "@mui/icons-material/TrendingDownOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import BlockOutlinedIcon from "@mui/icons-material/BlockOutlined";
 import WorkspacesOutlinedIcon from "@mui/icons-material/WorkspacesOutlined";
-import TableRowsOutlinedIcon from "@mui/icons-material/TableRowsOutlined";
+import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import SearchIcon from "@mui/icons-material/Search";
+import TableRowsOutlinedIcon from "@mui/icons-material/TableRowsOutlined";
+import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 
 import { Badge, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import {
-  FLOOR, HEADLINE, KIND_INFO, STOPPED_MONTHS, byKind, byOwner, csvOf, eroding, keyCountry, keyOwner, keyPc, matches, rowsOf, sumsOf, totalsBy,
-  type Kind, type RFilters, type RetainData, type Row,
+  FLOOR, HEADLINE, KIND_INFO, STOPPED_MONTHS, byDim, byKind, csvOf, eroding, keyCountry, keyOwner, keyPc, matches, rowsOf, sumsOf, totalsBy,
+  type Dim, type Kind, type RFilters, type RetainData, type Row, type Sums,
 } from "@/lib/marketingKpis/retainCube";
+import { pcLabel } from "@/lib/marketingKpis/engageCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import type { MkState } from "./data";
+import { DimChart } from "./DimChart";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { Pager, n0, usePaged } from "./ExplorerKit";
 import { Pick } from "./Lead";
 import { TileActions } from "./tiles/TileActions";
 import { SavedViews } from "./tiles/SavedViews";
 
-const eur = (n: number | null | undefined) => (n == null ? "—" : `€${Math.round(n).toLocaleString("en")}`);
+const eur = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `€${Math.round(n).toLocaleString("en")}`);
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const many = (n: number, one: string, more: string) => `${n0(n)} ${n === 1 ? one : more}`;
 const ownerName = (d: RetainData, o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
 const customerName = (d: RetainData, u: string) => d.companies[u]?.n || `Customer ${u}`;
 const yearsLabel = (d: RetainData) => `${d.years[0]}–${d.years[d.years.length - 1]}`;
 const artText = (t: string | undefined) => (t ?? "").replace(/\s*-\s*$/, "");
+const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const HS_COMPANY = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${id}`;
 const monthLabel = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
-const KIND_COLOUR: Record<Kind, string> = { less: SERIES[0], stopped: SERIES[1], gone: "#8f9bab", oneoff: "#c4cbd5", made: DEEMPHASIS };
 const sameKinds = (a: Kind[], b: Kind[]) => a.length === b.length && a.every((k) => b.includes(k));
 /** a read from before 20.10 has no day of the last invoice: the months come with the next read */
 const hasDays = (d: RetainData) => d.lines.length === 0 || d.lines.some((l) => l.d !== undefined);
+/** nothing invoiced in the last 12 months, but on order: the customer is buying now, whenever the last invoice was */
+const onOrderOnly = (r: Row) => r.l <= 0 && r.o > 0;
+
+/* ── the tabs: a breakdown each, as on Who are our customers ─────────────────── */
+
+type DimTab = "owners" | "countries" | "pcs" | "customers" | "articles";
+type Tab = DimTab | "list";
+const DIMS: Record<DimTab, { dim: Dim; name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
+  owners: { dim: "owner", name: "Owner", lower: "owner", icon: <GroupsOutlinedIcon />, tint: "purple", note: "Whose customers buy less than they did - the customer's owner in HubSpot today" },
+  countries: { dim: "country", name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "green", note: "Where the customers buying less are" },
+  pcs: { dim: "pc", name: "Profit centre", lower: "profit centre", icon: <WorkspacesOutlinedIcon />, tint: "amber", note: "Which ranges they buy less of" },
+  customers: { dim: "customer", name: "Customer", lower: "customer", icon: <ApartmentOutlinedIcon />, tint: "blue", note: "The customers with the most at stake" },
+  articles: { dim: "article", name: "Article", lower: "article", icon: <Inventory2OutlinedIcon />, tint: "slate", note: "The articles with the most at stake" },
+};
+const TAB_ORDER: Tab[] = ["owners", "countries", "pcs", "customers", "articles", "list"];
+const FILTER_OF: Record<Dim, keyof Filters> = { owner: "owner", country: "country", pc: "pc", customer: "customer", article: "article" };
+type Filters = { owner: string[]; country: string[]; pc: string[]; customer: string[]; article: string[] };
+const NO_FILTERS: Filters = { owner: [], country: [], pc: [], customer: [], article: [] };
+
+/** A breakdown's value as read: an owner's name, a country, "DT · Sealing", a customer's name, an article. */
+function labelOf(d: RetainData, dim: Dim, key: string): string {
+  if (dim === "owner") return ownerName(d, key);
+  if (dim === "pc") return key === "Unknown" ? "No profit centre" : pcLabel(key);
+  if (dim === "customer") return customerName(d, key);
+  if (dim === "article") return `${key} · ${artText(d.articles[key]?.t) || "no text"}`;
+  return key;
+}
 
 /* ── the read, shared by the page and the nutshell's cards ───────────────────────── */
 
@@ -90,33 +123,28 @@ function useRetain(): Read {
   return shared.r;
 }
 
-/* ── the cards ───────────────────────────────────────────────────────────────── */
+/* ── the figures ─────────────────────────────────────────────────────────────── */
 
-type Ctx = {
-  d: RetainData; f: RFilters; kinds: Kind[]; right?: React.ReactNode;
-  /** at half width in the nutshell: the compact form */
-  half?: boolean;
-  onOwner?: (o: string) => void; onKind?: (k: Kind) => void;
-};
-
-/** The figures top right: what is at stake, and its two parts. */
-function Figures({ d, f }: { d: RetainData; f: RFilters }) {
+/** The four figures top right, each in a small card - as on Who are our customers. */
+function Figures({ d, f, kinds }: { d: RetainData; f: RFilters; kinds: Kind[] }) {
   const k = byKind(d, f);
-  const head = sumsOf(rowsOf(d, { ...f, kinds: HEADLINE }));
+  const s = sumsOf(rowsOf(d, { ...f, kinds }));
+  const apart = KIND_INFO.filter((x) => !kinds.includes(x.id));
   const items: { label: string; icon: React.ReactNode; tint: Tint; v: string; sub: string }[] = [
-    { label: "At stake", icon: <TrendingDownOutlinedIcon />, tint: "amber", v: eur(head.gap), sub: `${n0(head.customers)} customers, ${n0(head.lines)} articles` },
-    { label: "Still buying, less", icon: <TrendingDownOutlinedIcon />, tint: "blue", v: eur(k.less.gap), sub: `${n0(k.less.customers)} customers - ordered in the last 12 months, below the best year` },
-    { label: `Stopped 12–${STOPPED_MONTHS} months`, icon: <BlockOutlinedIcon />, tint: "pink", v: eur(k.stopped.gap), sub: `${n0(k.stopped.customers)} customers - no order for 12 to ${STOPPED_MONTHS} months` },
+    { label: "At stake", icon: <TrendingDownOutlinedIcon />, tint: "amber", v: eur(s.gap), sub: `${many(s.customers, "customer", "customers")}, ${many(s.lines, "article", "articles")} - ${pct(s.gap / Math.max(1, s.best))} of their best year` },
+    { label: "Still buying, less", icon: <TrendingDownOutlinedIcon />, tint: "blue", v: eur(k.less.gap), sub: `${n0(k.less.customers)} customers - ordered in the last 12 months` },
+    { label: `Stopped 12–${STOPPED_MONTHS} months`, icon: <BlockOutlinedIcon />, tint: "pink", v: eur(k.stopped.gap), sub: `${n0(k.stopped.customers)} customers - no order since` },
+    { label: "Not counted", icon: <LayersOutlinedIcon />, tint: "slate", v: eur(apart.reduce((a, x) => a + k[x.id].gap, 0)), sub: apart.length ? `${apart.map((x) => x.short.toLowerCase()).join(", ")} - Filters adds them` : "everything is counted" },
   ];
   return (
-    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))", md: "repeat(3, minmax(150px, 210px))" } }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(124px, 172px))" } }}>
       {items.map((it) => (
         <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
             <Badge icon={it.icon} tint={it.tint} size={22} />
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED }}>{it.label}</Typography>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{it.label}</Typography>
           </Box>
-          <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{it.v}</Typography>
+          <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.v}</Typography>
           <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{it.sub}</Typography>
         </Box>
       ))}
@@ -124,282 +152,318 @@ function Figures({ d, f }: { d: RetainData; f: RFilters }) {
   );
 }
 
-const legend = (kinds: Kind[]) => (
-  <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
-    {KIND_INFO.filter((k) => kinds.includes(k.id)).map((k) => (
-      <Box key={k.id} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, fontSize: "0.76rem", color: MUTED }}><Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: KIND_COLOUR[k.id] }} />{k.label}</Box>
-    ))}
-  </Box>
-);
+/* ── a breakdown: two charts, then all the figures ──────────────────────────── */
 
-/** The one graph: at stake per owner, split by kind - still buying less, stopped 12-24 months (and any kind added). */
-function OwnerSplitCard({ d, f, kinds, right, half, onOwner }: Ctx) {
-  const owners = byOwner(d, { ...f, kinds });
-  const paged = usePaged(owners, half ? 6 : 12);
-  const max = Math.max(1, ...owners.map((o) => o.sums.gap));
-  const shown = KIND_INFO.filter((k) => kinds.includes(k.id));
+type Ctx = {
+  d: RetainData; f: RFilters; kinds: Kind[];
+  /** the chosen values of this breakdown, and a click on a bar or a row */
+  selected?: string[]; onPick?: (key: string) => void; onFilter?: () => void;
+  act?: (card: string, title: string) => React.ReactNode;
+};
+type ChartRowR = { label: string; rev: number; key: string; sums: Sums };
+
+/** The breakdown's rows for the charts: labelled, a name used twice told apart, the most at stake first. */
+function chartRows(d: RetainData, f: RFilters, kinds: Kind[], dim: Dim): ChartRowR[] {
+  const seen = new Map<string, number>();
+  return byDim(d, { ...f, kinds }, dim).map(({ key, sums }) => {
+    let label = cut(labelOf(d, dim, key), 30);
+    const n = seen.get(label) ?? 0;
+    seen.set(label, n + 1);
+    if (n) label = `${cut(label, 22)} (${key})`;
+    return { label, rev: sums.gap, key, sums };
+  });
+}
+
+/** At stake, by the breakdown - one bar each, the largest first. */
+function StakeChart({ d, f, kinds, tab, selected, onPick, onFilter, act }: Ctx & { tab: DimTab }) {
+  const x = DIMS[tab];
+  const rows = useMemo(() => chartRows(d, f, kinds, x.dim), [d, f, kinds, x.dim]);
+  const sel = rows.filter((r) => selected?.includes(r.key)).map((r) => r.label);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="At stake by owner"
-        note={`What each owner's customers buy below their best year ${yearsLabel(d)} - the customer's owner in HubSpot today${onOwner ? " · click an owner to see its lines in the list" : ""}`} right={right} />
-      {legend(kinds)}
-      <Box sx={{ display: "grid", gridTemplateColumns: half ? "minmax(100px, 1fr) minmax(80px, 1.6fr) 96px" : "minmax(160px, 1fr) minmax(200px, 3fr) 110px 120px", columnGap: 1.25, rowGap: 0.75, alignItems: "center" }}>
-        {paged.shown.map((o) => (
-          <Box key={o.owner || "none"} role={onOwner ? "button" : undefined} tabIndex={onOwner ? 0 : undefined} onClick={onOwner ? () => onOwner(o.owner) : undefined}
-            onKeyDown={onOwner ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOwner(o.owner); } } : undefined}
-            sx={{ display: "contents", cursor: onOwner ? "pointer" : "default", "&:hover > *": onOwner ? { color: TINT.blue.fg } : {} }}>
-            <Typography noWrap title={ownerName(d, o.owner)} sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{ownerName(d, o.owner)}</Typography>
-            <Box role="img" aria-label={`${ownerName(d, o.owner)}: ${shown.map((k) => `${k.label} ${eur(o.sums.byKind[k.id])}`).join(", ")}`}
-              sx={{ display: "flex", height: 18, width: `${Math.max(1, (100 * o.sums.gap) / max)}%`, borderRadius: "4px", overflow: "hidden", gap: "2px" }}>
-              {shown.filter((k) => o.sums.byKind[k.id] > 0).map((k) => <Box key={k.id} title={`${k.label}: ${eur(o.sums.byKind[k.id])}`} sx={{ flex: `${o.sums.byKind[k.id]} 0 0`, bgcolor: KIND_COLOUR[k.id] }} />)}
-            </Box>
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{eur(o.sums.gap)}</Typography>
-            {!half && <Typography sx={{ fontSize: "0.78rem", color: MUTED, textAlign: "right" }}>{n0(o.sums.customers)} customers</Typography>}
-          </Box>
-        ))}
-      </Box>
-      {!owners.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nothing at stake for this choice.</Typography>}
-      <Pager p={paged} />
-    </GlassCard>
+    <DimChart title={`At stake, by ${x.lower}`} rows={rows} cur={(r) => r.sums.gap} prev={() => NaN} single fixedOrder pageSize={12}
+      curLabel="At stake" prevLabel="" fmt={eur}
+      selected={sel} onPick={(l) => { const r = rows.find((y) => y.label === l); if (r) onPick?.(r.key); }} onFilter={onFilter} filterLabel={`Filter by ${x.lower}`}
+      actions={act?.("gap", `At stake, by ${x.lower}`)} />
   );
 }
 
-/** What is not in the headline: lost over 24 months, one year only, made to order - each can join the list. */
-function ApartCard({ d, f, kinds, right, onKind }: Ctx) {
-  const k = byKind(d, f);
-  const apart = KIND_INFO.filter((x) => !HEADLINE.includes(x.id));
+/** The last 12 months and what is on order, against the best year - the gap is what is at stake. */
+function BestNowChart({ d, f, kinds, tab, selected, onPick, onFilter, act }: Ctx & { tab: DimTab }) {
+  const x = DIMS[tab];
+  const rows = useMemo(() => chartRows(d, f, kinds, x.dim), [d, f, kinds, x.dim]);
+  const sel = rows.filter((r) => selected?.includes(r.key)).map((r) => r.label);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<Inventory2OutlinedIcon />} tint="slate" title="Not in the headline - shown apart" note="Below their best year, but not a customer buying less now or stopped lately: lost years ago, one order, or a project" right={right} />
-      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(3, minmax(0, 1fr))" } }}>
-        {apart.map((x) => {
-          const on = kinds.includes(x.id);
-          return (
-            <Box key={x.id} sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, borderRadius: "14px", p: 1.5, display: "grid", gap: 0.5, bgcolor: on ? TINT.blue.bg : "#fff" }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: KIND_COLOUR[x.id] }} />
-                <Typography sx={{ flex: 1, fontSize: "0.88rem", fontWeight: 700, color: INK }}>{x.label}</Typography>
-              </Box>
-              <Typography sx={{ fontSize: "1.2rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{eur(k[x.id].gap)}</Typography>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{n0(k[x.id].customers)} customers, {n0(k[x.id].lines)} articles - {x.note}</Typography>
-              {onKind && <Box><Button size="small" onClick={() => onKind(x.id)} sx={{ textTransform: "none", fontWeight: 700, px: 0 }}>{on ? "In the list and the graph - take out" : "Add to the list and the graph"}</Button></Box>}
-            </Box>
-          );
-        })}
-      </Box>
-    </GlassCard>
+    <DimChart title={`Now against the best year, by ${x.lower}`} rows={rows} cur={(r) => r.sums.now} prev={(r) => r.sums.best} fixedOrder pageSize={12}
+      curLabel="Last 12 months + on order" prevLabel={`Best year ${yearsLabel(d)}`} fmt={eur}
+      selected={sel} onPick={(l) => { const r = rows.find((y) => y.label === l); if (r) onPick?.(r.key); }} onFilter={onFilter} filterLabel={`Filter by ${x.lower}`}
+      actions={act?.("bestnow", `Now against the best year, by ${x.lower}`)} />
   );
 }
 
-/* ── the list ────────────────────────────────────────────────────────────────── */
+const head = {
+  fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: 0.75, verticalAlign: "bottom" as const,
+  maxWidth: 124, "& .MuiTableSortLabel-root": { whiteSpace: "normal", textAlign: "right" },
+  "& .MuiTableSortLabel-root:not(.Mui-active) .MuiTableSortLabel-icon": { display: "none" },
+};
+const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const, py: 1, px: 0.75 };
+const ONE_LINE = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
+const searchBox = { display: "flex", alignItems: "center", gap: 0.75, px: 1.25, height: 34, width: "100%", maxWidth: 320, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" } as const;
+const tableBox = { overflowX: "auto", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)" } as const;
 
-/** nothing invoiced in the last 12 months, but on order: the customer is buying now, whenever the last invoice was */
-const onOrderOnly = (r: Row) => r.l <= 0 && r.o > 0;
-type SortKey = "gap" | "months" | "best" | "now" | "customer" | "y0" | "y1" | "y2" | "y3" | "y4";
-type Sort = { k: SortKey; desc: boolean };
-const sortValue = (d: RetainData, r: Row, k: SortKey): number | string =>
-  k === "gap" ? r.gap : k === "months" ? (onOrderOnly(r) ? 0 : r.months ?? -1) : k === "best" ? r.best : k === "now" ? r.now : k === "customer" ? customerName(d, r.u).toLowerCase() : r.y[Number(k.slice(1))] ?? 0;
-
-/** A year's figure, shaded against the line's best year (outlined) - the shape of the line at a glance. */
-function YearCell({ v, best, isBest }: { v: number; best: number; isBest: boolean }) {
-  const share = best > 0 ? Math.max(0, Math.min(1, v / best)) : 0;
+/** All the figures of a breakdown, as Who are our customers' table: sorted by any column, a click filters, a total. */
+function DimFigures({ d, f, kinds, tab, selected, onPick }: Ctx & { tab: DimTab }) {
+  const x = DIMS[tab];
+  const rows = useMemo(() => byDim(d, { ...f, kinds }, x.dim).map((r) => ({ ...r, label: labelOf(d, x.dim, r.key) })), [d, f, kinds, x.dim]);
+  type Col = { key: string; head: string; tip: string; val: (s: Sums) => number; cell: (s: Sums) => React.ReactNode };
+  const cols: Col[] = [
+    { key: "customers", head: "Customers", tip: "Customers with a line at stake", val: (s) => s.customers, cell: (s) => n0(s.customers) },
+    { key: "lines", head: "Articles", tip: "Customer and article lines at stake", val: (s) => s.lines, cell: (s) => n0(s.lines) },
+    { key: "best", head: `Best year ${yearsLabel(d)}`, tip: "Each line's best calendar year, added up", val: (s) => s.best, cell: (s) => eur(s.best) },
+    { key: "now", head: "Last 12 months + on order", tip: "Invoiced in the last 12 months, and ordered but not invoiced yet", val: (s) => s.now, cell: (s) => eur(s.now) },
+    { key: "gap", head: "At stake", tip: "The best year less the last 12 months and what is on order", val: (s) => s.gap, cell: (s) => <Box component="span" sx={{ fontWeight: 700 }}>{eur(s.gap)}</Box> },
+    { key: "share", head: "Of the best year", tip: "At stake against the best year", val: (s) => s.gap / Math.max(1, s.best), cell: (s) => <Box component="span" sx={{ color: RED, fontWeight: 700 }}>−{pct(s.gap / Math.max(1, s.best))}</Box> },
+    ...KIND_INFO.filter((k) => kinds.includes(k.id)).map((k) => ({ key: `k-${k.id}`, head: k.label, tip: k.note, val: (s: Sums) => s.byKind[k.id], cell: (s: Sums) => eur(s.byKind[k.id]) })),
+  ];
+  const [sort, setSort] = useState<{ key: string; desc: boolean }>({ key: "gap", desc: true });
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setSort({ key: "gap", desc: true }); setQ(""); setOpen(false); }, [tab]);
+  const col = cols.find((c) => c.key === sort.key);
+  const sorted = [...rows].sort((a, b) => {
+    const r = sort.key === "label" ? a.label.localeCompare(b.label) : (col ? col.val(a.sums) - col.val(b.sums) : 0);
+    return sort.desc ? -r : r;
+  });
+  const found = q ? sorted.filter((r) => `${r.label} ${r.key}`.toLowerCase().includes(q.toLowerCase())) : sorted;
+  const LIMIT = 25;
+  const shown = open || q ? found : found.slice(0, LIMIT);
+  const tot = sumsOf(rowsOf(d, { ...f, kinds }));
+  const by = (key: string) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "label" }));
   return (
-    <Box role="cell" sx={{ px: 0.5, py: 0.6, display: "flex", alignItems: "center", borderBottom: `1px solid ${HAIRLINE}` }}>
-      <Box title={v > 0 ? `${eur(v)} - ${Math.round(share * 100)}% of the best year` : "Nothing invoiced"}
-        sx={{ width: "100%", textAlign: "right", px: 0.75, py: 0.45, borderRadius: "7px", fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
-          bgcolor: v > 0 ? `rgba(45, 111, 168, ${(0.07 + 0.36 * share).toFixed(3)})` : "transparent",
-          color: v > 0 ? INK : FAINT, fontWeight: isBest ? 800 : 500, outline: isBest ? `1.5px solid ${SERIES[0]}` : "none", outlineOffset: "-1.5px" }}>
-        {v > 0 ? eur(v) : "—"}
+    <Box sx={{ minWidth: 0 }}>
+      {rows.length > 12 && (
+        <Box sx={{ ...searchBox, mb: 1 }}>
+          <SearchIcon sx={{ fontSize: 18, color: MUTED }} />
+          <InputBase value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Find ${/^[aeiou]/.test(x.lower) ? "an" : "a"} ${x.lower}…`} inputProps={{ "aria-label": `Find ${/^[aeiou]/.test(x.lower) ? "an" : "a"} ${x.lower}` }} sx={{ fontSize: "0.86rem", flex: 1 }} />
+        </Box>
+      )}
+      <Box sx={tableBox}>
+        <Table size="small" sx={{ minWidth: 900 }} aria-label={`At stake by ${x.lower}`}>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...head, maxWidth: "none", minWidth: 150, pl: 1.5 }}>
+                <TableSortLabel active={sort.key === "label"} direction={sort.key === "label" && sort.desc ? "desc" : "asc"} onClick={() => by("label")}>{x.name}</TableSortLabel>
+              </TableCell>
+              {cols.map((c) => (
+                <TableCell key={c.key} align="right" sx={head} title={c.tip}>
+                  <TableSortLabel active={sort.key === c.key} direction={sort.key === c.key && !sort.desc ? "asc" : "desc"} onClick={() => by(c.key)}>{c.head}</TableSortLabel>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {shown.map((r) => {
+              const on = !!selected?.includes(r.key);
+              return (
+                <TableRow key={r.key} hover onClick={onPick ? () => onPick(r.key) : undefined} selected={on} aria-selected={on}
+                  sx={{ cursor: onPick ? "pointer" : "default", opacity: selected?.length && !on ? 0.5 : 1, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: TINT[x.tint].bg } }}>
+                  <TableCell sx={{ ...body, fontWeight: 600, whiteSpace: "normal", maxWidth: x.dim === "article" || x.dim === "customer" ? 320 : 220, pl: 1.5 }} title={x.dim === "customer" ? r.key : undefined}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>{on && <CheckIcon sx={{ fontSize: 16, color: TINT[x.tint].fg }} />}{r.label}</Box>
+                  </TableCell>
+                  {cols.map((c) => <TableCell key={c.key} align="right" sx={body}>{c.cell(r.sums)}</TableCell>)}
+                </TableRow>
+              );
+            })}
+            <TableRow>
+              <TableCell sx={{ ...body, fontWeight: 800, borderBottom: 0, pl: 1.5 }}>Total</TableCell>
+              {cols.map((c) => <TableCell key={c.key} align="right" sx={{ ...body, fontWeight: 800, borderBottom: 0 }}>{c.cell(tot)}</TableCell>)}
+            </TableRow>
+          </TableBody>
+        </Table>
       </Box>
+      {!q && found.length > LIMIT && (
+        <Button size="small" onClick={() => setOpen((v) => !v)} sx={{ textTransform: "none", fontWeight: 600, mt: 0.75 }}>
+          {open ? "Show the first 25" : `Show all ${n0(found.length)}`}
+        </Button>
+      )}
     </Box>
   );
 }
 
-function ListCard({ d, f, kinds, onKind, q, setQ, sort, setSort, right }: Ctx & { q: string; setQ: (q: string) => void; sort: Sort; setSort: (s: Sort) => void }) {
-  const k = byKind(d, f);
+/** A breakdown's tab: one card - the two charts, then all the figures. */
+function DimSection(c: Ctx & { tab: DimTab }) {
+  const x = DIMS[c.tab];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <CardTitle icon={x.icon} tint={x.tint} title={`Erosion by ${x.lower}`} note={x.note} />
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
+        <StakeChart {...c} />
+        <BestNowChart {...c} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {x.lower}</Typography>
+        <DimFigures {...c} />
+      </Box>
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+        A line is a customer and an article whose best year {yearsLabel(c.d)} reached €{FLOOR.toLocaleString("en")}. At stake = the best year less the last 12 months and what is on order.
+        Still buying, less: invoiced in the last 12 months or on order. Stopped: no invoice for 12 to {STOPPED_MONTHS} months and nothing on order.
+      </Typography>
+    </GlassCard>
+  );
+}
+
+/* ── the list: every customer and article ────────────────────────────────────── */
+
+type ListKey = "customer" | "best" | "last" | "now" | "gap" | "months";
+function ListSection({ d, f, kinds, q, setQ }: Ctx & { q: string; setQ: (q: string) => void }) {
+  const [sort, setSort] = useState<{ key: ListKey; desc: boolean }>({ key: "gap", desc: true });
+  const last = d.years.length - 1;
+  const val = (r: Row, k: ListKey): number | string =>
+    k === "customer" ? customerName(d, r.u).toLowerCase() : k === "best" ? r.best : k === "last" ? r.y[last] : k === "now" ? r.now : k === "gap" ? r.gap : onOrderOnly(r) ? 0 : r.months ?? -1;
   const rows = useMemo(() => {
     const rs = rowsOf(d, { ...f, kinds }).filter((r) => matches(d, r, q));
-    const dir = sort.desc ? -1 : 1;
-    return rs.sort((a, b) => { const x = sortValue(d, a, sort.k), y = sortValue(d, b, sort.k); return x === y ? b.gap - a.gap : (x < y ? -1 : 1) * dir; });
-  }, [d, f, kinds, q, sort]);
-  const sums = sumsOf(rows);
+    return rs.sort((a, b) => { const x = val(a, sort.key), y = val(b, sort.key); const c = x < y ? -1 : x > y ? 1 : b.gap - a.gap; return sort.desc && x !== y ? -c : c; });
+  }, [d, f, kinds, q, sort]); // eslint-disable-line react-hooks/exhaustive-deps
   const paged = usePaged(rows, 25);
-  const sig = `${kinds.join()}|${q}|${sort.k}|${sort.desc}|${(f.owner ?? []).join()}|${(f.country ?? []).join()}|${(f.pc ?? []).join()}`;
+  const sig = `${kinds.join()}|${q}|${sort.key}|${sort.desc}|${JSON.stringify(f)}`;
   useEffect(() => { paged.setPage(0); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
-  const days = hasDays(d);
+  const s = sumsOf(rows);
+  const by = (key: ListKey) => setSort((x) => (x.key === key ? { key, desc: !x.desc } : { key, desc: key !== "customer" }));
   const download = () => {
     const blob = new Blob(["﻿" + csvOf(d, rows)], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `erosion-list-${d.asOf}.csv`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  const cols = "minmax(170px, 1.4fr) minmax(170px, 1.4fr) repeat(5, 84px) 126px 104px 164px";
-  const head: { label: string; k?: SortKey; right?: boolean }[] = [
-    { label: "Customer", k: "customer" }, { label: "Article" },
-    ...d.years.map((y, i) => ({ label: String(y), k: `y${i}` as SortKey, right: true })),
-    { label: "Last 12 months", k: "now", right: true }, { label: "At stake", k: "gap", right: true }, { label: "Last invoice", k: "months" },
-  ];
-  const cell = { px: 0.75, py: 0.6, borderBottom: `1px solid ${HAIRLINE}`, display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 0, fontSize: "0.82rem", color: INK, fontVariantNumeric: "tabular-nums" } as const;
-  const sub = { fontSize: "0.72rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" } as const;
+  const sortHead = (k: ListKey, label: string, tip: string) => (
+    <TableCell align={k === "customer" ? "left" : "right"} sx={{ ...head, ...(k === "customer" ? { maxWidth: "none", pl: 1.5 } : {}) }} title={tip}>
+      <TableSortLabel active={sort.key === k} direction={sort.key === k && !sort.desc ? "asc" : "desc"} onClick={() => by(k)}>{label}</TableSortLabel>
+    </TableCell>
+  );
+  const lastInvoice = (r: Row) => (onOrderOnly(r) ? "On order now" : r.months == null ? (r.lastYear ? `In ${r.lastYear}` : "—") : r.months === 0 ? "This month" : `${r.months} month${r.months === 1 ? "" : "s"} ago`);
   return (
-    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start", minWidth: 0 }}>
-      <CardTitle icon={<TableRowsOutlinedIcon />} tint="blue" title="Customer × article - the erosion list"
-        note={`One line a customer and an article whose best year ${yearsLabel(d)} reached €${FLOOR.toLocaleString("en")} · each year shaded against the line's best one (outlined)`} right={right} />
-
-      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-        <TextField size="small" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Customer, number, article…" inputProps={{ "aria-label": "Search the list" }}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: MUTED }} /></InputAdornment> }}
-          sx={{ width: { xs: "100%", sm: 260 }, "& .MuiOutlinedInput-root": { borderRadius: "11px", bgcolor: "#fff", fontSize: "0.86rem" } }} />
-        {KIND_INFO.map((x) => {
-          const on = kinds.includes(x.id);
-          return (
-            <Chip key={x.id} size="small" onClick={onKind ? () => onKind(x.id) : undefined} title={x.note} variant={on ? "filled" : "outlined"} aria-pressed={on}
-              label={<span>{x.label} <Box component="span" sx={{ color: MUTED, fontWeight: 600 }}>{eur(k[x.id].gap)}</Box></span>}
-              icon={<Box component="span" sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: KIND_COLOUR[x.id], ml: "8px !important" }} />}
-              sx={{ height: 30, fontSize: "0.78rem", fontWeight: 700, bgcolor: on ? TINT.blue.bg : "#fff", color: INK }} />
-          );
-        })}
+    <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <CardTitle icon={<TableRowsOutlinedIcon />} tint="blue" title="Every customer and article" note={`One line a customer and an article whose best year ${yearsLabel(d)} reached €${FLOOR.toLocaleString("en")} - the erosion Excel's list`} />
+      <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mt: -1 }}>
+        <Box sx={searchBox}>
+          <SearchIcon sx={{ fontSize: 18, color: MUTED }} />
+          <InputBase value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a customer or an article…" inputProps={{ "aria-label": "Search the list" }} sx={{ fontSize: "0.86rem", flex: 1 }} />
+        </Box>
+        <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{many(rows.length, "line", "lines")} · {many(s.customers, "customer", "customers")} · {eur(s.gap)} at stake</Typography>
         <Box sx={{ flex: 1 }} />
         <Button onClick={download} disabled={!rows.length} startIcon={<FileDownloadOutlinedIcon />} variant="outlined"
-          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "11px", height: 38, bgcolor: "#fff", whiteSpace: "nowrap" }}>
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", height: 38, bgcolor: "#fff", whiteSpace: "nowrap" }}>
           Download for Excel
         </Button>
       </Box>
-
-      <Typography sx={{ fontSize: "0.86rem", color: INK }}>
-        <b>{n0(rows.length)}</b> lines · <b>{n0(sums.customers)}</b> customers · <Box component="b" sx={{ color: RED }}>{eur(sums.gap)}</Box> at stake
-        <Box component="span" sx={{ color: MUTED }}> of {eur(sums.best)} in their best years</Box>
-      </Typography>
-
-      <Box sx={{ overflowX: "auto", mx: -0.5 }}>
-        <Box role="table" aria-label="The erosion list" sx={{ minWidth: 1150, display: "grid", gridTemplateColumns: cols, px: 0.5 }}>
-          <Box role="row" sx={{ display: "contents" }}>
-            {head.map((h, i) => {
-              const on = !!h.k && sort.k === h.k;
+      <Box sx={tableBox}>
+        <Table size="small" sx={{ minWidth: 1080 }} aria-label="Every customer and article">
+          <TableHead>
+            <TableRow>
+              {sortHead("customer", "Customer", "The customer, its number and owner")}
+              <TableCell sx={{ ...head, maxWidth: "none" }}>Article</TableCell>
+              {sortHead("best", "Best year", `The line's best calendar year ${yearsLabel(d)}`)}
+              {sortHead("last", String(d.years[last]), `Invoiced in ${d.years[last]}`)}
+              {sortHead("now", "Last 12 months + on order", "Invoiced in the last 12 months, and ordered but not invoiced yet")}
+              {sortHead("gap", "At stake", "The best year less the last 12 months and what is on order")}
+              {sortHead("months", "Last invoice", "The last time the article was invoiced to the customer")}
+              <TableCell sx={{ ...head, maxWidth: "none" }}>Counted as</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {paged.shown.map((r) => {
+              const c = d.companies[r.u], art = d.articles[r.a];
               return (
-                <Box key={i} role="columnheader" aria-sort={on ? (sort.desc ? "descending" : "ascending") : undefined}
-                  onClick={h.k ? () => setSort(on ? { k: h.k!, desc: !sort.desc } : { k: h.k!, desc: h.k !== "customer" }) : undefined}
-                  sx={{ px: 0.75, pb: 0.75, display: "flex", alignItems: "flex-end", justifyContent: h.right ? "flex-end" : "flex-start", gap: 0.25, borderBottom: `1px solid ${HAIRLINE}`,
-                    fontSize: "0.7rem", fontWeight: 700, color: on ? INK : FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h.right ? "right" : "left",
-                    cursor: h.k ? "pointer" : "default", userSelect: "none", "&:hover": h.k ? { color: INK } : {} }}>
-                  {h.label}{on && (sort.desc ? <ArrowDownwardIcon sx={{ fontSize: 13 }} /> : <ArrowUpwardIcon sx={{ fontSize: 13 }} />)}
-                </Box>
+                <TableRow key={`${r.u}|${r.a}`} hover>
+                  <TableCell sx={{ ...body, maxWidth: 240, pl: 1.5 }}>
+                    <Box sx={{ fontWeight: 600, ...ONE_LINE }} title={customerName(d, r.u)}>
+                      {c?.id ? <Box component="a" href={HS_COMPANY(c.id)} target="_blank" rel="noreferrer" sx={{ color: INK, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{customerName(d, r.u)}</Box> : customerName(d, r.u)}
+                    </Box>
+                    <Box sx={{ fontSize: "0.74rem", color: FAINT, ...ONE_LINE }}>{r.u} · {ownerName(d, c?.o ?? "")}</Box>
+                  </TableCell>
+                  <TableCell sx={{ ...body, maxWidth: 300 }}>
+                    <Box sx={{ fontWeight: 600, ...ONE_LINE }} title={artText(art?.t)}>{artText(art?.t) || "—"}</Box>
+                    <Box sx={{ fontSize: "0.74rem", color: FAINT }}>{r.a}{art?.p ? ` · ${art.p}` : ""}</Box>
+                  </TableCell>
+                  <TableCell align="right" sx={body}>{eur(r.best)} <Box component="span" sx={{ color: FAINT, fontSize: "0.76rem" }}>{r.bestYear}</Box></TableCell>
+                  <TableCell align="right" sx={body}>{r.y[last] > 0 ? eur(r.y[last]) : <Box component="span" sx={{ color: FAINT }}>—</Box>}</TableCell>
+                  <TableCell align="right" sx={body}>{r.now > 0 ? eur(r.now) : <Box component="span" sx={{ color: FAINT }}>—</Box>}</TableCell>
+                  <TableCell align="right" sx={{ ...body, fontWeight: 700 }}>{eur(r.gap)}</TableCell>
+                  <TableCell align="right" sx={body} title={r.d ? `Last invoiced ${r.d}` : undefined}>
+                    {lastInvoice(r)}{r.d && !onOrderOnly(r) ? <Box component="span" sx={{ color: FAINT, fontSize: "0.76rem" }}> · {monthLabel(r.d)}</Box> : null}
+                  </TableCell>
+                  <TableCell sx={{ ...body, color: MUTED }}>{KIND_INFO.find((k) => k.id === r.kind)!.short}</TableCell>
+                </TableRow>
               );
             })}
-          </Box>
-          {paged.shown.map((r) => {
-            const c = d.companies[r.u], art = d.articles[r.a];
-            const bestIdx = r.y.indexOf(r.best);
-            return (
-              <Box key={`${r.u}|${r.a}`} role="row" sx={{ display: "contents", "&:hover > *": { bgcolor: "#f6f9fd" } }}>
-                <Box role="cell" sx={cell}>
-                  <Box component="span" sx={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={customerName(d, r.u)}>
-                    {c?.id ? <Box component="a" href={HS_COMPANY(c.id)} target="_blank" rel="noreferrer" sx={{ color: INK, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{customerName(d, r.u)}</Box> : customerName(d, r.u)}
-                  </Box>
-                  <Box component="span" sx={sub} title={`${r.u} · ${c?.k ?? "Unknown"} · ${ownerName(d, c?.o ?? "")}`}>{r.u} · {c?.k ?? "Unknown"} · {ownerName(d, c?.o ?? "")}</Box>
-                </Box>
-                <Box role="cell" sx={cell}>
-                  <Box component="span" sx={{ fontWeight: 650 }}>{r.a}{art?.p ? <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {art.p}</Box> : null}</Box>
-                  <Box component="span" sx={sub} title={artText(art?.t)}>{artText(art?.t) || "—"}</Box>
-                </Box>
-                {r.y.map((v, i) => <YearCell key={i} v={v} best={r.best} isBest={i === bestIdx} />)}
-                <Box role="cell" sx={{ ...cell, alignItems: "flex-end" }}>
-                  <span>{r.l > 0 ? eur(r.l) : <Box component="span" sx={{ color: FAINT }}>€0</Box>}</span>
-                  {r.o > 0 && <Box component="span" sx={{ ...sub, color: SERIES[0] }}>+ {eur(r.o)} on order</Box>}
-                </Box>
-                <Box role="cell" sx={{ ...cell, alignItems: "flex-end" }}>
-                  <Box component="span" sx={{ color: RED, fontWeight: 750 }}>{eur(r.gap)}</Box>
-                  <Box component="span" sx={sub}>−{Math.round((100 * r.gap) / Math.max(1, r.best))}% vs best</Box>
-                </Box>
-                <Box role="cell" sx={cell}>
-                  <Box component="span" sx={{ fontWeight: 650, whiteSpace: "nowrap", color: onOrderOnly(r) ? SERIES[0] : INK }} title={r.d ? `Last invoiced ${r.d}` : undefined}>
-                    {onOrderOnly(r) ? "On order now" : r.months == null ? (r.lastYear ? `In ${r.lastYear}` : "—") : r.months === 0 ? "This month" : `${r.months} month${r.months === 1 ? "" : "s"} ago`}
-                  </Box>
-                  <Box component="span" sx={{ ...sub, display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-                    <Box component="span" sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: KIND_COLOUR[r.kind], flex: "0 0 auto" }} />
-                    {KIND_INFO.find((x) => x.id === r.kind)!.short}{r.d ? ` · ${monthLabel(r.d)}` : ""}
-                  </Box>
-                </Box>
-              </Box>
-            );
-          })}
-        </Box>
+          </TableBody>
+        </Table>
       </Box>
       {!rows.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No line for this choice{q ? ` and "${q}"` : ""}.</Typography>}
       <Pager p={paged} />
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        At stake = the best year less the last 12 months and what is on order. Still buying, less: invoiced in the last 12 months or on order. Stopped: no invoice for 12 to {STOPPED_MONTHS} months and nothing on order; longer is lost. Last invoice: the last time the article was invoiced to the customer.
-        {!days && <Box component="span" sx={{ color: "#a86a00" }}> The months since the last invoice come with the next read of the orders (a quarter of an hour) - until then a line shows its last year, and stopped means bought in {d.years[d.years.length - 2]} or {d.years[d.years.length - 1]}.</Box>}
+        Last invoice: the last time the article was invoiced to the customer; a line on order but not invoiced lately is buying now. The download has every line of this choice, with each of the five years, as the Excel.
+        {!hasDays(d) && <Box component="span" sx={{ color: "#a86a00" }}> The months since the last invoice come with the next read of the orders (a quarter of an hour) - until then a line shows its last year, and stopped means bought in {d.years[d.years.length - 2]} or {d.years[d.years.length - 1]}.</Box>}
       </Typography>
     </GlassCard>
   );
 }
 
-/** Every card by its key "<tab>:<card>" - the page draws them, and so does the nutshell. */
-const CARDS: Record<string, { title: string; draw: (c: Ctx) => React.ReactNode }> = {
-  "owners:gap": { title: "At stake by owner", draw: (c) => <OwnerSplitCard {...c} /> },
-  "owners:apart": { title: "Not in the headline", draw: (c) => <ApartCard {...c} /> },
-};
+/* ── the nutshell ─────────────────────────────────────────────────────────────── */
 
 /** The card the nutshell's Retain & grow panel starts with (demotable). */
-export const RETAIN_NUTSHELL_CARDS = [{ key: "retain:owners:gap", title: "At stake by owner" }];
+export const RETAIN_NUTSHELL_CARDS = [{ key: "retain:owners:gap", title: "At stake, by owner" }];
 
-/** A Retain & grow card promoted to the nutshell - the same card as on the page, with its filters. */
+/** A Retain & grow chart promoted to the nutshell - the same chart as on its tab, with its filters. */
 export function RetainPromoted({ spec, actions, half }: { spec: TileSpec; actions: React.ReactNode; half?: boolean }) {
+  void half;
   const r = useRetain();
   const [, tab, card] = spec.key.split(":");
-  const c = CARDS[`${tab}:${card}`];
-  if (!r.d || !c) {
-    return <GlassCard><CardTitle icon={<TrendingDownOutlinedIcon />} tint="amber" title={c?.title ?? spec.title} note={r.d ? "This card is no longer on its page - Actions takes it off here." : "Reading the orders…"} right={actions} /></GlassCard>;
+  const known = tab in DIMS && (card === "gap" || card === "bestnow");
+  if (!r.d || !known) {
+    return <GlassCard><CardTitle icon={<TrendingDownOutlinedIcon />} tint="amber" title={spec.title} note={r.d ? "This card is no longer on its page - Actions takes it off here." : "Reading the orders…"} right={actions} /></GlassCard>;
   }
   const ff = spec.filters ?? {};
   const kinds = (ff.kind?.length ? ff.kind : HEADLINE) as Kind[];
-  return <>{c.draw({ d: r.d, f: { owner: ff.owner, country: ff.country, pc: ff.pc }, kinds, right: actions, half })}</>;
+  const c = { d: r.d, f: { owner: ff.owner, country: ff.country, pc: ff.pc, customer: ff.customer, article: ff.article }, kinds, tab: tab as DimTab, act: () => actions };
+  return card === "gap" ? <StakeChart {...c} /> : <BestNowChart {...c} />;
 }
 
-type Tab = "overview" | "list";
+/* ── the page ─────────────────────────────────────────────────────────────────── */
 
 export function RetainExplorer({ state }: { state: MkState | null }) {
   void state;
   const params = useSearchParams();
   const r = useRetain();
   const d = r.d;
-  const pick = (k: string) => params.getAll(k);
-  const [tab, setTab] = useState<Tab>(() => (params.get("tab") === "list" ? "list" : "overview"));
-  const [owners, setOwners] = useState<string[]>(() => pick("owner"));
-  const [countries, setCountries] = useState<string[]>(() => pick("country"));
-  const [pcs, setPcs] = useState<string[]>(() => pick("pc"));
-  const [kinds, setKinds] = useState<Kind[]>(() => { const k = pick("kind").filter((x) => KIND_INFO.some((i) => i.id === x)) as Kind[]; return k.length ? k : HEADLINE; });
+  const [tab, setTab] = useState<Tab>(() => { const t = params.get("tab") as Tab | null; return t && TAB_ORDER.includes(t) ? t : "owners"; });
+  const [filters, setFilters] = useState<Filters>(() => ({ owner: params.getAll("owner"), country: params.getAll("country"), pc: params.getAll("pc"), customer: params.getAll("customer"), article: params.getAll("article") }));
+  const [kinds, setKinds] = useState<Kind[]>(() => { const k = params.getAll("kind").filter((x) => KIND_INFO.some((i) => i.id === x)) as Kind[]; return k.length ? k : HEADLINE; });
   const [q, setQ] = useState(() => params.get("q") ?? "");
-  const [sort, setSort] = useState<Sort>({ k: "gap", desc: true });
   const [panel, setPanel] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const u = new URLSearchParams();
-    if (tab !== "overview") u.set("tab", tab);
-    for (const [k, xs] of [["owner", owners], ["country", countries], ["pc", pcs]] as const) for (const x of xs) u.append(k, x);
+    if (tab !== "owners") u.set("tab", tab);
+    for (const [k, xs] of Object.entries(filters)) for (const x of xs) u.append(k, x);
     if (!sameKinds(kinds, HEADLINE)) for (const k of kinds) u.append("kind", k);
-    if (q.trim()) u.set("q", q.trim());
+    if (q.trim() && tab === "list") u.set("q", q.trim());
     const s = u.toString();
     window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
-  }, [tab, owners, countries, pcs, kinds, q]);
+  }, [tab, filters, kinds, q]);
 
-  const f: RFilters = useMemo(() => ({ owner: owners, country: countries, pc: pcs }), [owners, countries, pcs]);
-  const flip = <T,>(xs: T[], x: T) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x]);
+  const f: RFilters = useMemo(() => ({ ...filters }), [filters]);
+  const toggle = (k: keyof Filters, v: string) => setFilters((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
+  const flipKind = (k: Kind) => setKinds((xs) => { const next = xs.includes(k) ? xs.filter((y) => y !== k) : [...xs, k]; return next.length ? next : HEADLINE; });
   const options = useMemo(() => {
     if (!d) return null;
     const all = eroding(d, {});
     return { owners: totalsBy(all, keyOwner(d)).map(([k]) => k), countries: totalsBy(all, keyCountry(d)).map(([k]) => k), pcs: totalsBy(all, keyPc(d)).map(([k]) => k) };
   }, [d]);
-  const listCount = useMemo(() => (d ? rowsOf(d, { ...f, kinds }).length : null), [d, f, kinds]);
-  const chosenCount = owners.length + countries.length + pcs.length;
-  const filters = Object.fromEntries(([["owner", owners], ["country", countries], ["pc", pcs], ["kind", sameKinds(kinds, HEADLINE) ? [] : kinds]] as const).filter(([, xs]) => xs.length)) as Record<string, string[]>;
-  const clearAll = () => { setOwners([]); setCountries([]); setPcs([]); };
-  const act = (key: string, title: string) => (
-    <TileActions where="tab" start={RETAIN_NUTSHELL_CARDS.some((x) => x.key === `retain:owners:${key}`) ? "nutshell" : "tab"}
-      tile={{ key: `retain:owners:${key}`, page: "retain", tab: "owners", title, filters, kind: "card" }} />
-  );
+  const chosen = Object.values(filters).reduce((a, xs) => a + xs.length, 0);
+  const kindsChanged = !sameKinds(kinds, HEADLINE);
+  const specFilters = Object.fromEntries([...Object.entries(filters), ["kind", kindsChanged ? kinds : []]].filter(([, xs]) => (xs as string[]).length)) as Record<string, string[]>;
+  const openOn = (section: string) => { setOpen((o) => ({ ...o, [section]: true })); setPanel(true); };
 
   if (!d || !options) {
     return (
@@ -409,7 +473,22 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
       </Box></GlassCard>
     );
   }
-  const ctx: Ctx = { d, f, kinds, onKind: (k) => setKinds((xs) => { const next = flip(xs, k); return next.length ? next : HEADLINE; }) };
+  const k = byKind(d, f);
+  const dimCtx = (t: DimTab): Ctx & { tab: DimTab } => {
+    const key = FILTER_OF[DIMS[t].dim];
+    const section = { owner: "owner", country: "country", pc: "pc" }[key as "owner" | "country" | "pc"];
+    return {
+      d, f, kinds, tab: t, selected: filters[key], onPick: (v) => toggle(key, v), onFilter: section ? () => openOn(section) : undefined,
+      act: (card, title) => (
+        <TileActions where="tab" start={RETAIN_NUTSHELL_CARDS.some((x) => x.key === `retain:${t}:${card}`) ? "nutshell" : "tab"}
+          tile={{ key: `retain:${t}:${card}`, page: "retain", tab: t, title, filters: specFilters, kind: "card" }} />
+      ),
+    };
+  };
+  const chip = (key: keyof Filters, label: string, tint: Tint) => filters[key].map((v) => (
+    <Chip key={`${key}-${v}`} size="small" label={<span><b>{label}:</b> {cut(labelOf(d, key === "customer" ? "customer" : key === "article" ? "article" : key, v), 40)}</span>}
+      onDelete={() => toggle(key, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[tint].bg }} />
+  ));
 
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
@@ -419,36 +498,34 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
             Retain &amp; grow
           </Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>Erosion at stake</b> on {new Date(d.asOf).toLocaleDateString("en-GB")} · each customer and article against its best year {yearsLabel(d)}: still bought, but less, or stopped - no order for 12 to {STOPPED_MONTHS} months{r.computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>The last 12 months</b> against each customer&apos;s best year {yearsLabel(d)}, per article · read {new Date(d.asOf).toLocaleDateString("en-GB")}{r.computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {chosenCount > 0 && (
+          {(chosen > 0 || kindsChanged) && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {owners.map((x) => <Chip key={x} size="small" label={<span><b>Owner:</b> {ownerName(d, x)}</span>} onDelete={() => setOwners(flip(owners, x))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.purple.bg }} />)}
-              {countries.map((x) => <Chip key={x} size="small" label={<span><b>Country:</b> {x}</span>} onDelete={() => setCountries(flip(countries, x))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.green.bg }} />)}
-              {pcs.map((x) => <Chip key={x} size="small" label={<span><b>Profit centre:</b> {x}</span>} onDelete={() => setPcs(flip(pcs, x))} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.amber.bg }} />)}
-              <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+              {chip("owner", "Owner", "purple")}{chip("country", "Country", "green")}{chip("pc", "Profit centre", "amber")}{chip("customer", "Customer", "blue")}{chip("article", "Article", "slate")}
+              {kindsChanged && <Chip size="small" label={<span><b>Counted:</b> {kinds.map((x) => KIND_INFO.find((i) => i.id === x)!.short.toLowerCase()).join(", ")}</span>} onDelete={() => setKinds(HEADLINE)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg }} />}
+              <Button size="small" onClick={() => { setFilters(NO_FILTERS); setKinds(HEADLINE); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
             </Box>
           )}
         </Box>
-        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><Figures d={d} f={f} /></Box>
+        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><Figures d={d} f={f} kinds={kinds} /></Box>
       </Box>
 
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
-        <Box sx={{ minWidth: 0, flex: "0 1 auto" }}>
-          <ReportTabs name="retain" tab={tab} onSelect={setTab} tabs={[{ id: "overview", label: "Overview", count: null }, { id: "list", label: "The list", count: listCount == null ? null : n0(listCount) }]} />
+        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
+          <ReportTabs name="retain" tab={tab} onSelect={setTab}
+            tabs={TAB_ORDER.map((t) => ({ id: t, label: t === "list" ? "The list" : DIMS[t].name, count: t === "list" ? null : filters[FILTER_OF[DIMS[t].dim]].length ? String(filters[FILTER_OF[DIMS[t].dim]].length) : null }))} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="retain" /></Box>
-        <Button onClick={() => setPanel((x) => !x)} variant={panel || chosenCount ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
-          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosenCount ? undefined : "#fff" }}>
-          Filters{chosenCount ? ` · ${chosenCount}` : ""}
+        <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen || kindsChanged ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen || kindsChanged ? undefined : "#fff" }}>
+          Filters{chosen + (kindsChanged ? 1 : 0) ? ` · ${chosen + (kindsChanged ? 1 : 0)}` : ""}
         </Button>
       </Box>
 
-      <Box role="tabpanel" id={`retain-panel-${tab}`} aria-labelledby={`retain-tab-${tab}`} sx={{ display: "grid", gap: 1.75, minWidth: 0 }}>
-        {tab === "overview" && CARDS["owners:gap"].draw({ ...ctx, right: act("gap", "At stake by owner"), onOwner: (o) => { setOwners([o]); setTab("list"); window.scrollTo({ top: 0, behavior: "smooth" }); } })}
-        {tab === "overview" && CARDS["owners:apart"].draw({ ...ctx, right: act("apart", "Not in the headline") })}
-        {tab === "list" && <ListCard {...ctx} q={q} setQ={setQ} sort={sort} setSort={setSort} />}
+      <Box role="tabpanel" id={`retain-panel-${tab}`} aria-labelledby={`retain-tab-${tab}`} sx={{ minWidth: 0 }}>
+        {tab === "list" ? <ListSection d={d} f={f} kinds={kinds} q={q} setQ={setQ} /> : <DimSection {...dimCtx(tab)} />}
       </Box>
 
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
@@ -456,15 +533,18 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
         {Object.keys(d.errors).length > 0 && <Box component="span" sx={{ color: RED }}> Not everything could be read: {Object.keys(d.errors).join(", ")}.</Box>}
       </Typography>
 
-      <FilterPanel id="retain-filters" open={panel} onClose={() => setPanel(false)} subtitle="The owner, the country, the profit centre" onClearAll={chosenCount ? clearAll : undefined}>
-        <FilterSection id="rt-f-owner" index={0} title="Owner" icon={<GroupsOutlinedIcon />} tint="purple" open={!!open.owner} onFlip={() => setOpen((o) => ({ ...o, owner: !o.owner }))} summary={owners.length ? `${owners.length} chosen` : "All"} chosen={owners.length > 0}>
-          {options.owners.map((o) => <Pick key={o || "none"} on={owners.includes(o)} label={ownerName(d, o)} onClick={() => setOwners(flip(owners, o))} />)}
+      <FilterPanel id="retain-filters" open={panel} onClose={() => setPanel(false)} subtitle="What is counted, the owner, the country, the profit centre" onClearAll={chosen || kindsChanged ? () => { setFilters(NO_FILTERS); setKinds(HEADLINE); } : undefined}>
+        <FilterSection id="rt-f-kind" index={0} title="What is counted" icon={<LayersOutlinedIcon />} tint="slate" open={!!open.kind} onFlip={() => setOpen((o) => ({ ...o, kind: !o.kind }))} summary={kindsChanged ? `${kinds.length} of ${KIND_INFO.length}` : "Buying less, stopped"} chosen={kindsChanged}>
+          {KIND_INFO.map((x) => <Pick key={x.id} on={kinds.includes(x.id)} label={`${x.label} - ${eur(k[x.id].gap)}`} note={x.note} onClick={() => flipKind(x.id)} />)}
         </FilterSection>
-        <FilterSection id="rt-f-country" index={1} title="Country" icon={<PublicOutlinedIcon />} tint="green" open={!!open.country} onFlip={() => setOpen((o) => ({ ...o, country: !o.country }))} summary={countries.length ? `${countries.length} chosen` : "All"} chosen={countries.length > 0}>
-          {options.countries.map((k) => <Pick key={k} on={countries.includes(k)} label={k} onClick={() => setCountries(flip(countries, k))} />)}
+        <FilterSection id="rt-f-owner" index={1} title="Owner" icon={<GroupsOutlinedIcon />} tint="purple" open={!!open.owner} onFlip={() => setOpen((o) => ({ ...o, owner: !o.owner }))} summary={filters.owner.length ? `${filters.owner.length} chosen` : "All"} chosen={filters.owner.length > 0}>
+          {options.owners.map((o) => <Pick key={o || "none"} on={filters.owner.includes(o)} label={ownerName(d, o)} onClick={() => toggle("owner", o)} />)}
         </FilterSection>
-        <FilterSection id="rt-f-pc" index={2} title="Profit centre" icon={<WorkspacesOutlinedIcon />} tint="amber" open={!!open.pc} onFlip={() => setOpen((o) => ({ ...o, pc: !o.pc }))} summary={pcs.length ? pcs.join(", ") : "All"} chosen={pcs.length > 0}>
-          {options.pcs.map((p) => <Pick key={p} on={pcs.includes(p)} label={p} onClick={() => setPcs(flip(pcs, p))} />)}
+        <FilterSection id="rt-f-country" index={2} title="Country" icon={<PublicOutlinedIcon />} tint="green" open={!!open.country} onFlip={() => setOpen((o) => ({ ...o, country: !o.country }))} summary={filters.country.length ? `${filters.country.length} chosen` : "All"} chosen={filters.country.length > 0}>
+          {options.countries.map((c) => <Pick key={c} on={filters.country.includes(c)} label={c} onClick={() => toggle("country", c)} />)}
+        </FilterSection>
+        <FilterSection id="rt-f-pc" index={3} title="Profit centre" icon={<WorkspacesOutlinedIcon />} tint="amber" open={!!open.pc} onFlip={() => setOpen((o) => ({ ...o, pc: !o.pc }))} summary={filters.pc.length ? filters.pc.join(", ") : "All"} chosen={filters.pc.length > 0}>
+          {options.pcs.map((p) => <Pick key={p} on={filters.pc.includes(p)} label={labelOf(d, "pc", p)} onClick={() => toggle("pc", p)} />)}
         </FilterSection>
       </FilterPanel>
     </Box>

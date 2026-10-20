@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addOrder, eroding, finish, newAcc, totalsBy, totalsOf, viewOf, windowOf, keyLast, keyOwner, kindOf, monthsBetween, rowsOf, byOwner, byKind, matches, csvOf, HEADLINE, KIND_INFO, STOPPED_MONTHS, type RetainData } from "../src/lib/marketingKpis/retainCube";
+import { addOrder, eroding, finish, newAcc, totalsBy, totalsOf, viewOf, windowOf, keyLast, keyOwner, kindOf, monthsBetween, rowsOf, byOwner, byDim, byKind, matches, csvOf, HEADLINE, KIND_INFO, STOPPED_MONTHS, type RetainData } from "../src/lib/marketingKpis/retainCube";
 
 const pos = (...xs: [string, number, string?][]) => JSON.stringify(xs.map(([a, r, pc]) => ({ a, r, pc: pc ?? "FT", t: `Article ${a}` })));
 const order = (p: Record<string, unknown>) => ({ order_mandant: "100", order_customer_number: "7001", order_order_type: "Order", ...p });
@@ -115,6 +115,12 @@ test("the erosion list: still buying less and stopped 12-24 months in the headli
   assert.deepEqual(rowsOf(d, {}).filter((r) => matches(d, r, "110-3")).map((r) => r.a), ["1000000006"]);
   assert.deepEqual(rowsOf(d, {}).filter((r) => matches(d, r, "text 1000000002")).map((r) => r.a), ["1000000002"]);
 
+  // by any of the page's tabs: country, profit centre, customer, article - and a customer or an article as a filter
+  assert.deepEqual(byDim(d, {}, "country").map((x) => [x.key, x.sums.gap]), [["Switzerland", 6000], ["Germany", 2600]]);
+  assert.deepEqual(byDim(d, {}, "pc").map((x) => [x.key, x.sums.gap]), [["FT", 6000], ["ST", 2600]]);
+  assert.deepEqual(byDim(d, {}, "customer").map((x) => [x.key, x.sums.lines]), [["100-1", 2], ["110-3", 1]]);
+  assert.deepEqual(byDim(d, { kinds: ["gone", "oneoff"] }, "article").map((x) => x.key), ["1000000004", "1000000003"]);
+  assert.deepEqual(rowsOf(d, { customer: ["100-1"], article: ["1000000002"] }).map((r) => r.gap), [3000]);
   // the graph: per owner, split by kind
   assert.deepEqual(byOwner(d, {}).map((o) => [o.owner, o.sums.gap, o.sums.customers, o.sums.byKind.less, o.sums.byKind.stopped]), [["11", 6000, 1, 3000, 3000], ["22", 2600, 1, 2600, 0]]);
   // what is shown apart

@@ -33,7 +33,6 @@ import IconButton from "@mui/material/IconButton";
 import CheckIcon from "@mui/icons-material/Check";
 import SearchIcon from "@mui/icons-material/Search";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
-import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
@@ -46,10 +45,7 @@ import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 // the tile toolbar and saved views (9f, SARCLA 18.10: "they should be on the main one then visible on the nutshell")
@@ -67,6 +63,7 @@ import { RETRY_MS, RETRIES, everyWhileSeen, hubJson, stageHref, useSlow } from "
 import { onlineBy, onlineShare, type OnlineAgg, type OnlineCube } from "@/lib/marketingKpis/onlineShare";
 import { MovementsView, inOut, movesIn, useMovements } from "./Movements";
 import { FilterPanel, FilterSection as Section } from "./FilterPanel";
+import { BEFORE, DimChart, THIS } from "./DimChart";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -105,7 +102,6 @@ const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tin
   mandant: { name: "Mandant", lower: "mandant", icon: <AccountBalanceOutlinedIcon />, tint: "slate", note: "The ERP company the customer is invoiced from", kpi: "KPI C05" },
 };
 const ORDER: Dim[] = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant"];
-const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 
 const int = (n: number) => Math.round(n).toLocaleString("en");
 const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
@@ -225,71 +221,6 @@ function Figures({ cube, a, all, win, readIso }: { cube: Cube; a: Agg; all: Agg;
 }
 
 /* ── the charts: their bars are the filter ────────────────────────────── */
-
-function DimChart({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions }: {
-  title: string; rows: Row[]; cur: (r: Row) => number; prev: (r: Row) => number; curLabel: string; prevLabel: string;
-  fmt: (n: number) => string; selected?: string[]; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
-  /** the tile toolbar: tasks (with their Scroll to Sale tickets), promote */
-  actions?: React.ReactNode;
-  /** priority and potential keep their own order; every other chart ranks by what it shows */
-  fixedOrder?: boolean;
-}) {
-  // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
-  // "this should follow revenue or customer count on top depending on the value")
-  const rows = useMemo(() => (fixedOrder ? given : [...given].sort((a, b) => cur(b) - cur(a) || b.rev - a.rev || a.label.localeCompare(b.label))), [given, fixedOrder, cur]);
-  // every value, a page at a time - the largest first (SARCLA 14.10: "only 10 is cool, but show all in pages")
-  const [page, setPage] = useState(0);
-  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
-  useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
-  const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
-  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)) }));
-  const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick(l); };
-  const tall = Math.min(rows.length, pageSize);
-  const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
-  return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-            Click bars to show only them{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""}
-          </Typography>
-        </Box>
-        {pages > 1 && (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
-            <IconButton size="small" aria-label="The previous ones" disabled={page === 0} onClick={() => setPage((x) => Math.max(0, x - 1))} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
-            <IconButton size="small" aria-label="The next ones" disabled={page >= pages - 1} onClick={() => setPage((x) => Math.min(pages - 1, x + 1))} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
-          </Box>
-        )}
-        {onFilter && (
-          <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...nav, color: selected?.length ? TINT.blue.fg : MUTED, bgcolor: selected?.length ? TINT.blue.bg : "transparent" }}>
-            <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
-          </IconButton>
-        )}
-        {actions}
-      </Box>
-      <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
-        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
-          <CartesianGrid horizontal={false} stroke="#e6e8ec" />
-          <XAxis type="number" hide />
-          <YAxis type="category" dataKey="label" width={170} tickLine={false} axisLine={false} interval={0}
-            tick={{ fontSize: 12.5, fill: INK }} />
-          <Tooltip cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => [fmt(Number(v)), String(n)]}
-            contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
-          <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
-          <Bar dataKey="cur" name={curLabel} fill={THIS} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
-            {data.map((d) => <Cell key={d.label} fill={THIS} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
-            <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
-          </Bar>
-          <Bar dataKey="prev" name={prevLabel} fill={BEFORE} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
-            {data.map((d) => <Cell key={d.label} fill={BEFORE} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
-            <LabelList dataKey="prev" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 11.5, fill: MUTED }} />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </Box>
-  );
-}
 
 const byBought = (r: Row) => r.bought, byRev = (r: Row) => r.rev, byNew = (r: Row) => r.newC;
 /**

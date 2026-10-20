@@ -199,7 +199,7 @@ export function viewOf(line: RetainLine, years: number[], asOf?: string): LineVi
   };
 }
 
-export type RFilters = { owner?: string[]; country?: string[]; pc?: string[]; state?: string[]; kind?: string[] };
+export type RFilters = { owner?: string[]; country?: string[]; pc?: string[]; customer?: string[]; article?: string[]; state?: string[]; kind?: string[] };
 export const STATES = [{ id: "stopped", label: "Stopped buying" }, { id: "less", label: "Buying less" }] as const;
 export const KINDS = [{ id: "recurring", label: "Recurring", note: "bought in two of the five years or more" }, { id: "oneoff", label: "One-off", note: "bought in one year only" }] as const;
 
@@ -214,6 +214,8 @@ export function eroding(d: RetainData, f: RFilters): LineView[] {
     if (f.owner?.length && !f.owner.includes(ownerOf(d, line.u))) continue;
     if (f.country?.length && !f.country.includes(countryOf(d, line.u))) continue;
     if (f.pc?.length && !f.pc.includes(pcOf(d, line.a))) continue;
+    if (f.customer?.length && !f.customer.includes(line.u)) continue;
+    if (f.article?.length && !f.article.includes(line.a)) continue;
     const v = viewOf(line, d.years, d.asOf);
     if (v.gap <= 0) continue;
     if (f.state?.length && !f.state.includes(v.stopped ? "stopped" : "less")) continue;
@@ -298,12 +300,19 @@ export const sumsOf = (rows: Row[]): Sums => {
   return t;
 };
 
-/** At stake per owner (the customer's owner in HubSpot today), the most first - the graph. */
-export function byOwner(d: RetainData, f: RFilters & { kinds?: Kind[] }): { owner: string; sums: Sums }[] {
+/** The ways the page breaks it down - each a tab, as on Who are our customers. */
+export type Dim = "owner" | "country" | "pc" | "customer" | "article";
+const keyOfDim: Record<Dim, (d: RetainData, r: Row) => string> = {
+  owner: (d, r) => ownerOf(d, r.u), country: (d, r) => countryOf(d, r.u), pc: (d, r) => pcOf(d, r.a), customer: (_d, r) => r.u, article: (_d, r) => r.a,
+};
+/** At stake by owner, country, profit centre, customer or article - the most first. */
+export function byDim(d: RetainData, f: RFilters & { kinds?: Kind[] }, dim: Dim): { key: string; sums: Sums }[] {
   const by = new Map<string, Row[]>();
-  for (const r of rowsOf(d, f)) { const o = ownerOf(d, r.u); by.set(o, [...(by.get(o) ?? []), r]); }
-  return [...by.entries()].map(([owner, rs]) => ({ owner, sums: sumsOf(rs) })).sort((a, b) => b.sums.gap - a.sums.gap);
+  for (const r of rowsOf(d, f)) { const k = keyOfDim[dim](d, r); let xs = by.get(k); if (!xs) { xs = []; by.set(k, xs); } xs.push(r); }
+  return [...by.entries()].map(([key, rs]) => ({ key, sums: sumsOf(rs) })).sort((a, b) => b.sums.gap - a.sums.gap);
 }
+/** At stake per owner (the customer's owner in HubSpot today), the most first. */
+export const byOwner = (d: RetainData, f: RFilters & { kinds?: Kind[] }) => byDim(d, f, "owner").map(({ key, sums }) => ({ owner: key, sums }));
 
 /** Every kind's at stake over the filters (not the kind choice) - the headline and what is shown apart. */
 export function byKind(d: RetainData, f: RFilters): Record<Kind, { gap: number; lines: number; customers: number }> {
