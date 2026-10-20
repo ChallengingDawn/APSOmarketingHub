@@ -10,6 +10,7 @@
 // All money in francs, as the sheet has it.
 
 import { rateFor, type ChfPerEur } from "./fxRates";
+import type { MsAdsSheet } from "./msAdsSheet";
 
 export type Monthly = { months: (number | null)[]; py: (number | null)[] };
 export const emptyMonthly = (): Monthly => ({ months: Array(12).fill(null), py: Array(12).fill(null) });
@@ -51,6 +52,26 @@ export function funnelRates(rows: { ym: string; event: string; sessions: number 
     if (e.cart > 0) out.K02G[at.side][at.i] = Math.max(0, (e.cart - e.checkout) / e.cart);
     if (e.checkout > 0) out.K03G[at.side][at.i] = Math.max(0, (e.checkout - e.purchase) / e.checkout);
   }
+  return out;
+}
+
+/**
+ * Google Ads' conversion value per month in francs, every account's tab added up ("Google Ads 975-499-5314" - the
+ * script is pasted into each APSOparts account, SARCLA 20.10: "on the DE account"). A month any tab cannot show in
+ * francs is left out rather than counted short.
+ */
+export function revenueByMonthChf(tabs: MsAdsSheet[], fx: ChfPerEur): Record<string, number> {
+  const out: Record<string, number> = {};
+  const bad = new Set<string>();
+  for (const t of tabs) {
+    for (const [m, x] of Object.entries(t.months)) {
+      if (x.revenue == null) continue;
+      const v = toChf(x.revenue, t.currency, m, fx);
+      if (v == null) { bad.add(m); continue; }
+      out[m] = (out[m] ?? 0) + v;
+    }
+  }
+  for (const m of bad) delete out[m];
   return out;
 }
 

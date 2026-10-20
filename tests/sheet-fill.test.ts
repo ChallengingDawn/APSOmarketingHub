@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bothPlatforms, funnelRates, toChf } from "../src/lib/marketingKpis/sheetFill";
+import { bothPlatforms, funnelRates, revenueByMonthChf, toChf } from "../src/lib/marketingKpis/sheetFill";
 import { parseMsAdsSheet } from "../src/lib/marketingKpis/msAdsSheet";
 
 test("cart and check-out abandonment from GA4's check-out steps, per month", () => {
@@ -28,6 +28,16 @@ test("SEA cost and revenue: Google and Microsoft in francs, a month only when bo
   const both = bothPlatforms({ "2026-08": 15000, "2026-09": 16000 }, { "2026-09": 4000 }, 2026);
   assert.equal(both.months[8], 20000);
   assert.equal(both.months[7], null); // Microsoft missing in August: no half figure
+});
+
+test("Google Ads' conversion value: every account's tab added up in francs, a month a tab cannot convert left out", () => {
+  const head = ["month", "impressions", "clicks", "cost", "currency", "conversions", "revenue", "account", "through", "written"];
+  const de = parseMsAdsSheet([head, ["2026-09", 1, 1, 1, "EUR", 10, 100000, "APSOparts DE (975-499-5314)", "2026-10-19", "x"]]);
+  const ch = parseMsAdsSheet([head, ["2026-09", 1, 1, 1, "CHF", 20, 50000, "APSOparts CH (1)", "2026-10-19", "x"], ["2026-08", 1, 1, 1, "CHF", 5, 9000, "x", "x", "x"]]);
+  const usd = parseMsAdsSheet([head, ["2026-08", 1, 1, 1, "USD", 1, 100, "x", "x", "x"]]);
+  const r = revenueByMonthChf([de, ch, usd], { "2026-09": 0.94, "2026-08": 0.94 });
+  assert.equal(r["2026-09"], 144000); // 100,000 EUR at 0.94 + 50,000 CHF
+  assert.equal(r["2026-08"], undefined); // the USD tab cannot be shown in francs: the month is left out, not short
 });
 
 test("the scripts' sheet with the conversions and their value - and without them, as before", () => {

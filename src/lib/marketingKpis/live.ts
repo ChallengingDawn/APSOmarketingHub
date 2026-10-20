@@ -32,7 +32,7 @@ import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
 import { msAdsKindMonths, msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
 import type { RoasMonths } from "./roas";
 import { googleFetchJson } from "@/lib/integrations/google";
-import { bothPlatforms, funnelRates, toChf } from "./sheetFill";
+import { bothPlatforms, funnelRates, revenueByMonthChf, toChf } from "./sheetFill";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
@@ -437,19 +437,26 @@ async function build(): Promise<LiveKpis> {
       const v = x.revenue == null ? null : toChf(x.revenue, cur, m, fx);
       if (v != null) msRevChf[m] = v;
     }
-    // Google Ads' own conversion value: its script writes the tab "Google Ads" of the same sheet (P05)
+    // Google Ads' own conversion value: its script writes a tab per account into the same sheet ("Google Ads
+    // 975-499-5314" - pasted into each APSOparts account); every such tab added up (P05)
     try {
-      const g = await googleFetchJson<{ values?: unknown[][] }>({
-        url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("'Google Ads'!A1:K400")}?valueRenderOption=UNFORMATTED_VALUE`,
-        scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Google Ads sheet",
+      const meta = await googleFetchJson<{ sheets?: { properties?: { title?: string } }[] }>({
+        url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}?fields=${encodeURIComponent("sheets.properties.title")}`,
+        scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Google Ads sheet tabs",
       });
-      const gs = parseMsAdsSheet(g.values);
-      for (const [m, x] of Object.entries(gs.months)) {
-        const v = x.revenue == null ? null : toChf(x.revenue, gs.currency, m, fx);
-        if (v != null) googleRevChf[m] = v;
+      const tabs = (meta.sheets ?? []).map((s) => s.properties?.title ?? "").filter((t) => /^Google Ads\b/.test(t));
+      const read = [];
+      for (const t of tabs) {
+        const g = await googleFetchJson<{ values?: unknown[][] }>({
+          url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent(`'${t.replace(/'/g, "''")}'!A1:K400`)}?valueRenderOption=UNFORMATTED_VALUE`,
+          scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: `Google Ads sheet (${t})`,
+        });
+        read.push(parseMsAdsSheet(g.values));
       }
+      Object.assign(googleRevChf, revenueByMonthChf(read, fx));
+      if (!tabs.length) waiting.P05A = "Being set up: the Google Ads script (pasted into each APSOparts account) writes its conversion value to the sheet every morning";
     } catch {
-      waiting.P05A = "Being set up: a script in Google Ads will write its conversion value to the sheet's tab \"Google Ads\" every morning";
+      waiting.P05A = "Being set up: the Google Ads script (pasted into each APSOparts account) writes its conversion value to the sheet every morning";
     }
   });
 
