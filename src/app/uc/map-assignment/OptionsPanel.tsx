@@ -7,6 +7,10 @@
 //   the SAE values of the country -> who they go to, a redirect for this country only (CountryRule.saeOverride)
 //   the postcode zones, the default person, key accounts
 //   more: the SAE table for every country, the rule itself, the seeded rules
+// Round 2 (SARCLA 20.10.2026: "Rule 1 SAE Performis populates the properties as the workflow; I want to overrule rule 1
+// and give to another user. Zip codes are rule 2 - a fallback - and this should be swappable. Starting point is always
+// rule 1"): the panel reads top down as the engine decides - Rule 1 (each SAE -> person, overrule it here), Rule 2 (the
+// postcode zones for companies without an SAE yet, swap them), then the rest folded.
 // Every edit is the page's draft: the map recolours at once, nothing reaches the hub before Save.
 
 import { useEffect, useMemo, useState } from "react";
@@ -29,17 +33,17 @@ import {
   API, OwnerPicker, PeoplePicker, Swatch, canon, countryName, emptyRule, newId, prefixProblem, saeTarget, splitIds, splitPrefixes, splitRegions,
   useCountryGeo, withOverride, type Names, type Palette, type SetDraft,
 } from "./shared";
-import { SideShell } from "./SidePanel";
+import { RuleTag, SideShell } from "./SidePanel";
 
 const kicker = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.06em" };
 const hint = { fontSize: "0.74rem", color: MUTED };
 const card = { border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1, display: "grid", gap: 0.75 };
 
-function Part({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
+function Part({ title, children, right }: { title: React.ReactNode; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <Box sx={{ pt: 1.5, mt: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 }}>
-        <Typography sx={kicker}>{title}</Typography>{right}
+        <Typography component="div" sx={kicker}>{title}</Typography>{right}
       </Box>
       {children}
     </Box>
@@ -106,15 +110,15 @@ function SaeList({ cc, got, rules, setDraft, names, palette, admin }: {
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
               {goes ? <Swatch paint={palette(goes)} size={12} /> : <Box sx={{ width: 12 }} />}
               <OwnerPicker value={t.how === "redirect" ? t.owner ?? "" : ""} names={names} disabled={!admin || isMap} allowEmpty
-                placeholder={goes ? `${names.name(goes)} (the SAE table)` : isMap ? "the map decides" : "the zones decide"}
+                placeholder={goes ? `${names.name(goes)} (the workflow)` : isMap ? "rule 1 is off" : "nobody - rule 2"}
                 onChange={(o) => redirect(s.sae, o || null)} sx={{ flex: 1, minWidth: 0 }} />
             </Box>
             <Typography sx={{ fontSize: "0.72rem", color: t.how === "unmapped" || t.how === "not-in-country" || left ? "#a96a12" : FAINT }}>
               {left ? `${names.name(t.owner)} has left - ${names.name(fallback)}`
-                : t.how === "redirect" ? `redirected in ${countryName(cc)}`
-                : t.how === "unmapped" ? "not in the SAE table - the zones decide"
-                : t.how === "not-in-country" ? `${names.name(t.owner)} does not work ${countryName(cc)} - the zones decide`
-                : t.how === "map" ? "not used: the map decides here" : "from the SAE table"}
+                : t.how === "redirect" ? `overruled in ${countryName(cc)}`
+                : t.how === "unmapped" ? "no person for this SAE - rule 2 decides"
+                : t.how === "not-in-country" ? `${names.name(t.owner)} does not work ${countryName(cc)} - rule 2 decides`
+                : t.how === "map" ? "rule 1 is off here" : "from the workflow"}
               {s.companiesOff ? ` · ${full(s.companiesOff)} to change` : ""}
             </Typography>
           </Box>
@@ -123,7 +127,7 @@ function SaeList({ cc, got, rules, setDraft, names, palette, admin }: {
       {!needle && rows.length > 8 && (
         <Button size="small" onClick={() => setMore(!more)} sx={{ textTransform: "none", justifySelf: "start" }}>{more ? "Fewer" : `All ${rows.length} SAE values`}</Button>
       )}
-      {!isMap && <Typography sx={hint}>Pick a person to redirect an SAE in {countryName(cc)} only - the SAE table stays as it is.</Typography>}
+      {!isMap && <Typography sx={hint}>Pick someone to overrule an SAE in {countryName(cc)} only; empty = the workflow&apos;s person.</Typography>}
     </>
   );
 }
@@ -258,28 +262,24 @@ export function OptionsPanel({ cc, d, rules, setDraft, names, palette, rev, byZo
   const setRule = (f: (r: CountryRule) => CountryRule) => setDraft((dr) => ({ ...dr, countries: { ...dr.countries, [cc]: f(dr.countries[cc] ?? emptyRule(cc)) } }));
   const keys = rule?.keyAccounts ?? [];
   return (
-    <SideShell label={`Options of ${c}`} title={`${c}: options`} sub={admin ? "Changes show on the map at once - Save keeps them" : "Read only - admins change the options"} onClose={onClose}>
-      <Box sx={{ display: "grid", gap: 0.75, mt: 1.5 }}>
-        <Typography sx={kicker}>Who decides</Typography>
-        <Choice<"sae" | "map"> value={rule?.source ?? "sae"} onChange={(source) => admin && setRule((r) => ({ ...r, source }))} options={[
-          { key: "sae", label: "Performis SAE" },
-          { key: "map", label: "Postcode zones" },
-        ]} />
+    <SideShell label={`Rules of ${c}`} title={`${c}: rules`} sub={admin ? "Rule 1 first, then rule 2. Changes show on the map at once - Save keeps them" : "Read only - admins change the rules"} onClose={onClose}>
+      <Part title={<><RuleTag n={1} />Performis SAE → person</>}>
         <Typography sx={hint}>
-          {rule?.source === "map"
-            ? "Key accounts first, then the postcode zones. The SAE is shown, never copied."
-            : "Each company's SAE goes to its person. No SAE, or one nobody has: key accounts, then the postcode zones."}
+          As the workflow <b>SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS</b>: each company&apos;s SAE goes to its person - the company&apos;s owner and region responsibility, and each contact&apos;s owner, region responsibility and SAE.
         </Typography>
-      </Box>
-      <Part title={`People in ${c} · ${(rule?.people ?? []).length || "anyone"}`}>
-        <PeoplePicker value={rule?.people ?? []} names={names} disabled={!admin} placeholder="anyone - pick who works this country"
-          onChange={(people) => setRule((r) => { const x: CountryRule = { ...r, people }; if (!people.length) delete x.people; return x; })} />
-        <Typography sx={hint}>An SAE that points to someone outside this list is not used here - the zones decide.</Typography>
+        {rule?.source === "map"
+          ? <Typography sx={{ fontSize: "0.8rem", color: "#a96a12" }}>Rule 1 is OFF in {c}: the postcodes decide every company.</Typography>
+          : <SaeList key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} />}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Rule 1 in {c}</Typography>
+          <Choice<"sae" | "map"> value={rule?.source ?? "sae"} onChange={(source) => admin && setRule((r) => ({ ...r, source }))} options={[
+            { key: "sae", label: "On" },
+            { key: "map", label: "Off - postcodes only" },
+          ]} />
+        </Box>
       </Part>
-      <Part title="Performis SAE → person">
-        <SaeList key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} />
-      </Part>
-      <Part title={`Postcode zones · ${rule?.zones.length ?? 0}`} right={<Typography sx={{ ...hint, fontSize: "0.7rem" }}>or click the map</Typography>}>
+      <Part title={<><RuleTag n={2} />{`Postcode fallback · ${rule?.zones.length ?? 0} zones`}</>} right={<Typography sx={{ ...hint, fontSize: "0.7rem" }}>or click the map</Typography>}>
+        <Typography sx={hint}>For companies without an SAE yet - new companies and contacts the ERP has not sent. Swap a zone&apos;s person here or on the map.</Typography>
         {(rule?.zones ?? []).map((z) => (
           <ZoneCard key={`${rev}-${z.id}`} zone={z} cc={cc} names={names} palette={palette} admin={admin} regionNames={regionNames}
             count={byZone ? byZone.get(z.id) ?? 0 : null}
@@ -296,6 +296,11 @@ export function OptionsPanel({ cc, d, rules, setDraft, names, palette, rev, byZo
         <OwnerPicker value={rule?.defaultOwner ?? ""} names={names} disabled={!admin} allowEmpty placeholder={`${team} (everywhere)`}
           onChange={(o) => setRule((r) => ({ ...r, defaultOwner: o || null }))} />
       </Part>
+      <Fold title={`Who works ${c}`} count={(rule?.people ?? []).length || undefined}>
+        <PeoplePicker value={rule?.people ?? []} names={names} disabled={!admin} placeholder="anyone - pick who works this country"
+          onChange={(people) => setRule((r) => { const x: CountryRule = { ...r, people }; if (!people.length) delete x.people; return x; })} />
+        <Typography sx={hint}>An SAE whose person is not in this list is not used in {c} - rule 2 decides.</Typography>
+      </Fold>
       <Fold title="Key accounts" count={keys.length}>
         {keys.map((k, i) => (
           <KeyCard key={`${rev}-${kv}-${i}`} k={k} names={names} palette={palette} admin={admin} source={rule?.source ?? "sae"}

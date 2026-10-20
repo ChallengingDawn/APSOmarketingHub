@@ -398,7 +398,7 @@ export type Joined = {
   total: PostcodeStat;
 };
 
-const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0 });
+const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} });
 const addTo = (into: Record<string, number>, from: Record<string, number> | undefined) => {
   for (const [k, v] of Object.entries(from ?? {})) into[k] = (into[k] ?? 0) + (Number(v) || 0);
 };
@@ -407,7 +407,7 @@ function addStat(into: PostcodeStat, s: PostcodeStat) {
   into.revenue += Number.isFinite(s.revenue) ? s.revenue : 0;
   addTo(into.priority, s.priority);
   // where it comes from (a hub without these fields yet: empty)
-  addTo(into.sae!, s.sae); addTo(into.now!, s.now); addTo(into.decided!, s.decided);
+  addTo(into.sae!, s.sae); addTo(into.now!, s.now); addTo(into.decided!, s.decided); addTo(into.via!, s.via);
   into.change = (into.change ?? 0) + (Number(s.change) || 0);
 }
 /** A record's entries, biggest first: [[key, n], ...]. */

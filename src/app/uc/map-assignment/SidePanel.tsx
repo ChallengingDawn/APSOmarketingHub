@@ -2,13 +2,17 @@
 
 // MAP ASSIGNMENT - the panel on the left of the map (SARCLA 20.10.2026: "when you click a region it opens like a popup
 // but full length on the left, where we can check the stats and we can change the assignment - from what it comes,
-// Performis to HubSpot, which it populates"; "only the map - options and KPIs appear in a side panel"). What it holds:
-//   PlacePanel   a region, a postcode or a top customer: its figures, who has it now and by the rules, give it to
-//                someone (the zones), where it comes from (the Performis SAE -> the person -> what HubSpot gets) and
-//                a redirect of an SAE for this country, the biggest customers there
-//   KpiPanel     the country: companies, what would change, shadow or live, and the legend of the layer on screen
+// Performis to HubSpot, which it populates"; "only the map - options and KPIs appear in a side panel"). Round 2, same
+// day: "this menu is too confusing", "you should be able to see [everyone, no 'and 4 more']", and the model in two
+// rules - "Rule 1 SAE Performis populates the properties as the workflow SARCLA | COMPANY/CONTACT OWNER COPY FROM
+// PERFORMIS; I want to overrule rule 1 and give to another user. Zip codes are rule 2 - a fallback for companies and
+// contacts the ERP has not sent yet - and this should be swappable. Starting point is always rule 1." So:
+//   PlacePanel   a region, a postcode or a top customer: the figures; ONE table of every person, companies now ->
+//                after the rules; how many each rule decides; Rule 1 here (each SAE -> person, overrule it); Rule 2
+//                here (the postcode zones, swap them); what HubSpot gets; the biggest customers
+//   KpiPanel     the country: the same table now -> after, the split by rule, the postcode land (rule 2) per person
 //   SideShell    the frame: full height of the map, a title, a close button; a sheet over the map on a phone
-// The country's options (who decides, people, SAE, zones) are OptionsPanel.tsx, in the same frame.
+// The country's rules (rule 1 overrules, rule 2 zones, people, key accounts) are OptionsPanel.tsx, in the same frame.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -17,13 +21,12 @@ import IconButton from "@mui/material/IconButton";
 import Button from "@mui/material/Button";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { compact as short, full } from "@/app/charts/format";
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { Chip, when } from "@/app/connectors/parts";
-import type { AssignRules, CountryRule, OwnerId } from "@/lib/mapAssign/rules";
+import { saeKey, type AssignRules, type CountryRule, type OwnerId } from "@/lib/mapAssign/rules";
 import type { MapData, PostcodeStat } from "@/lib/mapAssign/api";
-import { OwnerPicker, Swatch, countryName, hsCompany, saeTarget, type Names, type Palette, type SaeTarget } from "./shared";
+import { OwnerPicker, Swatch, countryName, hsCompany, saeTarget, type Names, type Palette } from "./shared";
 import { LAND } from "./mapDraw";
 import { ranked, statValue, type Decided, type Joined, type LayerKey, type MapBase, type Priority, type ValueLayer } from "./mapModel";
 import type { MapChange } from "./mapEdit";
@@ -52,15 +55,25 @@ export const km2Text = (v: number | null | undefined) => (v === null || v === un
 
 const kicker = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.06em" };
 const num = { fontSize: "0.8rem", color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const };
+const RULE1 = "#6250d6", RULE2 = "#2a78d6";
 
-function Section({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Section({ title, right, children }: { title: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Box sx={{ pt: 1.5, mt: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 }}>
-        <Typography sx={kicker}>{title}</Typography>
+        <Typography component="div" sx={kicker}>{title}</Typography>
         {right}
       </Box>
       {children}
+    </Box>
+  );
+}
+
+/** "Rule 1" / "Rule 2" as a small coloured tag. */
+export function RuleTag({ n }: { n: 1 | 2 }) {
+  return (
+    <Box component="span" sx={{ display: "inline-block", px: 0.6, py: 0.1, mr: 0.75, borderRadius: "6px", fontSize: "0.66rem", fontWeight: 800, letterSpacing: "0.04em", color: "#fff", bgcolor: n === 1 ? RULE1 : RULE2, verticalAlign: "1px" }}>
+      RULE {n}
     </Box>
   );
 }
@@ -78,40 +91,79 @@ function Tiles({ items }: { items: { label: string; value: string; tone?: "amber
   );
 }
 
-/** People with a count each, biggest first, and their share. */
-function PeopleRows({ rows, names, palette, unit, max = 5 }: { rows: [string, number][]; names: Names; palette: Palette; unit?: string; max?: number }) {
-  const total = rows.reduce((s, [, n]) => s + n, 0);
-  if (!rows.length) return <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>None.</Typography>;
+/** Every person, companies now and after the rules, and the difference - one table, nobody left out. */
+export function OwnerTable({ now, after, names, palette }: { now: Record<string, number>; after: Record<string, number>; names: Names; palette: Palette }) {
+  const people = [...new Set([...Object.keys(now), ...Object.keys(after)])].filter((o) => (now[o] ?? 0) || (after[o] ?? 0))
+    .sort((a, b) => (after[b] ?? 0) - (after[a] ?? 0) || (now[b] ?? 0) - (now[a] ?? 0) || names.name(a).localeCompare(names.name(b)));
+  const cols = "14px minmax(0, 1fr) 58px 58px 54px";
+  const n = { ...num, textAlign: "right" as const };
+  const sum = (r: Record<string, number>) => Object.values(r).reduce((a, x) => a + x, 0);
+  if (!people.length) return <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No company here.</Typography>;
   return (
-    <Box sx={{ display: "grid", gap: 0.4 }}>
-      {rows.slice(0, max).map(([o, n]) => (
-        <Box key={o || "nobody"} sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
-          {o ? <Swatch paint={palette(o)} /> : <Box sx={{ width: 12, height: 12, borderRadius: "3px", border: `1px dashed ${FAINT}`, flexShrink: 0 }} />}
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: o ? INK : MUTED, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o ? names.name(o) : "nobody"}</Typography>
-          <Typography sx={num}>{full(n)}{unit ? ` ${unit}` : ""} · {Math.round((100 * n) / Math.max(1, total))}%</Typography>
-        </Box>
-      ))}
-      {rows.length > max && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>and {rows.length - max} more</Typography>}
+    <Box sx={{ display: "grid", gap: 0.15 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.5, pb: 0.25 }}>
+        <span />
+        {["Person", "Now", "After", "±"].map((h, i) => <Typography key={h} sx={{ fontSize: "0.66rem", color: FAINT, fontWeight: 700, textAlign: i ? "right" : "left" }}>{h}</Typography>)}
+      </Box>
+      {people.map((o) => {
+        const a = now[o] ?? 0, b = after[o] ?? 0, dd = b - a;
+        return (
+          <Box key={o || "nobody"} sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, alignItems: "center", px: 0.5, py: 0.4, borderRadius: "8px", "&:hover": { bgcolor: "rgba(21,34,58,.03)" } }}>
+            {o ? <Swatch paint={palette(o)} /> : <Box sx={{ width: 12, height: 12, borderRadius: "3px", border: `1px dashed ${FAINT}` }} />}
+            <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: o ? INK : MUTED, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o ? names.name(o) : "nobody"}</Typography>
+            <Typography sx={n}>{full(a)}</Typography>
+            <Typography sx={{ ...n, color: INK, fontWeight: 600 }}>{full(b)}</Typography>
+            <Typography sx={{ ...n, fontWeight: dd ? 700 : 400, color: dd > 0 ? "#1b7a55" : dd < 0 ? "#b4232c" : FAINT }}>{dd > 0 ? `+${full(dd)}` : dd < 0 ? `−${full(-dd)}` : "—"}</Typography>
+          </Box>
+        );
+      })}
+      <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.5, pt: 0.5, mt: 0.25, borderTop: `1px solid ${HAIRLINE}` }}>
+        <span />
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>Total</Typography>
+        <Typography sx={n}>{full(sum(now))}</Typography>
+        <Typography sx={n}>{full(sum(after))}</Typography>
+        <span />
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.25 }}>Now = owner in HubSpot today. After = by the saved rules.</Typography>
     </Box>
   );
 }
 
+/** How many companies each rule decides: rule 1 (SAE), rule 2 (postcode), and the exceptions. */
+export function RuleSplit({ via }: { via: Record<string, number> | undefined }) {
+  const v = via ?? {};
+  const r1 = v.sae ?? 0, r2 = (v.zone ?? 0) + (v.default ?? 0), key = v.key ?? 0, red = v.redirection ?? 0;
+  const total = r1 + r2 + key + red;
+  if (!total) return <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Counted at the next scan.</Typography>;
+  const pct = (x: number) => `${Math.round((100 * x) / total)}%`;
+  const rows: [React.ReactNode, number, string][] = [
+    [<><RuleTag n={1} />Performis SAE</>, r1, RULE1],
+    [<><RuleTag n={2} />postcode - no SAE yet</>, r2, RULE2],
+    ...(key ? [["key accounts", key, "#eda100"] as [React.ReactNode, number, string]] : []),
+    ...(red ? [["kept by an Owner redirection rule", red, "#e87ba4"] as [React.ReactNode, number, string]] : []),
+  ];
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Box sx={{ display: "flex", height: 8, borderRadius: "4px", overflow: "hidden", bgcolor: "rgba(21,34,58,.06)" }}>
+        {rows.map(([, x, c], i) => <Box key={i} sx={{ width: pct(x), bgcolor: c }} />)}
+      </Box>
+      {rows.map(([label, x], i) => (
+        <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Typography component="div" sx={{ fontSize: "0.8rem", color: INK, flex: 1 }}>{label}</Typography>
+          <Typography sx={num}>{full(x)} · {pct(x)}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/** Pick a person and give: one line (the chip cloud of v3 was "too confusing"). */
 export function GiveRow({ names, label, onGive, people }: { names: Names; label: string; onGive: (owner: string) => void; people?: string[] }) {
   const [who, setWho] = useState<string>("");
-  const known = (people ?? []).map(String).filter((p) => names.active(p));
+  void people;
   return (
-    <Box sx={{ display: "grid", gap: 0.75 }}>
+    <Box sx={{ display: "grid", gap: 0.5 }}>
       <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK }}>{label}</Typography>
-      {known.length > 0 && (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-          {known.map((p) => (
-            <Box key={p} component="button" type="button" onClick={() => setWho(p)} aria-pressed={who === p}
-              sx={{ all: "unset", cursor: "pointer", px: 1, py: 0.35, borderRadius: "999px", fontSize: "0.76rem", fontWeight: 600, border: `1px solid ${who === p ? "#2459d1" : HAIRLINE}`, color: who === p ? "#2459d1" : MUTED, bgcolor: who === p ? "rgba(36,89,209,.08)" : "#fff", "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-              {names.name(p)}
-            </Box>
-          ))}
-        </Box>
-      )}
       <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
         <OwnerPicker value={who || null} onChange={(v) => setWho(String(v ?? ""))} names={names} placeholder="pick a person" sx={{ flex: 1, minWidth: 0 }} />
         <Button variant="contained" size="small" disabled={!who} onClick={() => onGive(who)} disableElevation sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px", flexShrink: 0 }}>Give</Button>
@@ -141,86 +193,65 @@ export function SideShell({ title, sub, onClose, children, label }: { title: Rea
   );
 }
 
-/* ── where it comes from ── */
+/* ── rule 1 here: each SAE -> its person, overrule it ── */
 
-const PROPS_COMPANY = [["Owner", "hubspot_owner_id"], ["Region responsibility", "region_responsibility"]] as const;
-const PROPS_CONTACT = [["Owner", "hubspot_owner_id"], ["Region responsibility", "region_responsibility"], ["SAE (Performis)", "sae_performis"]] as const;
-
-function howText(t: SaeTarget, cc: string, names: Names): string {
-  const c = countryName(cc);
-  if (t.how === "map") return `the map decides in ${c} - the SAE is not used`;
-  if (t.how === "unmapped") return "not in the SAE table - the zones decide";
-  if (t.how === "not-in-country") return `${names.name(t.owner)} does not work ${c} - the zones decide`;
-  if (t.how === "redirect") return `redirected in ${c}`;
-  return "the SAE table";
-}
-
-function Source({ cc, rules, d, sae, names, palette, onRedirect }: {
-  cc: string; rules: AssignRules; d: MapData; sae: [string, number][]; names: Names; palette: Palette;
+function Rule1Here({ cc, rules, sae, names, palette, onRedirect }: {
+  cc: string; rules: AssignRules; sae: [string, number][]; names: Names; palette: Palette;
   onRedirect?: (sae: string, owner: OwnerId | null) => void;
 }) {
   const rule = rules.countries[cc];
-  const isMap = rule?.source === "map";
-  const [edit, setEdit] = useState<string | null>(null);
-  const live = !!d.live[cc];
+  const off = rule?.source === "map";
+  const values = sae.filter(([s]) => s);
+  const none = sae.find(([s]) => !s)?.[1] ?? 0;
+  if (off) return <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Rule 1 is off in {countryName(cc)}: the postcodes decide every company here. Switch it on in Rules.</Typography>;
   return (
-    <>
-      <Typography sx={{ fontSize: "0.8rem", color: INK }}>
-        {isMap ? <>In {countryName(cc)} <b>the map decides</b>: key accounts, then the postcode zones. The Performis SAE is shown, never copied.</>
-          : <>In {countryName(cc)} <b>the Performis SAE decides</b> (the ERP brings it every morning). No SAE, or one the table does not know: the postcode zones.</>}
-      </Typography>
-      <Box sx={{ display: "grid", gap: 0.6 }}>
-        {sae.slice(0, 8).map(([s, n]) => {
-          const t = s ? saeTarget(rules, cc, s) : null;
-          const goes = t && (t.how === "table" || t.how === "redirect") ? t.owner : null;
-          const local = t?.how === "redirect" ? t.owner : null;
-          return (
-            <Box key={s || "none"} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", px: 1, py: 0.75 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: s ? INK : MUTED, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s}>
-                  {s ? `SAE "${s}"` : "no SAE"}
-                </Typography>
-                <Typography sx={num}>{full(n)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, mt: 0.4, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>→</Typography>
-                {goes ? <><Swatch paint={palette(goes)} size={11} /><Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK }}>{names.name(goes)}</Typography></>
-                  : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{isMap || !s ? "the postcode zones" : "the zones"}</Typography>}
-                {onRedirect && s && !isMap && (
-                  <IconButton size="small" onClick={() => setEdit(edit === s ? null : s)} aria-label={`Redirect SAE ${s} in ${countryName(cc)}`} sx={{ ml: "auto", p: 0.25 }}>
-                    <EditOutlinedIcon sx={{ fontSize: 15, color: MUTED }} />
-                  </IconButton>
-                )}
-              </Box>
-              {t && <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.2 }}>{howText(t, cc, names)}</Typography>}
-              {edit === s && onRedirect && (
-                <Box sx={{ mt: 0.75, display: "grid", gap: 0.4 }}>
-                  <OwnerPicker value={local ?? ""} names={names} allowEmpty placeholder="no redirect - the SAE table" onChange={(o) => onRedirect(s, o || null)} />
-                  <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>Only {countryName(cc)} changes; the SAE table stays. Save keeps it.</Typography>
-                </Box>
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      {values.map(([s, n]) => {
+        const t = saeTarget(rules, cc, s);
+        const tk = Object.keys(rules.sae).find((k) => saeKey(k) === saeKey(s));
+        const table = tk !== undefined ? rules.sae[tk] : null;
+        const goes = t.how === "table" || t.how === "redirect" ? t.owner : null;
+        const falls = t.how === "unmapped" ? "no person for this SAE - rule 2 decides" : t.how === "not-in-country" ? `${names.name(t.owner)} does not work ${countryName(cc)} - rule 2 decides` : null;
+        return (
+          <Box key={s} sx={{ border: `1px solid ${t.how === "redirect" ? "rgba(98,80,214,.35)" : HAIRLINE}`, bgcolor: t.how === "redirect" ? "rgba(98,80,214,.05)" : "transparent", borderRadius: "10px", px: 1, py: 0.75, display: "grid", gap: 0.5 }}>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s}>SAE &quot;{s}&quot;</Typography>
+              <Typography sx={num}>{full(n)} {n === 1 ? "company" : "companies"}</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>→</Typography>
+              {goes ? <Swatch paint={palette(goes)} size={11} /> : null}
+              {onRedirect ? (
+                <OwnerPicker value={t.how === "redirect" ? t.owner ?? "" : ""} names={names} allowEmpty
+                  placeholder={table ? `${names.name(table)} (the workflow)` : "nobody - rule 2"} onChange={(o) => onRedirect(s, o || null)} sx={{ flex: 1, minWidth: 0 }} />
+              ) : (
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: goes ? INK : MUTED }}>{goes ? names.name(goes) : "rule 2"}</Typography>
               )}
             </Box>
-          );
-        })}
-        {sae.length > 8 && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>and {sae.length - 8} more SAE values - all of them on Options</Typography>}
-        {!sae.length && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No company figures here yet.</Typography>}
+            {t.how === "redirect" && <Typography sx={{ fontSize: "0.72rem", color: RULE1, fontWeight: 600 }}>Overruled in {countryName(cc)}: {names.name(t.owner)} instead of {table ? names.name(table) : "the workflow"}</Typography>}
+            {falls && <Typography sx={{ fontSize: "0.72rem", color: "#a96a12" }}>{falls}</Typography>}
+          </Box>
+        );
+      })}
+      {none > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{full(none)} {none === 1 ? "company has" : "companies have"} no SAE yet - rule 2 below.</Typography>}
+      {!sae.length && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>The company figures come with the engine&apos;s scans.</Typography>}
+      {onRedirect && values.length > 0 && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Pick a person to overrule an SAE in {countryName(cc)} only. Save keeps it.</Typography>}
+    </Box>
+  );
+}
+
+function HubSpotGets({ cc, d }: { cc: string; d: MapData }) {
+  const live = !!d.live[cc];
+  return (
+    <Box sx={{ bgcolor: "rgba(36,89,209,.05)", border: "1px solid rgba(36,89,209,.15)", borderRadius: "10px", px: 1.25, py: 1, display: "grid", gap: 0.4 }}>
+      <Typography sx={{ fontSize: "0.78rem", color: INK }}>
+        As the workflow <b>SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS</b>: the person goes to the company&apos;s <b>owner</b> and <b>region responsibility</b>, and to each contact&apos;s <b>owner</b>, <b>region responsibility</b> and <b>SAE</b>.
+      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        {live ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{live ? "written by the hub every 15 minutes, only what differs" : `nothing is written yet - ${countryName(cc)} goes live on Live`}</Typography>
       </Box>
-      <Box sx={{ bgcolor: "rgba(36,89,209,.05)", border: "1px solid rgba(36,89,209,.15)", borderRadius: "10px", px: 1.25, py: 1, display: "grid", gap: 0.5 }}>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: INK }}>Then HubSpot gets</Typography>
-        <Typography sx={{ fontSize: "0.76rem", color: INK }}>
-          <b>On the company:</b> {PROPS_COMPANY.map(([n, p]) => <span key={p}>{n} <code style={{ fontSize: "0.7rem", color: MUTED }}>{p}</code></span>).reduce<React.ReactNode[]>((a, x, i) => (i ? [...a, ", ", x] : [x]), [])}
-        </Typography>
-        <Typography sx={{ fontSize: "0.76rem", color: INK }}>
-          <b>On each of its contacts:</b> {PROPS_CONTACT.map(([n, p]) => <span key={p}>{n} <code style={{ fontSize: "0.7rem", color: MUTED }}>{p}</code></span>).reduce<React.ReactNode[]>((a, x, i) => (i ? [...a, ", ", x] : [x]), [])} - the company&apos;s
-        </Typography>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25 }}>
-          {live ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
-          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-            {live ? "written by the hub every 15 minutes, only what differs" : `nothing is written yet - ${countryName(cc)} goes live on Live`}
-          </Typography>
-        </Box>
-      </Box>
-    </>
+    </Box>
   );
 }
 
@@ -236,32 +267,35 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
   onClose: () => void;
 }) {
   const rule: CountryRule | undefined = rules.countries[cc];
-  const isSae = !rule || rule.source === "sae";
-  const statTiles = (s: PostcodeStat | null) => !joined ? [] : [
-    { label: "companies", value: full(s?.companies ?? 0) },
-    { label: "bought this year", value: full(s?.customers ?? 0) },
-    { label: "new this year", value: full(s?.newCustomers ?? 0) },
-    { label: "revenue this year (EUR)", value: short(s?.revenue ?? 0) },
-  ];
-  const figures = (s: PostcodeStat | null) => {
-    if (!joined) return <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>The company figures come with the engine&apos;s scans.</Typography>;
+  const rule1Off = rule?.source === "map";
+  const body = (s: PostcodeStat | null, zones: React.ReactNode, place: string) => {
+    if (!joined) return <>{zones}<Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.5 }}>The company figures come with the engine&apos;s scans.</Typography></>;
     const change = s?.change ?? 0;
     return (
       <>
-        <Tiles items={statTiles(s)} />
-        {s && (
-          <>
-            <Section title="Owner by the rules" right={change ? <Chip tint="amber">{full(change)} would change</Chip> : <Chip tint="green">all right</Chip>}>
-              <PeopleRows rows={ranked(s.decided)} names={names} palette={palette} />
-            </Section>
-            <Section title="Owner in HubSpot now">
-              <PeopleRows rows={ranked(s.now)} names={names} palette={palette} />
-            </Section>
-          </>
-        )}
+        <Tiles items={[
+          { label: "companies", value: full(s?.companies ?? 0) },
+          { label: "bought this year", value: full(s?.customers ?? 0) },
+          { label: "new this year", value: full(s?.newCustomers ?? 0) },
+          { label: "revenue this year (EUR)", value: short(s?.revenue ?? 0) },
+        ]} />
+        <Section title={`Owners in ${place}`} right={change ? <Chip tint="amber">{full(change)} to change</Chip> : <Chip tint="green">all right</Chip>}>
+          <OwnerTable now={s?.now ?? {}} after={s?.decided ?? {}} names={names} palette={palette} />
+        </Section>
+        <Section title="Which rule decides">
+          <RuleSplit via={s?.via} />
+        </Section>
+        <Section title={<><RuleTag n={1} />Performis SAE here</>}>
+          <Rule1Here cc={cc} rules={rules} sae={ranked(s?.sae)} names={names} palette={palette} onRedirect={canGive ? onRedirect : undefined} />
+        </Section>
+        {zones}
+        <Section title="What HubSpot gets">
+          <HubSpotGets cc={cc} d={d} />
+        </Section>
       </>
     );
   };
+  const rule2Note = rule1Off ? "Rule 1 is off here: the postcodes decide every company." : "Only for companies without an SAE yet (new ones the ERP has not sent). Once the ERP sends an SAE, rule 1 takes over.";
   const tops = (region: number | null, point: number | null) => {
     if (!joined) return null;
     const list = joined.top.filter((t) => (point !== null ? base.points[t.point].cell === base.points[point].cell : base.points[t.point].region === region)).slice(0, 5);
@@ -281,34 +315,41 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
       </Section>
     );
   };
-  const zoneNote = isSae
-    ? "The zones decide only companies without an SAE (or with one the table does not know). To move the others, redirect their SAE below."
-    : null;
+  const zoneRows = (rows: [string, number][]) => (
+    <Box sx={{ display: "grid", gap: 0.35 }}>
+      {rows.map(([o, n]) => (
+        <Box key={o} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          <Swatch paint={palette(o)} />
+          <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, flex: 1 }}>{names.name(o)}</Typography>
+          <Typography sx={num}>{full(n)} postcode{n === 1 ? "" : "s"}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
 
   if (target.kind === "region") {
     const r = base.regions[target.region];
     const rt = m.tally.regions[target.region];
     const s = joined?.regions[target.region] ?? null;
     const group = r.group ? base.regions.filter((x) => x.group === r.group) : [];
+    const zones = (
+      <Section title={<><RuleTag n={2} />Postcode zones here</>}>
+        {zoneRows((rt?.owners ?? []).map(([o, n]) => [String(o), n] as [string, number]))}
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{rule2Note}</Typography>
+        {canGive && (
+          <>
+            <GiveRow names={names} people={people} label={`Swap all of ${r.name} to`} onGive={(o) => onGive({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`)} />
+            {group.length > 1 && (
+              <GiveRow names={names} people={people} label={`Or all of ${r.group} (${group.length} regions) to`}
+                onGive={(o) => onGive({ kind: "regions", regions: group.map((x) => x.code) }, o, `All of ${r.group}`)} />
+            )}
+          </>
+        )}
+      </Section>
+    );
     return (
       <SideShell label={`${r.name} on the map`} title={r.name} sub={[r.code, km2Text(r.km2), `${full(rt?.total ?? 0)} postcodes`].join(" · ")} onClose={onClose}>
-        {figures(s)}
-        <Section title="Postcode zones here">
-          <PeopleRows rows={(rt?.owners ?? []).map(([o, n]) => [String(o), n] as [string, number])} names={names} palette={palette} unit="postcodes" />
-          {canGive && (
-            <>
-              <GiveRow names={names} people={people} label={`Give all of ${r.name} to`} onGive={(o) => onGive({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`)} />
-              {group.length > 1 && (
-                <GiveRow names={names} people={people} label={`Or all of ${r.group} (${group.length} regions) to`}
-                  onGive={(o) => onGive({ kind: "regions", regions: group.map((x) => x.code) }, o, `All of ${r.group}`)} />
-              )}
-              {zoneNote && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{zoneNote}</Typography>}
-            </>
-          )}
-        </Section>
-        <Section title="Where it comes from">
-          <Source cc={cc} rules={rules} d={d} sae={ranked(s?.sae)} names={names} palette={palette} onRedirect={canGive ? onRedirect : undefined} />
-        </Section>
+        {body(s, zones, r.name)}
         {tops(target.region, null)}
       </SideShell>
     );
@@ -321,36 +362,29 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
     const region = target.region >= 0 ? base.regions[target.region] : null;
     const s = joined?.cells[target.cell] ?? null;
     const what = pts.length > 1 ? `${p.zip} and ${pts.length - 1} more` : `${p.zip}${p.place ? ` ${p.place}` : ""}`;
+    const zones = (
+      <Section title={<><RuleTag n={2} />Postcode zone</>}>
+        {dd && zoneRows([[String(dd.owner), pts.length]])}
+        {dd && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>Why: {why(dd, target.region)}. {rule2Note}</Typography>}
+        {canGive && (
+          <>
+            <GiveRow names={names} people={people} label={pts.length > 1 ? `Swap these ${pts.length} postcodes to` : `Swap ${p.zip} to`}
+              onGive={(o) => onGive({ kind: "postcodes", zips: pts.map((i) => base.points[i].zip) }, o, what)} />
+            {region && (
+              <Box component="button" type="button" onClick={() => onRegion(target.region)}
+                sx={{ all: "unset", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, color: "#2459d1", "&:focus-visible": { outline: "2px solid #2459d1" } }}>
+                Or all of {region.name} →
+              </Box>
+            )}
+          </>
+        )}
+      </Section>
+    );
     return (
       <SideShell label={`${p.zip} on the map`} title={`${p.zip}${p.place ? ` ${p.place}` : ""}`}
         sub={[region?.name, km2Text(pts.reduce((a, i) => a + base.points[i].km2, 0)), pts.length > 1 ? `with ${pts.slice(1, 6).map((i) => base.points[i].zip).join(", ")}${pts.length > 6 ? "…" : ""}` : null].filter(Boolean).join(" · ")}
         onClose={onClose}>
-        {figures(s)}
-        <Section title="Postcode zone">
-          {dd && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-              <Swatch paint={palette(String(dd.owner))} size={13} />
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{names.name(String(dd.owner))}</Typography>
-            </Box>
-          )}
-          {dd && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Why: {why(dd, target.region)}</Typography>}
-          {canGive && (
-            <>
-              <GiveRow names={names} people={people} label={pts.length > 1 ? `Give these ${pts.length} postcodes to` : `Give ${p.zip} to`}
-                onGive={(o) => onGive({ kind: "postcodes", zips: pts.map((i) => base.points[i].zip) }, o, what)} />
-              {region && (
-                <Box component="button" type="button" onClick={() => onRegion(target.region)}
-                  sx={{ all: "unset", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, color: "#2459d1", "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-                  Or all of {region.name} →
-                </Box>
-              )}
-              {zoneNote && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{zoneNote}</Typography>}
-            </>
-          )}
-        </Section>
-        <Section title="Where it comes from">
-          <Source cc={cc} rules={rules} d={d} sae={ranked(s?.sae)} names={names} palette={palette} onRedirect={canGive ? onRedirect : undefined} />
-        </Section>
+        {body(s, zones, p.zip)}
         {tops(null, pts[0])}
       </SideShell>
     );
@@ -367,7 +401,7 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Swatch paint={palette(c.owner)} size={13} /><Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{names.name(c.owner)}</Typography></Box>
         ) : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>nobody</Typography>}
         {dd && String(dd.owner) !== String(c.owner ?? "") && (
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Its postcode zone is {names.name(String(dd.owner))}&apos;s ({why(dd, p.region)}); {isSae ? "its SAE or a key account may still decide otherwise" : "a key account may still decide otherwise"}.</Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Its postcode zone (rule 2) is {names.name(String(dd.owner))}&apos;s ({why(dd, p.region)}){rule1Off ? "" : "; its SAE (rule 1) decides first"}.</Typography>
         )}
       </Section>
       <Box sx={{ display: "flex", gap: 1.5, mt: 1.5 }}>
@@ -380,12 +414,27 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
   );
 }
 
-/* ── the country's KPIs and the legend ── */
+/* ── the country's KPIs ── */
 
 const layerTitle: Record<LayerKey, string> = {
-  owners: "Who has what", revenue: "Revenue this year", customers: "Customers this year", newCustomers: "New customers this year",
+  owners: "Postcode land", revenue: "Revenue this year", customers: "Customers this year", newCustomers: "New customers this year",
   priority: "Sales priority", gdp: "GDP per region", top: "Top customers",
 };
+
+/** The country now and after: after = the rules' decision per person; now = after, less what comes, plus what goes. */
+function nowAfter(d: MapData, cc: string): { now: Record<string, number>; after: Record<string, number> } {
+  const after: Record<string, number> = {};
+  for (const b of d.countries.find((c) => c.country === cc)?.byOwner ?? []) after[String(b.owner)] = (after[String(b.owner)] ?? 0) + b.companies;
+  const now: Record<string, number> = { ...after };
+  for (const mv of d.moves) {
+    if (mv.country !== cc || String(mv.from ?? "") === String(mv.to)) continue;
+    now[String(mv.to)] = (now[String(mv.to)] ?? 0) - mv.companies;
+    const f = String(mv.from ?? "");
+    now[f] = (now[f] ?? 0) + mv.companies;
+  }
+  for (const k of Object.keys(now)) if (now[k] <= 0) delete now[k];
+  return { now, after };
+}
 
 export function KpiPanel({ cc, d, names, palette, layer, people, hl, setHl, base, joined, values, prio, m, rule, layersAt, revenueField, onTop, onClose }: {
   cc: string; d: MapData; names: Names; palette: Palette; layer: LayerKey;
@@ -394,76 +443,72 @@ export function KpiPanel({ cc, d, names, palette, layer, people, hl, setHl, base
   rule: CountryRule | undefined; layersAt: string | null; revenueField: string | null; onTop: (t: Joined["top"][number]) => void; onClose: () => void;
 }) {
   const s = d.countries.find((c) => c.country === cc);
-  const move = useMemo(() => d.moves.filter((x) => x.country === cc && x.from !== x.to).reduce((a, x) => a + x.companies, 0), [d.moves, cc]);
+  const na = useMemo(() => nowAfter(d, cc), [d, cc]);
+  const move = useMemo(() => d.moves.filter((x) => x.country === cc && String(x.from ?? "") !== String(x.to)).reduce((a, x) => a + x.companies, 0), [d.moves, cc]);
   const live = !!d.live[cc];
   return (
     <SideShell label={`${countryName(cc)} in figures`} title={countryName(cc)}
-      sub={<>{rule?.source === "map" ? "the map decides" : "the Performis SAE decides"} · {live ? "LIVE" : "shadow"}{d.last ? ` · scan ${when(d.last.at)}` : ""}</>} onClose={onClose}>
+      sub={<>{rule?.source === "map" ? "rule 1 off - the postcodes decide" : "rule 1 SAE, then rule 2 postcode"} · {live ? "LIVE" : "shadow"}{d.last ? ` · scan ${when(d.last.at)}` : ""}</>} onClose={onClose}>
       <Tiles items={[
         { label: "companies", value: full(s?.companies ?? 0) },
         { label: "would change owner", value: full(move), tone: move ? "amber" : undefined },
-        { label: "owner or region to fix", value: full(s?.change ?? 0) },
-        { label: "bought this year", value: joined ? full(joined.total.customers) : "—" },
       ]} />
-      <Box sx={{ mt: 1.5 }}>
+      <Section title="Owners - companies now and after the rules">
+        <OwnerTable now={na.now} after={na.after} names={names} palette={palette} />
+      </Section>
+      <Section title="Which rule decides">
+        <RuleSplit via={s?.byVia} />
+      </Section>
+      <Section title={layer === "owners" || layer === "top" ? <><RuleTag n={2} />Postcode land per person</> : layerTitle[layer]}>
         <Legend layer={layer} people={people} names={names} palette={palette} hl={hl} setHl={setHl} m={m} base={base} joined={joined} values={values}
           prio={prio} cc={cc} rule={rule} layersAt={layersAt} revenueField={revenueField} onTop={onTop} />
-      </Box>
+      </Section>
     </SideShell>
   );
 }
 
-function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, values, prio, cc, rule, layersAt, revenueField, onTop }: {
+function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, values, prio, cc, layersAt, revenueField, onTop }: {
   layer: LayerKey; people: { owner: string; postcodes: number; km2: number; companies: number }[]; names: Names; palette: Palette;
   hl: string | null; setHl: (o: string | null) => void; m: CountryMap; base: MapBase; joined: Joined | null;
   values: { unit: "region" | "postcode"; thresholds: number[] } | null; prio: Priority; cc: string;
   rule: CountryRule | undefined; layersAt: string | null; revenueField: string | null; onTop: (t: Joined["top"][number]) => void;
 }) {
-  const head = (text: string, right?: React.ReactNode) => (
-    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1, mb: 0.5 }}>
-      <Typography sx={kicker}>{text}</Typography>
-      {right}
-    </Box>
-  );
   const asOf = layersAt ? ` As of the scan of ${new Date(layersAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.` : "";
   const unplaced = joined && joined.unplaced ? ` ${full(joined.unplaced)} companies are not on the map (no postcode the map knows).` : "";
 
   if (layer === "owners" || (layer === "top" && !joined)) {
-    const tot = people.reduce((a, p) => ({ postcodes: a.postcodes + p.postcodes, km2: a.km2 + p.km2, companies: a.companies + p.companies }), { postcodes: 0, km2: 0, companies: 0 });
-    const cols = "14px minmax(0, 1fr) 52px 62px 64px";
-    const n = { ...num, fontSize: "0.78rem", textAlign: "right" as const };
+    // the land of rule 2: postcodes and km² - the companies are in the table above
+    const land = people.filter((p) => p.postcodes > 0);
+    const tot = land.reduce((a, p) => ({ postcodes: a.postcodes + p.postcodes, km2: a.km2 + p.km2 }), { postcodes: 0, km2: 0 });
+    const cols = "14px minmax(0, 1fr) 70px 70px";
+    const n = { ...num, textAlign: "right" as const };
     return (
-      <Box sx={{ display: "grid", gap: 0.4 }}>
-        {head(layerTitle.owners, hl ? <Box component="button" type="button" onClick={() => setHl(null)} sx={{ all: "unset", cursor: "pointer", fontSize: "0.74rem", color: "#2459d1", fontWeight: 600 }}>Show everyone</Box> : undefined)}
-        <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.75 }}>
+      <Box sx={{ display: "grid", gap: 0.15 }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.5, pb: 0.25 }}>
           <span />
-          {["Person", "Postcodes", "Companies", "km²"].map((h, i) => <Typography key={h} sx={{ fontSize: "0.66rem", color: FAINT, fontWeight: 600, textAlign: i ? "right" : "left" }}>{h}</Typography>)}
+          {["Person", "Postcodes", "km²"].map((h, i) => <Typography key={h} sx={{ fontSize: "0.66rem", color: FAINT, fontWeight: 700, textAlign: i ? "right" : "left" }}>{h}</Typography>)}
         </Box>
-        {people.map((p) => {
+        {land.map((p) => {
           const on = hl === p.owner;
           return (
             <Box key={p.owner} component="button" type="button" onClick={() => setHl(on ? null : p.owner)} aria-pressed={on}
-              sx={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: cols, gap: 0.75, alignItems: "center", px: 0.75, py: 0.55, borderRadius: "10px",
+              sx={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: cols, gap: 0.75, alignItems: "center", px: 0.5, py: 0.45, borderRadius: "8px",
                 bgcolor: on ? "rgba(36,89,209,.08)" : "transparent", opacity: hl && !on ? 0.55 : 1, "&:hover": { bgcolor: "rgba(21,34,58,.04)" }, "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-              <Swatch paint={palette(p.owner)} size={13} />
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{names.name(p.owner)}</Typography>
+              <Swatch paint={palette(p.owner)} size={12} />
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{names.name(p.owner)}</Typography>
               <Typography sx={n}>{full(p.postcodes)}</Typography>
-              <Typography sx={n}>{full(p.companies)}</Typography>
               <Typography sx={n}>{p.km2 > 0 && p.km2 < 10 ? p.km2.toFixed(1) : full(p.km2)}</Typography>
             </Box>
           );
         })}
-        {people.length > 1 && (
-          <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.75, pt: 0.5, borderTop: `1px solid ${HAIRLINE}` }}>
-            <span />
-            <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>{countryName(cc)}</Typography>
-            <Typography sx={n}>{full(tot.postcodes)}</Typography>
-            <Typography sx={n}>{full(tot.companies)}</Typography>
-            <Typography sx={n}>{full(base.km2 ?? tot.km2)}</Typography>
-          </Box>
-        )}
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.5, lineHeight: 1.45 }}>
-          Postcodes and km²: each person&apos;s postcode zones{m.moved !== null ? ", your edits included" : ""}. Companies: what each one gets by the saved rules{rule?.source === "sae" || !rule ? " (the SAE first, the zones for the rest)" : ""}. Click a person to pick out their land.
+        <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, px: 0.5, pt: 0.5, mt: 0.25, borderTop: `1px solid ${HAIRLINE}` }}>
+          <span />
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>{countryName(cc)}</Typography>
+          <Typography sx={n}>{full(tot.postcodes)}</Typography>
+          <Typography sx={n}>{full(base.km2 ?? tot.km2)}</Typography>
+        </Box>
+        <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.25 }}>
+          Who holds which postcodes{m.moved !== null ? " (your edits included)" : ""} - only used for companies without an SAE. Click a person to pick out their land on the map.
         </Typography>
       </Box>
     );
@@ -472,7 +517,6 @@ function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, val
   if (layer === "top" && joined) {
     return (
       <Box sx={{ display: "grid", gap: 0.25 }}>
-        {head(layerTitle.top)}
         {joined.top.slice(0, 15).map((t, i) => {
           const p = base.points[t.point];
           return (
@@ -500,24 +544,22 @@ function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, val
     const label = lo === null && hi === null ? "more than 0" : lo === null ? `under ${fmt(hi!)}` : hi === null ? `${fmt(lo)} or more` : `${fmt(lo)} to under ${fmt(hi)}`;
     return { c, label };
   });
-  const per = values?.unit === "postcode" ? "per postcode" : "per region";
   const total = joined ? (layer === "gdp" ? joined.gdp.reduce<number>((a, v) => a + (v ?? 0), 0) : statValue(joined.total, layer as ValueLayer, prio)) : null;
   return (
     <Box sx={{ display: "grid", gap: 0.4 }}>
-      {head(layer === "gdp" ? layerTitle.gdp : `${layerTitle[layer]}${layer === "priority" ? ` ${prio}` : ""} · ${per}`)}
       {rows.map((r) => (
-        <Box key={r.c} sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.75 }}>
+        <Box key={r.c} sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.5 }}>
           <Box sx={{ width: 22, height: 12, borderRadius: "3px", bgcolor: r.c, flexShrink: 0 }} />
           <Typography sx={{ fontSize: "0.8rem", color: INK, fontVariantNumeric: "tabular-nums" }}>{r.label}</Typography>
         </Box>
       ))}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.75 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.5 }}>
         <Box sx={{ width: 22, height: 12, borderRadius: "3px", bgcolor: LAND, border: `1px solid ${HAIRLINE}`, flexShrink: 0 }} />
         <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{layer === "gdp" ? "unknown" : "none"}</Typography>
       </Box>
-      {total !== null && <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.5, px: 0.75 }}>{countryName(cc)}: <b>{fmt(total)}</b></Typography>}
+      {total !== null && <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.5, px: 0.5 }}>{countryName(cc)}: <b>{fmt(total)}</b>{layer === "priority" ? ` ${prio}` : ""}</Typography>}
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.5, lineHeight: 1.45 }}>
-        {layer === "revenue" && revenueField ? `From ${revenueField}. ` : ""}Darker = more; five about equal groups.{layer !== "gdp" ? unplaced : ""}{asOf}
+        {values?.unit === "postcode" ? "Per postcode" : "Per region"}; darker = more.{layer === "revenue" && revenueField ? ` From ${revenueField}.` : ""}{layer !== "gdp" ? unplaced : ""}{asOf}
       </Typography>
     </Box>
   );

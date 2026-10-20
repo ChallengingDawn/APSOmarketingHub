@@ -56,9 +56,9 @@ test("an answer lapses when the rule's matching or person changes, not when its 
 test("layers: where it comes from - SAE, owner now, owner by the rules, what would change", () => {
   const base = { name: "x", revenue: null, lastOrder: null, firstOrder: null, priority: null };
   const rows: LayerRow[] = [
-    { ...base, id: "1", zip: "1700", owner: TSA, sae: "ESO CH GER", decided: KALT, region: TSA },
-    { ...base, id: "2", zip: "1700", owner: KALT, sae: " ESO  CH GER ", decided: KALT, region: KALT },
-    { ...base, id: "3", zip: "1700", owner: JEREMY, sae: null, decided: JEREMY, region: null },
+    { ...base, id: "1", zip: "1700", owner: TSA, sae: "ESO CH GER", decided: KALT, region: TSA, via: "sae" },
+    { ...base, id: "2", zip: "1700", owner: KALT, sae: " ESO  CH GER ", decided: KALT, region: KALT, via: "sae" },
+    { ...base, id: "3", zip: "1700", owner: JEREMY, sae: null, decided: JEREMY, region: null, via: "zone" },
     { ...base, id: "4", zip: "1700", owner: null, sae: "Borey Jeremy", decided: JEREMY, region: JEREMY },
   ];
   const { points } = layerPoints(rows, (z) => z, 2026);
@@ -68,6 +68,7 @@ test("layers: where it comes from - SAE, owner now, owner by the rules, what wou
   assert.deepEqual(p.now, { [TSA]: 1, [KALT]: 1, [JEREMY]: 1, "": 1 });
   assert.deepEqual(p.decided, { [KALT]: 2, [JEREMY]: 2 });
   assert.equal(p.change, 3); // 1: owner TSA; 3: region empty; 4: no owner
+  assert.deepEqual(p.via, { sae: 2, zone: 1 }); // which rule decided (4 came without one)
 });
 
 test("search text is matched as typed", () => {

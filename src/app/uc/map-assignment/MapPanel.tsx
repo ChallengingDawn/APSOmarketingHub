@@ -770,7 +770,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
         <Box sx={{ position: "absolute", top: 10, left: besidePanel, right: 10, zIndex: 4, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
             {top}
-            {options && <Button onClick={() => toggle("options")} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={optionsOpen} sx={sideBtn(optionsOpen)}>Options</Button>}
+            {options && <Button onClick={() => toggle("options")} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={optionsOpen} sx={sideBtn(optionsOpen)}>Rules</Button>}
             <Button onClick={() => toggle("kpis")} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={side === "kpis" && !pinned} sx={sideBtn(side === "kpis" && !pinned)}>KPIs</Button>
           </Box>
           <Box sx={{ flex: 1 }} />

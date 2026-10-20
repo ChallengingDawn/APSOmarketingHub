@@ -1068,6 +1068,9 @@ export async function mapData(admin: boolean): Promise<MapData> {
   const byOwner = await query<{ country: string; owner: string; n: number }>(
     `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, owner_decided AS owner, count(*)::int AS n FROM apsomh_map_assign GROUP BY 1, 2 ORDER BY 3 DESC`,
   );
+  const vias = await query<{ country: string; via: string; n: number }>(
+    `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, via, count(*)::int AS n FROM apsomh_map_assign GROUP BY 1, 2`,
+  );
   const flags = await query<{ country: string; f: string; n: number }>(
     `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, f, count(*)::int AS n FROM apsomh_map_assign, unnest(flags) AS f GROUP BY 1, 2`,
   );
@@ -1075,6 +1078,7 @@ export async function mapData(admin: boolean): Promise<MapData> {
     country: s.country, companies: s.companies, change: s.change,
     byOwner: byOwner.rows.filter((b) => b.country === s.country).map((b) => ({ owner: b.owner, companies: b.n })),
     flags: Object.fromEntries(flags.rows.filter((f) => f.country === s.country).map((f) => [f.f, f.n])),
+    byVia: Object.fromEntries(vias.rows.filter((v) => v.country === s.country).map((v) => [v.via, v.n])),
     live: !!live.value[s.country],
   }));
 
@@ -1181,15 +1185,16 @@ export async function layerData(country: string): Promise<LayerData> {
   const r = await query<{
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
     last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
+    via: string | null;
   }>(
-    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now
+    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via
      FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
   const rows: LayerRow[] = r.rows.map((x) => ({
     id: String(x.company_id), name: x.name, zip: x.zip, owner: x.owner_now,
     // a row read before New Year holds last year's revenue: none until the next read
     revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
-    lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now,
+    lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now, via: x.via,
   }));
   const ix = await zipsOf(cc);
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;

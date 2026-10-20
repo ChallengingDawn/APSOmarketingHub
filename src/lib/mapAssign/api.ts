@@ -23,6 +23,9 @@ export type CountrySummary = {
   /** by decided owner: how many companies each person gets in this country */
   byOwner: { owner: OwnerId; companies: number }[];
   flags: Record<string, number>;
+  /** how the rules decide them (SARCLA 20.10.2026: "rule 1 the SAE, rule 2 the postcode"): via -> companies
+   *  (sae = rule 1, zone / default = rule 2, key = key account, redirection = an Owner redirection rule kept) */
+  byVia: Record<string, number>;
   live: boolean;
 };
 
@@ -130,6 +133,8 @@ export type PostcodeStat = {
   decided?: Record<string, number>;
   /** companies whose owner or region_responsibility differ from the rules */
   change?: number;
+  /** how the rules decide them: via -> companies (sae = rule 1, zone / default = rule 2, key, redirection) */
+  via?: Record<string, number>;
 };
 export type LayerData = {
   country: string; at: string | null;

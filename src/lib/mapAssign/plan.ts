@@ -319,7 +319,7 @@ export type LayerRow = {
   id: string; name: string | null; zip: string | null; owner: OwnerId | null;
   revenue: number | null; lastOrder: string | null; firstOrder: string | null; priority: string | null;
   /** the Performis SAE as written, the owner by the rules, region_responsibility now - absent in old callers */
-  sae?: string | null; decided?: OwnerId | null; region?: OwnerId | null;
+  sae?: string | null; decided?: OwnerId | null; region?: OwnerId | null; via?: string | null;
 };
 /**
  * One country's companies per postcode point (PostcodeStat): companies, customers this year (an order this year -
@@ -334,7 +334,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     const code = place(r.zip);
     if (!code) { unplaced++; continue; }
     let s = by.get(code);
-    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0 }; by.set(code, s); }
+    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} }; by.set(code, s); }
     s.companies++;
     const sae = String(r.sae ?? "").trim().replace(/\s+/g, " ");
     s.sae![sae] = (s.sae![sae] ?? 0) + 1;
@@ -345,6 +345,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
       s.decided![dec] = (s.decided![dec] ?? 0) + 1;
       if (now !== dec || String(r.region ?? "") !== dec) s.change!++;
     }
+    if (r.via) s.via![r.via] = (s.via![r.via] ?? 0) + 1;
     if (inYear(r.lastOrder, year)) s.customers++;
     if (inYear(r.firstOrder, year)) s.newCustomers++;
     const rev = Number(r.revenue);
