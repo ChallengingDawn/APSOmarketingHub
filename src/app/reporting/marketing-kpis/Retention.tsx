@@ -300,30 +300,39 @@ function CustomersChart({ v }: { v: RetentionView }) {
   );
 }
 
+/** The base year's customers and the next year's, side by side: the same customers in blue in both bars. */
 function BridgeChart({ v }: { v: RetentionView }) {
   const t = v.trend.find((x) => x.year === v.base);
   if (!t) return null;
+  const next = v.partial ? `${v.next} so far` : String(v.next);
   const rows = [
-    { name: `Active ${v.base}`, base: 0, v: t.active, fill: BLUE, label: n0(t.active) },
-    { name: v.partial ? "Not back yet" : "Lost", base: t.active - t.churned, v: t.churned, fill: LOST, label: `−${n0(t.churned)}` },
-    { name: "New", base: t.retained, v: t.newNext, fill: NEW, label: `+${n0(t.newNext)}` },
-    { name: "Won back", base: t.retained + t.newNext, v: t.winbacks, fill: WON, label: `+${n0(t.winbacks)}` },
-    { name: v.partial ? `${v.next} so far` : `Active ${v.next}`, base: 0, v: t.activeNext, fill: BLUE, label: n0(t.activeNext) },
+    { name: `${v.base} · ${n0(t.active)}`, kept: t.retained, gone: t.churned, back: 0, fresh: 0 },
+    { name: `${next} · ${n0(t.activeNext)}`, kept: t.retained, gone: 0, back: t.winbacks, fresh: t.newNext },
   ];
+  const seg = (key: "kept" | "gone" | "back" | "fresh", name: string, fill: string) => (
+    <Bar dataKey={key} stackId="s" name={name} fill={fill} isAnimationActive={false} maxBarSize={44}>
+      <LabelList dataKey={key} position="center" formatter={(x: unknown) => (Number(x) > 0 ? n0(Number(x)) : "")} style={{ ...LABEL, fontSize: 11.5, fill: "#fff" }} />
+    </Bar>
+  );
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={rows} margin={{ top: 22, right: 4, bottom: 0, left: 0 }} barCategoryGap="28%">
-        <CartesianGrid vertical={false} stroke={GRID} />
-        <XAxis dataKey="name" {...AX} tick={{ fontSize: 11, fill: MUTED }} interval={0} />
-        <YAxis tickFormatter={(x: number) => x.toLocaleString("en")} {...AX} width={50} />
-        <Tooltip {...TIP} formatter={(x: unknown, n: unknown) => (n === "base" ? [null, null] : [Number(x).toLocaleString("en"), "Customers"])} />
-        <Bar dataKey="base" stackId="w" fill="#fff" fillOpacity={0} stroke="none" isAnimationActive={false} />
-        <Bar dataKey="v" stackId="w" isAnimationActive={false} radius={6} maxBarSize={58}>
-          {rows.map((r) => <Cell key={r.name} fill={r.fill} />)}
-          <LabelList dataKey="label" position="top" style={LABEL} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <ResponsiveContainer width="100%" height={190}>
+        <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }} barCategoryGap="28%">
+          <XAxis type="number" hide />
+          <YAxis type="category" dataKey="name" width={150} {...AX} tick={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
+          <Tooltip {...TIP} formatter={(x: unknown, n: unknown) => (Number(x) > 0 ? [Number(x).toLocaleString("en"), String(n)] : [null, null])} />
+          <Legend {...LEGEND} />
+          {seg("kept", `Bought in ${v.base} and ${v.next}`, BLUE)}
+          {seg("gone", v.partial ? "Not back yet" : "Lost", LOST)}
+          {seg("back", "Won back", WON)}
+          {seg("fresh", "New", NEW)}
+        </BarChart>
+      </ResponsiveContainer>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.5 }}>
+        Of the <b style={{ color: INK }}>{n0(t.active)}</b> customers of {v.base}, <b style={{ color: BLUE }}>{n0(t.retained)}</b> bought again in {next} and <b style={{ color: LOST }}>{n0(t.churned)}</b> {v.partial ? "have not yet" : "did not"}.
+        {" "}In {next}, <b style={{ color: INK }}>{n0(t.activeNext)}</b> customers: those {n0(t.retained)}, <b style={{ color: "#2f8f6b" }}>{n0(t.winbacks)}</b> won back and <b style={{ color: "#b07a12" }}>{n0(t.newNext)}</b> new.
+      </Typography>
+    </Box>
   );
 }
 
@@ -356,8 +365,8 @@ export function TrendTab({ v, act }: { v: RetentionView; act?: (card: string, ti
         <CustomersChart v={v} />
       </Card>
       <Grid2>
-        <Card icon={<SwapVertOutlinedIcon />} tint="green" title={`From ${v.base} to ${v.next}`} right={act?.("bridge", `From ${v.base} to ${v.next}`)}
-          note={`The ${v.base} customers, those not back, the new and the won back - the customers of ${v.next}${v.partial ? " so far" : ""}`}>
+        <Card icon={<SwapVertOutlinedIcon />} tint="green" title={`${v.base} and ${v.next}: who stayed, who left, who came`} right={act?.("bridge", `${v.base} and ${v.next}: who stayed, who left, who came`)}
+          note={`The same customers in blue in both bars: those who bought in ${v.base} and ${v.next}`}>
           <BridgeChart v={v} />
         </Card>
         <Card icon={<TrendingDownOutlinedIcon />} tint="pink" title="Revenue of the customers lost" right={act?.("lost", "Revenue of the customers lost")}
@@ -405,44 +414,48 @@ function CohortHeat({ v }: { v: RetentionView }) {
   );
 }
 
+/** Of each year's new customers, the share that bought in that one year and never again. */
 function OnceChart({ v }: { v: RetentionView }) {
-  const data = v.cohorts.once.map((r) => ({ cohort: String(r.cohort), size: r.size, once: r.once == null ? null : Math.round(r.once * 1000) / 10, gone2: r.gone2 == null ? null : Math.round(r.gone2 * 1000) / 10, still: r.still == null ? null : Math.round(r.still * 1000) / 10 }));
+  const data = v.cohorts.once.map((r) => ({ cohort: String(r.cohort), once: r.once == null ? null : Math.round(r.once * 1000) / 10, size: r.size }));
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barCategoryGap="34%">
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={data} margin={{ top: 22, right: 4, bottom: 0, left: 0 }} barCategoryGap="30%">
         <CartesianGrid vertical={false} stroke={GRID} />
         <XAxis dataKey="cohort" {...AX} />
-        <YAxis yAxisId="n" tickFormatter={(x: number) => x.toLocaleString("en")} {...AX} width={46} />
-        <YAxis yAxisId="p" orientation="right" domain={[0, 100]} tickFormatter={(x: number) => `${x}%`} {...AX} width={38} />
-        <Tooltip {...TIP} formatter={(x: unknown, n: unknown) => [n === "Customers" ? Number(x).toLocaleString("en") : `${x}%`, String(n)]} />
-        <Legend {...LEGEND} />
-        <Bar yAxisId="n" dataKey="size" name="Customers" fill="#e4e8ef" isAnimationActive={false} radius={[4, 4, 0, 0]} maxBarSize={34} />
-        <Line yAxisId="p" dataKey="once" name="Bought in one year only" stroke={ORANGE} strokeWidth={2} dot={{ r: 3, fill: "#fff", stroke: ORANGE, strokeWidth: 2 }} isAnimationActive={false}>
-          <LabelList dataKey="once" position="top" offset={8} formatter={(x: unknown) => (x == null ? "" : `${x}%`)} style={{ ...LABEL, fontSize: 10.5, fill: ORANGE, ...HALO }} />
-        </Line>
-        <Line yAxisId="p" dataKey="gone2" name="Gone within two years" stroke={LOST} strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
-        <Line yAxisId="p" dataKey="still" name={`Still buying (${v.next - 1} or ${v.next})`} stroke={TONE.good} strokeWidth={2} dot={{ r: 2.5, fill: "#fff", stroke: TONE.good, strokeWidth: 1.5 }} isAnimationActive={false} />
-      </ComposedChart>
+        <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={(x: number) => `${x}%`} {...AX} width={42} />
+        <Tooltip {...TIP} formatter={(x: unknown, _: unknown, p: { payload?: { size?: number } }) => [`${x}% of ${n0(p.payload?.size)} new customers`, "Bought in that year only"]} />
+        <Bar dataKey="once" fill={LOST} fillOpacity={0.9} isAnimationActive={false} radius={[4, 4, 0, 0]} maxBarSize={34}>
+          <LabelList dataKey="once" position="top" formatter={(x: unknown) => `${Math.round(Number(x))}%`} style={LABEL} />
+        </Bar>
+      </BarChart>
     </ResponsiveContainer>
   );
 }
 
+/** Each year's new customers in their second year: how many still buy, and what they spend - against year one = 100%. */
 function FirstSecondChart({ v }: { v: RetentionView }) {
-  const data = v.cohorts.firstSecond.map((r) => ({ cohort: r.partial ? `${r.cohort}*` : String(r.cohort), lost: r.churn == null ? null : Math.round(r.churn * 1000) / 10, rev: r.revChurn == null ? null : Math.round(r.revChurn * 1000) / 10 }));
+  const data = v.cohorts.firstSecond.filter((r) => r.y1 > 0).map((r) => ({
+    cohort: r.partial ? `${r.cohort}*` : String(r.cohort),
+    cust: Math.round((r.y2 / r.y1) * 100),
+    rev: r.rev1 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+  }));
+  const top = Math.max(150, ...data.map((d) => d.rev ?? 0));
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={3} barCategoryGap="26%">
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: 0 }}>
         <CartesianGrid vertical={false} stroke={GRID} />
         <XAxis dataKey="cohort" {...AX} />
-        <YAxis tickFormatter={(x: number) => `${x}%`} {...AX} width={42} />
-        <ReferenceLine y={0} stroke="#9aa5b6" />
-        <Tooltip {...TIP} formatter={(x: unknown, n: unknown) => [`${x}%`, String(n)]} />
+        <YAxis domain={[0, Math.ceil(top / 50) * 50]} ticks={Array.from({ length: Math.ceil(top / 50) + 1 }, (_, i) => i * 50)} tickFormatter={(x: number) => `${x}%`} {...AX} width={44} />
+        <ReferenceLine y={100} stroke="#9aa5b6" strokeDasharray="4 4" />
+        <Tooltip {...TIP} formatter={(x: unknown, n: unknown) => [`${x}% of year one`, String(n)]} />
         <Legend {...LEGEND} />
-        <Bar dataKey="lost" name="Customers lost after year one" fill={BLUE} isAnimationActive={false} radius={[4, 4, 0, 0]} maxBarSize={14}>
-          <LabelList dataKey="lost" position="top" formatter={(x: unknown) => `${Math.round(Number(x))}%`} style={{ ...LABEL, fontSize: 10, fill: MUTED }} />
-        </Bar>
-        <Bar dataKey="rev" name="Revenue lost after year one (below 0: it grew)" fill={DEEMPHASIS} isAnimationActive={false} radius={[4, 4, 0, 0]} maxBarSize={14} />
-      </BarChart>
+        <Line dataKey="cust" name="Customers still buying in year two" stroke={BLUE} strokeWidth={2} dot={{ r: 3, fill: "#fff", stroke: BLUE, strokeWidth: 2 }} isAnimationActive={false}>
+          <LabelList dataKey="cust" position="bottom" offset={8} formatter={(x: unknown) => `${x}%`} style={{ ...LABEL, fontSize: 10.5, fill: BLUE, ...HALO }} />
+        </Line>
+        <Line dataKey="rev" name="Their revenue in year two" stroke="#d99a2b" strokeWidth={2} dot={{ r: 3, fill: "#fff", stroke: "#d99a2b", strokeWidth: 2 }} isAnimationActive={false} connectNulls>
+          <LabelList dataKey="rev" position="top" offset={8} formatter={(x: unknown) => `${x}%`} style={{ ...LABEL, fontSize: 10.5, fill: "#b07a12", ...HALO }} />
+        </Line>
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }
@@ -457,11 +470,12 @@ export function CohortsTab({ v, act }: { v: RetentionView; act?: (card: string, 
       </Card>
       <Grid2>
         <Card icon={<ShowChartOutlinedIcon />} tint="pink" title="Bought in one year only" right={act?.("once", "Bought in one year only")}
-          note="Of each first-order year's customers: bought in one year only, gone within two years, still buying - over how many there were">
+          note="Of each year's new customers (their first order that year), the share who bought in that year only - and never again">
           <OnceChart v={v} />
         </Card>
-        <Card icon={<BarChartOutlinedIcon />} tint="amber" title="After year one: customers lost, revenue lost" right={act?.("firstsecond", "After year one: customers lost, revenue lost")}
-          note="Each first-order year, from its first year to its second: the share of customers lost against the share of their revenue lost">
+        <Card icon={<BarChartOutlinedIcon />} tint="amber" title="Year two: fewer customers, nearly the same money" right={act?.("firstsecond", "Year two: fewer customers, nearly the same money")}
+          note="Each year's new customers in their second year, against their first (the dashed line, 100%): how many still buy, and what they spend"
+          foot={v.partial ? `* ${v.next} is still running: that year two is not over.` : undefined}>
           <FirstSecondChart v={v} />
         </Card>
       </Grid2>
@@ -653,11 +667,45 @@ function TreeTile(p: { x?: number; y?: number; width?: number; height?: number; 
   );
 }
 
+/** A tile per group of one dimension: sized by its customers, tinted by its churn. */
+function PersonaTiles({ v, dim }: { v: RetentionView; dim: string }) {
+  const ps = v.personas;
+  const tiles = ps.rows.filter((r) => r.dim === dim && charted(r)).map((r) => ({ name: r.group, size: r.cos, churn: r.churn, cos: r.cos, avg: ps.avg }));
+  return (
+    <ResponsiveContainer width="100%" height={360}>
+      <Treemap data={tiles} dataKey="size" nameKey="name" isAnimationActive={false} content={<TreeTile />} />
+    </ResponsiveContainer>
+  );
+}
+
+/** Each segment's churn at each sales priority. */
+function SegmentMatrix({ v }: { v: RetentionView }) {
+  const ps = v.personas;
+  return (
+    <Box sx={{ overflowX: "auto" }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: `minmax(150px, 1.4fr) repeat(${PRIOS.length}, minmax(60px, 1fr))`, gap: "4px", minWidth: 480 }}>
+        <Box />
+        {PRIOS.map((x) => <Box key={x} sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textAlign: "center" }}>{x}</Box>)}
+        {ps.matrix.map((m) => (
+          <Box key={m.segment} sx={{ display: "contents" }}>
+            <Box sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, alignSelf: "center" }}>{m.segment} <Box component="span" sx={{ color: FAINT, fontWeight: 500 }}>{n0(m.cos)}</Box></Box>
+            {m.cells.map((c) => (
+              <Box key={c.prio} title={`${m.segment}, ${c.prio}: ${n0(c.cos)} customers${c.churn == null ? "" : `, ${pct(c.churn, 1)} not back`}`}
+                sx={{ height: 38, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: 700, bgcolor: c.churn == null ? "#f4f6f9" : churnTint(c.churn, ps.avg), color: c.churn == null ? FAINT : INK }}>
+                {c.churn == null ? (c.cos ? n0(c.cos) : "") : pct(c.churn)}
+              </Box>
+            ))}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 export function PersonasTab({ v, act }: { v: RetentionView; act?: (card: string, title: string) => React.ReactNode }) {
   const [dim, setDim] = useState(PERSONA_DIMS[0]);
   const ps = v.personas;
   const rows = useMemo(() => ps.rows.filter((r) => r.dim === dim), [ps.rows, dim]);
-  const tiles = rows.filter(charted).map((r) => ({ name: r.group, size: r.cos, churn: r.churn, cos: r.cos, avg: ps.avg }));
   const aside = rows.filter((r) => !charted(r));
   const unmapped = rows.find((r) => r.group === UNMAPPED);
   return (
@@ -679,30 +727,12 @@ export function PersonasTab({ v, act }: { v: RetentionView; act?: (card: string,
             );
           })}
         </Box>
-        <ResponsiveContainer width="100%" height={360}>
-          <Treemap data={tiles} dataKey="size" nameKey="name" isAnimationActive={false} content={<TreeTile />} />
-        </ResponsiveContainer>
+        <PersonaTiles v={v} dim={dim} />
       </Card>
       <Grid2>
         <Card icon={<ViewModuleOutlinedIcon />} tint="purple" title="Segment against priority" right={act?.("matrix", "Segment against priority")}
           note="The churn of each segment at each sales priority - cells of 25 customers or more; a smaller one shows how many">
-          <Box sx={{ overflowX: "auto" }}>
-            <Box sx={{ display: "grid", gridTemplateColumns: `minmax(150px, 1.4fr) repeat(${PRIOS.length}, minmax(60px, 1fr))`, gap: "4px", minWidth: 480 }}>
-              <Box />
-              {PRIOS.map((x) => <Box key={x} sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textAlign: "center" }}>{x}</Box>)}
-              {ps.matrix.map((m) => (
-                <Box key={m.segment} sx={{ display: "contents" }}>
-                  <Box sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, alignSelf: "center" }}>{m.segment} <Box component="span" sx={{ color: FAINT, fontWeight: 500 }}>{n0(m.cos)}</Box></Box>
-                  {m.cells.map((c) => (
-                    <Box key={c.prio} title={`${m.segment}, ${c.prio}: ${n0(c.cos)} customers${c.churn == null ? "" : `, ${pct(c.churn, 1)} not back`}`}
-                      sx={{ height: 38, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: 700, bgcolor: c.churn == null ? "#f4f6f9" : churnTint(c.churn, ps.avg), color: c.churn == null ? FAINT : INK }}>
-                      {c.churn == null ? (c.cos ? n0(c.cos) : "") : pct(c.churn)}
-                    </Box>
-                  ))}
-                </Box>
-              ))}
-            </Box>
-          </Box>
+          <SegmentMatrix v={v} />
         </Card>
         <Card icon={<AlignHorizontalCenterOutlinedIcon />} tint="amber" title={`${dim} against the average`} right={act?.("levers", "Personas against the average")}
           note={`Points of churn above (right) or below (left) the average ${pct(ps.avg, 1)}`}>
@@ -734,6 +764,9 @@ export function RetentionPromoted({ tab, card, title, actions }: { tab: string; 
     "path:flow": () => <FlowChart flow={v.path.flow} height={440} label="The path" />, "path:owners": () => <OwnerBubbles v={v} />,
     "path:levers": () => <AgainstAverage rows={v.path.rows.filter((x) => ACTIVITY_DIMS.includes(x.dim))} avg={v.path.avg} />,
     "path:tickets": () => <AgainstAverage rows={v.path.rows.filter((x) => !ACTIVITY_DIMS.includes(x.dim))} avg={v.path.avg} />,
+    // personas in the nutshell: by contact persona, the tab's first view
+    "personas:map": () => <PersonaTiles v={v} dim={PERSONA_DIMS[0]} />, "personas:matrix": () => <SegmentMatrix v={v} />,
+    "personas:levers": () => <Diverging rows={v.personas.rows.filter((x) => x.dim === PERSONA_DIMS[0])} />,
   };
   const draw = charts[`${tab}:${card}`] as (() => React.ReactNode) | undefined;
   return (
