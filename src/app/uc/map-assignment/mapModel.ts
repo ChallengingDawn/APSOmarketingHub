@@ -398,12 +398,21 @@ export type Joined = {
   total: PostcodeStat;
 };
 
-const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [] });
+const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0 });
+const addTo = (into: Record<string, number>, from: Record<string, number> | undefined) => {
+  for (const [k, v] of Object.entries(from ?? {})) into[k] = (into[k] ?? 0) + (Number(v) || 0);
+};
 function addStat(into: PostcodeStat, s: PostcodeStat) {
   into.companies += s.companies || 0; into.customers += s.customers || 0; into.newCustomers += s.newCustomers || 0;
   into.revenue += Number.isFinite(s.revenue) ? s.revenue : 0;
-  for (const [k, v] of Object.entries(s.priority ?? {})) into.priority[k] = (into.priority[k] ?? 0) + (Number(v) || 0);
+  addTo(into.priority, s.priority);
+  // where it comes from (a hub without these fields yet: empty)
+  addTo(into.sae!, s.sae); addTo(into.now!, s.now); addTo(into.decided!, s.decided);
+  into.change = (into.change ?? 0) + (Number(s.change) || 0);
 }
+/** A record's entries, biggest first: [[key, n], ...]. */
+export const ranked = (r: Record<string, number> | undefined): [string, number][] =>
+  Object.entries(r ?? {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
 /** Is it LayerData for this country (and not, say, the page's own data from a route that does not know ?layers yet)? */
 export function isLayerData(x: unknown, cc: string): x is LayerData {

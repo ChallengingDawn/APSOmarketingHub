@@ -12,9 +12,10 @@ import type { Geometry } from "geojson";
 import { cleanZip, saeKey, type AssignRules, type CountryRule, type OwnerId, type Zone } from "@/lib/mapAssign/rules";
 import type { MapData, Owner } from "@/lib/mapAssign/api";
 
-export type View = "map" | "rules" | "performis" | "differences" | "nocompany" | "redirections" | "live";
+// Rules and Performis are the map's Options panel since 20.10.2026 (SARCLA: "merge in one simpler map")
+export type View = "map" | "differences" | "nocompany" | "redirections" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", rules: "#rules", performis: "#performis", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
+  map: "#map", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
 };
 
 const PORTAL = "26492587";
@@ -500,4 +501,4 @@ export const FLAG_LABEL: Record<string, string> = {
   "no-zip": "no postcode",
   "not-in-country": "SAE person does not work this country",
 };
-export const VIA_LABEL: Record<string, string> = { key: "key account", sae: "SAE", zone: "postcode zone", default: "default" };
+export const VIA_LABEL: Record<string, string> = { key: "key account", sae: "SAE", zone: "postcode zone", default: "default", redirection: "owner redirection" };

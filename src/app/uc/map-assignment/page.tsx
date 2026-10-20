@@ -5,32 +5,36 @@
 // country by country, by the Performis SAE or by postcode zones on a map (France: Jeremy Borey for Auvergne-Rhône-Alpes
 // and Bourgogne-Franche-Comté only); key accounts first; the contacts follow their company. Shadow (compare) or live
 // (write) per country. The engine is src/lib/mapAssign; this page reads GET /api/uc/map-assignment.
-// Views: Map (default), Rules, Performis (the SAE copy: the SAE table, by country and SAE, redirects per country),
-// Differences, No company, Redirections (Owner redirection, moved in 19.10.2026 - its own data and API), Live.
-// Edits to the rules show on the map before they are saved; one Save sends them, a patch per part.
+// v3, SARCLA 20.10.2026: "the map should be big", "these two bars are too much", "only the map - options and KPIs
+// appear in a side panel", Rules and Performis "merged in one simpler map". So: ONE bar (the views, and Save on its
+// right), the Map at the screen's height with Options / KPIs / a clicked place in a panel on its left; Differences
+// (moves by person), No company, Redirections (Owner redirection, with the rules that work against the map to accept
+// or decline), Live (per country, or all at once).
+// Edits show on the map before they are saved; one Save sends them, a patch per part.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
+import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, MUTED } from "@/app/uc/report/ui";
+import { MUTED, RED } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { Chip, Info } from "@/app/connectors/parts";
+import { Chip, Info, when } from "@/app/connectors/parts";
 import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
-import { CountryPicker, MapPanel, sourceNote, useCountryMap } from "./MapPanel";
-import { RulesView, SaveBar } from "./RulesView";
-import { PerformisView } from "./PerformisView";
+import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
+import { OptionsPanel } from "./OptionsPanel";
 import { DiffView } from "./DiffView";
 import { NoCompanyView } from "./NoCompanyView";
-import { RedirectionsView } from "./RedirectionsView";
+import { RedirectionsView, openConflicts } from "./RedirectionsView";
 import { LiveView } from "./LiveView";
 import {
   API, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
@@ -40,35 +44,54 @@ import {
 const CC_KEY = "apsomh:map-assignment:country";
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", rules: "Rules", performis: "Performis", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
+  map: "Map", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
 };
 
-/** Which views hold unsaved edits: Performis = the SAE table and the SAE redirects, Rules = everything else. */
-function edited(draft: AssignRules | null, saved: AssignRules | undefined): { rules: boolean; performis: boolean } {
-  if (!draft || !saved) return { rules: false, performis: false };
-  const ccs = [...new Set([...Object.keys(draft.countries), ...Object.keys(saved.countries)])];
-  const without = (r: AssignRules["countries"][string] | undefined) => (r ? { ...r, saeOverride: undefined } : null);
-  return {
-    performis: canon(draft.sae) !== canon(saved.sae) || ccs.some((cc) => canon(draft.countries[cc]?.saeOverride) !== canon(saved.countries[cc]?.saeOverride)),
-    rules: String(draft.defaultOwner) !== String(saved.defaultOwner) || ccs.some((cc) => canon(without(draft.countries[cc])) !== canon(without(saved.countries[cc]))),
-  };
-}
-
-function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty }: {
+function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, seededNow, onSeeded }: {
   d: MapData; rules: AssignRules; setDraft: SetDraft; cc: string; setCc: (cc: string) => void; names: Names; palette: Palette; dirty: boolean;
+  rev: number; n: number; seededNow: boolean; onSeeded: () => void;
 }) {
   const m = useCountryMap(cc, rules, d.rules, dirty);
-  const note = sourceNote(cc, rules, names);
   const onAssign = useMemo(() => assignInto(setDraft), [setDraft]);
   return (
-    <>
-      <CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<MapOutlinedIcon />} tint={note.tint} title={note.title} note={note.text}
-          right={d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
-        <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} />
-      </GlassCard>
-    </>
+    <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft}
+      top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />}
+      options={(close) => (
+        <OptionsPanel key={`${cc}-${rev}`} cc={cc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n}
+          byZone={m.status === "ok" ? m.byZone : null} seededNow={seededNow} onSeeded={onSeeded} onClose={close} />
+      )} />
+  );
+}
+
+/** Saving, on the right of the views: quiet when all is saved, Undo + Save when the map shows edits. */
+function SaveStrip({ d, dirty, check, busy, msg, onSave, onUndo }: {
+  d: MapData; dirty: boolean; check: { errors: string[] }; busy: boolean; msg: { ok: boolean; text: string } | null;
+  onSave: () => void; onUndo: () => void;
+}) {
+  const saved = d.at ? `Saved ${when(d.at)}${d.by ? ` by ${d.by}` : ""}` : "As seeded from the HubSpot workflows";
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end", minWidth: 0 }}>
+      {msg && <Typography sx={{ fontSize: "0.78rem", color: msg.ok ? "#1b7a55" : RED, maxWidth: 420 }}>{msg.text}</Typography>}
+      {!d.admin && <Chip tint="slate">read only</Chip>}
+      {dirty ? (
+        <>
+          <Chip tint="amber">Unsaved changes</Chip>
+          {check.errors.length > 0 && (
+            <Tooltip title={check.errors.slice(0, 8).join(" · ")}>
+              <Typography sx={{ fontSize: "0.78rem", color: RED, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {check.errors[0]}{check.errors.length > 1 ? ` (+${check.errors.length - 1})` : ""}
+              </Typography>
+            </Tooltip>
+          )}
+          {busy && <CircularProgress size={14} />}
+          {d.admin && <Button size="small" disabled={busy} onClick={onUndo} sx={{ textTransform: "none" }}>Undo</Button>}
+          {d.admin && (
+            <Button size="small" variant="contained" disableElevation startIcon={<SaveOutlinedIcon />} disabled={busy || check.errors.length > 0} onClick={onSave}
+              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Save</Button>
+          )}
+        </>
+      ) : !msg && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{saved}</Typography>}
+    </Box>
   );
 }
 
@@ -81,7 +104,7 @@ export default function MapAssignment() {
   const d = r?.state === "ok" ? r.data : null;
   const reload = useCallback(() => setN((x) => x + 1), []);
 
-  // the rules being edited; null = the saved ones. Kept here so the map and the rules views share them.
+  // the rules being edited; null = the saved ones. Kept here so the map and its panels share them.
   const [draft, setDraftState] = useState<AssignRules | null>(null);
   const [rev, setRev] = useState(0);
   const clearOnLoad = useRef(false);
@@ -113,10 +136,10 @@ export default function MapAssignment() {
   const names = useMemo(() => namesOf(d?.owners ?? []), [d]);
   const palette = useMemo(() => (d && rules ? buildPalette(d, rules, names) : () => ({ color: "#c9ced6", ring: false, grey: true, left: false, none: true })), [d, rules, names]);
   const check = useMemo(() => (rules ? checkRules(rules) : { errors: [] }), [rules]);
-  const parts = edited(dirty ? draft : null, d?.rules);
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { if (!msg?.ok) return; const t = window.setTimeout(() => setMsg(null), 6000); return () => window.clearTimeout(t); }, [msg]);
   const save = async () => {
     if (!draft) return;
     setBusy(true); setMsg(null);
@@ -131,49 +154,47 @@ export default function MapAssignment() {
   const seeded = () => { if (d) { setDraftState(JSON.parse(JSON.stringify(d.seeded)) as AssignRules); setRev((x) => x + 1); setMsg(null); } };
 
   let body: React.ReactNode;
-  // Redirections has its own data (Owner redirection's): it shows whatever the map data does
-  if (view === "redirections") body = <RedirectionsView key="redirections" frLive={d ? !!d.live.FR : null} />;
+  // Redirections has its own data (Owner redirection's) besides the conflicts: it shows while the map data loads
+  if (view === "redirections") body = <RedirectionsView key="redirections" d={d} names={names} palette={palette} onChanged={reload} />;
   else if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
   else if (r.state !== "ok") {
     body = r.state === "error" && r.status === 404
       ? <Info key="missing">The map assignment service is not there yet (HTTP 404). This page fills in once it is deployed.</Info>
       : <UpstreamPanel key="error" source="Map assignment" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
   } else if (d && rules) {
-    const bar = <SaveBar key="bar" d={d} dirty={dirty} seededNow={seededNow} check={check} busy={busy} msg={msg} onSave={() => void save()} onUndo={undo} onSeeded={seeded} />;
-    if (view === "rules") body = <>{bar}<RulesView key="rules" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} rev={rev} dirty={dirty} /></>;
-    else if (view === "performis") body = <>{bar}<PerformisView key="performis" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} rev={rev} n={n} /></>;
-    else if (view === "differences") body = <DiffView key="differences" d={d} names={names} />;
+    if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
-    else body = <>{(dirty || msg) && bar}<MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} /></>;
+    else body = <MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} rev={rev} n={n} seededNow={seededNow} onSeeded={seeded} />;
   }
 
   const liveCount = d ? Object.values(d.live).filter(Boolean).length : 0;
+  const moving = d ? d.moves.filter((x) => x.from !== x.to).reduce((a, x) => a + x.companies, 0) : 0;
+  const conflicts = d ? openConflicts(d) : 0;
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
       <PageHeader
         title="Map assignment"
         subtitle="Who owns each company, per country - by the Performis SAE or by postcode zones on the map; its contacts follow"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            {d && !d.admin && <Chip tint="slate">read only</Chip>}
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Read again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
       />
-      <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", minWidth: 0 }}>
         <ReportTabs name="mapassign" tab={view} onSelect={setView} tabs={[
-          { id: "map", label: VIEW_LABEL.map, count: null },
-          { id: "rules", label: VIEW_LABEL.rules, count: parts.rules ? "edited" : null },
-          { id: "performis", label: VIEW_LABEL.performis, count: parts.performis ? "edited" : null },
-          { id: "differences", label: VIEW_LABEL.differences, count: d ? full(d.changes.length) : null },
+          { id: "map", label: VIEW_LABEL.map, count: dirty ? "edited" : null },
+          { id: "differences", label: VIEW_LABEL.differences, count: d && moving ? full(moving) : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
-          { id: "redirections", label: VIEW_LABEL.redirections, count: null },
+          { id: "redirections", label: VIEW_LABEL.redirections, count: conflicts ? `${conflicts} to answer` : null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />
+        <Box sx={{ flex: 1 }} />
+        {d && <SaveStrip d={d} dirty={dirty} check={check} busy={busy} msg={msg} onSave={() => void save()} onUndo={undo} />}
       </Box>
-      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${VIEW_LABEL[view]} view${d && view !== "redirections" ? ` - ${countryName(cc)}` : ""}`}
+      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${VIEW_LABEL[view]} view${d && view === "map" ? ` - ${countryName(cc)}` : ""}`}
         sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

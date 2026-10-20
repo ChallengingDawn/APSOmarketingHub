@@ -10,20 +10,25 @@
 // Layers: Owners (default), Revenue, Customers, New customers, Priority P1-P4, GDP, Top customers - from the engine's
 // LayerData (GET /api/uc/map-assignment?layers=CC; none yet = only Owners). Legend per layer; for Owners: person,
 // postcodes, companies, km² (SARCLA: "see the number of square km of the zone").
-// Click a postcode (or a region, zoomed out) -> a card: what it is, who has it and why, and - for admins on a page that
-// passes onAssign - a person picker that gives it to someone in the DRAFT rules (mapEdit.ts); the map recolours at once
-// and the page's Save keeps it.
+// Click a postcode (or a region, zoomed out) -> the panel on the left (SidePanel.tsx): its figures, who has it, where it
+// comes from, and - for admins on a page that passes onAssign - give it to someone in the DRAFT rules (mapEdit.ts); the
+// map recolours at once and the page's Save keeps it.
+// v3 (SARCLA 20.10.2026: "the map should be big", "only the map - options and KPIs appear in a side panel"): the map
+// fills the page; over it the country (the page's `top`), Options and KPIs, the layers and the search, the zoom; the
+// panel on the left shows a place, the country's options (the page's `options`) or its KPIs and legend.
 //
-// CONTRACT with the page (page.tsx, RulesView):
+// CONTRACT with the page (page.tsx):
 //   const m = useCountryMap(cc, rules, d.rules, dirty)   - the country under the rules on screen (deferred while typing)
-//   <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} compact? onAssign? />
+//   <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign? setDraft? top? options? />
 //   onAssign(country, change: MapAssign) - someone gave postcodes or regions to a person on the map. change.rule is the
 //     country's whole CountryRule after the change: put it in the draft as it is -
 //       onAssign={(cc, ch) => setDraft((r) => ({ ...r, countries: { ...r.countries, [cc]: ch.rule } }))}
 //     kind / keys / owner / text describe it (owner "" + kind "undo"-text when the map's Undo puts the rule back).
 //     Without onAssign, or when d.admin is false, the map only shows.
-//   <CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} /> - the countries, in the top bar's tab look
-//   sourceNote(cc, rules, names) - the card title's line (Performis decides / the map decides)
+//   setDraft - an SAE redirected for this country from a place's "where it comes from"
+//   top - shown over the map, top left (the page's country menu); options(close) - the Options panel
+//   <CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} /> - the countries as a menu button
+//   sourceNote(cc, rules, names) - one line: Performis decides / the map decides
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -37,22 +42,23 @@ import CircularProgress from "@mui/material/CircularProgress";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
 import CenterFocusStrongOutlinedIcon from "@mui/icons-material/CenterFocusStrongOutlined";
-import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import { compact as short, full } from "@/app/charts/format";
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { Chip } from "@/app/connectors/parts";
-import { cleanZip, type AssignRules, type CountryRule } from "@/lib/mapAssign/rules";
+import { cleanZip, type AssignRules, type CountryRule, type OwnerId } from "@/lib/mapAssign/rules";
 import type { LayerData, MapData, PostcodeStat } from "@/lib/mapAssign/api";
-import { API, MAX_BODY, OwnerPicker, Swatch, bodyBytes, countryName, hsCompany, newId, useCountryGeo, type Names, type Palette } from "./shared";
+import { API, MAX_BODY, Swatch, bodyBytes, countryName, emptyRule, newId, useCountryGeo, withOverride, type Names, type Palette, type SetDraft } from "./shared";
 import {
   K_DETAIL, PRIORITIES, W, breaks, buildBase, cellAt, classOf, isLayerData, joinLayer, pickAll, regionAt, statValue, tally,
   type Decided, type Joined, type LayerKey, type MapBase, type Priority, type Tally, type ValueLayer,
 } from "./mapModel";
 import { assignOnMap, type MapAssign, type MapChange } from "./mapEdit";
 import { LAND, basePaths, cellGroups, drawBase, drawFocus, toBase, toScreen, type BasePaths, type FillKey, type Frame, type Marker, type Scene, type View } from "./mapDraw";
-import { CountryTabs, PillGroup, type PillDef } from "./mapTabs";
+import { CountryMenu, PillGroup, type PillDef } from "./mapTabs";
+import { KpiPanel, LAYERS, PlacePanel, gdpText, km2Text, rampOf, type Target } from "./SidePanel";
 
 export type { MapAssign } from "./mapEdit";
 
@@ -144,34 +150,17 @@ function mix(hex: string, t: number): string {
 }
 const STRONG = 0.8;
 const DIM = 0.18;
-/** Sequential blue, light to dark (dataviz reference ramp, steps 150 250 350 500 650). */
-const RAMP = ["#b7d3f6", "#86b6ef", "#5598e7", "#256abf", "#104281"];
-const rampOf = (classes: number) => (classes >= RAMP.length ? RAMP : RAMP.filter((_, i) => i % Math.ceil(RAMP.length / classes) === 0 || i === RAMP.length - 1).slice(-classes));
 const UNKNOWN: FillKey = `${LAND}|#d6dbe4`;
-
-const LAYERS: { key: LayerKey; label: string }[] = [
-  { key: "owners", label: "Owners" }, { key: "revenue", label: "Revenue" }, { key: "customers", label: "Customers" },
-  { key: "newCustomers", label: "New customers" }, { key: "priority", label: "Priority" }, { key: "gdp", label: "GDP" }, { key: "top", label: "Top customers" },
-];
 const LAYER_KEY = "apsomh:map-assignment:layer";
-
-/** GDP as the engine gives it, in million EUR: "830 m EUR", "1.2 bn EUR". */
-const gdpText = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "unknown"
-  : Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(Math.abs(v) >= 10_000 ? 0 : 1)} bn EUR` : `${full(v)} m EUR`);
-const km2Text = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : v > 0 && v < 10 ? `${v.toFixed(1)} km²` : `${full(v)} km²`);
 
 /* ── the country picker ── */
 
 export function CountryPicker({ list, cc, onPick }: { list: { cc: string; companies: number }[]; cc: string; onPick: (cc: string) => void }) {
-  return <CountryTabs list={list} cc={cc} onPick={onPick} label={countryName} />;
+  return <CountryMenu list={list} cc={cc} onPick={onPick} label={countryName} />;
 }
 
 /* ── the map ── */
 
-type Target =
-  | { kind: "cell"; cell: number; point: number; region: number; X: number; Y: number }
-  | { kind: "region"; region: number; X: number; Y: number }
-  | { kind: "marker"; i: number; X: number; Y: number };
 const sameTarget = (a: Target | null, b: Target | null) => {
   if (!a || !b) return a === b;
   if (a.kind !== b.kind) return false;
@@ -182,9 +171,12 @@ const sameTarget = (a: Target | null, b: Target | null) => {
 
 type Note = { text: string; bad?: boolean; undo?: { rule: CountryRule; text: string } };
 
-export function MapPanel({ m, cc, rules, d, names, palette, compact = false, onAssign }: {
-  m: CountryMap; cc: string; rules: AssignRules; d: MapData; names: Names; palette: Palette; compact?: boolean;
+export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, options }: {
+  m: CountryMap; cc: string; rules: AssignRules; d: MapData; names: Names; palette: Palette;
   onAssign?: (country: string, change: MapAssign) => void;
+  setDraft?: SetDraft; top?: React.ReactNode;
+  /** the Options panel, given its close */
+  options?: (close: () => void) => React.ReactNode;
 }) {
   const base = m.base;
   const rule = rules.countries[cc];
@@ -203,10 +195,13 @@ export function MapPanel({ m, cc, rules, d, names, palette, compact = false, onA
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [query, setQuery] = useState("");
   const [miss, setMiss] = useState(false);
+  /** the panel on the left besides a picked place: the country's options or its KPIs */
+  const [side, setSide] = useState<"options" | "kpis" | null>(null);
 
   // a new country starts whole, nothing picked
   const viewRef = useRef<View>({ k: 1, x: 0, y: 0 });
   useEffect(() => { viewRef.current = { k: 1, x: 0, y: 0 }; setPinned(null); setHover(null); setHl(null); setNote(null); setUi({ detail: false, atMin: true, atMax: false }); }, [cc]);
+  useEffect(() => { if (pinned) setSide(null); }, [pinned]);
 
   const layers = useLayers(cc);
   const joined = useMemo<Joined | null>(() => (base && layers.data ? joinLayer(base, layers.data) : null), [base, layers.data]);
@@ -225,30 +220,42 @@ export function MapPanel({ m, cc, rules, d, names, palette, compact = false, onA
   useEffect(() => () => { if (raf.current) cancelAnimationFrame(raf.current); }, []);
 
   /* ── the canvas size ── */
+  // the panel on the left (a place, Options, KPIs) keeps its 400 px from a tablet up; on a phone it covers the map
+  const reserve = (pinned !== null || side !== null) && (size?.w ?? 0) >= 700 ? 412 : 0;
   useEffect(() => {
     const box = boxRef.current;
     if (!box || !base) return;
+    // the map fills its box: the page gives the box its height (the screen's, less the header and the bar)
     const measure = () => {
       const w = Math.max(200, Math.round(box.clientWidth));
-      const maxH = compact ? 520 : Math.max(320, Math.min(760, Math.round(window.innerHeight * 0.74)));
-      const h = Math.round(Math.min((w * base.h) / W, maxH));
+      const h = Math.max(280, Math.round(box.clientHeight));
       setSize((s) => (s && s.w === w && s.h === h ? s : { w, h }));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [base, compact]);
+  }, [base]);
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !size || !base) return;
     const dpr = Math.min(3, window.devicePixelRatio || 1);
     cv.width = Math.round(size.w * dpr); cv.height = Math.round(size.h * dpr);
-    const sx = Math.min(size.w / W, size.h / base.h);
-    frameRef.current = { cssW: size.w, cssH: size.h, dpr, sx, ox: (size.w - W * sx) / 2, oy: (size.h - base.h * sx) / 2 };
-    setView(viewRef.current);
+    // an open panel takes the left: the country fits beside it
+    const free = size.w - reserve;
+    const sx = Math.min(free / W, size.h / base.h);
+    const before = frameRef.current;
+    const next = { cssW: size.w, cssH: size.h, dpr, sx, ox: reserve + (free - W * sx) / 2, oy: (size.h - base.h * sx) / 2 };
+    frameRef.current = next;
+    const v = viewRef.current;
+    // zoomed out: the whole country again; zoomed in: the same place stays under the same pixel
+    if (v.k <= 1.02) setView({ k: 1, x: 0, y: 0 });
+    else if (before && before.sx !== next.sx) {
+      const k = (v.k * before.sx) / next.sx;
+      setView({ k, x: before.ox * v.k + v.x - next.ox * k, y: before.oy * v.k + v.y - next.oy * k });
+    } else setView(v);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, base]);
+  }, [size, base, reserve]);
 
   /* ── the view ── */
   const clampView = (v: View): View => {
@@ -654,6 +661,10 @@ export function MapPanel({ m, cc, rules, d, names, palette, compact = false, onA
     })).sort((a, b) => b.postcodes - a.postcodes || b.companies - a.companies || names.name(a.owner).localeCompare(names.name(b.owner)));
   }, [m.tally, summary, names]);
 
+  const redirect = setDraft ? (sae: string, owner: OwnerId | null) => setDraft((dr) => ({
+    ...dr, countries: { ...dr.countries, [cc]: withOverride(dr.countries[cc] ?? emptyRule(cc), sae, owner) },
+  })) : undefined;
+
   /* ── render ── */
   const layerOptions: PillDef<LayerKey>[] = LAYERS.map((l) => {
     if (l.key === "owners") return { key: l.key, label: l.label };
@@ -666,118 +677,148 @@ export function MapPanel({ m, cc, rules, d, names, palette, compact = false, onA
 
   const shown = hover ?? null;
   const boxW = size?.w ?? 600;
+  const glassBar = { bgcolor: "rgba(255,255,255,.94)", border: `1px solid ${HAIRLINE}`, borderRadius: "14px", boxShadow: "0 2px 10px rgba(31,45,78,.08)" };
+  const sideBtn = (on: boolean) => ({
+    textTransform: "none" as const, fontWeight: 600, borderRadius: "12px", px: 1.5, py: 0.6, minWidth: 0, whiteSpace: "nowrap" as const,
+    color: on ? "#2459d1" : INK, bgcolor: on ? "#e6edfd" : "rgba(255,255,255,.94)", border: `1px solid ${on ? "rgba(36,89,209,.25)" : HAIRLINE}`,
+    boxShadow: "0 2px 10px rgba(31,45,78,.08)", "&:hover": { bgcolor: on ? "#dbe5fc" : "#fff" },
+  });
+  const toggle = (k: "options" | "kpis") => { setPinned(null); setSide((cur) => (cur === k ? null : k)); };
 
-  let mapBody: React.ReactNode;
+  const panel = base && pinned ? (
+    <PlacePanel key={`${pinned.kind}-${pinned.kind === "cell" ? pinned.cell : pinned.kind === "region" ? pinned.region : pinned.i}`}
+      target={pinned} base={base} m={m} joined={joined} names={names} palette={palette} cc={cc} rules={rules} d={d} canGive={canGive}
+      people={rule?.people} why={why} onGive={give} onClose={() => setPinned(null)}
+      onRegion={(region) => setPinned({ kind: "region", region, X: pinned.X, Y: pinned.Y })}
+      onFly={(pt) => { const p = base.points[pt]; flyTo(p.x, p.y, kFor(p.cell)); }}
+      decided={(pt) => m.picks[pt]} onRedirect={redirect} />
+  ) : base && side === "kpis" ? (
+    <KpiPanel cc={cc} d={d} names={names} palette={palette} layer={effLayer} people={people} hl={hl} setHl={setHl} base={base} joined={joined} values={values}
+      prio={prio} m={m} rule={rule} layersAt={layers.data?.at ?? null} revenueField={layers.data?.revenueField ?? null} onClose={() => setSide(null)}
+      onTop={(t) => { const p = base.points[t.point]; flyTo(p.x, p.y, kFor(p.cell)); setPinned({ kind: "marker", i: joined?.top.indexOf(t) ?? -1, X: 0, Y: 0 }); }} />
+  ) : side === "options" && options ? options(() => setSide(null)) : null;
+  const optionsOpen = side === "options" && !pinned;
+  // the controls move right of an open panel (on a phone the panel covers the map: they stay under it)
+  const besidePanel = panel ? { xs: 10, sm: 412 } : 10;
+
+  // the people on screen, small, bottom left: a click picks out their land
+  const mini = effLayer === "owners" || effLayer === "top" ? (
+    <Box sx={{ ...glassBar, px: 1, py: 0.6, display: "flex", flexWrap: "wrap", gap: 0.25, maxWidth: { xs: "100%", sm: 460 } }}>
+      {people.slice(0, 8).map((p) => {
+        const on = hl === p.owner;
+        return (
+          <Box key={p.owner} component="button" type="button" onClick={() => setHl(on ? null : p.owner)} aria-pressed={on}
+            sx={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.75, py: 0.3, borderRadius: "8px", fontSize: "0.76rem", fontWeight: 600,
+              color: INK, opacity: hl && !on ? 0.5 : 1, bgcolor: on ? "rgba(36,89,209,.08)" : "transparent", "&:hover": { bgcolor: "rgba(21,34,58,.05)" }, "&:focus-visible": { outline: "2px solid #2459d1" } }}>
+            <Swatch paint={palette(p.owner)} size={11} />{names.name(p.owner)}
+          </Box>
+        );
+      })}
+      {people.length > 8 && <Box component="button" type="button" onClick={() => toggle("kpis")} sx={{ all: "unset", cursor: "pointer", px: 0.75, py: 0.3, fontSize: "0.76rem", fontWeight: 600, color: "#2459d1" }}>+{people.length - 8} more</Box>}
+    </Box>
+  ) : values ? (
+    <Box sx={{ ...glassBar, px: 1.25, py: 0.75, display: "flex", alignItems: "center", gap: 1 }}>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>less</Typography>
+      <Box sx={{ display: "flex" }}>{rampOf(values.thresholds.length + 1).map((c) => <Box key={c} sx={{ width: 20, height: 10, bgcolor: c }} />)}</Box>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>more {LAYERS.find((l) => l.key === effLayer)?.label.toLowerCase()}</Typography>
+    </Box>
+  ) : null;
+
+  let stage: React.ReactNode;
   if (m.status === "loading") {
-    mapBody = (
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, minHeight: 260, color: MUTED }}>
+    stage = (
+      <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 1, color: MUTED }}>
         <CircularProgress size={16} sx={{ color: MUTED }} /><Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Reading the map of {countryName(cc)}…</Typography>
       </Box>
     );
   } else if (m.status === "none" || !base) {
-    mapBody = (
-      <Box sx={{ display: "grid", placeItems: "center", minHeight: 220, border: `1px dashed ${HAIRLINE}`, borderRadius: "16px", p: 2, textAlign: "center" }}>
+    stage = (
+      <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", p: 2, textAlign: "center" }}>
         <Box>
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>No map of {countryName(cc)} yet</Typography>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>Its postcode and region files are not in the hub. The rules and the counts beside work without them.</Typography>
+          <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK }}>No map of {countryName(cc)} yet</Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.5 }}>Its postcode and region files are not in the hub. Options and KPIs work without them.</Typography>
         </Box>
       </Box>
     );
   } else {
-    const card = pinned ? (
-      <PickCard key={`${pinned.kind}-${pinned.kind === "cell" ? pinned.cell : pinned.kind === "region" ? pinned.region : pinned.i}`}
-        target={pinned} base={base} m={m} joined={joined} names={names} palette={palette} cc={cc} canGive={canGive}
-        why={why} statLine={statLine} cellStat={cellStat} people={rule?.people}
-        onClose={() => setPinned(null)}
-        onGive={give}
-        onRegion={(region) => { setPinned({ kind: "region", region, X: pinned.X, Y: pinned.Y }); }}
-        onFly={(pt) => { const p = base.points[pt]; flyTo(p.x, p.y, kFor(p.cell)); }}
-        decided={(pt) => m.picks[pt]} />
-    ) : null;
-    mapBody = (
-      <Box sx={{ minWidth: 0 }}>
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", mb: 1.25 }}>
-          <PillGroup<LayerKey> name="Map layers" small value={effLayer} onChange={(k) => { setLayer(k); setPinned(null); }} options={layerOptions} />
-          {effLayer === "priority" && (
-            <PillGroup<Priority> name="Sales priority" small value={prio} onChange={setPrio}
-              options={PRIORITIES.map((p) => ({ key: p, label: p, count: joined ? full(joined.total.priority[p] ?? 0) : null }))} />
-          )}
-          <Box sx={{ flex: 1 }} />
-          <TextField size="small" value={query} placeholder="Find a postcode or place" error={miss}
-            onChange={(e) => { setQuery(e.target.value); setMiss(false); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(query); } }}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: FAINT }} /></InputAdornment> }, htmlInput: { "aria-label": "Find a postcode or place" } }}
-            helperText={miss ? `No postcode or place "${query.trim()}" in ${countryName(cc)}` : undefined}
-            sx={{ width: { xs: "100%", sm: 240 }, "& .MuiInputBase-root": { borderRadius: "12px", bgcolor: "rgba(255,255,255,.85)", fontSize: "0.85rem" }, "& .MuiInputBase-input": { py: 0.75 } }} />
-        </Box>
-        <Box ref={boxRef} sx={{ position: "relative", width: "100%", borderRadius: "14px", overflow: "hidden", bgcolor: "#f7f8fa", border: `1px solid ${HAIRLINE}` }}>
-          <Box component="canvas" ref={canvasRef} tabIndex={0} role="img"
-            aria-label={`Map of ${countryName(cc)}: ${full(base.regions.length)} regions and ${full(base.points.length)} postcodes coloured ${effLayer === "owners" || effLayer === "top" ? "by person" : `by ${LAYERS.find((l) => l.key === effLayer)?.label.toLowerCase()}`}. Plus and minus zoom, arrows move, Escape closes the card.`}
-            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}
-            onPointerLeave={() => setHover(null)} onKeyDown={onKeyDown}
-            sx={{
-              display: "block", width: "100%", height: size ? `${size.h}px` : "auto", aspectRatio: size ? undefined : `${W} / ${base.h}`,
-              maxHeight: compact ? 520 : 760, touchAction: ui.atMin ? "pan-y" : "none", cursor: hover ? "pointer" : ui.atMin ? "default" : "grab",
-              outline: "none", "&:focus-visible": { boxShadow: "inset 0 0 0 2px #2459d1" },
-            }} />
-          {/* the level: zoomed out regions, zoomed in postcodes; and the zoom buttons - over the map from a tablet up,
-              under it on a phone (they would hide a quarter of it) */}
-          <Box sx={{
-            display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" },
-            position: { xs: "static", sm: "absolute" }, left: 8, right: 8, bottom: 8, p: { xs: 0.75, sm: 0 }, borderTop: { xs: `1px solid ${HAIRLINE}`, sm: "none" },
-          }}>
-          <Box>
-            <PillGroup<"regions" | "postcodes"> name="Map level" small value={ui.detail ? "postcodes" : "regions"}
-              onChange={(k) => {
-                if (k === "regions") animateTo({ k: 1, x: 0, y: 0 });
-                else zoomCentre(Math.max(K_DETAIL * 1.25, viewRef.current.k) / viewRef.current.k);
-              }}
-              options={[{ key: "regions", label: "Regions" }, { key: "postcodes", label: "Postcodes" }]} />
-          </Box>
-          <Box sx={{ display: "flex", flexDirection: { xs: "row", sm: "column" }, gap: 0.25, bgcolor: "rgba(255,255,255,.94)", border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 0.35, boxShadow: "0 1px 3px rgba(31,45,78,.08)" }}>
-            <Tooltip title="Zoom in" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1.7)} disabled={ui.atMax} aria-label="Zoom in"><AddIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
-            <Tooltip title="Zoom out" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1 / 1.7)} disabled={ui.atMin} aria-label="Zoom out"><RemoveIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
-            <Tooltip title="Whole country" placement="left"><span><IconButton size="small" onClick={() => animateTo({ k: 1, x: 0, y: 0 })} disabled={ui.atMin} aria-label="Whole country"><CenterFocusStrongOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
-          </Box>
-          </Box>
-          {card && (
-            <Box sx={{
-              position: "absolute", top: 8, zIndex: 3, width: { xs: "calc(100% - 16px)", sm: 320 }, maxHeight: "calc(100% - 64px)", overflowY: "auto",
-              ...(pinned && pinned.X < boxW / 2 ? { right: 8 } : { left: 8 }),
-            }}>{card}</Box>
-          )}
-          {shown && !(pinned && sameTarget(pinned, shown)) && (
-            <HoverTip t={shown} base={base} m={m} names={names} palette={palette} joined={joined} layerValue={layerValue} boxW={boxW} />
-          )}
-        </Box>
-        {note && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
-            <Chip tint={note.bad ? "amber" : "blue"}>{note.text}</Chip>
-            {note.undo && canGive && <Button size="small" onClick={undo} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0, py: 0.25 }}>Undo</Button>}
-          </Box>
+    stage = (
+      <>
+        <Box component="canvas" ref={canvasRef} tabIndex={0} role="img"
+          aria-label={`Map of ${countryName(cc)}: ${full(base.regions.length)} regions and ${full(base.points.length)} postcodes coloured ${effLayer === "owners" || effLayer === "top" ? "by person" : `by ${LAYERS.find((l) => l.key === effLayer)?.label.toLowerCase()}`}. Plus and minus zoom, arrows move, Escape closes the panel.`}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}
+          onPointerLeave={() => setHover(null)} onKeyDown={onKeyDown}
+          sx={{
+            position: "absolute", inset: 0, display: "block", width: "100%", height: "100%",
+            touchAction: ui.atMin ? "pan-y" : "none", cursor: hover ? "pointer" : ui.atMin ? "default" : "grab",
+            outline: "none", "&:focus-visible": { boxShadow: "inset 0 0 0 2px #2459d1" },
+          }} />
+        {shown && !(pinned && sameTarget(pinned, shown)) && (
+          <HoverTip t={shown} base={base} m={m} names={names} palette={palette} joined={joined} layerValue={layerValue} boxW={boxW} />
         )}
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 0.75 }}>
-          Scroll or pinch to zoom, drag to move. Zoomed out, each region takes the colour of the person with most of its postcodes - paler where others hold part of it; zoomed in, every postcode shows its own area. Click a postcode or a region to see {canGive ? "it and give it to someone" : "who has it and why"}.
-        </Typography>
-      </Box>
+      </>
     );
   }
 
-  const legend = base ? (
-    <Legend layer={effLayer} people={people} names={names} palette={palette} hl={hl} setHl={setHl} m={m} base={base} joined={joined} values={values}
-      prio={prio} rampOf={rampOf} cc={cc} compact={compact} rule={rule} layersAt={layers.data?.at ?? null} revenueField={layers.data?.revenueField ?? null}
-      onTop={(t) => { const p = base.points[t.point]; flyTo(p.x, p.y, kFor(p.cell)); setPinned({ kind: "marker", i: joined?.top.indexOf(t) ?? -1, X: 0, Y: 0 }); }} />
-  ) : null;
-
   return (
-    <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: compact ? "minmax(0, 1fr)" : { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 320px" }, gridTemplateRows: "auto", alignItems: "start" }}>
-      <Box sx={{ minWidth: 0 }}>
-        {m.moved !== null && (
-          <Box sx={{ mb: 1 }}><Chip tint={m.moved ? "amber" : "slate"}>{m.moved ? `Your edits give ${full(m.moved)} postcodes to someone else` : "Your edits move no postcode here"}</Chip></Box>
+    <Box sx={{ display: "grid", gap: 1, minWidth: 0 }}>
+      <Box ref={boxRef} sx={{
+        position: "relative", width: "100%", overflow: "hidden", borderRadius: "18px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+        height: { xs: "72vh", md: "calc(100vh - 210px)" }, minHeight: { xs: 460, md: 560 },
+      }}>
+        {stage}
+        {/* over the map, top: the country, Options, KPIs - and the layers and the search */}
+        <Box sx={{ position: "absolute", top: 10, left: besidePanel, right: 10, zIndex: 4, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
+            {top}
+            {options && <Button onClick={() => toggle("options")} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={optionsOpen} sx={sideBtn(optionsOpen)}>Options</Button>}
+            <Button onClick={() => toggle("kpis")} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={side === "kpis" && !pinned} sx={sideBtn(side === "kpis" && !pinned)}>KPIs</Button>
+          </Box>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
+            <PillGroup<LayerKey> name="Map layers" small value={effLayer} onChange={(k) => { setLayer(k); setPinned(null); }} options={layerOptions} />
+            {effLayer === "priority" && (
+              <PillGroup<Priority> name="Sales priority" small value={prio} onChange={setPrio}
+                options={PRIORITIES.map((p) => ({ key: p, label: p, count: joined ? full(joined.total.priority[p] ?? 0) : null }))} />
+            )}
+            <TextField size="small" value={query} placeholder="Find a postcode or place" error={miss}
+              onChange={(e) => { setQuery(e.target.value); setMiss(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(query); } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: FAINT }} /></InputAdornment> }, htmlInput: { "aria-label": "Find a postcode or place" } }}
+              title={miss ? `No postcode or place "${query.trim()}" in ${countryName(cc)}` : undefined}
+              sx={{ width: { xs: "100%", sm: 220 }, "& .MuiInputBase-root": { ...glassBar, fontSize: "0.85rem" }, "& .MuiInputBase-input": { py: 0.7 } }} />
+          </Box>
+        </Box>
+        {/* bottom: the people (or the layer's scale) and the level, left; the zoom, right */}
+        {base && (
+          <Box sx={{ position: "absolute", left: besidePanel, right: 10, bottom: 10, zIndex: 4, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+            <Box sx={{ display: "grid", gap: 0.75, justifyItems: "start", minWidth: 0 }}>
+              {mini}
+              <PillGroup<"regions" | "postcodes"> name="Map level" small value={ui.detail ? "postcodes" : "regions"}
+                onChange={(k) => {
+                  if (k === "regions") animateTo({ k: 1, x: 0, y: 0 });
+                  else zoomCentre(Math.max(K_DETAIL * 1.25, viewRef.current.k) / viewRef.current.k);
+                }}
+                options={[{ key: "regions", label: "Regions" }, { key: "postcodes", label: "Postcodes" }]} />
+            </Box>
+            <Box sx={{ ...glassBar, display: "flex", flexDirection: "column", gap: 0.25, p: 0.35 }}>
+              <Tooltip title="Zoom in" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1.7)} disabled={ui.atMax} aria-label="Zoom in"><AddIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+              <Tooltip title="Zoom out" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1 / 1.7)} disabled={ui.atMin} aria-label="Zoom out"><RemoveIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+              <Tooltip title="Whole country" placement="left"><span><IconButton size="small" onClick={() => animateTo({ k: 1, x: 0, y: 0 })} disabled={ui.atMin} aria-label="Whole country"><CenterFocusStrongOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+            </Box>
+          </Box>
         )}
-        {mapBody}
+        {/* what changed: edits, a gift and its undo - top centre */}
+        {(note || (m.moved !== null && m.moved > 0)) && (
+          <Box sx={{ position: "absolute", top: { xs: 120, sm: 64 }, left: "50%", transform: "translateX(-50%)", zIndex: 5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "center", maxWidth: "calc(100% - 24px)" }}>
+            {note ? <Chip tint={note.bad ? "amber" : "blue"}>{note.text}</Chip> : <Chip tint="amber">{`Your edits give ${full(m.moved ?? 0)} postcodes to someone else - Save keeps them`}</Chip>}
+            {note?.undo && canGive && <Button size="small" onClick={undo} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0, py: 0.25, bgcolor: "rgba(255,255,255,.94)" }}>Undo</Button>}
+          </Box>
+        )}
+        {panel}
       </Box>
-      {legend}
+      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
+        Scroll or pinch to zoom, drag to move. Zoomed out, each region takes the colour of the person with most of its postcodes - paler where others hold part of it; zoomed in, every postcode shows its own area. Click a region or a postcode for its figures{canGive ? " and to give it to someone" : ""}.
+      </Typography>
     </Box>
   );
 }
@@ -826,294 +867,6 @@ function HoverTip({ t, base, m, names, palette, joined, layerValue, boxW }: {
         </Box>
       )}
       {value && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 0.4, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>}
-    </Box>
-  );
-}
-
-/* ── the card of what was clicked ── */
-
-function GiveRow({ names, label, onGive, people }: { names: Names; label: string; onGive: (owner: string) => void; people?: string[] }) {
-  const [who, setWho] = useState<string>("");
-  const known = (people ?? []).map(String).filter((p) => names.active(p));
-  return (
-    <Box sx={{ mt: 1.25, pt: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
-      <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</Typography>
-      {known.length > 0 && (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-          {known.map((p) => (
-            <Box key={p} component="button" type="button" onClick={() => setWho(p)} aria-pressed={who === p}
-              sx={{ all: "unset", cursor: "pointer", px: 1, py: 0.35, borderRadius: "999px", fontSize: "0.76rem", fontWeight: 600, border: `1px solid ${who === p ? "#2459d1" : HAIRLINE}`, color: who === p ? "#2459d1" : MUTED, bgcolor: who === p ? "rgba(36,89,209,.08)" : "#fff", "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-              {names.name(p)}
-            </Box>
-          ))}
-        </Box>
-      )}
-      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-        <OwnerPicker value={who || null} onChange={(v) => setWho(String(v ?? ""))} names={names} placeholder="pick a person" sx={{ flex: 1, minWidth: 0 }} />
-        <Button variant="contained" size="small" disabled={!who} onClick={() => onGive(who)} disableElevation sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px", flexShrink: 0 }}>Give</Button>
-      </Box>
-    </Box>
-  );
-}
-
-function PickCard({ target, base, m, joined, names, palette, cc, canGive, why, statLine, cellStat, people, onClose, onGive, onRegion, onFly, decided }: {
-  target: Target; base: MapBase; m: CountryMap; joined: Joined | null; names: Names; palette: Palette; cc: string; canGive: boolean;
-  why: (p: Decided | undefined, region: number) => string; statLine: (s: PostcodeStat | null) => string | null; cellStat: (cell: number) => PostcodeStat | null;
-  people?: string[]; onClose: () => void; onGive: (change: MapChange, owner: string, what: string) => void; onRegion: (region: number) => void;
-  onFly: (point: number) => void; decided: (point: number) => Decided | undefined;
-}) {
-  const head = (title: string, sub: string) => (
-    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{title}</Typography>
-        {sub && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{sub}</Typography>}
-      </Box>
-      <IconButton size="small" onClick={onClose} aria-label="Close" sx={{ mt: -0.5, mr: -0.5 }}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
-    </Box>
-  );
-  const personLine = (owner: string | null, how?: string) => owner ? (
-    <Box sx={{ mt: 1 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Swatch paint={palette(owner)} size={14} />
-        <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK }}>{names.name(owner)}</Typography>
-      </Box>
-      {how && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25 }}>Why: {how}</Typography>}
-    </Box>
-  ) : null;
-  let body: React.ReactNode = null;
-  if (target.kind === "cell") {
-    const pts = base.cells[target.cell];
-    const p = base.points[pts[0]];
-    const d = decided(pts[0]);
-    const region = target.region >= 0 ? base.regions[target.region] : null;
-    const owners = new Set(pts.map((i) => String(decided(i)?.owner ?? "")));
-    const what = pts.length > 1 ? `${p.zip} and ${pts.length - 1} more` : `${p.zip}${p.place ? ` ${p.place}` : ""}`;
-    body = (
-      <>
-        {head(`${p.zip}${p.place ? ` ${p.place}` : ""}`, [region?.name, km2Text(pts.reduce((s, i) => s + base.points[i].km2, 0))].filter(Boolean).join(" · "))}
-        {personLine(d ? String(d.owner) : null, why(d, target.region))}
-        {pts.length > 1 && (
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>
-            Same spot: {pts.slice(1, 9).map((i) => base.points[i].zip).join(", ")}{pts.length > 9 ? ` and ${pts.length - 9} more` : ""}{owners.size > 1 ? " - not all with the same person" : ""}
-          </Typography>
-        )}
-        {joined && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 0.75 }}>{statLine(cellStat(target.cell))}</Typography>}
-        {canGive && (
-          <>
-            <GiveRow names={names} people={people} label={pts.length > 1 ? `Give these ${pts.length} postcodes to` : `Give ${p.zip} to`}
-              onGive={(o) => onGive({ kind: "postcodes", zips: pts.map((i) => base.points[i].zip) }, o, what)} />
-            {region && (
-              <Box component="button" type="button" onClick={() => onRegion(target.region)}
-                sx={{ all: "unset", cursor: "pointer", mt: 1, fontSize: "0.78rem", fontWeight: 600, color: "#2459d1", "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-                Or all of {region.name} →
-              </Box>
-            )}
-          </>
-        )}
-      </>
-    );
-  } else if (target.kind === "region") {
-    const r = base.regions[target.region];
-    const rt = m.tally.regions[target.region];
-    const group = r.group ? base.regions.map((x, i) => ({ x, i })).filter(({ x }) => x.group === r.group) : [];
-    body = (
-      <>
-        {head(r.name, [r.code, km2Text(r.km2), `${full(rt?.total ?? 0)} postcodes`].join(" · "))}
-        <Box sx={{ mt: 1, display: "grid", gap: 0.4 }}>
-          {(rt?.owners ?? []).slice(0, 4).map(([o, n]) => (
-            <Box key={o} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-              <Swatch paint={palette(o)} />
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names.name(o)}</Typography>
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(n)} · {Math.round((100 * n) / Math.max(1, rt.total))}%</Typography>
-            </Box>
-          ))}
-          {(rt?.owners.length ?? 0) > 4 && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>and {rt.owners.length - 4} more people</Typography>}
-          {!rt?.total && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No postcode of the file lies here.</Typography>}
-        </Box>
-        {joined && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 0.75 }}>{statLine(joined.regions[target.region])}</Typography>}
-        {canGive && (
-          <>
-            <GiveRow names={names} people={people} label={`Give all of ${r.name} to`} onGive={(o) => onGive({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`)} />
-            {group.length > 1 && (
-              <GiveRow names={names} people={people} label={`Or all of ${r.group} (${group.length} regions) to`}
-                onGive={(o) => onGive({ kind: "regions", regions: group.map(({ x }) => x.code) }, o, `All of ${r.group}`)} />
-            )}
-          </>
-        )}
-      </>
-    );
-  } else if (joined) {
-    const c = joined.top[target.i];
-    if (c) {
-      const p = base.points[c.point];
-      const d = decided(c.point);
-      body = (
-        <>
-          {head(c.name, `${p.zip}${p.place ? ` ${p.place}` : ""} · revenue ${short(c.revenue)}`)}
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 1 }}>Owner now in HubSpot</Typography>
-          {personLine(c.owner)}
-          {d && String(d.owner) !== String(c.owner ?? "") && (
-            <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>Its postcode goes to {names.name(String(d.owner))} by the rules on screen ({why(d, p.region)}); a key account or the SAE can still decide otherwise.</Typography>
-          )}
-          <Box sx={{ display: "flex", gap: 1.5, mt: 1 }}>
-            <Box component="a" href={hsCompany(c.id)} target="_blank" rel="noreferrer" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, fontSize: "0.8rem", fontWeight: 600, color: "#2459d1", textDecoration: "none" }}>
-              HubSpot <OpenInNewIcon sx={{ fontSize: 14 }} />
-            </Box>
-            <Box component="button" type="button" onClick={() => onFly(c.point)} sx={{ all: "unset", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, color: "#2459d1" }}>Zoom to it</Box>
-          </Box>
-        </>
-      );
-    }
-  }
-  if (!body) return null;
-  return (
-    <Box role="dialog" aria-label="Picked on the map" data-cc={cc}
-      sx={{ bgcolor: "rgba(255,255,255,.98)", border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, boxShadow: "0 10px 30px rgba(31,45,78,.16)" }}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
-      {body}
-    </Box>
-  );
-}
-
-/* ── the legend ── */
-
-const layerTitle: Record<LayerKey, string> = {
-  owners: "Who has what", revenue: "Revenue this year", customers: "Customers this year", newCustomers: "New customers this year",
-  priority: "Sales priority", gdp: "GDP per region", top: "Top customers",
-};
-
-function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, values, prio, rampOf, cc, compact, rule, layersAt, revenueField, onTop }: {
-  layer: LayerKey; people: { owner: string; postcodes: number; km2: number; companies: number }[]; names: Names; palette: Palette;
-  hl: string | null; setHl: (o: string | null) => void; m: CountryMap; base: MapBase; joined: Joined | null;
-  values: { unit: "region" | "postcode"; thresholds: number[] } | null; prio: Priority; rampOf: (n: number) => string[]; cc: string; compact: boolean;
-  rule: CountryRule | undefined; layersAt: string | null; revenueField: string | null; onTop: (t: Joined["top"][number]) => void;
-}) {
-  const kicker = (text: string, right?: React.ReactNode) => (
-    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 1 }}>
-      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>{text}</Typography>
-      {right}
-    </Box>
-  );
-  const asOf = layersAt ? ` As of the scan of ${new Date(layersAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.` : "";
-  const unplaced = joined && joined.unplaced ? ` ${full(joined.unplaced)} companies are not on the map (no postcode the map knows).` : "";
-
-  if (layer === "owners" || (layer === "top" && !joined)) {
-    const tot = people.reduce((s, p) => ({ postcodes: s.postcodes + p.postcodes, km2: s.km2 + p.km2, companies: s.companies + p.companies }), { postcodes: 0, km2: 0, companies: 0 });
-    const cols = { xs: "12px minmax(64px, 1fr) 48px 54px 58px", sm: "14px minmax(0, 1fr) 54px 62px 74px" };
-    const num = { fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
-    return (
-      <Box sx={{ display: "grid", gap: 0.5, alignContent: "start", minWidth: 0 }}>
-        {kicker(layerTitle.owners, hl ? <Box component="button" type="button" onClick={() => setHl(null)} sx={{ all: "unset", cursor: "pointer", fontSize: "0.74rem", color: "#2459d1", fontWeight: 600 }}>Show everyone</Box> : undefined)}
-        <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1, px: 1, alignItems: "end" }}>
-          <span />
-          {["Person", "Postcodes", "Companies", "km²"].map((h, i) => (
-            <Typography key={h} sx={{ fontSize: { xs: "0.6rem", sm: "0.68rem" }, color: FAINT, fontWeight: 600, textAlign: i ? "right" : "left", whiteSpace: "nowrap" }}>{h}</Typography>
-          ))}
-        </Box>
-        {people.length === 0 && <Typography sx={{ fontSize: "0.8rem", color: MUTED, px: 1 }}>Nobody yet.</Typography>}
-        <Box sx={{ display: "grid", gap: 0.25 }}>
-          {people.map((p) => {
-            const on = hl === p.owner;
-            return (
-              <Box key={p.owner} component="button" type="button" onClick={() => setHl(on ? null : p.owner)} aria-pressed={on}
-                sx={{
-                  all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: cols, gap: 1, alignItems: "center", px: 1, py: 0.6, borderRadius: "10px", minHeight: 30,
-                  bgcolor: on ? "rgba(36,89,209,.08)" : "transparent", opacity: hl && !on ? 0.55 : 1,
-                  "&:hover": { bgcolor: on ? "rgba(36,89,209,.12)" : "rgba(21,34,58,.04)" }, "&:focus-visible": { outline: "2px solid #2459d1" },
-                }}>
-                <Swatch paint={palette(p.owner)} size={14} />
-                <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{names.name(p.owner)}</Typography>
-                <Typography sx={num}>{full(p.postcodes)}</Typography>
-                <Typography sx={num}>{full(p.companies)}</Typography>
-                <Typography sx={num}>{p.km2 > 0 && p.km2 < 10 ? p.km2.toFixed(1) : full(p.km2)}</Typography>
-              </Box>
-            );
-          })}
-        </Box>
-        {people.length > 1 && (
-          <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1, px: 1, pt: 0.5, borderTop: `1px solid ${HAIRLINE}` }}>
-            <span />
-            <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>{countryName(cc)}</Typography>
-            <Typography sx={num}>{full(tot.postcodes)}</Typography>
-            <Typography sx={num}>{full(tot.companies)}</Typography>
-            <Typography sx={num}>{full(base.km2 ?? tot.km2)}</Typography>
-          </Box>
-        )}
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75, lineHeight: 1.45 }}>
-          Postcodes and km²: how many postcodes and how much land each person gets by the rules on screen{m.moved !== null ? ", your edits included" : ""}. Companies: how many companies each one got at the last scan, by the saved rules{rule?.source === "sae" || !rule ? " (the Performis SAE first, the zones for the rest)" : ""}. Click a person to pick out their land.
-        </Typography>
-      </Box>
-    );
-  }
-
-  if (layer === "top" && joined) {
-    return (
-      <Box sx={{ display: "grid", gap: 0.5, alignContent: "start", minWidth: 0 }}>
-        {kicker(layerTitle.top)}
-        <Box sx={{ display: "grid", gap: 0.25 }}>
-          {joined.top.slice(0, compact ? 8 : 12).map((t, i) => {
-            const p = base.points[t.point];
-            return (
-              <Box key={`${t.id}-${i}`} component="button" type="button" onClick={() => onTop(t)}
-                sx={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "18px minmax(0, 1fr) auto", gap: 1, alignItems: "center", px: 1, py: 0.55, borderRadius: "10px", "&:hover": { bgcolor: "rgba(21,34,58,.04)" }, "&:focus-visible": { outline: "2px solid #2459d1" } }}>
-                <Typography sx={{ fontSize: "0.74rem", color: FAINT, fontVariantNumeric: "tabular-nums" }}>{i + 1}</Typography>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.zip}{p.place ? ` ${p.place}` : ""} · {t.owner ? names.name(t.owner) : "no owner"}</Typography>
-                </Box>
-                <Typography sx={{ fontSize: "0.8rem", color: INK, fontVariantNumeric: "tabular-nums" }}>{short(t.revenue)}</Typography>
-              </Box>
-            );
-          })}
-        </Box>
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75, lineHeight: 1.45 }}>
-          The biggest customers by revenue this year, a dot each (bigger = more revenue; zoom in for more of them), on the land of each person in pale colours. Owner = the company owner in HubSpot today.{unplaced}{asOf}
-        </Typography>
-      </Box>
-    );
-  }
-
-  // a value layer
-  const t = values?.thresholds ?? [];
-  const ramp = rampOf(t.length + 1);
-  const fmt = (v: number) => (layer === "gdp" ? gdpText(v) : layer === "revenue" ? short(v) : full(v));
-  const rows = ramp.map((c, i) => {
-    const lo = i === 0 ? null : t[i - 1], hi = i < t.length ? t[i] : null;
-    const label = lo === null && hi === null ? "more than 0" : lo === null ? `under ${fmt(hi!)}` : hi === null ? `${fmt(lo)} or more` : `${fmt(lo)} to under ${fmt(hi)}`;
-    return { c, label };
-  });
-  const per = values?.unit === "postcode" ? "per postcode" : "per region";
-  const what: Record<string, string> = {
-    revenue: `Revenue this year${revenueField ? ` (${revenueField})` : ""} of the companies ${per === "per postcode" ? "at each postcode" : "in each region"}.`,
-    customers: `Companies that ordered this year, ${per}.`,
-    newCustomers: `Companies whose first order was this year, ${per}.`,
-    priority: `Companies with sales priority ${prio}, ${per}.`,
-    gdp: "GDP of each region (EUR).",
-  };
-  const total = joined ? (layer === "gdp" ? joined.gdp.reduce<number>((s, v) => s + (v ?? 0), 0) : statValue(joined.total, layer as ValueLayer, prio)) : null;
-  return (
-    <Box sx={{ display: "grid", gap: 0.5, alignContent: "start", minWidth: 0 }}>
-      {kicker(layer === "gdp" ? layerTitle.gdp : `${layerTitle[layer]}${layer === "priority" ? ` ${prio}` : ""} · ${per}`)}
-      <Box sx={{ display: "grid", gap: 0.4, px: 1, mt: 0.25 }}>
-        {rows.map((r) => (
-          <Box key={r.c} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Box sx={{ width: 22, height: 12, borderRadius: "3px", bgcolor: r.c, flexShrink: 0 }} />
-            <Typography sx={{ fontSize: "0.8rem", color: INK, fontVariantNumeric: "tabular-nums" }}>{r.label}</Typography>
-          </Box>
-        ))}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Box sx={{ width: 22, height: 12, borderRadius: "3px", bgcolor: LAND, border: `1px solid ${HAIRLINE}`, flexShrink: 0 }} />
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{layer === "gdp" ? "unknown" : "none"}</Typography>
-        </Box>
-      </Box>
-      {total !== null && (
-        <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.5, px: 1 }}>
-          {countryName(cc)}: <b>{fmt(total)}</b>{layer !== "gdp" && joined ? ` · ${full(joined.total.companies)} companies` : ""}
-        </Typography>
-      )}
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75, lineHeight: 1.45 }}>
-        {what[layer] ?? ""} Darker = more; the classes split the {per === "per postcode" && layer !== "gdp" ? "postcodes" : "regions"} with any into five about equal groups.{layer !== "gdp" ? unplaced : ""}{asOf}
-      </Typography>
     </Box>
   );
 }
