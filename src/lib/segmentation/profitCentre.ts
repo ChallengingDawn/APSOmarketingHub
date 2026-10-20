@@ -185,3 +185,23 @@ export function decide(totals: PcTotals, splitOptions: string[], majorOptions: s
     top: w.top,
   };
 }
+
+/**
+ * The shapes a split value may take — the gate on adding an option to HubSpot.
+ *
+ * Adding options automatically is only safe because the space is CLOSED: five
+ * named centres give at most 5 + 5 + 20 + 5 = 35 generated values, plus the two
+ * fixed ones. A run can therefore never grow the property without bound, and a
+ * stray code or a typo cannot reach HubSpot's schema — it fails this test and
+ * the company simply falls back, as before.
+ */
+export function isWellFormedSplit(v: string): boolean {
+  const C = "AT|DT|FT|KT|ST";
+  if (new RegExp(`^(100% |>80% )(${C})$`).test(v)) return true;
+  if (new RegExp(`^Major (${C}), then mix other PC$`).test(v)) return true;
+  // "Major DT, then DT" matches the shape but is nonsense: the top and the
+  // second centre are different by construction. A guard that would let it
+  // into the schema is not a guard.
+  const pair = new RegExp(`^Major (${C}), then (${C})$`).exec(v);
+  return Boolean(pair) && pair![1] !== pair![2];
+}

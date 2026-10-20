@@ -26,7 +26,7 @@ import {
   pyStr, recalcDecision, revProps, unlost, webUpdates,
   type Enums, type HistoryEntry, type PotentialEdit, type Props, type Visit,
 } from "../segmentation/engine";
-import { decide, sumByPc } from "../segmentation/profitCentre";
+import { decide, isWellFormedSplit, sumByPc } from "../segmentation/profitCentre";
 import { reclassify, yearlyReadProps } from "../segmentation/yearly";
 
 const LOCK = 4_107_204;
@@ -920,7 +920,33 @@ async function pcOptions(): Promise<{ split: string[]; major: string[] }> {
   return { split: await one("profit_center_split"), major: await one("major_profit_center") };
 }
 
-export type PcGap = { wanted: string; wrote: string; example: string; n: number };
+export type PcGap = { wanted: string; wrote: string; example: string; n: number; ids: string[] };
+
+/**
+ * Add the buckets a pass needed and the property did not have.
+ *
+ * Sends the WHOLE options list back, existing ones included, because a PATCH
+ * with a partial list replaces it - dropping thirty-five options and every
+ * company's value with them.
+ */
+async function pcEnsureOptions(wanted: string[]): Promise<{ added: string[]; refused: string[] }> {
+  const add = [...new Set(wanted)].filter(isWellFormedSplit);
+  const refused = [...new Set(wanted)].filter((v) => !isWellFormedSplit(v));
+  if (!add.length) return { added: [], refused };
+  const prop = await hubspotFetchJson<{ options?: { label: string; value: string; displayOrder?: number; hidden?: boolean }[] }>({
+    path: "/crm/v3/properties/companies/profit_center_split", method: "GET",
+  });
+  const opts = (prop.options ?? []).map((o) => ({ label: o.label, value: o.value, displayOrder: o.displayOrder, hidden: !!o.hidden }));
+  const have = new Set(opts.map((o) => o.value.toLowerCase()));
+  const missing = add.filter((v) => !have.has(v.toLowerCase()));
+  if (!missing.length) return { added: [], refused };
+  let order = Math.max(0, ...opts.map((o) => Number(o.displayOrder) || 0));
+  await hubspotFetchJson({
+    path: "/crm/v3/properties/companies/profit_center_split", method: "PATCH",
+    body: { options: [...opts, ...missing.map((v) => ({ label: v, value: v, displayOrder: ++order, hidden: false }))] },
+  });
+  return { added: missing, refused };
+}
 
 /**
  * Only the companies whose revenue can have moved.
@@ -975,8 +1001,9 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
       if (v.split === "No sales") stats.no_sales += 1;
       if (v.fellBack) {
         stats.fell_back += 1;
-        const g = gaps.get(v.wantedSplit) ?? { wanted: v.wantedSplit, wrote: v.split, example: p.name ?? res.id, n: 0 };
+        const g = gaps.get(v.wantedSplit) ?? { wanted: v.wantedSplit, wrote: v.split, example: p.name ?? res.id, n: 0, ids: [] };
         g.n += 1;
+        if (g.ids.length < 5000) g.ids.push(res.id);
         gaps.set(v.wantedSplit, g);
       }
       const upd: Props = {};
@@ -1003,8 +1030,31 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
 async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0, yearsBack = PC_WINDOW_YEARS, sinceIso: string | null = null) {
   const { scanned, changes, stats, gaps, years, mode } = await profitCentrePlan(beat, maxPages, yearsBack, sinceIso);
   const log: string[] = [];
+
+  // A bucket the property did not have is added, and then WRITTEN EXACTLY -
+  // the broader value planned a moment ago is replaced before anything goes
+  // out, so no company is ever written a rounded value we could have avoided.
+  let optionsAdded: string[] = [];
+  if (!dry && gaps.length) {
+    try {
+      const r = await pcEnsureOptions(gaps.map((g) => g.wanted));
+      optionsAdded = r.added;
+      if (r.refused.length) log.push(`not added, wrong shape: ${r.refused.join(" | ").slice(0, 200)}`);
+      if (optionsAdded.length) {
+        const exact = new Map(changes);
+        for (const g of gaps) {
+          if (!optionsAdded.includes(g.wanted)) continue;
+          for (const id of g.ids) exact.set(id, { ...(exact.get(id) ?? {}), profit_center_split: g.wanted });
+        }
+        changes.splice(0, changes.length, ...exact.entries());
+      }
+    } catch (e) {
+      log.push(`options: ${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+
   const written = dry ? 0 : await batchUpdate(changes, log);
-  const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, mode, since: sinceIso, dry };
+  const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, mode, since: sinceIso, options_added: optionsAdded, dry };
   await patchState({ last_profit_centre: res });
   return { ...res, log };
 }

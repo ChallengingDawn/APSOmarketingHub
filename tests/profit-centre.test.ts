@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NAMED, decide, normalise, sumByPc, wanted, type PcTotals } from "../src/lib/segmentation/profitCentre";
+import { NAMED, decide, isWellFormedSplit, normalise, sumByPc, wanted, type PcTotals } from "../src/lib/segmentation/profitCentre";
 import { MAIN } from "../src/lib/connectors/steps/revenueRules";
 
 /** The live options, read off the property on 20.10.2026 — typos and all. */
@@ -118,4 +118,39 @@ test("the rotation that made 53 of 100 companies wrong cannot happen here", () =
   assert.equal(decide(sumByPc([blob({ jan: { st: 1000 } })]), SPLIT, MAJOR).major, "ST");
   // A drive-belt customer: AT, which the workflow called DT.
   assert.equal(decide(sumByPc([blob({ jan: { at: 1000 } })]), SPLIT, MAJOR).major, "AT");
+});
+
+test("only a well-formed bucket may ever be added to the property", () => {
+  // the shapes the thresholds can produce
+  for (const ok of ["100% DT", ">80% KT", "Major KT, then ST", "Major AT, then mix other PC"]) {
+    assert.equal(isWellFormedSplit(ok), true, ok);
+  }
+  // and nothing else — a stray code, a typo, free text, or the fixed options,
+  // which already exist and must never be re-added
+  for (const no of [
+    "100% PW", "Major DT, then UNKNOWN", ">80% UNKNOWN", "Mix different PC", "No sales",
+    "100 % DT", "Majot ST, then mix other PC", "Major DT, then DT", "", "Major KT, then",
+    "drop table companies", "100% dt",
+  ]) {
+    assert.equal(isWellFormedSplit(no), false, no);
+  }
+});
+
+test("every bucket the thresholds can produce is well formed", () => {
+  const codes = ["AT", "DT", "FT", "KT", "ST"];
+  const seen = new Set<string>();
+  for (const a of codes) {
+    for (const b of codes) {
+      if (a === b) continue;
+      const v = wanted({ [a.toLowerCase()]: 60, [b.toLowerCase()]: 40 }).split;
+      seen.add(v);
+      assert.equal(isWellFormedSplit(v), true, v);
+    }
+    for (const v of [wanted({ [a.toLowerCase()]: 100 }).split, wanted({ [a.toLowerCase()]: 85, unknown: 15 }).split]) {
+      seen.add(v);
+      assert.equal(isWellFormedSplit(v), true, v);
+    }
+  }
+  // 20 pairs + 5 "100%" + 5 ">80%" — a closed, countable space
+  assert.equal(seen.size, 30);
 });

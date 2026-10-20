@@ -25,6 +25,7 @@ const HAIRLINE = "rgba(21,34,58,.10)";
 export type PcGap = { wanted: string; wrote: string; example: string; n: number };
 export type PcRun = {
   at?: string; scanned?: number; planned?: number; written?: number; dry?: boolean;
+  options_added?: string[];
   years?: number[];
   mode?: "changed" | "all";
   stats?: Record<string, number>;
@@ -104,7 +105,7 @@ export default function ProfitCentre({
             <Figure label="Written" value={num(last.written)} tone={last.dry ? FAINT : INK} note={last.dry ? "preview — nothing written" : undefined} />
             <Figure label="No sales in the window" value={num(s.no_sales)} />
             <Figure label="Fell back" value={num(s.fell_back)} tone={s.fell_back ? ACCENT : INK}
-              note={s.fell_back ? "the property has no such bucket" : "every bucket existed"} />
+              note={last.options_added?.length ? `${last.options_added.length} option(s) added, then written exactly` : s.fell_back ? "the property has no such bucket" : "every bucket existed"} />
           </Box>
         )}
       </Card>
@@ -115,9 +116,9 @@ export default function ProfitCentre({
             Buckets the property cannot hold
           </Typography>
           <Typography sx={{ fontSize: 13, color: MUTED, mt: 0.5, mb: 1.5, lineHeight: 1.55, maxWidth: "76ch" }}>
-            These companies&apos; real split has no option on <strong>profit_center_split</strong>, so something broader was
-            written instead. Adding the option in HubSpot is all it takes — this tab will use it on the next pass, with no
-            deploy here.
+            These companies&apos; real split had no option on <strong>profit_center_split</strong>. A real pass now ADDS the
+            missing option and writes the exact value — only ever one of the 35 shapes five centres can produce, so the
+            property cannot grow without bound. A preview adds nothing and shows what it would add.
           </Typography>
           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px", gap: 0, fontSize: 13 }}>
             <Box sx={{ py: 0.75, borderBottom: `1px solid ${HAIRLINE}`, color: FAINT, fontSize: 11.5 }}>Their real split</Box>
