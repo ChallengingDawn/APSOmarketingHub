@@ -42,4 +42,13 @@ test("the scripts' sheet with the conversions and their value - and without them
   ]);
   assert.equal(g.months["2026-09"].revenue, 410000);
   assert.equal(g.currency, "EUR");
+  // the Microsoft script's value row in the old columns: conversions | 0 | value | 0
+  const ms = parseMsAdsSheet([
+    ["month", "impressions", "clicks", "cost", "currency", "campaigns", "account", "through", "written"],
+    ["2026-09", 150000, 3600, 5100.25, "CHF", 6, "APSOparts AG", "2026-10-17", "2026-10-18T06:00:05.000Z"],
+    ["2026-09|Search", 100000, 2400, 3000, "CHF", 4, "APSOparts AG", "2026-10-17", "2026-10-18T06:00:05.000Z"],
+    ["2026-09|#value", 41, 0, 52000.5, "CHF", 0, "APSOparts AG", "2026-10-17", "2026-10-18T06:00:05.000Z"],
+  ]);
+  assert.deepEqual(ms.months["2026-09"], { impressions: 150000, clicks: 3600, cost: 5100.25, conversions: 41, revenue: 52000.5 });
+  assert.deepEqual(Object.keys(ms.kinds["2026-09"]), ["Search"]);
 });

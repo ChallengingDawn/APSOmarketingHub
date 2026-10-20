@@ -15,9 +15,8 @@ function doPost(e) {
   // bound to the sheet (Extensions > Apps Script) it finds the sheet itself; made at script.google.com it needs SHEET_ID
   const book = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
   const sheet = book.getSheets()[0];
-  // 20.10.2026: the conversions and their value (revenue) as two more columns - "" from an older script
-  const values = [["month", "impressions", "clicks", "cost", "currency", "campaigns", "account", "through", "written", "conversions", "revenue"]]
-    .concat(body.rows.map((r) => [r[0], r[1], r[2], r[3], body.currency, r[4], body.account, body.through, new Date().toISOString(), r.length > 5 ? r[5] : "", r.length > 6 ? r[6] : ""]));
+  const values = [["month", "impressions", "clicks", "cost", "currency", "campaigns", "account", "through", "written"]]
+    .concat(body.rows.map((r) => [r[0], r[1], r[2], r[3], body.currency, r[4], body.account, body.through, new Date().toISOString()]));
   sheet.clearContents();
   // the months stay text ("2026-09"), never dates
   sheet.getRange(1, 1, values.length, 1).setNumberFormat("@");

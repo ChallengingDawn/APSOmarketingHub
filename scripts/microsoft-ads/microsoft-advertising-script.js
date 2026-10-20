@@ -17,7 +17,9 @@
 //
 // 20.10.2026: also the conversions and their value (revenue) per month - Dashboard 2026's SEA revenue, the ad
 // platforms' own figure (SARCLA chose it over GA4's, which sees only the visitors who accepted statistics cookies).
-// Paste the new sheet-web-app.gs too (it writes the two new columns), then redeploy it as a new version.
+// They travel in the sheet's existing columns, one more row a month ("2026-09|#value": conversions where the
+// impressions are, the value where the cost is), so the sheet's web app stays as it is - only this script is
+// pasted again (SARCLA: "really I should do everything like this?").
 //
 // Paste in: WEB_APP_URL (from deploying the sheet's web app) and SECRET (the same in both scripts).
 
@@ -58,8 +60,10 @@ function main() {
   const rows = [];
   const r2 = (x) => Math.round(x * 100) / 100;
   for (const m of months) {
-    rows.push([m.key, m.impressions, m.clicks, r2(m.cost), m.campaigns, r2(m.conversions), r2(m.revenue)]);
-    for (const [kind, k] of Object.entries(m.kinds)) rows.push([`${m.key}|${kind}`, k.impressions, k.clicks, r2(k.cost), k.campaigns, r2(k.conversions), r2(k.revenue)]);
+    rows.push([m.key, m.impressions, m.clicks, r2(m.cost), m.campaigns]);
+    for (const [kind, k] of Object.entries(m.kinds)) rows.push([`${m.key}|${kind}`, k.impressions, k.clicks, r2(k.cost), k.campaigns]);
+    // the month's conversions and their value, in the same five columns: conversions | 0 | value | 0
+    rows.push([`${m.key}|#value`, r2(m.conversions), 0, r2(m.revenue), 0]);
   }
   if (!revenueSeen) Logger.log("This Microsoft Advertising account's statistics give no revenue (Stats.getRevenue): the conversion value column stays 0 - tell the hub's team.");
   const payload = { secret: SECRET, account: names.join(", "), currency: mixed.length ? `${currency} (others left out of cost)` : currency, through: asText(yesterday), rows };

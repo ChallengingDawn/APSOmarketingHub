@@ -51,9 +51,20 @@ export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
     const [key, kind] = String(row[mi] ?? "").trim().split("|");
     const month = key.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    // the Microsoft script's month value row ("2026-09|#value"): its conversions where the impressions are and
+    // their value where the cost is - so the sheet's web app did not have to change (20.10.2026)
+    if (kind?.trim() === "#value") {
+      const t = (out.months[month] ??= { impressions: 0, clicks: 0, cost: 0 });
+      t.conversions = num(row[ii]);
+      t.revenue = num(row[co]);
+      continue;
+    }
     const m: MsAdsMonth = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
     if (cv >= 0) m.conversions = num(row[cv]);
     if (rv >= 0) m.revenue = num(row[rv]);
+    // a value row written before its month's total keeps its figures
+    const had = out.months[month];
+    if (!kind && had?.revenue != null) { m.conversions ??= had.conversions; m.revenue ??= had.revenue; }
     // a campaign type's share of the month ("2026-09|Performance Max"), or the month's total
     if (kind) (out.kinds[month] ??= {})[kind.trim()] = m;
     else out.months[month] = m;
