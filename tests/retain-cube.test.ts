@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addOrder, eroding, finish, newAcc, totalsBy, totalsOf, viewOf, windowOf, keyLast, keyOwner, kindOf, kindInfo, pivot, byKind, actionsOf, HEADLINE, type RetainAction, type RetainData } from "../src/lib/marketingKpis/retainCube";
+import { addOrder, eroding, finish, newAcc, totalsBy, totalsOf, viewOf, windowOf, keyLast, keyOwner, kindOf, monthsBetween, rowsOf, byOwner, byKind, matches, csvOf, HEADLINE, KIND_INFO, STOPPED_MONTHS, type RetainData } from "../src/lib/marketingKpis/retainCube";
 
 const pos = (...xs: [string, number, string?][]) => JSON.stringify(xs.map(([a, r, pc]) => ({ a, r, pc: pc ?? "FT", t: `Article ${a}` })));
 const order = (p: Record<string, unknown>) => ({ order_mandant: "100", order_customer_number: "7001", order_order_type: "Order", ...p });
@@ -36,7 +36,9 @@ test("the money: invoiced documents only, by the invoice's year; open orders = o
   assert.equal(l.l, 800);           // 500 + 300 invoiced since 19.10.2025
   assert.equal(l.o, 500);           // ordered 800, 300 of it invoiced
   assert.equal(acc.noCustomer, 1);
-  const v = viewOf(l, windowOf("2026-10-19").years);
+  assert.equal(l.d, "2026-09-10");  // the last invoice of the article to the customer (the credit note and the uninvoiced .000 never count)
+  const v = viewOf(l, windowOf("2026-10-19").years, "2026-10-19");
+  assert.equal(v.months, 1);
   assert.equal(v.best, 4000);
   assert.equal(v.bestYear, 2022);
   assert.equal(v.now, 1300);
@@ -71,49 +73,68 @@ test("what is at stake: eroding lines only, stopped or buying less, by owner", (
   assert.deepEqual(totalsBy(all, keyLast()).map(([k]) => k).sort(), ["In the last 12 months", "Last bought in 2022", "Last bought in 2023"]);
 });
 
-test("the erosion Excel's pivot: still buying less and stopped recently in the headline, the rest apart; owner > customer > article", () => {
+test("months since the last invoice: whole months, a day short is a month less", () => {
+  assert.equal(monthsBetween("2024-10-20", "2026-10-20"), 24);
+  assert.equal(monthsBetween("2024-10-21", "2026-10-20"), 23);
+  assert.equal(monthsBetween("2024-09-19", "2026-10-20"), 25);
+  assert.equal(monthsBetween("2026-10-20", "2026-10-20"), 0);
+  assert.equal(STOPPED_MONTHS, 24);
+});
+
+test("the erosion list: still buying less and stopped 12-24 months in the headline; lost, one year only and 800x apart", () => {
   const d: RetainData = {
     years: [2021, 2022, 2023, 2024, 2025],
     lines: [
-      { u: "100-1", a: "1000000001", y: [3000, 4000, 3500, 3000, 2800], l: 1000, o: 0 },   // still buying, less: 3,000
-      { u: "100-1", a: "1000000002", y: [0, 0, 2000, 3000, 2600], l: 0, o: 0 },           // stopped recently (bought in 2025): 3,000
-      { u: "100-2", a: "1000000003", y: [5000, 4000, 0, 0, 0], l: 0, o: 0 },               // lost before (last in 2022): 5,000
-      { u: "100-2", a: "1000000004", y: [0, 0, 6000, 0, 0], l: 0, o: 0 },                  // one year only: 6,000
-      { u: "110-3", a: "8001000005", y: [0, 3000, 0, 4000, 0], l: 500, o: 0 },             // made to order (800x): 3,500
-      { u: "110-3", a: "1000000006", y: [0, 0, 0, 3000, 2700], l: 0, o: 400 },             // an open order: still buying, less: 2,600
-      { u: "100-2", a: "1000000007", y: [0, 2600, 2700, 2800, 3000], l: 3500, o: 0 },      // growing: not at stake
+      { u: "100-1", a: "1000000001", y: [3000, 4000, 3500, 3000, 2800], l: 1000, o: 0, d: "2026-08-15" },   // still buying, less: 3,000
+      { u: "100-1", a: "1000000002", y: [0, 0, 2000, 3000, 2600], l: 0, o: 0, d: "2025-03-10" },           // stopped 19 months ago: 3,000
+      { u: "100-2", a: "1000000003", y: [5000, 4000, 0, 3000, 0], l: 0, o: 0, d: "2024-06-01" },           // lost: 28 months: 5,000
+      { u: "100-2", a: "1000000004", y: [0, 0, 6000, 0, 0], l: 0, o: 0, d: "2023-05-05" },                 // one year only: 6,000
+      { u: "110-3", a: "8001000005", y: [0, 3000, 0, 4000, 0], l: 500, o: 0, d: "2026-01-01" },            // made to order (800x): 3,500
+      { u: "110-3", a: "1000000006", y: [0, 0, 0, 3000, 2700], l: 0, o: 400, d: "2025-06-30" },            // on order only: still buying, less: 2,600
+      { u: "100-2", a: "1000000007", y: [0, 2600, 2700, 2800, 3000], l: 3500, o: 0, d: "2026-10-01" },     // growing: not at stake
     ],
-    articles: Object.fromEntries(["1000000001", "1000000002", "1000000003", "1000000004", "8001000005", "1000000006", "1000000007"].map((a) => [a, { t: a, p: a === "1000000006" ? "ST" : "FT" }])),
-    companies: { "100-1": { n: "One", o: "11", k: "Switzerland" }, "100-2": { n: "Two", o: "11", k: "Switzerland" }, "110-3": { n: "Three", o: "22", k: "Germany" } },
+    articles: Object.fromEntries(["1000000001", "1000000002", "1000000003", "1000000004", "8001000005", "1000000006", "1000000007"].map((a) => [a, { t: `Text ${a}`, p: a === "1000000006" ? "ST" : "FT" }])),
+    companies: { "100-1": { n: "One; AG", o: "11", k: "Switzerland" }, "100-2": { n: "Two", o: "11", k: "Switzerland" }, "110-3": { n: "Three", o: "22", k: "Germany" } },
     owners: { "11": "Anna", "22": "Ben" }, asOf: "2026-10-20", readAt: "", orders: 0, noCustomer: 0, errors: {},
   };
-  assert.deepEqual(eroding(d, {}).map((v) => [v.a, kindOf(v)]).sort(), [
-    ["1000000001", "less"], ["1000000002", "stopped"], ["1000000003", "gone"], ["1000000004", "oneoff"], ["1000000006", "less"], ["8001000005", "made"],
+  assert.deepEqual(eroding(d, {}).map((v) => [v.a, kindOf(v), v.months]).sort(), [
+    ["1000000001", "less", 2], ["1000000002", "stopped", 19], ["1000000003", "gone", 28], ["1000000004", "oneoff", 41], ["1000000006", "less", 15], ["8001000005", "made", 9],
   ]);
   assert.deepEqual(HEADLINE, ["less", "stopped"]);
-  assert.match(kindInfo(d.years)[1].note, /2024 or 2025/);
+  assert.match(KIND_INFO.find((k) => k.id === "stopped")!.label, /12–24 months/);
 
-  // the headline pivot: Anna 6,000 (One: two articles), Ben 2,600 (Three: the open order - its 800x line apart)
-  const p = pivot(d, {});
-  assert.deepEqual(p.map((o) => [o.owner, o.sums.gap, o.sums.customers, o.sums.lines]), [["11", 6000, 1, 2], ["22", 2600, 1, 1]]);
-  assert.deepEqual([p[0].sums.best, p[0].sums.last, p[0].sums.now, p[0].sums.less, p[0].sums.stopped], [7000, 5400, 1000, 3000, 3000]);
-  assert.deepEqual(p[0].customers.map((c) => [c.u, c.lines.map((l) => l.kind)]), [["100-1", ["less", "stopped"]]]);
-  // every kind: Two (11,000) above One (6,000); Ben's made-to-order line joins
-  const all = pivot(d, { kinds: ["less", "stopped", "gone", "oneoff", "made"] });
-  assert.deepEqual(all.map((o) => [o.owner, o.sums.gap, o.customers.map((c) => c.u)]), [["11", 17000, ["100-2", "100-1"]], ["22", 6100, ["110-3"]]]);
-  assert.deepEqual(pivot(d, { owner: ["22"] }).map((o) => o.owner), ["22"]);
-  assert.deepEqual(pivot(d, { pc: ["ST"] }).flatMap((o) => o.customers.map((c) => c.u)), ["110-3"]);
+  // the list: the headline kinds, the most at stake first
+  const rows = rowsOf(d, {});
+  assert.deepEqual(rows.map((r) => [r.a, r.kind, r.gap]), [["1000000001", "less", 3000], ["1000000002", "stopped", 3000], ["1000000006", "less", 2600]]);
+  assert.equal(rowsOf(d, { kinds: ["less", "stopped", "gone", "oneoff", "made"] }).length, 6);
+  assert.deepEqual(rowsOf(d, { kinds: ["made"] }).map((r) => r.a), ["8001000005"]);
+  assert.deepEqual(rowsOf(d, { owner: ["22"] }).map((r) => r.a), ["1000000006"]);
+  assert.deepEqual(rowsOf(d, { pc: ["ST"] }).map((r) => r.u), ["110-3"]);
+  // the search: the customer's name or number, the article's number or text
+  assert.deepEqual(rowsOf(d, {}).filter((r) => matches(d, r, "one")).map((r) => r.a), ["1000000001", "1000000002"]);
+  assert.deepEqual(rowsOf(d, {}).filter((r) => matches(d, r, "110-3")).map((r) => r.a), ["1000000006"]);
+  assert.deepEqual(rowsOf(d, {}).filter((r) => matches(d, r, "text 1000000002")).map((r) => r.a), ["1000000002"]);
 
+  // the graph: per owner, split by kind
+  assert.deepEqual(byOwner(d, {}).map((o) => [o.owner, o.sums.gap, o.sums.customers, o.sums.byKind.less, o.sums.byKind.stopped]), [["11", 6000, 1, 3000, 3000], ["22", 2600, 1, 2600, 0]]);
   // what is shown apart
   const k = byKind(d, {});
   assert.deepEqual(Object.fromEntries(Object.entries(k).map(([x, v]) => [x, [v.gap, v.lines, v.customers]])), {
     less: [5600, 2, 2], stopped: [3000, 1, 1], gone: [5000, 1, 1], oneoff: [6000, 1, 1], made: [3500, 1, 1],
   });
 
-  // the erosion tickets beside a customer, and an article
-  const t = (id: string, un: string, articles: string[], won = false): RetainAction => ({ id, un, articles, created: "2026-09-01", closed: null, result: "", won, open: !won, owner: "11" });
-  const acts = [t("1", "100-1", ["1000000002"]), t("2", "100-1", ["1000000001", "1000000002"], true), t("3", "110-3", ["1000000006"])];
-  assert.deepEqual(actionsOf(acts, "100-1").map((x) => x.id), ["1", "2"]);
-  assert.deepEqual(actionsOf(acts, "100-1", "1000000001").map((x) => x.id), ["2"]);
-  assert.deepEqual(actionsOf(acts, "100-2"), []);
+  // for Excel: the Excel's columns, ";" with a name holding one quoted
+  const csv = csvOf(d, rows).split("\r\n");
+  assert.equal(csv.length, 4);
+  assert.equal(csv[0], "Customer number;Customer;Country;Owner;Article;Article text;Profit centre;2021;2022;2023;2024;2025;Last 12 months;Open orders;Best year;Best year in;At stake;Last invoice;Months since;Status");
+  assert.equal(csv[2], '100-1;"One; AG";Switzerland;Anna;1000000002;Text 1000000002;FT;0;0;2000;3000;2600;0;0;3000;2024;3000;2025-03-10;19;Stopped 12–24 months');
+});
+
+test("a read from before 20.10 (no day of the last invoice): stopped by the years, as before", () => {
+  const years = [2021, 2022, 2023, 2024, 2025];
+  const v1 = viewOf({ u: "100-1", a: "1000000001", y: [0, 0, 2000, 3000, 0], l: 0, o: 0 }, years, "2026-10-20");
+  const v2 = viewOf({ u: "100-1", a: "1000000002", y: [3000, 3000, 0, 0, 0], l: 0, o: 0 }, years, "2026-10-20");
+  assert.equal(v1.months, null);
+  assert.equal(kindOf(v1), "stopped");
+  assert.equal(kindOf(v2), "gone");
 });

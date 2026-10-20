@@ -17,6 +17,8 @@
 //                documents carry less what the invoiced ones already did, never below 0 - for orders of the
 //                last 24 months (an older one still open is not a customer buying now)
 //   recurring    bought in two of the five years or more; a one-off is one year only - the first read
+//   last order   the day the article was last invoiced to the customer - "stopped" counts in months from it
+//                (SARCLA 20.10.2026: "stopped recently - put the number of months"; chose 12-24 months)
 //                (19.10) found 40% of what is at stake in one-off orders (a project, a made-to-order part)
 //                and half in lines last bought in 2021-2023: both shown, never hidden, so the gap reads right
 
@@ -24,8 +26,8 @@ import type { FixMap } from "../erosion/detector"; // relative: the unit tests c
 
 /** The Excel's "over 2.5k": a line counts when its best year reached this. */
 export const FLOOR = 2500;
-/** 1: the first read (19.10) */
-export const RETAIN_SHAPE = 1;
+/** 1: the first read (19.10); 2: the day each line was last invoiced (20.10) */
+export const RETAIN_SHAPE = 2;
 
 export type RetainLine = {
   /** the customer, "100-703863" (mandant-customer number) */
@@ -38,6 +40,8 @@ export type RetainLine = {
   l: number;
   /** open orders, EUR */
   o: number;
+  /** the day the article was last invoiced to the customer, "2025-03-14" - "" when none in the read; absent in a read before 20.10 */
+  d?: string;
 };
 
 export type RetainData = {
@@ -101,7 +105,7 @@ export function positionsOf(json: unknown, fixmap: FixMap): Pos[] {
 
 export type Acc = {
   w: Window;
-  lines: Map<string, { y: number[]; l: number; o: number }>;
+  lines: Map<string, { y: number[]; l: number; o: number; d: string }>;
   articles: Map<string, { t: string; p: string }>;
   /** the orders of the last 24 months: base number -> article -> [customer, ordered not invoiced, invoiced] */
   open: Map<string, Map<string, [string, number, number]>>;
@@ -113,7 +117,7 @@ export const newAcc = (today: string): Acc => ({ w: windowOf(today), lines: new 
 const key = (u: string, a: string) => `${u}\u0000${a}`;
 const lineOf = (acc: Acc, u: string, a: string) => {
   let x = acc.lines.get(key(u, a));
-  if (!x) { x = { y: [0, 0, 0, 0, 0], l: 0, o: 0 }; acc.lines.set(key(u, a), x); }
+  if (!x) { x = { y: [0, 0, 0, 0, 0], l: 0, o: 0, d: "" }; acc.lines.set(key(u, a), x); }
   return x;
 };
 
@@ -136,8 +140,10 @@ export function addOrder(acc: Acc, p: Record<string, unknown>, fixmap: FixMap): 
     if (!art) acc.articles.set(x.a, { t: x.t, p: x.p });
     else { if (!art.t && x.t) art.t = x.t; if (!art.p && x.p) art.p = x.p; }
     if (invoiced) {
-      if (yi >= 0) lineOf(acc, u, x.a).y[yi] += x.r;
-      if (day > acc.w.since12) lineOf(acc, u, x.a).l += x.r;
+      const line = lineOf(acc, u, x.a);
+      if (yi >= 0) line.y[yi] += x.r;
+      if (day > acc.w.since12) line.l += x.r;
+      if (x.r > 0 && day > line.d) line.d = day;
     }
     if (recent) {
       let m = acc.open.get(base);
@@ -161,23 +167,36 @@ export function finish(acc: Acc): RetainLine[] {
   for (const [k, x] of acc.lines) {
     if (Math.max(...x.y) < FLOOR) continue;
     const [u, a] = k.split("\u0000");
-    out.push({ u, a, y: x.y.map((v) => Math.round(v * 100) / 100), l: Math.round(x.l * 100) / 100, o: Math.round(x.o * 100) / 100 });
+    out.push({ u, a, y: x.y.map((v) => Math.round(v * 100) / 100), l: Math.round(x.l * 100) / 100, o: Math.round(x.o * 100) / 100, d: x.d });
   }
   return out;
 }
 
 /* ── the figures ─────────────────────────────────────────────────────────── */
 
-export type LineView = RetainLine & { best: number; bestYear: number; now: number; gap: number; stopped: boolean; recurring: boolean; lastYear: number | null };
+export type LineView = RetainLine & {
+  best: number; bestYear: number; now: number; gap: number; stopped: boolean; recurring: boolean; lastYear: number | null;
+  /** whole months from the last invoice to the read's day - null when the read has no day for it */
+  months: number | null;
+};
 
-/** A line's best year, now, and what is at stake. */
-export function viewOf(line: RetainLine, years: number[]): LineView {
+/** Whole months from one day to another ("2024-08-20" to "2026-10-20" = 26; to "2026-10-19" = 25). */
+export function monthsBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.slice(0, 10).split("-").map(Number), [ty, tm, td] = to.slice(0, 10).split("-").map(Number);
+  return Math.max(0, (ty * 12 + tm) - (fy * 12 + fm) - (td < fd ? 1 : 0));
+}
+
+/** A line's best year, now, what is at stake, and the months since its last invoice. */
+export function viewOf(line: RetainLine, years: number[], asOf?: string): LineView {
   let bi = 0;
   for (let i = 1; i < line.y.length; i++) if (line.y[i] > line.y[bi]) bi = i;
   const best = line.y[bi], now = line.l + line.o;
   let last: number | null = null;
   line.y.forEach((v, i) => { if (v > 0) last = years[i]; });
-  return { ...line, best, bestYear: years[bi], now, gap: Math.max(0, best - now), stopped: now <= 0, recurring: line.y.filter((v) => v > 0).length >= 2, lastYear: last };
+  return {
+    ...line, best, bestYear: years[bi], now, gap: Math.max(0, best - now), stopped: now <= 0, recurring: line.y.filter((v) => v > 0).length >= 2, lastYear: last,
+    months: asOf && line.d ? monthsBetween(line.d, asOf) : null,
+  };
 }
 
 export type RFilters = { owner?: string[]; country?: string[]; pc?: string[]; state?: string[]; kind?: string[] };
@@ -195,7 +214,7 @@ export function eroding(d: RetainData, f: RFilters): LineView[] {
     if (f.owner?.length && !f.owner.includes(ownerOf(d, line.u))) continue;
     if (f.country?.length && !f.country.includes(countryOf(d, line.u))) continue;
     if (f.pc?.length && !f.pc.includes(pcOf(d, line.a))) continue;
-    const v = viewOf(line, d.years);
+    const v = viewOf(line, d.years, d.asOf);
     if (v.gap <= 0) continue;
     if (f.state?.length && !f.state.includes(v.stopped ? "stopped" : "less")) continue;
     if (f.kind?.length && !f.kind.includes(v.recurring ? "recurring" : "oneoff")) continue;
@@ -231,20 +250,25 @@ export const keyCustomer = () => (v: LineView) => v.u;
 export const keyLast = () => (v: LineView) => (v.l > 0 ? "In the last 12 months" : v.lastYear ? `Last bought in ${v.lastYear}` : "Only open orders");
 
 /* ── the rework (SARCLA 20.10.2026: "the graphs are bad, the design and the logic - look at the erosion Excel") ──
-   He chose: the headline counts the lines still bought less, or stopped recently - articles bought in two years
-   or more; made-to-order (800x) apart; what was done about it from the erosion tickets; the Excel's pivot
-   (owner > customer > article) as the page, one split graph above it. */
+   SARCLA chose: the headline counts the lines still bought less, or stopped - no order for 12 to 24 months (asked
+   "put the number of months"); longer is lost before; one year only and made to order (800x) apart, each able to
+   join the list; one split graph per owner; the list of customer x article on its own tab ("better than the
+   Excel list"). The erosion tickets came out of it ("here you are only measuring the erosion articles"). */
 
-/** What a line is: still bought less, stopped recently, lost before, one year only, or made to order. */
+/** What a line is: still bought less, stopped 12-24 months, lost over 24 months, one year only, or made to order. */
 export type Kind = "less" | "stopped" | "gone" | "oneoff" | "made";
+export const KINDS_ALL: Kind[] = ["less", "stopped", "gone", "oneoff", "made"];
 export const HEADLINE: Kind[] = ["less", "stopped"];
-export const kindInfo = (years: number[]): { id: Kind; label: string; note: string }[] => [
-  { id: "less", label: "Still buying, less", note: "bought in the last 12 months or on order, below its best year" },
-  { id: "stopped", label: "Stopped recently", note: `bought in ${years[years.length - 2]} or ${years[years.length - 1]}, nothing in the last 12 months and no open order` },
-  { id: "gone", label: "Lost before", note: `last bought in ${years[years.length - 3]} or before - lost then, not eroding now` },
-  { id: "oneoff", label: "One year only", note: "bought in one of the five years - an order, not a habit" },
-  { id: "made", label: "Made to order", note: "an 800x article - cut pieces, special O-rings: a project more than a repeat" },
+/** Stopped: no order for 12 months (none in the last 12) up to this many; longer is lost before. */
+export const STOPPED_MONTHS = 24;
+export const KIND_INFO: { id: Kind; label: string; short: string; note: string }[] = [
+  { id: "less", label: "Still buying, less", short: "Buying less", note: "invoiced in the last 12 months or on order, below its best year" },
+  { id: "stopped", label: "Stopped 12–24 months", short: "Stopped", note: "no order for 12 to 24 months, and none open" },
+  { id: "gone", label: "Lost, over 24 months", short: "Lost", note: "no order for more than 24 months - lost then, not eroding now" },
+  { id: "oneoff", label: "One year only", short: "One year", note: "bought in one of the five years - an order, not a habit" },
+  { id: "made", label: "Made to order", short: "Made to order", note: "an 800x article - cut pieces, special O-rings: a project more than a repeat" },
 ];
+export const kindLabel = (k: Kind) => KIND_INFO.find((x) => x.id === k)!.label;
 /** A made-to-order article: its number starts with 800 (8001... - DirectCut's cuts, special O-rings). */
 export const isMade = (a: string) => a.startsWith("800");
 
@@ -252,63 +276,60 @@ export function kindOf(v: LineView): Kind {
   if (isMade(v.a)) return "made";
   if (v.now > 0) return "less";
   if (v.y.filter((x) => x > 0).length <= 1) return "oneoff";
+  if (v.months != null) return v.months <= STOPPED_MONTHS ? "stopped" : "gone";
+  // a read from before 20.10 has no day: by the years (bought in one of the last two)
   const n = v.y.length;
   return v.y[n - 1] > 0 || v.y[n - 2] > 0 ? "stopped" : "gone";
 }
 
-/** An erosion ticket as the page shows it: the customer, its articles, when, and what came of it. */
-export type RetainAction = { id: string; un: string; articles: string[]; created: string; closed: string | null; result: string; won: boolean; open: boolean; owner: string };
+export type Row = LineView & { kind: Kind };
+/** The list: the lines of the kinds chosen that the filters keep, the most at stake first. */
+export function rowsOf(d: RetainData, f: RFilters & { kinds?: Kind[] }): Row[] {
+  const kinds = new Set(f.kinds?.length ? f.kinds : HEADLINE);
+  return eroding(d, f).map((v) => ({ ...v, kind: kindOf(v) })).filter((v) => kinds.has(v.kind));
+}
 
-export type Sums = { gap: number; best: number; last: number; now: number; lines: number; customers: number; less: number; stopped: number };
-const sumsOf = (vs: LineView[], lastIdx: number): Sums => {
-  const t: Sums = { gap: 0, best: 0, last: 0, now: 0, lines: 0, customers: 0, less: 0, stopped: 0 };
+export type Sums = { gap: number; best: number; now: number; lines: number; customers: number; byKind: Record<Kind, number> };
+export const sumsOf = (rows: Row[]): Sums => {
+  const t: Sums = { gap: 0, best: 0, now: 0, lines: 0, customers: 0, byKind: { less: 0, stopped: 0, gone: 0, oneoff: 0, made: 0 } };
   const cust = new Set<string>();
-  for (const v of vs) {
-    t.gap += v.gap; t.best += v.best; t.last += v.y[lastIdx] ?? 0; t.now += v.now; t.lines += 1; cust.add(v.u);
-    const k = kindOf(v);
-    if (k === "less") t.less += v.gap; else if (k === "stopped") t.stopped += v.gap;
-  }
+  for (const v of rows) { t.gap += v.gap; t.best += v.best; t.now += v.now; t.lines += 1; cust.add(v.u); t.byKind[v.kind] += v.gap; }
   t.customers = cust.size;
   return t;
 };
 
-export type PivotCustomer = { u: string; sums: Sums; lines: (LineView & { kind: Kind })[] };
-export type PivotOwner = { owner: string; sums: Sums; customers: PivotCustomer[] };
-/**
- * The Excel's pivot (SummaryView: Resp. action > customer > article): the lines of the kinds chosen that the
- * filters keep, by the customer's owner today, then the customer, then the article - the most at stake first.
- */
-export function pivot(d: RetainData, f: RFilters & { kinds?: Kind[] }): PivotOwner[] {
-  const kinds = new Set(f.kinds?.length ? f.kinds : HEADLINE);
-  const lastIdx = d.years.length - 1;
-  const byOwner = new Map<string, Map<string, (LineView & { kind: Kind })[]>>();
-  for (const line of d.lines) {
-    if (f.owner?.length && !f.owner.includes(ownerOf(d, line.u))) continue;
-    if (f.country?.length && !f.country.includes(countryOf(d, line.u))) continue;
-    if (f.pc?.length && !f.pc.includes(pcOf(d, line.a))) continue;
-    const v = viewOf(line, d.years);
-    if (v.gap <= 0) continue;
-    const kind = kindOf(v);
-    if (!kinds.has(kind)) continue;
-    const o = ownerOf(d, line.u);
-    const m = byOwner.get(o) ?? new Map();
-    byOwner.set(o, m);
-    m.set(line.u, [...(m.get(line.u) ?? []), { ...v, kind }]);
-  }
-  const out: PivotOwner[] = [];
-  for (const [owner, m] of byOwner) {
-    const customers = [...m.entries()].map(([u, ls]) => ({ u, sums: sumsOf(ls, lastIdx), lines: ls.sort((a, b) => b.gap - a.gap) })).sort((a, b) => b.sums.gap - a.sums.gap);
-    out.push({ owner, sums: sumsOf(customers.flatMap((c) => c.lines), lastIdx), customers });
-  }
-  return out.sort((a, b) => b.sums.gap - a.sums.gap);
+/** At stake per owner (the customer's owner in HubSpot today), the most first - the graph. */
+export function byOwner(d: RetainData, f: RFilters & { kinds?: Kind[] }): { owner: string; sums: Sums }[] {
+  const by = new Map<string, Row[]>();
+  for (const r of rowsOf(d, f)) { const o = ownerOf(d, r.u); by.set(o, [...(by.get(o) ?? []), r]); }
+  return [...by.entries()].map(([owner, rs]) => ({ owner, sums: sumsOf(rs) })).sort((a, b) => b.sums.gap - a.sums.gap);
 }
 
 /** Every kind's at stake over the filters (not the kind choice) - the headline and what is shown apart. */
 export function byKind(d: RetainData, f: RFilters): Record<Kind, { gap: number; lines: number; customers: number }> {
-  const out = Object.fromEntries((["less", "stopped", "gone", "oneoff", "made"] as Kind[]).map((k) => [k, { gap: 0, lines: 0, customers: new Set<string>() }])) as Record<Kind, { gap: number; lines: number; customers: Set<string> }>;
+  const out = Object.fromEntries(KINDS_ALL.map((k) => [k, { gap: 0, lines: 0, customers: new Set<string>() }])) as Record<Kind, { gap: number; lines: number; customers: Set<string> }>;
   for (const v of eroding(d, f)) { const o = out[kindOf(v)]; o.gap += v.gap; o.lines += 1; o.customers.add(v.u); }
   return Object.fromEntries(Object.entries(out).map(([k, o]) => [k, { gap: o.gap, lines: o.lines, customers: o.customers.size }])) as Record<Kind, { gap: number; lines: number; customers: number }>;
 }
 
-/** The erosion tickets of a customer - and of one of its articles. */
-export const actionsOf = (actions: RetainAction[], u: string, a?: string) => actions.filter((x) => x.un === u && (!a || x.articles.includes(a)));
+/** A search over the list: the customer's name or number, the article's number or text. */
+export function matches(d: RetainData, r: Row, q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return true;
+  const c = d.companies[r.u], a = d.articles[r.a];
+  return [r.u, r.a, c?.n, a?.t].some((x) => (x ?? "").toLowerCase().includes(t));
+}
+
+/** The list for Excel: one line a customer x article, as the erosion Excel's columns (";" - Excel in Switzerland). */
+export function csvOf(d: RetainData, rows: Row[]): string {
+  const q = (v: unknown) => { const t = String(v ?? ""); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const n = (v: number) => String(Math.round(v * 100) / 100);
+  const head = ["Customer number", "Customer", "Country", "Owner", "Article", "Article text", "Profit centre", ...d.years.map(String),
+    "Last 12 months", "Open orders", "Best year", "Best year in", "At stake", "Last invoice", "Months since", "Status"];
+  const lines = rows.map((r) => {
+    const c = d.companies[r.u], a = d.articles[r.a];
+    return [r.u, c?.n ?? "", c?.k ?? "", c?.o ? d.owners[c.o] ?? c.o : "", r.a, a?.t ?? "", a?.p ?? "", ...r.y.map(n),
+      n(r.l), n(r.o), n(r.best), r.bestYear, n(r.gap), r.d ?? "", r.months ?? "", kindLabel(r.kind)].map(q).join(";");
+  });
+  return [head.map(q).join(";"), ...lines].join("\r\n");
+}
