@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  branchOf, decide, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
-  scoreTicket, toNum, unwrapUrl, type Api, type Resp,
+  articleQuantities, branchOf, decide, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
+  priceArticles, priceCheckArticles, scoreTicket, toNum, unwrapUrl, type Api, type Better, type Resp,
 } from "../src/lib/ticketValue/rules";
-import { enrolsOnStage, finalOf, measure, sameValue, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
+import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pricesOf, sameValue, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
 
 /** A fake HubSpot: answers by path; every call is recorded. */
 function fake(routes: Record<string, unknown>, calls: string[] = []): Api {
@@ -185,4 +185,85 @@ test("the figures leave out pending and late rows, and count where they differ",
   assert.deepEqual([m.checked, m.agree, m.differ, m.missed, m.pending, m.late], [3, 1, 1, 1, 1, 1]);
   assert.equal(m.pairs[0].n, 1);
   assert.equal(Math.round((m.agreeShare ?? 0) * 100), 33);
+});
+
+// ---------------- the hub's own rules ----------------
+
+const prices: Record<string, number> = { "1120036838": 1.8, "1120075420": 0.5, "1010123456": 0.25 };
+const better = (firstOrder: number | null = 420): Better => ({ price: (a) => prices[a] ?? null, firstOrder });
+
+test("each article takes the quantity on its own line; Stk, x and Menge count; one article may take a quantity elsewhere", () => {
+  assert.deepEqual(articleQuantities("1120036838 x 100\n1120075420 - 30 Stk\nMenge: 5 für 1010123456"), [
+    { article: "1120036838", qty: 100 }, { article: "1120075420", qty: 30 }, { article: "1010123456", qty: 5 },
+  ]);
+  assert.deepEqual(articleQuantities("50 x 1120036838"), [{ article: "1120036838", qty: 50 }]);
+  assert.deepEqual(articleQuantities("Artikel 1120036838\nwir brauchen 250 Stk."), [{ article: "1120036838", qty: 250 }]);
+  assert.deepEqual(articleQuantities("1120036838 and 1120075420\n250 Stk"), []); // two articles, the quantity on neither line
+});
+
+test("a price check's articles, priced at what each sells for; never-sold articles left out and said", () => {
+  const items = priceCheckArticles("1120036838 x 100 (DT · Stk · no MOQ); 1120075420 x 30 (DT · Stk · no MOQ); 1999999999 x 7 (KT · Stk)");
+  assert.deepEqual(items.map((x) => [x.article, x.qty]), [["1120036838", 100], ["1120075420", 30], ["1999999999", 7]]);
+  const r = priceArticles(items, better().price);
+  assert.equal(Math.round(r.value * 100) / 100, 195); // 100 x 1.80 + 30 x 0.50
+  assert.deepEqual([r.priced, r.unpriced], [2, 1]);
+  assert.match(r.why, /1 never sold/);
+});
+
+test("the hub's branches: price checks and new registrants get a value and a confidence; the copy leaves them", async () => {
+  const api = fake({});
+  const pc = { price_check_key: "100-701173|2026-10-19", price_check_articles: "1120036838 x 100 (DT); 1120075420 x 30 (DT)" };
+  assert.equal((await decide(api, "1", pc, false, "2026-10-20")).patch, null);
+  assert.deepEqual((await decide(api, "1", pc, false, "2026-10-20", better())).patch, { sales_potential_estimate: 195, sales_potential_source: "product_lookup", sales_potential_confidence: "high" });
+  const reg = { subject: "New Registrant | Mectron | Qualification needed", hs_tag_ids: "43412670" };
+  assert.equal((await decide(api, "1", reg, false, "2026-10-20")).patch, null);
+  assert.deepEqual((await decide(api, "1", reg, false, "2026-10-20", better(420))).patch, { sales_potential_estimate: 420, sales_potential_source: "company_baseline", sales_potential_confidence: "low" });
+  assert.equal((await decide(api, "1", reg, false, "2026-10-20", better(null))).patch, null);
+});
+
+test("products at the price they sell for, every article added up - not the list price per 100", async () => {
+  const routes = {
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55 }] },
+    "/crm/v3/objects/companies/55": { properties: { mandant: "M100", yearly_customer_potential: "0" } },
+    "/crm/v3/objects/2-200042439/search": { results: [{ properties: { sales_unit: "Stk", art_price__m100__listed_price: "180" } }] },
+  };
+  const p = { subject: "Anfrage", content: "1120036838: 100 Stück\n1120075420: 30 Stück" };
+  const copy = await scoreTicket(fake(routes), "1", p);
+  assert.equal(copy.value, 18000); // the copy: 100 x the list price per 100 (180)
+  const hub = await scoreTicket(fake(routes), "1", p, better());
+  assert.deepEqual([Math.round(hub.value), hub.source, hub.confidence], [195, "product_lookup", "medium"]);
+});
+
+test("the hub takes the primary company, the copy the first listed", async () => {
+  const routes = {
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 13582135237, associationTypes: [{ typeId: 339 }] }, { toObjectId: 399126815948, associationTypes: [{ label: "Primary", typeId: 339 }] }] },
+    "/crm/v3/objects/companies/13582135237": { properties: { yearly_customer_potential: "272", tickets_count_last_12m: "3" } },
+    "/crm/v3/objects/companies/399126815948": { properties: { yearly_customer_potential: "1200", tickets_count_last_12m: "10" } },
+  };
+  assert.equal((await scoreTicket(fake(routes), "1", { subject: "x" })).company?.id, "13582135237");
+  const hub = await scoreTicket(fake(routes), "1", { subject: "x" }, better());
+  assert.deepEqual([hub.company?.id, hub.value], ["399126815948", 12]);
+});
+
+test("the average first order: an order number once (.000 or its deliveries), credit notes out", () => {
+  assert.equal(firstOrderValue([
+    { name: "A26.622888.000 | x", net: 120, status: "entered" }, { name: "A26.622888.001 | x", net: 117.52, status: "invoiced" },
+    { name: "A26.700000.001 | x", net: 30, status: "invoiced" }, { name: "A26.700000.002 | x", net: 20, status: "invoiced" },
+    { name: "A26.700001.001 | x", net: 99, status: "credit_note" },
+  ]), 170);
+  assert.equal(firstOrderValue([]), null);
+  assert.deepEqual(averageOf([100, null, 300, 0, 200]), { avg: 200, median: 200, n: 3 });
+  const m = pricesOf([{ article: "a", revenueCy: 180, revenueLy: 0, qtyCy: 100, qtyLy: 0 }, { article: "b", revenueCy: 0, revenueLy: 0, qtyCy: 5, qtyLy: 0 }]);
+  assert.deepEqual([...m], [["a", 1.8]]);
+});
+
+test("the figures count the tickets the hub's own rules change", () => {
+  const v = (e: string | null, s: string | null): Values => ({ sales_potential_estimate: e, sales_potential_source: s, sales_potential_confidence: "low" });
+  const m = measure([
+    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "pricecheck", final: v(null, null), better: { final: v("195", "product_lookup") } }, workflow: { wrote: false, final: v(null, null) } },
+    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "score", final: v("5", "company_baseline"), better: { final: v("5", "company_baseline") } }, workflow: { wrote: true, final: v("5", "company_baseline") } },
+  ]);
+  assert.deepEqual([m.improved, m.improvedBy[0].branch, Math.round(m.valueBetter)], [1, "pricecheck", 200]);
 });

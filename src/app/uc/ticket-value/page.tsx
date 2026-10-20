@@ -32,6 +32,7 @@ import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
+import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -44,7 +45,8 @@ import type { Row, RunInfo, Settings } from "@/lib/ticketValue/engine";
 import type { Measure, Values, Verdict } from "@/lib/ticketValue/model";
 import { COMPANY_WIN_RATE, REENROL_STAGES } from "@/lib/ticketValue/rules";
 
-type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; admin: boolean };
+type BetterInfo = { firstOrder: number | null; firstOrderMedian: number | null; firstOrderN: number; firstOrderAt: string | null; pricedArticles: number; firstOrderProgress: { done: number; of: number } | null };
+type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; admin: boolean };
 type View = "overview" | "tickets" | "how" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", how: "#how-it-works", settings: "#settings" };
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
@@ -55,7 +57,7 @@ const SOURCE: Record<string, string> = {
   direct_field: "on the ticket",
   child_gqs: "its GQS ticket",
   text_qty_price: "quantity × price in the text",
-  product_lookup: "article × quantity, list price",
+  product_lookup: "article × quantity",
   company_baseline: "the company's potential",
   unknown: "no signal (0)",
   unqualified: "not a sales ticket",
@@ -77,15 +79,17 @@ const amount = (v: string | null | undefined) => {
   return Number.isFinite(n) ? n.toLocaleString("de-CH", { maximumFractionDigits: 2 }) : v;
 };
 /** The amount, and where it comes from under it. */
-function ValueCell({ v }: { v: Values }) {
+function ValueCell({ v, label }: { v: Values; label?: string }) {
   if (!v.sales_potential_source && !v.sales_potential_estimate) return <Box component="span" sx={{ color: FAINT }}>no value</Box>;
   return (
     <Box>
       <Box sx={{ fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" }}>{amount(v.sales_potential_estimate)}</Box>
-      <Box sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap" }}>{srcLabel(v.sales_potential_source)}</Box>
+      <Box sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap" }}>{label ?? srcLabel(v.sales_potential_source)}</Box>
     </Box>
   );
 }
+/** Where the hub's own rules give another value than the copy, by the workflow branch the ticket took. */
+const IMPROVED: Record<string, string> = { pricecheck: "price checks", newcustomer: "new registrants", score: "scored tickets", erosion: "erosion", sept: "September push" };
 const valueText = (v: Values) => v.sales_potential_source || v.sales_potential_estimate ? `${amount(v.sales_potential_estimate)} · ${srcLabel(v.sales_potential_source)}` : "no value";
 
 function Period({ days, onChange }: { days: number; onChange: (n: number) => void }) {
@@ -120,17 +124,18 @@ function Overview({ d }: { d: Data }) {
   const m = d.measure;
   const kpis = [
     { label: "Tickets compared", value: full(m.checked), note: `${full(m.pending)} waiting for the workflow${m.late ? `, ${full(m.late)} looked at late (left out)` : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-    { label: "Same value as the workflow", value: m.agreeShare === null ? "—" : `${Math.round(m.agreeShare * 100)}%`, note: `${full(m.agree)} of ${full(m.checked)}`, icon: <CompareArrowsOutlinedIcon />, tint: "green" as const },
-    { label: "Different value", value: full(m.differ), note: "Both wrote, not the same value", icon: <ErrorOutlineOutlinedIcon />, tint: "amber" as const },
-    { label: "Workflow wrote nothing", value: full(m.missed), note: "The hub would have written a value", icon: <SearchOffOutlinedIcon />, tint: "pink" as const },
-    { label: "Value on these tickets", value: full(Math.round(m.valueWorkflow)), note: `The hub: ${full(Math.round(m.valueHub))}`, icon: <PaidOutlinedIcon />, tint: "purple" as const },
+    { label: "The copy matches the workflow", value: m.agreeShare === null ? "—" : `${Math.round(m.agreeShare * 100)}%`, note: `${full(m.agree)} of ${full(m.checked)}; ${full(m.differ)} different, ${full(m.missed)} the workflow left empty`, icon: <CompareArrowsOutlinedIcon />, tint: "green" as const },
+    { label: "The hub improves", value: full(m.improved ?? 0), note: m.improvedBy?.length ? m.improvedBy.map((x) => `${IMPROVED[x.branch] ?? x.branch} ${full(x.n)}`).join(", ") : "Its own rules give the same as the copy", icon: <AutoFixHighOutlinedIcon />, tint: "amber" as const },
+    { label: "Value: the workflow", value: full(Math.round(m.valueWorkflow)), note: "What the workflow left on these tickets", icon: <PaidOutlinedIcon />, tint: "slate" as const },
+    { label: "Value: the hub", value: full(Math.round(m.valueBetter ?? m.valueHub)), note: "With the hub's own rules - what it would leave", icon: <PaidOutlinedIcon />, tint: "purple" as const },
   ];
   return (
     <>
       <Info>
         Shadow mode - nothing is written to HubSpot. Each time the workflow <b>SARCLA | TICKET VALUE CALCULATION</b> takes a ticket, the hub works the
-        value out with the workflow&apos;s own rules, at the moment the workflow runs, and reads what the workflow wrote 20 minutes later.
-        When the two agree, the hub can take over and the workflow can be switched off.
+        value out twice, at the moment the workflow runs: with the workflow&apos;s rules copied exactly (<b>the copy</b> - compared with what the workflow
+        wrote 20 minutes later) and with <b>the hub&apos;s own rules</b> (price checks, new registrants, products at the price they sell for, the primary
+        company - see How it works). When the copy agrees, the hub can take over with its own rules and the workflow can be switched off.
       </Info>
       <Grid container spacing={2}>
         {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
@@ -138,8 +143,8 @@ function Overview({ d }: { d: Data }) {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber" title="Where they are not the same" note="What the workflow wrote, and what the hub's copy gives, for the tickets that differ" />
-            {m.pairs.length ? <SmallTable head={["Workflow wrote", "The hub gives", "Tickets"]} rows={m.pairs.slice(0, 12).map((x) => [srcLabel(x.workflow), srcLabel(x.hub), x.n])} />
+            <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber" title="Where the copy is not the same" note="What the workflow wrote, and what the hub's exact copy of it gives, for the tickets that differ" />
+            {m.pairs.length ? <SmallTable head={["Workflow wrote", "The copy gives", "Tickets"]} rows={m.pairs.slice(0, 12).map((x) => [srcLabel(x.workflow), srcLabel(x.hub), x.n])} />
               : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{m.checked ? "Every ticket compared has the same value." : "Nothing compared yet - the first tickets come within 25 minutes."}</Typography>}
           </GlassCard>
         </Grid>
@@ -151,8 +156,8 @@ function Overview({ d }: { d: Data }) {
         </Grid>
       </Grid>
       <GlassCard>
-        <CardTitle icon={<EditNoteOutlinedIcon />} tint="purple" title="Where the values come from" note="The value's source after the run - as the workflow left it, and as the hub's copy would" />
-        <SmallTable head={["Source", "Workflow", "The hub"]} rows={m.bySource.map((x) => [srcLabel(x.source), x.workflow, x.hub])} />
+        <CardTitle icon={<EditNoteOutlinedIcon />} tint="purple" title="Where the values come from" note="The value's source after the run - as the workflow left it, and as the hub's exact copy would" />
+        <SmallTable head={["Source", "Workflow", "The copy"]} rows={m.bySource.map((x) => [srcLabel(x.source), x.workflow, x.hub])} />
       </GlassCard>
     </>
   );
@@ -170,17 +175,19 @@ function Detail({ r }: { r: Row }) {
       {line("Before:", valueText(r.before))}
       {r.hub && line("The hub:", <>{BRANCH[r.hub.branch] ?? r.hub.branch} - {r.hub.action}{r.hub.company ? ` · company ${r.hub.company}` : ""}{r.hub.link ? ` · would link the ticket to company ${r.hub.link}` : ""}</>)}
       {r.hub?.kpi && (r.hub.kpi.upsert.length > 0 || r.hub.kpi.archive.length > 0) && line("KPI object:", <>{r.hub.kpi.upsert.length ? `writes ${r.hub.kpi.upsert.map((x) => x.split("|")[1]).join(", ")}` : ""}{r.hub.kpi.archive.length ? `${r.hub.kpi.upsert.length ? "; " : ""}removes ${r.hub.kpi.archive.map((x) => x.split("|")[1]).join(", ")}` : ""}</>)}
+      {r.hub?.better && line("The hub's rules:", <>{improvedRow(r) ? valueText(r.hub.better.final) : "the same as the copy"} - {r.hub.better.action}{r.hub.better.company && r.hub.better.company !== r.hub.company ? ` · company ${r.hub.better.company}` : ""}</>)}
       {line("The workflow:", r.verdict === "pending" ? "not read yet" : r.workflow.wrote ? `wrote ${valueText(r.workflow.final)} at ${when(r.workflow.at)} (${r.workflow.by === "code" ? "its Python step" : "its copy branch"})` : "wrote nothing")}
     </Box>
   );
 }
 
-type What = "differ" | "missed" | "agree" | "pending" | "all";
+type What = "differ" | "missed" | "improved" | "agree" | "pending" | "all";
+const improvedRow = (r: Row) => !!r.hub?.better && JSON.stringify(r.hub.better.final) !== JSON.stringify(r.hub.final);
 function TicketsTab({ d }: { d: Data }) {
   const [what, setWhat] = useState<What>(d.measure.differ + d.measure.missed ? "differ" : "all");
   const [open, setOpen] = useState<string | null>(null);
   const test: Record<What, (r: Row) => boolean> = {
-    differ: (r) => r.verdict === "differ", missed: (r) => r.verdict === "missed", agree: (r) => r.verdict === "agree", pending: (r) => r.verdict === "pending", all: () => true,
+    differ: (r) => r.verdict === "differ", missed: (r) => r.verdict === "missed", improved: improvedRow, agree: (r) => r.verdict === "agree", pending: (r) => r.verdict === "pending", all: () => true,
   };
   const rows = d.rows.filter(test[what]);
   const { slice, pager } = usePaged(rows, 15);
@@ -194,6 +201,7 @@ function TicketsTab({ d }: { d: Data }) {
         <Choice<What> value={what} onChange={setWhat} options={[
           { key: "differ", label: "Different", count: count("differ") },
           { key: "missed", label: "Workflow wrote nothing", count: count("missed") },
+          { key: "improved", label: "Improved by the hub", count: count("improved") },
           { key: "agree", label: "Same", count: count("agree") },
           { key: "pending", label: "Waiting", count: count("pending") },
           { key: "all", label: "All", count: d.rows.length },
@@ -201,19 +209,20 @@ function TicketsTab({ d }: { d: Data }) {
       </Box>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
-          <TableHead><TableRow>{["When", "Ticket", "Pipeline", "Taken because", "Workflow wrote", "The hub gives", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["When", "Ticket", "Taken because", "Workflow wrote", "The copy gives", "The hub's rules", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
             {slice.map((r) => (
               <Fragment key={r.key}>
                 <TableRow hover onClick={() => setOpen(open === r.key ? null : r.key)} sx={{ cursor: "pointer" }}>
                   <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", color: MUTED, fontSize: "0.8rem" }}>{when(r.at)}</TableCell>
                   <TableCell sx={bodyCell}>
-                    <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(230) }}>{r.subject || r.ticketId}</Box>
+                    <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(260) }}>{r.subject || r.ticketId}</Box>
+                    <Box sx={{ fontSize: "0.74rem", color: MUTED }}>{r.pipeline || "—"}</Box>
                   </TableCell>
-                  <TableCell sx={{ ...bodyCell, ...small, color: MUTED }}>{r.pipeline || "—"}</TableCell>
                   <TableCell sx={{ ...bodyCell, ...small, color: MUTED, minWidth: 90 }}>{r.trigger === "created" ? "created" : r.stage}</TableCell>
                   <TableCell sx={{ ...bodyCell, ...small }}>{r.verdict === "pending" ? "…" : r.workflow.wrote ? <ValueCell v={r.workflow.final} /> : <Box component="span" sx={{ color: FAINT }}>nothing</Box>}</TableCell>
                   <TableCell sx={{ ...bodyCell, ...small }}>{r.hub ? (JSON.stringify(r.hub.final) === JSON.stringify(r.before) ? <Box component="span" sx={{ color: FAINT }}>leaves it</Box> : <ValueCell v={r.hub.final} />) : <Box component="span" sx={{ color: FAINT }}>{r.enrols ? "—" : "not taken"}</Box>}</TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small }}>{r.hub?.better ? (improvedRow(r) ? <ValueCell v={r.hub.better.final} label={r.hub.branch === "newcustomer" ? "average first order" : undefined} /> : <Box component="span" sx={{ color: FAINT }}>same</Box>) : <Box component="span" sx={{ color: FAINT }}>—</Box>}</TableCell>
                   <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={VERDICT[r.verdict].tint}>{VERDICT[r.verdict].label}</Chip>{r.late ? <> <Chip tint="slate">late</Chip></> : null}</TableCell>
                 </TableRow>
                 {open === r.key && (
@@ -263,7 +272,8 @@ function Step({ n, tint, title, text, count, of, last, aside }: { n: number; tin
 }
 
 function HowTab({ d }: { d: Data }) {
-  const m = d.measure;
+  const m = d.measure, bi: BetterInfo = d.better ?? { firstOrder: null, firstOrderMedian: null, firstOrderN: 0, firstOrderAt: null, pricedArticles: 0, firstOrderProgress: null };
+  const imp = (k: string) => (m.improvedBy ?? []).find((x) => x.branch === k)?.n ?? 0;
   const br = (k: string) => m.byBranch.find((x) => x.branch === k)?.n ?? 0;
   const src = (k: string) => m.scoredBySource.find((x) => x.source === k)?.n ?? 0;
   const all = m.checked;
@@ -310,6 +320,16 @@ function HowTab({ d }: { d: Data }) {
         </Box>
       </GlassCard>
       <GlassCard>
+        <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="amber" title="What the hub does better" note="Its own rules - what it writes once it takes over; the copy above stays as the check against the workflow" />
+        <Box sx={{ display: "grid", gap: 0.75 }}>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>Price checks</b> get a value: the articles and quantities the customer priced × what each article sells for per piece - “article × quantity”, confidence high. Articles that never sold are left out. ({full(imp("pricecheck"))} in this period)</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>New registrants</b> get the average first order of a new customer{bi.firstOrder ? <>: <b>{full(Math.round(bi.firstOrder))}</b> (median {full(Math.round(bi.firstOrderMedian ?? 0))}, the first orders of the newest {full(bi.firstOrderN)} customers of the last 12 months, worked out {when(bi.firstOrderAt)})</> : bi.firstOrderProgress ? ` - being worked out: ${bi.firstOrderProgress.done} of ${bi.firstOrderProgress.of} customers read` : " - worked out within the hour"}; confidence low. ({full(imp("newcustomer"))} in this period)</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>Products</b> at the price they sell for: Products &amp; Pricing&apos;s list price is per price unit (1, 100 or 1,000 pieces) and never says which, so the copy reads O-rings 100× too dear. The hub takes each article&apos;s own price per piece from its sales this year and last ({full(bi.pricedArticles)} articles), gives each article the quantity on its own line (“1120036838 x 100”, “100 Stk”), adds every article of the e-mail up, and counts Stk, pz, szt and ks as pieces.</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• The ticket&apos;s <b>primary</b> company, not the first one HubSpot lists. ({full(imp("score"))} scored tickets get another value in this period, products and company together)</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• It runs on every ticket the workflow takes - none is left empty because a step failed.</Typography>
+        </Box>
+      </GlassCard>
+      <GlassCard>
         <CardTitle icon={<LightbulbOutlinedIcon />} tint="amber" title="What the comparison shows about the workflow" note="Found while copying it - for when the hub takes over" />
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• It takes the ticket&apos;s <b>first</b> company as HubSpot lists it (the lowest id), not the primary one - a ticket with two companies can get the other company&apos;s potential.</Typography>
@@ -328,6 +348,8 @@ type Checked = {
   ticketId: string; subject: string; pipeline: string; now: Values; branchLabel: string; action: string; final: Values; changes: boolean;
   why: string | null; company: { id: string; via: string; mandant: string; yp: number; tickets12m: number } | null; link: string | null;
   lastWorkflowWrite: string | null; history: { prop: string; entries: { value: string | null; at: string | null; by: string }[] }[];
+  /** the hub's own rules (missing from a server still on the first version) */
+  better?: { action: string; final: Values; changes: boolean };
 };
 
 function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
@@ -385,7 +407,8 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
               <Box component="span" sx={{ color: MUTED, fontWeight: 400 }}> - {c.pipeline}</Box>
             </Typography>
             <Typography sx={{ ...small, color: INK }}><b>On it now:</b> {valueText(c.now)}</Typography>
-            <Typography sx={{ ...small, color: INK }}><b>The rules give:</b> {c.changes ? valueText(c.final) : "no change"} - {c.branchLabel}; {c.action}</Typography>
+            <Typography sx={{ ...small, color: INK }}><b>The workflow&apos;s rules give:</b> {c.changes ? valueText(c.final) : "no change"} - {c.branchLabel}; {c.action}</Typography>
+            {c.better && <Typography sx={{ ...small, color: INK }}><b>The hub&apos;s rules give:</b> {c.better.changes ? valueText(c.better.final) : "no change"} - {c.better.action}</Typography>}
             {c.company && <Typography sx={{ ...small, color: INK }}><b>Company:</b> {c.company.id} (found through the {c.company.via}) · {c.company.mandant} · yearly potential {full(c.company.yp)} · {full(c.company.tickets12m)} tickets in 12 months{c.link ? " · the ticket would be linked to it" : ""}</Typography>}
             <Typography sx={{ ...small, color: MUTED }}>The workflow wrote last {when(c.lastWorkflowWrite)}.</Typography>
             <Box sx={{ overflowX: "auto", mt: 0.5 }}>

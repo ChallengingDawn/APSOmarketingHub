@@ -27,7 +27,7 @@ export function sameValue(a: Values, b: Values): boolean {
 
 type RowLike = {
   verdict: Verdict; pipeline: string; trigger: "created" | "stage"; enrols: boolean; late?: boolean;
-  hub: { branch: string; final: Values; link?: string | null } | null; workflow: { wrote: boolean; final: Values };
+  hub: { branch: string; final: Values; link?: string | null; better?: { final: Values } } | null; workflow: { wrote: boolean; final: Values };
 };
 export type Measure = {
   rows: number; checked: number; agree: number; differ: number; missed: number; errors: number; pending: number;
@@ -44,15 +44,18 @@ export type Measure = {
   pairs: { workflow: string; hub: string; n: number }[];
   byPipeline: { pipeline: string; checked: number; agree: number; differ: number; missed: number }[];
   valueWorkflow: number; valueHub: number;
+  /** the hub's own rules: tickets where they give another value than the copy, by branch, and the value they leave */
+  improved: number; improvedBy: { branch: string; n: number }[]; valueBetter: number;
 };
 
 const src = (v: Values) => norm(v.sales_potential_source) ?? "(none)";
 
 export function measure(rows: RowLike[]): Measure {
-  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0 };
+  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0, improved: 0, improvedBy: [], valueBetter: 0 };
   const bySource = new Map<string, { workflow: number; hub: number }>();
   const pairs = new Map<string, number>();
   const branches = new Map<string, number>();
+  const improvedBy = new Map<string, number>();
   const scored = new Map<string, number>();
   const pipes = new Map<string, { checked: number; agree: number; differ: number; missed: number }>();
   for (const r of rows) {
@@ -81,10 +84,17 @@ export function measure(rows: RowLike[]): Measure {
     pipes.set(r.pipeline, p);
     m.valueWorkflow += toNum(r.workflow.final.sales_potential_estimate);
     m.valueHub += toNum(hubFinal.sales_potential_estimate);
+    const betterFinal = r.hub?.better?.final ?? hubFinal;
+    m.valueBetter += toNum(betterFinal.sales_potential_estimate);
+    if (r.hub?.better && !sameValue(betterFinal, hubFinal)) {
+      m.improved++;
+      improvedBy.set(br, (improvedBy.get(br) ?? 0) + 1);
+    }
   }
   m.agreeShare = m.checked ? m.agree / m.checked : null;
   m.bySource = [...bySource].map(([source, e]) => ({ source, ...e })).sort((x, y) => y.workflow + y.hub - (x.workflow + x.hub));
   m.scoredBySource = [...scored].map(([source, n]) => ({ source, n })).sort((x, y) => y.n - x.n);
+  m.improvedBy = [...improvedBy].map(([branch, n]) => ({ branch, n })).sort((x, y) => y.n - x.n);
   m.byBranch = [...branches].map(([branch, n]) => ({ branch, n })).sort((x, y) => y.n - x.n);
   m.pairs = [...pairs].map(([k, n]) => { const [workflow, hub] = k.split("\u0000"); return { workflow, hub, n }; }).sort((x, y) => y.n - x.n);
   m.byPipeline = [...pipes].map(([pipeline, e]) => ({ pipeline, ...e })).sort((x, y) => y.checked - x.checked);
@@ -108,4 +118,43 @@ export function enrolsOnStage(value: string | null, writtenAt: string | null, at
   const t = writtenAt ? Date.parse(writtenAt) : NaN;
   if (!Number.isFinite(t)) return true;
   return t >= zurichMidnight(at, -1) || t < zurichMidnight(at, -10);
+}
+
+// ---------------- the hub's figures for its improvements ----------------
+
+/** One company's first order: its orders of that day, one figure per order number. */
+export function firstOrderValue(orders: { name: string; net: number; status: string }[]): number | null {
+  const byBase = new Map<string, { whole: number | null; parts: number }>();
+  for (const o of orders) {
+    if (/credit/i.test(o.status)) continue;
+    const num = o.name.split("|")[0].trim();
+    const m = /^(.*)\.(\d{3})$/.exec(num);
+    const base = m ? m[1] : num, pos = m ? m[2] : "000";
+    const e = byBase.get(base) ?? { whole: null, parts: 0 };
+    if (pos === "000") e.whole = (e.whole ?? 0) + o.net; else e.parts += o.net;
+    byBase.set(base, e);
+  }
+  if (!byBase.size) return null;
+  let sum = 0;
+  for (const e of byBase.values()) sum += e.whole ?? e.parts;
+  return sum > 0 ? sum : null;
+}
+
+export function averageOf(values: (number | null)[]): { avg: number | null; median: number | null; n: number } {
+  const v = values.filter((x): x is number => x !== null && x > 0).sort((a, b) => a - b);
+  if (!v.length) return { avg: null, median: null, n: 0 };
+  const mid = Math.floor(v.length / 2);
+  return { avg: v.reduce((a, b) => a + b, 0) / v.length, median: v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2, n: v.length };
+}
+
+/** Each article's price per piece from what it sold for: revenue / quantity, this year and last; out of bounds = none. */
+export function pricesOf(rows: { article: string; revenueCy: number; revenueLy: number; qtyCy: number; qtyLy: number }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const qty = (r.qtyCy || 0) + (r.qtyLy || 0), rev = (r.revenueCy || 0) + (r.revenueLy || 0);
+    if (!(qty > 0) || !(rev > 0)) continue;
+    const pp = rev / qty;
+    if (pp > 0.0005 && pp < 10000) out.set(r.article, pp);
+  }
+  return out;
 }

@@ -13,8 +13,10 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
-import { BRANCH_LABEL, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, lastEditorIsHuman, toNum, type Api, type Branch, type HistoryEntry } from "./rules";
-import { enrolsOnStage, finalOf, sameValue, type Values, type Verdict } from "./model";
+import { BRANCH_LABEL, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry } from "./rules";
+import { loadReport } from "@/lib/integrations/articleReport";
+import { firstOrderState, firstOrderStep } from "./firstOrder";
+import { enrolsOnStage, finalOf, pricesOf, sameValue, type Values, type Verdict } from "./model";
 
 export type { Verdict } from "./model";
 
@@ -49,7 +51,12 @@ export type Row = {
   /** the workflow takes the ticket (a stage entry only when its value is unknown, written since yesterday, or older than 10 days) */
   enrols: boolean;
   before: Values;
-  hub: { branch: Branch; action: string; final: Values; why?: string; link?: string | null; company?: string | null; kpi?: { upsert: string[]; archive: string[] } } | null;
+  /** the workflow's rules, copied exactly - what is compared with the workflow */
+  hub: {
+    branch: Branch; action: string; final: Values; why?: string; link?: string | null; company?: string | null; kpi?: { upsert: string[]; archive: string[] };
+    /** the hub's own rules (rules.ts "THE HUB'S IMPROVEMENTS") - what it writes once it takes over */
+    better?: { action: string; final: Values; company?: string | null };
+  } | null;
   workflow: { wrote: boolean; at: string | null; by: "code" | "branch" | null; final: Values };
   verdict: Verdict;
   checkedAt: string;
@@ -81,16 +88,27 @@ export async function recentRows(days = 7): Promise<Row[]> {
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
-/** HubSpot as the Python's `requests` saw it: a status, never a throw; the link is only recorded. */
+/** HubSpot as the Python's `requests` saw it: a status, never a throw; the link is only recorded. One ticket's reads are
+ *  kept, so the copy and the hub's own rules read HubSpot once between them. */
 function shadowApi(links: string[]): Api {
-  const call = async (path: string, method: "GET" | "POST", body?: unknown) => {
-    try {
-      return { status: 200, json: await hubspotRetry<unknown>({ path, method, body }) };
-    } catch (e) {
-      return { status: e instanceof IntegrationError && e.status ? e.status : 0, json: {} };
-    }
+  const seen = new Map<string, Promise<{ status: number; json: unknown }>>();
+  const call = (path: string, method: "GET" | "POST", body?: unknown) => {
+    const key = `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`;
+    if (!seen.has(key)) seen.set(key, hubspotRetry<unknown>({ path, method, body }).then((json) => ({ status: 200, json }), (e) => ({ status: e instanceof IntegrationError && e.status ? e.status : 0, json: {} })));
+    return seen.get(key)!;
   };
   return { get: (p) => call(p, "GET"), post: (p, b) => call(p, "POST", b), put: async (p) => { links.push(p); return { status: 200, json: {} }; } };
+}
+
+/** What the hub knows for its own rules: each article's price per piece (the article report, rebuilt every night) and
+ *  the average first order. */
+let priceMap: { generated: string; map: Map<string, number> } | null = null;
+export async function betterContext(): Promise<Better & { firstOrderAt: string | null; firstOrderN: number; pricedArticles: number }> {
+  const rep = await loadReport().catch(() => null);
+  if (rep && priceMap?.generated !== rep.generated) priceMap = { generated: rep.generated, map: pricesOf(rep.rows) };
+  const map = priceMap?.map ?? new Map<string, number>();
+  const fo = await firstOrderState();
+  return { price: (a) => map.get(a) ?? null, firstOrder: fo.avg, firstOrderAt: fo.at, firstOrderN: fo.n, pricedArticles: map.size };
 }
 
 type Raw = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, HistoryEntry[]> };
@@ -112,7 +130,7 @@ function workflowWrites(hist: Record<string, HistoryEntry[]>, atMs: number) {
  * and what the hub would leave. Read this early so the hub sees the ticket's company and figures as the workflow
  * did - a ticket's companies change in its first hour (HubSpot then lists a different "first" company).
  */
-export async function firstLook(id: string, trigger: Row["trigger"], at: string, stage?: string): Promise<Row> {
+export async function firstLook(id: string, trigger: Row["trigger"], at: string, stage?: string, better?: Better): Promise<Row> {
   const { p, hist } = await readTicket(id);
   const atMs = Date.parse(at);
   const writes = workflowWrites(hist, atMs);
@@ -124,11 +142,17 @@ export async function firstLook(id: string, trigger: Row["trigger"], at: string,
   let hub: Row["hub"] = null;
   if (enrols) {
     const links: string[] = [];
-    const d = await decide(shadowApi(links), id, { ...p, ...before }, lastEditorIsHuman(histBefore("sales_potential_estimate")), new Date(cutoff).toISOString().slice(0, 10));
+    const api = shadowApi(links);
+    const asWas = { ...p, ...before }, human = lastEditorIsHuman(histBefore("sales_potential_estimate")), today = new Date(cutoff).toISOString().slice(0, 10);
+    const d = await decide(api, id, asWas, human, today);
     hub = {
       branch: d.branch, action: d.action, final: finalOf(before, d.patch), why: d.scored?.why,
       link: links[0]?.split("/").pop() ?? null, company: d.scored?.company ? `${d.scored.company.id} (${d.scored.company.via})` : null, kpi: d.kpi,
     };
+    if (better) {
+      const b = await decide(api, id, asWas, human, today, better);
+      hub.better = { action: b.action, final: finalOf(before, b.patch), company: b.scored?.company ? `${b.scored.company.id} (${b.scored.company.via})` : null };
+    }
   }
   return {
     key: `${id}:${trigger}:${at}`, ticketId: id, subject: (p.subject ?? "").slice(0, 160), pipeline: PIPELINES[p.hs_pipeline ?? ""] ?? "other",
@@ -155,8 +179,8 @@ export async function settle(row: Row): Promise<void> {
 }
 
 /** Both looks at once - for a local dry run. */
-export async function checkTrigger(id: string, trigger: Row["trigger"], at: string, stage?: string): Promise<Row> {
-  const r = await firstLook(id, trigger, at, stage);
+export async function checkTrigger(id: string, trigger: Row["trigger"], at: string, stage?: string, better?: Better): Promise<Row> {
+  const r = await firstLook(id, trigger, at, stage, better);
   await settle(r);
   return r;
 }
@@ -167,7 +191,10 @@ export async function checkTicket(id: string) {
   const p = t.properties ?? {};
   const hist = t.propertiesWithHistory ?? {};
   const links: string[] = [];
-  const d = await decide(shadowApi(links), id, p, lastEditorIsHuman(hist.sales_potential_estimate), new Date().toISOString().slice(0, 10));
+  const api = shadowApi(links);
+  const human = lastEditorIsHuman(hist.sales_potential_estimate), today = new Date().toISOString().slice(0, 10);
+  const d = await decide(api, id, p, human, today);
+  const b = await decide(api, id, p, human, today, await betterContext());
   const now = Object.fromEntries(VALUE_PROPS.map((k) => [k, p[k] ?? null])) as Values;
   const lastWf = VALUE_PROPS.flatMap((k) => (hist[k] ?? []).filter(isWorkflow).slice(0, 1).map((h) => h.timestamp ?? "")).sort().pop() ?? null;
   return {
@@ -175,6 +202,7 @@ export async function checkTicket(id: string) {
     branch: d.branch, branchLabel: BRANCH_LABEL[d.branch], action: d.action, final: finalOf(now, d.patch), changes: d.patch !== null,
     why: d.scored?.why ?? null, company: d.scored?.company ?? null, link: links[0]?.split("/").pop() ?? null, kpi: d.kpi ?? null,
     lastWorkflowWrite: lastWf,
+    better: { action: b.action, final: finalOf(now, b.patch), changes: b.patch !== null, company: b.scored?.company ?? null },
     history: VALUE_PROPS.map((k) => ({ prop: k, entries: (hist[k] ?? []).slice(0, 6).map((h) => ({ value: h.value ?? null, at: h.timestamp ?? null, by: isWorkflow(h) ? "workflow" : h.sourceType === "INTEGRATION" ? `app ${h.sourceId}` : (h.sourceType ?? "?").toLowerCase() })) })),
   };
 }
@@ -217,6 +245,7 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
   const flush = async () => { for (const d of dirty) await kvSet(KV.day(d), touched.get(d) ?? []); dirty.clear(); };
   const more = () => !signal?.aborted && Date.now() - started < WORK_MS;
   let next = cursor;
+  const better = await betterContext();
   if (to > cursor) {
     const evs = await findTriggers(cursor, to);
     info.found = evs.length;
@@ -228,7 +257,7 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
       next = Math.max(next, Date.parse(e.at));
       done++;
       if (rows.some((x) => x.key === key)) continue;
-      try { rows.push(await firstLook(e.id, e.trigger, e.at, e.stage)); info.checked++; }
+      try { rows.push(await firstLook(e.id, e.trigger, e.at, e.stage, better)); info.checked++; }
       catch (err) {
         rows.push({ key, ticketId: e.id, subject: "", pipeline: "", trigger: e.trigger, stage: e.stage, at: e.at, enrols: false, before: empty(), hub: null,
           workflow: { wrote: false, at: null, by: null, final: empty() }, verdict: "error", checkedAt: new Date().toISOString(), error: (err as Error).message.slice(0, 200) });
@@ -255,6 +284,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
   }
   await flush();
+  // the average first order, a little each run while time is left
+  if (more()) await firstOrderStep(more).catch((e) => { info.error = `first order: ${(e as Error).message.slice(0, 120)}`; });
   await kvSet(KV.day(new Date(Date.now() - DAYS_KEPT * 86400_000).toISOString().slice(0, 10)), null);
   info.seconds = Math.round((Date.now() - started) / 1000);
   await kvSet(KV.last, info);

@@ -10,6 +10,18 @@
 //                  the KPI events -> kpiEvents). The calls to HubSpot go through `Api`, which answers like the
 //                  Python `requests` did (a status, never a throw), so a failed read changes the result the same way.
 // Pure apart from `Api`: the tests run it on a fake one.
+//
+// THE HUB'S IMPROVEMENTS (SARCLA 20.10.2026, after reading the copy's first results) - only when `Better` is passed;
+// without it every function below is the workflow, unchanged:
+//   - price checks ("we can just copy the potential given, and set the confidence"): the articles and quantities the
+//     customer priced (price_check_articles) x each article's own price per piece -> "article x quantity", high
+//   - new registrants: what a new customer's first order is worth on average (he chose it) -> "company's potential", low
+//   - products ("the detection of products is not working correctly"): Products & Pricing's list price is per ERP
+//     price unit (1, 100 or 1,000 pieces) and its sales unit never says which ("Stk", "m", "Pcs" - never "100 Pcs"),
+//     so the copy reads O-rings 100x too dear. The hub prices an article by what it actually sold for (revenue /
+//     quantity, this year and last); each article takes the quantity on ITS line ("1120036838 x 100", "100 Stk"),
+//     every article of the e-mail is added up, and "Stk", "pz", "szt", "ks" count as pieces too
+//   - the ticket's PRIMARY company, not the first HubSpot lists (the lowest id)
 
 // ---------------- CONSTANTS (the Python's) ----------------
 export const KPI_OBJ = "2-201387076";
@@ -198,10 +210,74 @@ export type Api = {
 };
 
 export type Scored = { value: number; source: string; confidence: string; why: string; company?: CompanyFacts | null; linked?: string | null };
+
+/** What the hub knows that the workflow does not (the improvements above). */
+export type Better = {
+  /** the article's price per piece from what it sold for (revenue / quantity, this year and last); null = never sold */
+  price: (article: string) => number | null;
+  /** what a new customer's first order is worth on average; null = not worked out yet */
+  firstOrder: number | null;
+};
+
+// ---------------- THE HUB'S PRODUCT RULE ----------------
+const QTY_WORD = "(?:pcs?|pieces?|pi[eèé]ces?|st[uü]?cks?|stk|stuks|pezzi|pz|piezas|sztuk|szt|units?|uds?|ks|pce)";
+const QTY_ON_LINE = [
+  new RegExp(`${B}(\\d{1,7})\\s*${QTY_WORD}\\.?${B}`, "iu"),
+  new RegExp(`(?:qty|quantity|qte|qt[eèé]|menge|anzahl|st[uü]ckzahl|cantidad|quantit[aàé]|aantal|hoeveelheid|ilo[sś][cć])\\s*[:=]?\\s*(\\d{1,7})${B}`, "iu"),
+];
+const lineArticles = (line: string) => [...new Set([...line.matchAll(APSO_ART_RE), ...line.matchAll(BARE_ART_RE)].map((m) => m[1]).filter((a) => a.length === 10))];
+
+/** Each article with the quantity on its own line: "1120036838 x 100", "100 x 1120036838", "100 Stk", "Menge: 100". */
+export function articleQuantities(text: string): { article: string; qty: number }[] {
+  const out = new Map<string, number>();
+  for (const line of text.split(/\r?\n|;|\|/)) {
+    for (const a of lineArticles(line)) {
+      if (out.has(a)) continue;
+      const near = [new RegExp(`${a}\\s*(?:[x×*]|pcs?\\.?:?)\\s*(\\d{1,7})${B}`, "iu"), new RegExp(`${B}(\\d{1,7})\\s*[x×*]\\s*${a}`, "iu"), ...QTY_ON_LINE];
+      for (const r of near) {
+        const m = r.exec(line);
+        const q = m ? toNum(m[1]) : 0;
+        if (q > 0 && q < 1_000_000) { out.set(a, Math.trunc(q)); break; }
+      }
+    }
+  }
+  // one article only, its quantity on another line: that quantity (as the workflow does, with the hub's words)
+  if (!out.size) {
+    const arts = findArticles(text).filter((a) => a.length === 10);
+    if (arts.length === 1) {
+      for (const r of QTY_ON_LINE) {
+        const m = r.exec(text);
+        const q = m ? toNum(m[1]) : 0;
+        if (q > 0 && q < 1_000_000) { out.set(arts[0], Math.trunc(q)); break; }
+      }
+    }
+  }
+  return [...out].map(([article, qty]) => ({ article, qty }));
+}
+
+/** The articles a price check carries: "1120036838 x 100 (DT · Stk · no MOQ); 1120075420 x 30 (...)". */
+export function priceCheckArticles(s: string | null | undefined): { article: string; qty: number }[] {
+  return [...String(s ?? "").matchAll(/(\d{8,10})\s*x\s*(\d+(?:[.,]\d+)?)/g)].map((m) => ({ article: m[1], qty: toNum(m[2]) })).filter((x) => x.qty > 0);
+}
+
+/** Articles x quantities x each article's own price per piece; the ones that never sold are left out and said. */
+export function priceArticles(items: { article: string; qty: number }[], price: Better["price"]): { value: number; priced: number; unpriced: number; why: string } {
+  let value = 0, priced = 0, unpriced = 0;
+  const parts: string[] = [];
+  for (const { article, qty } of items.slice(0, 30)) {
+    const pp = price(article);
+    if (!pp || pp <= 0) { unpriced++; continue; }
+    value += qty * pp;
+    priced++;
+    if (parts.length < 4) parts.push(`${article} ${qty}x${pp.toFixed(2)}`);
+  }
+  const more = priced > parts.length ? ` +${priced - parts.length} more` : "";
+  return { value, priced, unpriced, why: `${parts.join(" + ")}${more}${unpriced ? ` (${unpriced} never sold, left out)` : ""}` };
+}
 export type CompanyFacts = { id: string; via: "ticket" | "contact" | "domain"; mandant: string; yp: number; tickets12m: number };
 
 /** The 5-tier logic (score_ticket). Returns the value, its source and confidence, and why. */
-export async function scoreTicket(api: Api, tid: string, p: Props): Promise<Scored> {
+export async function scoreTicket(api: Api, tid: string, p: Props, better?: Better): Promise<Scored> {
   // Tier 0 - UNQUALIFIED (Bisphenol / NPS / non-sales)
   if (isUnqualified(p)) return { value: 0, source: "unqualified", confidence: "unqualified", why: "non-sales ticket (Bisphenol / NPS)" };
 
@@ -250,8 +326,10 @@ export async function scoreTicket(api: Api, tid: string, p: Props): Promise<Scor
   let resolved: string | null = null, via: CompanyFacts["via"] = "ticket", linked: string | null = null;
   const ar2 = await api.get(`/crm/v4/objects/tickets/${tid}/associations/companies`);
   if (ar2.status === 200) {
-    const rs = ar2.json?.results ?? [];
-    if (rs.length) resolved = String(rs[0].toObjectId);
+    const rs: { toObjectId: string | number; associationTypes?: { label?: string | null }[] }[] = ar2.json?.results ?? [];
+    // the hub: the primary company; the workflow: the first one listed
+    const pick = better ? rs.find((x) => (x.associationTypes ?? []).some((t) => t.label === "Primary")) ?? rs[0] : rs[0];
+    if (pick) resolved = String(pick.toObjectId);
   }
   if (!resolved) {
     const crContacts = await api.get(`/crm/v4/objects/tickets/${tid}/associations/contacts`);
@@ -299,8 +377,15 @@ export async function scoreTicket(api: Api, tid: string, p: Props): Promise<Scor
     facts = { id: resolved, via, ...company };
   }
 
+  // Tier 4, the hub's: each article with its own quantity x what it actually sold for per piece
+  if (better) {
+    const r = priceArticles(articleQuantities(text), better.price);
+    if (r.priced && r.value > 0 && r.value < 1_000_000) {
+      return { value: r.value, source: "product_lookup", confidence: "medium", why: r.why, company: facts, linked };
+    }
+  }
   // Tier 4 - article number + quantity -> Products & Pricing (sales unit + scale price)
-  if (q) {
+  if (q && !better) {
     const mandant = company.mandant;
     const suffix = mandant === "M110" ? "__m110" : "";
     const listedField = mandant === "M110" ? "art_price__m110__listed_price" : "art_price__m100__listed_price";
@@ -365,8 +450,17 @@ export type Decision = {
  * What the workflow does to one ticket, from its properties as they were (`p`) and whether a person wrote the value
  * last (`human`). The branch actions first; then the Python's main(): unqualified, a person's value, or score again.
  */
-export async function decide(api: Api, tid: string, p: Props, human: boolean, today: string): Promise<Decision> {
+export async function decide(api: Api, tid: string, p: Props, human: boolean, today: string, better?: Better): Promise<Decision> {
   const branch = branchOf(p);
+  if (better && branch === "pricecheck") {
+    const r = priceArticles(priceCheckArticles(p.price_check_articles), better.price);
+    if (!r.priced || !(r.value > 0)) return { branch, action: `price check, no article sold before${r.unpriced ? ` (${r.unpriced})` : ""}`, patch: null };
+    return { branch, action: `price check: ${r.why}`, patch: { sales_potential_estimate: round2(r.value), sales_potential_source: "product_lookup", sales_potential_confidence: "high" } };
+  }
+  if (better && branch === "newcustomer") {
+    if (!better.firstOrder) return { branch, action: "new registrant - the average first order is not worked out yet", patch: null };
+    return { branch, action: `new registrant: the average first order ${better.firstOrder.toFixed(0)}`, patch: { sales_potential_estimate: round2(better.firstOrder), sales_potential_source: "company_baseline", sales_potential_confidence: "low" } };
+  }
   if (branch === "erosion" || branch === "sept") {
     const from = branch === "erosion" ? "erosion_amount_2025" : "sept_push_target";
     const patch: Patch = { sales_potential_confidence: "high", sales_potential_source: "direct_field" };
@@ -402,7 +496,7 @@ export async function decide(api: Api, tid: string, p: Props, human: boolean, to
         action = "respect_manual_override(human)";
       }
     } else {
-      scored = await scoreTicket(api, tid, p);
+      scored = await scoreTicket(api, tid, p, better);
       const { value: v, source: src, confidence: conf, why } = scored;
       const changed = src !== srcCur || Math.abs(v - potCur) > 0.01 || src === "unqualified";
       if (changed) {
@@ -445,5 +539,5 @@ export function kpiEvents(tid: string, p: Props, pname: string, today: string): 
 export const TICKET_PROPS = [
   "hs_pipeline", "hs_pipeline_stage", "createdate", "closed_date", "subject", "content", "order_potential_",
   "sales_potential_estimate", "sales_potential_source", "sales_potential_confidence", "hubspot_owner_id", "hs_tag_ids",
-  "erosion_key", "erosion_amount_2025", "sept_push_target", "price_check_key",
+  "erosion_key", "erosion_amount_2025", "sept_push_target", "price_check_key", "price_check_articles",
 ];
