@@ -36,7 +36,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
-import type { ChangesPage, CompanyChange, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, PerformisData, RedirectionConflict, ScanInfo } from "./api";
+import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, PerformisData, RedirectionConflict, ScanInfo } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 import {
@@ -1143,6 +1143,31 @@ export async function conflicts(): Promise<RedirectionConflict[]> {
   });
   const open = (c: RedirectionConflict) => c.enabled && c.against.length > 0 && !(c.decision?.current && c.decision.decision === "rule");
   return out.sort((x, y) => Number(open(y)) - Number(open(x)) || x.position - y.position);
+}
+
+/** Companies by ERP id (at most 1,000) or by a search on name / ERP id (the first 25, by name); a country narrows both. */
+export async function companyRows(f: { erp?: string[]; q?: string | null; country?: string | null }): Promise<CompanyRow[]> {
+  await ensureMapAssign();
+  const args: unknown[] = [];
+  const arg = (v: unknown) => { args.push(v); return `$${args.length}`; };
+  const where: string[] = [];
+  if (f.country) where.push(`country = ${arg(f.country)}`);
+  const erp = (f.erp ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 1000);
+  const q = likeEscape(String(f.q ?? "").trim());
+  if (erp.length) where.push(`erp_id = ANY(${arg(erp)}::text[])`);
+  else if (q) where.push(`(name ILIKE ${arg(`%${q}%`)} OR erp_id ILIKE ${arg(`${q}%`)})`);
+  else return [];
+  const year = yearNow();
+  const r = await query<{ company_id: string; name: string | null; erp_id: string | null; country: string | null; zip: string | null; owner_now: string | null;
+    owner_decided: string | null; via: string | null; revenue_cy: number | null; revenue_year: number | null }>(
+    `SELECT company_id, name, erp_id, country, zip, owner_now, owner_decided, via, revenue_cy, revenue_year FROM apsomh_map_assign
+     WHERE ${where.join(" AND ")} ORDER BY name NULLS LAST, company_id LIMIT ${erp.length ? 1000 : 25}`, args,
+  );
+  return r.rows.map((x) => ({
+    id: String(x.company_id), name: x.name ?? `Company ${x.company_id}`, erpId: x.erp_id, country: x.country, zip: x.zip,
+    ownerNow: x.owner_now, decided: x.owner_decided, via: x.via,
+    revenue: Number(x.revenue_year) === year && x.revenue_cy !== null ? Number(x.revenue_cy) : null,
+  }));
 }
 
 /** One move's companies (Differences): country, owner now ("" = nobody), owner by the rules; a search on name,

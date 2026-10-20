@@ -60,6 +60,7 @@ import { assignOnMap, type MapAssign, type MapChange } from "./mapEdit";
 import { LAND, basePaths, cellGroups, drawBase, drawFocus, toBase, toScreen, type BasePaths, type FillKey, type Frame, type Marker, type Scene, type View } from "./mapDraw";
 import { CountryMenu, PillGroup, type PillDef } from "./mapTabs";
 import { KpiPanel, LAYERS, PlacePanel, gdpText, km2Text, rampOf, type Target } from "./SidePanel";
+import type { Place } from "./RulesDialog";
 
 export type { MapAssign } from "./mapEdit";
 
@@ -172,12 +173,14 @@ const sameTarget = (a: Target | null, b: Target | null) => {
 
 type Note = { text: string; bad?: boolean; undo?: { rule: CountryRule; text: string } };
 
-export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, onRules }: {
+export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, onRules, onPlace }: {
   m: CountryMap; cc: string; rules: AssignRules; d: MapData; names: Names; palette: Palette;
   onAssign?: (country: string, change: MapAssign) => void;
   setDraft?: SetDraft; top?: React.ReactNode;
   /** the Rules button: the page opens its rules window */
   onRules?: () => void;
+  /** a click on a region or a zip code: the page opens its rules window on that place (SARCLA 20.10.2026: "default to rules") */
+  onPlace?: (p: Place) => void;
 }) {
   const base = m.base;
   const rule = rules.countries[cc];
@@ -222,7 +225,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
 
   /* ── the canvas size ── */
   // the panel on the left (a place, Options, KPIs) keeps its 400 px from a tablet up; on a phone it covers the map
-  const reserve = (pinned !== null || side !== null) && (size?.w ?? 0) >= 700 ? 412 : 0;
+  const reserve = ((pinned !== null && (!onPlace || pinned.kind === "marker")) || side !== null) && (size?.w ?? 0) >= 700 ? 412 : 0;
   useEffect(() => {
     const box = boxRef.current;
     if (!box || !base) return;
@@ -543,6 +546,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     const t = hitAt(p.x, p.y);
     setPinned((cur) => (sameTarget(cur, t) ? null : t));
     setNote(null);
+    if (t && onPlace && base && (t.kind === "region" || t.kind === "cell")) onPlace(placeOf(t));
   };
   const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => { pointers.current.delete(e.pointerId); if (!pointers.current.size) gesture.current = null; };
 
@@ -618,6 +622,23 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
       undo: { rule: prev ?? { country: cc, source: "sae", zones: [], defaultOwner: null, keyAccounts: [] }, text: what },
     });
   };
+  // the window gives through the map: always with the rules of the moment (a ref - never a stale draft)
+  const giveRef = useRef(give);
+  giveRef.current = give;
+  const placeOf = (t: Target): Place => {
+    if (t.kind === "region" && base) {
+      const r = base.regions[t.region];
+      return { kind: "region", index: t.region, title: r.name, sub: [r.code, km2Text(r.km2)].join(" · "),
+        give: (o) => giveRef.current({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`) };
+    }
+    const cell = t.kind === "cell" ? t.cell : 0;
+    const pts = base ? base.cells[cell] : [];
+    const p0 = base ? base.points[pts[0]] : null;
+    const zips = base ? pts.map((i) => base.points[i].zip) : [];
+    const title = p0 ? `${p0.zip}${p0.place ? ` ${p0.place}` : ""}` : "";
+    return { kind: "cell", index: cell, title, sub: p0 && p0.region >= 0 && base ? base.regions[p0.region].name : "",
+      give: (o) => giveRef.current({ kind: "postcodes", zips }, o, pts.length > 1 ? `${zips[0]} and ${pts.length - 1} more` : title) };
+  };
   const undo = () => {
     if (!note?.undo || !onAssign) return;
     onAssign(cc, { kind: "postcodes", keys: [], owner: "", rule: note.undo.rule, text: `undo: ${note.undo.text}` });
@@ -686,7 +707,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   });
   const toggle = (k: "kpis") => { setPinned(null); setSide((cur) => (cur === k ? null : k)); };
 
-  const panel = base && pinned ? (
+  const panel = base && pinned && (!onPlace || pinned.kind === "marker") ? (
     <PlacePanel key={`${pinned.kind}-${pinned.kind === "cell" ? pinned.cell : pinned.kind === "region" ? pinned.region : pinned.i}`}
       target={pinned} base={base} m={m} joined={joined} names={names} palette={palette} cc={cc} rules={rules} d={d} canGive={canGive}
       people={rule?.people} why={why} onGive={give} onClose={() => setPinned(null)}

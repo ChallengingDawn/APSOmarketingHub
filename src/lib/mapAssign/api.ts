@@ -49,6 +49,15 @@ export type MoveStat = {
   contacts: number;
 };
 
+/** GET ?companies=1&erp=id,id or &q=text (&country=CC): companies by ERP id or by a search on name / ERP id - for the key
+ *  accounts (SARCLA 20.10.2026: "a key account customer should be displayed as a row, then you tick off or add by search"). */
+export type CompanyRow = {
+  id: string; name: string; erpId: string | null; country: string | null; zip: string | null;
+  ownerNow: OwnerId | null; decided: OwnerId | null; via: string | null;
+  /** revenue this year (EUR), null when unknown */
+  revenue: number | null;
+};
+
 /** GET ?changes=1&country=&from=&to=&q=&offset=: one move's companies, a page at a time (sorted by name). */
 export type ChangesPage = { total: number; offset: number; rows: CompanyChange[] };
 

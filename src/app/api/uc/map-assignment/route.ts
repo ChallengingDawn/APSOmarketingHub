@@ -7,6 +7,7 @@
 //                             this year, revenue this year, sales priority, top 3) and GDP per region
 // GET ?performis=1            PerformisData: companies and contacts per country and SAE, who the rules give each SAE
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
+// GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
 // Admins:
 // PUT {rules}                 the whole rules, validated; every stored company decided again at once
 // PUT {patch}                 part of them (sae / defaultOwner / countries: {CC: rule | null}) merged into the saved
@@ -23,7 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { changesPage, isRunning, kick, layerData, linkContact, mapData, performisData, saveLive, saveRules, saveSettings } from "@/lib/mapAssign/engine";
+import { changesPage, companyRows, isRunning, kick, layerData, linkContact, mapData, performisData, saveLive, saveRules, saveSettings } from "@/lib/mapAssign/engine";
 import { answerConflict } from "@/lib/mapAssign/redirections";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
@@ -50,6 +51,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: await layerData(cc) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
+    if (sp.get("companies") !== null) {
+      const country = (sp.get("country") ?? "").trim().toUpperCase();
+      if (country && !/^[A-Z]{2}$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
+      const erp = (sp.get("erp") ?? "").split(/[,\s]+/).filter(Boolean);
+      if (erp.some((x) => !/^[\w.-]{1,40}$/.test(x))) return NextResponse.json({ ok: false, error: "erp must be ERP customer ids" }, { status: 400 });
+      return NextResponse.json({ configured: true, ok: true, data: await companyRows({ erp, q: sp.get("q"), country: country || null }) });
+    }
     if (sp.get("changes") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
       if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });

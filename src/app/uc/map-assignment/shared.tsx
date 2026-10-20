@@ -13,9 +13,10 @@ import { cleanZip, saeKey, type AssignRules, type CountryRule, type OwnerId, typ
 import type { MapData, Owner } from "@/lib/mapAssign/api";
 
 // Rules and Performis are the map's Options panel since 20.10.2026 (SARCLA: "merge in one simpler map")
-export type View = "map" | "differences" | "nocompany" | "redirections" | "live";
+// The SAE table of every country: a view of its own since 20.10.2026 ("put it on a completely separate tab")
+export type View = "map" | "sae" | "differences" | "nocompany" | "redirections" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
+  map: "#map", sae: "#sae-table", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
 };
 
 const PORTAL = "26492587";

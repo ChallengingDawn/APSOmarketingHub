@@ -31,11 +31,12 @@ import { Chip, Info, when } from "@/app/connectors/parts";
 import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
-import { RulesDialog } from "./RulesDialog";
+import { RulesDialog, type Place } from "./RulesDialog";
 import { DiffView } from "./DiffView";
 import { NoCompanyView } from "./NoCompanyView";
 import { RedirectionsView, openConflicts } from "./RedirectionsView";
 import { LiveView } from "./LiveView";
+import { SaeTableView } from "./SaeTableView";
 import {
   API, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
   type Names, type Palette, type SetDraft, type View,
@@ -44,7 +45,7 @@ import {
 const CC_KEY = "apsomh:map-assignment:country";
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
+  map: "Map", sae: "SAE table", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
@@ -55,11 +56,14 @@ function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n,
   const m = useCountryMap(cc, rules, d.rules, dirty);
   const onAssign = useMemo(() => assignInto(setDraft), [setDraft]);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [place, setPlace] = useState<Place | null>(null);
+  useEffect(() => { setPlace(null); }, [cc]);
   return (
     <>
       <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft}
-        top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />} onRules={() => setRulesOpen(true)} />
-      <RulesDialog open={rulesOpen} onClose={() => setRulesOpen(false)} cc={cc} setCc={setCc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette}
+        top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />} onRules={() => { setPlace(null); setRulesOpen(true); }}
+        onPlace={(p) => { setPlace(p); setRulesOpen(true); }} />
+      <RulesDialog open={rulesOpen} onClose={() => { setRulesOpen(false); setPlace(null); }} place={place} onWholeCountry={() => setPlace(null)} cc={cc} setCc={setCc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette}
         rev={rev} m={m} n={n} dirty={dirty} busy={busy} check={check} msg={msg} onSave={onSave} onUndo={onUndo}
         seededNow={seededNow} onSeeded={onSeeded} />
     </>
@@ -168,6 +172,7 @@ export default function MapAssignment() {
     if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
+    else if (view === "sae") body = <SaeTableView key="sae" d={d} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n} />;
     else body = <MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} rev={rev} n={n}
       busy={busy} check={check} msg={msg} onSave={() => void save()} onUndo={undo} seededNow={seededNow} onSeeded={seeded} />;
   }
@@ -190,6 +195,7 @@ export default function MapAssignment() {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", minWidth: 0 }}>
         <ReportTabs name="mapassign" tab={view} onSelect={setView} tabs={[
           { id: "map", label: VIEW_LABEL.map, count: dirty ? "edited" : null },
+          { id: "sae", label: VIEW_LABEL.sae, count: d ? String(Object.keys((rules ?? d.rules).sae).length) : null },
           { id: "differences", label: VIEW_LABEL.differences, count: d && moving ? full(moving) : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "redirections", label: VIEW_LABEL.redirections, count: conflicts ? `${conflicts} to answer` : null },
