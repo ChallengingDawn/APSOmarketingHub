@@ -77,7 +77,15 @@ export function saeKey(v: string | null | undefined): string {
 
 /** Postcode as the zones compare it: upper case, no spaces or dashes ("D-80331" -> "80331", "1234 ab" -> "1234AB"). */
 export function cleanZip(zip: string | null | undefined): string {
-  return String(zip ?? "").toUpperCase().replace(/^[A-Z]{1,2}-(?=\d)/, "").replace(/[\s-]/g, "");
+  const raw = String(zip ?? "").toUpperCase().trim();
+  // Portugal (20.10.2026, the PT map): "1000-001" / "1000 001" -> the 4 digits the map and the zones know
+  const pt = /^(\d{4})(?:\s*-\s*|\s+)\d{3}$/.exec(raw);
+  if (pt) return pt[1];
+  const z = raw.replace(/^[A-Z]{1,2}-(?=\d)/, "").replace(/[\s-]/g, "");
+  // United Kingdom (the GB map): the outward code - "B1 1AA" is B1, never B11 (the inward part is always a digit and
+  // two letters, so the split is certain; 12% of UK postcodes landed in the wrong district without it)
+  const uk = /^([A-Z]{1,2}\d[A-Z\d]?)\d[A-Z]{2}$/.exec(z);
+  return uk ? uk[1] : z;
 }
 
 /** Does a postcode fall in one prefix or prefix range? "30-38" compares the first 2 characters numerically. */

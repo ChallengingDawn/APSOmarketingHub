@@ -34,7 +34,6 @@ import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
 import { RulesDialog, type Place } from "./RulesDialog";
 import { DiffView } from "./DiffView";
 import { NoCompanyView } from "./NoCompanyView";
-import { RedirectionsView, openConflicts } from "./RedirectionsView";
 import { LiveView } from "./LiveView";
 import { SaeTableView } from "./SaeTableView";
 import {
@@ -45,7 +44,7 @@ import {
 const CC_KEY = "apsomh:map-assignment:country";
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
+  map: "Map", sae: "SAE table", differences: "Differences", nocompany: "No company", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
@@ -161,9 +160,7 @@ export default function MapAssignment() {
   const seeded = () => { if (d) { setDraftState(JSON.parse(JSON.stringify(d.seeded)) as AssignRules); setRev((x) => x + 1); setMsg(null); } };
 
   let body: React.ReactNode;
-  // Redirections has its own data (Owner redirection's) besides the conflicts: it shows while the map data loads
-  if (view === "redirections") body = <RedirectionsView key="redirections" d={d} names={names} palette={palette} onChanged={reload} />;
-  else if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
+  if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
   else if (r.state !== "ok") {
     body = r.state === "error" && r.status === 404
       ? <Info key="missing">The map assignment service is not there yet (HTTP 404). This page fills in once it is deployed.</Info>
@@ -179,7 +176,6 @@ export default function MapAssignment() {
 
   const liveCount = d ? Object.values(d.live).filter(Boolean).length : 0;
   const moving = d ? d.moves.filter((x) => x.from !== x.to).reduce((a, x) => a + x.companies, 0) : 0;
-  const conflicts = d ? openConflicts(d) : 0;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
       <PageHeader
@@ -198,7 +194,6 @@ export default function MapAssignment() {
           { id: "sae", label: VIEW_LABEL.sae, count: d ? String(Object.keys((rules ?? d.rules).sae).length) : null },
           { id: "differences", label: VIEW_LABEL.differences, count: d && moving ? full(moving) : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
-          { id: "redirections", label: VIEW_LABEL.redirections, count: conflicts ? `${conflicts} to answer` : null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />
         <Box sx={{ flex: 1 }} />

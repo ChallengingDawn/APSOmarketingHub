@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contactCompany, countryOf, decide, prefixMatches, saeKey, zoneFor, type AssignRules } from "../src/lib/mapAssign/rules";
+import { cleanZip, contactCompany, countryOf, decide, prefixMatches, saeKey, zoneFor, type AssignRules } from "../src/lib/mapAssign/rules";
 
 const rules: AssignRules = {
   defaultOwner: "TSA",
@@ -57,4 +57,21 @@ test("map assignment: region zones, SAE redirected per country, people of a coun
   assert.equal(decide({ id: "1", country: "CH", sae: "Gustak Marzena", zip: "3000" }, r, () => true).owner, "JER"); // redirected in CH
   const wrong = decide({ id: "1", country: "DE", sae: "Kalt Jan", zip: "80331" }, r, () => true);
   assert.equal(wrong.owner, "CAN"); assert.ok(wrong.flags.includes("not-in-country")); // Jan Kalt is not a German ESO: the zone decides
+});
+
+test("postcodes: Portugal's 7 digits and the UK's outward code", () => {
+  assert.equal(cleanZip("1000-001"), "1000");
+  assert.equal(cleanZip("4050 123"), "4050");
+  assert.equal(cleanZip("1000"), "1000");
+  assert.equal(cleanZip("B1 1AA"), "B1"); // never B11
+  assert.equal(cleanZip("b11 1aa"), "B11");
+  assert.equal(cleanZip("SW1A 1AA"), "SW1A");
+  assert.equal(cleanZip("BH2 5AA"), "BH2"); // was BH25, the wrong region
+  assert.equal(cleanZip("EC1A1BB"), "EC1A");
+  assert.equal(cleanZip("SW1A"), "SW1A"); // an outward code alone stays
+  // the others as before
+  assert.equal(cleanZip("CH-8000"), "8000");
+  assert.equal(cleanZip("00-950"), "00950");
+  assert.equal(cleanZip("1234 AB"), "1234AB");
+  assert.equal(cleanZip("75001"), "75001");
 });

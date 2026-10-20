@@ -27,6 +27,7 @@
 //   apsomh_map_assign_log        every write to HubSpot (before / after), for an audit or a rollback
 
 import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
@@ -36,11 +37,11 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
-import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, PerformisData, RedirectionConflict, ScanInfo } from "./api";
+import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 import {
-  DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy,
+  DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy, inYear,
   internalFromList, isInternal, layerPoints, likeEscape, mergeRules, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
   type Checked, type ConflictRow, type Internal, type LayerRow, type RulesPatch, type SaeRow, type Settings, type ZipIndex,
 } from "./plan";
@@ -69,6 +70,10 @@ const KV = {
   last: "mapAssign:last", lastFull: "mapAssign:lastFull", cursor: "mapAssign:cursor",
   /** answers to Owner redirection conflicts: ruleId -> {decision, sig, at, by} */
   redirections: "mapAssign:redirections",
+  /** what the stored decisions were made with: a hash of the rules and the redirection rules kept */
+  decidedWith: "mapAssign:decidedWith",
+  /** ESO + TSA tickets per owner (the KPI workload), refreshed at most hourly */
+  tickets: "mapAssign:tickets",
 };
 
 /** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
@@ -942,6 +947,16 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   if (!Number.isFinite(Number(cursor)) || !lastFull) mode = "full"; // never read everything yet
   ctx.full = mode === "full";
 
+  // the rules the table was decided with - a new seed in the code while nobody saved rules, an answer to a conflict:
+  // decide every stored company again before anything is read or written (20.10.2026: France stayed "postcodes only"
+  // in Differences all afternoon after its seed changed)
+  const sig = createHash("sha256").update(JSON.stringify([ctx.rules, [...ctx.redir.held].sort()]), "utf8").digest("hex");
+  if (String((await kvGet<string>(KV.decidedWith)) ?? "") !== sig) {
+    const n = await redecideAll();
+    await kvSet(KV.decidedWith, sig);
+    console.log(`[map-assign] the rules changed since the table was decided: ${n} companies decided again`);
+  }
+
   if (mode === "full") {
     const startedDb = (await query<{ t: string }>(`SELECT NOW()::text AS t`)).rows[0].t;
     for await (const page of allCompanies(ctx)) await processCompanies(page, ctx);
@@ -957,6 +972,7 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   await recheck(ctx);
   const wrote = await writeLive(ctx, by);
   const noCompany = await noCompanyScan(ctx, by, wrote);
+  await ticketLoad(ctx).catch((e) => console.warn(`[map-assign] ticket workload not read: ${msg(e)}`));
 
   // the rules were saved while this run decided with the old ones
   const rulesNow = await getRules();
@@ -1225,10 +1241,57 @@ export async function layerData(country: string): Promise<LayerData> {
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
   const { points, unplaced } = layerPoints(rows, place, year);
   const last = await lastRun();
+  // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
+  const by = new Map<string, OwnerLoad>();
+  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, revenue: 0, contacts: 0 }), by.get(o)!);
+  const extra = await query<{ company_id: string; contacts_n: number | null }>(`SELECT company_id, contacts_n FROM apsomh_map_assign WHERE country = $1`, [cc]);
+  const contactsOf = new Map(extra.rows.map((x) => [String(x.company_id), Number(x.contacts_n) || 0]));
+  for (const x of r.rows) {
+    if (x.owner_now) at(String(x.owner_now)).now++;
+    if (!x.owner_decided) continue;
+    const a = at(String(x.owner_decided));
+    a.after++;
+    if (inYear(x.last_order, year)) a.customers++;
+    if (Number(x.revenue_year) === year && Number.isFinite(Number(x.revenue_cy))) a.revenue += Number(x.revenue_cy);
+    a.contacts += contactsOf.get(String(x.company_id)) ?? 0;
+  }
+  const load = [...by.values()].map((l) => ({ ...l, revenue: Math.round(l.revenue) })).sort((a, b) => b.after - a.after || b.now - a.now);
   return {
     country: cc, at: last?.at ?? null, points, unplaced, gdp: await gdpOf(cc),
     revenueField: revenueField(year), customersField: CUSTOMERS_FIELD,
+    load, tickets: (await kvGet<TicketLoad>(KV.tickets)) ?? null,
   };
+}
+
+/* ── the ticket workload (the KPI view) ────────────────────────────────── */
+
+const SALES_PIPELINES = ["1726599376", "1726599377"]; // ESO, TSA
+/** ESO + TSA tickets per owner - open now, created in the last 90 days - in paged searches, at most hourly. */
+async function ticketLoad(ctx: Ctx): Promise<void> {
+  const had = await kvGet<TicketLoad>(KV.tickets);
+  if (had?.at && Date.now() - Date.parse(had.at) < 60 * 60_000) return;
+  const byOwner: TicketLoad["byOwner"] = {};
+  const count = async (filters: unknown[], key: "open" | "last90") => {
+    let after: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      stop(ctx);
+      const j = await hs<{ results?: { properties?: Props }[]; paging?: { next?: { after?: string } } }>("/crm/v3/objects/tickets/search", "POST", {
+        filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "IN", values: SALES_PIPELINES }, ...filters] }],
+        properties: ["hubspot_owner_id"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200, after,
+      });
+      for (const t of j.results ?? []) {
+        const o = String(t.properties?.hubspot_owner_id ?? "");
+        if (!o) continue;
+        const e = byOwner[o] ?? (byOwner[o] = { open: 0, last90: 0 });
+        e[key]++;
+      }
+      after = j.paging?.next?.after;
+      if (!after) break;
+    }
+  };
+  await count([{ propertyName: "closed_date", operator: "NOT_HAS_PROPERTY" }], "open");
+  await count([{ propertyName: "createdate", operator: "GTE", value: String(Date.now() - 90 * 86_400_000) }], "last90");
+  await kvSet(KV.tickets, { at: new Date().toISOString(), byOwner } satisfies TicketLoad);
 }
 
 /* ── the Performis tab (GET ?performis=1) ──────────────────────────────── */

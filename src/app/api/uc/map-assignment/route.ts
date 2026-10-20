@@ -8,12 +8,15 @@
 // GET ?performis=1            PerformisData: companies and contacts per country and SAE, who the rules give each SAE
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
 // GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
+// GET ?topics=1(&country=CC|??)   TopicsData: the differences grouped by why, with the OK answers (src/lib/mapAssign/topics.ts)
 // Admins:
 // PUT {rules}                 the whole rules, validated; every stored company decided again at once
 // PUT {patch}                 part of them (sae / defaultOwner / countries: {CC: rule | null}) merged into the saved
 //                             ones - one country per request keeps the body under the hub's 8 KB request limit
 // PUT {live}                  country -> on/off, merged into the saved switches
 // PUT {settings}              {breaker, contactBreaker, linkBreaker}: the most a live run writes
+// PUT {topicOk: {topic, ok}}   an OK for one topic of the differences as it is now (ok false takes it back), in a request
+//                             of its own; answers {ok, data: TopicsData} (topicOk.country: the country the data shows)
 // PUT {redirection: {ruleId, decision}}   an Owner redirection rule against the map answered: "map" switches the rule
 //                             off (and publishes), "rule" keeps it over the map, null forgets the answer
 // POST {action: "run"}        a run now, in the background (unless one is going)
@@ -28,6 +31,8 @@ import { changesPage, companyRows, isRunning, kick, layerData, linkContact, mapD
 import { answerConflict } from "@/lib/mapAssign/redirections";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
+import { TOPIC_ORDER, isTopicId, type TopicId } from "@/lib/mapAssign/topics";
+import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +56,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: await layerData(cc) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
+    if (sp.get("topics") !== null) {
+      const country = (sp.get("country") ?? "").trim().toUpperCase();
+      if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
+      return NextResponse.json({ configured: true, ok: true, data: await topicsData(country || null) });
+    }
     if (sp.get("companies") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
       if (country && !/^[A-Z]{2}$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
@@ -76,7 +86,7 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => null)) as (MapPut & { patch?: RulesPatch; settings?: Record<string, unknown> }) | null;
+  const b = (await req.json().catch(() => null)) as (MapPut & { patch?: RulesPatch; settings?: Record<string, unknown>; topicOk?: unknown }) | null;
   if (!b || typeof b !== "object") return NextResponse.json({ ok: false, error: "No body" }, { status: 400 });
   // everything is checked before anything is stored
   const problems: string[] = [];
@@ -87,9 +97,22 @@ export async function PUT(req: NextRequest) {
     const x = b.redirection as { ruleId?: unknown; decision?: unknown } | null;
     if (!x || typeof x.ruleId !== "string" || !x.ruleId.trim() || !(x.decision === "map" || x.decision === "rule" || x.decision === null)) problems.push("redirection must be {ruleId, decision: \"map\" | \"rule\" | null}");
   }
+  let topicOk: { topic: TopicId; ok: boolean; country: string | null } | null = null;
+  if (b.topicOk !== undefined) {
+    const x = b.topicOk as { topic?: unknown; ok?: unknown; country?: unknown } | null;
+    const country = x && typeof x === "object" && typeof x.country === "string" ? x.country.trim().toUpperCase() : "";
+    if (!x || typeof x !== "object" || !isTopicId(x.topic) || typeof x.ok !== "boolean") problems.push(`topicOk must be {topic: ${TOPIC_ORDER.join(" | ")}, ok: true | false}`);
+    else if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) problems.push("topicOk.country must be an ISO 3166 two-letter code");
+    else if (Object.keys(b).some((k) => k !== "topicOk")) problems.push("topicOk goes in a request of its own");
+    else topicOk = { topic: x.topic, ok: x.ok, country: country || null };
+  }
   if (problems.length) return NextResponse.json({ ok: false, error: problems[0], errors: problems }, { status: 400 });
   try {
     const by = await who(access.userId);
+    if (topicOk) {
+      await answerTopic(topicOk.topic, topicOk.ok, by);
+      return NextResponse.json({ ok: true, data: await topicsData(topicOk.country) });
+    }
     let redecided: number | undefined;
     if (b.rules !== undefined || b.patch !== undefined) {
       const r = await saveRules({ rules: b.rules, patch: b.patch }, by);

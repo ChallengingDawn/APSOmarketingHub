@@ -1,9 +1,12 @@
 "use client";
 
-// MAP ASSIGNMENT - the differences, by person (SARCLA 20.10.2026: "Difference screen completely repaint as well" -
-// lead with the moves by person: who gains, who loses, one line per move, click a line for its companies, filter by
-// country). From d.moves, complete over the whole table (d.changes stops at 3,000); a move's companies come from the
-// server 50 at a time (GET ?changes=1&country=&from=&to=&q=&offset=, from "" = nobody).
+// MAP ASSIGNMENT - the differences, grouped by WHY (SARCLA 20.10.2026, after "9,200 companies would change owner - TSA
+// Team gets 7,892 ...": "Why these differences - it's where I get really lost. Let's do the first batch of difference
+// logic so I can understand per topic and give my ok"). One card per topic (src/lib/mapAssign/topics.ts, first match
+// wins): a plain title, one sentence why, how many, where, the biggest moves, 5 examples, and the OK (admins) - an OK is
+// for the topic as it is now, flagged when its count moves by more than 10% since. Rules change on the map (#map).
+// From GET ?topics=1&country=; an OK is PUT {topicOk: {topic, ok}}. Below, folded: the moves by person as before
+// (d.moves, complete over the whole table; a move's companies from GET ?changes=1, 50 at a time).
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -16,22 +19,52 @@ import CircularProgress from "@mui/material/CircularProgress";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import SwapHorizOutlinedIcon from "@mui/icons-material/SwapHorizOutlined";
+import PublicOffOutlinedIcon from "@mui/icons-material/PublicOffOutlined";
+import PersonOffOutlinedIcon from "@mui/icons-material/PersonOffOutlined";
+import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
+import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
+import WrongLocationOutlinedIcon from "@mui/icons-material/WrongLocationOutlined";
+import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
+import PinDropOutlinedIcon from "@mui/icons-material/PinDropOutlined";
+import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
+import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
+import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import CheckIcon from "@mui/icons-material/Check";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CloseIcon from "@mui/icons-material/Close";
+import { useHeld } from "@/app/analytics/AnalyticsData";
+import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, clip, headCell } from "@/app/uc/report/ui";
+import { ACCENT, AMBER, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip, headCell, type Tint } from "@/app/uc/report/ui";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
-import type { ChangesPage, CompanyChange, MapData, MoveStat } from "@/lib/mapAssign/api";
+import type { ChangesPage, CompanyChange, MapData } from "@/lib/mapAssign/api";
 import type { OwnerId } from "@/lib/mapAssign/rules";
-import { API, FLAG_LABEL, Swatch, VIA_LABEL, countryName, hsCompany, type Names, type Palette } from "./shared";
+import type { TopicId, TopicStat, TopicsData } from "@/lib/mapAssign/topics";
+import { API, FLAG_LABEL, Swatch, VIA_LABEL, countryName, hsCompany, send, type Names, type Palette } from "./shared";
 
 /** Country pills shown before the rest go behind "more". */
 const TOP = 8;
 const PAGE = 50;
+/** Per-country chips on a topic card (all countries) before "+N more". */
+const CHIPS = 10;
 /** a move's companies from md up: company, where, why, contacts off, written */
 const COLS = "minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1.5fr) 100px 130px";
+
+const TOPIC_LOOK: Record<TopicId, { icon: React.ReactNode; tint: Tint }> = {
+  "no-country": { icon: <PublicOffOutlinedIcon />, tint: "slate" },
+  left: { icon: <PersonOffOutlinedIcon />, tint: "pink" },
+  region: { icon: <AssignmentIndOutlinedIcon />, tint: "blue" },
+  contacts: { icon: <GroupsOutlinedIcon />, tint: "green" },
+  "sae-nobody": { icon: <HelpOutlineOutlinedIcon />, tint: "amber" },
+  "sae-elsewhere": { icon: <WrongLocationOutlinedIcon />, tint: "amber" },
+  rule1: { icon: <BadgeOutlinedIcon />, tint: "purple" },
+  rule2: { icon: <PinDropOutlinedIcon />, tint: "blue" },
+  key: { icon: <KeyOutlinedIcon />, tint: "purple" },
+  redirection: { icon: <AltRouteOutlinedIcon />, tint: "slate" },
+  other: { icon: <HelpOutlineOutlinedIcon />, tint: "slate" },
+};
 
 type Move = { key: string; from: OwnerId | null; to: OwnerId; companies: number; contacts: number; countries: { cc: string; companies: number }[] };
 type Person = { key: string; id: OwnerId | null; gets: number; gives: number; net: number };
@@ -42,6 +75,10 @@ const pkey = (id: OwnerId | null | undefined) => (id ? String(id) : "");
 const same = (m: { from: OwnerId | null; to: OwnerId }) => pkey(m.from) === pkey(m.to);
 const many = (n: number, one: string, more: string) => `${full(n)} ${n === 1 ? one : more}`;
 const signed = (n: number) => (n > 0 ? `+${full(n)}` : n < 0 ? `−${full(-n)}` : "±0");
+/** "20.10" */
+const day = (iso: string) => when(iso).split(" ")[0];
+const ccShort = (cc: string | null) => (!cc || cc === "??" ? "no country" : cc);
+const subhead = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.08em", mb: 0.75 };
 
 function Written({ c, live }: { c: CompanyChange; live: boolean }) {
   if (c.wrote) return c.wrote.ok
@@ -50,18 +87,135 @@ function Written({ c, live }: { c: CompanyChange; live: boolean }) {
   return live ? <Chip tint="amber">next scan</Chip> : <Chip tint="slate">shadow</Chip>;
 }
 
-function Who({ id, names, palette, strong = false }: { id: OwnerId | null; names: Names; palette: Palette; strong?: boolean }) {
+function Who({ id, names, palette, strong = false, empty = "No owner" }: { id: OwnerId | null; names: Names; palette: Palette; strong?: boolean; empty?: string }) {
   const left = !!id && !names.active(id);
   return (
     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, minWidth: 0, maxWidth: "100%" }}>
       <Swatch paint={palette(id)} />
-      <Box component="span" sx={{ fontSize: "0.86rem", fontWeight: strong ? 700 : 600, color: id ? INK : MUTED, ...clip(240) }} title={id ? names.name(id) : "No owner"}>
-        {id ? names.name(id) : "No owner"}
+      <Box component="span" sx={{ fontSize: "0.86rem", fontWeight: strong ? 700 : 600, color: id ? INK : MUTED, ...clip(240) }} title={id ? names.name(id) : empty}>
+        {id ? names.name(id) : empty}
       </Box>
       {left && <Box component="span" sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>has left</Box>}
     </Box>
   );
 }
+
+/* ── the topics ── */
+
+/** The OK of one topic: given (green, with Undo), changed since (amber, OK again), or not yet. */
+function OkButtons({ t, admin, busy, filtered, onAnswer }: { t: TopicStat; admin: boolean; busy: boolean; filtered: boolean; onAnswer: (ok: boolean) => void }) {
+  const ok = t.ok;
+  const given = ok ? `OK given ${day(ok.at)}${ok.by ? ` by ${ok.by}` : ""}` : "";
+  const undo = (
+    <Button size="small" disabled={busy} onClick={() => onAnswer(false)} sx={{ textTransform: "none", color: MUTED, minWidth: 0, px: 1 }}>Undo</Button>
+  );
+  const rules = (
+    <Button size="small" href="#map" onClick={() => window.scrollTo({ top: 0 })} startIcon={<TuneOutlinedIcon sx={{ fontSize: 16 }} />}
+      sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Change the rules</Button>
+  );
+  if (!admin) return ok ? <Box><Chip tint={ok.changed ? "amber" : "green"}>{ok.changed ? `Changed since the OK of ${day(ok.at)}` : given}</Chip></Box> : null;
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        {ok && !ok.changed ? (
+          <Box role="status" sx={{
+            display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.5, py: 0.55, borderRadius: "10px", bgcolor: GREEN, color: "#ffffff",
+            fontSize: "0.8125rem", fontWeight: 600, maxWidth: "100%", minWidth: 0,
+          }}>
+            <CheckIcon sx={{ fontSize: 16 }} />
+            <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{given}</Box>
+          </Box>
+        ) : (
+          <Button size="small" variant={ok ? "contained" : "outlined"} disableElevation disabled={busy} onClick={() => onAnswer(true)}
+            startIcon={<CheckIcon sx={{ fontSize: 16 }} />}
+            sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px", ...(ok ? { bgcolor: AMBER, "&:hover": { bgcolor: "#8a560e" } } : { color: GREEN, borderColor: GREEN, "&:hover": { borderColor: GREEN, bgcolor: "rgba(27,122,85,.06)" } }) }}>
+            {ok ? "OK again" : "OK"}
+          </Button>
+        )}
+        {ok && undo}
+        {rules}
+        {busy && <CircularProgress size={14} />}
+      </Box>
+      {ok?.changed && (
+        <Typography sx={{ fontSize: "0.76rem", color: AMBER }}>
+          Changed since your OK of {day(ok.at)}{ok.by ? ` (${ok.by})` : ""}: {full(ok.companies)} companies then, {full(t.all)} now. Your OK is kept - look again and give it again.
+        </Typography>
+      )}
+      {filtered && (
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>Your OK covers this topic in every country: {many(t.all, "company", "companies")}.</Typography>
+      )}
+    </Box>
+  );
+}
+
+function TopicCard({ t, all, admin, busy, onAnswer, names, palette }: {
+  t: TopicStat; all: boolean; admin: boolean; busy: boolean; onAnswer: (ok: boolean) => void; names: Names; palette: Palette;
+}) {
+  const look = TOPIC_LOOK[t.topic] ?? TOPIC_LOOK.other;
+  const restCountries = t.countries.length - CHIPS;
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={look.icon} tint={look.tint} title={t.title} note={t.why} />
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mt: -1, mb: 1.5 }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, letterSpacing: "-0.03em", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{full(t.companies)}</Typography>
+        <Typography sx={{ fontSize: "0.92rem", color: INK, fontWeight: 600 }}>{t.companies === 1 ? "company" : "companies"}</Typography>
+        {t.contacts > 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>· {many(t.contacts, "contact follows", "contacts follow")}</Typography>}
+      </Box>
+      {all && t.countries.length > 0 && (
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 2 }}>
+          {t.countries.slice(0, CHIPS).map((c) => <Chip key={c.country} tint="slate">{ccShort(c.country)} {full(c.companies)}</Chip>)}
+          {restCountries > 0 && <Chip tint="slate">+{restCountries} more</Chip>}
+        </Box>
+      )}
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: { xs: 2, md: 3 }, mb: 2 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={subhead}>{t.kind === "region" ? "Region responsibility now → by the rules" : t.kind === "contacts" ? "Whose contacts follow" : "Biggest moves"}</Typography>
+          {t.moves.map((m) => (
+            <Box key={`${pkey(m.from)}>${m.to}`} sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", py: 0.6, borderTop: `1px solid ${HAIRLINE}`, minWidth: 0 }}>
+              {t.kind !== "contacts" && (
+                <>
+                  <Who id={m.from} names={names} palette={palette} empty={t.kind === "region" ? "Empty" : "No owner"} />
+                  <ArrowForwardIcon sx={{ fontSize: 15, color: FAINT }} titleAccess="to" />
+                </>
+              )}
+              <Who id={m.to} names={names} palette={palette} strong />
+              <Box component="span" sx={{ fontSize: "0.86rem", color: INK, fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                · {full(m.companies)}
+                {t.kind === "contacts" && m.contacts > 0 && <Box component="span" sx={{ color: MUTED, fontWeight: 400 }}> ({many(m.contacts, "contact", "contacts")})</Box>}
+              </Box>
+            </Box>
+          ))}
+          {t.more.moves > 0 && (
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, pt: 0.6, borderTop: `1px solid ${HAIRLINE}` }}>
+              + {many(t.more.moves, "smaller move", "smaller moves")} · {many(t.more.companies, "company", "companies")}
+            </Typography>
+          )}
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={subhead}>For example</Typography>
+          {t.examples.map((e) => (
+            <Box key={e.id} sx={{ py: 0.6, borderTop: `1px solid ${HAIRLINE}`, minWidth: 0 }}>
+              <Box component="a" href={hsCompany(e.id)} target="_blank" rel="noopener" title={e.name}
+                sx={{ color: INK, fontWeight: 600, fontSize: "0.84rem", textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</Box>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.sae ?? ""}>
+                {ccShort(e.country)} · {e.zip || "no zip code"} · {e.sae ? `SAE ${e.sae}` : "no SAE"}
+                {t.kind === "contacts" && e.contacts ? ` · ${many(e.contacts, "contact", "contacts")}` : ""}
+              </Typography>
+              {t.kind !== "contacts" && (
+                <Typography sx={{ fontSize: "0.76rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {e.from ? names.name(e.from) : t.kind === "region" ? "Empty" : "No owner"} → {names.name(e.to)}
+                </Typography>
+              )}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+      <OkButtons t={t} admin={admin} busy={busy} filtered={!all && t.all !== t.companies} onAnswer={onAnswer} />
+    </GlassCard>
+  );
+}
+
+/* ── all moves by person (the Differences view before the topics, folded under them) ── */
 
 /** One move's companies, from the server, a page at a time. */
 function MoveCompanies({ from, to, country, d, names }: { from: OwnerId | null; to: OwnerId; country: string | null; d: MapData; names: Names }) {
@@ -189,34 +343,12 @@ function PeopleList({ title, list, person, onPick, names, palette, empty }: {
   );
 }
 
-export function DiffView({ d, names, palette }: { d: MapData; names: Names; palette: Palette }) {
+/** Who gains, who loses + every move, in the country the topics show ("all" = every country). */
+function AllMoves({ d, names, palette, cc }: { d: MapData; names: Names; palette: Palette; cc: string }) {
   const all = d.moves ?? [];
-  const [country, setCountry] = useState<string>("all");
   const [person, setPerson] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-
-  // countries with something to change, biggest first
-  const byCountry = useMemo(() => {
-    const m = new Map<string, { companies: number; contacts: number }>();
-    for (const x of all) {
-      const c = m.get(x.country) ?? { companies: 0, contacts: 0 };
-      // the pills count companies that change owner, as the line under them does
-      if (x.from !== x.to) c.companies += x.companies;
-      c.contacts += x.contacts;
-      m.set(x.country, c);
-    }
-    return [...m].filter(([, v]) => v.companies || v.contacts)
-      .sort((a, b) => b[1].companies - a[1].companies || b[1].contacts - a[1].contacts || a[0].localeCompare(b[0]));
-  }, [all]);
-  const cc = country !== "all" && byCountry.some(([c]) => c === country) ? country : "all";
-  const top = byCountry.slice(0, TOP), rest = byCountry.slice(TOP);
   const inCountry = useMemo(() => all.filter((m) => cc === "all" || m.country === cc), [all, cc]);
-
-  const sum = (list: MoveStat[], f: (m: MoveStat) => number) => list.reduce((a, m) => a + f(m), 0);
-  const moving = inCountry.filter((m) => !same(m));
-  const fixing = inCountry.filter(same);
-  const owners = { companies: sum(moving, (m) => m.companies), contacts: sum(moving, (m) => m.contacts) };
-  const fixes = { companies: sum(fixing, (m) => m.companies), contacts: sum(fixing, (m) => m.contacts) };
 
   // who gains, who loses: companies moving to / away from each person (the right owner already does not count)
   const people = useMemo(() => {
@@ -255,54 +387,12 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
     return [...m.values()].sort((a, b) => b.companies - a.companies || b.contacts - a.contacts || a.key.localeCompare(b.key));
   }, [inCountry, person]);
   const { slice, pager, setPage } = usePaged(moves, 15);
-
-  const pickCountry = (v: string) => { setCountry(v); setOpen(null); setPage(0); };
   const pickPerson = (k: string) => { setPerson((cur) => (cur === k ? null : k)); setOpen(null); setPage(0); };
 
-  if (!all.length || !byCountry.length) {
-    return d.last
-      ? <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}><CardTitle icon={<CompareArrowsOutlinedIcon />} tint="green" title="Nothing to change" note={`Every company has the owner the rules give it - last scan ${when(d.last.at)}`} /></GlassCard>
-      : <Info>No scan yet - the differences appear after the first one.</Info>;
-  }
-
   const where = cc === "all" ? "all countries" : countryName(cc);
-  const liveCount = Object.values(d.live).filter(Boolean).length;
   const personName = person === null ? "" : person ? names.name(person) : "No owner";
   return (
     <>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber" title="What the saved rules would change"
-          note={d.last ? `Last scan ${when(d.last.at)}. Shadow countries only compare; live countries are written at every scan` : "Not scanned yet"}
-          right={cc === "all" ? (liveCount ? <Chip tint="pink">{liveCount} live</Chip> : <Chip tint="slate">all shadow</Chip>) : d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-          <Choice<string> value={cc} onChange={pickCountry} options={[
-            { key: "all", label: `All · ${full(sum(all, (m) => (m.from !== m.to ? m.companies : 0)))}` },
-            ...top.map(([c, v]) => ({ key: c, label: `${countryName(c)} · ${full(v.companies)}` })),
-          ]} />
-          {rest.length > 0 && (
-            <Select size="small" displayEmpty value={rest.some(([c]) => c === cc) ? cc : ""} onChange={(e) => pickCountry(e.target.value || "all")}
-              inputProps={{ "aria-label": "More countries" }}
-              sx={{ fontSize: "0.8rem", borderRadius: "999px", "& .MuiSelect-select": { py: 0.45, pl: 1.5 }, ...(rest.some(([c]) => c === cc) ? { color: ACCENT } : { color: MUTED }) }}>
-              <MenuItem value="">{`${rest.length} more`}</MenuItem>
-              {rest.map(([c, v]) => <MenuItem key={c} value={c}>{`${countryName(c)} · ${full(v.companies)}`}</MenuItem>)}
-            </Select>
-          )}
-        </Box>
-        <Box sx={{ mt: 2, display: "grid", gap: 0.25 }}>
-          <Typography sx={{ fontSize: "1rem", color: INK }}>
-            <b>{many(owners.companies, "company", "companies")}</b> would change owner · <b>{many(owners.contacts, "contact", "contacts")}</b> follow{owners.contacts === 1 ? "s" : ""}
-            <Typography component="span" sx={{ fontSize: "0.84rem", color: MUTED }}> - {where}</Typography>
-          </Typography>
-          {(fixes.companies > 0 || fixes.contacts > 0) && (
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-              {fixes.companies > 0
-                ? `${many(fixes.companies, "company keeps its", "companies keep their")} owner and only need${fixes.companies === 1 ? "s" : ""} region responsibility or contacts fixed`
-                : `${many(fixes.contacts, "contact", "contacts")} to fix on companies that have the right owner`}
-            </Typography>
-          )}
-        </Box>
-      </GlassCard>
-
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<GroupsOutlinedIcon />} tint="blue" title="Who gains, who loses"
           note={`Companies per person, ${where === "all countries" ? "in all countries" : `in ${where}`} - click a person to see only their moves`} />
@@ -381,3 +471,106 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
     </>
   );
 }
+
+/* ── the view ── */
+
+export function DiffView({ d, names, palette }: { d: MapData; names: Names; palette: Palette }) {
+  const [country, setCountry] = useState<string>("all");
+  const [n, setN] = useState(0);
+  const [busy, setBusy] = useState<TopicId | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [folded, setFolded] = useState(true);
+  const url = `${API}?${new URLSearchParams({ topics: "1", ...(country !== "all" ? { country } : {}), ...(n ? { n: String(n) } : {}) }).toString()}`;
+  const held = useHeld<TopicsData>(url, [url]);
+  const r = held.result;
+  const t = r?.state === "ok" && r.data && Array.isArray((r.data as Partial<TopicsData>).topics) ? r.data : null;
+
+  // a country that has nothing left (after a scan or a rules change): back to all
+  useEffect(() => {
+    if (t && !held.stale && country !== "all" && !t.countries.some((c) => c.country === country)) setCountry("all");
+  }, [t, held.stale, country]);
+
+  const answer = async (topic: TopicId, ok: boolean) => {
+    setBusy(topic); setErr(null);
+    const res = await send("PUT", { topicOk: { topic, ok, ...(country !== "all" ? { country } : {}) } });
+    setBusy(null);
+    if (!res.ok) setErr(`The answer was not saved: ${res.error ?? "?"}`);
+    setN((x) => x + 1);
+  };
+
+  if (r === null) return <LoadingPanel label="Grouping the differences by why…" />;
+  if (!t) {
+    return r.state === "ok"
+      ? <Info>The topics are not there yet - this view fills in once the hub is deployed.</Info>
+      : <UpstreamPanel source="Differences" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
+  }
+
+  const cc = country;
+  if (cc === "all" && !t.topics.length) {
+    return d.last
+      ? <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}><CardTitle icon={<CompareArrowsOutlinedIcon />} tint="green" title="Nothing to change" note={`Every company has the owner the rules give it - last scan ${when(d.last.at)}`} /></GlassCard>
+      : <Info>No scan yet - the differences appear after the first one.</Info>;
+  }
+
+  const top = t.countries.slice(0, TOP), rest = t.countries.slice(TOP);
+  const allCompanies = t.countries.reduce((a, c) => a + c.companies, 0);
+  const keepOwner = t.total.companies - t.total.changeOwner;
+  const liveCount = Object.values(d.live).filter(Boolean).length;
+  const inWhere = cc === "all" ? "" : cc === "??" ? " without a country" : ` in ${countryName(cc)}`;
+  const pickCountry = (v: string) => { setCountry(v || "all"); setErr(null); };
+  return (
+    <>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber"
+          title={`${many(t.total.changeOwner, "company", "companies")} would change owner${inWhere} - grouped by why`}
+          note={`Give your OK topic by topic; nothing is written while a country is in shadow.${d.last ? ` Last scan ${when(d.last.at)}.` : ""}`}
+          right={cc === "all" ? (liveCount ? <Chip tint="pink">{liveCount} live</Chip> : <Chip tint="slate">all shadow</Chip>) : d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+          <Choice<string> value={cc} onChange={pickCountry} options={[
+            { key: "all", label: `All · ${full(allCompanies)}` },
+            ...top.map((c) => ({ key: c.country, label: `${countryName(c.country)} · ${full(c.companies)}` })),
+          ]} />
+          {rest.length > 0 && (
+            <Select size="small" displayEmpty value={rest.some((c) => c.country === cc) ? cc : ""} onChange={(e) => pickCountry(e.target.value)}
+              inputProps={{ "aria-label": "More countries" }}
+              sx={{ fontSize: "0.8rem", borderRadius: "999px", "& .MuiSelect-select": { py: 0.45, pl: 1.5 }, ...(rest.some((c) => c.country === cc) ? { color: ACCENT } : { color: MUTED }) }}>
+              <MenuItem value="">{`${rest.length} more`}</MenuItem>
+              {rest.map((c) => <MenuItem key={c.country} value={c.country}>{`${countryName(c.country)} · ${full(c.companies)}`}</MenuItem>)}
+            </Select>
+          )}
+          {held.stale && <CircularProgress size={14} sx={{ color: MUTED }} />}
+        </Box>
+        {keepOwner > 0 && (
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 1.5 }}>
+            {many(keepOwner, "more company keeps its", "more companies keep their")} owner - only the Region responsibility or the contacts to fix. The country counts above hold both.
+          </Typography>
+        )}
+      </GlassCard>
+
+      {err && <Notice tone="bad">{err}</Notice>}
+
+      <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, opacity: held.stale ? 0.6 : 1, transition: "opacity .15s" }}>
+        {t.topics.map((x) => (
+          <TopicCard key={x.topic} t={x} all={cc === "all"} admin={d.admin} busy={busy === x.topic} onAnswer={(ok) => void answer(x.topic, ok)} names={names} palette={palette} />
+        ))}
+        {!t.topics.length && <Info>Nothing differs{inWhere} any more - the next scan updates the counts.</Info>}
+      </Box>
+
+      <GlassCard sx={{ p: 0 }}>
+        <Box component="button" type="button" onClick={() => setFolded((x) => !x)} aria-expanded={!folded} sx={{
+          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.5, width: "100%", minWidth: 0,
+          px: { xs: 2, md: 2.5 }, py: 1.75, borderRadius: "22px", "&:hover": { bgcolor: "rgba(21,34,58,.03)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` },
+        }}>
+          <SwapHorizOutlinedIcon sx={{ fontSize: 20, color: MUTED }} />
+          <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
+            <Box component="span" sx={{ display: "block", fontSize: "0.98rem", fontWeight: 600, color: INK }}>All moves by person</Box>
+            <Box component="span" sx={{ display: "block", fontSize: "0.8rem", color: MUTED }}>Who gains, who loses, and every move with its companies{inWhere}</Box>
+          </Box>
+          {folded ? <ExpandMoreIcon sx={{ fontSize: 22, color: MUTED }} /> : <ExpandLessIcon sx={{ fontSize: 22, color: MUTED }} />}
+        </Box>
+      </GlassCard>
+      {!folded && <AllMoves key={cc} d={d} names={names} palette={palette} cc={cc} />}
+    </>
+  );
+}
+

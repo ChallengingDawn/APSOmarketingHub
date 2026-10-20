@@ -25,13 +25,15 @@ import IconButton from "@mui/material/IconButton";
 import CircularProgress from "@mui/material/CircularProgress";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
+import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { full } from "@/app/charts/format";
 import { FAINT, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { Chip, Choice } from "@/app/connectors/parts";
+import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { saeKey, type AssignRules, type CountryRule, type Zone } from "@/lib/mapAssign/rules";
-import type { CompanyRow, MapData } from "@/lib/mapAssign/api";
+import type { CompanyRow, MapData, OwnerLoad, TicketLoad } from "@/lib/mapAssign/api";
 import {
   API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, prefixProblem, saeTarget, splitPrefixes,
   splitRegions, withOverride, type Names, type Palette, type SetDraft,
@@ -50,6 +52,8 @@ export type Place = {
   kind: "region" | "cell"; index: number; title: string; sub: string;
   /** give all of the place's zip codes to this person (rule 2) - the map's give, in the draft */
   give: (owner: string) => void;
+  /** give some zip codes to this person (one zip code of the place: SARCLA "cannot change an individual zip code") */
+  giveZips: (zips: string[], owner: string, what: string) => void;
 };
 type Mode = "rules" | "kpi";
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
@@ -58,6 +62,142 @@ const row = { display: "grid", gap: 1.25, alignItems: "center", px: 1.25, py: 0.
 const numSx = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: { xs: "left", md: "right" } as const };
 
 /* ── the SAE values (GET ?performis=1) ── */
+
+/* ── the switch, the workload, the place's shape ── */
+
+/** Rules or KPI - big enough to see (SARCLA 20.10.2026: "the toggle is still not visible enough"). */
+function ModeSwitch({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
+  const btn = (m: Mode, label: string, icon: React.ReactNode, color: string) => {
+    const on = mode === m;
+    return (
+      <Box component="button" type="button" onClick={() => setMode(m)} aria-pressed={on}
+        sx={{
+          all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.75, px: 2, py: 0.9, fontSize: "0.92rem", fontWeight: 700,
+          color: on ? "#fff" : color, bgcolor: on ? color : "transparent", transition: "background-color .12s",
+          "&:hover": { bgcolor: on ? color : "rgba(21,34,58,.05)" }, "&:focus-visible": { outline: `2px solid ${color}`, outlineOffset: -2 },
+        }}>
+        {icon}{label}
+      </Box>
+    );
+  };
+  return (
+    <Box role="group" aria-label="Rules or KPI" sx={{ display: "inline-flex", border: "1px solid rgba(21,34,58,.16)", borderRadius: "12px", overflow: "hidden", boxShadow: "0 1px 4px rgba(31,45,78,.08)" }}>
+      {btn("rules", "Rules", <TuneOutlinedIcon sx={{ fontSize: 19 }} />, "#2459d1")}
+      {btn("kpi", "KPI", <InsightsOutlinedIcon sx={{ fontSize: 19 }} />, "#6250d6")}
+    </Box>
+  );
+}
+
+/** The sales workload per person: companies now -> after, customers and revenue this year, contacts, tickets, and the
+ *  land rule 2 gives them (zip codes, km², the GDP of their part of each region). */
+function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
+  c: string; load: OwnerLoad[]; tickets: TicketLoad | null; m: CountryMap; joined: ReturnType<typeof joinLayer> | null; names: Names; palette: Palette;
+}) {
+  const land = m.tally.byOwner;
+  const gdp = new Map<string, number>();
+  if (joined) m.tally.regions.forEach((rt, i) => {
+    const g = joined.gdp[i];
+    if (g === null || g === undefined || !rt.total) return;
+    for (const [o, n] of rt.owners) gdp.set(String(o), (gdp.get(String(o)) ?? 0) + (g * n) / rt.total);
+  });
+  const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String)])];
+  const byOwner = new Map(load.map((l) => [String(l.owner), l]));
+  const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o) }))
+    .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0));
+  const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
+  const cols = "minmax(170px, 1.4fr) 80px 80px 64px 90px 110px 90px 80px 90px 80px 90px 100px";
+  const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
+    if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+    if (opts?.gdp) return v >= 1000 ? `${(v / 1000).toFixed(1)} bn` : `${full(Math.round(v))} m`;
+    if (opts?.km) return km2Text(v).replace(" km²", "");
+    return full(Math.round(v));
+  };
+  const cell = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  const group = (label: string, span: number, color: string) => (
+    <Box sx={{ gridColumn: `span ${span}`, borderBottom: `2px solid ${color}`, pb: 0.25, textAlign: "center" }}><Typography sx={{ ...head, color }}>{label}</Typography></Box>
+  );
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Sales workload in {c}</Typography>
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflowX: "auto" }}>
+        <Box sx={{ minWidth: 1180 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
+            <span />
+            {group("Companies", 3, "#2459d1")}
+            {group("This year", 2, "#1b7a55")}
+            <Box sx={{ gridColumn: "span 1" }} />
+            {group("Tickets ESO + TSA", 2, "#a96a12")}
+            {group("Land - rule 2", 3, "#6250d6")}
+          </Box>
+          <Box sx={{ ...row, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
+            {["Person", "Now", "After", "±", "Customers", "Revenue EUR", "Contacts", "Open", "Last 90 d", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
+              <Typography key={h} sx={{ ...head, textAlign: i ? "right" : "left" }}>{h}</Typography>
+            ))}
+          </Box>
+          {rows.map(({ o, l, t, z }) => {
+            const dd = (l?.after ?? 0) - (l?.now ?? 0);
+            return (
+              <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
+                <Who owner={o} names={names} palette={palette} />
+                <Typography sx={{ ...cell, color: MUTED }}>{num(l?.now)}</Typography>
+                <Typography sx={{ ...cell, fontWeight: 700 }}>{num(l?.after)}</Typography>
+                <Typography sx={{ ...cell, fontWeight: dd ? 700 : 400, color: dd > 0 ? "#1b7a55" : dd < 0 ? "#b4232c" : FAINT }}>{dd > 0 ? `+${full(dd)}` : dd < 0 ? `−${full(-dd)}` : "—"}</Typography>
+                <Typography sx={cell}>{num(l?.customers)}</Typography>
+                <Typography sx={cell}>{num(l?.revenue)}</Typography>
+                <Typography sx={cell}>{num(l?.contacts)}</Typography>
+                <Typography sx={{ ...cell, fontWeight: t?.open ? 700 : 400 }}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>
+                <Typography sx={cell}>{tickets ? num(t?.last90 ?? 0) : "…"}</Typography>
+                <Typography sx={cell}>{num(z?.postcodes)}</Typography>
+                <Typography sx={cell}>{num(z?.km2, { km: true })}</Typography>
+                <Typography sx={cell}>{gdp.has(o) ? num(gdp.get(o), { gdp: true }) : "—"}</Typography>
+              </Box>
+            );
+          })}
+          <Box sx={{ ...row, gridTemplateColumns: cols, py: 0.65, borderBottom: "none", bgcolor: "rgba(21,34,58,.02)" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED }}>{c}</Typography>
+            <Typography sx={{ ...cell, color: MUTED }}>{num(sum((r) => r.l?.now ?? 0))}</Typography>
+            <Typography sx={{ ...cell, fontWeight: 700 }}>{num(sum((r) => r.l?.after ?? 0))}</Typography>
+            <span />
+            <Typography sx={cell}>{num(sum((r) => r.l?.customers ?? 0))}</Typography>
+            <Typography sx={cell}>{num(sum((r) => r.l?.revenue ?? 0))}</Typography>
+            <Typography sx={cell}>{num(sum((r) => r.l?.contacts ?? 0))}</Typography>
+            <span /><span />
+            <Typography sx={cell}>{num(sum((r) => r.z?.postcodes ?? 0))}</Typography>
+            <Typography sx={cell}>{num(sum((r) => r.z?.km2 ?? 0), { km: true })}</Typography>
+            <Typography sx={cell}>{gdp.size ? num([...gdp.values()].reduce((a, v) => a + v, 0), { gdp: true }) : "—"}</Typography>
+          </Box>
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
+        Companies: owner in HubSpot now and by these rules. This year: the companies by the rules. Tickets: open ESO + TSA tickets and those created in the last 90 days, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted at the next scan"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+      </Typography>
+    </Box>
+  );
+}
+
+/** The place in the window's background, faint (SARCLA 20.10.2026: "a transparent background of the modal becomes the
+ *  region selected - zip code, country or region"). */
+function PlaceShape({ m, place }: { m: CountryMap; place: Place | null }) {
+  const base = m.base;
+  if (!base) return null;
+  let d: string | null = null;
+  let box: [number, number, number, number] | null = null;
+  if (!place) { d = base.outline; box = base.box; }
+  else if (place.kind === "region") { const r = base.regions[place.index]; d = r?.d ?? null; box = r?.box ?? null; }
+  else if (base.voronoi) {
+    d = base.voronoi.renderCell(place.index) || null;
+    const b = place.index * 4;
+    box = [base.cellBox[b], base.cellBox[b + 1], base.cellBox[b + 2], base.cellBox[b + 3]];
+  }
+  if (!d || !box || !box.every(Number.isFinite)) return null;
+  const pad = Math.max(box[2] - box[0], box[3] - box[1]) * 0.04;
+  return (
+    <Box component="svg" aria-hidden viewBox={`${box[0] - pad} ${box[1] - pad} ${box[2] - box[0] + 2 * pad} ${box[3] - box[1] + 2 * pad}`} preserveAspectRatio="xMidYMid meet"
+      sx={{ position: "absolute", right: "3%", bottom: "4%", width: "46%", height: "80%", pointerEvents: "none", zIndex: 0, opacity: 0.09 }}>
+      <path d={d} fill="#2459d1" stroke="#2459d1" strokeWidth={pad / 4} vectorEffect="non-scaling-stroke" />
+    </Box>
+  );
+}
 
 /* ── the rules: rule 1 and rule 2, one table each ── */
 
@@ -286,15 +426,9 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
   );
 
   if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} />;
-  const na = kpi ? nowAfter(d, cc) : null;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
-      {na && (
-        <Box sx={{ display: "grid", gap: 1, maxWidth: 640 }}>
-          <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Owners in {c} - HubSpot now and with these rules</Typography>
-          <OwnerTable now={na.now} after={na.after} names={names} palette={palette} />
-        </Box>
-      )}
+      {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} />}
       {rule1}
       {rule2}
     </Box>
@@ -404,7 +538,8 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
             </Box>
           )}
         </Table>
-        {admin && !kpi && (
+        {!kpi && <ZipList place={place} m={m} joined={joined} names={names} palette={palette} admin={admin} />}
+        {admin && !kpi && place.kind === "region" && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
             <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>Swap all zip codes of {place.title} to</Typography>
             <OwnerPicker value={swap || null} names={names} onChange={(o) => setSwap(String(o ?? ""))} placeholder="pick a person" sx={{ minWidth: 240 }} />
@@ -416,25 +551,82 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
   );
 }
 
+/** The zip codes of a place, one row each, with an override (SARCLA 20.10.2026: "cannot change an individual zip code,
+ *  this should also be possible"). */
+function ZipList({ place, m, joined, names, palette, admin }: {
+  place: Place; m: CountryMap; joined: ReturnType<typeof joinLayer> | null; names: Names; palette: Palette; admin: boolean;
+}) {
+  const base = m.base;
+  const [q, setQ] = useState("");
+  const rows = useMemo(() => {
+    if (!base) return [];
+    const cells = place.kind === "cell" ? [place.index] : [...new Set(base.points.flatMap((pt) => (pt.region === place.index ? [pt.cell] : [])))];
+    return cells.map((ci) => {
+      const pts = base.cells[ci];
+      const p0 = base.points[pts[0]];
+      return { ci, zips: pts.map((i) => base.points[i].zip), place: p0.place, owner: String(m.picks[pts[0]]?.owner ?? ""), companies: joined?.cells[ci]?.companies ?? 0 };
+    }).sort((a, b) => a.zips[0].localeCompare(b.zips[0]));
+  }, [base, place, m.picks, joined]);
+  const needle = q.trim().toLowerCase();
+  const shown = rows.filter((r) => !needle || r.zips.some((z) => z.toLowerCase().startsWith(needle)) || (r.place ?? "").toLowerCase().includes(needle));
+  const { slice, pager } = usePaged(shown, 12);
+  if (!rows.length) return null;
+  const cols = "minmax(110px, 0.8fr) minmax(150px, 1.2fr) minmax(150px, 1fr) 100px minmax(200px, 1.2fr)";
+  return (
+    <Box sx={{ display: "grid", gap: 0.75, mt: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>{place.kind === "cell" ? "This zip code" : `Each zip code of ${place.title} · ${full(rows.length)}`}</Typography>
+        <Box sx={{ flex: 1 }} />
+        {rows.length > 12 && <TextField size="small" placeholder="find a zip code or place" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 220 }} />}
+      </Box>
+      <Table cols={cols} heads={["Zip code", "Place", "Person (rule 2)", <Box key="c" sx={{ textAlign: "right" }}>Companies</Box>, "Override"]}>
+        {slice.map((r) => (
+          <Box key={r.ci} sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: cols }, py: 0.6 }}>
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{r.zips[0]}{r.zips.length > 1 ? ` +${r.zips.length - 1}` : ""}</Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.place ?? ""}</Typography>
+            <Who owner={r.owner || null} names={names} palette={palette} />
+            <Typography sx={numSx}>{joined ? full(r.companies) : "—"}</Typography>
+            <OwnerPicker value={null} names={names} disabled={!admin} placeholder="give to someone else"
+              onChange={(o) => o && place.giveZips(r.zips, String(o), r.zips.length > 1 ? `${r.zips[0]} and ${r.zips.length - 1} more` : `${r.zips[0]}${r.place ? ` ${r.place}` : ""}`)} />
+          </Box>
+        ))}
+      </Table>
+      {pager}
+    </Box>
+  );
+}
+
 /* ── key accounts: one row per customer, tick off or add by search ── */
 
 type Key = NonNullable<CountryRule["keyAccounts"]>[number];
 
-/** GET ?companies=1: the customers behind ERP ids, or a search. */
-function useCompanies(params: string | null): { rows: CompanyRow[]; loading: boolean; error: string | null } {
+/** GET ?companies=1: the customers behind ERP ids, or a search. Several requests at most 100 ids each - the hub's
+ *  firewall refuses a query string past 2 KB with a bare 403 (20.10.2026: 265 ids = 2.4 KB, every row read "not in
+ *  HubSpot"). */
+function useCompanies(params: string[] | null): { rows: CompanyRow[]; loading: boolean; error: string | null } {
+  const key = params ? params.join("|") : null;
   const [got, setGot] = useState<{ key: string; rows: CompanyRow[]; error: string | null } | null>(null);
   useEffect(() => {
-    if (!params) return;
+    if (!params || !key) return;
     let live = true;
-    fetch(`${API}?companies=1&${params}`).then(async (r) => {
+    Promise.all(params.map(async (q) => {
+      const r = await fetch(`${API}?companies=1&${q}`);
       const j = (await r.json().catch(() => null)) as { ok?: boolean; data?: CompanyRow[]; error?: string } | null;
-      if (live) setGot({ key: params, rows: j?.ok && Array.isArray(j.data) ? j.data : [], error: j?.ok ? null : j?.error ?? `HTTP ${r.status}` });
-    }).catch((e) => { if (live) setGot({ key: params, rows: [], error: String(e) }); });
+      if (!j?.ok || !Array.isArray(j.data)) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      return j.data;
+    })).then((parts) => { if (live) setGot({ key, rows: parts.flat(), error: null }); })
+      .catch((e) => { if (live) setGot({ key, rows: [], error: String((e as Error)?.message ?? e) }); });
     return () => { live = false; };
-  }, [params]);
-  if (!params) return { rows: [], loading: false, error: null };
-  return got && got.key === params ? { rows: got.rows, loading: false, error: got.error } : { rows: got?.rows ?? [], loading: true, error: null };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (!key) return { rows: [], loading: false, error: null };
+  return got && got.key === key ? { rows: got.rows, loading: false, error: got.error } : { rows: got?.rows ?? [], loading: true, error: null };
 }
+const erpParams = (ids: string[]) => {
+  const out: string[] = [];
+  for (let i = 0; i < ids.length; i += 100) out.push(`erp=${encodeURIComponent(ids.slice(i, i + 100).join(","))}`);
+  return out;
+};
 
 function KeysTab({ cc, rules, setDraft, names, palette, admin, mode }: {
   cc: string; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean; mode: Mode;
@@ -449,12 +641,12 @@ function KeysTab({ cc, rules, setDraft, names, palette, admin, mode }: {
   // ticked off in this window: kept on screen (unticked) so a tick puts them back
   const [off, setOff] = useState<{ erp: string; group: number }[]>([]);
   const ids = useMemo(() => [...new Set([...keys.flatMap((k) => k.erpIds), ...off.map((o) => o.erp)])].sort(), [keys, off]);
-  const known = useCompanies(ids.length ? `erp=${encodeURIComponent(ids.join(","))}` : null);
+  const known = useCompanies(ids.length ? erpParams(ids) : null);
   const byErp = useMemo(() => new Map(known.rows.map((r) => [String(r.erpId), r])), [known.rows]);
   const [q, setQ] = useState("");
   const [qq, setQq] = useState("");
   useEffect(() => { const t = window.setTimeout(() => setQq(q.trim()), 300); return () => window.clearTimeout(t); }, [q]);
-  const found = useCompanies(qq.length >= 2 ? `q=${encodeURIComponent(qq)}&country=${cc}` : null);
+  const found = useCompanies(qq.length >= 2 ? [`q=${encodeURIComponent(qq)}&country=${cc}`] : null);
   const [to, setTo] = useState(0);
   const kpi = mode === "kpi";
   const needle = qq.toLowerCase();
@@ -605,7 +797,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
               </Box>
             )}
             <Box sx={{ flex: 1 }} />
-            {tab !== "people" && <PillGroup<Mode> name="Rules or KPI" small value={mode} onChange={setMode} options={[{ key: "rules", label: "Rules" }, { key: "kpi", label: "KPI" }]} />}
+            {tab !== "people" && <ModeSwitch mode={mode} setMode={setMode} />}
             <IconButton onClick={onClose} aria-label="Close the rules"><CloseIcon /></IconButton>
           </Box>
           <PillGroup<Tab> name="Jobs" value={tab} onChange={setTab} options={[
@@ -614,7 +806,9 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
             { key: "people", label: `Who works ${c}`, count: (rule?.people ?? []).length ? String(rule!.people!.length) : null },
           ]} />
         </Box>
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2, position: "relative" }}>
+          {tab === "rules" && <PlaceShape m={m} place={place ?? null} />}
+          <Box sx={{ position: "relative", zIndex: 1 }}>
           {tab === "rules" && <RulesTab key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} rev={rev} m={m} mode={mode} place={place ?? null} />}
           {tab === "keys" && <KeysTab key={`${cc}-${rev}`} cc={cc} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} mode={mode} />}
           {tab === "people" && (
@@ -624,6 +818,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
                 onChange={(people) => setRule((r) => { const x: CountryRule = { ...r, people }; if (!people.length) delete x.people; return x; })} />
             </Box>
           )}
+          </Box>
         </Box>
         <Box sx={{ px: { xs: 2, md: 3 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           {dirty ? <Chip tint="amber">Unsaved changes - the map shows them</Chip> : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{admin ? "Nothing to save" : "Read only - admins change the rules"}</Typography>}

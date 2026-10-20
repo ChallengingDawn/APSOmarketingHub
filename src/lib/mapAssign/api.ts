@@ -152,7 +152,21 @@ export type LayerData = {
   /** GDP per region (shapes regions[].code), where known; null = unknown */
   gdp: { code: string; gdp: number | null }[];
   revenueField: string; customersField: string;
+  /** the sales workload per person in this country (SARCLA 20.10.2026: "the KPI page should have ticket workload,
+   *  revenue, GDP, everything - really a KPI page measuring the sales workload"); absent from an older hub */
+  load?: OwnerLoad[];
+  /** ESO + TSA tickets per owner, every country: open now, and created in the last 90 days */
+  tickets?: TicketLoad | null;
 };
+
+export type OwnerLoad = {
+  owner: OwnerId;
+  /** companies owned in HubSpot now / by the rules */
+  now: number; after: number;
+  /** of "after": bought this year, revenue this year (EUR), contacts */
+  customers: number; revenue: number; contacts: number;
+};
+export type TicketLoad = { at: string; byOwner: Record<string, { open: number; last90: number }> };
 
 /** GET ?performis=1: the Performis SAE copy, by country and SAE - what it fills on companies and contacts. */
 export type SaeStat = {

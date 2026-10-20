@@ -629,7 +629,8 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     if (t.kind === "region" && base) {
       const r = base.regions[t.region];
       return { kind: "region", index: t.region, title: r.name, sub: [r.code, km2Text(r.km2)].join(" · "),
-        give: (o) => giveRef.current({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`) };
+        give: (o) => giveRef.current({ kind: "regions", regions: [r.code] }, o, `All of ${r.name}`),
+        giveZips: (zips, o, what) => giveRef.current({ kind: "postcodes", zips }, o, what) };
     }
     const cell = t.kind === "cell" ? t.cell : 0;
     const pts = base ? base.cells[cell] : [];
@@ -637,7 +638,8 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     const zips = base ? pts.map((i) => base.points[i].zip) : [];
     const title = p0 ? `${p0.zip}${p0.place ? ` ${p0.place}` : ""}` : "";
     return { kind: "cell", index: cell, title, sub: p0 && p0.region >= 0 && base ? base.regions[p0.region].name : "",
-      give: (o) => giveRef.current({ kind: "postcodes", zips }, o, pts.length > 1 ? `${zips[0]} and ${pts.length - 1} more` : title) };
+      give: (o) => giveRef.current({ kind: "postcodes", zips }, o, pts.length > 1 ? `${zips[0]} and ${pts.length - 1} more` : title),
+      giveZips: (z, o, what) => giveRef.current({ kind: "postcodes", zips: z }, o, what) };
   };
   const undo = () => {
     if (!note?.undo || !onAssign) return;

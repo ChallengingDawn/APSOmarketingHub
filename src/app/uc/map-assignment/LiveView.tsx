@@ -176,7 +176,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
                       {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.84rem", color: INK }}>{w}</Typography>)}
                       {ask.ccs.includes("FR") && (
                         <Typography component="li" sx={{ fontSize: "0.84rem", color: INK }}>
-                          and here, on <Box component="a" href="#redirections" sx={{ color: "#2459d1", textDecoration: "none" }}>Redirections</Box>, the France rule (France → Jeremy Borey): it gives him all of France, the map only Auvergne-Rhône-Alpes + Bourgogne-Franche-Comté
+                          and on <Box component="a" href="/uc/owner-redirection" sx={{ color: "#2459d1", textDecoration: "none" }}>Owner redirection</Box>, the old France rule (France → Jeremy Borey): it gives him all of France whatever the SAE
                         </Typography>
                       )}
                     </Box>

@@ -14,9 +14,11 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 
 // Rules and Performis are the map's Options panel since 20.10.2026 (SARCLA: "merge in one simpler map")
 // The SAE table of every country: a view of its own since 20.10.2026 ("put it on a completely separate tab")
-export type View = "map" | "sae" | "differences" | "nocompany" | "redirections" | "live";
+// Redirections left the page 20.10.2026 (SARCLA: "the redirection tab should not be needed as you can redirect on the
+// map"); Owner redirection's own rules keep running until switched off
+export type View = "map" | "sae" | "differences" | "nocompany" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", differences: "#differences", nocompany: "#no-company", redirections: "#redirections", live: "#live",
+  map: "#map", sae: "#sae-table", differences: "#differences", nocompany: "#no-company", live: "#live",
 };
 
 const PORTAL = "26492587";
