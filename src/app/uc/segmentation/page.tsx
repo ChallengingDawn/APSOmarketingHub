@@ -42,6 +42,7 @@ import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/an
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import ProfitCentre, { type PcRun } from "./ProfitCentre";
 import { pctText } from "@/app/uc/oneshot/parts";
 import { WindowPicker } from "@/app/window/ReportingWindow";
 import { PotentialChanges } from "./PotentialChanges";
@@ -60,6 +61,7 @@ type Status = {
   last_yearly: Run; yearly_done: number | null; year: number; yearly_summary: YearlySummary | null;
   running: { what: string; started: string; by: string } | null;
   engine: "hub" | "connector"; state_imported: string | null; own_app: string | null;
+  last_profit_centre: PcRun; pc_window_years: number;
 };
 type Breakdown = {
   total: number; with_apso_customer: number; empty: number; by_value: Record<string, number>; other: number; lost_with_current_revenue: number;
@@ -67,8 +69,8 @@ type Breakdown = {
 };
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
-type TabId = "overview" | "changes" | "runs" | "properties";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
+type TabId = "overview" | "profit-centre" | "changes" | "runs" | "properties";
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", "profit-centre": "#profit-centre", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
   ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep · the yearly reclassification",
@@ -277,12 +279,22 @@ export default function SmartSegmentation() {
       <Box>
         <ReportTabs name="segmentation" tab={tab} onSelect={selectTab} tabs={[
           { id: "overview", label: "Portfolio", count: null },
+          { id: "profit-centre", label: "Profit center", count: null },
           { id: "changes", label: "Potential changes", count: null },
           { id: "runs", label: "Runs", count: running ? "running" : null },
           { id: "properties", label: "How it works", count: null },
         ]} />
       </Box>
 
+      {tab === "profit-centre" && (
+        <ProfitCentre
+          last={(st?.last_profit_centre ?? null) as PcRun}
+          windowYears={Number(st?.pc_window_years ?? 3)}
+          running={running}
+          canRun={role === "admin"}
+          onRun={(dry) => void act("profit-centre", dry)}
+        />
+      )}
       {tab === "overview" && (
         <Box id="segmentation-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
           <GlassCard>

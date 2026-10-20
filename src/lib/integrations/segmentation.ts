@@ -26,6 +26,7 @@ import {
   pyStr, recalcDecision, revProps, unlost, webUpdates,
   type Enums, type HistoryEntry, type PotentialEdit, type Props, type Visit,
 } from "../segmentation/engine";
+import { decide, sumByPc } from "../segmentation/profitCentre";
 import { reclassify, yearlyReadProps } from "../segmentation/yearly";
 
 const LOCK = 4_107_204;
@@ -54,6 +55,7 @@ export type SegState = {
   last_potential?: unknown;
   last_web?: unknown;
   last_yearly?: unknown;
+  last_profit_centre?: unknown;
   /** The calendar year the yearly reclassification last really ran for. */
   yearly_done?: number;
   watcher_last?: unknown;
@@ -271,6 +273,7 @@ export async function status() {
     last_run_new: st.last_run_new ?? null, last_sweep: st.last_sweep ?? null, last_potential: st.last_potential ?? null,
     last_web: st.last_web ?? null, watcher_last: st.watcher_last ?? null,
     last_yearly: st.last_yearly ?? null, yearly_done: st.yearly_done ?? null, year: curYear(),
+    last_profit_centre: st.last_profit_centre ?? null, pc_window_years: PC_WINDOW_YEARS,
     yearly_summary: (await kvGet<Omit<YearlyPlan, "rows"> & { rowCount: number }>(KV.yearlySummary)) ?? null,
     running: await currentRun(),
     engine: process.env.SEGMENTATION_ENGINE === "live" ? "hub" : "connector",
@@ -867,7 +870,95 @@ async function watchInner() {
 
 /* ── what the routes and the scheduler call ───────────────────────────── */
 
-export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "recheck" | "yearly";
+/* ── the profit-centre split ──────────────────────────────────────────── */
+
+/**
+ * How many calendar years of order revenue the split is taken over.
+ *
+ * The HubSpot workflow this replaces had no window at all: it classified five
+ * company rollup properties of unstated age. A split is a statement about what
+ * a customer buys NOW, so it is taken over the current year and the two before
+ * it — long enough that one quiet quarter does not flip a customer's centre,
+ * short enough that a customer who moved from hoses to sealing three years ago
+ * is not still filed under hoses.
+ */
+export const PC_WINDOW_YEARS = 3;
+
+const pcYears = () => Array.from({ length: PC_WINDOW_YEARS }, (_, i) => curYear() - i);
+const pcBlobProps = () => pcYears().map((y) => `rev_${y}_pc_monthly`);
+
+/**
+ * The two properties' own options, read live rather than hard-coded.
+ *
+ * Both are enumerations, so HubSpot REFUSES a value that is not already an
+ * option — and the workflow only reported that in an output field nobody reads.
+ * Reading them each run means a spelling fixed in HubSpot ("100 % DT",
+ * "Majot …") or a bucket added there is picked up with no deploy here.
+ */
+async function pcOptions(): Promise<{ split: string[]; major: string[] }> {
+  const one = async (name: string) => {
+    const r = await hubspotFetchJson<{ options?: { value: string }[] }>({ path: `/crm/v3/properties/companies/${name}`, method: "GET" });
+    return (r.options ?? []).map((o) => o.value);
+  };
+  return { split: await one("profit_center_split"), major: await one("major_profit_center") };
+}
+
+export type PcGap = { wanted: string; wrote: string; example: string; n: number };
+
+/** Plan the split for every company: no writes, so the tab can show it before anyone runs it. */
+export async function profitCentrePlan(beat: () => Promise<void> = async () => {}, maxPages = 0) {
+  const opts = await pcOptions();
+  const blobs = pcBlobProps();
+  const changes: [string, Props][] = [];
+  const stats: Record<string, number> = { no_change: 0, change: 0, no_sales: 0, fell_back: 0, no_revenue_blob: 0 };
+  /** Buckets the property has no option for — counted, never silently rounded away. */
+  const gaps = new Map<string, PcGap>();
+  let scanned = 0, pages = 0;
+  for await (const page of allCompanies(["name", "profit_center_split", "major_profit_center", ...blobs])) {
+    for (const res of page) {
+      scanned += 1;
+      const p = res.properties ?? {};
+      const raw = blobs.map((k) => p[k]);
+      if (!raw.some((x) => x && x !== "{}")) stats.no_revenue_blob += 1;
+      const v = decide(sumByPc(raw), opts.split, opts.major);
+      if (v.split === "No sales") stats.no_sales += 1;
+      if (v.fellBack) {
+        stats.fell_back += 1;
+        const g = gaps.get(v.wantedSplit) ?? { wanted: v.wantedSplit, wrote: v.split, example: p.name ?? res.id, n: 0 };
+        g.n += 1;
+        gaps.set(v.wantedSplit, g);
+      }
+      const upd: Props = {};
+      if ((p.profit_center_split ?? "").trim() !== v.split) upd.profit_center_split = v.split;
+      if ((p.major_profit_center ?? "").trim() !== v.major) upd.major_profit_center = v.major;
+      if (Object.keys(upd).length) { changes.push([res.id, upd]); stats.change += 1; }
+      else stats.no_change += 1;
+    }
+    pages += 1;
+    if (pages % 50 === 0) await beat();
+    if (maxPages && pages >= maxPages) break;
+  }
+  return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(), log: [] as string[] };
+}
+
+/**
+ * Re-decide every company's split from its order revenue.
+ *
+ * Unlike the workflow it replaces this does not wait for a deal: every company
+ * is looked at, including the ones that have never had a deal in their life,
+ * and a customer whose buying moved between centres is corrected on the next
+ * pass rather than never.
+ */
+async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0) {
+  const { scanned, changes, stats, gaps, years } = await profitCentrePlan(beat, maxPages);
+  const log: string[] = [];
+  const written = dry ? 0 : await batchUpdate(changes, log);
+  const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, dry };
+  await patchState({ last_profit_centre: res });
+  return { ...res, log };
+}
+
+export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "recheck" | "yearly" | "profit-centre";
 
 /** Start an action in the background; false when another one is running. */
 export async function startAction(action: Action, opts: { dry?: boolean; limit?: number; windowMin?: number; by: string }): Promise<{ started: boolean; note: string }> {
@@ -882,6 +973,7 @@ export async function startAction(action: Action, opts: { dry?: boolean; limit?:
         : action === "web" ? await webInner(Math.max(1, Math.min(opts.limit ?? 200, 1000)), dry)
         : action === "watch" ? await watchInner()
         : action === "yearly" ? await yearlyInner(dry, beat)
+        : action === "profit-centre" ? await profitCentreInner(dry, beat)
         : await recheckInner(Math.max(1, opts.windowMin ?? 60), dry, 2000);
       const { log, changes, ...rest } = r as Record<string, unknown>;
       void changes;
@@ -933,6 +1025,17 @@ export async function nightly(): Promise<unknown> {
     const sw = await sweepInner(false, beat);
     if (sw.log.length) console.warn(`[segmentation] nightly sweep: write refused: ${sw.log.join(" | ").slice(0, 400)}`);
     Object.assign(result, { ...sw, log: undefined });
+    // The split, every night, for EVERY company — which is the whole point of
+    // moving it off the deal workflow. That one only ever re-checked a company
+    // when one of its deals reached Closed Won, so a customer whose buying had
+    // moved between centres kept yesterday's answer indefinitely.
+    try {
+      const pc = await profitCentreInner(false, beat);
+      if (pc.log.length) console.warn(`[segmentation] nightly profit-centre: write refused: ${pc.log.join(" | ").slice(0, 400)}`);
+      result.profit_centre = { ...pc, log: undefined };
+    } catch (e) {
+      result.profit_centre = { error: (e as Error).message.slice(0, 200) };
+    }
     const cap = Number(process.env.WEB_ENRICH_NIGHTLY ?? "200");
     if (cap > 0) {
       try {
