@@ -271,7 +271,10 @@ export default function SmartSegmentation() {
     setTimeout(() => setTick((n) => n + 1), 1500);
     // A run short enough to finish between two polls never flips `running`, so
     // the effect above never fires. An error stays until the next press.
-    if (ok) setTimeout(() => setNote((cur) => (cur === j.data.note ? null : cur)), 90_000);
+    // Only a note about a run that ACTUALLY started expires. A refusal comes
+    // back as ok:true with started:false, and used to be wiped by this timer -
+    // so the one message explaining why nothing happened disappeared.
+    if (ok && j.data?.started) setTimeout(() => setNote((cur) => (cur === j.data.note ? null : cur)), 90_000);
   }, []);
   const toggleWeb = useCallback(async (on: boolean) => {
     const j = await fetch(`/api/uc/segmentation/web-toggle?enabled=${on ? 1 : 0}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
@@ -354,6 +357,7 @@ export default function SmartSegmentation() {
           runningSince={st?.running?.started ?? null}
           note={note}
           progress={st?.pc_progress ?? null}
+          lastOutcome={(d?.last?.["profit-centre"] ?? null) as { error?: string; notStarted?: boolean; at?: string } | null}
           canRun={role === "admin"}
           onRun={(dry) => void act("profit-centre", dry)}
         />

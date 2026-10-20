@@ -47,7 +47,7 @@ function Figure({ label, value, note, tone }: { label: string; value: string; no
 }
 
 export default function ProfitCentre({
-  last, windowYears, running, runningWhat, runningSince, note, progress, canRun, onRun,
+  last, windowYears, running, runningWhat, runningSince, note, progress, lastOutcome, canRun, onRun,
 }: {
   last: PcRun;
   windowYears: number;
@@ -59,6 +59,8 @@ export default function ProfitCentre({
   note?: string | null;
   /** How far the pass has got — a run of several minutes should not be a blank wait. */
   progress?: { scanned: number; changes: number; of: number | null; done: boolean } | null;
+  /** What became of the last press — including a start that was silently dropped. */
+  lastOutcome?: { error?: string; notStarted?: boolean; at?: string } | null;
   canRun: boolean;
   onRun: (dry: boolean) => void;
 }) {
@@ -94,6 +96,18 @@ export default function ProfitCentre({
           </Button>
           {!canRun && <Typography sx={{ fontSize: 12.5, color: FAINT, alignSelf: "center" }}>Admins only.</Typography>}
         </Box>
+        {!running && lastOutcome?.error && (
+          <Box sx={{
+            display: "flex", alignItems: "center", gap: 1, mt: 1.5, px: 1.25, py: 1,
+            border: "1px solid #e8a3a0", borderRadius: "9px", bgcolor: "#fdf4f4",
+          }}>
+            <Typography sx={{ fontSize: 12.5, color: INK }}>
+              {lastOutcome.notStarted ? "The last press did not start: " : "The last run stopped: "}
+              {lastOutcome.error}
+              {lastOutcome.at ? ` (${lastOutcome.at.slice(11, 16)} UTC)` : ""}
+            </Typography>
+          </Box>
+        )}
         {(running || note) && (
           <Box sx={{
             display: "flex", alignItems: "center", gap: 1, mt: 1.5, px: 1.25, py: 1,

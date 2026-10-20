@@ -1078,6 +1078,10 @@ export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "rech
 export async function startAction(action: Action, opts: { dry?: boolean; limit?: number; windowMin?: number; years?: number; by: string }): Promise<{ started: boolean; note: string }> {
   if (await currentRun()) return { started: false, note: "another segmentation run is in progress" };
   const dry = !!opts.dry;
+  // `exclusive` returns null when the engine lock is held - the watcher takes it
+  // every two minutes - and this is fire-and-forget, so without the .then below
+  // the press was answered "started", nothing ran, and nothing said so. That is
+  // the "I press and nothing happens" SARCLA hit (20.10.2026).
   void exclusive(action, opts.by, async (beat) => {
     try {
       const r =
@@ -1098,6 +1102,11 @@ export async function startAction(action: Action, opts: { dry?: boolean; limit?:
       console.warn(`[segmentation] ${action} failed: ${(e as Error).message}`);
       await kvSet(`segmentation:last:${action}`, { error: (e as Error).message, at: nowIso(), by: opts.by });
     }
+  }).then(async (r) => {
+    if (r !== null) return;
+    const msg = "did not start - another segmentation job holds the engine lock (the watcher runs every 2 minutes). Try again in a minute.";
+    console.warn(`[segmentation] ${action} ${msg}`);
+    await kvSet(`segmentation:last:${action}`, { error: msg, at: nowIso(), by: opts.by, notStarted: true });
   });
   return { started: true, note: `${action}${dry ? " (preview)" : ""} started` };
 }
