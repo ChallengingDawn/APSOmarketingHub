@@ -47,7 +47,7 @@ import {
   type Group, type HFilters, type HFlowNode, type HandoverData, type Outcome, type Stats,
 } from "@/lib/marketingKpis/handoverCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
-import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
+import { MONTHS, everyWhileSeen, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio } from "./ExplorerKit";
 import { HALF_ROWS, Paged, Pick } from "./Lead";
@@ -479,7 +479,8 @@ const CARDS: Record<string, { title: string; draw: (c: Ctx) => React.ReactNode }
 // The nutshell's hand-over cards share one read of the tickets.
 // While HubSpot is read again the answer is the last one: asked again every 20 s until the new one is there
 // (SARCLA 19.10: a card in the nutshell "didn't change" after a deploy - it kept the answer of its first visit).
-const shared: { v: HandoverData | null; p: Promise<void> | null; again: boolean; subs: Set<() => void> } = { v: null, p: null, again: false, subs: new Set() };
+// ...and every ten minutes while the page is in view (SARCLA 20.10: a card left open "never refreshed"): one timer for all the cards.
+const shared: { v: HandoverData | null; p: Promise<void> | null; again: boolean; subs: Set<() => void>; stop?: () => void } = { v: null, p: null, again: false, subs: new Set() };
 function loadShared() {
   if (shared.p) return;
   shared.p = fetch("/api/reporting/marketing-kpis/handover").then((r) => r.json())
@@ -488,7 +489,13 @@ function loadShared() {
 }
 function useSharedHandover(): HandoverData | null {
   const [, tick] = useState(0);
-  useEffect(() => { const f = () => tick((n) => n + 1); shared.subs.add(f); if (!shared.v) loadShared(); return () => { shared.subs.delete(f); }; }, []);
+  useEffect(() => {
+    const f = () => tick((n) => n + 1);
+    shared.subs.add(f);
+    if (!shared.v) loadShared();
+    shared.stop ??= everyWhileSeen(loadShared);
+    return () => { shared.subs.delete(f); if (!shared.subs.size) { shared.stop?.(); shared.stop = undefined; } };
+  }, []);
   return shared.v;
 }
 

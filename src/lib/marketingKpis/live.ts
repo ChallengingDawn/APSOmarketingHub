@@ -103,9 +103,13 @@ export function marketingKpisLive(): Promise<SlowState<LiveKpis>> {
   // a read stored before Reach came from Search Console (17.10.2026) has neither its months nor its error:
   // it is out of date at once, so the next visit reads again (the stored figures show meanwhile)
   // and one stored before R09, R11 and the SEA networks (18.10.2026) likewise
-  // a source waiting for a permission is asked again within half an hour - it opens when SARCLA accepts it in HubSpot (18.10.2026)
-  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length || v?.waiting?.R11 ? RETRY_FAILED_MS
-    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || !v?.breakdowns?.seaNetworks || !v?.fx || !v?.series?.MSV || !v?.series?.P01G || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
+  // a source waiting for a permission is asked again with the next read, 6 hours on - not every half hour: the
+  // hub now reads in the background, and a 30-minute retry became 48 full reads a day while the e-mail scope
+  // stayed refused (9f, 20.10.2026; SARCLA: "avoid at all costs" pages that only refresh when opened)
+  // the SEA networks only once a month is complete - in January there is none, and a missing part made the
+  // read out of date at once, over and over, all month (9f, 20.10.2026)
+  return slowReport(KEY, (v) => (Object.keys(v?.errors ?? {}).length ? RETRY_FAILED_MS
+    : !v?.series?.R04 || !v?.series?.R01 || !v?.series?.R09 || (!v?.series?.R11 && !v?.waiting?.R11) || (!v?.breakdowns?.seaNetworks && (v?.monthsDone ?? 0) > 0) || !v?.fx || !v?.series?.MSV || !v?.series?.P01G || (msAdsSheetId() && !v?.breakdowns?.msAds) || !v?.breakdowns?.roas ? 0 : TTL_MS), build);
 }
 
 const ms = (y: number, m: number) => String(Date.UTC(y, m, 1)); // m 0-based, rolls over

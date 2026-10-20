@@ -45,7 +45,7 @@ import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import { CHANNELS, HOWS, answersOf, channelLabel, emptyPath, howLabel, flowOf, inWin, keep, monthly, outcomeOf, pathBy, pathOf, sumPaths, type Flow, type FlowNode, type FlowStep, type LeadFilters, type LeadRow, type LeadsData, type PathCounts } from "@/lib/marketingKpis/leadsCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
-import { MONTHS, useSlow, type MkState, type MonthWindow } from "./data";
+import { MONTHS, everyWhileSeen, useSlow, type MkState, type MonthWindow } from "./data";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { PeriodPicker, Table, change, monthsLabel, n0, ratio, withChange } from "./ExplorerKit";
 import { TileActions } from "./tiles/TileActions";
@@ -283,7 +283,9 @@ export function Paged<T>({ items, size = 10, children }: { items: T[]; size?: nu
 // The nutshell's lead tiles share one read of the leads (the answer is ~1 MB - not once per tile).
 // While HubSpot is read again the answer is the last one: asked again every 20 s until the new one is there
 // (SARCLA 19.10: "How the leads split didn't change in the nutshell" - it kept the answer of its first visit).
-const shared: { v: LeadsData | null; p: Promise<void> | null; again: boolean; subs: Set<() => void> } = { v: null, p: null, again: false, subs: new Set() };
+// ...and every ten minutes while the page is in view, as the other pages ask (SARCLA 20.10: a card left open
+// "never refreshed" - it kept its first answer until the browser was reloaded): one timer for all the cards.
+const shared: { v: LeadsData | null; p: Promise<void> | null; again: boolean; subs: Set<() => void>; stop?: () => void } = { v: null, p: null, again: false, subs: new Set() };
 function loadShared() {
   if (shared.p) return;
   shared.p = fetch("/api/reporting/marketing-kpis/leads")
@@ -303,7 +305,8 @@ function useSharedLeads(): LeadsData | null {
     const f = () => tick((n) => n + 1);
     shared.subs.add(f);
     if (!shared.v) loadShared();
-    return () => { shared.subs.delete(f); };
+    shared.stop ??= everyWhileSeen(loadShared);
+    return () => { shared.subs.delete(f); if (!shared.subs.size) { shared.stop?.(); shared.stop = undefined; } };
   }, []);
   return shared.v;
 }
