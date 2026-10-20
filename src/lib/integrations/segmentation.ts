@@ -33,7 +33,11 @@ const LOCK = 4_107_204;
 const KV = {
   state: "segmentation:state", ownApp: "segmentation:own-app-id", run: "segmentation:run", edits: "segmentation:potential-edits",
   yearlyPlan: "segmentation:yearly-plan", yearlyApplied: "segmentation:yearly-applied", yearlySummary: "segmentation:yearly-summary",
+  pcProgress: "segmentation:profit-centre-progress",
 } as const;
+
+/** What a pass has got through so far — so a run of several minutes is not a blank wait. */
+export type PcProgress = { at: string; scanned: number; changes: number; of: number | null; done: boolean } | null;
 const STALE_MS = 3 * 60 * 60_000;
 
 const curYear = () => new Date().getUTCFullYear();
@@ -274,6 +278,7 @@ export async function status() {
     last_web: st.last_web ?? null, watcher_last: st.watcher_last ?? null,
     last_yearly: st.last_yearly ?? null, yearly_done: st.yearly_done ?? null, year: curYear(),
     last_profit_centre: st.last_profit_centre ?? null, pc_window_years: PC_WINDOW_YEARS, pc_first_year: PC_FIRST_YEAR,
+    pc_progress: (await kvGet<PcProgress>(KV.pcProgress)) ?? null,
     yearly_summary: (await kvGet<Omit<YearlyPlan, "rows"> & { rowCount: number }>(KV.yearlySummary)) ?? null,
     running: await currentRun(),
     engine: process.env.SEGMENTATION_ENGINE === "live" ? "hub" : "connector",
@@ -991,6 +996,11 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
         }
       })()
     : allCompanies(props);
+  // Roughly how many there are, so the count means something while it climbs.
+  // A search total is one call and may be a little stale; it is a denominator,
+  // not a fact, and the tab says "of about".
+  const total = changedIds ? changedIds.length : await searchTotal(null).catch(() => null);
+  await kvSet(KV.pcProgress, { at: nowIso(), scanned: 0, changes: 0, of: total, done: false } satisfies NonNullable<PcProgress>);
   for await (const page of pagesOf) {
     for (const res of page) {
       scanned += 1;
@@ -1013,9 +1023,12 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
       else stats.no_change += 1;
     }
     pages += 1;
+    // Every page, not every fiftieth: the point is to watch it move.
+    await kvSet(KV.pcProgress, { at: nowIso(), scanned, changes: changes.length, of: total, done: false } satisfies NonNullable<PcProgress>);
     if (pages % 50 === 0) await beat();
     if (maxPages && pages >= maxPages) break;
   }
+  await kvSet(KV.pcProgress, { at: nowIso(), scanned, changes: changes.length, of: total, done: true } satisfies NonNullable<PcProgress>);
   return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(yearsBack), mode: changedIds ? "changed" as const : "all" as const, log: [] as string[] };
 }
 

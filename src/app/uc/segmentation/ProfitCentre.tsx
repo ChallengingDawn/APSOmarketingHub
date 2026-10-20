@@ -47,7 +47,7 @@ function Figure({ label, value, note, tone }: { label: string; value: string; no
 }
 
 export default function ProfitCentre({
-  last, windowYears, running, runningWhat, runningSince, note, canRun, onRun,
+  last, windowYears, running, runningWhat, runningSince, note, progress, canRun, onRun,
 }: {
   last: PcRun;
   windowYears: number;
@@ -57,6 +57,8 @@ export default function ProfitCentre({
   runningSince?: string | null;
   /** What the last button press answered. Without it, pressing looks like nothing. */
   note?: string | null;
+  /** How far the pass has got — a run of several minutes should not be a blank wait. */
+  progress?: { scanned: number; changes: number; of: number | null; done: boolean } | null;
   canRun: boolean;
   onRun: (dry: boolean) => void;
 }) {
@@ -101,9 +103,15 @@ export default function ProfitCentre({
             {running && <CircularProgress size={13} sx={{ color: "#eda100" }} />}
             <Typography sx={{ fontSize: 12.5, color: INK }}>
               {running
-                ? `${runningWhat ?? "A run"} is going${runningSince ? ` since ${runningSince.slice(11, 16)} UTC` : ""} — the figures below are the last FINISHED pass. This updates itself.`
+                ? `${runningWhat ?? "A run"} is going${runningSince ? ` since ${runningSince.slice(11, 16)} UTC` : ""} — the figures below are the last FINISHED pass.`
                 : note}
             </Typography>
+            {running && progress && !progress.done && (
+              <Typography sx={{ fontSize: 12.5, color: INK, fontWeight: 600, fontVariantNumeric: "tabular-nums", ml: "auto" }}>
+                {num(progress.scanned)}{progress.of ? ` of about ${num(progress.of)}` : ""} read
+                {progress.changes ? ` · ${num(progress.changes)} to change` : ""}
+              </Typography>
+            )}
           </Box>
         )}
         <Typography sx={{ fontSize: 12, color: FAINT, mt: 1 }}>

@@ -7,7 +7,7 @@
 // connector at the switch (SEGMENTATION_ENGINE=live); until then this page shows
 // the portfolio and runs previews, and the connector keeps writing.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
@@ -64,6 +64,7 @@ type Status = {
   running: { what: string; started: string; by: string } | null;
   engine: "hub" | "connector"; state_imported: string | null; own_app: string | null;
   last_profit_centre: PcRun; pc_window_years: number;
+  pc_progress: { scanned: number; changes: number; of: number | null; done: boolean } | null;
 };
 type Breakdown = {
   total: number; with_apso_customer: number; empty: number; by_value: Record<string, number>; other: number; lost_with_current_revenue: number;
@@ -253,11 +254,24 @@ export default function SmartSegmentation() {
     return () => clearTimeout(t);
   }, [running, tick]);
 
+  // "profit-centre started" used to sit there for ever: it was set on the press
+  // and cleared only by the NEXT press, so a finished run still said "started"
+  // and the page read as stuck (SARCLA, 20.10.2026).
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) setNote(null);
+    wasRunning.current = running;
+  }, [running]);
+
   const act = useCallback(async (what: string, dry: boolean, extra = "") => {
     setNote(null);
     const j = await fetch(`/api/uc/segmentation/action?do=${what}&dry=${dry ? 1 : 0}${extra}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
-    setNote(j?.ok ? j.data.note : j?.error ?? "Could not start.");
+    const ok = Boolean(j?.ok);
+    setNote(ok ? j.data.note : j?.error ?? "Could not start.");
     setTimeout(() => setTick((n) => n + 1), 1500);
+    // A run short enough to finish between two polls never flips `running`, so
+    // the effect above never fires. An error stays until the next press.
+    if (ok) setTimeout(() => setNote((cur) => (cur === j.data.note ? null : cur)), 90_000);
   }, []);
   const toggleWeb = useCallback(async (on: boolean) => {
     const j = await fetch(`/api/uc/segmentation/web-toggle?enabled=${on ? 1 : 0}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
@@ -339,6 +353,7 @@ export default function SmartSegmentation() {
           runningWhat={st?.running?.what ?? null}
           runningSince={st?.running?.started ?? null}
           note={note}
+          progress={st?.pc_progress ?? null}
           canRun={role === "admin"}
           onRun={(dry) => void act("profit-centre", dry)}
         />
