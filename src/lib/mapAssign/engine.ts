@@ -36,11 +36,13 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
-import type { CompanyChange, CountrySummary, LayerData, MapData, NoCompany, Owner, PerformisData, ScanInfo } from "./api";
+import type { ChangesPage, CompanyChange, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, PerformisData, RedirectionConflict, ScanInfo } from "./api";
+import { listRules } from "@/lib/ownerRules/store";
+import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 import {
-  DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, contactChanges, emailDomain, fullDue, internalFromList, isInternal,
-  layerPoints, mergeRules, ownContacts, placeZip, saeStats, validateLive, validateRules, zipIndex, zurich,
-  type Checked, type Internal, type LayerRow, type RulesPatch, type SaeRow, type Settings, type ZipIndex,
+  DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy,
+  internalFromList, isInternal, layerPoints, likeEscape, mergeRules, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
+  type Checked, type ConflictRow, type Internal, type LayerRow, type RulesPatch, type SaeRow, type Settings, type ZipIndex,
 } from "./plan";
 
 const LOCK = 4_107_233;
@@ -65,6 +67,8 @@ export const NO_COUNTRY = "??";
 const KV = {
   rules: "mapAssign:rules", live: "mapAssign:live", settings: "mapAssign:settings",
   last: "mapAssign:last", lastFull: "mapAssign:lastFull", cursor: "mapAssign:cursor",
+  /** answers to Owner redirection conflicts: ruleId -> {decision, sig, at, by} */
+  redirections: "mapAssign:redirections",
 };
 
 /** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
@@ -216,6 +220,35 @@ export async function saveSettings(x: unknown, by: string): Promise<Settings> {
   return next;
 }
 
+/* ── Owner redirection against the map ────────────────────────────────── */
+
+type RedirAnswer = { decision: "map" | "rule"; sig: string; at: string; by: string };
+type Redir = { enabled: PubRule[]; held: Set<string> };
+export async function redirAnswers(): Promise<Record<string, RedirAnswer>> {
+  const x = await kvGet<Record<string, RedirAnswer>>(KV.redirections);
+  return x && typeof x === "object" ? x : {};
+}
+/** Store (or, null, forget) the answer to a rule's conflict - tied to the rule as it is now. */
+export async function saveRedirAnswer(rule: PubRule, decision: "map" | "rule" | null, by: string): Promise<void> {
+  const all = await redirAnswers();
+  if (decision) all[rule.id] = { decision, sig: redirectionSig(rule), at: new Date().toISOString(), by };
+  else delete all[rule.id];
+  await kvSet(KV.redirections, all);
+}
+/** The enabled Owner redirection rules, in order, and those kept over the map whose rule has not changed since.
+ *  Owner redirection unreadable = nothing held (the map decides as before). */
+async function redirState(): Promise<Redir> {
+  try {
+    const enabled = publishedRules(await listRules());
+    const answers = await redirAnswers();
+    const held = new Set(enabled.filter((r) => answers[r.id]?.decision === "rule" && answers[r.id].sig === redirectionSig(r)).map((r) => r.id));
+    return { enabled, held };
+  } catch (e) {
+    console.warn(`[map-assign] owner redirection rules unreadable: ${msg(e)}`);
+    return { enabled: [], held: new Set() };
+  }
+}
+
 /* ── HubSpot reads ─────────────────────────────────────────────────────── */
 
 type Props = Record<string, string | null>;
@@ -364,13 +397,15 @@ type Ctx = {
   year: number;
   /** a full read: every company's contacts are counted */
   full: boolean;
+  /** the Owner redirection rules kept over the map (declined conflicts) */
+  redir: Redir;
   signal?: AbortSignal; companies: number; contacts: number; differ: number;
 };
 async function context(signal?: AbortSignal): Promise<Ctx> {
   const [rules, live, settings] = [await getRules(), await getLive(), await getSettings()];
   return {
     rules: rules.value, rulesAt: rules.at, live: live.value, settings, own: await owners(), internal: await internal(), geo: await loadGeo(),
-    year: yearNow(), full: false, signal, companies: 0, contacts: 0, differ: 0,
+    year: yearNow(), full: false, redir: await redirState(), signal, companies: 0, contacts: 0, differ: 0,
   };
 }
 const stop = (ctx: Ctx) => { if (ctx.signal?.aborted) throw new Error("stopped: the run's time limit"); };
@@ -390,14 +425,21 @@ const nz = (x: string | null | undefined) => { const s = String(x ?? "").trim();
 const num = (x: string | null | undefined) => { const s = String(x ?? "").trim(); const n = Number(s); return s && Number.isFinite(n) ? n : null; };
 const factsOf = (r: Pick<Rec, "company_id" | "country_raw" | "country_custom" | "zip" | "region" | "sae" | "erp_id">): CompanyFacts =>
   ({ id: r.company_id, country: r.country_raw, countryCustom: r.country_custom, zip: r.zip, region: r.region, sae: r.sae, erpId: r.erp_id });
-const decideRec = (f: CompanyFacts, ctx: Pick<Ctx, "rules" | "own">): Decision =>
-  decide(f, ctx.rules, (o) => ctx.own.active.has(String(o)), (o) => ctx.own.names.get(String(o)) ?? String(o));
+/** The rules' decision - unless an Owner redirection rule SARCLA kept over the map holds the company (owner_now: the
+ *  rules by owner read it). */
+const decideRec = (f: CompanyFacts, ctx: Pick<Ctx, "rules" | "own" | "redir">, ownerNow: string | null): Decision => {
+  const d = decide(f, ctx.rules, (o) => ctx.own.active.has(String(o)), (o) => ctx.own.names.get(String(o)) ?? String(o));
+  const h = heldBy({ country_raw: f.country ?? null, country_custom: f.countryCustom ?? null, owner_now: ownerNow }, ctx.redir.enabled, ctx.redir.held);
+  if (!h || String(h.toOwner) === String(d.owner)) return d;
+  const name = (o: string) => ctx.own.names.get(String(o)) ?? String(o);
+  return { owner: String(h.toOwner), via: "redirection", country: d.country, detail: `Owner redirection keeps it with ${name(h.toOwner)} - the map would give ${name(d.owner)}`, flags: d.flags };
+};
 
 function toRec(o: Obj, ctx: Ctx): Rec {
   const p = o.properties ?? {};
   const raw = { company_id: String(o.id), country_raw: nz(p.country), country_custom: nz(p.country_custom), zip: nz(p.zip), sae: nz(p.sae_performis), erp_id: nz(p.erp_customer_id) };
   const base = { ...raw, region: regionOf(ctx.geo, countryOf(factsOf({ ...raw, region: null })), raw.zip) };
-  const d = decideRec(factsOf(base), ctx);
+  const d = decideRec(factsOf(base), ctx, nz(p.hubspot_owner_id));
   return {
     ...base, name: nz(p.name), country: d.country, owner_now: nz(p.hubspot_owner_id), region_now: nz(p.region_responsibility),
     owner_decided: d.owner, via: d.via, detail: d.detail, flags: d.flags.join(","), contacts_off: null, contacts_checked: false, modified_at: nz(p.hs_lastmodifieddate),
@@ -827,17 +869,17 @@ async function noCompanyScan(ctx: Ctx, by: string, w: Wrote): Promise<number> {
 export async function redecideAll(): Promise<number> {
   await ensureMapAssign();
   const own = await owners();
-  const ctx = { rules: (await getRules()).value, own };
+  const ctx = { rules: (await getRules()).value, own, redir: await redirState() };
   // the region again too (the postcode files ship with the hub: a new deploy may place a postcode)
   const geo = await loadGeo();
   const r = await query<{
     company_id: string; country: string | null; country_raw: string | null; country_custom: string | null; zip: string | null; region: string | null;
-    sae: string | null; erp_id: string | null; owner_decided: string; via: string; detail: string | null; flags: string[] | null;
-  }>(`SELECT company_id, country, country_raw, country_custom, zip, region, sae, erp_id, owner_decided, via, detail, flags FROM apsomh_map_assign`);
+    sae: string | null; erp_id: string | null; owner_now: string | null; owner_decided: string; via: string; detail: string | null; flags: string[] | null;
+  }>(`SELECT company_id, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, owner_decided, via, detail, flags FROM apsomh_map_assign`);
   const changed: { id: string; country: string | null; region: string | null; owner: string; via: string; detail: string; flags: string; reset: boolean }[] = [];
   for (const row of r.rows) {
     const region = regionOf(geo, countryOf(factsOf({ ...row, region: null })), row.zip);
-    const d = decideRec(factsOf({ ...row, region }), ctx);
+    const d = decideRec(factsOf({ ...row, region }), ctx, row.owner_now);
     const flags = d.flags.join(",");
     if (d.owner === row.owner_decided && d.via === row.via && d.detail === (row.detail ?? "") && flags === (row.flags ?? []).join(",") && d.country === row.country
       && region === (row.region ?? null)) continue;
@@ -1003,6 +1045,13 @@ type DbNoCompany = {
   suggested_owner: string | null; link: string | null; candidates: NoCompany["candidates"] | null;
 };
 const iso = (d: Date | string | null) => (d ? new Date(d).toISOString() : null);
+const toChange = (r: DbChange): CompanyChange => ({
+  id: String(r.company_id), name: r.name ?? `Company ${r.company_id}`, country: r.country, zip: r.zip, sae: r.sae,
+  ownerNow: r.owner_now, regionNow: r.region_now,
+  decided: { owner: r.owner_decided, via: r.via, country: r.country, detail: r.detail ?? "", flags: r.flags ?? [] },
+  contactsOff: r.contacts_off ?? 0,
+  wrote: r.wrote_at ? { at: iso(r.wrote_at)!, ok: !r.wrote_error, ...(r.wrote_error ? { error: r.wrote_error } : {}) } : null,
+});
 
 export async function mapData(admin: boolean): Promise<MapData> {
   await ensureMapAssign();
@@ -1038,13 +1087,7 @@ export async function mapData(admin: boolean): Promise<MapData> {
      ORDER BY c.n DESC, m.country NULLS LAST, (m.owner_now IS DISTINCT FROM m.owner_decided) DESC, m.name NULLS LAST, m.company_id
      LIMIT ${CHANGES_SHOWN}`,
   );
-  const changes: CompanyChange[] = ch.rows.map((r) => ({
-    id: String(r.company_id), name: r.name ?? `Company ${r.company_id}`, country: r.country, zip: r.zip, sae: r.sae,
-    ownerNow: r.owner_now, regionNow: r.region_now,
-    decided: { owner: r.owner_decided, via: r.via, country: r.country, detail: r.detail ?? "", flags: r.flags ?? [] },
-    contactsOff: r.contacts_off ?? 0,
-    wrote: r.wrote_at ? { at: iso(r.wrote_at)!, ok: !r.wrote_error, ...(r.wrote_error ? { error: r.wrote_error } : {}) } : null,
-  }));
+  const changes: CompanyChange[] = ch.rows.map(toChange);
 
   const nc = await query<DbNoCompany>(
     `SELECT contact_id, email, name, createdate, owner_id, why, suggested_owner, link, candidates FROM apsomh_map_assign_nocompany
@@ -1055,11 +1098,71 @@ export async function mapData(admin: boolean): Promise<MapData> {
     why: r.why ?? "", suggestedOwner: r.suggested_owner, link: r.link, candidates: Array.isArray(r.candidates) ? r.candidates : [],
   }));
 
+  const mv = await query<{ country: string; from: string | null; to: string; companies: number; contacts: number }>(
+    `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, owner_now AS "from", owner_decided AS "to",
+       (count(*) FILTER (WHERE owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided))::int AS companies,
+       COALESCE(sum(contacts_off), 0)::int AS contacts
+     FROM apsomh_map_assign
+     WHERE owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided OR contacts_off > 0
+     GROUP BY 1, 2, 3 ORDER BY 4 DESC, 5 DESC`,
+  );
+  const moves: MoveStat[] = mv.rows.map((m) => ({ country: m.country, from: m.from, to: m.to, companies: m.companies, contacts: m.contacts }));
+
   const latest = [rules, live].filter((x) => x.at).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
   return {
     rules: rules.value, seeded: SEED, owners: own?.list ?? [], live: live.value, last, countries, changes, noCompany, admin,
+    moves, conflicts: await conflicts(),
     by: latest?.by ?? null, at: latest?.at ?? null,
   };
+}
+
+/** Owner redirection rules against the map: every enabled rule that gives stored companies to someone the map would
+ *  not, and every rule with an answer (so an accepted one shows as switched off). Open ones first. */
+export async function conflicts(): Promise<RedirectionConflict[]> {
+  let stored;
+  try { stored = await listRules(); } catch (e) { console.warn(`[map-assign] owner redirection rules unreadable: ${msg(e)}`); return []; }
+  const enabled = publishedRules(stored);
+  const answers = await redirAnswers();
+  const rows = await query<ConflictRow>(`SELECT country, country_raw, country_custom, owner_now, owner_decided FROM apsomh_map_assign`);
+  const counts = conflictCounts(rows.rows, enabled);
+  const out: RedirectionConflict[] = [];
+  stored.forEach((r, i) => {
+    const c = counts.get(r.id) ?? { matched: 0, against: [] };
+    const a = answers[r.id];
+    const decision = a ? { decision: a.decision, at: a.at, by: a.by, current: a.sig === redirectionSig(r) } : null;
+    if (!(r.enabled && (c.against.length || decision)) && !(decision && decision.decision === "map")) return;
+    out.push({
+      ruleId: r.id, position: i + 1, enabled: r.enabled, kind: r.kind,
+      countries: r.kind === "country" ? r.countries : [], customCountries: r.kind === "country" ? r.customCountries : [],
+      fromOwner: r.kind === "owner" ? r.fromOwner : null, toOwner: r.toOwner, matched: c.matched, against: c.against, decision,
+    });
+  });
+  const open = (c: RedirectionConflict) => c.enabled && c.against.length > 0 && !(c.decision?.current && c.decision.decision === "rule");
+  return out.sort((x, y) => Number(open(y)) - Number(open(x)) || x.position - y.position);
+}
+
+/** One move's companies (Differences): country, owner now ("" = nobody), owner by the rules; a search on name,
+ *  postcode or SAE; 50 a page, by name. */
+export async function changesPage(f: { country?: string | null; from?: string | null; to?: string | null; q?: string | null; offset?: number }): Promise<ChangesPage> {
+  await ensureMapAssign();
+  const where = [`(m.owner_now IS DISTINCT FROM m.owner_decided OR m.region_now IS DISTINCT FROM m.owner_decided OR m.contacts_off > 0)`];
+  const args: unknown[] = [];
+  const arg = (v: unknown) => { args.push(v); return `$${args.length}`; };
+  if (f.country) where.push(f.country === NO_COUNTRY ? `m.country IS NULL` : `m.country = ${arg(f.country)}`);
+  if (f.from !== undefined && f.from !== null) where.push(f.from === "" ? `m.owner_now IS NULL` : `m.owner_now = ${arg(f.from)}`);
+  if (f.to) where.push(`m.owner_decided = ${arg(f.to)}`);
+  const q = likeEscape(String(f.q ?? "").trim());
+  if (q) where.push(`(m.name ILIKE ${arg(`%${q}%`)} OR m.zip ILIKE ${arg(`${q}%`)} OR m.sae ILIKE ${arg(`%${q}%`)})`);
+  const offset = Math.max(0, Math.floor(Number(f.offset) || 0));
+  const w = where.join(" AND ");
+  const total = await query<{ n: number }>(`SELECT count(*)::int AS n FROM apsomh_map_assign m WHERE ${w}`, args);
+  const r = await query<DbChange>(
+    `SELECT m.company_id, m.name, m.country, m.zip, m.sae, m.owner_now, m.region_now, m.owner_decided, m.via, m.detail, m.flags,
+       m.contacts_off, m.wrote_at, m.wrote_error
+     FROM apsomh_map_assign m WHERE ${w}
+     ORDER BY m.name NULLS LAST, m.company_id LIMIT 50 OFFSET ${offset}`, args,
+  );
+  return { total: total.rows[0]?.n ?? 0, offset, rows: r.rows.map(toChange) };
 }
 
 /* ── the map's layers (GET ?layers=CC) ─────────────────────────────────── */
@@ -1077,15 +1180,16 @@ export async function layerData(country: string): Promise<LayerData> {
   const year = yearNow();
   const r = await query<{
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
-    last_order: string | null; first_order: string | null; priority: string | null;
+    last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
   }>(
-    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority FROM apsomh_map_assign WHERE country = $1`, [cc],
+    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now
+     FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
   const rows: LayerRow[] = r.rows.map((x) => ({
     id: String(x.company_id), name: x.name, zip: x.zip, owner: x.owner_now,
     // a row read before New Year holds last year's revenue: none until the next read
     revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
-    lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority,
+    lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now,
   }));
   const ix = await zipsOf(cc);
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;

@@ -5,7 +5,8 @@
 // No HubSpot, no database, relative imports only - tests/map-assign-engine.test.ts runs it as is.
 
 import { cleanZip, saeKey, type AssignRules, type CountryRule, type OwnerId, type Zone } from "./rules";
-import type { PostcodeStat, SaeStat } from "./api";
+import type { PostcodeStat, RedirectionConflict, SaeStat } from "./api";
+import { matches as redirectionMatches, type PubRule } from "../ownerRules/rules";
 
 /* ── settings ──────────────────────────────────────────────────────────── */
 
@@ -317,6 +318,8 @@ export function inYear(d: string | null | undefined, year: number): boolean {
 export type LayerRow = {
   id: string; name: string | null; zip: string | null; owner: OwnerId | null;
   revenue: number | null; lastOrder: string | null; firstOrder: string | null; priority: string | null;
+  /** the Performis SAE as written, the owner by the rules, region_responsibility now - absent in old callers */
+  sae?: string | null; decided?: OwnerId | null; region?: OwnerId | null;
 };
 /**
  * One country's companies per postcode point (PostcodeStat): companies, customers this year (an order this year -
@@ -331,8 +334,17 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     const code = place(r.zip);
     if (!code) { unplaced++; continue; }
     let s = by.get(code);
-    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [] }; by.set(code, s); }
+    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0 }; by.set(code, s); }
     s.companies++;
+    const sae = String(r.sae ?? "").trim().replace(/\s+/g, " ");
+    s.sae![sae] = (s.sae![sae] ?? 0) + 1;
+    const now = String(r.owner ?? "");
+    s.now![now] = (s.now![now] ?? 0) + 1;
+    if (r.decided !== undefined && r.decided !== null) {
+      const dec = String(r.decided);
+      s.decided![dec] = (s.decided![dec] ?? 0) + 1;
+      if (now !== dec || String(r.region ?? "") !== dec) s.change!++;
+    }
     if (inYear(r.lastOrder, year)) s.customers++;
     if (inYear(r.firstOrder, year)) s.newCustomers++;
     const rev = Number(r.revenue);
@@ -352,6 +364,61 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
   const points = [...by.values()].map((s) => ({ ...s, revenue: Math.round(s.revenue * 100) / 100 }));
   points.sort((a, b) => (a.zip < b.zip ? -1 : a.zip > b.zip ? 1 : 0));
   return { points, unplaced };
+}
+
+/** Text for an ILIKE pattern: %, _ and the backslash match themselves. */
+export const likeEscape = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/* ── Owner redirection against the map ────────────────────────────────── */
+
+/** What an answer to a conflict is tied to: the rule's matching and its person. Edit the rule and the answer lapses. */
+export const redirectionSig = (r: PubRule): string =>
+  JSON.stringify(r.kind === "country"
+    ? ["country", [...r.countries].map((x) => x.trim().toLowerCase()).sort(), [...r.customCountries].map((x) => x.trim().toLowerCase()).sort(), String(r.toOwner)]
+    : ["owner", String(r.fromOwner), String(r.toOwner)]);
+
+/** A stored company as the redirection rules read it. */
+export type RedirectionFacts = { country_raw: string | null; country_custom: string | null; owner_now: string | null };
+const asCompany = (c: RedirectionFacts) => ({ country: c.country_raw, country_custom: c.country_custom, hubspot_owner_id: c.owner_now });
+
+/**
+ * The rule SARCLA kept over the map for this company, or null: the FIRST enabled rule that matches it (as Owner
+ * redirection runs them) - and only when that rule is one of `held` (declined conflicts whose rule is unchanged).
+ */
+export function heldBy(c: RedirectionFacts, enabled: PubRule[], held: Set<string>): PubRule | null {
+  if (!held.size) return null;
+  const co = asCompany(c);
+  for (const r of enabled) if (redirectionMatches(r, co)) return held.has(r.id) ? r : null;
+  return null;
+}
+
+export type ConflictRow = RedirectionFacts & { country: string | null; owner_decided: string };
+/**
+ * Per enabled rule: the stored companies it matches (first match wins) and those the map gives to someone else,
+ * by that person (most first), with their countries.
+ */
+export function conflictCounts(rows: ConflictRow[], enabled: PubRule[]): Map<string, Pick<RedirectionConflict, "matched" | "against">> {
+  const out = new Map<string, { matched: number; against: Map<string, { companies: number; countries: Map<string, number> }> }>();
+  for (const r of enabled) out.set(r.id, { matched: 0, against: new Map() });
+  for (const row of rows) {
+    const co = asCompany(row);
+    const r = enabled.find((x) => redirectionMatches(x, co));
+    if (!r) continue;
+    const acc = out.get(r.id)!;
+    acc.matched++;
+    const to = String(row.owner_decided ?? "");
+    if (!to || to === String(r.toOwner)) continue;
+    const a = acc.against.get(to) ?? { companies: 0, countries: new Map<string, number>() };
+    a.companies++;
+    const cc = row.country ?? "??";
+    a.countries.set(cc, (a.countries.get(cc) ?? 0) + 1);
+    acc.against.set(to, a);
+  }
+  return new Map([...out].map(([id, v]) => [id, {
+    matched: v.matched,
+    against: [...v.against].map(([owner, a]) => ({ owner, companies: a.companies, countries: [...a.countries].sort((x, y) => y[1] - x[1]).map(([c]) => c) }))
+      .sort((x, y) => y.companies - x.companies || x.owner.localeCompare(y.owner)),
+  }]));
 }
 
 /* ── the Performis tab ─────────────────────────────────────────────────── */

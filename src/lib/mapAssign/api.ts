@@ -35,6 +35,43 @@ export type NoCompany = {
 
 export type ScanInfo = { at: string; seconds: number; companies: number; contacts: number; mode: "full" | "changes"; error?: string };
 
+/**
+ * Who would go to whom (SARCLA 20.10.2026: Differences "moves by person"): per country, the owner now -> the owner by
+ * the saved rules, over the WHOLE table. from === to: the owner is right, region_responsibility is not.
+ */
+export type MoveStat = {
+  country: string; from: OwnerId | null; to: OwnerId;
+  companies: number;
+  /** their contacts that are off (where counted) */
+  contacts: number;
+};
+
+/** GET ?changes=1&country=&from=&to=&q=&offset=: one move's companies, a page at a time (sorted by name). */
+export type ChangesPage = { total: number; offset: number; rows: CompanyChange[] };
+
+/**
+ * An Owner redirection rule that gives companies to someone the map would not (SARCLA 20.10.2026: "if these rules are
+ * contrary to assignment we need an alert that we accept or decline"). Per rule:
+ *   accept  ("map")  the map wins - the rule is switched off in Owner redirection
+ *   decline ("rule") the rule wins - the map gives the companies it matches to the rule's person and leaves them alone
+ * Counted on the stored companies the rule matches (the first matching rule, as Owner redirection runs them).
+ */
+export type RedirectionConflict = {
+  ruleId: string;
+  /** 1-based, as the Redirections list shows it */
+  position: number;
+  enabled: boolean;
+  kind: "country" | "owner";
+  countries: string[]; customCountries: string[]; fromOwner: OwnerId | null;
+  toOwner: OwnerId;
+  /** stored companies the rule matches */
+  matched: number;
+  /** of those, the map gives to someone else - by that person, most first */
+  against: { owner: OwnerId; companies: number; countries: string[] }[];
+  /** the answer, if any, and whether it still holds (the rule unchanged since) */
+  decision: { decision: "map" | "rule"; at: string; by: string; current: boolean } | null;
+};
+
 export type MapData = {
   rules: AssignRules;
   /** the rules as first seeded from the HubSpot workflows - "back to the start" on the page */
@@ -47,12 +84,21 @@ export type MapData = {
   /** the first 3,000 differences, biggest countries first */
   changes: CompanyChange[];
   noCompany: NoCompany[];
+  /** every move, complete (changes above is cut at 3,000) */
+  moves: MoveStat[];
+  /** Owner redirection rules against the map, open ones first */
+  conflicts: RedirectionConflict[];
   admin: boolean;
   by: string | null; at: string | null;
 };
 
 /** PUT body (admins): any of these. */
-export type MapPut = { rules?: AssignRules; live?: Record<string, boolean>; patch?: { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, import("./rules").CountryRule | null> } };
+export type MapPut = {
+  rules?: AssignRules; live?: Record<string, boolean>;
+  patch?: { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, import("./rules").CountryRule | null> };
+  /** a conflict answered: "map" switches the rule off in Owner redirection, "rule" keeps it over the map, null forgets the answer */
+  redirection?: { ruleId: string; decision: "map" | "rule" | null };
+};
 /** POST body: {action: "run"} a scan now; {action: "link", contactId, companyId} links a contact from the list (admins). */
 export type MapPost = { action: "run" } | { action: "link"; contactId: string; companyId: string };
 
@@ -75,6 +121,15 @@ export type PostcodeStat = {
   priority: Record<string, number>;
   /** the three biggest customers here by revenue */
   top: { id: string; name: string; revenue: number; owner: OwnerId | null }[];
+  /** where it comes from (SARCLA 20.10.2026: "from what it comes - Performis to HubSpot"): the Performis SAE as
+   *  written -> companies ("" = none) */
+  sae?: Record<string, number>;
+  /** owner in HubSpot now -> companies ("" = nobody) */
+  now?: Record<string, number>;
+  /** owner by the saved rules -> companies (the company's own decision: SAE, key account, zone) */
+  decided?: Record<string, number>;
+  /** companies whose owner or region_responsibility differ from the rules */
+  change?: number;
 };
 export type LayerData = {
   country: string; at: string | null;

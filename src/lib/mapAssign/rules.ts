@@ -57,7 +57,8 @@ export type CompanyFacts = {
   erpId?: string | null;
 };
 
-export type Via = "key" | "sae" | "zone" | "default";
+/** "redirection": an Owner redirection rule SARCLA kept over the map (declined the conflict) - set by the engine, not decide() */
+export type Via = "key" | "sae" | "zone" | "default" | "redirection";
 export type Decision = {
   owner: OwnerId;
   via: Via;
