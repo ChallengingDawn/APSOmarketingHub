@@ -81,6 +81,10 @@ export async function register() {
     // (src/lib/ticketDuplicates) - writes nothing to HubSpot. TICKET_DUPLICATES=off stops it.
     const { startTicketDuplicates } = await import("./lib/ticketDuplicates/engine");
     startTicketDuplicates();
+    // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
+    // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
+    const { startTicketValue } = await import("./lib/ticketValue/engine");
+    startTicketValue();
 
     // APSOassistant Chat > Topics: every real chat filed by topic after it ended, from the whole chat in HubSpot
     // (src/lib/chat/topics.ts, a small Claude model, every 20 min). CHAT_TOPICS=off stops it. SARCLA, 18.10.2026.

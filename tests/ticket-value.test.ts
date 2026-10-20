@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  branchOf, decide, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
+  scoreTicket, toNum, unwrapUrl, type Api, type Resp,
+} from "../src/lib/ticketValue/rules";
+import { enrolsOnStage, finalOf, measure, sameValue, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
+
+/** A fake HubSpot: answers by path; every call is recorded. */
+function fake(routes: Record<string, unknown>, calls: string[] = []): Api {
+  const answer = (path: string): Resp => {
+    calls.push(path);
+    for (const [k, v] of Object.entries(routes)) if (path.startsWith(k)) return { status: 200, json: v };
+    return { status: 404, json: {} };
+  };
+  return { get: async (p) => answer(p), post: async (p, b) => answer(`${p} ${JSON.stringify(b)}`), put: async (p) => { calls.push(`PUT ${p}`); return { status: 200, json: {} }; } };
+}
+const none = { results: [] };
+
+test("the Python's to_num: thousands and decimal commas, junk is 0", () => {
+  assert.equal(toNum("1.234,5"), 1234.5);
+  assert.equal(toNum("12,5"), 12.5);
+  assert.equal(toNum(" 1 500 "), 1500);
+  assert.equal(toNum("0.0"), 0);
+  assert.equal(toNum("abc"), 0);
+  assert.equal(toNum(null), 0);
+  assert.equal(toNum("0x10"), 0); // Python's float() refuses hex
+});
+
+test("quantity needs a word, price needs per piece; the first regex that matches wins", () => {
+  assert.equal(findFirstQty("we need 250 pcs of 12x2"), 250);
+  assert.equal(findFirstQty("Menge: 40"), 40);
+  assert.equal(findFirstQty("50x2 O-ring, 8032 Zürich"), null); // no dimensions, no postcodes
+  assert.equal(findFirstQty("1200 Stück"), 1200);
+  assert.equal(findFirstQty("5 ud. de"), 5);
+  assert.equal(findFirstPrice("zu 0,85 EUR/Stück"), 0.85);
+  assert.equal(findFirstPrice("unit price: 12.50"), 12.5);
+  assert.equal(findFirstPrice("12 EUR"), null);
+});
+
+test("articles from shop links and bare 10 digits, not glued to letters or hyphens", () => {
+  const t = unwrapUrl("see https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwww.apsoparts.com%2Fde-CH%2F1010123456-o-ring.html&data=x and 1140401819, DT-1140401820");
+  assert.deepEqual(findArticles(t), ["1010123456", "1140401819"]);
+});
+
+test("sales unit and the scale price per mandant", () => {
+  assert.equal(parseUnitQty("100 Pcs"), 100);
+  assert.equal(parseUnitQty("Pcs"), 1);
+  assert.equal(parseUnitQty("1.000 Pcs"), 1); // as the Python reads it
+  const p = { scale_quantity_1: "1", scale_price_1: "10", scale_quantity_2: "100", scale_price_2: "8", art_price__m100__listed_price: "12", scale_quantity_1__m110: "1", scale_price_1__m110: "11" };
+  assert.equal(pickUnitPrice(p, 150, "M100"), 8);
+  assert.equal(pickUnitPrice(p, 50, "M100"), 10);
+  assert.equal(pickUnitPrice(p, 50, "M110"), 11);
+  assert.equal(pickUnitPrice({ art_price__m100__listed_price: "12" }, 5, "M100"), 12);
+});
+
+test("the branches: erosion before September push before price check before new customers", () => {
+  assert.equal(branchOf({ erosion_key: "x", sept_push_target: "5" }), "erosion");
+  assert.equal(branchOf({ sept_push_target: "5" }), "sept");
+  assert.equal(branchOf({ price_check_key: "k", hs_tag_ids: "43412670" }), "pricecheck");
+  assert.equal(branchOf({ hs_tag_ids: "1;43412983" }), "newcustomer");
+  assert.equal(branchOf({ subject: "x" }), "score");
+  assert.equal(isUnqualified({ subject: "NPS survey reply" }), true);
+  assert.equal(isUnqualified({ hs_tag_ids: "38228151" }), true);
+});
+
+test("tiers in order: the ticket's own field, then its GQS child, then the company", async () => {
+  const direct = await scoreTicket(fake({}), "1", { order_potential_: "1500" });
+  assert.deepEqual([direct.value, direct.source, direct.confidence], [1500, "direct_field", "high"]);
+  const cart = await scoreTicket(fake({}), "1", { subject: "Abandoned cart 1.234,50 €" });
+  assert.deepEqual([cart.value, cart.source], [1234.5, "direct_field"]);
+  const gqs = await scoreTicket(fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": { results: [{ toObjectId: 7 }, { toObjectId: 8 }] },
+    "/crm/v3/objects/tickets/batch/read": { results: [{ id: "7", properties: { hs_pipeline: "1726599376", order_potential_: "99" } }, { id: "8", properties: { hs_pipeline: "1726786775", order_potential_: "4200" } }] },
+  }), "1", { subject: "x" });
+  assert.deepEqual([gqs.value, gqs.source], [4200, "child_gqs"]);
+  const base = await scoreTicket(fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55 }] },
+    "/crm/v3/objects/companies/55": { properties: { mandant: "", yearly_customer_potential: "44471", tickets_count_last_12m: "16" } },
+  }), "1", { subject: "hello" });
+  assert.equal(base.source, "company_baseline");
+  assert.equal(Math.round(base.value * 100) / 100, 277.94);
+  const no = await scoreTicket(fake({ "/crm/v4/objects/tickets/1/associations": none }), "1", { subject: "hello" });
+  assert.deepEqual([no.value, no.source, no.confidence], [0, "unknown", "low"]);
+});
+
+test("the company through the contact is linked (recorded, not sent in the shadow); internal domains never searched", async () => {
+  const calls: string[] = [];
+  const s = await scoreTicket(fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": none,
+    "/crm/v4/objects/tickets/1/associations/contacts": { results: [{ toObjectId: 3 }] },
+    "/crm/v4/objects/contacts/3/associations/companies": { results: [{ toObjectId: 66 }] },
+    "/crm/v3/objects/companies/66": { properties: { yearly_customer_potential: "1200" } },
+  }, calls), "1", { subject: "hello" });
+  assert.equal(s.source, "company_baseline");
+  assert.equal(s.value, 10); // 1200 * 0.1 / 12 without a ticket count
+  assert.equal(s.linked, "66");
+  assert.ok(calls.includes("PUT /crm/v4/objects/tickets/1/associations/default/companies/66"));
+  const calls2: string[] = [];
+  await scoreTicket(fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": none, "/crm/v4/objects/tickets/1/associations/companies": none,
+    "/crm/v4/objects/tickets/1/associations/contacts": { results: [{ toObjectId: 3 }] }, "/crm/v4/objects/contacts/3/associations/companies": none,
+    "/crm/v3/objects/contacts/3": { properties: { email: "x@apsoparts.com" } },
+  }, calls2), "1", { subject: "hello" });
+  assert.ok(!calls2.some((c) => c.includes("/companies/search")));
+});
+
+test("article x quantity through Products & Pricing, per sales unit, with the per-piece bounds", async () => {
+  const s = await scoreTicket(fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55 }] },
+    "/crm/v3/objects/companies/55": { properties: { mandant: "M100", yearly_customer_potential: "0" } },
+    "/crm/v3/objects/2-200042439/search": { results: [{ properties: { sales_unit: "100 Pcs", art_price__m100__listed_price: "25" } }] },
+  }), "1", { subject: "Anfrage", content: "Artikel 1010123456, 500 Stück bitte" });
+  assert.equal(s.source, "product_lookup");
+  assert.equal(s.value, 125); // 500 / 100 x 25
+});
+
+test("main(): a person's value is kept, unqualified stays, unchanged writes nothing", async () => {
+  const api = fake({ "/crm/v4/objects/tickets/1/associations": none });
+  const human = await decide(api, "1", { hs_pipeline: "1726599376", sales_potential_source: "company_baseline", sales_potential_estimate: "50" }, true, "2026-10-20");
+  assert.deepEqual(human.patch, { sales_potential_source: "manual_override", sales_potential_confidence: "high" });
+  const kept = await decide(api, "1", { hs_pipeline: "1726599376", sales_potential_source: "manual_override" }, true, "2026-10-20");
+  assert.equal(kept.patch, null);
+  const unq = await decide(api, "1", { hs_pipeline: "1726599376", sales_potential_source: "unqualified" }, false, "2026-10-20");
+  assert.equal(unq.action, "respect_unqualified");
+  const same = await decide(api, "1", { hs_pipeline: "1726599376", sales_potential_source: "unknown", sales_potential_estimate: "0.0" }, false, "2026-10-20");
+  assert.equal(same.patch, null);
+  assert.equal(same.action, "unchanged(unknown)");
+  const fresh = await decide(api, "1", { hs_pipeline: "1726599376", order_potential_: "300" }, false, "2026-10-20");
+  assert.deepEqual(fresh.patch, { sales_potential_source: "direct_field", sales_potential_confidence: "high", sales_potential_estimate: 300 });
+  const other = await decide(api, "1", { hs_pipeline: "999" }, false, "2026-10-20");
+  assert.equal(other.action, "not_tracked_pipeline");
+  const ero = await decide(api, "1", { erosion_key: "k", erosion_amount_2025: "3388" }, false, "2026-10-20");
+  assert.deepEqual(ero.patch, { sales_potential_confidence: "high", sales_potential_source: "direct_field", sales_potential_estimate: 3388 });
+});
+
+test("a person last = the history's newest entry from the UI or a user", () => {
+  assert.equal(lastEditorIsHuman([{ sourceType: "CRM_UI" }]), true);
+  assert.equal(lastEditorIsHuman([{ sourceType: "INTEGRATION", sourceId: "30109717" }, { sourceType: "CRM_UI" }]), false);
+  assert.equal(lastEditorIsHuman([{ sourceType: "AUTOMATION_PLATFORM", sourceId: "userId:123" }]), true);
+  assert.equal(lastEditorIsHuman([]), false);
+});
+
+test("the KPI rows: created today, closed today, open marker, typed-by-a-person marker", () => {
+  const k = kpiEvents("9", { createdate: "2026-10-20T08:00:00Z", sales_potential_estimate: "40", sales_potential_source: "company_baseline", hs_pipeline_stage: "2338232556" }, "ESO", "2026-10-20");
+  assert.deepEqual(k.upsert, ["sales_funnel|created|tid9", "sales_funnel|pot_created|tid9", "sales_funnel|live|tid9"]);
+  assert.deepEqual(k.archive, ["sales_funnel|mo|tid9"]);
+  const c = kpiEvents("9", { createdate: "2026-10-01T08:00:00Z", closed_date: "2026-10-20T09:00:00Z", sales_potential_estimate: "40", sales_potential_source: "manual_override", hs_pipeline_stage: "2510335189" }, "GQS", "2026-10-20");
+  assert.deepEqual(c.upsert, ["sales_funnel|closed|tid9", "sales_funnel|pot_lost|tid9", "sales_funnel|mo|tid9"]);
+  assert.deepEqual(c.archive, ["sales_funnel|live|tid9"]);
+});
+
+test("the comparison: the same within a cent, '0.0' is 0, no value is not 0", () => {
+  const v = (e: string | null, s: string | null, c: string | null): Values => ({ sales_potential_estimate: e, sales_potential_source: s, sales_potential_confidence: c });
+  assert.equal(sameValue(v("9.07", "company_baseline", "low"), v("9.066", "company_baseline", "low")), true);
+  assert.equal(sameValue(v("0", "unknown", "low"), v("0.0", "unknown", "low")), true);
+  assert.equal(sameValue(v(null, null, null), v("0", "unknown", "low")), false);
+  assert.equal(sameValue(v("0.02", "company_baseline", "low"), v("9.07", "company_baseline", "low")), false);
+  assert.deepEqual(finalOf(v(null, null, null), { sales_potential_estimate: 5, sales_potential_source: "direct_field" }), v("5", "direct_field", null));
+});
+
+test("a stage entry is taken again when the value is unknown, written since yesterday, or older than 10 days", () => {
+  const at = Date.parse("2026-10-20T12:00:00Z");
+  assert.equal(zurichMidnight(at), Date.parse("2026-10-19T22:00:00Z")); // summer time
+  assert.equal(zurichMidnight(Date.parse("2026-12-20T12:00:00Z")), Date.parse("2026-12-19T23:00:00Z"));
+  assert.equal(enrolsOnStage(null, null, at), true);
+  assert.equal(enrolsOnStage("5", "2026-10-19T08:00:00Z", at), true); // yesterday
+  assert.equal(enrolsOnStage("5", "2026-10-15T08:00:00Z", at), false); // 5 days ago
+  assert.equal(enrolsOnStage("5", "2026-10-01T08:00:00Z", at), true); // older than 10 days
+});
+
+test("the figures leave out pending and late rows, and count where they differ", () => {
+  const v = (e: string | null, s: string | null): Values => ({ sales_potential_estimate: e, sales_potential_source: s, sales_potential_confidence: "low" });
+  const row = (verdict: "agree" | "differ" | "missed" | "pending", wf: Values, hub: Values, late?: boolean) => ({ verdict, pipeline: "ESO", trigger: "created" as const, enrols: true, late, hub: { branch: "score", final: hub }, workflow: { wrote: verdict !== "missed", final: wf } });
+  const m = measure([
+    row("agree", v("5", "company_baseline"), v("5", "company_baseline")),
+    row("differ", v("0.0", "unknown"), v("7", "company_baseline")),
+    row("missed", v(null, null), v("4", "company_baseline")),
+    row("pending", v(null, null), v("4", "company_baseline")),
+    row("agree", v("1", "unknown"), v("1", "unknown"), true),
+  ]);
+  assert.deepEqual([m.checked, m.agree, m.differ, m.missed, m.pending, m.late], [3, 1, 1, 1, 1, 1]);
+  assert.equal(m.pairs[0].n, 1);
+  assert.equal(Math.round((m.agreeShare ?? 0) * 100), 33);
+});

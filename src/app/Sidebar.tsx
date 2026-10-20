@@ -101,6 +101,7 @@ import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import Link from "next/link";
 
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
@@ -345,6 +346,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Back Office Distribution", href: "/uc/bo-distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Duplicates & Merges", href: "/uc/ticket-duplicates", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
+      // the workflow "SARCLA | TICKET VALUE CALCULATION", run by the hub (SARCLA, 20.10.2026)
+      { group: "HubSpot apps", label: "Ticket Value", href: "/uc/ticket-value", icon: <PaidOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
