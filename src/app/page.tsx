@@ -37,7 +37,7 @@ import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 const INK = "#15223a";
 const MUTED = "#5d6b85";
 const FAINT = "#8b97ac";
-const ACCENT = "#3b7df6";
+const ACCENT = "#ed1b2f";
 
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
@@ -45,8 +45,12 @@ const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
 };
 
 const glass = {
-  bgcolor: "rgba(255,255,255,.60)",
-  backdropFilter: "blur(20px)",
+  // No backdrop blur. It put every tile on its own compositor layer and
+  // Windows drops ClearType there, which is the "pixelized"/blurry text
+  // SARCLA keeps seeing. The mesh behind is already blurred, so opacity
+  // alone still reads as glass (SARCLA, 19.10.2026).
+  bgcolor: "rgba(255,255,255,.82)",
+  backdropFilter: "none",
   border: "1px solid rgba(255,255,255,.75)",
   boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 14px 36px rgba(31,45,78,.075)",
 };
@@ -63,7 +67,7 @@ const focusRing = {
  * off in one rule instead.
  */
 const rise = (i: number) => ({
-  animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) ${0.05 + i * 0.07}s both`,
+  animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) ${0.05 + i * 0.07}s backwards`,
 });
 
 export default function FrontPage() {

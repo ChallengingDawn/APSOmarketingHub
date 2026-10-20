@@ -55,7 +55,7 @@ export const APPS: HubApp[] = [
     href: "/datatracker",
     name: "Datatracker",
     line: "Live data, customer insight and stock information.",
-    from: "#5b8def", to: "#3461c9", wash: "rgba(91,141,239,.10)", icon: "store",
+    from: "#f2434f", to: "#ed1b2f", wash: "rgba(242,67,79,.10)", icon: "store",
     subs: [
       { name: "Customers", note: "Search and view customer data", href: "/datatracker", icon: "groups", ...BLUE },
       { name: "Articles", note: "Product and part information", href: "/datatracker#articles", icon: "description", ...GREEN },
@@ -69,7 +69,7 @@ export const APPS: HubApp[] = [
     href: "/live",
     name: "Website",
     line: "Who is on the site now, and whether we measure it right. Its reports are in Advanced reporting.",
-    from: "#2ec29a", to: "#13866a", wash: "rgba(46,194,154,.10)", icon: "globe",
+    from: "#c8324a", to: "#9c1030", wash: "rgba(200,50,74,.10)", icon: "globe",
     subs: [
       { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
       { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
@@ -105,7 +105,7 @@ export const APPS: HubApp[] = [
     href: "/projects",
     name: "Marketing & Content",
     line: "Create, manage and optimise our marketing content.",
-    from: "#ef5fa0", to: "#c22c6e", wash: "rgba(239,95,160,.10)", icon: "campaign",
+    from: "#f0617a", to: "#d12a4c", wash: "rgba(240,97,122,.10)", icon: "campaign",
     subs: [
       // Content first, in the order somebody works in: the brain, the studio
       // that reads it, what came out, and the shapes to start from.
@@ -127,7 +127,7 @@ export const APPS: HubApp[] = [
     href: "/journey",
     name: "Customer Journey",
     line: "Understand the customer journey and drive performance.",
-    from: "#9a7bf0", to: "#6a46c9", wash: "rgba(154,123,240,.10)", icon: "trend",
+    from: "#b82a3e", to: "#8c1626", wash: "rgba(184,42,62,.10)", icon: "trend",
     subs: [
       { name: "Funnels", note: "Track conversion stages", href: "/journey/funnels", icon: "filter", ...PINK },
       { name: "Customers", note: "Journey insights and behaviour", href: "/customers", icon: "groups", ...GREEN },
@@ -142,7 +142,7 @@ export const APPS: HubApp[] = [
     href: "/reporting",
     name: "Advanced reporting",
     line: "Every report in the hub, by team.",
-    from: "#4aa3df", to: "#1f6fa8", wash: "rgba(74,163,223,.10)", icon: "chart",
+    from: "#f2654a", to: "#d13a1e", wash: "rgba(242,101,74,.10)", icon: "chart",
     subs: [
       { name: "Digital Growth Reports", note: "Targets and where they stand", href: "/reporting/marketing", icon: "target", ...AMBER },
       // its own tile (SARCLA 20.10.2026)
@@ -167,7 +167,7 @@ export const APPS: HubApp[] = [
     href: "/uc/lifecycle",
     name: "UC & HubSpot Apps",
     line: "Communication, integration and sales tools.",
-    from: "#f5a23c", to: "#c97a10", wash: "rgba(245,162,60,.10)", icon: "hub",
+    from: "#f3804f", to: "#d1551f", wash: "rgba(243,128,79,.10)", icon: "hub",
     subs: [
       // the lifecycle use cases, reported (they run as HubSpot workflows)
       { name: "Use Cases Overview", short: "Overview", note: "Every use case, and every company's lifecycle stage", href: "/uc/lifecycle", icon: "route", ...PURPLE },
@@ -202,7 +202,7 @@ export const APPS: HubApp[] = [
     href: "/connectors",
     name: "Connectors & Integration",
     line: "Where the data comes from, and what each connection writes.",
-    from: "#2fb3a5", to: "#13866a", wash: "rgba(47,179,165,.10)", icon: "cable",
+    from: "#d4564f", to: "#a83128", wash: "rgba(212,86,79,.10)", icon: "cable",
     square: true,
     subs: [
       // one group per connector, the same five pages each (SARCLA, 11.10.2026)

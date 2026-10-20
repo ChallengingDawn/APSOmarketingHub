@@ -33,11 +33,15 @@ import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 const INK = "#15223a";
 const MUTED = "#5d6b85";
 const FAINT = "#8b97ac";
-const ACCENT = "#3b7df6";
+const ACCENT = "#ed1b2f";
 
 const glass = {
-  bgcolor: "rgba(255,255,255,.60)",
-  backdropFilter: "blur(20px)",
+  // No backdrop blur. It put every tile on its own compositor layer and
+  // Windows drops ClearType there, which is the "pixelized"/blurry text
+  // SARCLA keeps seeing. The mesh behind is already blurred, so opacity
+  // alone still reads as glass (SARCLA, 19.10.2026).
+  bgcolor: "rgba(255,255,255,.82)",
+  backdropFilter: "none",
   border: "1px solid rgba(255,255,255,.75)",
   boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 14px 36px rgba(31,45,78,.075)",
 };
@@ -157,10 +161,10 @@ export function HomeBar({ on }: { on?: string }) {
               display: "flex", alignItems: "center", gap: 0.8, px: 1.6, py: 1, borderRadius: "14px",
               textDecoration: "none", fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
               color: lit ? ACCENT : MUTED,
-              bgcolor: lit ? "rgba(59,125,246,.13)" : "transparent",
+              bgcolor: lit ? "rgba(237,27,47,.11)" : "transparent",
               transition: "background-color .18s ease, color .18s ease",
               "& svg": { fontSize: 19 }, ...focusRing,
-              "&:hover": { bgcolor: lit ? "rgba(59,125,246,.18)" : "rgba(21,34,58,.05)", color: lit ? ACCENT : INK },
+              "&:hover": { bgcolor: lit ? "rgba(237,27,47,.16)" : "rgba(21,34,58,.05)", color: lit ? ACCENT : INK },
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             }}>{n.icon}{n.name}</Box>
           );
@@ -173,7 +177,7 @@ export function HomeBar({ on }: { on?: string }) {
           width: { sm: 220, lg: 320 }, px: 1.75, py: 1, borderRadius: "14px",
           bgcolor: "rgba(255,255,255,.8)", border: "1px solid rgba(21,34,58,.08)",
           transition: "border-color .18s ease, box-shadow .18s ease",
-          "&:focus-within": { borderColor: ACCENT, boxShadow: `0 0 0 3px rgba(59,125,246,.16)` },
+          "&:focus-within": { borderColor: ACCENT, boxShadow: `0 0 0 3px rgba(237,27,47,.15)` },
         }}>
           <SearchIcon sx={{ fontSize: 18, color: FAINT }} />
           <Box
@@ -212,7 +216,7 @@ export function HomeBar({ on }: { on?: string }) {
                 sx={{
                   display: "flex", alignItems: "center", gap: 1.25, p: 1, borderRadius: "12px",
                   textDecoration: "none", ...focusRing,
-                  "&:hover": { bgcolor: "rgba(59,125,246,.09)" },
+                  "&:hover": { bgcolor: "rgba(237,27,47,.08)" },
                 }}>
                 <Box sx={{
                   width: 30, height: 30, borderRadius: "9px", flexShrink: 0, display: "grid", placeItems: "center",
