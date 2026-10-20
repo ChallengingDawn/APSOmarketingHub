@@ -153,8 +153,10 @@ const WORKFLOWS: AssignRules = {
     FR: {
       country: "FR",
       // SARCLA 20.10.2026: "starting point is always rule 1" - France too: the SAE first, these zones only for a
-      // company without one (was "map" since 19.10)
+      // company without one (was "map" since 19.10). And in France the SAE "TSA Team" (2,155 companies, all on Jeremy
+      // through Owner redirection) is overruled to Jeremy Borey.
       source: "sae",
+      saeOverride: { "TSA Team": "29117550" }, // Jeremy Borey
       zones: [
         // SARCLA 19.10.2026: Auvergne-Rhône-Alpes (01 03 07 15 26 38 42 43 63 69 73 74) + Bourgogne-Franche-Comté (21 25 39 58 70 71 89 90) -> Jeremy Borey
         { id: "fr-jeremy-borey", owner: "29117550", label: "Jeremy Borey", prefixes: [
@@ -258,7 +260,7 @@ export const SEED_PEOPLE: Record<string, OwnerId[]> = {
   CH: ["1202569408", "29117550", "37053854", "1229976029", "1229999295", "1229976031", "1229976026", "32968527", "38431796", "1229976033"], // TSA Team, Jeremy Borey, Jan Kalt, Maya Marzena Gustak, Denis Schawlochow, Luna Bianca Falk, Nancy Pielock, Yani Alioua, James Koeremez, Claudio Saraiva
   DE: ["1202569408", "1229976034", "1229976035", "1229998585", "1229976027", "1229998779", "817497321", "32984810", "1229998780", "817647087"], // TSA Team, Benjamin Nitschke (deactivated), Stefan Wieneber, Adem Can, Hans Peter Höhn, Katja Storm, Marc Frech, Christopher Stahl (deactivated), Christoph Lange, Bernd Rausmann
   IT: ["1202569408", "1229999587", "1255191254", "33688321", "37659386"], // TSA Team, Luca Fantasia, Simone Vitale, Raffaello Lonardi, Vincenzo Di Martino
-  FR: ["1202569408", "29117550"], // TSA Team, Jeremy Borey
+  FR: ["1202569408", "29117550", "38431796"], // TSA Team, Jeremy Borey, James Koeremez (SARCLA 20.10.2026: his 178 French SAE companies go to him)
   NL: ["1202569408", "1230006208"], // TSA Team, Nigel van der Loo
   AT: ["1202569408", "1229976036"], // TSA Team, Tamara Mandl
   PL: ["1202569408", "31218632"], // TSA Team, Paulina Bozek (deactivated)

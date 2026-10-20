@@ -119,7 +119,10 @@ test("map seed: decisions with the engine's rules", () => {
   assert.equal(z.owner, JAN); assert.equal(z.via, "zone");
   assert.equal(d({ country: "CH", zip: "8400" }).owner, TSA);
   assert.equal(d({ country: "FR", zip: "75001", sae: "Borey Jeremy" }).owner, JEREMY); // rule 1: his SAE, wherever in France
-  assert.equal(d({ country: "FR", zip: "69001", sae: "TSA Team" }).owner, TSA); // rule 1: the SAE beats his zone
+  assert.equal(d({ country: "FR", zip: "75001", sae: "TSA Team" }).owner, JEREMY); // rule 1, overruled in France: TSA Team -> Jeremy
+  assert.equal(d({ country: "CH", zip: "8400", sae: "TSA Team" }).owner, TSA); // ... in France only
+  assert.equal(d({ country: "FR", zip: "75001", sae: "Köremez James" }).owner, JAMES); // James works France too
+  assert.equal(d({ country: "FR", zip: "69001", sae: "Kuridza Sandra" }).owner, JEREMY); // Sandra does not work France: rule 2, his zone
   assert.equal(d({ country: "FR", zip: "75001" }).owner, TSA); // no SAE: rule 2, Paris is no zone of his
   assert.equal(d({ country: "FR", zip: "90000" }).owner, JEREMY); // no SAE: rule 2, Territoire de Belfort (SARCLA's 20th)
   const left = d({ country: "DE", zip: "01067" });
@@ -157,7 +160,7 @@ test("map seed: the people of each country (KM workbook, sheet \"Owner by countr
   const count = (cc: string) => SEED.countries[cc].people?.length ?? 0;
   assert.deepEqual(
     Object.fromEntries(["CH", "DE", "IT", "FR", "NL", "AT", "PL", "BE", "LI", "GB", "ES"].map((cc) => [cc, count(cc)])),
-    { CH: 10, DE: 10, IT: 5, FR: 2, NL: 2, AT: 2, PL: 2, BE: 2, LI: 1, GB: 1, ES: 2 },
+    { CH: 10, DE: 10, IT: 5, FR: 3, NL: 2, AT: 2, PL: 2, BE: 2, LI: 1, GB: 1, ES: 2 },
   );
   for (const [cc, list] of Object.entries(SEED_PEOPLE)) {
     assert.equal(list[0], TSA, `${cc}: TSA Team first - a team like the others, in every country`);
