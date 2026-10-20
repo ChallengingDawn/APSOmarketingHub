@@ -81,7 +81,7 @@ export default function AcceptInvite({ params }: { params: Promise<{ token: stri
           <Box component="span" sx={{
             fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
             fontSize: 28, fontWeight: 700, letterSpacing: "-0.01em",
-            background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
+            background: "linear-gradient(95deg,#f2434f,#c0121f)",   // A+P red - only the logo is red (SARCLA 20.10.2026)
             WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
             display: "inline-block", paddingRight: "6px", marginRight: "-4px",
           }}>hub</Box>

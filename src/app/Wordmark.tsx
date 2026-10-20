@@ -38,7 +38,7 @@ export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start
         <Box component="span" sx={{ ...type, fontWeight: 800, letterSpacing: "-0.03em", color: "#15223a" }}>APSO</Box>
         <Box component="span" sx={{
           ...type, fontWeight: 700, letterSpacing: "-0.01em",
-          background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
+          background: "linear-gradient(95deg,#f2434f,#c0121f)",   // A+P red - only the logo is red (SARCLA 20.10.2026)
           WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
           // A painted box wider than the glyphs, or the gradient clips the b.
           display: "inline-block", paddingRight: "6px", marginRight: "-4px",

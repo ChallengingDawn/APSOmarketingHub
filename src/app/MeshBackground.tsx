@@ -11,26 +11,24 @@
 // the wash is the whole lower half of the window: at full strength it stops
 // being a background and starts being the page.
 //
-// The hue is A+P red. It is deliberately desaturated — a saturated red behind a
-// table of customer names competes with the names.
+// The hues are deliberately desaturated — a saturated lavender behind a table of
+// customer names competes with the names.
 //
 // Fixed and pointer-transparent, so it never scrolls, never intercepts a click
 // and costs nothing in layout. It stops moving under prefers-reduced-motion.
 
 import Box from "@mui/material/Box";
 
-export const MESH_BASE = "#fbf8f8";
+export const MESH_BASE = "#f7f8fb";
 
 type Field = { w: string; h: string; pos: object; rgb: string; alpha: number; anim: string };
 
 const FIELDS: Field[] = [
-  // A+P red, pulled a long way back towards warm grey. The hue is the brand's
-  // (#ed1b2f); the saturation is not, because a strong red behind a table of
-  // customer names competes with the names (SARCLA, 19.10.2026).
-  { w: "58%", h: "62%", pos: { left: "-6%", top: "-8%" }, rgb: "233,186,190", alpha: 0.50, anim: "meshA 26s ease-in-out infinite" },
-  { w: "52%", h: "58%", pos: { right: "-8%", top: "-4%" }, rgb: "245,212,206", alpha: 0.46, anim: "meshB 31s ease-in-out infinite" },
-  { w: "60%", h: "60%", pos: { right: "4%", bottom: "-14%" }, rgb: "226,164,172", alpha: 0.44, anim: "meshC 29s ease-in-out infinite" },
-  { w: "46%", h: "52%", pos: { left: "4%", bottom: "-10%" }, rgb: "240,220,214", alpha: 0.40, anim: "meshA 35s ease-in-out infinite reverse" },
+  // Lavender, pulled well back towards grey: it was the one that shouted.
+  { w: "58%", h: "62%", pos: { left: "-6%", top: "-8%" }, rgb: "201,198,226", alpha: 0.50, anim: "meshA 26s ease-in-out infinite" },
+  { w: "52%", h: "58%", pos: { right: "-8%", top: "-4%" }, rgb: "238,214,224", alpha: 0.46, anim: "meshB 31s ease-in-out infinite" },
+  { w: "60%", h: "60%", pos: { right: "4%", bottom: "-14%" }, rgb: "191,215,233", alpha: 0.46, anim: "meshC 29s ease-in-out infinite" },
+  { w: "46%", h: "52%", pos: { left: "4%", bottom: "-10%" }, rgb: "198,224,209", alpha: 0.40, anim: "meshA 35s ease-in-out infinite reverse" },
 ];
 
 /** How much of it to show. `quiet` is for screens with real content on them. */

@@ -78,16 +78,12 @@ export function wrap(opts: {
   footer?: string;
 }): string {
   const button = opts.cta
-    // background-color FIRST, then the gradient: Outlook ignores
-    // linear-gradient and would render a white-on-white button without it.
-    ? `<p style="margin:26px 0 0"><a href="${esc(opts.cta.href)}" style="background-color:#ed1b2f;background-image:linear-gradient(135deg,#ed1b2f 0%,#c0121f 100%);color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;display:inline-block">${esc(opts.cta.label)}</a></p>`
+    ? `<p style="margin:26px 0 0"><a href="${esc(opts.cta.href)}" style="background:#2459d1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:600;display:inline-block">${esc(opts.cta.label)}</a></p>`
     : "";
-  return `<!doctype html><html><body style="margin:0;background:#faf7f7">
+  return `<!doctype html><html><body style="margin:0;background:#f5f6fa">
   <div style="max-width:620px;margin:0 auto;padding:28px 20px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#15223a">
-    <div style="background-color:#ed1b2f;background-image:linear-gradient(135deg,#ed1b2f 0%,#a5101c 100%);border-radius:16px 16px 0 0;padding:17px 24px">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#ffffff">APSO<span style="font-weight:600">hub</span></div>
-    </div>
-    <div style="background:#fff;border-radius:0 0 16px 16px;padding:24px;border:1px solid #f0e2e3;border-top:0">
+    <div style="font-size:21px;font-weight:800;letter-spacing:-.02em;margin-bottom:22px">APSO<span style="color:#ed1b2f;font-weight:700">hub</span></div>
+    <div style="background:#fff;border-radius:16px;padding:24px;border:1px solid #e7eaf1">
       <h1 style="margin:0 0 6px;font-size:18px;font-weight:600;letter-spacing:-.02em">${esc(opts.heading)}</h1>
       <p style="margin:0 0 18px;font-size:14px;color:#5d6b85;line-height:1.5">${esc(opts.intro)}</p>
       ${opts.rows}

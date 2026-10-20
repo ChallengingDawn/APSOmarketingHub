@@ -37,7 +37,7 @@ import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 const INK = "#15223a";
 const MUTED = "#5d6b85";
 const FAINT = "#8b97ac";
-const ACCENT = "#ed1b2f";
+const ACCENT = "#3b7df6";
 
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
