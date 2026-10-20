@@ -1,13 +1,12 @@
 "use client";
-// RETAIN & GROW - EROSION AT STAKE, FROM SARCLA'S EROSION EXCEL (ErosionArticle-2021-2025-Over2-5k, February
-// 2025: one line a customer x article - each year 2021-2025, the open orders, the best year, the gap). Drawn as
-// the other tabs are (SARCLA 20.10.2026: "it's still horrible - learn from the other tabs"), Who are our
-// customers' layout: the figures top right, a tab per breakdown - owner, country, profit centre, customer,
-// article - each one card with two charts whose bars are the filter (at stake; the last 12 months against the
-// best year) and all the figures in a table under them, then the list of every customer and article.
-// Counted (SARCLA chose 20.10): a customer still buying an article but less than in its best year, or stopped -
-// no order for 12 to 24 months; lost over 24 months, one year only and made to order (800x) are left out and
-// can be added under Filters. The rules are in retainCube.ts; the read in retain.ts.
+// RETAIN & GROW. Two Excel files live (SARCLA 20.10.2026):
+//   the retention workbook (Desktop\Retention_breakdown.xlsx) - five tabs drawn in Retention.tsx: retention trend,
+//                cohorts & first order, why they leave, the path (tickets + activities + marketing reach), personas
+//   the erosion Excel (ErosionArticle-2021-2025-Over2-5k) - the last tab, "Articles at stake": per customer and
+//                article the best year 2021-2025 against the last 12 months and the open orders, drawn as Who are
+//                our customers (by owner, country, profit centre, customer, article - two charts whose bars filter
+//                and all the figures - then the list). Counted: still buying less, or stopped 12 to 24 months;
+//                lost, one year only and made to order are added under Filters. Rules in retainCube.ts, read in retain.ts.
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -47,6 +46,7 @@ import { pcLabel } from "@/lib/marketingKpis/engageCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import type { MkState } from "./data";
 import { DimChart } from "./DimChart";
+import { CohortsTab, LeaveTab, PathTab, PersonasTab, RETENTION_TABS, RETENTION_TAB_NAMES, RetentionFigures, RetentionPromoted, RetentionWaiting, TrendTab, useRetention, type RetentionTab } from "./Retention";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { Pager, n0, usePaged } from "./ExplorerKit";
 import { Pick } from "./Lead";
@@ -418,6 +418,7 @@ export function RetainPromoted({ spec, actions, half }: { spec: TileSpec; action
   void half;
   const r = useRetain();
   const [, tab, card] = spec.key.split(":");
+  if ((RETENTION_TABS as readonly string[]).includes(tab)) return <RetentionPromoted tab={tab} card={card} title={spec.title} actions={actions} />;
   const known = tab in DIMS && (card === "gap" || card === "bestnow");
   if (!r.d || !known) {
     return <GlassCard><CardTitle icon={<TrendingDownOutlinedIcon />} tint="amber" title={spec.title} note={r.d ? "This card is no longer on its page - Actions takes it off here." : "Reading the orders…"} right={actions} /></GlassCard>;
@@ -430,12 +431,85 @@ export function RetainPromoted({ spec, actions, half }: { spec: TileSpec; action
 
 /* ── the page ─────────────────────────────────────────────────────────────────── */
 
+type Top = RetentionTab | "articles";
+const TOP_ORDER: Top[] = [...RETENTION_TABS, "articles"];
+const ARTICLE_KEYS = ["by", "owner", "country", "pc", "customer", "article", "kind", "q"];
+
+/** The page: the retention workbook's five tabs, then the articles at stake. */
 export function RetainExplorer({ state }: { state: MkState | null }) {
   void state;
   const params = useSearchParams();
+  const [top, setTop] = useState<Top>(() => {
+    const t = params.get("tab");
+    if (t && (TOP_ORDER as string[]).includes(t)) return t as Top;
+    return t && (TAB_ORDER as string[]).includes(t) ? "articles" : "trend";   // an address from before: a breakdown
+  });
+  const rr = useRetention();
+  useEffect(() => {
+    const u = new URLSearchParams(window.location.search);
+    if (top === "trend") u.delete("tab"); else u.set("tab", top);
+    if (top !== "articles") for (const k of ARTICLE_KEYS) u.delete(k);
+    const s = u.toString();
+    window.history.replaceState(null, "", s ? `?${s}` : window.location.pathname);
+  }, [top]);
+  const act = (tab: string) => (card: string, title: string) => (
+    <TileActions where="tab" start="tab" tile={{ key: `retain:${tab}:${card}`, page: "retain", tab, title, kind: "card" }} />
+  );
+  const v = rr.v;
+  return (
+    <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
+        <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
+          <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
+            Retain &amp; grow
+          </Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
+            {top === "articles"
+              ? <><b style={{ color: INK }}>Articles at stake</b> · each customer and article against its best year - the erosion Excel</>
+              : v ? <><b style={{ color: INK }}>{v.base} against {v.next}{v.partial ? " so far" : ""}</b> · every customer with EUR 100 or more in a year since {v.years[0]}, read {new Date(v.asOf).toLocaleDateString("en-GB")}{rr.computing ? " · reading HubSpot again" : ""} - the retention workbook, live</>
+              : "The retention workbook, live"}
+          </Typography>
+        </Box>
+        {top !== "articles" && v && <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><RetentionFigures v={v} /></Box>}
+      </Box>
+
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
+          <ReportTabs name="retain" tab={top} onSelect={setTop} tabs={TOP_ORDER.map((t) => ({ id: t, label: t === "articles" ? "Articles at stake" : RETENTION_TAB_NAMES[t], count: null }))} />
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="retain" /></Box>
+      </Box>
+
+      <Box role="tabpanel" id={`retain-panel-${top}`} aria-labelledby={`retain-tab-${top}`} sx={{ minWidth: 0 }}>
+        {top === "articles" ? <ArticlesAtStake /> : !v ? <RetentionWaiting r={rr} /> : (
+          <>
+            {top === "trend" && <TrendTab v={v} act={act("trend")} />}
+            {top === "cohorts" && <CohortsTab v={v} act={act("cohorts")} />}
+            {top === "leave" && <LeaveTab v={v} act={act("leave")} />}
+            {top === "path" && <PathTab v={v} act={act("path")} />}
+            {top === "personas" && <PersonasTab v={v} act={act("personas")} />}
+          </>
+        )}
+      </Box>
+
+      {top !== "articles" && v && (
+        <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+          Read from HubSpot every 24 hours: {Object.entries(v.counts).map(([k, n]) => `${n0(n)} ${k}`).join(", ")}{v.readAt ? `, last read ${new Date(v.readAt).toLocaleString("en-GB")}` : ""}. Active = EUR 100 or more of Performis revenue in the year (this year&apos;s from the monthly figures). {v.partial ? `${v.next} is still running: "not back yet" falls as the year goes on. ` : ""}Tables are correlations, not causes.
+          {Object.keys(v.errors).length > 0 && <Box component="span" sx={{ color: RED }}> Not read this time: {Object.entries(v.errors).map(([k, e]) => `${k} (${e})`).join("; ")}.</Box>}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+/** The erosion Excel, live: a breakdown at a time, or the list - its own figures, filters and address. */
+function ArticlesAtStake() {
+  const params = useSearchParams();
   const r = useRetain();
   const d = r.d;
-  const [tab, setTab] = useState<Tab>(() => { const t = params.get("tab") as Tab | null; return t && TAB_ORDER.includes(t) ? t : "owners"; });
+  // "by" - or an address from before, when the tab itself was the breakdown (its "articles" is now this whole tab)
+  const [tab, setTab] = useState<Tab>(() => { const old = params.get("tab"); const t = (params.get("by") ?? (old !== "articles" ? old : null)) as Tab | null; return t && TAB_ORDER.includes(t) ? t : "owners"; });
   const [filters, setFilters] = useState<Filters>(() => ({ owner: params.getAll("owner"), country: params.getAll("country"), pc: params.getAll("pc"), customer: params.getAll("customer"), article: params.getAll("article") }));
   const [kinds, setKinds] = useState<Kind[]>(() => { const k = params.getAll("kind").filter((x) => KIND_INFO.some((i) => i.id === x)) as Kind[]; return k.length ? k : HEADLINE; });
   const [q, setQ] = useState(() => params.get("q") ?? "");
@@ -443,8 +517,9 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const u = new URLSearchParams();
-    if (tab !== "owners") u.set("tab", tab);
+    const u = new URLSearchParams(window.location.search);
+    for (const k of ARTICLE_KEYS) u.delete(k);
+    if (tab !== "owners") u.set("by", tab);
     for (const [k, xs] of Object.entries(filters)) for (const x of xs) u.append(k, x);
     if (!sameKinds(kinds, HEADLINE)) for (const k of kinds) u.append("kind", k);
     if (q.trim() && tab === "list") u.set("q", q.trim());
@@ -493,12 +568,26 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
-          <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>
-            Retain &amp; grow
-          </Typography>
-          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>The last 12 months</b> against each customer&apos;s best year {yearsLabel(d)}, per article · read {new Date(d.asOf).toLocaleDateString("en-GB")}{r.computing ? " · reading HubSpot again" : ""}
+        <Box sx={{ minWidth: 0, display: "grid", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+            <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, mr: 0.5 }}>By</Typography>
+            {TAB_ORDER.map((t) => {
+              const on = t === tab;
+              return (
+                <Box key={t} component="button" type="button" onClick={() => setTab(t)} aria-pressed={on}
+                  sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, font: "inherit", fontSize: "0.8rem", fontWeight: 700, px: 1.25, py: 0.6, borderRadius: "10px", cursor: "pointer" }}>
+                  {t === "list" ? "The list" : DIMS[t].name}
+                </Box>
+              );
+            })}
+            <Box sx={{ flex: 1 }} />
+            <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen || kindsChanged ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
+              sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2, height: 38, whiteSpace: "nowrap", bgcolor: panel || chosen || kindsChanged ? undefined : "#fff" }}>
+              Filters{chosen + (kindsChanged ? 1 : 0) ? ` · ${chosen + (kindsChanged ? 1 : 0)}` : ""}
+            </Button>
+          </Box>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+            The last 12 months against each customer&apos;s best year {yearsLabel(d)}, per article · read {new Date(d.asOf).toLocaleDateString("en-GB")}{r.computing ? " · reading HubSpot again" : ""}
           </Typography>
           {(chosen > 0 || kindsChanged) && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
@@ -511,20 +600,7 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><Figures d={d} f={f} kinds={kinds} /></Box>
       </Box>
 
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
-        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="retain" tab={tab} onSelect={setTab}
-            tabs={TAB_ORDER.map((t) => ({ id: t, label: t === "list" ? "The list" : DIMS[t].name, count: t === "list" ? null : filters[FILTER_OF[DIMS[t].dim]].length ? String(filters[FILTER_OF[DIMS[t].dim]].length) : null }))} />
-        </Box>
-        <Box sx={{ flex: 1 }} />
-        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="retain" /></Box>
-        <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen || kindsChanged ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
-          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen || kindsChanged ? undefined : "#fff" }}>
-          Filters{chosen + (kindsChanged ? 1 : 0) ? ` · ${chosen + (kindsChanged ? 1 : 0)}` : ""}
-        </Button>
-      </Box>
-
-      <Box role="tabpanel" id={`retain-panel-${tab}`} aria-labelledby={`retain-tab-${tab}`} sx={{ minWidth: 0 }}>
+      <Box sx={{ minWidth: 0 }}>
         {tab === "list" ? <ListSection d={d} f={f} kinds={kinds} q={q} setQ={setQ} /> : <DimSection {...dimCtx(tab)} />}
       </Box>
 
