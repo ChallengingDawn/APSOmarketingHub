@@ -9,6 +9,7 @@
 // and Search Console; never beside an ERP chain (its steps share HubSpot's rate limit). LEADS_WARM=off stops it.
 
 import { hubChain } from "@/lib/connectors/chainStatus";
+import { checkGoogleLogin } from "@/lib/integrations/googleLoginReminder";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import { aeoData } from "@/lib/aeo/read";
 import { marketingKpisLive } from "./live";
@@ -92,4 +93,9 @@ export function startLeadsWarm() {
   // the two servers start seconds apart: a different first tick each, so one finds the other's read running
   setTimeout(() => void tick(), 60_000 + Math.floor(Math.random() * 120_000)).unref?.();
   setInterval(() => void tick(), TICK_MS).unref?.();
+  // the borrowed Google login's weekly renewal, by mail (SARCLA 20.10: "send an e-mail when I need to renew it") -
+  // hourly, whether or not the reads are warmed
+  const remind = () => void checkGoogleLogin().catch((e) => console.warn(`[google-login] ${(e as Error).message}`));
+  setTimeout(remind, 5 * 60_000).unref?.();
+  setInterval(remind, 60 * 60_000).unref?.();
 }
