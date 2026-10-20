@@ -922,8 +922,32 @@ async function pcOptions(): Promise<{ split: string[]; major: string[] }> {
 
 export type PcGap = { wanted: string; wrote: string; example: string; n: number };
 
-/** Plan the split for every company: no writes, so the tab can show it before anyone runs it. */
-export async function profitCentrePlan(beat: () => Promise<void> = async () => {}, maxPages = 0, yearsBack = PC_WINDOW_YEARS) {
+/**
+ * Only the companies whose revenue can have moved.
+ *
+ * A split can only change when the company's own `rev_<y>_pc_monthly` changes,
+ * and the only thing that writes those is the ERP revenue step after a
+ * delivery. So the nightly pass does not need to re-read sixty thousand
+ * companies to find the few hundred that moved: it asks for the ones MODIFIED
+ * since the last pass that have a revenue blob at all. A company whose
+ * unrelated property changed is read too and simply comes out unchanged, which
+ * is cheap; a company nobody touched is not read at all (SARCLA, 20.10.2026).
+ *
+ * `null` means "everything" - the first pass, and the button.
+ */
+async function pcChangedSince(sinceIso: string, yearsBack: number): Promise<string[]> {
+  const ms = Date.parse(sinceIso);
+  if (!Number.isFinite(ms)) return [];
+  const thisYear = `rev_${curYear()}_pc_monthly`;
+  void yearsBack;
+  return searchIds([
+    { propertyName: "hs_lastmodifieddate", operator: "GTE", value: String(ms) },
+    { propertyName: thisYear, operator: "HAS_PROPERTY" },
+  ], { sorts: ["hs_lastmodifieddate"] });
+}
+
+/** Plan the split: no writes, so the tab can show it before anyone runs it. */
+export async function profitCentrePlan(beat: () => Promise<void> = async () => {}, maxPages = 0, yearsBack = PC_WINDOW_YEARS, sinceIso: string | null = null) {
   const opts = await pcOptions();
   const blobs = pcBlobProps(yearsBack);
   const changes: [string, Props][] = [];
@@ -931,7 +955,17 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
   /** Buckets the property has no option for — counted, never silently rounded away. */
   const gaps = new Map<string, PcGap>();
   let scanned = 0, pages = 0;
-  for await (const page of allCompanies(["name", "profit_center_split", "major_profit_center", ...blobs])) {
+  const props = ["name", "profit_center_split", "major_profit_center", ...blobs];
+  const changedIds = sinceIso ? await pcChangedSince(sinceIso, yearsBack) : null;
+  const pagesOf = changedIds
+    ? (async function* () {
+        for (let i = 0; i < changedIds.length; i += 100) {
+          const m = await batchRead(changedIds.slice(i, i + 100), props);
+          yield [...m.entries()].map(([id, properties]) => ({ id, properties })) as Obj[];
+        }
+      })()
+    : allCompanies(props);
+  for await (const page of pagesOf) {
     for (const res of page) {
       scanned += 1;
       const p = res.properties ?? {};
@@ -955,7 +989,7 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
     if (pages % 50 === 0) await beat();
     if (maxPages && pages >= maxPages) break;
   }
-  return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(yearsBack), log: [] as string[] };
+  return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(yearsBack), mode: changedIds ? "changed" as const : "all" as const, log: [] as string[] };
 }
 
 /**
@@ -966,11 +1000,11 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
  * and a customer whose buying moved between centres is corrected on the next
  * pass rather than never.
  */
-async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0, yearsBack = PC_WINDOW_YEARS) {
-  const { scanned, changes, stats, gaps, years } = await profitCentrePlan(beat, maxPages, yearsBack);
+async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0, yearsBack = PC_WINDOW_YEARS, sinceIso: string | null = null) {
+  const { scanned, changes, stats, gaps, years, mode } = await profitCentrePlan(beat, maxPages, yearsBack, sinceIso);
   const log: string[] = [];
   const written = dry ? 0 : await batchUpdate(changes, log);
-  const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, dry };
+  const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, mode, since: sinceIso, dry };
   await patchState({ last_profit_centre: res });
   return { ...res, log };
 }
@@ -1047,7 +1081,9 @@ export async function nightly(): Promise<unknown> {
     // when one of its deals reached Closed Won, so a customer whose buying had
     // moved between centres kept yesterday's answer indefinitely.
     try {
-      const pc = await profitCentreInner(false, beat);
+      // Incremental from the last pass; a first pass (or one after a gap) is full.
+      const prev = (await loadState()).last_profit_centre as { at?: string } | null;
+      const pc = await profitCentreInner(false, beat, 0, PC_WINDOW_YEARS, prev?.at ?? null);
       if (pc.log.length) console.warn(`[segmentation] nightly profit-centre: write refused: ${pc.log.join(" | ").slice(0, 400)}`);
       result.profit_centre = { ...pc, log: undefined };
     } catch (e) {

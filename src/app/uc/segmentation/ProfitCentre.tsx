@@ -26,6 +26,7 @@ export type PcGap = { wanted: string; wrote: string; example: string; n: number 
 export type PcRun = {
   at?: string; scanned?: number; planned?: number; written?: number; dry?: boolean;
   years?: number[];
+  mode?: "changed" | "all";
   stats?: Record<string, number>;
   gaps?: PcGap[];
 } | null;
@@ -53,7 +54,9 @@ export default function ProfitCentre({
 }) {
   const s = last?.stats ?? {};
   const gaps = last?.gaps ?? [];
-  const years = last?.years ?? [];
+  const years = [...(last?.years ?? [])].sort((a, b) => a - b);
+  // A list of twelve years is noise; the range says it.
+  const span = years.length ? (years.length === 1 ? String(years[0]) : `${years[0]}–${years[years.length - 1]}`) : "";
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -64,8 +67,10 @@ export default function ProfitCentre({
         <Typography sx={{ fontSize: 13.5, color: MUTED, lineHeight: 1.55, maxWidth: "76ch" }}>
           Every company&apos;s <strong>profit_center_split</strong> and <strong>major_profit_center</strong>, decided from
           the revenue its orders actually carry per profit centre — the <code>rev_&lt;year&gt;_pc_monthly</code> figures the
-          ERP already writes — over the last {windowYears} years{years.length ? ` (${[...years].sort().join(", ")})` : ""}.
-          Every company is looked at, including those that have never had a deal.
+          ERP already writes. {windowYears > 0
+            ? `Over the last ${windowYears} years`
+            : "Over every year the ERP has"}{span ? ` (${span})` : ""}, so “No sales” means never ordered, not
+          “not lately”. Nothing waits for a deal.
         </Typography>
 
         <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
@@ -80,13 +85,15 @@ export default function ProfitCentre({
           {!canRun && <Typography sx={{ fontSize: 12.5, color: FAINT, alignSelf: "center" }}>Admins only.</Typography>}
         </Box>
         <Typography sx={{ fontSize: 12, color: FAINT, mt: 1 }}>
-          It also runs on its own every night, after the sweep.
+          Every night after the sweep it re-checks only the companies whose revenue moved since the last pass — a split
+          can change for no other reason. The button above re-checks all of them.
         </Typography>
       </Card>
 
       <Card sx={{ p: 2.5 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: INK, mb: 1.5 }}>
           Last pass{last?.at ? ` · ${new Date(last.at).toLocaleString("de-CH")}` : ""}{last?.dry ? " · preview" : ""}
+          {last?.mode === "changed" ? " · only the companies whose revenue moved" : last?.mode === "all" ? " · every company" : ""}
         </Typography>
         {!last ? (
           <Typography sx={{ fontSize: 13.5, color: MUTED }}>Not run yet. Preview it first — it writes nothing.</Typography>
