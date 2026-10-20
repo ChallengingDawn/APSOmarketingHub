@@ -15,12 +15,14 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
 const FAINT = "#8b97ac";
 const ACCENT = "#ed1b2f";
 const HAIRLINE = "rgba(21,34,58,.10)";
+const TINTED = "rgba(21,34,58,.14)";
 
 export type PcGap = { wanted: string; wrote: string; example: string; n: number };
 export type PcRun = {
@@ -45,11 +47,16 @@ function Figure({ label, value, note, tone }: { label: string; value: string; no
 }
 
 export default function ProfitCentre({
-  last, windowYears, running, canRun, onRun,
+  last, windowYears, running, runningWhat, runningSince, note, canRun, onRun,
 }: {
   last: PcRun;
   windowYears: number;
   running: boolean;
+  /** Which run is in progress, and since when - a run blocks every other one. */
+  runningWhat?: string | null;
+  runningSince?: string | null;
+  /** What the last button press answered. Without it, pressing looks like nothing. */
+  note?: string | null;
   canRun: boolean;
   onRun: (dry: boolean) => void;
 }) {
@@ -85,15 +92,30 @@ export default function ProfitCentre({
           </Button>
           {!canRun && <Typography sx={{ fontSize: 12.5, color: FAINT, alignSelf: "center" }}>Admins only.</Typography>}
         </Box>
+        {(running || note) && (
+          <Box sx={{
+            display: "flex", alignItems: "center", gap: 1, mt: 1.5, px: 1.25, py: 1,
+            border: `1px solid ${running ? "#eda100" : TINTED}`, borderRadius: "9px",
+            bgcolor: running ? "#fffaf0" : "#f7f9fc",
+          }}>
+            {running && <CircularProgress size={13} sx={{ color: "#eda100" }} />}
+            <Typography sx={{ fontSize: 12.5, color: INK }}>
+              {running
+                ? `${runningWhat ?? "A run"} is going${runningSince ? ` since ${runningSince.slice(11, 16)} UTC` : ""} — the figures below are the last FINISHED pass. This updates itself.`
+                : note}
+            </Typography>
+          </Box>
+        )}
         <Typography sx={{ fontSize: 12, color: FAINT, mt: 1 }}>
           Every night after the sweep it re-checks only the companies whose revenue moved since the last pass — a split
           can change for no other reason. The button above re-checks all of them.
+          {running ? "" : " A pass over every company takes a few minutes."}
         </Typography>
       </Card>
 
       <Card sx={{ p: 2.5 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: INK, mb: 1.5 }}>
-          Last pass{last?.at ? ` · ${new Date(last.at).toLocaleString("de-CH")}` : ""}{last?.dry ? " · preview" : ""}
+          Last {running ? "FINISHED " : ""}pass{last?.at ? ` · ${new Date(last.at).toLocaleString("de-CH")}` : ""}{last?.dry ? " · preview" : ""}
           {last?.mode === "changed" ? " · only the companies whose revenue moved" : last?.mode === "all" ? " · every company" : ""}
         </Typography>
         {!last ? (

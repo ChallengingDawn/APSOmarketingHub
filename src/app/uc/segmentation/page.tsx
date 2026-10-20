@@ -336,6 +336,9 @@ export default function SmartSegmentation() {
           last={(st?.last_profit_centre ?? null) as PcRun}
           windowYears={Number(st?.pc_window_years ?? 3)}
           running={running}
+          runningWhat={st?.running?.what ?? null}
+          runningSince={st?.running?.started ?? null}
+          note={note}
           canRun={role === "admin"}
           onRun={(dry) => void act("profit-centre", dry)}
         />
