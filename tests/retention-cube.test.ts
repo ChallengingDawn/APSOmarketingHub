@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { baseOf, cohortsOf, leaveOf, pathOf, personasOf, retentionView, trendOf, type RCo, type RetentionRaw } from "../src/lib/marketingKpis/retentionCube";
+import { UNMAPPED, baseOf, cohortsOf, leaveOf, newOf, pathOf, personaName, personasOf, retentionView, trendOf, type RCo, type RetentionRaw } from "../src/lib/marketingKpis/retentionCube";
 
 // years 2022-2026 (index 0-4); base 2025 against 2026 so far
 const co = (id: string, r: number[], more: Partial<RCo> = {}): RCo => ({ id, o: "11", p: "2-Prio 2", s: "APSOcore", k: "Switzerland", a: "1.1.8 Packaging", pot: null, f: null, r, ...more });
@@ -69,7 +69,7 @@ test("why they leave: each lever against the average, and the flow through order
   assert.deepEqual([g("1 order in 2025").cos, g("1 order in 2025").churn, g("1 order in 2025").pts], [1, 1, 50]);
   assert.deepEqual([g("6+ orders").churn, g("6+ orders").pts], [0, -50]);
   assert.equal(g("< 500 EUR").cos, 2);
-  assert.equal(g("mixed (shop and ERP)").cos, 1);
+  assert.equal(g("mixed (shop and manual orders)").cos, 1);
   assert.equal(g("web-only (all orders via the shop)").cos, 2);
   // the flow: every customer one path; the outcome adds up
   const into = (id: string) => l.flow.links.filter((x) => x.to === id).reduce((a, x) => a + x.value, 0);
@@ -102,10 +102,38 @@ test("personas: by persona, business type, country, segment, priority - and segm
   ]);
   const ps = personasOf(d);
   const g = (dim: string, group: string) => ps.rows.find((r) => r.dim === dim && r.group === group);
-  assert.equal(g("Contact persona", "Online-first purchaser")!.churn, 1);
+  assert.equal(g("Contact persona", "P3 · Online-first purchaser")!.churn, 1);
   assert.equal(g("Contact persona", "No contact person")!.cos, 1);
   assert.equal(g("Business type", "Resellers & partners (3.x)")!.cos, 1);
   assert.equal(g("Business type", "No APIC classification")!.cos, 1);
   assert.equal(g("Sales priority", "Prio 1")!.cos, 1);
   assert.deepEqual(ps.matrix.map((m) => m.segment).sort(), ["APSOcore", "APSOgrowth"]);
+});
+
+test("personas: named P2, P3 ... with the name before its description; the unmapped ones set aside", () => {
+  assert.equal(personaName("persona_6", "Cut-to-size workshop owner who has to win the job on price"), "P6 · Cut-to-size workshop owner");
+  assert.equal(personaName("persona_4", "Northern-Italian procurement lead (relationship-led)"), "P4 · Northern-Italian procurement lead");
+  assert.equal(personaName("persona_9", "Authorised channel partner - resells our ranges"), "P9 · Authorised channel partner");
+  const d = raw([
+    co("a", [0, 0, 0, 500, 0], { c: { n: 2, mkt: 1, per: "persona_10" } }),
+    co("b", [0, 0, 0, 500, 500], { c: { n: 1, mkt: 1, per: "persona_3" } }),
+  ]);
+  d.personas.persona_10 = "Contact in the CRM with insufficient signal to map to a named persona - anonymous web traffic, generic info@ accounts";
+  const rows = personasOf(d).rows.filter((r) => r.dim === "Contact persona");
+  assert.deepEqual(rows.map((r) => [r.group, !!r.aside]).sort(), [[UNMAPPED, true], ["P3 · Online-first purchaser", false]].sort());
+});
+
+test("new customers: the base year's first-time buyers - what brings them back", () => {
+  const d = raw([
+    co("a", [0, 0, 0, 300, 0], { f: 2025, b: { n: 1, pcs: ["DT"], c2s: 0, sp: 0, web: 1, erp: 0, gm: 50 } }),
+    co("b", [0, 0, 0, 3000, 900], { f: 2025, b: { n: 4, pcs: ["DT", "KT"], c2s: 1, sp: 0, web: 3, erp: 1, gm: 40 }, x: { calls: 2, out: 2, inb: 0, mtg: 0, vis: 0, em: 0, by: ["11"] } }),
+    co("c", [0, 0, 500, 500, 0], { f: 2024 }),          // not new in 2025
+  ]);
+  const n = newOf(d);
+  assert.deepEqual([n.customers, n.avg], [2, 0.5]);
+  assert.equal(n.rows.find((r) => r.group === "1 order in 2025")!.churn, 1);
+  assert.equal(n.rows.find((r) => r.group === "touched (call, meeting, visit, sales ticket)")!.churn, 0);
+  const into = (id: string) => n.flow.links.filter((x) => x.to === id).reduce((a, x) => a + x.value, 0);
+  assert.deepEqual([into("n1"), into("n2"), into("s1"), into("s3"), into("t1"), into("back"), into("gone")], [1, 1, 1, 1, 1, 1, 1]);
+  assert.equal(n.flow.nodes.find((x) => x.id === "all")!.label, "New in 2025");
 });

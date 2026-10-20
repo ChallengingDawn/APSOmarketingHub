@@ -159,7 +159,11 @@ export function cohortsOf(d: RetentionRaw): { rows: CohortRow[]; once: OnceRow[]
 
 /* ── the base year's customers, split ────────────────────────────────────────── */
 
-export type GroupRow = { dim: string; group: string; cos: number; churned: number; churn: number | null; pts: number | null; rev: number; revLost: number };
+export type GroupRow = {
+  dim: string; group: string; cos: number; churned: number; churn: number | null; pts: number | null; rev: number; revLost: number;
+  /** in the table, not in the charts - the contacts no persona could be named for */
+  aside?: boolean;
+};
 
 function groupRow(dim: string, group: string, xs: RCo[], left: (c: RCo) => boolean, bi: number, avg: number): GroupRow {
   const lost = xs.filter(left);
@@ -179,8 +183,8 @@ function baseSet(d: RetentionRaw) {
 export type Flow = { columns: string[]; nodes: { id: string; column: number; label: string; tone: "base" | "good" | "bad" | "mid" | "none" }[]; links: { from: string; to: string; value: number }[] };
 
 /** A flow from the base year's customers through steps to back / not back - each customer one path. */
-function flowOf(columns: string[], act: RCo[], steps: { id: (c: RCo) => string; nodes: { id: string; label: string; tone: Flow["nodes"][number]["tone"] }[] }[], left: (c: RCo) => boolean, d: RetentionRaw): Flow {
-  const nodes: Flow["nodes"] = [{ id: "all", column: 0, label: `Active ${d.base}`, tone: "base" }];
+function flowOf(columns: string[], act: RCo[], steps: { id: (c: RCo) => string; nodes: { id: string; label: string; tone: Flow["nodes"][number]["tone"] }[] }[], left: (c: RCo) => boolean, d: RetentionRaw, root = `Active ${d.base}`): Flow {
+  const nodes: Flow["nodes"] = [{ id: "all", column: 0, label: root, tone: "base" }];
   steps.forEach((s, k) => s.nodes.forEach((n) => nodes.push({ ...n, column: k + 1 })));
   const out = steps.length + 1;
   nodes.push({ id: "back", column: out, label: isPartial(d) ? `Back in ${d.next}` : `Bought in ${d.next}`, tone: "good" }, { id: "gone", column: out, label: isPartial(d) ? "Not back yet" : `Lost in ${d.next}`, tone: "bad" });
@@ -199,10 +203,10 @@ function flowOf(columns: string[], act: RCo[], steps: { id: (c: RCo) => string; 
 const sizeBand = (v: number) => (v < 500 ? "< 500 EUR" : v < 2500 ? "500 - 2,500 EUR" : v < 25000 ? "2,500 - 25,000 EUR" : ">= 25,000 EUR");
 const ordersBand = (c: RCo) => (!c.b ? "none" : c.b.n <= 1 ? "1" : c.b.n <= 5 ? "2-5" : "6+");
 
-export function leaveOf(d: RetentionRaw): { avg: number; customers: number; rows: GroupRow[]; flow: Flow } {
-  const { bi, act, left, avg } = baseSet(d);
-  const G = (dim: string, group: string, test: (c: RCo) => boolean) => groupRow(dim, group, act.filter(test), left, bi, avg);
-  const rows: GroupRow[] = [
+type G = (dim: string, group: string, test: (c: RCo) => boolean) => GroupRow;
+/** How the customer bought in the base year: orders, size, breadth, cut-to-size, specials, channel, margin. */
+function buyingRows(G: G, d: RetentionRaw, bi: number): GroupRow[] {
+  return [
     G("Orders", `1 order in ${d.base}`, (c) => ordersBand(c) === "1"),
     G("Orders", "2 - 5 orders", (c) => ordersBand(c) === "2-5"),
     G("Orders", "6+ orders", (c) => ordersBand(c) === "6+"),
@@ -216,11 +220,17 @@ export function leaveOf(d: RetentionRaw): { avg: number; customers: number; rows
     G("Cut-to-size", "standard catalogue only", (c) => !!c.b && c.b.c2s === 0),
     G("Specials", "buys special articles", (c) => (c.b?.sp ?? 0) > 0),
     G("Channel", "web-only (all orders via the shop)", (c) => !!c.b && c.b.web > 0 && c.b.erp === 0),
-    G("Channel", "offline only (ERP: offer or by hand)", (c) => !!c.b && c.b.erp > 0 && c.b.web === 0),
-    G("Channel", "mixed (shop and ERP)", (c) => !!c.b && c.b.erp > 0 && c.b.web > 0),
+    G("Channel", "manual orders only (an offer or entered by hand)", (c) => !!c.b && c.b.erp > 0 && c.b.web === 0),
+    G("Channel", "mixed (shop and manual orders)", (c) => !!c.b && c.b.erp > 0 && c.b.web > 0),
     G("Margin", "average margin >= 50%", (c) => c.b?.gm != null && c.b.gm >= 50),
     G("Margin", "average margin < 25%", (c) => c.b?.gm != null && c.b.gm < 25),
   ].filter((r) => r.cos > 0);
+}
+
+export function leaveOf(d: RetentionRaw): { avg: number; customers: number; rows: GroupRow[]; flow: Flow } {
+  const { bi, act, left, avg } = baseSet(d);
+  const G: G = (dim, group, test) => groupRow(dim, group, act.filter(test), left, bi, avg);
+  const rows = buyingRows(G, d, bi);
   const flow = flowOf([`Active ${d.base}`, `Orders in ${d.base}`, "Product families", isPartial(d) ? `${d.next} so far` : String(d.next)], act, [
     { id: (c) => `o${ordersBand(c)}`, nodes: [{ id: "o1", label: "1 order", tone: "bad" }, { id: "o2-5", label: "2 - 5 orders", tone: "mid" }, { id: "o6+", label: "6+ orders", tone: "good" }, { id: "onone", label: "No order found", tone: "none" }] },
     { id: (c) => (!c.b ? "fnone" : c.b.pcs.length >= 2 ? "f2" : "f1"), nodes: [{ id: "f1", label: "One profit centre", tone: "bad" }, { id: "f2", label: "Two or more", tone: "good" }, { id: "fnone", label: "Not known", tone: "none" }] },
@@ -237,22 +247,9 @@ const talkOf = (c: RCo) => ((c.t?.dem ?? 0) > 0 ? "asked" : (c.t?.prob ?? 0) > 0
 const TEAM_ORDER = ["ESO - field sales", "TSA - inside sales", "Back Office", "No team", "Former staff"];
 const teamRank = (t: string) => { const i = TEAM_ORDER.indexOf(t); return i < 0 ? TEAM_ORDER.length : i; };
 
-export type OwnerRow = {
-  id: string; name: string; team: string; left: boolean;
-  calls: number; em: number; mtg: number;
-  /** the base year's active customers it owns, and those its activity reached */
-  book: number; touched: number; touchedPct: number | null; touchedRev: number; churned: number; churn: number | null; churnedRev: number;
-};
-
-export function pathOf(d: RetentionRaw): { avg: number; customers: number; flow: Flow; rows: GroupRow[]; owners: OwnerRow[] } {
-  const { bi, act, left, avg } = baseSet(d);
-  const flow = flowOf([`Active ${d.base}`, "Sales touch", "Marketing reach", "Talked to us", isPartial(d) ? `${d.next} so far` : String(d.next)], act, [
-    { id: (c) => (touched(c) ? "touch" : "untouched"), nodes: [{ id: "touch", label: "Called, met or visited", tone: "good" }, { id: "untouched", label: "No sales touch", tone: "bad" }] },
-    { id: (c) => reachOf(c), nodes: [{ id: "mkt", label: "Marketing contact", tone: "good" }, { id: "nomkt", label: "Contacts, none marketing", tone: "mid" }, { id: "nocontact", label: "No contact person", tone: "bad" }] },
-    { id: (c) => talkOf(c), nodes: [{ id: "asked", label: "Asked (quote, product)", tone: "good" }, { id: "problem", label: "Problem ticket", tone: "mid" }, { id: "silent", label: "Silent", tone: "bad" }] },
-  ], left, d);
-  const G = (dim: string, group: string, test: (c: RCo) => boolean) => groupRow(dim, group, act.filter(test), left, bi, avg);
-  const rows: GroupRow[] = [
+/** How we reached the customer: calls, visits, e-mails, any sales touch, tickets, marketing reach. */
+function contactRows(G: G): GroupRow[] {
+  return [
     G("Calls", "no call", (c) => (c.x?.calls ?? 0) === 0),
     G("Calls", "1 - 2 calls", (c) => (c.x?.calls ?? 0) >= 1 && (c.x?.calls ?? 0) <= 2),
     G("Calls", "3+ calls", (c) => (c.x?.calls ?? 0) >= 3),
@@ -274,6 +271,24 @@ export function pathOf(d: RetentionRaw): { avg: number; customers: number; flow:
     G("Marketing reach", "contacts, none of them marketing", (c) => reachOf(c) === "nomkt"),
     G("Marketing reach", "no contact person at all", (c) => reachOf(c) === "nocontact"),
   ].filter((r) => r.cos > 0);
+}
+
+export type OwnerRow = {
+  id: string; name: string; team: string; left: boolean;
+  calls: number; em: number; mtg: number;
+  /** the base year's active customers it owns, and those its activity reached */
+  book: number; touched: number; touchedPct: number | null; touchedRev: number; churned: number; churn: number | null; churnedRev: number;
+};
+
+export function pathOf(d: RetentionRaw): { avg: number; customers: number; flow: Flow; rows: GroupRow[]; owners: OwnerRow[] } {
+  const { bi, act, left, avg } = baseSet(d);
+  const flow = flowOf([`Active ${d.base}`, "Sales touch", "Marketing reach", "Talked to us", isPartial(d) ? `${d.next} so far` : String(d.next)], act, [
+    { id: (c) => (touched(c) ? "touch" : "untouched"), nodes: [{ id: "touch", label: "Called, met or visited", tone: "good" }, { id: "untouched", label: "No sales touch", tone: "bad" }] },
+    { id: (c) => reachOf(c), nodes: [{ id: "mkt", label: "Marketing contact", tone: "good" }, { id: "nomkt", label: "Contacts, none marketing", tone: "mid" }, { id: "nocontact", label: "No contact person", tone: "bad" }] },
+    { id: (c) => talkOf(c), nodes: [{ id: "asked", label: "Asked (quote, product)", tone: "good" }, { id: "problem", label: "Problem ticket", tone: "mid" }, { id: "silent", label: "Silent", tone: "bad" }] },
+  ], left, d);
+  const G: G = (dim, group, test) => groupRow(dim, group, act.filter(test), left, bi, avg);
+  const rows = contactRows(G);
   // per owner: the book it owns, the customers its activity reached, and what became of them
   const book = new Map<string, number>(), reached = new Map<string, RCo[]>();
   for (const c of act) {
@@ -299,6 +314,18 @@ const BUSINESS: Record<string, string> = { "1": "OEM manufacturers (1.x)", "2": 
 export const prioOf = (v: string) => { const x = (v ?? "").trim().charAt(0); return x === "1" || x === "2" || x === "3" ? `Prio ${x}` : x === "4" ? "No priority" : "Not set"; };
 export const PRIOS = ["Prio 1", "Prio 2", "Prio 3", "No priority", "Not set"];
 
+/** A persona as the page names it: "P2 · Cut-to-size workshop owner" - its number, and its name before the description. */
+export function personaName(code: string, label: string | undefined): string {
+  const n = /(\d+)\s*$/.exec(code)?.[1];
+  const full = (label ?? code).trim();
+  const short = full.split(/\s+(?:who|that|—|-|–)\s+|\s*[(,;:]/)[0].trim();
+  const name = short.length > 44 ? `${short.slice(0, 43).trimEnd()}…` : short;
+  return n ? `P${n} · ${name}` : name;
+}
+/** The persona HubSpot gives a contact it could not place (anonymous traffic, info@ accounts, one-off buyers). */
+export const isUnmapped = (label: string | undefined) => /insufficient signal|unmapped|low[- ]signal/i.test(label ?? "");
+export const UNMAPPED = "No named persona (unmapped contacts)";
+
 export function personasOf(d: RetentionRaw): { avg: number; customers: number; rows: GroupRow[]; matrix: { segment: string; cells: { prio: string; cos: number; churn: number | null }[]; cos: number }[] } {
   const { bi, act, left, avg } = baseSet(d);
   const rows: GroupRow[] = [];
@@ -312,7 +339,12 @@ export function personasOf(d: RetentionRaw): { avg: number; customers: number; r
     }
     for (const [k, xs] of groups) rows.push(groupRow(dim, k, xs, left, bi, avg));
   };
-  split("Contact persona", (c) => (c.c?.per ? d.personas[c.c.per] ?? c.c.per : (c.c?.n ?? 0) > 0 ? "No persona on its contacts" : "No contact person"));
+  split("Contact persona", (c) => {
+    if (!c.c?.per) return (c.c?.n ?? 0) > 0 ? "No persona on its contacts" : "No contact person";
+    const label = d.personas[c.c.per];
+    return isUnmapped(label) ? UNMAPPED : personaName(c.c.per, label);
+  });
+  for (const r of rows) if (r.group === UNMAPPED) r.aside = true;
   split("Business type", (c) => BUSINESS[c.a.trim().charAt(0)] ?? "No APIC classification");
   split("Industry (APIC)", (c) => c.a.trim() || "No APIC classification", 10, "Other industries");
   split("Country", (c) => c.k || "Not set", 8, "Other countries");
@@ -329,6 +361,24 @@ export function personasOf(d: RetentionRaw): { avg: number; customers: number; r
   return { avg, customers: act.length, rows, matrix };
 }
 
+/* ── 6 · new customers ───────────────────────────────────────────────────────── */
+
+/** The base year's new customers (their first order ever that year): what brings them back the year after. */
+export function newOf(d: RetentionRaw): { avg: number; customers: number; rows: GroupRow[]; flow: Flow } {
+  const bi = ix(d, d.base), ni = ix(d, d.next);
+  const act = d.cos.filter((c) => c.f === d.base && on(c, bi));
+  const left = (c: RCo) => !on(c, ni);
+  const avg = act.length ? act.filter(left).length / act.length : 0;
+  const G: G = (dim, group, test) => groupRow(dim, group, act.filter(test), left, bi, avg);
+  const rows = [...buyingRows(G, d, bi), ...contactRows(G)];
+  const flow = flowOf([`New in ${d.base}`, "Orders in their first year", "Spent in their first year", "Sales touch", isPartial(d) ? `${d.next} so far` : String(d.next)], act, [
+    { id: (c) => (!c.b ? "nnone" : c.b.n <= 1 ? "n1" : "n2"), nodes: [{ id: "n1", label: "One order", tone: "bad" }, { id: "n2", label: "Two orders or more", tone: "good" }, { id: "nnone", label: "No order found", tone: "none" }] },
+    { id: (c) => (c.r[bi] < 500 ? "s1" : c.r[bi] < 2500 ? "s2" : "s3"), nodes: [{ id: "s1", label: "Under EUR 500", tone: "bad" }, { id: "s2", label: "EUR 500 - 2,500", tone: "mid" }, { id: "s3", label: "EUR 2,500 or more", tone: "good" }] },
+    { id: (c) => (touched(c) ? "t1" : "t0"), nodes: [{ id: "t1", label: "Called, met or visited", tone: "good" }, { id: "t0", label: "No sales touch", tone: "bad" }] },
+  ], left, d, `New in ${d.base}`);
+  return { avg, customers: act.length, rows, flow };
+}
+
 /* ── the page's figures, and all of it together ──────────────────────────────── */
 
 export type RetentionView = {
@@ -339,6 +389,7 @@ export type RetentionView = {
   leave: ReturnType<typeof leaveOf>;
   path: ReturnType<typeof pathOf>;
   personas: ReturnType<typeof personasOf>;
+  newcos: ReturnType<typeof newOf>;
   counts: Record<string, number>; errors: Record<string, string>;
 };
 
@@ -348,6 +399,6 @@ export function retentionView(d: RetentionRaw): RetentionView {
   return {
     years: d.years, base: d.base, next: d.next, asOf: d.asOf, readAt: d.readAt, partial: isPartial(d),
     figures: { active: t?.active ?? 0, back: t?.retained ?? 0, gone: t?.churned ?? 0, churn: t && t.active ? t.churned / t.active : null, goneRev: t?.churnedRev ?? 0, newNext: t?.newNext ?? 0, winbacks: t?.winbacks ?? 0 },
-    trend, cohorts: cohortsOf(d), leave: leaveOf(d), path: pathOf(d), personas: personasOf(d), counts: d.counts, errors: d.errors,
+    trend, cohorts: cohortsOf(d), leave: leaveOf(d), path: pathOf(d), personas: personasOf(d), newcos: newOf(d), counts: d.counts, errors: d.errors,
   };
 }

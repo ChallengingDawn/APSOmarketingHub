@@ -46,7 +46,7 @@ import { pcLabel } from "@/lib/marketingKpis/engageCube";
 import type { TileSpec } from "@/lib/reporting/kpiActions";
 import type { MkState } from "./data";
 import { DimChart } from "./DimChart";
-import { CohortsTab, LeaveTab, PathTab, PersonasTab, RETENTION_TABS, RETENTION_TAB_NAMES, RetentionFigures, RetentionPromoted, RetentionWaiting, TrendTab, useRetention, type RetentionTab } from "./Retention";
+import { CohortsTab, LeaveTab, NewTab, PathTab, PersonasTab, RETENTION_TABS, RETENTION_TAB_NAMES, RetentionFigures, RetentionPromoted, RetentionWaiting, TrendTab, useRetention, type RetentionTab } from "./Retention";
 import { FilterPanel, FilterSection } from "./FilterPanel";
 import { Pager, n0, usePaged } from "./ExplorerKit";
 import { Pick } from "./Lead";
@@ -126,7 +126,7 @@ function useRetain(): Read {
 /* ── the figures ─────────────────────────────────────────────────────────────── */
 
 /** The four figures top right, each in a small card - as on Who are our customers. */
-function Figures({ d, f, kinds }: { d: RetainData; f: RFilters; kinds: Kind[] }) {
+function Figures({ d, f, kinds, wide = false }: { d: RetainData; f: RFilters; kinds: Kind[]; wide?: boolean }) {
   const k = byKind(d, f);
   const s = sumsOf(rowsOf(d, { ...f, kinds }));
   const apart = KIND_INFO.filter((x) => !kinds.includes(x.id));
@@ -137,7 +137,7 @@ function Figures({ d, f, kinds }: { d: RetainData; f: RFilters; kinds: Kind[] })
     { label: "Not counted", icon: <LayersOutlinedIcon />, tint: "slate", v: eur(apart.reduce((a, x) => a + k[x.id].gap, 0)), sub: apart.length ? `${apart.map((x) => x.short.toLowerCase()).join(", ")} - Filters adds them` : "everything is counted" },
   ];
   return (
-    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(124px, 172px))" } }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: wide ? "repeat(4, minmax(0, 1fr))" : "repeat(4, minmax(124px, 172px))" } }}>
       {items.map((it) => (
         <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -486,6 +486,7 @@ export function RetainExplorer({ state }: { state: MkState | null }) {
           <>
             {top === "trend" && <TrendTab v={v} act={act("trend")} />}
             {top === "cohorts" && <CohortsTab v={v} act={act("cohorts")} />}
+            {top === "newcos" && <NewTab v={v} act={act("newcos")} />}
             {top === "leave" && <LeaveTab v={v} act={act("leave")} />}
             {top === "path" && <PathTab v={v} act={act("path")} />}
             {top === "personas" && <PersonasTab v={v} act={act("personas")} />}
@@ -567,37 +568,40 @@ function ArticlesAtStake() {
 
   return (
     <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 1 }}>
-          <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-            <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, mr: 0.5 }}>By</Typography>
-            {TAB_ORDER.map((t) => {
-              const on = t === tab;
-              return (
-                <Box key={t} component="button" type="button" onClick={() => setTab(t)} aria-pressed={on}
-                  sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, font: "inherit", fontSize: "0.8rem", fontWeight: 700, px: 1.25, py: 0.6, borderRadius: "10px", cursor: "pointer" }}>
-                  {t === "list" ? "The list" : DIMS[t].name}
-                </Box>
-              );
-            })}
-            <Box sx={{ flex: 1 }} />
-            <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen || kindsChanged ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
-              sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2, height: 38, whiteSpace: "nowrap", bgcolor: panel || chosen || kindsChanged ? undefined : "#fff" }}>
-              Filters{chosen + (kindsChanged ? 1 : 0) ? ` · ${chosen + (kindsChanged ? 1 : 0)}` : ""}
-            </Button>
-          </Box>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            The last 12 months against each customer&apos;s best year {yearsLabel(d)}, per article · read {new Date(d.asOf).toLocaleDateString("en-GB")}{r.computing ? " · reading HubSpot again" : ""}
-          </Typography>
-          {(chosen > 0 || kindsChanged) && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {chip("owner", "Owner", "purple")}{chip("country", "Country", "green")}{chip("pc", "Profit centre", "amber")}{chip("customer", "Customer", "blue")}{chip("article", "Article", "slate")}
-              {kindsChanged && <Chip size="small" label={<span><b>Counted:</b> {kinds.map((x) => KIND_INFO.find((i) => i.id === x)!.short.toLowerCase()).join(", ")}</span>} onDelete={() => setKinds(HEADLINE)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg }} />}
-              <Button size="small" onClick={() => { setFilters(NO_FILTERS); setKinds(HEADLINE); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
-            </Box>
-          )}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED }}>By</Typography>
+        <Box role="tablist" aria-label="Articles at stake, by" sx={{ ...glass, display: "inline-flex", flexWrap: "wrap", gap: 0.5, p: 0.5, borderRadius: "14px" }}>
+          {TAB_ORDER.map((t) => {
+            const on = t === tab;
+            return (
+              <Box key={t} component="button" type="button" role="tab" aria-selected={on} onClick={() => setTab(t)}
+                sx={{ border: 0, font: "inherit", fontSize: "0.84rem", fontWeight: on ? 700 : 600, px: 1.4, py: 0.7, borderRadius: "10px", cursor: "pointer",
+                  bgcolor: on ? TINT.blue.bg : "transparent", color: on ? TINT.blue.fg : MUTED, "&:hover": { color: on ? TINT.blue.fg : INK } }}>
+                {t === "list" ? "The list" : DIMS[t].name}
+              </Box>
+            );
+          })}
         </Box>
-        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><Figures d={d} f={f} kinds={kinds} /></Box>
+        <Box sx={{ flex: 1 }} />
+        <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen || kindsChanged ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="retain-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen || kindsChanged ? undefined : "#fff" }}>
+          Filters{chosen + (kindsChanged ? 1 : 0) ? ` · ${chosen + (kindsChanged ? 1 : 0)}` : ""}
+        </Button>
+      </Box>
+
+      <Figures d={d} f={f} kinds={kinds} wide />
+
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+          The last 12 months against each customer&apos;s best year {yearsLabel(d)}, per article · read {new Date(d.asOf).toLocaleDateString("en-GB")}{r.computing ? " · reading HubSpot again" : ""}
+        </Typography>
+        {(chosen > 0 || kindsChanged) && (
+          <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+            {chip("owner", "Owner", "purple")}{chip("country", "Country", "green")}{chip("pc", "Profit centre", "amber")}{chip("customer", "Customer", "blue")}{chip("article", "Article", "slate")}
+            {kindsChanged && <Chip size="small" label={<span><b>Counted:</b> {kinds.map((x) => KIND_INFO.find((i) => i.id === x)!.short.toLowerCase()).join(", ")}</span>} onDelete={() => setKinds(HEADLINE)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg }} />}
+            <Button size="small" onClick={() => { setFilters(NO_FILTERS); setKinds(HEADLINE); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+          </Box>
+        )}
       </Box>
 
       <Box sx={{ minWidth: 0 }}>
