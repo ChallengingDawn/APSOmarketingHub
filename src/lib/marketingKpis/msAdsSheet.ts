@@ -8,7 +8,8 @@
 export const MSADS_SHEET_ID = "16QuE9tOmBMEMvAj8mdCLLcgytix9hM4bKONB7iwkcdQ";
 export const msAdsSheetId = () => process.env.MSADS_SHEET_ID || MSADS_SHEET_ID;
 
-export type MsAdsMonth = { impressions: number; clicks: number; cost: number };
+/** conversions and their value (revenue) only when the script writes them - SEA revenue, P05 (20.10.2026) */
+export type MsAdsMonth = { impressions: number; clicks: number; cost: number; conversions?: number; revenue?: number };
 export type MsAdsSheet = {
   months: Record<string, MsAdsMonth>;
   /** "YYYY-MM" -> campaign type (Search, Performance Max, Shopping...) -> its month - rows "2026-09|Search" */
@@ -44,13 +45,15 @@ export function parseMsAdsSheet(values: unknown[][] | undefined): MsAdsSheet {
   if (!values?.length) return out;
   const head = values[0].map((h) => String(h ?? "").trim().toLowerCase());
   const at = (name: string) => head.indexOf(name);
-  const [mi, ii, ci, co, cu, th, wr] = ["month", "impressions", "clicks", "cost", "currency", "through", "written"].map(at);
+  const [mi, ii, ci, co, cu, th, wr, cv, rv] = ["month", "impressions", "clicks", "cost", "currency", "through", "written", "conversions", "revenue"].map(at);
   if (mi < 0 || ii < 0) return out;
   for (const row of values.slice(1)) {
     const [key, kind] = String(row[mi] ?? "").trim().split("|");
     const month = key.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
-    const m = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
+    const m: MsAdsMonth = { impressions: num(row[ii]), clicks: num(row[ci]), cost: num(row[co]) };
+    if (cv >= 0) m.conversions = num(row[cv]);
+    if (rv >= 0) m.revenue = num(row[rv]);
     // a campaign type's share of the month ("2026-09|Performance Max"), or the month's total
     if (kind) (out.kinds[month] ??= {})[kind.trim()] = m;
     else out.months[month] = m;

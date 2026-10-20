@@ -30,6 +30,7 @@ export type Ga4ReportName =
   | "revenueTotals"
   | "signupsMonthly"
   | "signupChannelsMonthly"
+  | "shopFunnelMonthly"
   | "purchaserTotals"
   | "conversionTotals"
   | "newChannelsDaily"
@@ -157,6 +158,15 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
   },
   // the shop registrations (sign_up) by the session's traffic channel, month by month - Lead Generation's
   // traffic step (9f, 19.10: HubSpot does not know the traffic of most registrations, the connector makes them)
+  shopFunnelMonthly: {
+    // the shop's check-out steps per month - the sessions with an add to cart, a begin check-out, a purchase:
+    // Dashboard 2026's cart and check-out abandonment (9f, SARCLA 20.10: "this should be fully filled", from GA4)
+    dimensions: ["yearMonth", "eventName"],
+    metrics: ["sessions"],
+    filter: { field: "eventName", values: ["add_to_cart", "begin_checkout", "purchase"] },
+    orderBy: { dimension: "yearMonth" },
+    limit: 200,
+  },
   signupChannelsMonthly: {
     dimensions: ["yearMonth", "sessionDefaultChannelGroup"],
     metrics: ["eventCount"],

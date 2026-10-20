@@ -125,6 +125,11 @@ export const MEASURES: Record<string, Measure> = Object.fromEntries([
   // what the Monthly inputs page fills Dashboard 2026's typed rows with - GA4, matching the sheet's own figures
   M({ id: "P01G", label: "Purchases - GA4 transactions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4" }),
   M({ id: "P07G", label: "SEO revenue - GA4 organic search, in francs", fmt: "chf", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4" }),
+  // what the Monthly inputs page proposes for the sheet's last typed rows (9f, SARCLA 20.10: "this should be fully filled") - sheetFill.ts
+  M({ id: "K02G", label: "Cart abandonment - GA4 check-out steps", fmt: "pct", agg: { kind: "avg" }, origin: "live", notCatalogue: true, liveSource: "GA4", goodWhenUp: false }),
+  M({ id: "K03G", label: "Check-out abandonment - GA4 check-out steps", fmt: "pct", agg: { kind: "avg" }, origin: "live", notCatalogue: true, liveSource: "GA4", goodWhenUp: false }),
+  M({ id: "X01A", label: "SEA cost - Google Ads + Microsoft Ads, in francs", fmt: "chf", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "Google Ads", goodWhenUp: false }),
+  M({ id: "P05A", label: "SEA revenue - the ad platforms' conversion value, in francs", fmt: "chf", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "Google Ads" }),
   M({ id: "MSR", label: "Microsoft Ads revenue", fmt: "eur", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "GA4", note: "Revenue of those orders, GA4's francs in euros at the month's ECB rate" }),
   M({ id: "R01M", label: "Microsoft Ads impressions", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),
   M({ id: "R02M", label: "Microsoft Ads clicks", fmt: "int", agg: { kind: "sum" }, origin: "live", notCatalogue: true, liveSource: "the Microsoft Advertising script", note: "Every campaign of the account, counted by a script in Microsoft Advertising each morning" }),

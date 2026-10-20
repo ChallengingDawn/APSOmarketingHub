@@ -32,6 +32,7 @@ import { chfPerEur, chfToEur, type ChfPerEur } from "./fx";
 import { msAdsKindMonths, msAdsSeries, msAdsSheetId, msAdsStale, parseMsAdsSheet } from "./msAdsSheet";
 import type { RoasMonths } from "./roas";
 import { googleFetchJson } from "@/lib/integrations/google";
+import { bothPlatforms, funnelRates, toChf } from "./sheetFill";
 
 /** Every whole month of Search Console the hub has read - Google drops them after 16 months, the hub does not. */
 const SEARCH_HISTORY_KEY = "marketingKpis:searchMonths:v1";
@@ -244,6 +245,10 @@ async function build(): Promise<LiveKpis> {
   let searchCountryMonths: CountryMonths | undefined;
   let seaNetworks: LiveKpis["breakdowns"]["seaNetworks"];
   let msAds: LiveKpis["breakdowns"]["msAds"];
+  // what Dashboard 2026's typed rows are proposed from (sheetFill.ts): each platform's cost and conversion value
+  // per month, in francs
+  const googleCostChf: Record<string, number> = {}, msCostChf: Record<string, number> = {};
+  const googleRevChf: Record<string, number> = {}, msRevChf: Record<string, number> = {};
   const seaNetworkMonths: NonNullable<LiveKpis["breakdowns"]["seaNetworkMonths"]> = {};
   const waiting: Record<string, string> = {};
   await guard("ga4", async () => {
@@ -367,7 +372,9 @@ async function build(): Promise<LiveKpis> {
         const cost = Object.keys(fx).length ? chfToEur(chf, String(row.keys[0] ?? "").slice(0, 7), fx) ?? chf : chf;
         if (cy) { a.impr += row.values[0] ?? 0; a.clicks += row.values[1] ?? 0; a.cost += cost; }
         else { a.pyImpr += row.values[0] ?? 0; a.pyClicks += row.values[1] ?? 0; a.pyCost += cost; }
-        const mo = ((seaNetworkMonths[String(row.keys[0] ?? "").slice(0, 7)] ??= {})[row.keys[1] || "(not set)"] ??= [0, 0, 0]);
+        const mon = String(row.keys[0] ?? "").slice(0, 7);
+        googleCostChf[mon] = (googleCostChf[mon] ?? 0) + chf;
+        const mo = ((seaNetworkMonths[mon] ??= {})[row.keys[1] || "(not set)"] ??= [0, 0, 0]);
         mo[0] += row.values[0] ?? 0; mo[1] += row.values[1] ?? 0; mo[2] += cost;
       }
     }
@@ -410,7 +417,7 @@ async function build(): Promise<LiveKpis> {
     }
     reportProgress(KEY, "reading the Microsoft Ads sheet");
     const r = await googleFetchJson<{ values?: unknown[][] }>({
-      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("A1:I400")}?valueRenderOption=UNFORMATTED_VALUE`,
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("A1:K400")}?valueRenderOption=UNFORMATTED_VALUE`,
       scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Microsoft Ads sheet",
     });
     const sheet = parseMsAdsSheet(r.values);
@@ -424,6 +431,26 @@ async function build(): Promise<LiveKpis> {
       through: sheet.through, written: sheet.written, stale: msAdsStale(sheet, now), currency: sheet.currency, costPartial: sheet.costPartial,
       kinds: msAdsKindMonths(sheet, rate, cur === "EUR" || !!rate),
     };
+    for (const [m, x] of Object.entries(sheet.months)) {
+      const c = toChf(x.cost, cur, m, fx);
+      if (c != null) msCostChf[m] = c;
+      const v = x.revenue == null ? null : toChf(x.revenue, cur, m, fx);
+      if (v != null) msRevChf[m] = v;
+    }
+    // Google Ads' own conversion value: its script writes the tab "Google Ads" of the same sheet (P05)
+    try {
+      const g = await googleFetchJson<{ values?: unknown[][] }>({
+        url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}/values/${encodeURIComponent("'Google Ads'!A1:K400")}?valueRenderOption=UNFORMATTED_VALUE`,
+        scope: "https://www.googleapis.com/auth/spreadsheets.readonly", label: "Google Ads sheet",
+      });
+      const gs = parseMsAdsSheet(g.values);
+      for (const [m, x] of Object.entries(gs.months)) {
+        const v = x.revenue == null ? null : toChf(x.revenue, gs.currency, m, fx);
+        if (v != null) googleRevChf[m] = v;
+      }
+    } catch {
+      waiting.P05A = "Being set up: a script in Google Ads will write its conversion value to the sheet's tab \"Google Ads\" every morning";
+    }
   });
 
   // ROAS by channel: GA4's revenue per Google Ads network and for organic search, beside the costs
@@ -469,7 +496,7 @@ async function build(): Promise<LiveKpis> {
   // figures month for month (checked 20.10.2026: P01 2,751 / 2,900, P07 292,092 / 225,577)
   await guard("sheetFill", async () => {
     reportProgress(KEY, "reading GA4 purchases and organic revenue per month");
-    const s = { P01G: empty(), P07G: empty() };
+    const s: Record<string, ReturnType<typeof empty>> = { P01G: empty(), P07G: empty() };
     for (const [side, y, to] of [["py", py, `${py}-12-31`], ["months", year, iso(now)]] as const) {
       const t = await fetchGa4Report({ name: "transactionsDaily", from: `${y}-01-01`, to });
       for (const row of t.rows) {
@@ -482,6 +509,17 @@ async function build(): Promise<LiveKpis> {
         if (m >= 0 && m < 12) s.P07G[side][m] = (s.P07G[side][m] ?? 0) + (row.values[0] ?? 0);
       }
     }
+    // cart and check-out abandonment from the shop's check-out steps; SEA cost and revenue from the platforms
+    // (9f, SARCLA 20.10: "this should be fully filled") - see sheetFill.ts
+    const funnel: { ym: string; event: string; sessions: number }[] = [];
+    for (const [y, to] of [[py, `${py}-12-31`], [year, iso(now)]] as const) {
+      const f = await fetchGa4Report({ name: "shopFunnelMonthly", from: `${y}-01-01`, to });
+      for (const row of f.rows) funnel.push({ ym: String(row.keys[0] ?? ""), event: String(row.keys[1] ?? ""), sessions: row.values[0] ?? 0 });
+    }
+    Object.assign(s, funnelRates(funnel, year));
+    s.X01A = bothPlatforms(googleCostChf, msCostChf, year);
+    if (Object.keys(msRevChf).length && Object.keys(googleRevChf).length) s.P05A = bothPlatforms(googleRevChf, msRevChf, year);
+    else if (!Object.keys(msRevChf).length) waiting.P05A ??= "Being set up: the Microsoft Advertising script will write its conversion value to the sheet";
     Object.assign(series, s);
   });
 

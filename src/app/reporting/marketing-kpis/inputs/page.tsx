@@ -7,6 +7,11 @@
 // proposed from GA4 (they match the sheet's own figures), cart and check-out abandonment, SEA cost and
 // revenue typed - and the year's targets. Rates are typed in percent (29 = 29%). Editing needs edit rights
 // on Advanced reporting; everyone else reads.
+// 20.10 later (9f, SARCLA: "this should be fully filled" and "the Excel should put the months in rows as the
+// original"): the hub proposes the last typed rows too - cart and check-out abandonment from GA4's check-out
+// steps, SEA cost from Google Ads + Microsoft Ads, SEA revenue from the platforms' own conversion value - and
+// shows its figure under every month, so a typed month can be compared before it is replaced; the file has a
+// row per month, the KPIs across.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -24,8 +29,10 @@ import { MONTHS, useMarketingKpis } from "../data";
 const TARGETS = ["F01", "P06", "E01", "E02", "P07", "V01", "P01", "L01"];
 /** Dashboard 2026's monthly rows, in the sheet's order - what a month is copied as */
 const SHEET = ["V01", "E01", "E02", "K02", "K03", "P01", "R01", "R02", "X01", "P05", "R04", "R05", "R06", "R07", "P07"];
-/** a typed row the hub can propose from GA4: the series that matches the sheet's own figures */
-const PROPOSE: Record<string, string> = { P01: "P01G", P07: "P07G" };
+/** a typed row the hub can propose: the series it reads for it (sheetFill.ts) */
+const PROPOSE: Record<string, string> = { P01: "P01G", P07: "P07G", K02: "K02G", K03: "K03G", X01: "X01A", P05: "P05A" };
+/** where a proposal comes from, as the page says it */
+const PROPOSED_FROM: Record<string, string> = { P01: "GA4", P07: "GA4", K02: "GA4", K03: "GA4", X01: "Google Ads + Microsoft Ads", P05: "Google Ads + Microsoft Ads" };
 const SOURCE: Record<string, string> = { GA4: "GA4", "Google Ads": "Google Ads", "Search Console": "Search Console" };
 
 /** One month's figure as the sheet has it: the hub's live value, else what was typed, else GA4's proposal. */
@@ -86,11 +93,15 @@ function Row({ id, year, inputs, live, canEdit, onSaved }: { id: string; year: n
     } finally { setBusy(false); }
   };
   const m = MEASURES[id];
+  // the hub's figure for each month, typed or not (orange where it differs from what was typed by more than 5%)
+  const hubSide = live && year === live.year ? "months" : live && year === live.year - 1 ? "py" : null;
+  const hub = keys.map((_, i) => (PROPOSE[id] && hubSide ? live!.series[PROPOSE[id]]?.[hubSide][i] ?? null : null));
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: `minmax(190px, 1.4fr) repeat(12, minmax(62px, 1fr)) 92px`, gap: "4px", alignItems: "center", py: 0.5, borderTop: `1px solid ${HAIRLINE}` }}>
       <Box>
         <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{m.label}</Typography>
-        <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{id} · {isPct(id) ? "in %" : m.typedCurrency === "CHF" ? "in CHF as the source shows it - shown in € at the month's rate" : m.fmt === "chf" ? "CHF" : m.fmt === "dec1" ? "position" : "count"}{PROPOSE[id] ? " · GA4 fills an empty month" : ""}</Typography>
+        <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{id} · {isPct(id) ? "in %" : m.typedCurrency === "CHF" ? "in CHF as the source shows it - shown in € at the month's rate" : m.fmt === "chf" ? "CHF" : m.fmt === "dec1" ? "position" : "count"}{PROPOSE[id] ? ` · ${PROPOSED_FROM[id]} fills an empty month` : ""}</Typography>
+        {PROPOSE[id] && live?.waiting?.[PROPOSE[id]] && <Typography sx={{ fontSize: "0.7rem", color: "#b26a00" }}>{live.waiting[PROPOSE[id]]}</Typography>}
       </Box>
       {vals.map((v, i) => (
         <Box key={i} component="input" value={v} disabled={!canEdit} inputMode="decimal" aria-label={`${m.label} ${MONTHS[i]} ${year}`}
@@ -103,6 +114,16 @@ function Row({ id, year, inputs, live, canEdit, onSaved }: { id: string; year: n
         {canEdit && <Button size="small" disabled={!dirty || busy} onClick={save} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "8px", minWidth: 0 }}>{busy ? "…" : "Save"}</Button>}
         {msg && <Typography sx={{ fontSize: "0.7rem", color: msg.ok ? GREEN : RED }}>{msg.text}</Typography>}
       </Box>
+      {/* the hub's own figure under each month - a typed month can be compared before it is replaced */}
+      {hub.some((x) => x != null) && <>
+        <Typography sx={{ fontSize: "0.68rem", color: FAINT, textAlign: "right", pr: 0.5 }}>the hub reads</Typography>
+        {hub.map((x, i) => (
+          <Typography key={i} title={`${PROPOSED_FROM[id] ?? "The hub"}: ${forScreen(id, x)}`} sx={{ fontSize: "0.7rem", color: x != null && initial[i] !== "" && Math.abs((parse(id, initial[i]) as number) - x) > Math.max(Math.abs(x) * 0.05, isPct(id) ? 0.01 : 1) ? "#b26a00" : FAINT, textAlign: "right", px: 0.75, fontVariantNumeric: "tabular-nums" }}>
+            {forScreen(id, x)}
+          </Typography>
+        ))}
+        <Box />
+      </>}
     </Box>
   );
 }
@@ -148,8 +169,9 @@ function SheetMonths({ year, inputs, live }: { year: number; inputs: Inputs; liv
     try { await navigator.clipboard.writeText(text); setCopied(`${MONTHS[month]} copied as a ${how} - ${SHEET.length} figures`); }
     catch { setCopied("The browser did not allow the copy - use the file"); }
   };
+  // a row per month and the KPIs across, as the sheet itself (SARCLA 20.10: "the Excel should put the months in rows as the original")
   const download = () => {
-    const rows = [["KPI", "Id", ...MONTHS.map((m) => `${m} ${year}`)], ...SHEET.map((id) => [MEASURES[id].label, id, ...MONTHS.map((_, i) => forExcel(id, cell(id, i).v))])];
+    const rows = [["Month", ...SHEET.map((id) => `${MEASURES[id].label} (${id})`)], ...MONTHS.map((m, i) => [`${m} ${year}`, ...SHEET.map((id) => forExcel(id, cell(id, i).v))])];
     const csv = "\ufeff" + rows.map((r) => r.map((x) => (/[",;\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x)).join(";")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -226,10 +248,10 @@ export default function MonthlyInputs() {
           <SheetMonths year={year} inputs={inputs} live={state?.live?.value} />
           <GlassCard>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, flexWrap: "wrap" }}>
-              <Typography sx={{ flex: 1, fontSize: "0.98rem", fontWeight: 700, color: INK }}>Typed - the rows nothing reads yet</Typography>
+              <Typography sx={{ flex: 1, fontSize: "0.98rem", fontWeight: 700, color: INK }}>Typed - the hub proposes each month</Typography>
             </Box>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-              {canEdit ? "Type a month and press Save on its row. Purchases and SEO revenue come in from GA4 (blue) - Save keeps them. Rates in percent (29 = 29%). Empty clears a month." : "Read only - typing needs edit rights on Advanced reporting."}
+              {canEdit ? "Type a month and press Save on its row. An empty whole month comes in from GA4, Google Ads and Microsoft Ads (blue) - Save keeps it. Under each row, what the hub reads: orange where it differs from what was typed by more than 5%. Rates in percent (29 = 29%). Empty clears a month." : "Read only - typing needs edit rights on Advanced reporting."}
             </Typography>
             <Box sx={{ overflowX: "auto" }}>
               <Box sx={{ minWidth: 1100 }}>
