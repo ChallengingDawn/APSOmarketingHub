@@ -79,10 +79,9 @@ test("map seed: the Performis SAE table (3836456157)", () => {
   assert.equal(rules.sae["Köremez James"], "38431796"); // Sandra's customers -> James Koeremez
 });
 
-test("map seed: sources - France on the map, the rest on Performis", () => {
-  for (const cc of ["CH", "DE", "IT", "AT", "NL", "PL"]) assert.equal(rules.countries[cc].source, "sae", cc);
+test("map seed: sources - rule 1 (the SAE) first everywhere, France too since 20.10.2026", () => {
+  for (const cc of ["CH", "DE", "IT", "AT", "NL", "PL", "FR"]) assert.equal(rules.countries[cc].source, "sae", cc);
   const fr = rules.countries.FR;
-  assert.equal(fr.source, "map");
   assert.equal(fr.defaultOwner, TSA);
   assert.deepEqual(fr.zones.map((z) => z.owner), [JEREMY]);
   const deps = fr.zones.flatMap((z) => z.prefixes.flatMap(expand)).sort();
@@ -119,9 +118,10 @@ test("map seed: decisions with the engine's rules", () => {
   const z = d({ country: "CH", zip: "3000" });
   assert.equal(z.owner, JAN); assert.equal(z.via, "zone");
   assert.equal(d({ country: "CH", zip: "8400" }).owner, TSA);
-  assert.equal(d({ country: "FR", zip: "75001", sae: "Borey Jeremy" }).owner, TSA); // map country: Paris is TSA
-  assert.equal(d({ country: "FR", zip: "69001", sae: "TSA Team" }).owner, JEREMY);
-  assert.equal(d({ country: "FR", zip: "90000" }).owner, JEREMY); // Territoire de Belfort (SARCLA's 20th)
+  assert.equal(d({ country: "FR", zip: "75001", sae: "Borey Jeremy" }).owner, JEREMY); // rule 1: his SAE, wherever in France
+  assert.equal(d({ country: "FR", zip: "69001", sae: "TSA Team" }).owner, TSA); // rule 1: the SAE beats his zone
+  assert.equal(d({ country: "FR", zip: "75001" }).owner, TSA); // no SAE: rule 2, Paris is no zone of his
+  assert.equal(d({ country: "FR", zip: "90000" }).owner, JEREMY); // no SAE: rule 2, Territoire de Belfort (SARCLA's 20th)
   const left = d({ country: "DE", zip: "01067" });
   assert.equal(left.owner, TSA); assert.ok(left.flags.includes("owner-deactivated")); // Nitschke has left
   assert.equal(d({ country: "CH", zip: "3000", sae: "Kalt Jan", erpId: "799177" }).owner, "37053854"); // a known SAE beats the key list (as the workflows)
@@ -181,7 +181,7 @@ test("map seed: the people of each country (KM workbook, sheet \"Owner by countr
   assert.deepEqual(SEED.countries.BE, { country: "BE", source: "sae", zones: [], people: [TSA, DENIS] });
   // the workflows' rules are kept as they were
   assert.equal(SEED.countries.CH.keyAccounts?.length, 2);
-  assert.equal(SEED.countries.FR.source, "map");
+  assert.equal(SEED.countries.FR.source, "sae"); // rule 1 first in France too (SARCLA 20.10.2026)
 });
 
 test("map seed: an SAE from outside the country - the zone decides", () => {

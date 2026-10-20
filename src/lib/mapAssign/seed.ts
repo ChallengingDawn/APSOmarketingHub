@@ -152,7 +152,9 @@ const WORKFLOWS: AssignRules = {
     },
     FR: {
       country: "FR",
-      source: "map",
+      // SARCLA 20.10.2026: "starting point is always rule 1" - France too: the SAE first, these zones only for a
+      // company without one (was "map" since 19.10)
+      source: "sae",
       zones: [
         // SARCLA 19.10.2026: Auvergne-Rhône-Alpes (01 03 07 15 26 38 42 43 63 69 73 74) + Bourgogne-Franche-Comté (21 25 39 58 70 71 89 90) -> Jeremy Borey
         { id: "fr-jeremy-borey", owner: "29117550", label: "Jeremy Borey", prefixes: [
