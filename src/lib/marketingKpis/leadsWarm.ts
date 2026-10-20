@@ -21,6 +21,7 @@ import { movements } from "./movements";
 import { leadsData } from "./leads";
 import { handoverData } from "./handover";
 import { retainData } from "./retain";
+import { retentionData } from "./retention";
 
 const TICK_MS = 10 * 60_000;
 /** One read never holds the warm-up longer than this (Retain & grow takes a quarter of an hour); the next tick picks up. */
@@ -43,6 +44,8 @@ const READS: { name: string; get: () => Promise<SlowState<unknown>> }[] = [
   { name: "Lead Generation", get: leadsData },
   { name: "Hand-over", get: handoverData },
   { name: "Retain & grow", get: retainData },
+  // the retention workbook (d2, 20.10.2026) - the heaviest (~15 min), so last
+  { name: "Retention", get: retentionData },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
