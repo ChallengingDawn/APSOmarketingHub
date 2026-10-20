@@ -31,7 +31,7 @@ import { Chip, Info, when } from "@/app/connectors/parts";
 import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
-import { OptionsPanel } from "./OptionsPanel";
+import { RulesDialog } from "./RulesDialog";
 import { DiffView } from "./DiffView";
 import { NoCompanyView } from "./NoCompanyView";
 import { RedirectionsView, openConflicts } from "./RedirectionsView";
@@ -47,19 +47,22 @@ const VIEW_LABEL: Record<View, string> = {
   map: "Map", differences: "Differences", nocompany: "No company", redirections: "Redirections", live: "Live",
 };
 
-function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, seededNow, onSeeded }: {
+function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
   d: MapData; rules: AssignRules; setDraft: SetDraft; cc: string; setCc: (cc: string) => void; names: Names; palette: Palette; dirty: boolean;
-  rev: number; n: number; seededNow: boolean; onSeeded: () => void;
+  rev: number; n: number; busy: boolean; check: { errors: string[] }; msg: { ok: boolean; text: string } | null; onSave: () => void; onUndo: () => void;
+  seededNow: boolean; onSeeded: () => void;
 }) {
   const m = useCountryMap(cc, rules, d.rules, dirty);
   const onAssign = useMemo(() => assignInto(setDraft), [setDraft]);
+  const [rulesOpen, setRulesOpen] = useState(false);
   return (
-    <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft}
-      top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />}
-      options={(close) => (
-        <OptionsPanel key={`${cc}-${rev}`} cc={cc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n}
-          byZone={m.status === "ok" ? m.byZone : null} seededNow={seededNow} onSeeded={onSeeded} onClose={close} />
-      )} />
+    <>
+      <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft}
+        top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />} onRules={() => setRulesOpen(true)} />
+      <RulesDialog open={rulesOpen} onClose={() => setRulesOpen(false)} cc={cc} setCc={setCc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette}
+        rev={rev} byZone={m.status === "ok" ? m.byZone : null} n={n} dirty={dirty} busy={busy} check={check} msg={msg} onSave={onSave} onUndo={onUndo}
+        seededNow={seededNow} onSeeded={onSeeded} />
+    </>
   );
 }
 
@@ -165,7 +168,8 @@ export default function MapAssignment() {
     if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
-    else body = <MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} rev={rev} n={n} seededNow={seededNow} onSeeded={seeded} />;
+    else body = <MapView key="map" d={d} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} rev={rev} n={n}
+      busy={busy} check={check} msg={msg} onSave={() => void save()} onUndo={undo} seededNow={seededNow} onSeeded={seeded} />;
   }
 
   const liveCount = d ? Object.values(d.live).filter(Boolean).length : 0;

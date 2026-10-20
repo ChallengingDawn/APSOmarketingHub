@@ -26,7 +26,8 @@
 //     kind / keys / owner / text describe it (owner "" + kind "undo"-text when the map's Undo puts the rule back).
 //     Without onAssign, or when d.admin is false, the map only shows.
 //   setDraft - an SAE redirected for this country from a place's "where it comes from"
-//   top - shown over the map, top left (the page's country menu); options(close) - the Options panel
+//   top - shown over the map, top left (the page's country menu); onRules - the Rules button (the page's big window,
+//   RulesDialog.tsx - SARCLA 20.10.2026: "open a big popup with tabs to separate the jobs")
 //   <CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} /> - the countries as a menu button
 //   sourceNote(cc, rules, names) - one line: Performis decides / the map decides
 
@@ -171,12 +172,12 @@ const sameTarget = (a: Target | null, b: Target | null) => {
 
 type Note = { text: string; bad?: boolean; undo?: { rule: CountryRule; text: string } };
 
-export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, options }: {
+export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, onRules }: {
   m: CountryMap; cc: string; rules: AssignRules; d: MapData; names: Names; palette: Palette;
   onAssign?: (country: string, change: MapAssign) => void;
   setDraft?: SetDraft; top?: React.ReactNode;
-  /** the Options panel, given its close */
-  options?: (close: () => void) => React.ReactNode;
+  /** the Rules button: the page opens its rules window */
+  onRules?: () => void;
 }) {
   const base = m.base;
   const rule = rules.countries[cc];
@@ -195,8 +196,8 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [query, setQuery] = useState("");
   const [miss, setMiss] = useState(false);
-  /** the panel on the left besides a picked place: the country's options or its KPIs */
-  const [side, setSide] = useState<"options" | "kpis" | null>(null);
+  /** the panel on the left besides a picked place: the country's KPIs */
+  const [side, setSide] = useState<"kpis" | null>(null);
 
   // a new country starts whole, nothing picked
   const viewRef = useRef<View>({ k: 1, x: 0, y: 0 });
@@ -683,7 +684,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     color: on ? "#2459d1" : INK, bgcolor: on ? "#e6edfd" : "rgba(255,255,255,.94)", border: `1px solid ${on ? "rgba(36,89,209,.25)" : HAIRLINE}`,
     boxShadow: "0 2px 10px rgba(31,45,78,.08)", "&:hover": { bgcolor: on ? "#dbe5fc" : "#fff" },
   });
-  const toggle = (k: "options" | "kpis") => { setPinned(null); setSide((cur) => (cur === k ? null : k)); };
+  const toggle = (k: "kpis") => { setPinned(null); setSide((cur) => (cur === k ? null : k)); };
 
   const panel = base && pinned ? (
     <PlacePanel key={`${pinned.kind}-${pinned.kind === "cell" ? pinned.cell : pinned.kind === "region" ? pinned.region : pinned.i}`}
@@ -696,8 +697,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     <KpiPanel cc={cc} d={d} names={names} palette={palette} layer={effLayer} people={people} hl={hl} setHl={setHl} base={base} joined={joined} values={values}
       prio={prio} m={m} rule={rule} layersAt={layers.data?.at ?? null} revenueField={layers.data?.revenueField ?? null} onClose={() => setSide(null)}
       onTop={(t) => { const p = base.points[t.point]; flyTo(p.x, p.y, kFor(p.cell)); setPinned({ kind: "marker", i: joined?.top.indexOf(t) ?? -1, X: 0, Y: 0 }); }} />
-  ) : side === "options" && options ? options(() => setSide(null)) : null;
-  const optionsOpen = side === "options" && !pinned;
+  ) : null;
   // the controls move right of an open panel (on a phone the panel covers the map: they stay under it)
   const besidePanel = panel ? { xs: 10, sm: 412 } : 10;
 
@@ -770,7 +770,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
         <Box sx={{ position: "absolute", top: 10, left: besidePanel, right: 10, zIndex: 4, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
             {top}
-            {options && <Button onClick={() => toggle("options")} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={optionsOpen} sx={sideBtn(optionsOpen)}>Rules</Button>}
+            {onRules && <Button onClick={onRules} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} sx={sideBtn(false)}>Rules</Button>}
             <Button onClick={() => toggle("kpis")} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={side === "kpis" && !pinned} sx={sideBtn(side === "kpis" && !pinned)}>KPIs</Button>
           </Box>
           <Box sx={{ flex: 1 }} />
