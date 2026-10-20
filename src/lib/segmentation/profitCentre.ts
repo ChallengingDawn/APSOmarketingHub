@@ -28,7 +28,19 @@ export const PC_LABEL: Record<string, string> = {
   st: "Antivibration Technology", at: "Drive Technology", pw: "Sensors & Power", sp: "Sensors & Power",
 };
 
-/** Everything else the ERP may name (ws, asw, unknown…) lands here rather than inventing a bucket. */
+/**
+ * The centres a split may NAME - the same five revenueRules.MAIN uses, and
+ * exactly the five the property offers. A test holds the two sets together.
+ *
+ * Everything else the ERP writes - pw, ws, asw and above all `unknown`, which
+ * carries a little revenue on almost every company - counts towards the TOTAL
+ * but is never named. Letting `unknown` compete as a centre is what produced
+ * "Major DT, then UNKNOWN" and ">80% UNKNOWN" in the first preview: buckets no
+ * property could hold, for a centre that does not exist (SARCLA, 20.10.2026).
+ */
+export const NAMED = new Set(["at", "dt", "ft", "kt", "st"]);
+
+/** Everything else the ERP may name (pw, ws, asw, unknown…) - real revenue, no name. */
 export const OTHER = "other";
 
 export type PcTotals = Record<string, number>;
@@ -97,13 +109,18 @@ export function wanted(totals: PcTotals): { split: string; major: string; topSha
   const total = nz.reduce((a, [, v]) => a + v, 0);
   if (total <= 0) return { split: "No sales", major: "No sales", topShare: 0, top: null };
 
+  // Shares are of the WHOLE total, unnamed revenue included: a company that is
+  // half sealing and half unattributed is "Major DT, then mix other PC", not
+  // "100% DT". Only the named five may be the top or the second.
   const ranked = nz
+    .filter(([code]) => NAMED.has(code))
     .map(([code, v]) => ({ code: code.toUpperCase(), share: v / total }))
     .sort((a, b) => b.share - a.share || a.code.localeCompare(b.code));
+  if (!ranked.length) return { split: "Mix different PC", major: "Mix different PC", topShare: 0, top: null };
   const top = ranked[0];
   const second = ranked[1];
 
-  if (ranked.length === 1 || top.share >= 0.999) return { split: `100% ${top.code}`, major: top.code, topShare: top.share, top: top.code };
+  if (top.share >= 0.999) return { split: `100% ${top.code}`, major: top.code, topShare: top.share, top: top.code };
   if (top.share >= 0.8) return { split: `>80% ${top.code}`, major: top.code, topShare: top.share, top: top.code };
   if (top.share < 0.45) return { split: "Mix different PC", major: "Mix different PC", topShare: top.share, top: top.code };
   if (second && second.share >= 0.2) return { split: `Major ${top.code}, then ${second.code}`, major: top.code, topShare: top.share, top: top.code };

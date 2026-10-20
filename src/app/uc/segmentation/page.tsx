@@ -41,6 +41,8 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
+import Collapse from "@mui/material/Collapse";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import ProfitCentre, { type PcRun } from "./ProfitCentre";
 import { pctText } from "@/app/uc/oneshot/parts";
@@ -99,6 +101,53 @@ const LEGEND: Record<string, string> = {
   "Potential recalculation": "Manual kept: a person's value - never touched · kept higher: the engine's value is already above the formula, it is not lowered · unchanged: less than 10 % away · no revenue: nothing to calculate from · filled: was empty · machine recalc: the engine's value raised to the formula.",
   "Yearly reclassification": "Segment changed: a new APSO segment from the 14 rules · prio up / prio down: the priority set exactly to the rule · APIC corrected / set / cleared and industry filled / corrected: made to agree · facts only: nothing decided changed, helper fields refreshed · ERP left alone: ESO, DS, Growth Engine - never touched.",
 };
+
+/**
+ * Notes, folded away.
+ *
+ * They used to stack as full-width coloured bars above the page, so the first
+ * thing anyone saw was a wall of warnings about things that fix themselves -
+ * "the next sweep recovers them", "(preview) started". One quiet line that says
+ * how many there are, and opens if you want them (SARCLA, 20.10.2026).
+ */
+function Notes({ items }: { items: { tone: "bad" | "warn"; text: React.ReactNode }[] }) {
+  const [open, setOpen] = useState(false);
+  if (!items.length) return null;
+  const bad = items.filter((i) => i.tone === "bad").length;
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Box
+        component="button"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        sx={{
+          display: "flex", alignItems: "center", gap: 1, width: "100%", textAlign: "left",
+          border: `1px solid ${TINT}`, borderRadius: "10px", bgcolor: "#fff", cursor: "pointer",
+          px: 1.5, py: 0.9, font: "inherit", color: INK,
+          "&:hover": { bgcolor: "#fafbfc" },
+        }}
+      >
+        <Box component="span" sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: bad ? "#c5221f" : "#eda100", flexShrink: 0 }} />
+        <Typography sx={{ fontSize: 13, color: MUTED }}>
+          {items.length === 1 ? "1 note" : `${items.length} notes`}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s ease" }} />
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, mt: 1 }}>
+          {items.map((i, k) => (
+            <Box key={k} sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: 1.5 }}>
+              <Box component="span" sx={{ width: 6, height: 6, mt: 0.8, borderRadius: "50%", flexShrink: 0, bgcolor: i.tone === "bad" ? "#c5221f" : "#eda100" }} />
+              <Typography sx={{ fontSize: 13, color: MUTED, lineHeight: 1.55 }}>{i.text}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
 
 function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRun, live }: {
   title: string; note: string; icon: React.ReactNode; last: Run; extra?: React.ReactNode;
@@ -247,15 +296,11 @@ export default function SmartSegmentation() {
 
   return shell(
     <>
-      {!live && (
-        <Notice tone="warn">
-          The Compass connector still runs the engine (watcher, nightly sweep). This page shows the portfolio live and runs previews; the hub takes over at the switch.
-        </Notice>
-      )}
-      {bd.lost_with_current_revenue > 0 && (
-        <Notice tone="bad">{full(bd.lost_with_current_revenue)} companies are marked APSOlost but bought this year - the next sweep recovers them.</Notice>
-      )}
-      {note && <Notice tone="warn">{note}</Notice>}
+      <Notes items={[
+        ...(!live ? [{ tone: "warn" as const, text: "The Compass connector still runs the engine (watcher, nightly sweep). This page shows the portfolio live and runs previews; the hub takes over at the switch." }] : []),
+        ...(bd.lost_with_current_revenue > 0 ? [{ tone: "bad" as const, text: `${full(bd.lost_with_current_revenue)} companies are marked APSOlost but bought this year - the next sweep recovers them.` }] : []),
+        ...(note ? [{ tone: "warn" as const, text: note }] : []),
+      ]} />
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>

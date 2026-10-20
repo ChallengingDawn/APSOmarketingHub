@@ -273,7 +273,7 @@ export async function status() {
     last_run_new: st.last_run_new ?? null, last_sweep: st.last_sweep ?? null, last_potential: st.last_potential ?? null,
     last_web: st.last_web ?? null, watcher_last: st.watcher_last ?? null,
     last_yearly: st.last_yearly ?? null, yearly_done: st.yearly_done ?? null, year: curYear(),
-    last_profit_centre: st.last_profit_centre ?? null, pc_window_years: PC_WINDOW_YEARS,
+    last_profit_centre: st.last_profit_centre ?? null, pc_window_years: PC_WINDOW_YEARS, pc_first_year: PC_FIRST_YEAR,
     yearly_summary: (await kvGet<Omit<YearlyPlan, "rows"> & { rowCount: number }>(KV.yearlySummary)) ?? null,
     running: await currentRun(),
     engine: process.env.SEGMENTATION_ENGINE === "live" ? "hub" : "connector",
@@ -882,10 +882,27 @@ async function watchInner() {
  * short enough that a customer who moved from hoses to sealing three years ago
  * is not still filed under hoses.
  */
-export const PC_WINDOW_YEARS = 3;
+export const PC_FIRST_YEAR = 2015;
+/** 0 = every year the ERP has written, which is what the old property meant. */
+export const PC_WINDOW_YEARS = 0;
 
-const pcYears = () => Array.from({ length: PC_WINDOW_YEARS }, (_, i) => curYear() - i);
-const pcBlobProps = () => pcYears().map((y) => `rev_${y}_pc_monthly`);
+/**
+ * Which years of order revenue the split is taken over.
+ *
+ * It defaults to ALL of them. The first preview over three years called 45,410
+ * of 60,952 companies "No sales", because only ~15,500 have ordered in the last
+ * three years at all — and the property it writes has always meant "what this
+ * customer buys", not "what it bought recently". A narrower window is still
+ * available per run for the recency question, which is a different question.
+ */
+const pcYears = (back = PC_WINDOW_YEARS) => {
+  const y = curYear();
+  const from = back > 0 ? y - back + 1 : PC_FIRST_YEAR;
+  const out: number[] = [];
+  for (let i = from; i <= y; i++) out.push(i);
+  return out.reverse();
+};
+const pcBlobProps = (back?: number) => pcYears(back).map((y) => `rev_${y}_pc_monthly`);
 
 /**
  * The two properties' own options, read live rather than hard-coded.
@@ -906,9 +923,9 @@ async function pcOptions(): Promise<{ split: string[]; major: string[] }> {
 export type PcGap = { wanted: string; wrote: string; example: string; n: number };
 
 /** Plan the split for every company: no writes, so the tab can show it before anyone runs it. */
-export async function profitCentrePlan(beat: () => Promise<void> = async () => {}, maxPages = 0) {
+export async function profitCentrePlan(beat: () => Promise<void> = async () => {}, maxPages = 0, yearsBack = PC_WINDOW_YEARS) {
   const opts = await pcOptions();
-  const blobs = pcBlobProps();
+  const blobs = pcBlobProps(yearsBack);
   const changes: [string, Props][] = [];
   const stats: Record<string, number> = { no_change: 0, change: 0, no_sales: 0, fell_back: 0, no_revenue_blob: 0 };
   /** Buckets the property has no option for — counted, never silently rounded away. */
@@ -938,7 +955,7 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
     if (pages % 50 === 0) await beat();
     if (maxPages && pages >= maxPages) break;
   }
-  return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(), log: [] as string[] };
+  return { scanned, changes, stats, gaps: [...gaps.values()].sort((a, b) => b.n - a.n), years: pcYears(yearsBack), log: [] as string[] };
 }
 
 /**
@@ -949,8 +966,8 @@ export async function profitCentrePlan(beat: () => Promise<void> = async () => {
  * and a customer whose buying moved between centres is corrected on the next
  * pass rather than never.
  */
-async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0) {
-  const { scanned, changes, stats, gaps, years } = await profitCentrePlan(beat, maxPages);
+async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPages = 0, yearsBack = PC_WINDOW_YEARS) {
+  const { scanned, changes, stats, gaps, years } = await profitCentrePlan(beat, maxPages, yearsBack);
   const log: string[] = [];
   const written = dry ? 0 : await batchUpdate(changes, log);
   const res = { at: nowIso(), scanned, planned: changes.length, written, stats, gaps, years, dry };
@@ -961,7 +978,7 @@ async function profitCentreInner(dry: boolean, beat: () => Promise<void>, maxPag
 export type Action = "run-new" | "sweep" | "potential" | "web" | "watch" | "recheck" | "yearly" | "profit-centre";
 
 /** Start an action in the background; false when another one is running. */
-export async function startAction(action: Action, opts: { dry?: boolean; limit?: number; windowMin?: number; by: string }): Promise<{ started: boolean; note: string }> {
+export async function startAction(action: Action, opts: { dry?: boolean; limit?: number; windowMin?: number; years?: number; by: string }): Promise<{ started: boolean; note: string }> {
   if (await currentRun()) return { started: false, note: "another segmentation run is in progress" };
   const dry = !!opts.dry;
   void exclusive(action, opts.by, async (beat) => {
@@ -973,7 +990,7 @@ export async function startAction(action: Action, opts: { dry?: boolean; limit?:
         : action === "web" ? await webInner(Math.max(1, Math.min(opts.limit ?? 200, 1000)), dry)
         : action === "watch" ? await watchInner()
         : action === "yearly" ? await yearlyInner(dry, beat)
-        : action === "profit-centre" ? await profitCentreInner(dry, beat)
+        : action === "profit-centre" ? await profitCentreInner(dry, beat, 0, Math.max(0, opts.years ?? PC_WINDOW_YEARS))
         : await recheckInner(Math.max(1, opts.windowMin ?? 60), dry, 2000);
       const { log, changes, ...rest } = r as Record<string, unknown>;
       void changes;

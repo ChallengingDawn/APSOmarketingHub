@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decide, normalise, sumByPc, wanted, type PcTotals } from "../src/lib/segmentation/profitCentre";
+import { NAMED, decide, normalise, sumByPc, wanted, type PcTotals } from "../src/lib/segmentation/profitCentre";
+import { MAIN } from "../src/lib/connectors/steps/revenueRules";
 
 /** The live options, read off the property on 20.10.2026 — typos and all. */
 const SPLIT = [
@@ -32,12 +33,22 @@ test("sumByPc survives the rubbish a sweep of 34,000 companies will meet", () =>
   assert.deepEqual(sumByPc([blob({ jan: { dt: "12.5" as unknown as number, kt: "x" as unknown as number } })]), { dt: 12.5 });
 });
 
-test("PW is a profit centre like any other — it used to vanish", () => {
-  const t = sumByPc([blob({ jan: { pw: 900 } })]);
-  assert.deepEqual(t, { pw: 900 });
-  // The old code had no PW property at all, so this company read as "No sales".
-  assert.notEqual(wanted(t).split, "No sales");
-  assert.equal(wanted(t).split, "100% PW");
+test("only the five named centres may be named; everything else is revenue without a name", () => {
+  // `unknown` is an ERP catch-all carried by almost every company. Naming it
+  // produced "Major DT, then UNKNOWN" and ">80% UNKNOWN" — buckets for a
+  // centre that does not exist. It still counts towards the total.
+  assert.equal(wanted({ dt: 50, unknown: 50 }).split, "Major DT, then mix other PC");
+  assert.equal(wanted({ dt: 99, unknown: 1 }).split, ">80% DT");
+  // pw and ws are real revenue but not named centres here, as revenueRules.MAIN has it
+  assert.equal(wanted({ pw: 900 }).split, "Mix different PC");
+  assert.equal(wanted({ unknown: 900 }).split, "Mix different PC");
+  assert.equal(wanted({ ws: 10 }).major, "Mix different PC");
+  // but the sum still sees them — the total must not lie
+  assert.deepEqual(sumByPc([blob({ jan: { pw: 900 } })]), { pw: 900 });
+});
+
+test("NAMED is exactly the hub's own MAIN, so the two cannot drift", () => {
+  assert.deepEqual([...NAMED].sort(), [...MAIN].sort());
 });
 
 test("the CEO's thresholds", () => {
@@ -87,13 +98,11 @@ test("a bucket with no option falls back BROADER and says so", () => {
   assert.equal(v.major, "KT"); // the major centre is still exactly right
 });
 
-test("PW has no option anywhere, so it falls back without ever writing junk", () => {
+test("a company with only unnamed revenue is a mix, written cleanly, no fall-back", () => {
   const v = decide({ pw: 100 }, SPLIT, MAJOR);
-  assert.equal(v.wantedSplit, "100% PW");
   assert.equal(v.split, "Mix different PC");
-  assert.equal(v.wantedMajor, "PW");
   assert.equal(v.major, "Mix different PC");
-  assert.equal(v.fellBack, true);
+  assert.equal(v.fellBack, false); // the option exists, so nothing was rounded
 });
 
 test("an exact match is not reported as a fall-back", () => {
