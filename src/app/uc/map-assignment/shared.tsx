@@ -16,10 +16,14 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // The SAE table of every country: a view of its own since 20.10.2026 ("put it on a completely separate tab")
 // Redirections left the page 20.10.2026 (SARCLA: "the redirection tab should not be needed as you can redirect on the
 // map"); Owner redirection's own rules keep running until switched off
-export type View = "map" | "sae" | "differences" | "nocompany" | "live";
+// Differences became Contacts 21.10.2026 (SARCLA: "instead of Differences I want to see the KPI of new contacts ... and
+// the contact association"); the differences by topic are folded inside it
+export type View = "map" | "sae" | "contacts" | "nocompany" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", differences: "#differences", nocompany: "#no-company", live: "#live",
+  map: "#map", sae: "#sae-table", contacts: "#contacts", nocompany: "#no-company", live: "#live",
 };
+/** Old links: #differences opens Contacts (and the address becomes #contacts). */
+export const OLD_VIEW_HASH = { differences: "#differences" } as const;
 
 const PORTAL = "26492587";
 export const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;

@@ -40,6 +40,8 @@ import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type Assi
 import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
+// used inside run() only - contactsKpi.ts imports ensureMapAssign from here, a cycle that is safe at runtime
+import { newContactsKpi } from "./contactsKpi";
 import {
   DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy, inYear,
   internalFromList, isInternal, layerPoints, likeEscape, mergeRules, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
@@ -147,6 +149,11 @@ export function ensureMapAssign(): Promise<void> {
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS priority      TEXT;
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_n    INTEGER;
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_n_at TIMESTAMPTZ;
+      -- v4 (21.10.2026): contacts whose owner / region differ from the company's NOW (every company, nightly), and the
+      -- tickets of the last 90 days per company - all pipelines and the sales ones (ESO + TSA), hourly
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_mism INTEGER;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS tickets_90    INTEGER;
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS sales_90      INTEGER;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -425,6 +432,8 @@ type Rec = {
   revenue_cy: number | null; revenue_year: number; last_order: string | null; first_order: string | null; priority: string | null;
   /** associated contacts, counted on a full read (null = keep the stored count) */
   contacts_n: number | null;
+  /** of its own contacts: owner or region not the company's now (null = keep the stored count) */
+  contacts_mism: number | null;
 };
 const nz = (x: string | null | undefined) => { const s = String(x ?? "").trim(); return s ? s : null; };
 const num = (x: string | null | undefined) => { const s = String(x ?? "").trim(); const n = Number(s); return s && Number.isFinite(n) ? n : null; };
@@ -449,7 +458,7 @@ function toRec(o: Obj, ctx: Ctx): Rec {
     ...base, name: nz(p.name), country: d.country, owner_now: nz(p.hubspot_owner_id), region_now: nz(p.region_responsibility),
     owner_decided: d.owner, via: d.via, detail: d.detail, flags: d.flags.join(","), contacts_off: null, contacts_checked: false, modified_at: nz(p.hs_lastmodifieddate),
     revenue_cy: num(p[revenueField(ctx.year)]), revenue_year: ctx.year, last_order: nz(p[CUSTOMERS_FIELD]), first_order: nz(p[FIRST_ORDER_FIELD]),
-    priority: nz(p[PRIORITY_FIELD]), contacts_n: null,
+    priority: nz(p[PRIORITY_FIELD]), contacts_n: null, contacts_mism: null,
   };
 }
 const differs = (r: { owner_now: string | null; region_now: string | null; owner_decided: string }) =>
@@ -462,15 +471,15 @@ async function upsert(recs: Rec[]): Promise<void> {
     await query(
       `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, region_now,
          owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at,
-         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at)
+         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism)
        SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.region, x.sae, x.erp_id, x.owner_now, x.region_now,
          x.owner_decided, x.via, x.detail, COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'), x.contacts_off,
          CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW(),
-         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END
+         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism
        FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, region text,
          sae text, erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
          contacts_checked boolean, modified_at timestamptz, revenue_cy double precision, revenue_year int, last_order text, first_order text,
-         priority text, contacts_n int)
+         priority text, contacts_n int, contacts_mism int)
        ON CONFLICT (company_id) DO UPDATE SET
          name = EXCLUDED.name, country = EXCLUDED.country, country_raw = EXCLUDED.country_raw, country_custom = EXCLUDED.country_custom,
          zip = EXCLUDED.zip, region = EXCLUDED.region, sae = EXCLUDED.sae, erp_id = EXCLUDED.erp_id, owner_now = EXCLUDED.owner_now,
@@ -480,7 +489,8 @@ async function upsert(recs: Rec[]): Promise<void> {
          priority = EXCLUDED.priority,
          -- counted on a full read only: a 15-minute read keeps the count
          contacts_n = COALESCE(EXCLUDED.contacts_n, m.contacts_n),
-         contacts_n_at = CASE WHEN EXCLUDED.contacts_n IS NOT NULL THEN NOW() ELSE m.contacts_n_at END`,
+         contacts_n_at = CASE WHEN EXCLUDED.contacts_n IS NOT NULL THEN NOW() ELSE m.contacts_n_at END,
+         contacts_mism = COALESCE(EXCLUDED.contacts_mism, m.contacts_mism)`,
       [JSON.stringify(recs.slice(i, i + 500))],
     );
   }
@@ -531,7 +541,9 @@ async function processCompanies(objs: Obj[], ctx: Ctx): Promise<void> {
   for (let i = 0; i < objs.length; i += 100) {
     stop(ctx);
     const recs = objs.slice(i, i + 100).map((o) => toRec(o, ctx));
-    const look = recs.filter((r) => differs(r) || isLive(ctx, r.country));
+    // the full read counts every company's contacts (SARCLA 21.10.2026: "every contact associated to a company matches
+    // the same as in the company"); a 15-minute read the ones that differ or are live
+    const look = ctx.full ? recs : recs.filter((r) => differs(r) || isLive(ctx, r.country));
     ctx.differ += recs.filter(differs).length;
     const asked = ctx.full ? recs : look;
     const assoc = asked.length ? await companyContacts(asked.map((r) => r.company_id)) : null;
@@ -540,7 +552,9 @@ async function processCompanies(objs: Obj[], ctx: Ctx): Promise<void> {
     if (look.length) {
       const by = await contactsOf(look.map((r) => r.company_id), ctx, assoc ?? undefined);
       for (const r of look) {
-        r.contacts_off = offCount(by.get(r.company_id) ?? [], { owner: r.owner_decided, sae: r.sae }, ctx.internal);
+        const own = by.get(r.company_id) ?? [];
+        r.contacts_off = offCount(own, { owner: r.owner_decided, sae: r.sae }, ctx.internal);
+        r.contacts_mism = own.filter((c) => !isInternal(c.email, ctx.internal) && ((c.owner ?? "") !== (r.owner_now ?? "") || (c.region ?? "") !== (r.region_now ?? ""))).length;
         r.contacts_checked = true;
       }
     }
@@ -973,6 +987,8 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   const wrote = await writeLive(ctx, by);
   const noCompany = await noCompanyScan(ctx, by, wrote);
   await ticketLoad(ctx).catch((e) => console.warn(`[map-assign] ticket workload not read: ${msg(e)}`));
+  // the Contacts view: the new contacts of the last 30 days and whether they follow the rules - at most hourly
+  await newContactsKpi(signal, ctx.internal).catch((e) => console.warn(`[map-assign] new contacts not counted: ${msg(e)}`));
 
   // the rules were saved while this run decided with the old ones
   const rulesNow = await getRules();
@@ -1226,9 +1242,9 @@ export async function layerData(country: string): Promise<LayerData> {
   const r = await query<{
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
     last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
-    via: string | null;
+    via: string | null; tickets_90: number | null; sales_90: number | null;
   }>(
-    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via
+    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via, tickets_90, sales_90
      FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
   const rows: LayerRow[] = r.rows.map((x) => ({
@@ -1236,6 +1252,7 @@ export async function layerData(country: string): Promise<LayerData> {
     // a row read before New Year holds last year's revenue: none until the next read
     revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
     lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now, via: x.via,
+    tickets: x.tickets_90, sales: x.sales_90,
   }));
   const ix = await zipsOf(cc);
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
@@ -1243,7 +1260,7 @@ export async function layerData(country: string): Promise<LayerData> {
   const last = await lastRun();
   // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
   const by = new Map<string, OwnerLoad>();
-  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, revenue: 0, contacts: 0 }), by.get(o)!);
+  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0 }), by.get(o)!);
   const extra = await query<{ company_id: string; contacts_n: number | null }>(`SELECT company_id, contacts_n FROM apsomh_map_assign WHERE country = $1`, [cc]);
   const contactsOf = new Map(extra.rows.map((x) => [String(x.company_id), Number(x.contacts_n) || 0]));
   for (const x of r.rows) {
@@ -1252,6 +1269,9 @@ export async function layerData(country: string): Promise<LayerData> {
     const a = at(String(x.owner_decided));
     a.after++;
     if (inYear(x.last_order, year)) a.customers++;
+    if (inYear(x.first_order, year)) a.newCustomers++;
+    a.tickets += Number(x.tickets_90) || 0;
+    a.sales += Number(x.sales_90) || 0;
     if (Number(x.revenue_year) === year && Number.isFinite(Number(x.revenue_cy))) a.revenue += Number(x.revenue_cy);
     a.contacts += contactsOf.get(String(x.company_id)) ?? 0;
   }
@@ -1292,6 +1312,61 @@ async function ticketLoad(ctx: Ctx): Promise<void> {
   await count([{ propertyName: "closed_date", operator: "NOT_HAS_PROPERTY" }], "open");
   await count([{ propertyName: "createdate", operator: "GTE", value: String(Date.now() - 90 * 86_400_000) }], "last90");
   await kvSet(KV.tickets, { at: new Date().toISOString(), byOwner } satisfies TicketLoad);
+  await ticketsPerCompany(ctx);
+}
+
+/** Every ticket of the last 90 days, pipeline by pipeline in 30-day windows (a search answers 10,000 at most), and
+ *  its companies: tickets_90 (all) and sales_90 (ESO + TSA) on each company row. */
+async function ticketsPerCompany(ctx: Ctx): Promise<void> {
+  const pipes = await hs<{ results?: { id: string }[] }>("/crm/v3/pipelines/tickets");
+  const sales = new Set(SALES_PIPELINES);
+  const tickets = new Map<string, boolean>(); // ticket -> a sales ticket
+  const now = Date.now();
+  for (const pl of pipes.results ?? []) {
+    for (let w = 0; w < 3; w++) {
+      const from = now - (w + 1) * 30 * 86_400_000, to = now - w * 30 * 86_400_000;
+      let after: string | undefined;
+      for (let page = 0; page < 50; page++) {
+        stop(ctx);
+        const j = await hs<{ results?: { id: string }[]; paging?: { next?: { after?: string } } }>("/crm/v3/objects/tickets/search", "POST", {
+          filterGroups: [{ filters: [
+            { propertyName: "hs_pipeline", operator: "EQ", value: pl.id },
+            { propertyName: "createdate", operator: "GTE", value: String(from) },
+            { propertyName: "createdate", operator: "LT", value: String(to) },
+          ] }],
+          properties: ["hs_pipeline"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200, after,
+        });
+        for (const t of j.results ?? []) tickets.set(String(t.id), sales.has(String(pl.id)));
+        after = j.paging?.next?.after;
+        if (!after) break;
+      }
+    }
+  }
+  const per = new Map<string, { all: number; sales: number }>();
+  const ids = [...tickets.keys()];
+  for (let i = 0; i < ids.length; i += 1000) {
+    stop(ctx);
+    const j = await hs<{ results?: { from: { id: string }; to?: { toObjectId: string | number }[] }[] }>("/crm/v4/associations/tickets/companies/batch/read", "POST", {
+      inputs: ids.slice(i, i + 1000).map((id) => ({ id })),
+    });
+    for (const r of j.results ?? []) {
+      const isSales = tickets.get(String(r.from.id)) ?? false;
+      for (const t of r.to ?? []) {
+        const c = per.get(String(t.toObjectId)) ?? { all: 0, sales: 0 };
+        c.all++;
+        if (isSales) c.sales++;
+        per.set(String(t.toObjectId), c);
+      }
+    }
+  }
+  await query(`UPDATE apsomh_map_assign SET tickets_90 = 0, sales_90 = 0 WHERE COALESCE(tickets_90, -1) <> 0 OR COALESCE(sales_90, -1) <> 0`);
+  const rows = [...per].map(([id, c]) => ({ id, all: c.all, sales: c.sales }));
+  for (let i = 0; i < rows.length; i += 2000) {
+    await query(
+      `UPDATE apsomh_map_assign m SET tickets_90 = x.all, sales_90 = x.sales FROM jsonb_to_recordset($1::jsonb) AS x(id text, "all" int, sales int) WHERE m.company_id = x.id`,
+      [JSON.stringify(rows.slice(i, i + 2000))],
+    );
+  }
 }
 
 /* ── the Performis tab (GET ?performis=1) ──────────────────────────────── */

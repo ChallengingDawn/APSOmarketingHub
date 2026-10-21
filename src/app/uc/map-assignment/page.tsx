@@ -10,6 +10,8 @@
 // right), the Map at the screen's height with Options / KPIs / a clicked place in a panel on its left; Differences
 // (moves by person), No company, Redirections (Owner redirection, with the rules that work against the map to accept
 // or decline), Live (per country, or all at once).
+// 21.10.2026 (SARCLA): Differences became Contacts - the new contacts of the last 30 days against the rules, how every
+// contact matches its company, and the differences by topic folded under them (old #differences links open it).
 // Edits show on the map before they are saved; one Save sends them, a patch per part.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,19 +34,21 @@ import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
 import { RulesDialog, type Place } from "./RulesDialog";
-import { DiffView } from "./DiffView";
+import { ContactsView, followPct, useContactsData } from "./ContactsView";
 import { NoCompanyView } from "./NoCompanyView";
 import { LiveView } from "./LiveView";
 import { SaeTableView } from "./SaeTableView";
 import {
-  API, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
+  API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, saveRules,
   type Names, type Palette, type SetDraft, type View,
 } from "./shared";
 
 const CC_KEY = "apsomh:map-assignment:country";
+/** The views' hashes, and the old ones that still open a view. */
+const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", differences: "Differences", nocompany: "No company", live: "Live",
+  map: "Map", sae: "SAE table", contacts: "Contacts", nocompany: "No company", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded }: {
@@ -102,10 +106,15 @@ function SaveStrip({ d, dirty, check, busy, msg, onSave, onUndo }: {
 }
 
 export default function MapAssignment() {
-  const [view, setView] = useHashTab<View>(VIEW_HASH, "map");
+  const [tab, setView] = useHashTab<View | keyof typeof OLD_VIEW_HASH>(TAB_HASH, "map");
+  const view: View = tab === "differences" ? "contacts" : tab;
+  useEffect(() => { if (tab === "differences") setView("contacts"); }, [tab, setView]);
   const [n, setN] = useState(0);
   const url = `${API}${n ? `?n=${n}` : ""}`;
   const held = useHeld<MapData>(url, [url]);
+  // the Contacts view's numbers: its tab shows the share of new contacts that follow the rules
+  const contacts = useContactsData(n);
+  const follow = followPct(contacts);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
   const reload = useCallback(() => setN((x) => x + 1), []);
@@ -166,7 +175,7 @@ export default function MapAssignment() {
       ? <Info key="missing">The map assignment service is not there yet (HTTP 404). This page fills in once it is deployed.</Info>
       : <UpstreamPanel key="error" source="Map assignment" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
   } else if (d && rules) {
-    if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
+    if (view === "contacts") body = <ContactsView key="contacts" d={d} names={names} palette={palette} held={contacts} onRetry={reload} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
     else if (view === "sae") body = <SaeTableView key="sae" d={d} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n} />;
@@ -175,7 +184,6 @@ export default function MapAssignment() {
   }
 
   const liveCount = d ? Object.values(d.live).filter(Boolean).length : 0;
-  const moving = d ? d.moves.filter((x) => x.from !== x.to).reduce((a, x) => a + x.companies, 0) : 0;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
       <PageHeader
@@ -192,7 +200,7 @@ export default function MapAssignment() {
         <ReportTabs name="mapassign" tab={view} onSelect={setView} tabs={[
           { id: "map", label: VIEW_LABEL.map, count: dirty ? "edited" : null },
           { id: "sae", label: VIEW_LABEL.sae, count: d ? String(Object.keys((rules ?? d.rules).sae).length) : null },
-          { id: "differences", label: VIEW_LABEL.differences, count: d && moving ? full(moving) : null },
+          { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />

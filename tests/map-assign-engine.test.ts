@@ -269,7 +269,7 @@ test("map assignment engine: the map's layers per postcode", () => {
   assert.deepEqual(b.priority, { P1: 1, P3: 2 });
   assert.deepEqual(b.top.map((t) => [t.id, t.revenue]), [["1", 1000], ["4", 400], ["5", 300]]);
   // a row without its decision (an old caller) counts no change
-  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {} });
+  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {}, tickets: 0, sales: 0 });
 });
 
 test("map assignment engine: the Performis tab per country and SAE", () => {

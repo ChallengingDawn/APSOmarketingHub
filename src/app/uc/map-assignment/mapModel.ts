@@ -398,7 +398,7 @@ export type Joined = {
   total: PostcodeStat;
 };
 
-const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} });
+const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {}, tickets: 0, sales: 0, byOwner: {} });
 const addTo = (into: Record<string, number>, from: Record<string, number> | undefined) => {
   for (const [k, v] of Object.entries(from ?? {})) into[k] = (into[k] ?? 0) + (Number(v) || 0);
 };
@@ -409,6 +409,14 @@ function addStat(into: PostcodeStat, s: PostcodeStat) {
   // where it comes from (a hub without these fields yet: empty)
   addTo(into.sae!, s.sae); addTo(into.now!, s.now); addTo(into.decided!, s.decided); addTo(into.via!, s.via);
   into.change = (into.change ?? 0) + (Number(s.change) || 0);
+  into.tickets = (into.tickets ?? 0) + (Number(s.tickets) || 0);
+  into.sales = (into.sales ?? 0) + (Number(s.sales) || 0);
+  for (const [o, x] of Object.entries(s.byOwner ?? {})) {
+    const by = into.byOwner ?? (into.byOwner = {});
+    const t = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, tickets: 0, sales: 0 });
+    t.companies += x.companies || 0; t.customers += x.customers || 0; t.newCustomers += x.newCustomers || 0;
+    t.revenue += Number(x.revenue) || 0; t.tickets += x.tickets || 0; t.sales += x.sales || 0;
+  }
 }
 /** A record's entries, biggest first: [[key, n], ...]. */
 export const ranked = (r: Record<string, number> | undefined): [string, number][] =>

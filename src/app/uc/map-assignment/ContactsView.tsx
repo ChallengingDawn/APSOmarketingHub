@@ -1,0 +1,486 @@
+"use client";
+
+// MAP ASSIGNMENT - Contacts (SARCLA 21.10.2026: "instead of Differences I want to see the KPI of new contacts entering
+// the assignment - to whom, if it hit the rules or not - and also the contact association: every contact associated to
+// a company matches the same as in the company"). Top to bottom:
+//   New contacts - last 30 days: how many, the share that follows the rules, a bar per day, by person (the company's
+//     owner by the rules), by rule, the latest that do not follow - counted at most hourly by the engine's run
+//   Contacts match their company: per country and per person, the share of associated contacts with the company's
+//     owner + region in HubSpot now, and with the owner by the rules (the table's counts, from the nightly full read)
+//   Differences by topic, folded: the former Differences view (DiffView), unchanged
+// From GET ?contacts=1 (src/lib/mapAssign/contactsKpi.ts) - the page loads it once, its tab shows the share.
+
+import { useState } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
+import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
+import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import { useHeld, type Held } from "@/app/analytics/AnalyticsData";
+import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { full } from "@/app/charts/format";
+import { ACCENT, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice, TRACK, clip, headCell, type Tint } from "@/app/uc/report/ui";
+import { Chip, Choice, Info, when } from "@/app/connectors/parts";
+import type { MapData } from "@/lib/mapAssign/api";
+import type {
+  ClassCounts, ContactClass, ContactMatch, ContactsData, DayCount, MatchCounts, NewContactExample, NewContactsKpi, NewContactsPart, RuleKey,
+} from "@/lib/mapAssign/contactsKpi";
+import { DiffView } from "./DiffView";
+import { API, Swatch, countryName, hsCompany, hsContact, type Names, type Palette } from "./shared";
+
+/* ── the data ── */
+
+/** GET ?contacts=1, held while it reloads. */
+export function useContactsData(n: number): Held<ContactsData> {
+  const url = `${API}?contacts=1${n ? `&n=${n}` : ""}`;
+  return useHeld<ContactsData>(url, [url]);
+}
+/** The data when the route answered with it (a hub without this route answers ?contacts=1 with the map's data). */
+export function contactsOf(h: Held<ContactsData>): ContactsData | null {
+  const r = h.result;
+  if (r?.state !== "ok") return null;
+  const x = r.data as Partial<ContactsData> | null;
+  return x && x.match && Array.isArray(x.match.byCountry) ? (x as ContactsData) : null;
+}
+
+/** Of the new contacts whose company is known, the share that follows the rules (0..1); null = none known. */
+const followShare = (c: ClassCounts): number | null => {
+  const known = c.follows + c["follows-company"] + c.differs;
+  return known ? c.follows / known : null;
+};
+/** A share as a whole percent - never 100 unless all, never 0 unless none. */
+const pctNum = (s: number) => { const r = Math.round(s * 100); return s < 1 && r === 100 ? 99 : s > 0 && r === 0 ? 1 : r; };
+const pct = (s: number | null) => (s === null ? "—" : `${pctNum(s)}%`);
+/** The tab's badge: the share of new contacts that follow the rules, in %; null = not known yet. */
+export function followPct(h: Held<ContactsData>): number | null {
+  const k = contactsOf(h)?.newContacts;
+  const s = k ? followShare(k.classes) : null;
+  return s === null ? null : pctNum(s);
+}
+/** Of the contacts counted, the share that do not differ (0..1); null = none counted. */
+const matchShare = (counted: number, differ: number): number | null =>
+  counted > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, differ) / counted)) : null;
+
+/* ── words and colours ── */
+
+/** The bars: the four states (no company and not read yet together, in grey). */
+type Seg = "follows" | "follows-company" | "differs" | "none";
+const SEGS: { key: Seg; label: string; color: string }[] = [
+  { key: "follows", label: "Follow the rules", color: "#1f9d63" },
+  { key: "follows-company", label: "Follow their company - the company is not right yet", color: "#eda100" },
+  { key: "differs", label: "Another owner or region than their company", color: "#d03b3b" },
+  { key: "none", label: "No company yet", color: "#b4bcc8" },
+];
+const segOf = (c: ClassCounts, k: Seg) => (k === "none" ? c["no-company"] + c["unknown-company"] : c[k]);
+/** The same, as a day's readout says them. */
+const SEG_SHORT: Record<Seg, string> = { follows: "follow the rules", "follows-company": "follow their company", differs: "another owner or region", none: "no company yet" };
+
+const KIND: Record<ContactClass, { label: string; tint: Tint }> = {
+  follows: { label: "Follows the rules", tint: "green" },
+  "follows-company": { label: "Follows its company - not right yet", tint: "amber" },
+  differs: { label: "Another owner or region", tint: "pink" },
+  "unknown-company": { label: "Company not read yet", tint: "slate" },
+  "no-company": { label: "No company yet", tint: "slate" },
+};
+const RULE_LABEL: Record<RuleKey, string> = {
+  rule1: "Rule 1 · Performis SAE", rule2: "Rule 2 · zip code", key: "Key accounts", redirection: "Owner redirection",
+  other: "Something else", "unknown-company": "Company not read yet", "no-company": "No company yet",
+};
+
+const many = (n: number, one: string, more: string) => `${full(n)} ${n === 1 ? one : more}`;
+/** "21.10" */
+const dm = (day: string) => `${day.slice(8, 10)}.${day.slice(5, 7)}`;
+const subhead = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.08em", mb: 0.75 };
+const link = { color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
+const num = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+const note = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
+
+function Person({ id, names, palette, empty = "No company yet" }: { id: string | null; names: Names; palette: Palette; empty?: string }) {
+  const left = !!id && !names.active(id);
+  return (
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, minWidth: 0, maxWidth: "100%" }}>
+      <Swatch paint={palette(id || null)} />
+      <Box component="span" sx={{ fontSize: "0.84rem", fontWeight: 600, color: id ? INK : MUTED, ...clip(260) }} title={id ? names.name(id) : empty}>{id ? names.name(id) : empty}</Box>
+      {left && <Box component="span" sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>has left</Box>}
+    </Box>
+  );
+}
+
+/** A share as a figure and, from sm up, a small meter. */
+function Share({ s, title }: { s: number | null; title?: string }) {
+  return (
+    <Box title={title} sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.75, minWidth: 0 }}>
+      <Box component="span" sx={{ display: { xs: "none", sm: "block" }, width: 40, height: 6, borderRadius: 3, bgcolor: TRACK, overflow: "hidden", flexShrink: 0 }}>
+        {s !== null && <Box component="span" sx={{ display: "block", height: "100%", width: `${Math.round(s * 100)}%`, bgcolor: "#1f9d63", borderRadius: 3 }} />}
+      </Box>
+      <Box component="span" sx={{ ...num, color: s === null ? MUTED : INK, minWidth: 34 }}>{pct(s)}</Box>
+    </Box>
+  );
+}
+
+/** A compact table: header + rows on one grid, the first column takes what is left. */
+function Rows({ cols, head, rows, more }: { cols: object; head: string[]; rows: React.ReactNode[][]; more?: React.ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1, px: 0.5, pb: 0.6, borderBottom: `1px solid ${HAIRLINE}` }}>
+        {head.map((h, i) => <Box key={h || i} sx={{ ...headCell, textAlign: i ? "right" : "left", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</Box>)}
+      </Box>
+      {rows.map((r, i) => (
+        <Box key={i} sx={{ display: "grid", gridTemplateColumns: cols, gap: 1, px: 0.5, py: 0.7, borderBottom: `1px solid ${HAIRLINE}`, alignItems: "center", minWidth: 0 }}>
+          {r.map((c, j) => <Box key={j} sx={{ minWidth: 0 }}>{c}</Box>)}
+        </Box>
+      ))}
+      {more}
+    </Box>
+  );
+}
+function MoreButton({ all, n, onClick }: { all: boolean; n: number; onClick: () => void }) {
+  return <Button size="small" onClick={onClick} sx={{ textTransform: "none", mt: 0.5 }}>{all ? "Show fewer" : `Show all ${n}`}</Button>;
+}
+
+/* ── new contacts ── */
+
+/** A bar per day, the four states stacked; pointing at (or tapping) a day reads it out above. */
+function DayBars({ p }: { p: NewContactsPart }) {
+  const [at, setAt] = useState<number | null>(null);
+  const days = p.perDay;
+  const max = Math.max(1, ...days.map((x) => x.total));
+  const H = 120;
+  /** px per contact, the same for every day (room for the 2px gaps of four parts) */
+  const scale = (H - 8) / max;
+  const partsOf = (x: DayCount) => SEGS.map((s) => ({ s, n: segOf(x.classes, s.key) })).filter((y) => y.n > 0);
+  const say = (x: DayCount) => `${many(x.total, "new contact", "new contacts")}${x.total ? ` - ${partsOf(x).map(({ s, n }) => `${full(n)} ${SEG_SHORT[s.key]}`).join(", ")}` : ""}`;
+  const d = days[at ?? days.length - 1];
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.8rem", color: INK, minHeight: "2.4em", mb: 0.5 }} aria-live="polite">
+        {d ? <><b>{at === null ? `Today, ${dm(d.day)}` : dm(d.day)}</b>: {say(d)}</> : null}
+      </Typography>
+      <Box role="group" aria-label="New contacts per day" onMouseLeave={() => setAt(null)}
+        sx={{ position: "relative", display: "flex", alignItems: "flex-end", gap: "2px", height: H, borderBottom: `1px solid ${HAIRLINE}`, minWidth: 0 }}>
+        {/* the day with the most, as a faint line */}
+        <Box aria-hidden sx={{ position: "absolute", left: 0, right: 0, top: 0, borderTop: `1px dashed ${HAIRLINE}` }} />
+        <Typography aria-hidden sx={{ position: "absolute", top: 2, left: 0, fontSize: "0.68rem", color: FAINT, bgcolor: "rgba(255,255,255,.7)", px: 0.25, lineHeight: 1.2 }}>{full(max)}</Typography>
+        {days.map((x, i) => {
+          const parts = partsOf(x);
+          return (
+            <Box key={x.day} component="button" type="button" aria-label={`${dm(x.day)}: ${say(x)}`} title={`${dm(x.day)}: ${say(x)}`}
+              onMouseEnter={() => setAt(i)} onFocus={() => setAt(i)} onClick={() => setAt(i)}
+              sx={{
+                all: "unset", cursor: "pointer", flex: "1 1 0", minWidth: 0, height: "100%", display: "flex", flexDirection: "column-reverse", gap: "2px",
+                borderRadius: "3px 3px 0 0", bgcolor: at === i ? "rgba(21,34,58,.05)" : "transparent", "&:focus-visible": { outline: `2px solid ${ACCENT}` },
+              }}>
+              {parts.map((y, j) => (
+                <Box key={y.s.key} component="span" sx={{
+                  display: "block", flexShrink: 0, height: `${Math.max(2, y.n * scale)}px`, bgcolor: y.s.color,
+                  borderRadius: j === parts.length - 1 ? "3px 3px 0 0" : 0,
+                }} />
+              ))}
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: FAINT, mt: 0.4 }}>
+        <span>{days.length ? dm(days[0].day) : ""}</span>
+        <span>{days.length > 2 ? dm(days[Math.floor(days.length / 2)].day) : ""}</span>
+        <span>{days.length ? dm(days[days.length - 1].day) : ""}</span>
+      </Box>
+      <Box sx={{ display: "flex", gap: 1.5, rowGap: 0.5, flexWrap: "wrap", mt: 1 }}>
+        {SEGS.map((s) => (
+          <Box key={s.key} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, fontSize: "0.76rem", color: INK, minWidth: 0 }}>
+            <Box component="span" aria-hidden sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: s.color, flexShrink: 0 }} />
+            <span>{s.label}</span>
+            <Box component="span" sx={{ color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(segOf(p.classes, s.key))}</Box>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+const PERSON_COLS = { xs: "minmax(0, 1fr) 44px 64px", sm: "minmax(0, 1fr) 52px 96px" };
+const TOP_PEOPLE = 10;
+
+function ByPerson({ p, names, palette }: { p: NewContactsPart; names: Names; palette: Palette }) {
+  const [all, setAll] = useState(false);
+  const list = all ? p.byPerson : p.byPerson.slice(0, TOP_PEOPLE);
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={subhead}>By person - the company's owner by the rules</Typography>
+      <Rows cols={PERSON_COLS} head={["Person", "New", "Follow"]}
+        rows={list.map((x) => [
+          <Person key="p" id={x.owner || null} names={names} palette={palette} />,
+          <Box key="n" sx={num}>{full(x.n)}</Box>,
+          x.owner ? <Share key="s" s={x.n ? x.follows / x.n : null} title={`${full(x.follows)} of ${full(x.n)} follow the rules`} /> : <Box key="s" sx={{ ...num, color: MUTED }}>—</Box>,
+        ])}
+        more={p.byPerson.length > TOP_PEOPLE ? <MoreButton all={all} n={p.byPerson.length} onClick={() => setAll((v) => !v)} /> : undefined} />
+    </Box>
+  );
+}
+
+function ByRule({ p }: { p: NewContactsPart }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={subhead}>By rule - how the company got its owner</Typography>
+      <Rows cols={PERSON_COLS} head={["Rule", "New", "Follow"]}
+        rows={p.byRule.map((x) => {
+          const none = x.rule === "no-company" || x.rule === "unknown-company";
+          return [
+            <Box key="r" sx={{ fontSize: "0.84rem", fontWeight: 600, color: none ? MUTED : INK, ...clip(260) }}>{RULE_LABEL[x.rule] ?? x.rule}</Box>,
+            <Box key="n" sx={num}>{full(x.n)}</Box>,
+            none ? <Box key="s" sx={{ ...num, color: MUTED }}>—</Box> : <Share key="s" s={x.n ? x.follows / x.n : null} title={`${full(x.follows)} of ${full(x.n)} follow the rules`} />,
+          ];
+        })} />
+    </Box>
+  );
+}
+
+const LATEST_SHOWN = 8;
+
+function Latest({ list, names }: { list: NewContactExample[]; names: Names }) {
+  const [all, setAll] = useState(false);
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={subhead}>The latest that do not follow the rules</Typography>
+      {(all ? list : list.slice(0, LATEST_SHOWN)).map((e) => {
+        const ownerRight = !!e.decided && String(e.owner ?? "") === String(e.decided);
+        return (
+          <Box key={e.id} sx={{ py: 0.8, borderTop: `1px solid ${HAIRLINE}`, minWidth: 0, display: "grid", gap: 0.2 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+              <Box component="a" href={hsContact(e.id)} target="_blank" rel="noopener" title={e.email ?? e.id} sx={{ ...link, fontSize: "0.84rem", flex: 1, minWidth: 0 }}>
+                {e.email || `Contact ${e.id}`}
+              </Box>
+              <Chip tint={KIND[e.kind].tint}>{KIND[e.kind].label}</Chip>
+            </Box>
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "baseline", minWidth: 0, fontSize: "0.76rem", color: MUTED }}>
+              <Box component="span" sx={{ whiteSpace: "nowrap" }}>{e.created ? when(e.created) : "—"}</Box>
+              {e.companyId && (
+                <Box component="a" href={hsCompany(e.companyId)} target="_blank" rel="noopener" title={e.companyName ?? e.companyId}
+                  sx={{ ...link, fontWeight: 500, color: MUTED, minWidth: 0 }}>{e.companyName || `Company ${e.companyId}`}</Box>
+              )}
+              {e.country && <Box component="span" sx={{ whiteSpace: "nowrap" }}>{e.country}</Box>}
+            </Box>
+            {e.decided ? (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", fontSize: "0.78rem", color: INK, minWidth: 0 }}>
+                {ownerRight ? (
+                  <>
+                    <span>Owner right - region responsibility {e.region ? names.name(e.region) : "empty"}</span>
+                    <ArrowForwardIcon sx={{ fontSize: 14, color: FAINT }} titleAccess="should be" />
+                    <b>{names.name(e.decided)}</b>
+                  </>
+                ) : (
+                  <>
+                    <span>{e.owner ? names.name(e.owner) : "No owner"}</span>
+                    <ArrowForwardIcon sx={{ fontSize: 14, color: FAINT }} titleAccess="by the rules" />
+                    <b>{names.name(e.decided)}</b>
+                    {e.kind === "follows-company" && <Box component="span" sx={{ color: MUTED }}>(the company has {e.companyOwnerNow ? names.name(e.companyOwnerNow) : "no owner"} today)</Box>}
+                  </>
+                )}
+              </Box>
+            ) : (
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>The company is new - the next run reads it.</Typography>
+            )}
+          </Box>
+        );
+      })}
+      {list.length > LATEST_SHOWN && <MoreButton all={all} n={list.length} onClick={() => setAll((v) => !v)} />}
+      {!list.length && <Typography sx={{ ...note, py: 0.5 }}>Every new contact with a company follows the rules.</Typography>}
+    </Box>
+  );
+}
+
+/** Country pills shown before the rest go behind "more". */
+const TOP_COUNTRIES = 7;
+
+function NewContactsCard({ k, names, palette, stale }: { k: NewContactsKpi | null; names: Names; palette: Palette; stale: boolean }) {
+  const [cc, setCc] = useState("all");
+  if (!k) {
+    return (
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<PersonAddAlt1OutlinedIcon />} tint="green" title="New contacts - last 30 days" note="Whom they went to, and whether that is what the rules give their company" />
+        <Info>Not counted yet - the map assignment run counts them once an hour, from its next run.</Info>
+      </GlassCard>
+    );
+  }
+  const countries = Object.entries(k.countries).map(([c, x]) => ({ cc: c, n: x.total })).sort((a, b) => b.n - a.n || a.cc.localeCompare(b.cc));
+  const pick = cc !== "all" && k.countries[cc] ? cc : "all";
+  const p: NewContactsPart = pick === "all" ? k : k.countries[pick];
+  const top = countries.slice(0, TOP_COUNTRIES), rest = countries.slice(TOP_COUNTRIES);
+  const known = p.classes.follows + p.classes["follows-company"] + p.classes.differs;
+  const share = followShare(p.classes);
+  const noCo = p.classes["no-company"], notRead = p.classes["unknown-company"];
+  const where = pick === "all" ? "" : ` in ${countryName(pick)}`;
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<PersonAddAlt1OutlinedIcon />} tint="green" title="New contacts - last 30 days"
+        note={`Whom they went to, and whether that is what the rules give their company. Counted every hour - last ${when(k.at)}.`}
+        right={stale ? <CircularProgress size={14} sx={{ color: MUTED }} /> : undefined} />
+      {countries.length > 1 && (
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", mb: 2 }}>
+          <Choice<string> value={pick} onChange={(v) => setCc(v || "all")} options={[
+            { key: "all", label: `All · ${full(k.total)}` },
+            ...top.map((c) => ({ key: c.cc, label: `${countryName(c.cc)} · ${full(c.n)}` })),
+          ]} />
+          {rest.length > 0 && (
+            <Select size="small" displayEmpty value={rest.some((c) => c.cc === pick) ? pick : ""} onChange={(e) => setCc(e.target.value || "all")}
+              inputProps={{ "aria-label": "More countries" }}
+              sx={{ fontSize: "0.8rem", borderRadius: "999px", "& .MuiSelect-select": { py: 0.45, pl: 1.5 }, color: rest.some((c) => c.cc === pick) ? ACCENT : MUTED }}>
+              <MenuItem value="">{`${rest.length} more`}</MenuItem>
+              {rest.map((c) => <MenuItem key={c.cc} value={c.cc}>{`${countryName(c.cc)} · ${full(c.n)}`}</MenuItem>)}
+            </Select>
+          )}
+        </Box>
+      )}
+      {k.capped && <Notice tone="warn">HubSpot gives at most 10,000 contacts in one search - the oldest days here are short.</Notice>}
+
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mb: 0.25 }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, letterSpacing: "-0.03em", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{full(p.total)}</Typography>
+        <Typography sx={{ fontSize: "0.95rem", color: INK, fontWeight: 600 }}>new {p.total === 1 ? "contact" : "contacts"}{where}</Typography>
+        {share !== null && (
+          <Typography sx={{ fontSize: "0.95rem", color: INK, fontWeight: 600 }}>· <Box component="span" sx={{ color: "#1b7a55" }}>{pct(share)}</Box> follow the rules</Typography>
+        )}
+      </Box>
+      <Typography sx={{ ...note, mb: 2 }}>
+        {known ? `Of the ${full(known)} whose company is known` : "None has a known company yet"}
+        {noCo ? ` · ${many(noCo, "has", "have")} no company yet (the No company tab)` : ""}
+        {notRead ? ` · ${full(notRead)} with a company not read yet` : ""}
+        {pick === "all" && k.internal ? ` · ${many(k.internal, "A+P person", "A+P people")} left out` : ""}
+      </Typography>
+
+      {p.total > 0 ? (
+        <>
+          <DayBars p={p} />
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: { xs: 2.5, md: 3 }, mt: 2.5 }}>
+            <ByPerson p={p} names={names} palette={palette} />
+            <ByRule p={p} />
+          </Box>
+          <Box sx={{ mt: 2.5 }}><Latest list={p.examples} names={names} /></Box>
+        </>
+      ) : (
+        <Typography sx={note}>No new contact{where} in the last 30 days.</Typography>
+      )}
+    </GlassCard>
+  );
+}
+
+/* ── contacts against their company ── */
+
+const MATCH_COLS = { xs: "minmax(0, 1fr) 64px 62px 50px", sm: "minmax(0, 1fr) 72px 104px 100px" };
+const TOP_MATCH = 10;
+
+const nowShare = (m: MatchCounts) => matchShare(m.mismCounted, m.mism);
+const rulesShare = (m: MatchCounts) => matchShare(m.checked, m.off);
+
+function MatchRows<T extends MatchCounts>({ title, list, label, all, setAll, total, mismKnown }: {
+  title: string; list: T[]; label: (m: T) => React.ReactNode; all: boolean; setAll: (v: boolean) => void; total: number; mismKnown: boolean;
+}) {
+  const shown = all ? list : list.slice(0, TOP_MATCH);
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={subhead}>{title}</Typography>
+      <Rows cols={MATCH_COLS} head={["", "Contacts", "Company", "Rules"]}
+        rows={shown.map((m) => [
+          label(m),
+          <Box key="n" sx={num}>{full(m.contacts)}</Box>,
+          <Share key="c" s={mismKnown ? nowShare(m) : null} title={mismKnown && m.mismCounted ? `${full(m.mism)} of ${full(m.mismCounted)} contacts differ from their company` : "not counted yet"} />,
+          <Share key="r" s={rulesShare(m)} title={m.checked ? `${full(m.off)} of ${full(m.checked)} checked contacts differ from the rules` : "not checked yet"} />,
+        ])}
+        more={total > TOP_MATCH ? <MoreButton all={all} n={total} onClick={() => setAll(!all)} /> : undefined} />
+    </Box>
+  );
+}
+
+function MatchCard({ m, names, palette }: { m: ContactMatch; names: Names; palette: Palette }) {
+  const [allCountries, setAllCountries] = useState(false);
+  const [allPeople, setAllPeople] = useState(false);
+  const t = m.totals;
+  const sNow = nowShare(t), sRules = rulesShare(t);
+  const counted = m.mismKnown && t.companiesMism > 0;
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<HubOutlinedIcon />} tint="blue" title="Contacts match their company"
+        note={`Every contact associated to a company should have the company's owner and region responsibility. Counted on the nightly full read${m.countedAt ? ` - last ${when(m.countedAt)}` : ""}.`} />
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mb: 0.25 }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, letterSpacing: "-0.03em", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{full(t.contacts)}</Typography>
+        <Typography sx={{ fontSize: "0.95rem", color: INK, fontWeight: 600 }}>contacts on {many(t.companiesCounted, "company", "companies")}</Typography>
+      </Box>
+      <Typography sx={{ fontSize: "0.92rem", color: INK, mb: 1 }}>
+        {counted && <><b>{pct(sNow)}</b> have their company's owner and region today · </>}
+        <b>{pct(sRules)}</b> of those checked have the owner the rules give their company
+      </Typography>
+      <Box sx={{ display: "grid", gap: 0.4, mb: 2 }}>
+        <Typography sx={note}>
+          <b>Company</b>: the same owner and region responsibility as their company in HubSpot today
+          {!counted ? " - counted on the nightly full read, the first numbers come after the next one." : t.mismCounted < t.contacts ? ` - counted so far for ${full(t.mismCounted)} of ${full(t.contacts)} contacts, the rest on the next full read.` : "."}
+        </Typography>
+        <Typography sx={note}>
+          <b>Rules</b>: the owner, region and SAE the rules give their company - checked for the companies whose owner would change and for live countries: {full(t.checked)} of {full(t.contacts)} contacts so far.
+        </Typography>
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: { xs: 2.5, md: 3 } }}>
+        <MatchRows title="By country" list={m.byCountry} total={m.byCountry.length} all={allCountries} setAll={setAllCountries} mismKnown={m.mismKnown}
+          label={(x) => <Box sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, ...clip(260) }} title={countryName(x.country)}>{countryName(x.country)}</Box>} />
+        <MatchRows title="By person - the company's owner by the rules" list={m.byOwner} total={m.byOwner.length} all={allPeople} setAll={setAllPeople} mismKnown={m.mismKnown}
+          label={(x) => <Person id={x.owner || null} names={names} palette={palette} empty="Nobody" />} />
+      </Box>
+    </GlassCard>
+  );
+}
+
+/* ── the view ── */
+
+export function ContactsView({ d, names, palette, held, onRetry }: {
+  d: MapData; names: Names; palette: Palette;
+  /** the page's load (its tab shows the share); without it the view loads its own */
+  held?: Held<ContactsData>; onRetry?: () => void;
+}) {
+  const [n, setN] = useState(0);
+  const ownUrl = held ? null : `${API}?contacts=1${n ? `&n=${n}` : ""}`;
+  const own = useHeld<ContactsData>(ownUrl, [ownUrl]);
+  const h = held ?? own;
+  const [folded, setFolded] = useState(true);
+  const r = h.result;
+  const data = contactsOf(h);
+  const retry = onRetry ?? (() => setN((x) => x + 1));
+
+  let top: React.ReactNode;
+  if (r === null) top = <LoadingPanel label="Counting the contacts…" />;
+  else if (!data) {
+    top = r.state === "ok"
+      ? <Info>The contact numbers are not there yet - this view fills in once the hub is deployed.</Info>
+      : <UpstreamPanel source="Contacts" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={retry} />;
+  } else {
+    top = (
+      <>
+        <NewContactsCard k={data.newContacts} names={names} palette={palette} stale={h.stale} />
+        <MatchCard m={data.match} names={names} palette={palette} />
+      </>
+    );
+  }
+  return (
+    <>
+      {top}
+      <GlassCard sx={{ p: 0 }}>
+        <Box component="button" type="button" onClick={() => setFolded((x) => !x)} aria-expanded={!folded} sx={{
+          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.5, width: "100%", minWidth: 0,
+          px: { xs: 2, md: 2.5 }, py: 1.75, borderRadius: "22px", "&:hover": { bgcolor: "rgba(21,34,58,.03)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` },
+        }}>
+          <CompareArrowsOutlinedIcon sx={{ fontSize: 20, color: MUTED }} />
+          <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
+            <Box component="span" sx={{ display: "block", fontSize: "0.98rem", fontWeight: 600, color: INK }}>Differences by topic</Box>
+            <Box component="span" sx={{ display: "block", fontSize: "0.8rem", color: MUTED }}>Companies whose owner, region or contacts differ from the rules, grouped by why - with an OK per topic</Box>
+          </Box>
+          {folded ? <ExpandMoreIcon sx={{ fontSize: 22, color: MUTED }} /> : <ExpandLessIcon sx={{ fontSize: 22, color: MUTED }} />}
+        </Box>
+      </GlassCard>
+      {!folded && <DiffView d={d} names={names} palette={palette} />}
+    </>
+  );
+}

@@ -9,6 +9,8 @@
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
 // GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
 // GET ?topics=1(&country=CC|??)   TopicsData: the differences grouped by why, with the OK answers (src/lib/mapAssign/topics.ts)
+// GET ?contacts=1             ContactsData: the new contacts of the last 30 days against the rules (kept hourly by the
+//                             run) and how every contact matches its company (src/lib/mapAssign/contactsKpi.ts)
 // Admins:
 // PUT {rules}                 the whole rules, validated; every stored company decided again at once
 // PUT {patch}                 part of them (sae / defaultOwner / countries: {CC: rule | null}) merged into the saved
@@ -33,6 +35,7 @@ import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/pl
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
 import { TOPIC_ORDER, isTopicId, type TopicId } from "@/lib/mapAssign/topics";
 import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
+import { contactsData } from "@/lib/mapAssign/contactsKpi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +59,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: await layerData(cc) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
+    if (sp.get("contacts") !== null) return NextResponse.json({ configured: true, ok: true, data: await contactsData() });
     if (sp.get("topics") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
       if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });

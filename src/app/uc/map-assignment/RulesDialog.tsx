@@ -105,7 +105,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
   const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o) }))
     .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0));
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
-  const cols = "minmax(170px, 1.4fr) 80px 80px 64px 90px 110px 90px 80px 90px 80px 90px 100px";
+  const cols = "minmax(170px, 1.4fr) 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
   const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
     if (opts?.gdp) return v >= 1000 ? `${(v / 1000).toFixed(1)} bn` : `${full(Math.round(v))} m`;
@@ -123,30 +123,28 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
         <Box sx={{ minWidth: 1180 }}>
           <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
             <span />
-            {group("Companies", 3, "#2459d1")}
-            {group("This year", 2, "#1b7a55")}
+            {group("Customers", 4, "#1b7a55")}
             <Box sx={{ gridColumn: "span 1" }} />
-            {group("Tickets ESO + TSA", 2, "#a96a12")}
+            {group("Tickets - last 90 days", 3, "#a96a12")}
             {group("Land - rule 2", 3, "#6250d6")}
           </Box>
           <Box sx={{ ...row, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
-            {["Person", "Now", "After", "±", "Customers", "Revenue EUR", "Contacts", "Open", "Last 90 d", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
+            {["Person", "Companies", "Bought this year", "New this year", "Revenue EUR", "Contacts", "All", "Sales", "Sales open", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
               <Typography key={h} sx={{ ...head, textAlign: i ? "right" : "left" }}>{h}</Typography>
             ))}
           </Box>
           {rows.map(({ o, l, t, z }) => {
-            const dd = (l?.after ?? 0) - (l?.now ?? 0);
             return (
               <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
                 <Who owner={o} names={names} palette={palette} />
-                <Typography sx={{ ...cell, color: MUTED }}>{num(l?.now)}</Typography>
                 <Typography sx={{ ...cell, fontWeight: 700 }}>{num(l?.after)}</Typography>
-                <Typography sx={{ ...cell, fontWeight: dd ? 700 : 400, color: dd > 0 ? "#1b7a55" : dd < 0 ? "#b4232c" : FAINT }}>{dd > 0 ? `+${full(dd)}` : dd < 0 ? `−${full(-dd)}` : "—"}</Typography>
                 <Typography sx={cell}>{num(l?.customers)}</Typography>
+                <Typography sx={cell}>{num(l?.newCustomers)}</Typography>
                 <Typography sx={cell}>{num(l?.revenue)}</Typography>
                 <Typography sx={cell}>{num(l?.contacts)}</Typography>
-                <Typography sx={{ ...cell, fontWeight: t?.open ? 700 : 400 }}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>
-                <Typography sx={cell}>{tickets ? num(t?.last90 ?? 0) : "…"}</Typography>
+                <Typography sx={cell}>{num(l?.tickets)}</Typography>
+                <Typography sx={{ ...cell, fontWeight: l?.sales ? 700 : 400 }}>{num(l?.sales)}</Typography>
+                <Typography sx={cell}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>
                 <Typography sx={cell}>{num(z?.postcodes)}</Typography>
                 <Typography sx={cell}>{num(z?.km2, { km: true })}</Typography>
                 <Typography sx={cell}>{gdp.has(o) ? num(gdp.get(o), { gdp: true }) : "—"}</Typography>
@@ -155,13 +153,14 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
           })}
           <Box sx={{ ...row, gridTemplateColumns: cols, py: 0.65, borderBottom: "none", bgcolor: "rgba(21,34,58,.02)" }}>
             <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED }}>{c}</Typography>
-            <Typography sx={{ ...cell, color: MUTED }}>{num(sum((r) => r.l?.now ?? 0))}</Typography>
             <Typography sx={{ ...cell, fontWeight: 700 }}>{num(sum((r) => r.l?.after ?? 0))}</Typography>
-            <span />
             <Typography sx={cell}>{num(sum((r) => r.l?.customers ?? 0))}</Typography>
+            <Typography sx={cell}>{num(sum((r) => r.l?.newCustomers ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.revenue ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.contacts ?? 0))}</Typography>
-            <span /><span />
+            <Typography sx={cell}>{num(sum((r) => r.l?.tickets ?? 0))}</Typography>
+            <Typography sx={cell}>{num(sum((r) => r.l?.sales ?? 0))}</Typography>
+            <span />
             <Typography sx={cell}>{num(sum((r) => r.z?.postcodes ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.z?.km2 ?? 0), { km: true })}</Typography>
             <Typography sx={cell}>{gdp.size ? num([...gdp.values()].reduce((a, v) => a + v, 0), { gdp: true }) : "—"}</Typography>
@@ -169,7 +168,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
         </Box>
       </Box>
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-        Companies: owner in HubSpot now and by these rules. This year: the companies by the rules. Tickets: open ESO + TSA tickets and those created in the last 90 days, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted at the next scan"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+        Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = their open ESO + TSA tickets, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
       </Typography>
     </Box>
   );
@@ -435,6 +434,56 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
   );
 }
 
+/** A place in figures (SARCLA 21.10.2026: "not now / after - insightful KPIs: GDP, revenue, orders incoming, new
+ *  customers, number of tickets, number of sales tickets"): the totals, then per person the rules give the companies. */
+function PlaceKpi({ place, st, gdp, km2, names, palette }: {
+  place: Place; st: NonNullable<ReturnType<typeof joinLayer>["regions"][number]>; gdp: number | null; km2: number | null; names: Names; palette: Palette;
+}) {
+  const tiles: [string, string][] = [
+    ["companies", full(st.companies)], ["bought this year", full(st.customers)], ["new customers this year", full(st.newCustomers)],
+    ["revenue this year (EUR)", full(Math.round(st.revenue))], ["tickets, last 90 days", full(st.tickets ?? 0)], ["sales tickets, last 90 days", full(st.sales ?? 0)],
+    ...(gdp !== null && gdp !== undefined ? [["GDP (EUR)", gdp >= 1000 ? `${(gdp / 1000).toFixed(1)} bn` : `${full(Math.round(gdp))} m`] as [string, string]] : []),
+    ...(km2 ? [["km²", km2Text(km2).replace(" km²", "")] as [string, string]] : []),
+  ];
+  const people = Object.entries(st.byOwner ?? {}).sort((a, b) => b[1].companies - a[1].companies);
+  const cols = "minmax(170px, 1.4fr) 100px 110px 110px 120px 100px 100px";
+  const cell = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: "right" as const };
+  return (
+    <Box sx={{ display: "grid", gap: 1.25 }}>
+      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{place.title} in figures</Typography>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" }, gap: 1 }}>
+        {tiles.map(([label, value]) => (
+          <Box key={label} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", px: 1.5, py: 1, bgcolor: "rgba(255,255,255,.7)" }}>
+            <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{label}</Typography>
+          </Box>
+        ))}
+      </Box>
+      {people.length > 0 && (
+        <Table cols={cols} heads={["Person (by the rules)", ...["Companies", "Bought this year", "New this year", "Revenue EUR", "Tickets 90 d", "Sales 90 d"].map((h) => <Box key={h} sx={{ textAlign: "right" }}>{h}</Box>)]}>
+          {people.map(([o, x]) => (
+            <Box key={o} sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: cols }, py: 0.6 }}>
+              <Who owner={o} names={names} palette={palette} />
+              <Typography sx={{ ...cell, fontWeight: 700 }}>{full(x.companies)}</Typography>
+              <Typography sx={cell}>{full(x.customers)}</Typography>
+              <Typography sx={cell}>{full(x.newCustomers)}</Typography>
+              <Typography sx={cell}>{full(Math.round(x.revenue))}</Typography>
+              <Typography sx={cell}>{full(x.tickets)}</Typography>
+              <Typography sx={{ ...cell, fontWeight: x.sales ? 700 : 400 }}>{full(x.sales)}</Typography>
+            </Box>
+          ))}
+        </Table>
+      )}
+    </Box>
+  );
+}
+const placeKm2 = (m: CountryMap, place: Place): number | null => {
+  const base = m.base;
+  if (!base) return null;
+  if (place.kind === "region") return base.regions[place.index]?.km2 ?? null;
+  return (base.cells[place.index] ?? []).reduce((a, i) => a + base.points[i].km2, 0) || null;
+};
+
 /* ── one place: its SAEs and its zip zones ── */
 
 function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, mode, joined }: {
@@ -468,12 +517,7 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
   const defaultPerson = rule?.defaultOwner || rules.defaultOwner;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
-      {kpi && st && (
-        <Box sx={{ display: "grid", gap: 1, maxWidth: 640 }}>
-          <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Owners in {place.title} - HubSpot now and with these rules</Typography>
-          <OwnerTable now={st.now ?? {}} after={st.decided ?? {}} names={names} palette={palette} />
-        </Box>
-      )}
+      {kpi && st && <PlaceKpi place={place} st={st} gdp={place.kind === "region" && joined ? joined.gdp[place.index] : null} km2={placeKm2(m, place)} names={names} palette={palette} />}
       <Box sx={{ display: "grid", gap: 1 }}>
         <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={1} />Performis SAE in {place.title}</Typography>
         {off ? <Typography sx={hint}>Rule 1 is off in {c}: rule 2 decides every company.</Typography>

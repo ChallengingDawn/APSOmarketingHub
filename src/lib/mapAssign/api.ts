@@ -144,7 +144,13 @@ export type PostcodeStat = {
   change?: number;
   /** how the rules decide them: via -> companies (sae = rule 1, zone / default = rule 2, key, redirection) */
   via?: Record<string, number>;
+  /** tickets of the last 90 days on these companies: every pipeline / the sales ones (ESO + TSA) */
+  tickets?: number; sales?: number;
+  /** the same figures per person the rules give the companies (SARCLA 21.10.2026: "more insightful KPIs - GDP,
+   *  revenue, orders incoming, new customers, number of tickets, number of sales tickets") */
+  byOwner?: Record<string, PersonStat>;
 };
+export type PersonStat = { companies: number; customers: number; newCustomers: number; revenue: number; tickets: number; sales: number };
 export type LayerData = {
   country: string; at: string | null;
   points: PostcodeStat[];
@@ -163,8 +169,10 @@ export type OwnerLoad = {
   owner: OwnerId;
   /** companies owned in HubSpot now / by the rules */
   now: number; after: number;
-  /** of "after": bought this year, revenue this year (EUR), contacts */
-  customers: number; revenue: number; contacts: number;
+  /** of "after": bought this year, first order this year, revenue this year (EUR), contacts */
+  customers: number; newCustomers: number; revenue: number; contacts: number;
+  /** of "after": tickets of the last 90 days on their companies - every pipeline, and the sales ones (ESO + TSA) */
+  tickets: number; sales: number;
 };
 export type TicketLoad = { at: string; byOwner: Record<string, { open: number; last90: number }> };
 

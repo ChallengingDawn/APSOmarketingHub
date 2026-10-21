@@ -320,6 +320,8 @@ export type LayerRow = {
   revenue: number | null; lastOrder: string | null; firstOrder: string | null; priority: string | null;
   /** the Performis SAE as written, the owner by the rules, region_responsibility now - absent in old callers */
   sae?: string | null; decided?: OwnerId | null; region?: OwnerId | null; via?: string | null;
+  /** tickets of the last 90 days on the company: every pipeline / the sales ones */
+  tickets?: number | null; sales?: number | null;
 };
 /**
  * One country's companies per postcode point (PostcodeStat): companies, customers this year (an order this year -
@@ -346,6 +348,21 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
       if (now !== dec || String(r.region ?? "") !== dec) s.change!++;
     }
     if (r.via) s.via![r.via] = (s.via![r.via] ?? 0) + 1;
+    const tk = Number(r.tickets) || 0, sl = Number(r.sales) || 0;
+    s.tickets = (s.tickets ?? 0) + tk;
+    s.sales = (s.sales ?? 0) + sl;
+    if (r.decided !== undefined && r.decided !== null) {
+      const by = s.byOwner ?? (s.byOwner = {});
+      const o = String(r.decided);
+      const ps = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, tickets: 0, sales: 0 });
+      ps.companies++;
+      if (inYear(r.lastOrder, year)) ps.customers++;
+      if (inYear(r.firstOrder, year)) ps.newCustomers++;
+      const rv = Number(r.revenue);
+      if (Number.isFinite(rv)) ps.revenue += rv;
+      ps.tickets += tk;
+      ps.sales += sl;
+    }
     if (inYear(r.lastOrder, year)) s.customers++;
     if (inYear(r.firstOrder, year)) s.newCustomers++;
     const rev = Number(r.revenue);
