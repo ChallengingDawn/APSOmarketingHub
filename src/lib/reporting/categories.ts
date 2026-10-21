@@ -74,16 +74,24 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   },
   {
     slug: "eso", name: "ESO Reports", line: "The optimal ESO benchmark - per sales rep, this year against last",
-    // The benchmark from SARCLA's CrystalESO deck (src/lib/reporting/esoBenchmark.ts).
-    // Sub-apps in the deck's order, Visits first (SARCLA 12.10); one read, one rep selection.
+    // The benchmark from SARCLA's CrystalESO deck (src/lib/reporting/esoBenchmark.ts), its pages in the deck's
+    // order, Visits first (SARCLA 12.10); one read, one rep selection. Built as Digital Growth is (SARCLA 21.10.2026:
+    // "the ESO reporting in the same structure as the digital growth"): one report, its BUC View first, the pages
+    // beneath it under a heading.
     reports: [
-      { name: "Visits", href: "/reporting/eso-benchmark/visits", note: "Completed visits per rep and month", icon: "route" },
-      { name: "Customer development", href: "/reporting/eso-benchmark/customers", note: "Active, new, reactivated, lost", icon: "groups" },
-      { name: "New customers", href: "/reporting/eso-benchmark/new-customers", note: "First orders, by type and potential", icon: "target" },
-      { name: "Registrations", href: "/reporting/eso-benchmark/registrations", note: "Shop accounts and what came of them", icon: "verified" },
-      { name: "Revenue & order intake", href: "/reporting/eso-benchmark/revenue", note: "Per rep and month, to last year", icon: "bar" },
-      { name: "Tickets", href: "/reporting/eso-benchmark/tickets", note: "Success, speed and open potential", icon: "description" },
-      { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", note: "Logins, views and orders", icon: "inventory" },
+      {
+        name: "ESO KPIs", href: "/reporting/eso-benchmark/visits", note: "The optimal ESO benchmark, page by page", icon: "route",
+        overview: "BUC View", overviewHref: "/reporting/eso-benchmark",
+        children: [
+          { name: "Visits", href: "/reporting/eso-benchmark/visits", icon: "route" },
+          { name: "Customer development", href: "/reporting/eso-benchmark/customers", icon: "groups" },
+          { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },
+          { name: "Registrations", href: "/reporting/eso-benchmark/registrations", icon: "verified" },
+          { name: "Revenue & order intake", href: "/reporting/eso-benchmark/revenue", icon: "bar" },
+          { name: "Tickets", href: "/reporting/eso-benchmark/tickets", icon: "description" },
+          { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", icon: "inventory" },
+        ],
+      },
     ],
   },
   {

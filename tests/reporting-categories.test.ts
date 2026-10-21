@@ -20,12 +20,21 @@ test("Digital Growth's side panel: the stages, then Other reports - Monthly inpu
 test("a click on a category goes straight into its first report - the overview when it has one", () => {
   // Digital Growth: Marketing KPIs' own page, "In a nutshell" - not the category page
   assert.equal(categoryEntry(categoryBySlug("marketing")!), "/reporting/marketing-kpis");
-  assert.equal(categoryEntry(categoryBySlug("eso")!), "/reporting/eso-benchmark/visits");
+  // ESO, built as Digital Growth (SARCLA 21.10.2026): its BUC View first
+  assert.equal(categoryEntry(categoryBySlug("eso")!), "/reporting/eso-benchmark");
   assert.equal(categoryEntry(categoryBySlug("website")!), "/website/overview");
   // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged
   assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa");
+});
+
+test("ESO's side panel as Digital Growth's: one report, BUC View first, the seven pages beneath it in the deck's order (SARCLA 21.10.2026)", () => {
+  const eso = categoryBySlug("eso")!;
+  assert.equal(eso.reports.length, 1);
+  assert.equal(eso.reports[0].overview, "BUC View");
+  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Visits", "Customer development", "New customers", "Registrations", "Revenue & order intake", "Tickets", "Shop behaviour"]);
+  assert.ok(eso.reports[0].children!.every((k) => k.href.startsWith("/reporting/eso-benchmark/")));
 });
 
 test("the first report the person may open, or the category page when none", () => {

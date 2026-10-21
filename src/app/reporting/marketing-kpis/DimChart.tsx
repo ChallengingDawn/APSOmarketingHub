@@ -22,7 +22,9 @@ export type ChartRow = { label: string; rev?: number };
 
 export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
-  fmt: (n: number) => string; selected?: string[]; onPick: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
+  fmt: (n: number) => string; selected?: string[];
+  /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
+  onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
   /** the tile toolbar: tasks (with their Scroll to Sale tickets), promote */
   actions?: React.ReactNode;
   /** priority and potential keep their own order; every other chart ranks by what it shows */
@@ -41,7 +43,8 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
   const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)) }));
-  const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick(l); };
+  const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick?.(l); };
+  const hint = [onPick ? "Click bars to show only them" : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
   const tall = Math.min(rows.length, pageSize);
   const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (
@@ -49,9 +52,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-            Click bars to show only them{pages > 1 ? ` · ${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""}
-          </Typography>
+          {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>{hint}</Typography>}
         </Box>
         {pages > 1 && (
           <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -75,12 +76,12 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
           <Tooltip cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => [fmt(Number(v)), String(n)]}
             contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
           <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
-          <Bar dataKey="cur" name={curLabel} fill={curColor} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
+          <Bar dataKey="cur" name={curLabel} fill={curColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16}>
             {data.map((d) => <Cell key={d.label} fill={curColor} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
             <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
           </Bar>
           {!single && (
-          <Bar dataKey="prev" name={prevLabel} fill={prevColor} radius={[0, 4, 4, 0]} cursor="pointer" onClick={pick} isAnimationActive={false} maxBarSize={16}>
+          <Bar dataKey="prev" name={prevLabel} fill={prevColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16}>
             {data.map((d) => <Cell key={d.label} fill={prevColor} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
             <LabelList dataKey="prev" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 11.5, fill: MUTED }} />
           </Bar>
