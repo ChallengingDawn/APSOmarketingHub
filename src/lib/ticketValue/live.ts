@@ -117,6 +117,46 @@ export async function liveTicket(id: string, better: Better, job: "ticket" | "re
   };
 }
 
+type Page = { results?: Raw[]; paging?: { next?: { after?: string } } };
+const closedStages = [...ALL_CLOSED_STAGES];
+
+// ---------------- the open pipeline's value (SARCLA 21.10.2026: "as an extra KPI the value of the pipeline, ESO and TSA") ----
+export type PipeValue = { pipeline: "ESO" | "TSA"; open: number; value: number; byConf: Record<string, { n: number; value: number }> };
+export type PipelineValue = { at: string; pipes: PipeValue[] };
+const KV_PIPE = "ticketValue:pipeline";
+export const pipelineState = async () => (await kvGet<PipelineValue>(KV_PIPE)) ?? null;
+/** Every open ESO and TSA ticket's value added up, by confidence - worked out again every 30 minutes. */
+export async function pipelineStep(more: () => boolean): Promise<void> {
+  const cur = await pipelineState();
+  if (cur && Date.now() - Date.parse(cur.at) < 30 * 60_000) return;
+  const pipes: PipeValue[] = [];
+  for (const [id, name] of [[ESO, "ESO"], [TSA, "TSA"]] as const) {
+    const p: PipeValue = { pipeline: name, open: 0, value: 0, byConf: {} };
+    let cursor = "0";
+    for (let page = 0; page < 200; page++) {
+      if (!more()) return; // half a count is no count: try again next run
+      const r = await hubspotRetry<Page>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+        filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: id }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closedStages }, { propertyName: "hs_object_id", operator: "GT", value: cursor }] }],
+        properties: ["sales_potential_estimate", "sales_potential_confidence"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
+      } });
+      const res = r.results ?? [];
+      for (const t of res) {
+        const v = Number(t.properties.sales_potential_estimate) || 0;
+        const c = (t.properties.sales_potential_confidence ?? "").trim() || "(none)";
+        p.open++;
+        p.value += v;
+        const e = (p.byConf[c] ??= { n: 0, value: 0 });
+        e.n++;
+        e.value += v;
+      }
+      if (res.length < 100) break;
+      cursor = String(res[res.length - 1].id);
+    }
+    pipes.push(p);
+  }
+  await kvSet(KV_PIPE, { at: new Date().toISOString(), pipes });
+}
+
 // ---------------- the two one-time jobs ----------------
 export type Jobs = {
   started: string | null;
@@ -127,8 +167,6 @@ const KV_JOBS = "ticketValue:jobs";
 const freshJobs = (): Jobs => ({ started: new Date().toISOString(), revalue: { cursor: "0", done: 0, changed: 0, errors: 0, finished: null }, clear: { cursor: "0", done: 0, cleared: 0, keptTyped: 0, kpiCursor: "0", kpiFixed: 0, finished: null } });
 export const jobsState = async () => (await kvGet<Jobs>(KV_JOBS)) ?? null;
 
-type Page = { results?: Raw[]; paging?: { next?: { after?: string } } };
-const closedStages = [...ALL_CLOSED_STAGES];
 
 /** Every open ESO/TSA ticket, valued once with the hub's rules (30 a run). */
 async function revalueStep(j: Jobs, better: Better, more: () => boolean): Promise<number> {

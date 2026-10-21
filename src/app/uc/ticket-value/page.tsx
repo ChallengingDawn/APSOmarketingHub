@@ -37,13 +37,13 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, 
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Row, RunInfo, Settings } from "@/lib/ticketValue/engine";
-import type { Jobs } from "@/lib/ticketValue/live";
+import type { Jobs, PipelineValue } from "@/lib/ticketValue/live";
 import type { Measure, Values } from "@/lib/ticketValue/model";
 import { HUB_RULES, REENROL_STAGES } from "@/lib/ticketValue/rules";
 
 type BetterInfo = { firstOrder: number | null; firstOrderMedian: number | null; firstOrderN: number; firstOrderAt: string | null; pricedArticles: number; firstOrderProgress: { done: number; of: number } | null };
 type LiveInfo = { workflowOn: boolean | null; writing: boolean; jobs: Jobs | null };
-type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; live?: LiveInfo; admin: boolean };
+type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; live?: LiveInfo; pipeline?: PipelineValue | null; admin: boolean };
 /** The hub writes. */
 const writing = (d: Data) => !!d.live?.writing;
 type View = "overview" | "tickets" | "how" | "settings";
@@ -149,6 +149,32 @@ function JobsCard({ j }: { j: Jobs }) {
 
 // ---------------------------------------------------------------- Overview
 
+/** The open pipeline's value: every open ESO and TSA ticket's sales potential, now. */
+function PipelineCard({ p }: { p: PipelineValue | null }) {
+  const pipe = (name: "ESO" | "TSA") => p?.pipes.find((x) => x.pipeline === name);
+  const tile = (name: "ESO" | "TSA") => {
+    const x = pipe(name);
+    const hi = x?.byConf.high?.value ?? 0;
+    return (
+      <Grid key={name} size={{ xs: 12, sm: 6, lg: 4 }}>
+        <KpiTile icon={<PaidOutlinedIcon />} tint={name === "ESO" ? "blue" : "purple"} label={`Open ${name} pipeline`} value={x ? full(Math.round(x.value)) : "—"}
+          note={x ? `${full(x.open)} open tickets · ${pct(hi, x.value)} of the value with high confidence` : "Worked out within minutes"} />
+      </Grid>
+    );
+  };
+  const both = (p?.pipes ?? []).reduce((t, x) => ({ open: t.open + x.open, value: t.value + x.value }), { open: 0, value: 0 });
+  return (
+    <Grid container spacing={2}>
+      {tile("ESO")}
+      {tile("TSA")}
+      <Grid size={{ xs: 12, sm: 12, lg: 4 }}>
+        <KpiTile icon={<PaidOutlinedIcon />} tint="green" label="Open pipeline, ESO and TSA" value={p ? full(Math.round(both.value)) : "—"}
+          note={p ? `${full(both.open)} open tickets · now, worked out ${when(p.at)}` : "Worked out within minutes"} />
+      </Grid>
+    </Grid>
+  );
+}
+
 function Overview({ d }: { d: Data }) {
   const m = d.measure;
   const byRule = m.byRule ?? [], byConf = m.byConfidence ?? [];
@@ -165,16 +191,8 @@ function Overview({ d }: { d: Data }) {
   const paths = [...byRule].sort((x, y) => order.indexOf(x.rule) - order.indexOf(y.rule));
   return (
     <>
-      {writing(d) ? (
-        <Info>
-          The hub writes each ESO and TSA ticket&apos;s sales potential: the value an automated ticket already carries, or the first rule on the path
-          that finds one, with how sure it is (How it works). Only what changes is written; every change is kept with what was there before.
-        </Info>
-      ) : (
-        <Info>
-          Paused - the hub works each ticket&apos;s value out but writes nothing to HubSpot. Settings switches it back to Live.
-        </Info>
-      )}
+      {!writing(d) && <Info>Paused - the hub works each ticket&apos;s value out but writes nothing to HubSpot. Settings switches it back to Live.</Info>}
+      <PipelineCard p={d.pipeline ?? null} />
       <Grid container spacing={2}>
         {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
       </Grid>

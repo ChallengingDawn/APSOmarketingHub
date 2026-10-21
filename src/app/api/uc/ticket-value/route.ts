@@ -10,6 +10,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { betterContext, checkTicket, getSettings, lastRun, liveState, recentRows, runOnce, saveSettings } from "@/lib/ticketValue/engine";
 import { firstOrderState } from "@/lib/ticketValue/firstOrder";
+import { pipelineState } from "@/lib/ticketValue/live";
 import { measure } from "@/lib/ticketValue/model";
 
 export const runtime = "nodejs";
@@ -27,14 +28,14 @@ export async function GET(req: NextRequest) {
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
     const asked = Number(req.nextUrl.searchParams.get("days"));
     const days = [1, 7, 14, 21].includes(asked) ? asked : 7;
-    const [settings, last, rows, ctx, fo, live] = await Promise.all([getSettings(), lastRun(), recentRows(days), betterContext(), firstOrderState(), liveState()]);
+    const [settings, last, rows, ctx, fo, live, pipeline] = await Promise.all([getSettings(), lastRun(), recentRows(days), betterContext(), firstOrderState(), liveState(), pipelineState()]);
     const better = {
       firstOrder: ctx.firstOrder, firstOrderMedian: fo.median, firstOrderN: ctx.firstOrderN, firstOrderAt: ctx.firstOrderAt, pricedArticles: ctx.pricedArticles,
       firstOrderProgress: fo.next ? { done: Object.keys(fo.next.values).length, of: fo.next.companies.length } : null,
     };
     return NextResponse.json({
       configured: true, ok: true,
-      data: { settings, last, everyMinutes: 2, days, rows: rows.slice(0, ROWS_SENT), totalRows: rows.length, measure: measure(rows), better, live, admin: access.role === "admin" },
+      data: { settings, last, everyMinutes: 2, days, rows: rows.slice(0, ROWS_SENT), totalRows: rows.length, measure: measure(rows), better, live, pipeline, admin: access.role === "admin" },
     });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });

@@ -16,7 +16,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { BRANCH_LABEL, HUB_RULES, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, decideHub, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry, type HubRule } from "./rules";
 import { loadReport } from "@/lib/integrations/articleReport";
 import { firstOrderState, firstOrderStep } from "./firstOrder";
-import { jobsState, liveTicket, oneTimeJobs, workflowOn, type Jobs, type Written } from "./live";
+import { jobsState, liveTicket, oneTimeJobs, pipelineStep, workflowOn, type Jobs, type Written } from "./live";
 import { enrolsOnStage, finalOf, pricesOf, sameValue, type Values, type Verdict } from "./model";
 
 export type { Verdict } from "./model";
@@ -316,6 +316,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
   }
   await flush();
+  // the open pipeline's value, ESO and TSA - every 30 minutes
+  if (more()) await pipelineStep(more).catch((e) => { info.error = `pipeline: ${(e as Error).message.slice(0, 120)}`; });
   // live: the one-time jobs - every open ESO/TSA ticket once, the old values on the other pipelines cleared
   if (live && more()) await oneTimeJobs(better, more).catch((e) => { info.error = `one-time jobs: ${(e as Error).message.slice(0, 120)}`; });
   // the average first order, a little each run while time is left
