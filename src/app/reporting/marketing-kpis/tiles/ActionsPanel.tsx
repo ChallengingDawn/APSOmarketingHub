@@ -132,7 +132,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
           {/* promote / demote: one choice for everyone */}
           <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1.5, py: 0.75, borderRadius: "12px", border: `1px solid ${placed === "nutshell" ? TINT.blue.fg : HAIRLINE}`, bgcolor: placed === "nutshell" ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
             <Box>
-              <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: placed === "nutshell" ? TINT.blue.fg : INK }}>In a nutshell</Typography>
+              <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: placed === "nutshell" ? TINT.blue.fg : INK }}>BUC View</Typography>
               <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{placed === "nutshell" ? "Shown there for everyone" : "Only on this page"}</Typography>
             </Box>
             <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab", e.target.checked && choose ? want : undefined)} />
@@ -140,7 +140,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
           {choose && (
             <Box sx={{ display: "grid", gap: 0.35 }}>
               <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Shown as</Typography>
-              <ToggleButtonGroup size="small" exclusive value={placed === "nutshell" ? format : want} disabled={!canWrite || moving} aria-label="How it is shown in the nutshell"
+              <ToggleButtonGroup size="small" exclusive value={placed === "nutshell" ? format : want} disabled={!canWrite || moving} aria-label="How it is shown in the BUC View"
                 onChange={(_, v: TileFormat | null) => { if (!v) return; setWant(v); if (placed === "nutshell") void move("nutshell", v); }}
                 sx={{ "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 600, fontSize: "0.8rem", px: 1.25, py: 0.4 } }}>
                 {formats.map((f) => <ToggleButton key={f} value={f}>{FORMAT_LABEL[f]}</ToggleButton>)}

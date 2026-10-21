@@ -9,9 +9,10 @@ test("the categories stand in SARCLA's order (16.10.2026), then Customer and Pro
   assert.equal(categoryEntry(categoryBySlug("sales-leader")!), "/reporting/sales-leader");
 });
 
-test("Digital Growth's side panel: the stages, then Other reports - Monthly inputs and SMEC targets; no Sales leader view, no Efficiency (SARCLA 20.10.2026)", () => {
+test("Digital Growth's side panel: the stages, then Other reports - Monthly inputs, SMEC targets, Use Cases Overview; no Sales leader view, no Efficiency (SARCLA 20-21.10.2026)", () => {
   const kids = categoryBySlug("marketing")!.reports[0].children!;
-  assert.deepEqual(kids.filter((k) => k.group === "Other reports").map((k) => k.name), ["Monthly inputs", "SMEC targets"]);
+  assert.deepEqual(kids.filter((k) => k.group === "Other reports").map((k) => k.name), ["Monthly inputs", "SMEC targets", "Use Cases Overview"]);
+  assert.equal(kids.find((k) => k.name === "Use Cases Overview")!.href, "/uc/lifecycle");
   assert.ok(!kids.some((k) => /sales leader|efficiency/i.test(k.name)));
   assert.equal(categoryBySlug("marketing")!.reports.length, 1);
 });

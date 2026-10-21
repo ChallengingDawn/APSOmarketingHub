@@ -33,6 +33,7 @@ import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 import HourglassBottomOutlinedIcon from "@mui/icons-material/HourglassBottomOutlined";
 import TimelineOutlinedIcon from "@mui/icons-material/TimelineOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import DoNotDisturbOnOutlinedIcon from "@mui/icons-material/DoNotDisturbOnOutlined";
 
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
@@ -83,9 +84,11 @@ function Figures({ cur, prev, py, group }: { cur: Stats; prev: Stats; py: boolea
     { label: "Contacted in a working day", icon: <TimerOutlinedIcon />, tint: "amber", v: pct(inDayRate(cur)), sub: `a reply or a call · median ${hours(median(cur.firstHours))}` },
     { label: "Win rate", icon: <EmojiEventsOutlinedIcon />, tint: "green", v: pct(winRate(cur)), sub: `${n0(cur.won)} won of ${n0(cur.resolved)} closed` },
     { label: "Still open", icon: <HourglassBottomOutlinedIcon />, tint: "purple", v: n0(cur.open), sub: `${n0(cur.stale)} open more than 30 days` },
+    // closed with neither a reply in the ticket nor a call logged on it (SARCLA 21.10.2026: "also show the number of closed without any activity")
+    { label: "Closed without any activity", icon: <DoNotDisturbOnOutlinedIcon />, tint: "pink", v: n0(cur.closedQuiet), sub: `no reply, no call · ${ratio(cur.closedQuiet, cur.closed)} of the closed` },
   ];
   return (
-    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(130px, 180px))" } }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(5, minmax(120px, 170px))" } }}>
       {items.map((it) => (
         <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -419,20 +422,23 @@ function BreakdownFiguresCard({ d, f, win, actions, half, by: keyOf, title, icon
 
 const personName = (d: HandoverData, o: string) => (o ? d.owners[o] ?? `Owner ${o}` : "No owner");
 
+/** The people's table: a narrow team column and narrower figures, so ten columns fit the card without scrolling sideways. */
+const peopleCols = (figures: number) => ({ firstWidth: "minmax(150px, 1.5fr)", widths: ["minmax(48px, .5fr)", ...Array<string>(figures).fill("minmax(82px, 1fr)")], minWidth: 150 + 48 + figures * 82 + 20 });
+
 function PeopleCard({ d, f, win, actions, half }: Ctx) {
   const list = [...statsBy(d, win, f, (r) => `${r.o}|${r.t}`).entries()].sort((a, b) => b[1].cur.incoming - a[1].cur.incoming);
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
-      <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="Who handles them" note={`${monthsLabel(win)} ${d.year} · each person's ${groupWords(groupOfF(f))} in their team: speed, outcome, what is still open - the ticket's owner today, those who left marked "(left)"`} right={actions} />
+      <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="Who handles them" note={`${monthsLabel(win)} ${d.year} · each person's ${groupWords(groupOfF(f))} in their team: speed, outcome, what is still open - the ticket's owner today, those who left marked "(left)" · closed without any activity = no reply in the ticket, no call logged on it`} right={actions} />
       <Paged items={list} size={half ? HALF_ROWS : 15}>
         {(page) => half ? (
-          <Table head={["Person", "Team", "Tickets", "Win rate", "Open > 30 days"]}
-            rows={page.map(([k, e]) => { const [o, t] = k.split("|"), s = e.cur; return { key: k, cells: [personName(d, o), t, n0(s.incoming), pct(winRate(s)), n0(s.stale)] }; })} />
+          <Table head={["Person", "Team", "Tickets", "Closed without any activity", "Win rate", "Open > 30 days"]} {...peopleCols(4)}
+            rows={page.map(([k, e]) => { const [o, t] = k.split("|"), s = e.cur; return { key: k, cells: [personName(d, o), t, n0(s.incoming), n0(s.closedQuiet), pct(winRate(s)), n0(s.stale)] }; })} />
         ) : (
-          <Table head={["Person", "Team", "Tickets", "Contacted in a day", "Median first contact", "Closed", "Won", "Win rate", "Open > 30 days"]}
+          <Table head={["Person", "Team", "Tickets", "Contacted in a day", "Median first contact", "Closed", "Closed without any activity", "Won", "Win rate", "Open > 30 days"]} {...peopleCols(8)}
             rows={page.map(([k, e]) => {
               const [o, t] = k.split("|"), s = e.cur;
-              return { key: k, cells: [personName(d, o), t, n0(s.incoming), pct(inDayRate(s)), hours(median(s.firstHours)), n0(s.closed), n0(s.won), pct(winRate(s)), n0(s.stale)] };
+              return { key: k, cells: [personName(d, o), t, n0(s.incoming), pct(inDayRate(s)), hours(median(s.firstHours)), n0(s.closed), n0(s.closedQuiet), n0(s.won), pct(winRate(s)), n0(s.stale)] };
             })} />
         )}
       </Paged>

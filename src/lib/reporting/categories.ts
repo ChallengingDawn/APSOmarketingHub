@@ -51,12 +51,15 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       {
         // SARCLA 17.10: "Marketing KPIs is Digital Growth KPIs" - the name only; the addresses stay
         name: "Digital Growth KPIs", href: "/reporting/marketing-kpis/customers", note: "Our customers, then every marketing KPI by stage", icon: "bar",
-        overview: "In a nutshell", overviewHref: "/reporting/marketing-kpis",
+        overview: "BUC View", overviewHref: "/reporting/marketing-kpis",
         children: [
           ...SHOWN_STAGES.map((s) => ({ name: stageName(s.slug, s.name), href: `/reporting/marketing-kpis/${s.slug}`, icon: STAGE_ICON[s.slug] ?? ("bar" as IconKey) })),
           // "Views & inputs" becomes "Other reports" - Monthly inputs and SMEC targets (SARCLA 20.10.2026)
           { name: "Monthly inputs", href: "/reporting/marketing-kpis/inputs", icon: "edit", group: "Other reports" },
           { name: "SMEC targets", href: "/analytics/smec", icon: "target", group: "Other reports" },
+          // the Use Cases Overview of UC & HubSpot Apps, the very page (SARCLA 21.10.2026: "bring the UC nutshell as it is on HubSpot apps,
+          // exactly the same") - at its own address, so behind UC's grant: the side panel shows it to those who can open UC
+          { name: "Use Cases Overview", href: "/uc/lifecycle", icon: "loop", group: "Other reports" },
         ],
       },
     ],

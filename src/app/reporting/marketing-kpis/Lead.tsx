@@ -805,7 +805,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "sources" && (
         <>
           <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
-            <CardTitle icon={<AltRouteIcon />} tint="amber" title="New leads by source" note={`${monthsLabel(win)} ${year} against ${year - 1}, month by month · each one can go to the nutshell (Actions)`} />
+            <CardTitle icon={<AltRouteIcon />} tint="amber" title="New leads by source" note={`${monthsLabel(win)} ${year} against ${year - 1}, month by month · each one can go to the BUC View (Actions)`} />
             {tiles("sources", sourceIds)}
           </GlassCard>
           {card("conversion")}
@@ -816,7 +816,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "months" && (
         <>
           <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
-            <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="The path, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · these five start in the nutshell; each can be moved (Actions)`} />
+            <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="The path, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · these five start in the BUC View; each can be moved (Actions)`} />
             {tiles("months", ["leads", "toSales", "qualified", "customers", "conversion"])}
           </GlassCard>
           {card("months")}
@@ -831,7 +831,7 @@ export function LeadExplorer({ state }: { state: MkState | null }) {
       {tab === "countries" && (
         <>
           <GlassCard sx={{ display: "grid", gap: 1.5, alignContent: "start" }}>
-            <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · our focus markets first, then the biggest - twelve; every country in the table · each one can go to the nutshell (Actions)`} />
+            <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="New leads by country, month by month" note={`${monthsLabel(win)} ${year} against ${year - 1} · our focus markets first, then the biggest - twelve; every country in the table · each one can go to the BUC View (Actions)`} />
             {tiles("countries", countryIds)}
           </GlassCard>
           {card("countries")}

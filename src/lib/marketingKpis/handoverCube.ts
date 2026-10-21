@@ -236,6 +236,8 @@ export type Stats = {
   /** the working hours to the first contact, for the median */
   firstHours: number[];
   closed: number;
+  /** closed without any activity: neither a reply from the ticket nor a call logged on it (SARCLA 21.10.2026) */
+  closedQuiet: number;
   /** closed with a resolution: the base of the win rate */
   resolved: number;
   won: number;
@@ -247,7 +249,7 @@ export type Stats = {
   closeDays: number[];
 };
 export const emptyStats = (): Stats => ({
-  incoming: 0, inDay: 0, noReply: 0, firstHours: [], closed: 0, resolved: 0, won: 0,
+  incoming: 0, inDay: 0, noReply: 0, firstHours: [], closed: 0, closedQuiet: 0, resolved: 0, won: 0,
   outcomes: { won: 0, price: 0, supply: 0, delivery: 0, info: 0, noreply: 0, disq: 0, other: 0, nores: 0, open: 0 }, open: 0, stale: 0, closeDays: [],
 });
 
@@ -260,6 +262,7 @@ export function addRow(s: Stats, r: HandoverRow): Stats {
   s.outcomes[o] += 1;
   if (r.x) {
     s.closed += 1;
+    if (r.a == null) s.closedQuiet += 1;
     s.closeDays.push(r.z);
     if (r.r) { s.resolved += 1; if (o === "won") s.won += 1; }
   } else {

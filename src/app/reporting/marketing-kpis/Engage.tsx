@@ -546,7 +546,7 @@ function ToolGrid({ d, year, months, where, actions }: { d: EngageData; year: nu
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
       <CardTitle icon={<BuildOutlinedIcon />} tint="blue" title="Each tool - its own count"
-        note="What each tool counts itself, every visitor (no cookie needed) - from the day it started counting · each one can go to In a nutshell on its own" right={actions} />
+        note="What each tool counts itself, every visitor (no cookie needed) - from the day it started counting · each one can go to the BUC View on its own" right={actions} />
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(auto-fill, minmax(300px, 1fr))" } }}>
         {tools.map((t) => <ToolCard key={t.key} t={t} d={d} year={year} months={months} actions={where === "tab" ? <TileActions where="tab" start="tab" edge={0} tile={toolTile(t)} /> : undefined} />)}
       </Box>

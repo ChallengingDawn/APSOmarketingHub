@@ -232,19 +232,19 @@ function GroupTip({ active, payload }: { active?: boolean; payload?: { payload?:
   );
 }
 
-/** Each group's churn left or right of the average: worse to the right in coral, better to the left in green. */
-function Diverging({ rows, height }: { rows: GroupRow[]; height?: number }) {
+/** Each group's churn left or right of the average (the line at 0, named): worse to the right in coral, better to the left in green. */
+function Diverging({ rows, avg, height }: { rows: GroupRow[]; avg: number; height?: number }) {
   const shown = rows.filter(charted);
   const one = new Set(shown.map((r) => r.dim)).size === 1;
   const data = shown.filter((r) => r.pts != null).map((r) => ({ label: one ? r.group : `${r.dim} · ${r.group}`, pts: Math.round((r.pts ?? 0) * 10) / 10, churn: r.churn, cos: r.cos }));
   const max = Math.ceil(Math.max(5, ...data.map((d) => Math.abs(d.pts))) * 1.25);
   return (
-    <ResponsiveContainer width="100%" height={height ?? Math.max(200, data.length * 28 + 30)}>
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 4 }} barCategoryGap="30%">
+    <ResponsiveContainer width="100%" height={height ?? Math.max(200, data.length * 28 + 44)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 20, right: 56, bottom: 4, left: 4 }} barCategoryGap="30%">
         <CartesianGrid horizontal={false} stroke={GRID} />
-        <XAxis type="number" domain={[-max, max]} tickFormatter={(x: number) => `${x > 0 ? "+" : ""}${x}`} {...AX} />
+        <XAxis type="number" domain={[-max, max]} tickFormatter={(x: number) => (x === 0 ? "avg" : `${x > 0 ? "+" : ""}${x} pts`)} {...AX} />
         <YAxis type="category" dataKey="label" width={290} interval={0} {...AX} tick={{ fontSize: 11.5, fill: INK }} />
-        <ReferenceLine x={0} stroke="#9aa5b6" />
+        <ReferenceLine x={0} stroke={RED} strokeDasharray="4 4" label={{ value: `average ${pct(avg, 1)} not back`, position: "top", style: { fontSize: 10.5, fill: RED } }} />
         <Tooltip content={<GroupTip />} cursor={TIP.cursor} />
         <Bar dataKey="pts" isAnimationActive={false} maxBarSize={12} radius={6}>
           {data.map((d) => <Cell key={d.label} fill={d.pts > 0 ? LOST : TONE.good} />)}
@@ -537,11 +537,11 @@ export function NewTab({ v, act }: { v: RetentionView; act?: (card: string, titl
       <Grid2>
         <Card icon={<ShoppingBagOutlinedIcon />} tint="green" title="How they bought in their first year" right={act?.("buying", "New customers: how they bought")}
           note={`Each group of ${v.base}'s new customers against their average (${pct(n.avg, 1)} not back)`}>
-          <Diverging rows={buying} />
+          <Diverging rows={buying} avg={n.avg} />
         </Card>
         <Card icon={<ForumOutlinedIcon />} tint="blue" title="How we reached them" right={act?.("contact", "New customers: how we reached them")}
           note={`Calls, visits, e-mails, tickets, marketing - against the new customers' average (${pct(n.avg, 1)})`}>
-          <Diverging rows={contact} />
+          <Diverging rows={contact} avg={n.avg} />
         </Card>
       </Grid2>
       <GlassCard>{groupTable(`All the figures - the new customers of ${v.base}`, n.rows, v, "New customers")}</GlassCard>
@@ -563,7 +563,7 @@ export function LeaveTab({ v, act }: { v: RetentionView; act?: (card: string, ti
       <Card icon={<AlignHorizontalCenterOutlinedIcon />} tint="amber" title={`Each lever against the average (${pct(l.avg, 1)})`} span right={act?.("levers", "Each lever against the average")}
         note="Points of churn above the average (worse, to the right) or below it (better, to the left) - the churn itself at the end of each bar"
         foot="Correlations, not causes - size goes with most levers: a customer with six orders is rarely a small one. Groups under 25 customers are in the table only.">
-        <Diverging rows={l.rows} />
+        <Diverging rows={l.rows} avg={l.avg} />
       </Card>
       <GlassCard>{groupTable("All the figures, by lever", l.rows, v, "Why they leave")}</GlassCard>
     </Box>
@@ -654,9 +654,9 @@ export function PathTab({ v, act }: { v: RetentionView; act?: (card: string, tit
 
 const PERSONA_DIMS = ["Contact persona", "Business type", "Industry (APIC)", "Country", "Segment", "Sales priority"];
 
-function TreeTile(p: { x?: number; y?: number; width?: number; height?: number; name?: string; churn?: number; cos?: number; avg?: number }) {
+function TreeTile(p: { x?: number; y?: number; width?: number; height?: number; depth?: number; name?: string; churn?: number; cos?: number; avg?: number }) {
   const { x = 0, y = 0, width = 0, height = 0, name = "", churn, cos } = p;
-  if (width < 2 || height < 2) return null;
+  if (!p.depth || width < 2 || height < 2) return null;
   const fit = (s: string, w: number, px: number) => (s.length * px > w - 14 ? `${s.slice(0, Math.max(3, Math.floor((w - 14) / px) - 1))}…` : s);
   return (
     <g>
@@ -675,6 +675,34 @@ function PersonaTiles({ v, dim }: { v: RetentionView; dim: string }) {
     <ResponsiveContainer width="100%" height={360}>
       <Treemap data={tiles} dataKey="size" nameKey="name" isAnimationActive={false} content={<TreeTile />} />
     </ResponsiveContainer>
+  );
+}
+
+/** The persona dimensions as buttons - contact persona, business type, industry... */
+function PersonaDimPick({ dim, onPick }: { dim: string; onPick: (d: string) => void }) {
+  return (
+    <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.25 }}>
+      {PERSONA_DIMS.map((x) => {
+        const on = x === dim;
+        return (
+          <Box key={x} component="button" type="button" onClick={() => onPick(x)} aria-pressed={on}
+            sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, font: "inherit", fontSize: "0.8rem", fontWeight: 700, px: 1.25, py: 0.6, borderRadius: "10px", cursor: "pointer" }}>
+            {x}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** In the BUC View, a personas card keeps its buttons (SARCLA 21.10: "this should keep the toggle") - its own choice, starting on contact persona. */
+function PersonaPromoted({ v, card }: { v: RetentionView; card: "map" | "levers" }) {
+  const [dim, setDim] = useState(PERSONA_DIMS[0]);
+  return (
+    <Box>
+      <PersonaDimPick dim={dim} onPick={setDim} />
+      {card === "map" ? <PersonaTiles v={v} dim={dim} /> : <Diverging rows={v.personas.rows.filter((x) => x.dim === dim)} avg={v.personas.avg} />}
+    </Box>
   );
 }
 
@@ -716,17 +744,7 @@ export function PersonasTab({ v, act }: { v: RetentionView; act?: (card: string,
           {unmapped && <>Set aside: {n0(unmapped.cos)} customers whose contacts carry no named persona (HubSpot&apos;s &quot;insufficient signal&quot; - anonymous traffic, info@ addresses, one-off buyers), {pct(unmapped.churn)} not back. </>}
           {aside.filter((r) => r !== unmapped).length > 0 && <>Groups under 25 customers ({aside.filter((r) => r !== unmapped).map((r) => r.group).join(", ")}) are in the table only.</>}
         </> : undefined}>
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.25 }}>
-          {PERSONA_DIMS.map((x) => {
-            const on = x === dim;
-            return (
-              <Box key={x} component="button" type="button" onClick={() => setDim(x)} aria-pressed={on}
-                sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, font: "inherit", fontSize: "0.8rem", fontWeight: 700, px: 1.25, py: 0.6, borderRadius: "10px", cursor: "pointer" }}>
-                {x}
-              </Box>
-            );
-          })}
-        </Box>
+        <PersonaDimPick dim={dim} onPick={setDim} />
         <PersonaTiles v={v} dim={dim} />
       </Card>
       <Grid2>
@@ -734,9 +752,9 @@ export function PersonasTab({ v, act }: { v: RetentionView; act?: (card: string,
           note="The churn of each segment at each sales priority - cells of 25 customers or more; a smaller one shows how many">
           <SegmentMatrix v={v} />
         </Card>
-        <Card icon={<AlignHorizontalCenterOutlinedIcon />} tint="amber" title={`${dim} against the average`} right={act?.("levers", "Personas against the average")}
-          note={`Points of churn above (right) or below (left) the average ${pct(ps.avg, 1)}`}>
-          <Diverging rows={rows} />
+        <Card icon={<AlignHorizontalCenterOutlinedIcon />} tint="amber" title={`${dim} against the average (${pct(ps.avg, 1)})`} right={act?.("levers", "Personas against the average")}
+          note={`Points of churn above (right) or below (left) the average: ${pct(ps.avg, 1)} of the ${v.base} customers not back - the churn itself at the end of each bar`}>
+          <Diverging rows={rows} avg={ps.avg} />
         </Card>
       </Grid2>
       <GlassCard>{groupTable(`All the figures - ${dim.toLowerCase()}`, rows, v, "Personas")}</GlassCard>
@@ -744,13 +762,13 @@ export function PersonasTab({ v, act }: { v: RetentionView; act?: (card: string,
   );
 }
 
-/* ── the nutshell ────────────────────────────────────────────────────────────── */
+/* ── the BUC View ────────────────────────────────────────────────────────────── */
 
 export const RETENTION_TABS = ["trend", "cohorts", "newcos", "leave", "path", "personas"] as const;
 export type RetentionTab = (typeof RETENTION_TABS)[number];
 export const RETENTION_TAB_NAMES: Record<RetentionTab, string> = { trend: "Retention trend", cohorts: "Cohorts & first order", newcos: "New customers", leave: "Why they leave", path: "The path", personas: "Personas" };
 
-/** A retention chart promoted to the nutshell: its card, alone. */
+/** A retention chart promoted to the BUC View: its card, alone. */
 export function RetentionPromoted({ tab, card, title, actions }: { tab: string; card: string; title: string; actions: React.ReactNode }) {
   const r = useRetention();
   if (!r.v) return <GlassCard><CardTitle icon={<EuroOutlinedIcon />} tint="amber" title={title} note="Reading the customers…" right={actions} /></GlassCard>;
@@ -759,14 +777,14 @@ export function RetentionPromoted({ tab, card, title, actions }: { tab: string; 
     "trend:customers": () => <CustomersChart v={v} />, "trend:bridge": () => <BridgeChart v={v} />, "trend:lost": () => <LostRevenueChart v={v} />,
     "cohorts:heat": () => <CohortHeat v={v} />, "cohorts:once": () => <OnceChart v={v} />, "cohorts:firstsecond": () => <FirstSecondChart v={v} />,
     "newcos:years": () => <NewYearsChart v={v} />, "newcos:flow": () => <FlowChart flow={v.newcos.flow} label="New customers" />,
-    "newcos:buying": () => <Diverging rows={v.newcos.rows.filter((x) => BUYING_DIMS.includes(x.dim))} />, "newcos:contact": () => <Diverging rows={v.newcos.rows.filter((x) => !BUYING_DIMS.includes(x.dim))} />,
-    "leave:flow": () => <FlowChart flow={v.leave.flow} label="Why they leave" />, "leave:levers": () => <Diverging rows={v.leave.rows} />,
+    "newcos:buying": () => <Diverging rows={v.newcos.rows.filter((x) => BUYING_DIMS.includes(x.dim))} avg={v.newcos.avg} />, "newcos:contact": () => <Diverging rows={v.newcos.rows.filter((x) => !BUYING_DIMS.includes(x.dim))} avg={v.newcos.avg} />,
+    "leave:flow": () => <FlowChart flow={v.leave.flow} label="Why they leave" />, "leave:levers": () => <Diverging rows={v.leave.rows} avg={v.leave.avg} />,
     "path:flow": () => <FlowChart flow={v.path.flow} height={440} label="The path" />, "path:owners": () => <OwnerBubbles v={v} />,
     "path:levers": () => <AgainstAverage rows={v.path.rows.filter((x) => ACTIVITY_DIMS.includes(x.dim))} avg={v.path.avg} />,
     "path:tickets": () => <AgainstAverage rows={v.path.rows.filter((x) => !ACTIVITY_DIMS.includes(x.dim))} avg={v.path.avg} />,
-    // personas in the nutshell: by contact persona, the tab's first view
-    "personas:map": () => <PersonaTiles v={v} dim={PERSONA_DIMS[0]} />, "personas:matrix": () => <SegmentMatrix v={v} />,
-    "personas:levers": () => <Diverging rows={v.personas.rows.filter((x) => x.dim === PERSONA_DIMS[0])} />,
+    // personas in the BUC View: with the tab's buttons, starting on contact persona
+    "personas:map": () => <PersonaPromoted v={v} card="map" />, "personas:matrix": () => <SegmentMatrix v={v} />,
+    "personas:levers": () => <PersonaPromoted v={v} card="levers" />,
   };
   const draw = charts[`${tab}:${card}`] as (() => React.ReactNode) | undefined;
   return (

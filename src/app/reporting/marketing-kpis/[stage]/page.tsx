@@ -23,7 +23,7 @@ export default function StagePage() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.25 }}>
       <Box component={Link} href="/reporting/marketing-kpis" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
-        <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to In a nutshell
+        <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
       </Box>
       <StageView slug={s.slug} state={state} />
     </Box>

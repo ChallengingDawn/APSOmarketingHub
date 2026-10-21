@@ -72,6 +72,9 @@ test("the figures: a first contact (reply or call) within a working day, win rat
   const { cur, prev } = statsOf(d, { start: 0, end: 8 }, {});
   assert.deepEqual([cur.incoming, cur.inDay, cur.noReply, cur.closed, cur.resolved, cur.won, cur.open, cur.stale], [5, 2, 2, 4, 3, 1, 1, 1]);
   assert.equal(Math.round(winRate(cur)!), 33);
+  // closed without any activity: the two closed with neither a reply nor a call - with a resolution or not
+  assert.equal(cur.closedQuiet, 2);
+  assert.equal(prev.closedQuiet, 0);
   assert.equal(prev.won, 1);
   const by = statsBy(d, { start: 0, end: 8 }, {}, (r) => r.t);
   assert.equal(by.get("TSA")?.cur.incoming, 1);
