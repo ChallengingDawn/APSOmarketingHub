@@ -96,6 +96,18 @@ export default function ProfitCentre({
           </Button>
           {!canRun && <Typography sx={{ fontSize: 12.5, color: FAINT, alignSelf: "center" }}>Admins only.</Typography>}
         </Box>
+        {/* An idle page that looks identical whether or not a press landed is
+            how "nothing changed" happens. It now always says its own state. */}
+        {!running && !note && !lastOutcome?.error && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5, px: 1.25, py: 1,
+            border: `1px solid ${TINTED}`, borderRadius: "9px", bgcolor: "#f7f9fc" }}>
+            <Box component="span" sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#9aa3b1", flexShrink: 0 }} />
+            <Typography sx={{ fontSize: 12.5, color: INK }}>
+              Idle — nothing running{last?.at ? `, last pass ${new Date(last.at).toLocaleString("de-CH")}` : ""}. Press a
+              button and this line will say what happened.
+            </Typography>
+          </Box>
+        )}
         {!running && lastOutcome?.error && (
           <Box sx={{
             display: "flex", alignItems: "center", gap: 1, mt: 1.5, px: 1.25, py: 1,
