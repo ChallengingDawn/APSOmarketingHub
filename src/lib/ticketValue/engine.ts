@@ -13,7 +13,7 @@ import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
-import { BRANCH_LABEL, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry } from "./rules";
+import { BRANCH_LABEL, HUB_RULES, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, decideHub, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry, type HubRule } from "./rules";
 import { loadReport } from "@/lib/integrations/articleReport";
 import { firstOrderState, firstOrderStep } from "./firstOrder";
 import { enrolsOnStage, finalOf, pricesOf, sameValue, type Values, type Verdict } from "./model";
@@ -55,7 +55,7 @@ export type Row = {
   hub: {
     branch: Branch; action: string; final: Values; why?: string; link?: string | null; company?: string | null; kpi?: { upsert: string[]; archive: string[] };
     /** the hub's own rules (rules.ts "THE HUB'S IMPROVEMENTS") - what it writes once it takes over */
-    better?: { action: string; final: Values; company?: string | null };
+    better?: { rule?: HubRule; action: string; final: Values; company?: string | null };
   } | null;
   workflow: { wrote: boolean; at: string | null; by: "code" | "branch" | null; final: Values };
   verdict: Verdict;
@@ -150,8 +150,8 @@ export async function firstLook(id: string, trigger: Row["trigger"], at: string,
       link: links[0]?.split("/").pop() ?? null, company: d.scored?.company ? `${d.scored.company.id} (${d.scored.company.via})` : null, kpi: d.kpi,
     };
     if (better) {
-      const b = await decide(api, id, asWas, human, today, better);
-      hub.better = { action: b.action, final: finalOf(before, b.patch), company: b.scored?.company ? `${b.scored.company.id} (${b.scored.company.via})` : null };
+      const b = await decideHub(api, id, asWas, human, today, better);
+      hub.better = { rule: b.rule, action: b.action, final: finalOf(before, b.patch), company: b.scored?.company ? `${b.scored.company.id} (${b.scored.company.via})` : null };
     }
   }
   return {
@@ -194,7 +194,7 @@ export async function checkTicket(id: string) {
   const api = shadowApi(links);
   const human = lastEditorIsHuman(hist.sales_potential_estimate), today = new Date().toISOString().slice(0, 10);
   const d = await decide(api, id, p, human, today);
-  const b = await decide(api, id, p, human, today, await betterContext());
+  const b = await decideHub(api, id, p, human, today, await betterContext());
   const now = Object.fromEntries(VALUE_PROPS.map((k) => [k, p[k] ?? null])) as Values;
   const lastWf = VALUE_PROPS.flatMap((k) => (hist[k] ?? []).filter(isWorkflow).slice(0, 1).map((h) => h.timestamp ?? "")).sort().pop() ?? null;
   return {
@@ -202,7 +202,7 @@ export async function checkTicket(id: string) {
     branch: d.branch, branchLabel: BRANCH_LABEL[d.branch], action: d.action, final: finalOf(now, d.patch), changes: d.patch !== null,
     why: d.scored?.why ?? null, company: d.scored?.company ?? null, link: links[0]?.split("/").pop() ?? null, kpi: d.kpi ?? null,
     lastWorkflowWrite: lastWf,
-    better: { action: b.action, final: finalOf(now, b.patch), changes: b.patch !== null, company: b.scored?.company ?? null },
+    better: { rule: b.rule, ruleLabel: HUB_RULES.find((x) => x.rule === b.rule)?.label ?? b.rule, action: b.action, final: finalOf(now, b.patch), changes: b.patch !== null, company: b.scored?.company ?? null },
     history: VALUE_PROPS.map((k) => ({ prop: k, entries: (hist[k] ?? []).slice(0, 6).map((h) => ({ value: h.value ?? null, at: h.timestamp ?? null, by: isWorkflow(h) ? "workflow" : h.sourceType === "INTEGRATION" ? `app ${h.sourceId}` : (h.sourceType ?? "?").toLowerCase() })) })),
   };
 }

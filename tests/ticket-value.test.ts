@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  articleQuantities, branchOf, decide, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
+  articleQuantities, branchOf, decide, decideHub, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
   priceArticles, priceCheckArticles, scoreTicket, toNum, unwrapUrl, type Api, type Better, type Resp,
 } from "../src/lib/ticketValue/rules";
 import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pricesOf, sameValue, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
@@ -210,15 +210,43 @@ test("a price check's articles, priced at what each sells for; never-sold articl
   assert.match(r.why, /1 never sold/);
 });
 
-test("the hub's branches: price checks and new registrants get a value and a confidence; the copy leaves them", async () => {
-  const api = fake({});
-  const pc = { price_check_key: "100-701173|2026-10-19", price_check_articles: "1120036838 x 100 (DT); 1120075420 x 30 (DT)" };
-  assert.equal((await decide(api, "1", pc, false, "2026-10-20")).patch, null);
-  assert.deepEqual((await decide(api, "1", pc, false, "2026-10-20", better())).patch, { sales_potential_estimate: 195, sales_potential_source: "product_lookup", sales_potential_confidence: "high" });
-  const reg = { subject: "New Registrant | Mectron | Qualification needed", hs_tag_ids: "43412670" };
-  assert.equal((await decide(api, "1", reg, false, "2026-10-20")).patch, null);
-  assert.deepEqual((await decide(api, "1", reg, false, "2026-10-20", better(420))).patch, { sales_potential_estimate: 420, sales_potential_source: "company_baseline", sales_potential_confidence: "low" });
-  assert.equal((await decide(api, "1", reg, false, "2026-10-20", better(null))).patch, null);
+test("the hub's rules: ESO/TSA only; automated tickets take their automation's value; a person's value is kept", async () => {
+  const api = fake({ "/crm/v4/objects/tickets/1/associations": none });
+  const ESO = { hs_pipeline: "1726599376" }, BO = { hs_pipeline: "1726786777" };
+  const pc = { ...ESO, price_check_key: "100-701173|2026-10-19", price_check_articles: "1120036838 x 100 (DT); 1120075420 x 30 (DT)" };
+  assert.equal((await decide(api, "1", pc, false, "2026-10-20")).patch, null); // the copy: left as it is
+  const h = await decideHub(api, "1", pc, false, "2026-10-20", better());
+  assert.deepEqual([h.rule, h.patch], ["pricecheck", { sales_potential_estimate: 195, sales_potential_source: "product_lookup", sales_potential_confidence: "high" }]);
+  const reg = { ...ESO, subject: "New Registrant | Mectron | Qualification needed", hs_tag_ids: "43412670" };
+  assert.deepEqual((await decideHub(api, "1", reg, false, "2026-10-20", better(420))).patch, { sales_potential_estimate: 420, sales_potential_source: "company_baseline", sales_potential_confidence: "low" });
+  const lost = { ...ESO, subject: "Lost Lead | Push for First Purchase | Agilent Technologies", sales_potential_estimate: "166.67", sales_potential_source: "company_baseline", sales_potential_confidence: "low" };
+  const l = await decideHub(api, "1", lost, false, "2026-10-20", better(420));
+  assert.deepEqual([l.rule, l.patch?.sales_potential_estimate], ["lostlead", 420]);
+  const ero = { ...ESO, erosion_key: "k", erosion_amount_2025: "3388", sales_potential_estimate: "3388", sales_potential_source: "direct_field", sales_potential_confidence: "high" };
+  const e = await decideHub(api, "1", ero, false, "2026-10-20", better());
+  assert.deepEqual([e.rule, e.patch], ["erosion", null]); // already right: nothing written
+  const bo = await decideHub(api, "1", { ...BO, order_potential_: "500" }, false, "2026-10-20", better());
+  assert.deepEqual([bo.rule, bo.patch, bo.kpi], ["not-eso-tsa", null, undefined]);
+  const typed = await decideHub(api, "1", { ...ero, sales_potential_estimate: "5000" }, true, "2026-10-20", better());
+  assert.deepEqual([typed.rule, typed.patch], ["manual", { sales_potential_source: "manual_override", sales_potential_confidence: "high" }]);
+});
+
+test("a second-purchase push takes the customer's own first order", async () => {
+  const api = fake({
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55, associationTypes: [{ label: "Primary" }] }] },
+    "/crm/v3/objects/companies/55": { properties: { order_first_order_date: "2026-06-24" } },
+    "/crm/v3/objects/orders/search": { results: [{ properties: { hs_order_name: "A26.622888.001 | x", order_total_net_revenue: "117.52", order_order_status: "invoiced" } }] },
+  });
+  const d = await decideHub(api, "1", { hs_pipeline: "1726599377", subject: "Push for Second Purchase | META SARL" }, false, "2026-10-20", better());
+  assert.deepEqual([d.rule, d.patch], ["secondpurchase", { sales_potential_estimate: 117.52, sales_potential_source: "company_baseline", sales_potential_confidence: "medium" }]);
+});
+
+test("a customer's request goes down the path: its rule is named, a cart in the subject is the cart", async () => {
+  const api = fake({ "/crm/v4/objects/tickets/1/associations": none });
+  const cart = await decideHub(api, "1", { hs_pipeline: "1726599376", subject: "Abandoned Cart 2.247,20 €EUR | JB TEC sas" }, false, "2026-10-20", better());
+  assert.deepEqual([cart.rule, cart.patch?.sales_potential_estimate, cart.patch?.sales_potential_confidence], ["cart", 2247.2, "high"]);
+  const none0 = await decideHub(api, "1", { hs_pipeline: "1726599376", subject: "Frage" }, false, "2026-10-20", better());
+  assert.deepEqual([none0.rule, none0.patch?.sales_potential_source], ["unknown", "unknown"]);
 });
 
 test("products at the price they sell for, every article added up - not the list price per 100", async () => {
@@ -266,4 +294,5 @@ test("the figures count the tickets the hub's own rules change", () => {
     { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "score", final: v("5", "company_baseline"), better: { final: v("5", "company_baseline") } }, workflow: { wrote: true, final: v("5", "company_baseline") } },
   ]);
   assert.deepEqual([m.improved, m.improvedBy[0].branch, Math.round(m.valueBetter)], [1, "pricecheck", 200]);
+  assert.deepEqual(m.byConfidence.map((x) => [x.confidence, x.n]).sort(), [["low", 2]]);
 });

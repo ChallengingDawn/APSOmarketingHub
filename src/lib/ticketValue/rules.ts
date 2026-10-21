@@ -11,8 +11,13 @@
 //                  Python `requests` did (a status, never a throw), so a failed read changes the result the same way.
 // Pure apart from `Api`: the tests run it on a fake one.
 //
-// THE HUB'S IMPROVEMENTS (SARCLA 20.10.2026, after reading the copy's first results) - only when `Better` is passed;
-// without it every function below is the workflow, unchanged:
+// THE HUB'S IMPROVEMENTS (SARCLA 20.10.2026, after reading the copy's first results) - decideHub(), and scoreTicket()
+// when `Better` is passed; without it every function below is the workflow, unchanged:
+//   - a value only on ESO and TSA tickets ("the value on the ticket should only be calculated on ESO/TSA")
+//   - every automated ticket takes the value its automation gives ("it should get it from all automated tickets"):
+//     erosion amount, push target, the cart in the subject, the push's order potential; lost leads and new registrants
+//     the average first order; a second-purchase push the customer's own first order (he chose both, 20.10)
+//   - a value a person typed is never overwritten, on any ticket
 //   - price checks ("we can just copy the potential given, and set the confidence"): the articles and quantities the
 //     customer priced (price_check_articles) x each article's own price per piece -> "article x quantity", high
 //   - new registrants: what a new customer's first order is worth on average (he chose it) -> "company's potential", low
@@ -218,6 +223,24 @@ export type Better = {
   /** what a new customer's first order is worth on average; null = not worked out yet */
   firstOrder: number | null;
 };
+
+/** One company's first order: its orders of that day, one figure per order number. */
+export function firstOrderValue(orders: { name: string; net: number; status: string }[]): number | null {
+  const byBase = new Map<string, { whole: number | null; parts: number }>();
+  for (const o of orders) {
+    if (/credit/i.test(o.status)) continue;
+    const num = o.name.split("|")[0].trim();
+    const m = /^(.*)\.(\d{3})$/.exec(num);
+    const base = m ? m[1] : num, pos = m ? m[2] : "000";
+    const e = byBase.get(base) ?? { whole: null, parts: 0 };
+    if (pos === "000") e.whole = (e.whole ?? 0) + o.net; else e.parts += o.net;
+    byBase.set(base, e);
+  }
+  if (!byBase.size) return null;
+  let sum = 0;
+  for (const e of byBase.values()) sum += e.whole ?? e.parts;
+  return sum > 0 ? sum : null;
+}
 
 // ---------------- THE HUB'S PRODUCT RULE ----------------
 const QTY_WORD = "(?:pcs?|pieces?|pi[eèé]ces?|st[uü]?cks?|stk|stuks|pezzi|pz|piezas|sztuk|szt|units?|uds?|ks|pce)";
@@ -450,17 +473,8 @@ export type Decision = {
  * What the workflow does to one ticket, from its properties as they were (`p`) and whether a person wrote the value
  * last (`human`). The branch actions first; then the Python's main(): unqualified, a person's value, or score again.
  */
-export async function decide(api: Api, tid: string, p: Props, human: boolean, today: string, better?: Better): Promise<Decision> {
+export async function decide(api: Api, tid: string, p: Props, human: boolean, today: string): Promise<Decision> {
   const branch = branchOf(p);
-  if (better && branch === "pricecheck") {
-    const r = priceArticles(priceCheckArticles(p.price_check_articles), better.price);
-    if (!r.priced || !(r.value > 0)) return { branch, action: `price check, no article sold before${r.unpriced ? ` (${r.unpriced})` : ""}`, patch: null };
-    return { branch, action: `price check: ${r.why}`, patch: { sales_potential_estimate: round2(r.value), sales_potential_source: "product_lookup", sales_potential_confidence: "high" } };
-  }
-  if (better && branch === "newcustomer") {
-    if (!better.firstOrder) return { branch, action: "new registrant - the average first order is not worked out yet", patch: null };
-    return { branch, action: `new registrant: the average first order ${better.firstOrder.toFixed(0)}`, patch: { sales_potential_estimate: round2(better.firstOrder), sales_potential_source: "company_baseline", sales_potential_confidence: "low" } };
-  }
   if (branch === "erosion" || branch === "sept") {
     const from = branch === "erosion" ? "erosion_amount_2025" : "sept_push_target";
     const patch: Patch = { sales_potential_confidence: "high", sales_potential_source: "direct_field" };
@@ -496,7 +510,7 @@ export async function decide(api: Api, tid: string, p: Props, human: boolean, to
         action = "respect_manual_override(human)";
       }
     } else {
-      scored = await scoreTicket(api, tid, p, better);
+      scored = await scoreTicket(api, tid, p);
       const { value: v, source: src, confidence: conf, why } = scored;
       const changed = src !== srcCur || Math.abs(v - potCur) > 0.01 || src === "unqualified";
       if (changed) {
@@ -509,6 +523,100 @@ export async function decide(api: Api, tid: string, p: Props, human: boolean, to
     }
   }
   return { branch, action, patch, scored, kpi: kpiEvents(tid, q, pname, today) };
+}
+
+// ---------------- THE HUB'S RULES ----------------
+
+/** Where the hub's value comes from - the path, in the order it is tried. */
+export type HubRule =
+  | "not-eso-tsa" | "manual" | "unqualified"
+  | "erosion" | "push" | "pricecheck" | "registrant" | "lostlead" | "secondpurchase"
+  | "direct" | "cart" | "gqs" | "textqty" | "product" | "company" | "unknown";
+export const HUB_RULES: { rule: HubRule; label: string; from: string; confidence: string; automated?: boolean }[] = [
+  { rule: "not-eso-tsa", label: "Not ESO or TSA", from: "No value - only ESO and TSA tickets get one", confidence: "-" },
+  { rule: "manual", label: "Typed by a person", from: "A person changed the value in HubSpot last - it is kept", confidence: "high" },
+  { rule: "unqualified", label: "Not a sales ticket", from: "Tagged BISPHENOL ACTION, or an NPS survey in the subject - 0", confidence: "unqualified" },
+  { rule: "erosion", label: "Erosion", from: "Its erosion amount (erosion_amount_2025)", confidence: "high", automated: true },
+  { rule: "push", label: "Push (September, Marc, Nancy)", from: "Its push value (sept_push_target / order potential)", confidence: "high", automated: true },
+  { rule: "pricecheck", label: "Price check", from: "The priced articles x quantities x what each article sells for per piece", confidence: "high", automated: true },
+  { rule: "registrant", label: "New registrant", from: "The average first order of a new customer", confidence: "low", automated: true },
+  { rule: "lostlead", label: "Lost lead", from: "The average first order of a new customer (the push is for a first purchase)", confidence: "low", automated: true },
+  { rule: "secondpurchase", label: "Second purchase", from: "The customer's own first order (what it bought the first time)", confidence: "medium", automated: true },
+  { rule: "cart", label: "Abandoned cart", from: "The cart amount in the subject", confidence: "high", automated: true },
+  { rule: "direct", label: "Order potential", from: "The ticket's own Order potential", confidence: "high" },
+  { rule: "gqs", label: "Its GQS ticket", from: "The Order potential of the GQS ticket linked to it", confidence: "high" },
+  { rule: "textqty", label: "Quantity x price in the text", from: "A quantity and a price per piece written in the e-mail", confidence: "medium" },
+  { rule: "product", label: "Articles x quantities", from: "Each article in the e-mail x the quantity on its line x what it sells for per piece", confidence: "medium" },
+  { rule: "company", label: "The company's potential", from: "The primary company's yearly potential x 10% / its tickets of the last 12 months", confidence: "low" },
+  { rule: "unknown", label: "No signal", from: "None of the above - 0", confidence: "low" },
+];
+const LOST_LEAD_RE = /^\s*lost\s*lead\b/i;
+const SECOND_PURCHASE_RE = /^\s*push\s*for\s*second\s*purchase\b/i;
+
+/** The customer's own first order: the ticket's primary company, its first order day, its orders of that day. */
+async function ownFirstOrder(api: Api, tid: string): Promise<{ value: number; day: string; company: string } | null> {
+  const ar = await api.get(`/crm/v4/objects/tickets/${tid}/associations/companies`);
+  const rs: { toObjectId: string | number; associationTypes?: { label?: string | null }[] }[] = ar.status === 200 ? ar.json?.results ?? [] : [];
+  const pick = rs.find((x) => (x.associationTypes ?? []).some((t) => t.label === "Primary")) ?? rs[0];
+  if (!pick) return null;
+  const company = String(pick.toObjectId);
+  const cr = await api.get(`/crm/v3/objects/companies/${company}?properties=order_first_order_date`);
+  const day = cr.status === 200 ? String(cr.json?.properties?.order_first_order_date ?? "").slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const from = Date.parse(`${day}T00:00:00Z`);
+  const sr = await api.post("/crm/v3/objects/orders/search", {
+    filterGroups: [{ filters: [{ propertyName: "associations.company", operator: "EQ", value: company }, { propertyName: "order_order_date", operator: "BETWEEN", value: String(from), highValue: String(from + 86_399_999) }] }],
+    properties: ["hs_order_name", "order_total_net_revenue", "order_order_status"], limit: 100,
+  });
+  if (sr.status !== 200) return null;
+  const v = firstOrderValue(((sr.json?.results ?? []) as { properties: Props }[]).map((o) => ({ name: o.properties.hs_order_name ?? "", net: toNum(o.properties.order_total_net_revenue), status: o.properties.order_order_status ?? "" })));
+  return v ? { value: v, day, company } : null;
+}
+
+const RULE_OF_SOURCE: Record<string, HubRule> = { child_gqs: "gqs", text_qty_price: "textqty", product_lookup: "product", company_baseline: "company", unknown: "unknown", unqualified: "unqualified" };
+
+/**
+ * The hub's own rules: what the hub writes once it takes over. ESO and TSA only; a person's value first; then the
+ * automated tickets with the value their automation gives; then the customer requests' path (scoreTicket with the
+ * improvements). Writes only what changes.
+ */
+export async function decideHub(api: Api, tid: string, p: Props, human: boolean, today: string, better: Better): Promise<Decision & { rule: HubRule }> {
+  const branch = branchOf(p);
+  const pname = PIPELINES[p.hs_pipeline || ""];
+  if (pname !== "ESO" && pname !== "TSA") return { branch, rule: "not-eso-tsa", action: "not an ESO or TSA ticket - no value", patch: null };
+  const cur: Patch = { sales_potential_estimate: p.sales_potential_estimate ?? "", sales_potential_source: (p.sales_potential_source ?? "").trim(), sales_potential_confidence: (p.sales_potential_confidence ?? "").trim() };
+  const done = (rule: HubRule, action: string, want: { value?: number | null; source: string; confidence: string }, scored?: Scored): Decision & { rule: HubRule } => {
+    const next: Patch = { sales_potential_source: want.source, sales_potential_confidence: want.confidence };
+    if (want.value !== undefined && want.value !== null) next.sales_potential_estimate = round2(want.value);
+    const changed = next.sales_potential_source !== cur.sales_potential_source || next.sales_potential_confidence !== cur.sales_potential_confidence
+      || (next.sales_potential_estimate !== undefined && Math.abs(toNum(next.sales_potential_estimate) - toNum(cur.sales_potential_estimate)) > 0.01)
+      || (next.sales_potential_estimate !== undefined && !known(cur.sales_potential_estimate));
+    const after = { ...p, ...(changed ? Object.fromEntries(Object.entries(next).map(([k, v]) => [k, String(v)])) : {}) };
+    return { branch, rule, action, patch: changed ? next : null, scored, kpi: kpiEvents(tid, after, pname, today) };
+  };
+  if (human) return done("manual", "typed by a person - kept", { source: "manual_override", confidence: "high" });
+  if (isUnqualified(p)) return done("unqualified", "not a sales ticket (Bisphenol / NPS)", { value: 0, source: "unqualified", confidence: "unqualified" });
+  const subject = p.subject || "";
+  // the automated tickets: the value their automation gives
+  if (branch === "erosion" && toNum(p.erosion_amount_2025) > 0) return done("erosion", `erosion amount ${toNum(p.erosion_amount_2025)}`, { value: toNum(p.erosion_amount_2025), source: "direct_field", confidence: "high" });
+  if (branch === "sept" && toNum(p.sept_push_target) > 0) return done("push", `push target ${toNum(p.sept_push_target)}`, { value: toNum(p.sept_push_target), source: "direct_field", confidence: "high" });
+  if (branch === "pricecheck") {
+    const r = priceArticles(priceCheckArticles(p.price_check_articles), better.price);
+    if (r.priced && r.value > 0) return done("pricecheck", r.why, { value: r.value, source: "product_lookup", confidence: "high" });
+  }
+  const lost = LOST_LEAD_RE.test(subject);
+  if ((branch === "newcustomer" || lost) && better.firstOrder) {
+    return done(lost ? "lostlead" : "registrant", `the average first order ${better.firstOrder.toFixed(0)}`, { value: better.firstOrder, source: "company_baseline", confidence: "low" });
+  }
+  if (SECOND_PURCHASE_RE.test(subject)) {
+    const f = await ownFirstOrder(api, tid);
+    if (f) return done("secondpurchase", `its first order on ${f.day}: ${f.value.toFixed(0)} (company ${f.company})`, { value: f.value, source: "company_baseline", confidence: "medium" });
+  }
+  // the customer requests (and an automated ticket whose value is not known): the path
+  const scored = await scoreTicket(api, tid, p, better);
+  let rule: HubRule = RULE_OF_SOURCE[scored.source] ?? "unknown";
+  if (scored.source === "direct_field") rule = /abandoned_cart/.test(scored.why) ? "cart" : /^order_potential_/.test(scored.why) && /push/i.test(subject) ? "push" : "direct";
+  return done(rule, scored.why, { value: scored.source === "unqualified" ? 0 : scored.value, source: scored.source, confidence: scored.confidence }, scored);
 }
 
 /** STEP 2 of the Python: the KPI object rows (sales_funnel|<kind>|tid<id>) it writes or archives for this run. */

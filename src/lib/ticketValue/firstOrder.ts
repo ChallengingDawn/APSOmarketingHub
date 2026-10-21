@@ -8,7 +8,8 @@
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { averageOf, firstOrderValue } from "./model";
+import { averageOf } from "./model";
+import { firstOrderValue } from "./rules";
 
 const KV = "ticketValue:firstOrder";
 const COMPANIES = 300;

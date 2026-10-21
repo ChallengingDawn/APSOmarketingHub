@@ -2,6 +2,7 @@
 // the verdict per ticket, and the figures over many tickets. No "@/" imports: the tests load it as it is.
 
 import { toNum, type Patch } from "./rules";
+export { firstOrderValue } from "./rules";
 
 export type Values = { sales_potential_estimate: string | null; sales_potential_source: string | null; sales_potential_confidence: string | null };
 /** agree = both leave the same value · differ = both wrote, not the same · missed = the hub would write, the workflow did
@@ -27,7 +28,7 @@ export function sameValue(a: Values, b: Values): boolean {
 
 type RowLike = {
   verdict: Verdict; pipeline: string; trigger: "created" | "stage"; enrols: boolean; late?: boolean;
-  hub: { branch: string; final: Values; link?: string | null; better?: { final: Values } } | null; workflow: { wrote: boolean; final: Values };
+  hub: { branch: string; final: Values; link?: string | null; better?: { final: Values; rule?: string } } | null; workflow: { wrote: boolean; final: Values };
 };
 export type Measure = {
   rows: number; checked: number; agree: number; differ: number; missed: number; errors: number; pending: number;
@@ -46,16 +47,22 @@ export type Measure = {
   valueWorkflow: number; valueHub: number;
   /** the hub's own rules: tickets where they give another value than the copy, by branch, and the value they leave */
   improved: number; improvedBy: { branch: string; n: number }[]; valueBetter: number;
+  /** the hub's own rules: per path (the rule that gave the value) and per confidence - tickets and value */
+  byRule: { rule: string; n: number; value: number }[];
+  byConfidence: { confidence: string; n: number; value: number }[];
 };
 
 const src = (v: Values) => norm(v.sales_potential_source) ?? "(none)";
 
 export function measure(rows: RowLike[]): Measure {
-  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0, improved: 0, improvedBy: [], valueBetter: 0 };
+  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0, improved: 0, improvedBy: [], valueBetter: 0, byRule: [], byConfidence: [] };
   const bySource = new Map<string, { workflow: number; hub: number }>();
   const pairs = new Map<string, number>();
   const branches = new Map<string, number>();
   const improvedBy = new Map<string, number>();
+  const byRule = new Map<string, { n: number; value: number }>();
+  const byConf = new Map<string, { n: number; value: number }>();
+  const add = (mp: Map<string, { n: number; value: number }>, k: string, v: number) => { const e = mp.get(k) ?? { n: 0, value: 0 }; e.n++; e.value += v; mp.set(k, e); };
   const scored = new Map<string, number>();
   const pipes = new Map<string, { checked: number; agree: number; differ: number; missed: number }>();
   for (const r of rows) {
@@ -85,8 +92,15 @@ export function measure(rows: RowLike[]): Measure {
     m.valueWorkflow += toNum(r.workflow.final.sales_potential_estimate);
     m.valueHub += toNum(hubFinal.sales_potential_estimate);
     const betterFinal = r.hub?.better?.final ?? hubFinal;
-    m.valueBetter += toNum(betterFinal.sales_potential_estimate);
-    if (r.hub?.better && !sameValue(betterFinal, hubFinal)) {
+    // a ticket the hub gives no value (not ESO or TSA) counts 0, whatever the workflow left on it
+    const outside = r.hub?.better?.rule === "not-eso-tsa";
+    m.valueBetter += outside ? 0 : toNum(betterFinal.sales_potential_estimate);
+    if (r.hub?.better) {
+      const v = outside ? 0 : toNum(betterFinal.sales_potential_estimate);
+      add(byRule, r.hub.better.rule ?? "unknown", v);
+      if (!outside) add(byConf, norm(betterFinal.sales_potential_confidence) ?? "(none)", v);
+    }
+    if (r.hub?.better && !outside && !sameValue(betterFinal, hubFinal)) {
       m.improved++;
       improvedBy.set(br, (improvedBy.get(br) ?? 0) + 1);
     }
@@ -94,6 +108,8 @@ export function measure(rows: RowLike[]): Measure {
   m.agreeShare = m.checked ? m.agree / m.checked : null;
   m.bySource = [...bySource].map(([source, e]) => ({ source, ...e })).sort((x, y) => y.workflow + y.hub - (x.workflow + x.hub));
   m.scoredBySource = [...scored].map(([source, n]) => ({ source, n })).sort((x, y) => y.n - x.n);
+  m.byRule = [...byRule].map(([rule, e]) => ({ rule, ...e })).sort((x, y) => y.n - x.n);
+  m.byConfidence = [...byConf].map(([confidence, e]) => ({ confidence, ...e })).sort((x, y) => y.n - x.n);
   m.improvedBy = [...improvedBy].map(([branch, n]) => ({ branch, n })).sort((x, y) => y.n - x.n);
   m.byBranch = [...branches].map(([branch, n]) => ({ branch, n })).sort((x, y) => y.n - x.n);
   m.pairs = [...pairs].map(([k, n]) => { const [workflow, hub] = k.split("\u0000"); return { workflow, hub, n }; }).sort((x, y) => y.n - x.n);
@@ -121,24 +137,6 @@ export function enrolsOnStage(value: string | null, writtenAt: string | null, at
 }
 
 // ---------------- the hub's figures for its improvements ----------------
-
-/** One company's first order: its orders of that day, one figure per order number. */
-export function firstOrderValue(orders: { name: string; net: number; status: string }[]): number | null {
-  const byBase = new Map<string, { whole: number | null; parts: number }>();
-  for (const o of orders) {
-    if (/credit/i.test(o.status)) continue;
-    const num = o.name.split("|")[0].trim();
-    const m = /^(.*)\.(\d{3})$/.exec(num);
-    const base = m ? m[1] : num, pos = m ? m[2] : "000";
-    const e = byBase.get(base) ?? { whole: null, parts: 0 };
-    if (pos === "000") e.whole = (e.whole ?? 0) + o.net; else e.parts += o.net;
-    byBase.set(base, e);
-  }
-  if (!byBase.size) return null;
-  let sum = 0;
-  for (const e of byBase.values()) sum += e.whole ?? e.parts;
-  return sum > 0 ? sum : null;
-}
 
 export function averageOf(values: (number | null)[]): { avg: number | null; median: number | null; n: number } {
   const v = values.filter((x): x is number => x !== null && x > 0).sort((a, b) => a - b);
