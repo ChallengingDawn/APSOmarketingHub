@@ -29,7 +29,10 @@ import type { HubRun } from "@/lib/connectors/steps/run";
 import People from "./People";
 
 type Move = { ticket: string; from?: string; to?: string; reason?: string; subject?: string };
+type TaskHalf = { live: boolean; run: HubRun | null; preview: HubRun | null; running: HubRun | null };
 type Data = {
+  /** The tasks a deputy should pick up - the other half (SARCLA, 21.10.2026). */
+  tasks?: TaskHalf;
   live: boolean; run: HubRun | null; preview: HubRun | null;
   running: { mode: string; started: string } | null; otherRunning: boolean; admin: boolean;
 };
@@ -92,6 +95,53 @@ function Moves({ run, label }: { run: HubRun | null; label: string }) {
   );
 }
 
+/**
+ * THE TASKS HALF.
+ *
+ * Tickets were brought over first; this is the HubSpot workflow "SARCLA |
+ * DEPUTY TASK", which hands on three task subjects - "New registrant ...",
+ * "Pending: Mark Company as Qualified or Not", "Pending: Select Disqualification
+ * Reason" - and nothing else. Same deputy chain as the tickets above, so the
+ * two can never disagree about who stands in for whom.
+ */
+function Tasks({ d, act }: { d: Data; act: (action: string, which?: string) => void }) {
+  const t = d.tasks;
+  if (!t) return null;
+  const r = t.run;
+  return (
+    <GlassCard>
+      <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mb: r ? 1.5 : 0 }}>
+        <Chip tint={t.live ? "green" : "slate"}>{t.live ? "On" : "Off"}</Chip>
+        <Box sx={{ flex: 1, minWidth: 240 }}>
+          <Typography sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>Tasks</Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+            {t.live ? "Runs every 15 minutes." : "Off - tasks stay with whoever is away."} Last run: {r?.finished ? when(r.finished) : "none yet"}.
+            {" "}New registrant, Mark Company as Qualified, Select Disqualification Reason.
+          </Typography>
+        </Box>
+        {d.admin && (
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Button size="small" variant="outlined" disabled={!!t.running || !!d.running || d.otherRunning} onClick={() => act("preview", "tasks")}>Test run</Button>
+            {t.live
+              ? <Button size="small" variant="outlined" color="warning" onClick={() => { if (confirm("Switch the task half off? Tasks of people who are away stay with them.")) act("live-off", "tasks"); }}>Switch off</Button>
+              : <Button size="small" variant="contained" disableElevation onClick={() => { if (confirm("Switch the task half on? It then moves those tasks to deputies every 15 minutes.")) act("live-on", "tasks"); }}>Switch on</Button>}
+          </Box>
+        )}
+      </Box>
+      {t.running && <Info>{t.running.mode === "preview" ? "A test run" : "A run"} of the tasks is going on since {when(t.running.started)}.</Info>}
+      {r && (
+        <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap", fontSize: "0.84rem", color: MUTED }}>
+          <span>checked <strong style={{ color: INK }}>{show(num(r, "in_scope"))}</strong></span>
+          <span>moved <strong style={{ color: INK }}>{show(num(r, "moved"))}</strong></span>
+          <span>owner in office <strong style={{ color: INK }}>{show(num(r, "owner_in_office"))}</strong></span>
+          <span>away, no deputy <strong style={{ color: INK }}>{show(num(r, "away_no_deputy"))}</strong></span>
+          <span>no absence window <strong style={{ color: INK }}>{show(num(r, "no_absence_window"))}</strong></span>
+        </Box>
+      )}
+    </GlassCard>
+  );
+}
+
 function Board({ d, act, note }: { d: Data; act: (action: string) => void; note: string | null }) {
   const [view, setView] = useState<"run" | "preview">("run");
   const r = d.run;
@@ -135,6 +185,8 @@ function Board({ d, act, note }: { d: Data; act: (action: string) => void; note:
         </Grid>
       </Grid>
 
+      <Tasks d={d} act={act} />
+
       <People />
 
       <Box sx={{ display: "grid", gap: 1.25 }}>
@@ -159,9 +211,13 @@ export default function HolidayRedirection() {
     const t = setTimeout(() => setTick((n) => n + 1), 10_000);
     return () => clearTimeout(t);
   }, [running, tick]);
-  const act = useCallback(async (action: string) => {
+  // `which` picks the half: "tasks", or the tickets when it is left out. Without
+  // it every button on the tasks card would have driven the TICKET sweep, which
+  // TypeScript cannot catch - an extra argument to a one-argument function is
+  // simply dropped.
+  const act = useCallback(async (action: string, which?: string) => {
     setNote(null);
-    const j = await fetch("/api/uc/holiday-redirection", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })
+    const j = await fetch("/api/uc/holiday-redirection", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, which }) })
       .then((x) => x.json()).catch(() => null);
     setNote(j?.ok ? j.data.note : j?.error ?? "Could not start.");
     setTimeout(() => setTick((n) => n + 1), 1500);
