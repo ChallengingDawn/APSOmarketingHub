@@ -16,6 +16,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { BRANCH_LABEL, HUB_RULES, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, decideHub, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry, type HubRule } from "./rules";
 import { loadReport } from "@/lib/integrations/articleReport";
 import { firstOrderState, firstOrderStep } from "./firstOrder";
+import { jobsState, liveTicket, oneTimeJobs, workflowOn, type Jobs, type Written } from "./live";
 import { enrolsOnStage, finalOf, pricesOf, sameValue, type Values, type Verdict } from "./model";
 
 export type { Verdict } from "./model";
@@ -37,8 +38,9 @@ export const WORKFLOW_APP = "30109717";
 export const WORKFLOW_ID = "4326395107";
 const VALUE_PROPS = ["sales_potential_estimate", "sales_potential_source", "sales_potential_confidence"] as const;
 
-export type Settings = { mode: "off" | "shadow"; by: string | null; at: string | null };
-export type RunInfo = { at: string; seconds: number; found: number; checked: number; settled: number; rechecked: number; behind?: string; error?: string };
+/** live = the hub writes, once the workflow is switched off in HubSpot (until then it stays in shadow and says so) */
+export type Settings = { mode: "off" | "shadow" | "live"; by: string | null; at: string | null; liveFrom?: string | null };
+export type RunInfo = { at: string; seconds: number; found: number; checked: number; settled: number; rechecked: number; behind?: string; error?: string; mode?: "shadow" | "live"; waiting?: string; written?: number };
 export type Row = {
   key: string;
   ticketId: string;
@@ -64,6 +66,8 @@ export type Row = {
   recheckedAt?: string;
   /** looked at more than 15 minutes after the trigger (the first day's replay): its company may have changed since */
   late?: boolean;
+  /** live: what the hub wrote */
+  written?: Written;
   error?: string;
 };
 
@@ -71,15 +75,21 @@ const KV = { settings: "ticketValue:settings", last: "ticketValue:lastRun", curs
 
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings);
-  return { mode: s?.mode ?? "shadow", by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "shadow", by: s?.by ?? null, at: s?.at ?? null, liveFrom: s?.liveFrom ?? null };
 }
-export async function saveSettings(patch: { mode?: "off" | "shadow" }, by: string): Promise<Settings> {
+export async function saveSettings(patch: { mode?: "off" | "shadow" | "live" }, by: string): Promise<Settings> {
   const cur = await getSettings();
-  const next: Settings = { mode: patch.mode === "off" ? "off" : patch.mode === "shadow" ? "shadow" : cur.mode, by, at: new Date().toISOString() };
+  const mode = patch.mode === "off" || patch.mode === "shadow" || patch.mode === "live" ? patch.mode : cur.mode;
+  const next: Settings = { mode, by, at: new Date().toISOString(), liveFrom: mode === "live" ? cur.liveFrom ?? null : null };
   await kvSet(KV.settings, next);
   return next;
 }
 export const lastRun = async () => (await kvGet<RunInfo>(KV.last)) ?? null;
+/** For the page: is the workflow still on, is the hub writing, how far the one-time jobs are. */
+export async function liveState(): Promise<{ workflowOn: boolean | null; writing: boolean; jobs: Jobs | null }> {
+  const [s, on, jobs] = await Promise.all([getSettings(), workflowOn(), jobsState()]);
+  return { workflowOn: on, writing: s.mode === "live" && on === false, jobs };
+}
 const day = (iso: string) => iso.slice(0, 10);
 const rowsOfDay = async (d: string) => (await kvGet<Row[]>(KV.day(d))) ?? [];
 export async function recentRows(days = 7): Promise<Row[]> {
@@ -246,6 +256,17 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
   const more = () => !signal?.aborted && Date.now() - started < WORK_MS;
   let next = cursor;
   const better = await betterContext();
+  // live writes only once the workflow is switched off in HubSpot - never both at once
+  const settings = await getSettings();
+  let live = false;
+  if (settings.mode === "live") {
+    const on = await workflowOn();
+    live = on === false;
+    if (!live) info.waiting = on === null ? "the workflow could not be read" : "the workflow is still on in HubSpot";
+    else if (!settings.liveFrom) await kvSet(KV.settings, { ...settings, liveFrom: new Date().toISOString() });
+  }
+  info.mode = live ? "live" : "shadow";
+  info.written = 0;
   if (to > cursor) {
     const evs = await findTriggers(cursor, to);
     info.found = evs.length;
@@ -257,7 +278,18 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
       next = Math.max(next, Date.parse(e.at));
       done++;
       if (rows.some((x) => x.key === key)) continue;
-      try { rows.push(await firstLook(e.id, e.trigger, e.at, e.stage, better)); info.checked++; }
+      try {
+        if (live) {
+          const r = await liveTicket(e.id, better);
+          rows.push({
+            key, ticketId: e.id, subject: r.subject, pipeline: r.pipeline, trigger: e.trigger, stage: e.stage, at: e.at, enrols: true, before: r.before,
+            hub: { branch: "score", action: "live", final: r.before, better: r.better }, workflow: { wrote: false, at: null, by: null, final: r.before },
+            verdict: "live", checkedAt: new Date().toISOString(), written: r.written, error: r.written.error,
+          });
+          if (r.written.changed) info.written = (info.written ?? 0) + 1;
+        } else rows.push(await firstLook(e.id, e.trigger, e.at, e.stage, better));
+        info.checked++;
+      }
       catch (err) {
         rows.push({ key, ticketId: e.id, subject: "", pipeline: "", trigger: e.trigger, stage: e.stage, at: e.at, enrols: false, before: empty(), hub: null,
           workflow: { wrote: false, at: null, by: null, final: empty() }, verdict: "error", checkedAt: new Date().toISOString(), error: (err as Error).message.slice(0, 200) });
@@ -270,8 +302,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
   }
   await flush();
   await kvSet(KV.cursor, next);
-  // 20 minutes on: what the workflow wrote; a ticket it left alone, once more after 2 hours
-  for (const d of [day(new Date(Date.now() - 86400_000).toISOString()), day(new Date().toISOString())]) {
+  // 20 minutes on: what the workflow wrote; a ticket it left alone, once more after 2 hours (shadow only)
+  for (const d of live ? [] : [day(new Date(Date.now() - 86400_000).toISOString()), day(new Date().toISOString())]) {
     for (const x of await rowsFor(d)) {
       if (!more()) break;
       const age = Date.now() - Date.parse(x.at);
@@ -284,6 +316,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
   }
   await flush();
+  // live: the one-time jobs - every open ESO/TSA ticket once, the old values on the other pipelines cleared
+  if (live && more()) await oneTimeJobs(better, more).catch((e) => { info.error = `one-time jobs: ${(e as Error).message.slice(0, 120)}`; });
   // the average first order, a little each run while time is left
   if (more()) await firstOrderStep(more).catch((e) => { info.error = `first order: ${(e as Error).message.slice(0, 120)}`; });
   await kvSet(KV.day(new Date(Date.now() - DAYS_KEPT * 86400_000).toISOString().slice(0, 10)), null);

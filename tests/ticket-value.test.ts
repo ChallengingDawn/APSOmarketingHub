@@ -226,7 +226,9 @@ test("the hub's rules: ESO/TSA only; automated tickets take their automation's v
   const e = await decideHub(api, "1", ero, false, "2026-10-20", better());
   assert.deepEqual([e.rule, e.patch], ["erosion", null]); // already right: nothing written
   const bo = await decideHub(api, "1", { ...BO, order_potential_: "500" }, false, "2026-10-20", better());
-  assert.deepEqual([bo.rule, bo.patch, bo.kpi], ["not-eso-tsa", null, undefined]);
+  assert.deepEqual([bo.rule, bo.patch], ["not-eso-tsa", null]);
+  // Back Office keeps its ticket rows in the KPI object, without a value (SARCLA 21.10: "keep counting them, no value")
+  assert.ok(bo.kpi?.rows?.some((r) => r.name === "sales_funnel|live|tid1" && r.props.metric_value === 1 && r.props.dimension_pipeline === "BO"));
   const typed = await decideHub(api, "1", { ...ero, sales_potential_estimate: "5000" }, true, "2026-10-20", better());
   assert.deepEqual([typed.rule, typed.patch], ["manual", { sales_potential_source: "manual_override", sales_potential_confidence: "high" }]);
 });
@@ -290,9 +292,30 @@ test("the average first order: an order number once (.000 or its deliveries), cr
 test("the figures count the tickets the hub's own rules change", () => {
   const v = (e: string | null, s: string | null): Values => ({ sales_potential_estimate: e, sales_potential_source: s, sales_potential_confidence: "low" });
   const m = measure([
-    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "pricecheck", final: v(null, null), better: { final: v("195", "product_lookup") } }, workflow: { wrote: false, final: v(null, null) } },
-    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "score", final: v("5", "company_baseline"), better: { final: v("5", "company_baseline") } }, workflow: { wrote: true, final: v("5", "company_baseline") } },
+    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "pricecheck", final: v(null, null), better: { final: v("195", "product_lookup"), rule: "pricecheck" } }, workflow: { wrote: false, final: v(null, null) } },
+    { verdict: "agree" as const, pipeline: "ESO", trigger: "created" as const, enrols: true, hub: { branch: "score", final: v("5", "company_baseline"), better: { final: v("5", "company_baseline"), rule: "company" } }, workflow: { wrote: true, final: v("5", "company_baseline") } },
   ]);
   assert.deepEqual([m.improved, m.improvedBy[0].branch, Math.round(m.valueBetter)], [1, "pricecheck", 200]);
   assert.deepEqual(m.byConfidence.map((x) => [x.confidence, x.n]).sort(), [["low", 2]]);
+});
+
+test("the KPI rows in full, as the workflow wrote them", () => {
+  const k = kpiEvents("9", { createdate: "2026-10-20T08:00:00Z", sales_potential_estimate: "40", sales_potential_source: "company_baseline", sales_potential_confidence: "low", hs_pipeline_stage: "2338232556", hubspot_owner_id: "77" }, "ESO", "2026-10-20");
+  const created = k.rows.find((r) => r.name === "sales_funnel|created|tid9")!;
+  assert.deepEqual(created.props, { kpi_category: "sales_funnel", dimension_pipeline: "ESO", dimension_source: "company_baseline", dimension_confidence: "low", dimension_owner_id: "77", metric_name: "tickets_created_count", metric_value: 1, snapshot_date: "2026-10-20", name: "sales_funnel|created|tid9" });
+  assert.equal(k.rows.find((r) => r.name === "sales_funnel|live|tid9")!.props.metric_value, 40);
+  assert.equal(k.rows.find((r) => r.name === "sales_funnel|pot_created|tid9")!.props.metric_name, "potential_created_sum");
+});
+
+test("the figures: live tickets count as written, tickets from before the path was recorded are left out", () => {
+  const v = (e: string | null, s: string | null, c = "low"): Values => ({ sales_potential_estimate: e, sales_potential_source: s, sales_potential_confidence: c });
+  const base = { pipeline: "ESO", trigger: "created" as const, enrols: true, workflow: { wrote: false, final: v(null, null) } };
+  const m = measure([
+    { ...base, verdict: "live" as const, hub: { branch: "score", final: v(null, null), better: { final: v("100", "company_baseline"), rule: "company" } }, written: { changed: true } },
+    { ...base, verdict: "live" as const, hub: { branch: "score", final: v("5", "direct_field", "high"), better: { final: v("5", "direct_field", "high"), rule: "direct" } }, written: { changed: false } },
+    { ...base, verdict: "agree" as const, hub: { branch: "score", final: v("7", "unknown"), better: { final: v("7", "unknown") } } },
+    { ...base, pipeline: "BO", verdict: "agree" as const, hub: { branch: "score", final: v("9", "company_baseline"), better: { final: v("9", "company_baseline"), rule: "not-eso-tsa" } } },
+  ]);
+  assert.deepEqual([m.live, m.written, m.earlier, m.valued, m.valueBetter, m.checked], [2, 1, 1, 2, 105, 2]);
+  assert.deepEqual(m.byConfidence.map((x) => [x.confidence, x.n]).sort(), [["high", 1], ["low", 1]]);
 });

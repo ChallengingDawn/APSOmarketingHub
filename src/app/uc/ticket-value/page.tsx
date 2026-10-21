@@ -41,11 +41,15 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, 
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Row, RunInfo, Settings } from "@/lib/ticketValue/engine";
+import type { Jobs } from "@/lib/ticketValue/live";
 import type { Measure, Values, Verdict } from "@/lib/ticketValue/model";
 import { HUB_RULES, REENROL_STAGES } from "@/lib/ticketValue/rules";
 
 type BetterInfo = { firstOrder: number | null; firstOrderMedian: number | null; firstOrderN: number; firstOrderAt: string | null; pricedArticles: number; firstOrderProgress: { done: number; of: number } | null };
-type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; admin: boolean };
+type LiveInfo = { workflowOn: boolean | null; writing: boolean; jobs: Jobs | null };
+type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; live?: LiveInfo; admin: boolean };
+/** The hub writes: live switched on and the workflow off in HubSpot. */
+const writing = (d: Data) => !!d.live?.writing;
 type View = "overview" | "tickets" | "how" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", how: "#how-it-works", settings: "#settings" };
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
@@ -71,7 +75,14 @@ const BRANCH: Record<string, string> = {
 const VERDICT: Record<Verdict, { label: string; tint: Tint }> = {
   agree: { label: "same", tint: "green" }, differ: { label: "different", tint: "amber" }, missed: { label: "workflow wrote nothing", tint: "pink" },
   pending: { label: "waiting for the workflow", tint: "slate" }, error: { label: "could not be read", tint: "pink" },
+  live: { label: "written", tint: "green" },
 };
+/** A ticket's status chip: the copy's verdict, or what the hub wrote. */
+function StatusChip({ r }: { r: Row }) {
+  if (r.verdict !== "live") return <Chip tint={VERDICT[r.verdict].tint}>{VERDICT[r.verdict].label}</Chip>;
+  if (r.written?.error) return <Chip tint="pink">not written</Chip>;
+  return r.written?.changed ? <Chip tint="green">written</Chip> : <Chip tint="slate">no change</Chip>;
+}
 const amount = (v: string | null | undefined) => {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
@@ -111,10 +122,10 @@ function HubCell({ v, rule }: { v: Values; rule?: string }) {
 }
 const valueText = (v: Values) => v.sales_potential_source || v.sales_potential_estimate ? `${amount(v.sales_potential_estimate)} · ${srcLabel(v.sales_potential_source)}` : "no value";
 
-function Period({ days, onChange }: { days: number; onChange: (n: number) => void }) {
+function Period({ days, onChange, live }: { days: number; onChange: (n: number) => void; live: boolean }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Tickets taken by the workflow</Typography>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{live ? "Tickets valued" : "Tickets taken by the workflow"}</Typography>
       <Choice<"1" | "7" | "14" | "21"> value={String(days) as "1" | "7" | "14" | "21"} onChange={(k) => onChange(Number(k))} options={[
         { key: "1", label: "Today" }, { key: "7", label: "Last 7 days" }, { key: "14", label: "Last 14 days" }, { key: "21", label: "Last 21 days" },
       ]} />
@@ -142,25 +153,34 @@ function SmallTable({ head, rows }: { head: string[]; rows: (string | number)[][
 function Overview({ d }: { d: Data }) {
   const m = d.measure;
   const byRule = m.byRule ?? [], byConf = m.byConfidence ?? [];
-  const valued = byRule.filter((x) => x.rule !== "not-eso-tsa").reduce((t, x) => t + x.n, 0);
+  const live = writing(d);
   const conf = (c: string) => byConf.find((x) => x.confidence === c) ?? { n: 0, value: 0 };
   const total = byConf.reduce((t, x) => t + x.value, 0);
   const kpis = [
-    { label: "ESO and TSA tickets", value: full(valued), note: `${full(m.checked)} the workflow took${m.pending ? `, ${full(m.pending)} waiting` : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-    { label: "Their value", value: full(Math.round(m.valueBetter ?? m.valueHub)), note: `With the hub's rules; the workflow left ${full(Math.round(m.valueWorkflow))}`, icon: <PaidOutlinedIcon />, tint: "purple" as const },
+    { label: "ESO and TSA tickets", value: full(m.valued ?? 0), note: live ? `${full(m.live ?? 0)} handled, ${full(m.written ?? 0)} written` : `${full(m.checked)} the workflow took${m.pending ? `, ${full(m.pending)} waiting` : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
+    { label: "Their value", value: full(Math.round(m.valueBetter ?? m.valueHub)), note: live ? "What the hub gives them" : `With the hub's rules; the workflow left ${full(Math.round(m.valueWorkflow))}`, icon: <PaidOutlinedIcon />, tint: "purple" as const },
     { label: "High confidence", value: full(conf("high").n), note: `${full(Math.round(conf("high").value))} of the value - on the ticket or the customer's own data`, icon: <AutoFixHighOutlinedIcon />, tint: "green" as const },
     { label: "Medium / low", value: `${full(conf("medium").n)} / ${full(conf("low").n)}`, note: "Worked out from articles / estimated from averages", icon: <EditNoteOutlinedIcon />, tint: "amber" as const },
-    { label: "The copy matches the workflow", value: m.agreeShare === null ? "—" : `${Math.round(m.agreeShare * 100)}%`, note: `${full(m.agree)} of ${full(m.checked)} - the check of the move`, icon: <CompareArrowsOutlinedIcon />, tint: "slate" as const },
+    live
+      ? { label: "Written", value: full(m.written ?? 0), note: `of ${full(m.live ?? 0)} tickets - only what changes is written`, icon: <EditNoteOutlinedIcon />, tint: "slate" as const }
+      : { label: "The copy matches the workflow", value: m.agreeShare === null ? "—" : `${Math.round(m.agreeShare * 100)}%`, note: `${full(m.agree)} of ${full(m.checked)} - the check of the move`, icon: <CompareArrowsOutlinedIcon />, tint: "slate" as const },
   ];
   const order = HUB_RULES.map((x) => x.rule as string);
   const paths = [...byRule].sort((x, y) => order.indexOf(x.rule) - order.indexOf(y.rule));
   return (
     <>
-      <Info>
-        Shadow mode - nothing is written to HubSpot. For every ESO and TSA ticket the workflow takes, the hub works the value out with its own
-        rules: the value an automated ticket already carries, or the first rule on the path that finds one (How it works). Next to it runs an exact
-        copy of the workflow, checked against what the workflow writes - the proof that nothing is lost when the hub takes over.
-      </Info>
+      {live ? (
+        <Info>
+          Live - the hub writes each ESO and TSA ticket&apos;s sales potential: the value an automated ticket already carries, or the first rule on
+          the path that finds one, with how sure it is (How it works). Only what changes is written; every change is kept with what was there before.
+        </Info>
+      ) : (
+        <Info>
+          Shadow mode - nothing is written to HubSpot. For every ESO and TSA ticket the workflow takes, the hub works the value out with its own
+          rules: the value an automated ticket already carries, or the first rule on the path that finds one (How it works). Next to it runs an exact
+          copy of the workflow, checked against what the workflow writes - the proof that nothing is lost when the hub takes over.
+        </Info>
+      )}
       <Grid container spacing={2}>
         {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
       </Grid>
@@ -187,6 +207,7 @@ function Overview({ d }: { d: Data }) {
           </Table>
         </Box>
         {!paths.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No ticket yet - the first come within minutes.</Typography>}
+        {(m.earlier ?? 0) > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1 }}>{full(m.earlier)} tickets looked at before the hub recorded the path (21.10, 12:29) are left out of these figures.</Typography>}
       </GlassCard>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 5 }}>
@@ -195,18 +216,20 @@ function Overview({ d }: { d: Data }) {
             <SmallTable head={["Confidence", "Tickets", "Value", "Share"]} rows={byConf.map((x) => [x.confidence, x.n, Math.round(x.value), pct(x.value, total)])} />
           </GlassCard>
         </Grid>
-        <Grid size={{ xs: 12, lg: 7 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<AccountTreeOutlinedIcon />} tint="blue" title="The copy by pipeline" note="Every ticket the workflow took, the exact copy against what the workflow wrote" />
-            <SmallTable head={["Pipeline", "Compared", "Same", "Different", "Wrote nothing"]} rows={m.byPipeline.map((x) => [x.pipeline, x.checked, x.agree, x.differ, x.missed])} />
-          </GlassCard>
-        </Grid>
+        {!live && (
+          <Grid size={{ xs: 12, lg: 7 }}>
+            <GlassCard sx={{ height: "100%" }}>
+              <CardTitle icon={<AccountTreeOutlinedIcon />} tint="blue" title="The copy by pipeline" note="Every ticket the workflow took, the exact copy against what the workflow wrote" />
+              <SmallTable head={["Pipeline", "Compared", "Same", "Different", "Wrote nothing"]} rows={m.byPipeline.map((x) => [x.pipeline, x.checked, x.agree, x.differ, x.missed])} />
+            </GlassCard>
+          </Grid>
+        )}
       </Grid>
-      <GlassCard>
+      {!live && <GlassCard>
         <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber" title="Where the copy is not the same" note="What the workflow wrote, and what the exact copy of it gives, for the tickets that differ" />
         {m.pairs.length ? <SmallTable head={["Workflow wrote", "The copy gives", "Tickets"]} rows={m.pairs.slice(0, 10).map((x) => [srcLabel(x.workflow), srcLabel(x.hub), x.n])} />
           : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{m.checked ? "Every ticket compared has the same value." : "Nothing compared yet."}</Typography>}
-      </GlassCard>
+      </GlassCard>}
     </>
   );
 }
@@ -232,6 +255,58 @@ function Detail({ r }: { r: Row }) {
 type What = "differ" | "missed" | "improved" | "agree" | "pending" | "all";
 const esoTsa = (r: Row) => r.pipeline === "ESO" || r.pipeline === "TSA";
 const improvedRow = (r: Row) => !!r.hub?.better && r.hub.better.rule !== "not-eso-tsa" && JSON.stringify(r.hub.better.final) !== JSON.stringify(r.hub.final);
+function LiveTickets({ d }: { d: Data }) {
+  const [what, setWhat] = useState<"written" | "nochange" | "all">("written");
+  const [open, setOpen] = useState<string | null>(null);
+  const live = d.rows.filter((r) => r.verdict === "live" && esoTsa(r));
+  const test = { written: (r: Row) => !!r.written?.changed, nochange: (r: Row) => !r.written?.changed, all: () => true };
+  const rows = live.filter(test[what]);
+  const { slice, pager } = usePaged(rows, 15);
+  const l = d.last;
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={l ? `Last look ${when(l.at)}: ${full(l.found)} found, ${full(l.checked)} handled, ${full(l.written ?? 0)} written${l.error ? ` - ${l.error}` : ""}` : "Not run yet"} />
+      <Box sx={{ mb: 1.5 }}>
+        <Choice<"written" | "nochange" | "all"> value={what} onChange={setWhat} options={[
+          { key: "written", label: "Written", count: live.filter(test.written).length }, { key: "nochange", label: "No change", count: live.filter(test.nochange).length }, { key: "all", label: "All", count: live.length },
+        ]} />
+      </Box>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead><TableRow>{["When", "Ticket", "Why", "Before", "The hub: value, confidence, path", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {slice.map((r) => (
+              <Fragment key={r.key}>
+                <TableRow hover onClick={() => setOpen(open === r.key ? null : r.key)} sx={{ cursor: "pointer" }}>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", color: MUTED, fontSize: "0.8rem" }}>{when(r.at)}</TableCell>
+                  <TableCell sx={bodyCell}>
+                    <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(300) }}>{r.subject || r.ticketId}</Box>
+                    <Box sx={{ fontSize: "0.74rem", color: MUTED }}>{r.pipeline || "—"}</Box>
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small, color: MUTED, minWidth: 90 }}>{r.trigger === "created" ? "created" : r.stage}</TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small }}><ValueCell v={r.before} /></TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small }}>{r.hub?.better ? <HubCell v={r.hub.better.final} rule={r.hub.better.rule} /> : "—"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><StatusChip r={r} /></TableCell>
+                </TableRow>
+                {open === r.key && (
+                  <TableRow>
+                    <TableCell colSpan={6} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.04)", fontSize: "0.8rem" }}>
+                      <b>The hub:</b> {r.hub?.better ? `${valueText(r.hub.better.final)} · confidence ${r.hub.better.final.sales_potential_confidence ?? "—"} · path: ${ruleOf(r.hub.better.rule)?.label ?? "—"} (${r.hub.better.action})` : "—"}
+                      {r.written?.link ? ` · linked to company ${r.written.link}` : ""}{r.written ? ` · ${r.written.kpi} KPI rows` : ""}{r.written?.error ? ` · not written: ${r.written.error}` : ""}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      {pager}
+      {!rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>Nothing here.</Typography>}
+    </GlassCard>
+  );
+}
+
 function TicketsTab({ d }: { d: Data }) {
   const [what, setWhat] = useState<What>(d.measure.differ + d.measure.missed ? "differ" : "all");
   const [open, setOpen] = useState<string | null>(null);
@@ -279,7 +354,7 @@ function TicketsTab({ d }: { d: Data }) {
                   <TableCell sx={{ ...bodyCell, ...small }}>{r.verdict === "pending" ? "…" : r.workflow.wrote ? <ValueCell v={r.workflow.final} /> : <Box component="span" sx={{ color: FAINT }}>nothing</Box>}</TableCell>
                   <TableCell sx={{ ...bodyCell, ...small }}>{r.hub ? (JSON.stringify(r.hub.final) === JSON.stringify(r.before) ? <Box component="span" sx={{ color: FAINT }}>leaves it</Box> : <ValueCell v={r.hub.final} />) : <Box component="span" sx={{ color: FAINT }}>{r.enrols ? "—" : "not taken"}</Box>}</TableCell>
                   <TableCell sx={{ ...bodyCell, ...small }}>{r.hub?.better ? <HubCell v={r.hub.better.final} rule={r.hub.better.rule} /> : <Box component="span" sx={{ color: FAINT }}>—</Box>}</TableCell>
-                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={VERDICT[r.verdict].tint}>{VERDICT[r.verdict].label}</Chip>{r.late ? <> <Chip tint="slate">late</Chip></> : null}</TableCell>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><StatusChip r={r} />{r.late ? <> <Chip tint="slate">late</Chip></> : null}</TableCell>
                 </TableRow>
                 {open === r.key && (
                   <TableRow>
@@ -345,7 +420,7 @@ function HowTab({ d }: { d: Data }) {
         order; <b>low</b> - an estimate from averages. A value a person typed is never overwritten. Tickets in other pipelines get no value.
       </Info>
       <GlassCard>
-        <CardTitle icon={<ScheduleIcon />} tint="blue" title="When the value is worked out" note="As the workflow: the same moments, the same 4 minutes' wait" />
+        <CardTitle icon={<ScheduleIcon />} tint="blue" title="When the value is worked out" note={writing(d) ? "Every 2 minutes, for the tickets of these moments" : "As the workflow: the same moments, the same 4 minutes' wait"} />
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A new ticket</b>, 4 minutes after it is created ({full(created)} in this period).</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A ticket entering</b> {Object.values(REENROL_STAGES).join(", ")} - worked out again, unless its value was written between 10 days ago and yesterday ({full(stage)} in this period, {full(m.notTaken)} not worked out again).</Typography>
@@ -384,14 +459,14 @@ function HowTab({ d }: { d: Data }) {
         </Box>
       </GlassCard>
       <GlassCard>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="green" title="What it writes, once the hub takes over" note="In shadow mode nothing - the workflow still writes" />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="green" title={writing(d) ? "What it writes" : "What it writes, once the hub takes over"} note={writing(d) ? "Every change kept with what was there before" : "In shadow mode nothing - the workflow still writes"} />
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• On the ticket: <b>Sales potential estimate</b>, <b>its source</b> and <b>its confidence</b> - only when one of them changes.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• The ticket&apos;s <b>link to its company</b>, when the company was found through the contact or the e-mail domain.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• Rows in the <b>KPI object</b> (ticket created, value created, closed, won / lost, open) - the Customer journey KPIs read them.</Typography>
         </Box>
       </GlassCard>
-      <GlassCard>
+      {!writing(d) && <GlassCard>
         <CardTitle icon={<LightbulbOutlinedIcon />} tint="slate" title="Why the hub does it differently from the workflow" note="What copying the workflow showed" />
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• The workflow values every pipeline (Back Office, GQS, Special Prices too); the hub only ESO and TSA.</Typography>
@@ -400,12 +475,31 @@ function HowTab({ d }: { d: Data }) {
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• It takes the ticket&apos;s first company as HubSpot lists it, not the primary one - a ticket with two companies can get the wrong potential (0.02 instead of 9).</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• Its step sometimes fails and leaves the ticket empty ({full(m.missed)} in this period); an erosion or push value typed over by a person is copied back at the next stage.</Typography>
         </Box>
-      </GlassCard>
+      </GlassCard>}
     </>
   );
 }
 
 // ---------------------------------------------------------------- Settings
+
+/** The two one-time jobs of going live, as far as they have come. */
+function JobsCard({ j }: { j: Jobs }) {
+  const line = (title: string, done: boolean, text: string) => (
+    <Box sx={{ display: "flex", gap: 1, alignItems: "baseline", flexWrap: "wrap" }}>
+      <Chip tint={done ? "green" : "amber"}>{done ? "done" : "running"}</Chip>
+      <Typography sx={{ fontSize: "0.84rem", color: INK }}><b>{title}</b> - {text}</Typography>
+    </Box>
+  );
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="amber" title="Going live, once" note={`Started ${when(j.started)}; a little every 2 minutes; every change kept with what was there before`} />
+      <Box sx={{ display: "grid", gap: 1 }}>
+        {line("Open ESO and TSA tickets valued with the hub's rules", !!j.revalue.finished, `${full(j.revalue.done)} looked at, ${full(j.revalue.changed)} changed${j.revalue.errors ? `, ${full(j.revalue.errors)} could not be written` : ""}${j.revalue.finished ? ` - finished ${when(j.revalue.finished)}` : ""}`)}
+        {line("Old values on Back Office, GQS and Special Prices tickets cleared", !!j.clear.finished, `${full(j.clear.cleared)} cleared${j.clear.keptTyped ? `, ${full(j.clear.keptTyped)} typed by a person kept` : ""}; ${full(j.clear.kpiFixed)} open-ticket rows in the KPI object counted without a value${j.clear.finished ? ` - finished ${when(j.clear.finished)}` : ""}`)}
+      </Box>
+    </GlassCard>
+  );
+}
 
 type Checked = {
   ticketId: string; subject: string; pipeline: string; now: Values; branchLabel: string; action: string; final: Values; changes: boolean;
@@ -441,19 +535,39 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes; nothing is written to HubSpot in shadow mode`} />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes`} />
         <Box sx={{ display: "grid", gap: 1.5 }}>
-          <Choice<"off" | "shadow"> value={d.settings.mode} onChange={(m) => d.admin && void call("mode", "PUT", { mode: m })} options={[{ key: "shadow", label: "Shadow - compare, write nothing" }, { key: "off", label: "Off" }]} />
+          <Choice<"off" | "shadow" | "live"> value={d.settings.mode} onChange={(m) => {
+            if (!d.admin || m === d.settings.mode) return;
+            if (m === "live" && !window.confirm("Switch Ticket value to live?\n\nThe hub starts writing as soon as the workflow SARCLA | TICKET VALUE CALCULATION is switched off in HubSpot - until then it waits.\n\nThen, once: every open ESO and TSA ticket is valued with the hub's rules, and the values the workflow left on Back Office, GQS and Special Prices tickets are cleared. Every change is kept with what was there before.")) return;
+            void call("mode", "PUT", { mode: m });
+          }} options={[{ key: "shadow", label: "Shadow - compare, write nothing" }, { key: "live", label: "Live - the hub writes" }, { key: "off", label: "Off" }]} />
+          {d.settings.mode === "live" && (
+            <Box sx={{ display: "grid", gap: 0.5 }}>
+              <Typography sx={{ fontSize: "0.84rem", color: INK }}>
+                <b>The workflow in HubSpot:</b> {d.live?.workflowOn === false ? "switched off" : d.live?.workflowOn ? "still on" : "could not be read"} ·{" "}
+                <b>The hub:</b> {d.live?.writing ? `writing${d.settings.liveFrom ? ` since ${when(d.settings.liveFrom)}` : ""}` : "waiting - it writes nothing while the workflow is on"}
+              </Typography>
+              {!d.live?.writing && (
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                  Next: in HubSpot, Automation → Workflows → “SARCLA | TICKET VALUE CALCULATION” → switch it off. The hub sees it within 2 minutes and starts.
+                </Typography>
+              )}
+            </Box>
+          )}
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <Button variant="outlined" size="small" disabled={!d.admin || !!busy} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Look now</Button>
             {busy === "run" && <CircularProgress size={14} />}
           </Box>
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-            No live mode yet: the hub takes over from the workflow once the comparison is clean - then the workflow is switched off in HubSpot and the hub writes the value, the company link and the KPI rows itself.
-          </Typography>
+          {d.settings.mode !== "live" && (
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+              Shadow writes nothing. Live: the hub writes the value, its source and confidence, the company link and the KPI rows - once the workflow is switched off in HubSpot.
+            </Typography>
+          )}
           {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
         </Box>
       </GlassCard>
+      {d.live?.jobs && <JobsCard j={d.live.jobs} />}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Check a ticket" note="Read only - what the workflow's rules give it now, next to what is on it. Nothing is stored" />
         <Box component="form" onSubmit={(e: React.FormEvent) => { e.preventDefault(); if (tid.trim() && !busy) void doCheck(); }} sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
@@ -508,7 +622,7 @@ export default function TicketValue() {
   if (r === null) body = <LoadingPanel label="Reading the tickets…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Ticket value" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={again} />;
   else if (view === "settings") body = <SettingsTab d={r.data} onChanged={again} />;
-  else if (view === "tickets") body = <TicketsTab key={`${days}`} d={r.data} />;
+  else if (view === "tickets") body = writing(r.data) ? <LiveTickets key={`l${days}`} d={r.data} /> : <TicketsTab key={`${days}`} d={r.data} />;
   else if (view === "how") body = <HowTab d={r.data} />;
   else body = <Overview d={r.data} />;
   const ok = r?.state === "ok" ? r.data : null;
@@ -517,7 +631,7 @@ export default function TicketValue() {
       <PageHeader
         title="Ticket value"
         subtitle=""
-        badge="Shadow mode"
+        badge={ok?.live?.writing ? "Live" : ok?.settings.mode === "live" ? "Live - waiting for the workflow to be off" : "Shadow mode"}
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -533,7 +647,7 @@ export default function TicketValue() {
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
-      {view !== "settings" && <Period days={days} onChange={setDays} />}
+      {view !== "settings" && <Period days={days} onChange={setDays} live={!!ok && writing(ok)} />}
       <Box id={`ticketvalue-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

@@ -465,8 +465,8 @@ export type Decision = {
   action: string;
   patch: Patch | null;
   scored?: Scored;
-  /** the KPI object rows it upserts / archives (names) */
-  kpi?: { upsert: string[]; archive: string[] };
+  /** the KPI object rows it upserts (names, and in full) / archives (names) */
+  kpi?: { upsert: string[]; archive: string[]; rows?: KpiRow[] };
 };
 
 /**
@@ -583,7 +583,11 @@ const RULE_OF_SOURCE: Record<string, HubRule> = { child_gqs: "gqs", text_qty_pri
 export async function decideHub(api: Api, tid: string, p: Props, human: boolean, today: string, better: Better): Promise<Decision & { rule: HubRule }> {
   const branch = branchOf(p);
   const pname = PIPELINES[p.hs_pipeline || ""];
-  if (pname !== "ESO" && pname !== "TSA") return { branch, rule: "not-eso-tsa", action: "not an ESO or TSA ticket - no value", patch: null };
+  if (pname !== "ESO" && pname !== "TSA") {
+    // Back Office, GQS, Special Prices: no value; their ticket rows in the KPI object are still counted, without one
+    const kpi = pname ? kpiEvents(tid, { ...p, sales_potential_estimate: "0", sales_potential_source: "", sales_potential_confidence: "" }, pname, today) : undefined;
+    return { branch, rule: "not-eso-tsa", action: "not an ESO or TSA ticket - no value", patch: null, kpi };
+  }
   const cur: Patch = { sales_potential_estimate: p.sales_potential_estimate ?? "", sales_potential_source: (p.sales_potential_source ?? "").trim(), sales_potential_confidence: (p.sales_potential_confidence ?? "").trim() };
   const done = (rule: HubRule, action: string, want: { value?: number | null; source: string; confidence: string }, scored?: Scored): Decision & { rule: HubRule } => {
     const next: Patch = { sales_potential_source: want.source, sales_potential_confidence: want.confidence };
@@ -620,27 +624,39 @@ export async function decideHub(api: Api, tid: string, p: Props, human: boolean,
 }
 
 /** STEP 2 of the Python: the KPI object rows (sales_funnel|<kind>|tid<id>) it writes or archives for this run. */
-export function kpiEvents(tid: string, p: Props, pname: string, today: string): { upsert: string[]; archive: string[] } {
-  const upsert: string[] = [], archive: string[] = [];
+export type KpiRow = { name: string; props: Record<string, string | number> };
+export function kpiEvents(tid: string, p: Props, pname: string, today: string): { upsert: string[]; archive: string[]; rows: KpiRow[] } {
+  const rows: KpiRow[] = [], archive: string[] = [];
   const cdIso = (p.createdate || "").slice(0, 10);
   const clsdIso = (p.closed_date || "").slice(0, 10);
   const stage = p.hs_pipeline_stage || "";
   const isClosed = ALL_CLOSED_STAGES.has(stage);
-  const src = (p.sales_potential_source || "unknown").trim();
+  const src = (p.sales_potential_source || "unknown").trim() || "unknown";
+  const conf = (p.sales_potential_confidence || "low").trim() || "low";
   const pot = toNum(p.sales_potential_estimate);
+  const owner = (p.hubspot_owner_id || "").trim();
+  const common: Record<string, string | number> = { kpi_category: "sales_funnel", dimension_pipeline: pname, dimension_source: src, dimension_confidence: conf };
+  if (owner) common.dimension_owner_id = owner;
+  const add = (kind: string, metric: string, value: number, date: string, extra: Record<string, string> = {}) => {
+    const name = `sales_funnel|${kind}|tid${tid}`;
+    rows.push({ name, props: { ...common, metric_name: metric, metric_value: value, snapshot_date: date, ...extra, name } });
+  };
   if (cdIso === today) {
-    upsert.push(`sales_funnel|created|tid${tid}`);
-    if (pot > 0) upsert.push(`sales_funnel|pot_created|tid${tid}`);
-    if (pname === "GQS") upsert.push(`sales_funnel|gqs|tid${tid}`);
-    if (pname === "SPR") upsert.push(`sales_funnel|spr|tid${tid}`);
+    add("created", "tickets_created_count", 1, cdIso);
+    if (pot > 0) add("pot_created", "potential_created_sum", pot, cdIso);
+    if (pname === "GQS") add("gqs", "gqs_escalation_count", 1, cdIso);
+    if (pname === "SPR") add("spr", "spr_count", 1, cdIso);
   }
   if (isClosed && (clsdIso === today || !clsdIso)) {
-    upsert.push(`sales_funnel|closed|tid${tid}`);
-    if (pot > 0) upsert.push(`sales_funnel|${CLOSED_STAGES_LOST.has(stage) ? "pot_lost" : "pot_won"}|tid${tid}`);
+    add("closed", "tickets_closed_count", 1, today, { dimension_stage: stage });
+    if (pot > 0) {
+      const lost = CLOSED_STAGES_LOST.has(stage);
+      add(lost ? "pot_lost" : "pot_won", lost ? "potential_lost_sum" : "potential_won_sum", pot, today);
+    }
   }
-  (isClosed ? archive : upsert).push(`sales_funnel|live|tid${tid}`);
-  (src === "manual_override" ? upsert : archive).push(`sales_funnel|mo|tid${tid}`);
-  return { upsert, archive };
+  if (isClosed) archive.push(`sales_funnel|live|tid${tid}`); else add("live", "live_open", pot > 0 ? pot : 1, today);
+  if (src === "manual_override") add("mo", "manual_override_count", 1, today); else archive.push(`sales_funnel|mo|tid${tid}`);
+  return { upsert: rows.map((r) => r.name), archive, rows };
 }
 
 /** The properties the workflow reads from a ticket (main()'s GET plus the branches'). */

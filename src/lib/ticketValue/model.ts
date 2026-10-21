@@ -7,7 +7,7 @@ export { firstOrderValue } from "./rules";
 export type Values = { sales_potential_estimate: string | null; sales_potential_source: string | null; sales_potential_confidence: string | null };
 /** agree = both leave the same value · differ = both wrote, not the same · missed = the hub would write, the workflow did
  *  not · pending = the workflow's writes not read yet */
-export type Verdict = "agree" | "differ" | "missed" | "pending" | "error";
+export type Verdict = "agree" | "differ" | "missed" | "pending" | "error" | "live";
 
 /** The values after a patch. */
 export function finalOf(before: Values, patch: Patch | null): Values {
@@ -29,6 +29,7 @@ export function sameValue(a: Values, b: Values): boolean {
 type RowLike = {
   verdict: Verdict; pipeline: string; trigger: "created" | "stage"; enrols: boolean; late?: boolean;
   hub: { branch: string; final: Values; link?: string | null; better?: { final: Values; rule?: string } } | null; workflow: { wrote: boolean; final: Values };
+  written?: { changed: boolean; error?: string };
 };
 export type Measure = {
   rows: number; checked: number; agree: number; differ: number; missed: number; errors: number; pending: number;
@@ -50,12 +51,18 @@ export type Measure = {
   /** the hub's own rules: per path (the rule that gave the value) and per confidence - tickets and value */
   byRule: { rule: string; n: number; value: number }[];
   byConfidence: { confidence: string; n: number; value: number }[];
+  /** ESO and TSA tickets with a value from the hub's rules */
+  valued: number;
+  /** looked at before the hub recorded the path (21.10.2026 12:29) - left out of the hub's figures */
+  earlier: number;
+  /** live: tickets the hub handled, and the ones it changed */
+  live: number; written: number;
 };
 
 const src = (v: Values) => norm(v.sales_potential_source) ?? "(none)";
 
 export function measure(rows: RowLike[]): Measure {
-  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0, improved: 0, improvedBy: [], valueBetter: 0, byRule: [], byConfidence: [] };
+  const m: Measure = { rows: rows.length, checked: 0, agree: 0, differ: 0, missed: 0, errors: 0, pending: 0, late: 0, agreeShare: null, notTaken: 0, links: 0, workflowWrote: 0, bySource: [], byBranch: [], scoredBySource: [], pairs: [], byPipeline: [], valueWorkflow: 0, valueHub: 0, improved: 0, improvedBy: [], valueBetter: 0, byRule: [], byConfidence: [], valued: 0, earlier: 0, live: 0, written: 0 };
   const bySource = new Map<string, { workflow: number; hub: number }>();
   const pairs = new Map<string, number>();
   const branches = new Map<string, number>();
@@ -69,6 +76,23 @@ export function measure(rows: RowLike[]): Measure {
     if (r.verdict === "error") { m.errors++; continue; }
     if (r.verdict === "pending") { m.pending++; continue; }
     if (r.late) { m.late++; continue; }
+    const hubFinal = r.hub?.final ?? r.workflow.final;
+    // ---- the hub's own rules (shadow and live): only tickets whose path was recorded
+    const rule = r.hub?.better?.rule;
+    const betterFinal = r.hub?.better?.final ?? hubFinal;
+    const outside = rule === "not-eso-tsa";
+    if (r.hub?.better && !rule) m.earlier++;
+    if (rule) {
+      const v = outside ? 0 : toNum(betterFinal.sales_potential_estimate);
+      add(byRule, rule, v);
+      if (!outside) { add(byConf, norm(betterFinal.sales_potential_confidence) ?? "(none)", v); m.valueBetter += v; m.valued++; }
+    }
+    if (r.verdict === "live") {
+      m.live++;
+      if (r.written?.changed) m.written++;
+      continue;
+    }
+    // ---- the copy against the workflow (shadow only)
     m.checked++;
     m[r.verdict]++;
     if (!r.enrols) m.notTaken++;
@@ -77,7 +101,6 @@ export function measure(rows: RowLike[]): Measure {
     const br = r.enrols ? r.hub?.branch ?? "score" : "not taken";
     branches.set(br, (branches.get(br) ?? 0) + 1);
     if (br === "score" && r.hub) scored.set(src(r.hub.final), (scored.get(src(r.hub.final)) ?? 0) + 1);
-    const hubFinal = r.hub?.final ?? r.workflow.final;
     const a = src(r.workflow.final), b = src(hubFinal);
     for (const [k, side] of [[a, "workflow"], [b, "hub"]] as const) {
       const e = bySource.get(k) ?? { workflow: 0, hub: 0 };
@@ -91,16 +114,7 @@ export function measure(rows: RowLike[]): Measure {
     pipes.set(r.pipeline, p);
     m.valueWorkflow += toNum(r.workflow.final.sales_potential_estimate);
     m.valueHub += toNum(hubFinal.sales_potential_estimate);
-    const betterFinal = r.hub?.better?.final ?? hubFinal;
-    // a ticket the hub gives no value (not ESO or TSA) counts 0, whatever the workflow left on it
-    const outside = r.hub?.better?.rule === "not-eso-tsa";
-    m.valueBetter += outside ? 0 : toNum(betterFinal.sales_potential_estimate);
-    if (r.hub?.better) {
-      const v = outside ? 0 : toNum(betterFinal.sales_potential_estimate);
-      add(byRule, r.hub.better.rule ?? "unknown", v);
-      if (!outside) add(byConf, norm(betterFinal.sales_potential_confidence) ?? "(none)", v);
-    }
-    if (r.hub?.better && !outside && !sameValue(betterFinal, hubFinal)) {
+    if (rule && !outside && !sameValue(betterFinal, hubFinal)) {
       m.improved++;
       improvedBy.set(br, (improvedBy.get(br) ?? 0) + 1);
     }
