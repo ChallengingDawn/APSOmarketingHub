@@ -105,6 +105,7 @@ import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import Link from "next/link";
 
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
+import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
 import { APPS } from "@/app/hubApps";
@@ -564,10 +565,10 @@ export default function Sidebar() {
   );
   const nowhere = !!pathname && pathname !== "/" && !knownTop.has(topSegment(pathname));
 
-  const activeSection = navSections.find((s) =>
-    s.home === activeHref ||
-    s.items.some((i) => i.href === activeHref || i.children?.some((c) => c.href === activeHref)),
-  );
+  // Of the sections listing this page, the one that OWNS it - see
+  // src/lib/nav/activeSection.ts. Digital Growth lists UC's Use Cases Overview,
+  // and the first match winning meant the UC tile opened Digital Growth's menu.
+  const activeSection = pickActiveSection(navSections, activeHref);
 
   // WHAT THIS PERSON MAY SEE.
   //
