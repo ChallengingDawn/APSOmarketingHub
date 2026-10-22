@@ -122,7 +122,7 @@ export type Row = {
 };
 export type RunInfo = { at: string; seconds: number; read: number; decided: number; checked: number; error?: string };
 
-const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", backfill: "boDist:backfill", strays: "boDist:strays", day: (d: string) => `boDist:rows:${d}` };
+const KV = { settings: "boDist:settings", last: "boDist:lastRun", cursor: "boDist:cursor", backfill: "boDist:backfill", strays: "boDist:strays", catchup: "boDist:catchup", day: (d: string) => `boDist:rows:${d}` };
 /** The replay of the last days (SARCLA 18.10.2026: the page was empty on a quiet Sunday night). */
 type Backfill = { from: number; cursor: number; done: boolean; startedAt: string };
 const BACKFILL_DAYS = 7;
@@ -590,20 +590,24 @@ async function writesThisHour(add = 0): Promise<number> {
 
 /** Write the hub's pick, exactly what the workflow step writes: owner, stage, the company link, a note. Every guard
  *  that fails leaves the ticket to the workflow, whose safety net runs its own step 3 minutes later. */
-async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote"]>> {
+/** catchUp: an admin's catch-up of an outage window (see catchUp below) - neither the 20-minute rule nor the hourly
+ *  breaker applies, and its writes do not count toward the breaker (so live routing keeps its budget); every other guard does. */
+type ActOpts = { catchUp?: boolean };
+
+async function act(row: Row, settings: Settings, opts: ActOpts = {}): Promise<NonNullable<Row["wrote"]>> {
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
   if ((await workflowsOn())[row.pipeline] === true) return skip(`the HubSpot workflow "${WORKFLOWS[row.pipeline].name}" is still on - it assigns; switch it off to hand over`);
-  if (row.approx || Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS) return skip("older than 20 minutes");
+  if (row.approx || (!opts.catchUp && Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS)) return skip("older than 20 minutes");
   // Back Office: with "SARCLA | BACK OFFICE MAIN ROUTING" off, the hub writes everything it wrote (actBo)
-  if (row.pipeline === "bo") return actBo(row, settings);
+  if (row.pipeline === "bo") return actBo(row, settings, opts);
   // GQS without a contact or company of its own: the hub copies them from the linked ticket (row.inherit) before writing;
   // with none anywhere it still assigns - the code does too (no Sales Agent, then the GQS team)
   const owner = row.hub?.ownerId ?? null;
   if (!owner) return skip("the hub found nobody");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
-  if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
+  if (!opts.catchUp && (await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   // the ticket as it is NOW: still in its entry stage, still nobody's (Backoffice Team or empty)
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage,status_of_gqs`);
   const cur = now.properties.hubspot_owner_id ?? "";
@@ -619,7 +623,7 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
     // hub assigning, the workflow's safety net skips that branch, so the hub sets it the same way.
     if (row.pipeline === "gqs" && now.properties.status_of_gqs !== "Automatically Approved") props.status_of_gqs = "Approved by Line Manager";
     await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: props });
-    await writesThisHour(1);
+    if (!opts.catchUp) await writesThisHour(1);
     if (row.associate) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${row.associate}`, "PUT").catch(() => null);
     const body = [
       `✅ Auto-Assigned to ${row.hub!.ownerName}`, "", `Method: ${row.hub!.method}`,
@@ -647,13 +651,13 @@ async function act(row: Row, settings: Settings): Promise<NonNullable<Row["wrote
  * A ticket a person already owns keeps its owner (the workflow overwrote it); nobody available = it waits, the
  * properties are written and "waiting for an owner" gives it one later.
  */
-async function actBo(row: Row, settings: Settings): Promise<NonNullable<Row["wrote"]>> {
+async function actBo(row: Row, settings: Settings, opts: ActOpts = {}): Promise<NonNullable<Row["wrote"]>> {
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   const r = row.route;
   if (!r) return skip("not routed");
   const breaker = settings.hub.breaker || LIVE_MAX_PER_HOUR;
-  if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
+  if (!opts.catchUp && (await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage,subject`);
   if (now.properties.hs_pipeline !== BO || !(ENTRY_STAGES.bo as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
   const cur = now.properties.hubspot_owner_id ?? "";
@@ -663,7 +667,7 @@ async function actBo(row: Row, settings: Settings): Promise<NonNullable<Row["wro
   const done: string[] = [];
   const finish = (ownerId: string | null, extra: string[] = []) => ({ at, ownerId, ownerName: ownerId ? names.get(ownerId) ?? ownerId : null, ok: true, what: [...done, ...extra].join(" · ") || undefined });
   try {
-    await writesThisHour(1);
+    if (!opts.catchUp) await writesThisHour(1);
     // 1. the path's properties, as the workflow's "set property" actions and its classifier (#22) write them
     const props: Record<string, string> = {};
     for (const [k, v] of Object.entries(r.sets)) if (k !== "hubspot_owner_id" && k !== "hs_pipeline_stage") props[k] = v;
@@ -1148,6 +1152,79 @@ export async function runOnce(signal?: AbortSignal): Promise<RunInfo | null> {
     if (!dropped) client.release();
   }
 }
+
+/* ── catch-up after an outage ─────────────────────────────────────────────── */
+// 22.10.2026: the HubSpot token was revoked at 06:47 UTC and the hub got the new one only at 12:18. Every run in
+// between failed at its first search, and once the token worked every ticket of that window was older than the
+// 20-minute rule: act() skipped them all and stored the skip, so nothing looked at them again. Back Office "New"
+// filled up with tickets that had an owner (the stray sweep) but no category, no stage move and no code steps -
+// and the stray sweep then used up the hourly breaker, so tickets arriving after it got an owner only, too.
+// catchUp decides every ticket that entered its entry stage inside [from, to] again and writes it the normal way.
+// Left out: the 20-minute rule and the hourly breaker (a bounded set an admin asked for; its writes are not counted,
+// so live routing keeps its budget). Everything else stands: act()/actBo() read each ticket again first (still in
+// its entry stage, else it is left alone - a ticket already routed is skipped; the owner only when it is nobody's,
+// so a person who took a ticket keeps it), live mode and the workflow lock still decide.
+// Admin only, under the distribution's own lock, in the background; the outcome is logged and kept in kv boDist:catchup.
+
+export type CatchUp = { at: string; from: string; to: string; found: number; written: number; skipped: Record<string, number>; errors: number; done: boolean; seconds?: number; error?: string };
+let catching = false;
+
+export async function catchUp(from: number, to: number): Promise<CatchUp> {
+  const out: CatchUp = { at: new Date().toISOString(), from: new Date(from).toISOString(), to: new Date(to).toISOString(), found: 0, written: 0, skipped: {}, errors: 0, done: false };
+  if (catching) return { ...out, error: "a catch-up is already running on this copy of the hub" };
+  catching = true;
+  const started = Date.now();
+  let client: PoolClient | null = null;
+  let locked = false;
+  try {
+    client = await getPool().connect();
+    // the minute run holds the lock for seconds at a time: wait for a gap, up to 90 s
+    for (let i = 0; i < 30 && !locked; i++) {
+      locked = !!(await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK])).rows[0]?.ok;
+      if (!locked) await new Promise((res) => setTimeout(res, 3_000));
+    }
+    if (!locked) throw new Error("the distribution's lock stayed taken for 90 s - start it again");
+    const settings = await getSettings();
+    const shared: Shared = { settings };
+    const found = (await entries(from)).filter((e) => Date.parse(e.enteredAt) <= to);
+    out.found = found.length;
+    await kvSet(KV.catchup, out);
+    const touched = new Map<string, Row[]>();
+    for (const e of found) {
+      const d = day(e.enteredAt);
+      const rows = touched.get(d) ?? (touched.set(d, await rowsOfDay(d)), touched.get(d)!);
+      let row: Row;
+      try {
+        row = await decide(e.id, e.pipeline, e.enteredAt, shared);
+        if (settings.live[row.pipeline]) row.wrote = await act(row, settings, { catchUp: true });
+      } catch (err) {
+        row = { key: `${e.id}:${e.enteredAt}`, ticketId: e.id, pipeline: e.pipeline, enteredAt: e.enteredAt, seenAt: new Date().toISOString(), subject: "", source: null, legacy: null, hub: null, error: (err as Error).message.slice(0, 200) };
+      }
+      const w = row.wrote;
+      if (w?.ok) out.written++;
+      else if (w?.skipped) out.skipped[w.skipped] = (out.skipped[w.skipped] ?? 0) + 1;
+      else if (row.error || w?.error) out.errors++;
+      const i = rows.findIndex((x) => x.key === row.key);
+      if (i >= 0) rows[i] = row; else rows.push(row);
+    }
+    for (const [d, rows] of touched) await kvSet(KV.day(d), rows);
+    out.done = true;
+    out.seconds = Math.round((Date.now() - started) / 1000);
+    await kvSet(KV.catchup, out);
+    console.log(`[bo-distribution] catch-up ${out.from} - ${out.to}: ${out.found} found, ${out.written} written, ${out.errors} errors, skipped ${JSON.stringify(out.skipped)} (${out.seconds} s)`);
+    return out;
+  } catch (e) {
+    out.error = (e as Error).message.slice(0, 300);
+    await kvSet(KV.catchup, out).catch(() => {});
+    console.warn(`[bo-distribution] catch-up failed: ${out.error}`);
+    return out;
+  } finally {
+    if (locked) await client?.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+    client?.release();
+    catching = false;
+  }
+}
+export const catchUpState = async () => (await kvGet<CatchUp>(KV.catchup)) ?? null;
 
 let started = false, running = false;
 export function startBoDistribution() {

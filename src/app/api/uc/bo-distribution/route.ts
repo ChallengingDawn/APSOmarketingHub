@@ -8,12 +8,15 @@
 // POST {action: "classify", subject, content}: the classifier on any text (read-only, for everyone with access).
 // Admins: PUT {mode?, rosters?} - the teams the hub uses (a list set to null goes back to the workflow's);
 // POST {action: "run"} look now; POST {action: "replay"} replay the last 7 days.
+// POST {action: "catchup", from, to} (ISO times, at most 24 h apart, within the last 3 days): after an outage, decide
+// and write every ticket that entered New inside that window as if it had just arrived (engine.ts catchUp) - runs in
+// the background; POST {action: "catchup-state"} reads its outcome.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import {
-  backfillState, checkTicket, classifierFixes, classifierInfo, getSettings, lastRun, legacyRosters, people, pipelineStages, recentRows, replayFrom,
+  backfillState, catchUp, catchUpState, checkTicket, classifierFixes, classifierInfo, getSettings, lastRun, legacyRosters, people, pipelineStages, recentRows, replayFrom,
   rosterLabels, runOnce, saveSettings, strayState, tryClassifier, workflowsOn,
 } from "@/lib/boDistribution/engine";
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
@@ -59,7 +62,7 @@ export async function PUT(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { action?: string; subject?: string; content?: string };
+  const b = (await req.json().catch(() => ({}))) as { action?: string; subject?: string; content?: string; from?: string; to?: string };
   if (b.action === "classify") {
     if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
     return NextResponse.json({ ok: true, data: tryClassifier(String(b.subject ?? "").slice(0, 2000), String(b.content ?? "").slice(0, 6000)) });
@@ -68,6 +71,15 @@ export async function POST(req: NextRequest) {
   try {
     if (b.action === "replay") { await replayFrom(); return NextResponse.json({ ok: true, data: { replay: "started - the next runs replay the last 7 days" } }); }
     if (b.action === "run") return NextResponse.json({ ok: true, data: (await runOnce()) ?? { skipped: "off, or another copy of the hub is running it" } });
+    if (b.action === "catchup") {
+      const from = Date.parse(String(b.from ?? "")), to = Date.parse(String(b.to ?? ""));
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return NextResponse.json({ ok: false, error: "from and to must be ISO times, from before to" }, { status: 400 });
+      if (to - from > 24 * 3600_000 || from < Date.now() - 3 * 86400_000 || to > Date.now()) return NextResponse.json({ ok: false, error: "the window must lie within the last 3 days and span at most 24 hours" }, { status: 400 });
+      // minutes, not seconds: it answers at once and works on in the background (catchup-state shows the outcome)
+      void catchUp(from, to);
+      return NextResponse.json({ ok: true, data: { catchup: "started", from: new Date(from).toISOString(), to: new Date(to).toISOString() } });
+    }
+    if (b.action === "catchup-state") return NextResponse.json({ ok: true, data: await catchUpState() });
     return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message.slice(0, 300) }, { status: 500 });
