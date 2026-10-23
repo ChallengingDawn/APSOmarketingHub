@@ -592,14 +592,15 @@ async function writesThisHour(add = 0): Promise<number> {
  *  that fails leaves the ticket to the workflow, whose safety net runs its own step 3 minutes later. */
 /** catchUp: an admin's catch-up of an outage window (see catchUp below) - neither the 20-minute rule nor the hourly
  *  breaker applies, and its writes do not count toward the breaker (so live routing keeps its budget); every other guard does. */
-type ActOpts = { catchUp?: boolean };
+/** ignoreAge: the stray sweep routing a Back Office ticket the live run never routed - the age rule only; the breaker stays. */
+type ActOpts = { catchUp?: boolean; ignoreAge?: boolean };
 
 async function act(row: Row, settings: Settings, opts: ActOpts = {}): Promise<NonNullable<Row["wrote"]>> {
   const at = new Date().toISOString();
   const skip = (why: string) => ({ at, ownerId: null, ownerName: null, ok: false, skipped: why });
   if (!settings.live[row.pipeline]) return skip("live mode off for this pipeline");
   if ((await workflowsOn())[row.pipeline] === true) return skip(`the HubSpot workflow "${WORKFLOWS[row.pipeline].name}" is still on - it assigns; switch it off to hand over`);
-  if (row.approx || (!opts.catchUp && Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS)) return skip("older than 20 minutes");
+  if (row.approx || (!opts.catchUp && !opts.ignoreAge && Date.now() - Date.parse(row.enteredAt) > LIVE_MAX_AGE_MS)) return skip("older than 20 minutes");
   // Back Office: with "SARCLA | BACK OFFICE MAIN ROUTING" off, the hub writes everything it wrote (actBo)
   if (row.pipeline === "bo") return actBo(row, settings, opts);
   // GQS without a contact or company of its own: the hub copies them from the linked ticket (row.inherit) before writing;
@@ -863,6 +864,26 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
         items.push(item);
         continue;
       }
+      // A Back Office ticket still in its ENTRY stage (New, Redirected from Chat/Helpline) was never routed: the live
+      // run missed it - an outage, the breaker, or a queue owner it did not recognise (TSA Team, 23.10.2026). It gets
+      // the whole routing the live run writes - category, priority, dispatch to ESO/TSA, stage, owner, code steps -
+      // never just an owner (SARCLA 23.10.2026 on the helpline mails: "they got a person but this is not what is
+      // expected"). When the route needs a person and nobody is available it waits for the next pass, as before.
+      // (a deactivated owner keeps the path below - actBo keeps an owner it does not know to be free)
+      if (c.pipeline === "bo" && (ENTRY_STAGES.bo as readonly string[]).includes(c.p.hs_pipeline_stage ?? "") && (!c.p.hubspot_owner_id || isQueueOwner(c.p.hubspot_owner_id))) {
+        const entered = new Date(Date.parse(c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? "") || Date.now()).toISOString();
+        const row = await decide(c.id, "bo", entered, shared);
+        item.hub = row.hub;
+        const r = row.route;
+        const needsPerson = !!r && !r.sets.hubspot_owner_id && !!r.assigner && ["23", "27", "31", "42", "50"].includes(r.assigner);
+        if (!r || (needsPerson && !row.hub?.ownerId)) { item.error = !r ? "not routed" : "the route needs a person and nobody is available - next pass"; items.push(item); continue; }
+        if (settings.live.strays && settings.live.bo && writes < STRAY_WRITES_PER_PASS) {
+          item.wrote = await act(row, settings, { ignoreAge: true });
+          if (item.wrote.ok) writes++;
+        }
+        items.push(item);
+        continue;
+      }
       const team = everyone(settings, c.pipeline === "bo" ? BO_KEYS : GQS_KEYS);
       const back = await lastRealOwner(c.id, shared, names);
       item.was = back.name;
@@ -912,7 +933,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
     }
     await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: props });
     await writesThisHour(1);
-    const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : `had a deactivated owner (${s.was ?? "?"})`;
+    const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : s.why === "TSA Team" ? "had only the TSA Team (helpline) queue" : `had a deactivated owner (${s.was ?? "?"})`;
     const body = [
       `✅ Owner given: ${s.hub!.ownerName}`, "", `The ticket ${had}${s.since ? ` since ${s.since.slice(0, 10)}` : ""}.`, `Method: ${s.hub!.method}`,
       ...(s.hub!.reasons.length ? [`Why: ${s.hub!.reasons.join("; ")}`] : []),
