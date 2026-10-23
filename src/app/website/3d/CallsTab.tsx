@@ -19,7 +19,6 @@ import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
-import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -27,11 +26,10 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, KpiTile, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, Info } from "@/app/connectors/parts";
 import type { CallsReport } from "@/lib/threeD/calls";
-import { KIND_LABEL, ORIGINS_FROM, SOURCE_LABEL } from "@/lib/threeD/counts";
+import { SEARCH_BAR_TAGGED_FROM, SOURCE_LABEL } from "@/lib/threeD/counts";
 import Bars from "./Bars";
 
 const WHAT: Record<string, string> = { page: "opened the catalogue", script: "loaded the 3D button", check: "checked an article", download: "downloaded a file", view: "viewed a 3D model", search: "searched", request: "sent the form" };
-const swiss = (iso: string) => iso.split("-").reverse().join(".");
 const ago = (iso: string) => {
   const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
@@ -61,9 +59,6 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
   const byLocale = locales
     .map((l) => ({ label: l ? l.toUpperCase() : "Store view not known", n: sum((x) => x.kind === "aplink" && x.locale === l) }))
     .sort((a, b) => b.n - a.n);
-  const byKind = Object.keys(KIND_LABEL).filter((k) => k !== "aplink")
-    .map((k) => ({ label: KIND_LABEL[k], n: sum((x) => x.kind === k) }))
-    .filter((x) => x.n > 0);
   // the shop's own traffic: the 3D button loaded on a shop page, or the catalogue opened from the CMS page
   const shopSeen = d.callers.some((c) => (c.source === "product-page" && c.what === "script") || (c.source === "catalogue" && c.what === "page"));
 
@@ -86,10 +81,9 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
       <GlassCard>
         <CardTitle icon={<DownloadOutlinedIcon />} tint="green" title="Downloads by origin" note="Where each file people downloaded was asked for: the 3D page, the search bar, the product page, an e-mail" />
         <Bars rows={dlBySource} />
-        {from < ORIGINS_FROM && (
+        {from < SEARCH_BAR_TAGGED_FROM && (
           <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
-            The origins are told apart from {swiss(ORIGINS_FROM)}. Before that, e-mails, direct links, robots and the search bar all
-            counted as &quot;Other / not known&quot;, and the 3D page&apos;s live previews counted as downloads.
+            Until 23.10.2026 the search bar&apos;s calls carried no origin; they are counted here under the search bar.
           </Typography>
         )}
       </GlassCard>
@@ -109,39 +103,29 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
         </Grid>
       </Grid>
 
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="What was asked" note="Every request the 3D Gateway answered" />
-            <Bars rows={byKind} />
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%", p: 0, pt: { xs: 2, md: 2.5 } }}>
-            <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-              <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Last call from each place" note="Proof by traffic of who uses the 3D Gateway" />
-            </Box>
-            <Table size="small">
-              <TableHead>
-                <TableRow>{["Who", "What", "Last", "Since start"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow>
-              </TableHead>
-              <TableBody>
-                {d.callers.length === 0 && (
-                  <TableRow><TableCell colSpan={4} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>Nobody has called the 3D Gateway yet.</TableCell></TableRow>
-                )}
-                {d.callers.slice(0, 12).map((c) => (
-                  <TableRow key={`${c.source}-${c.locale}-${c.what}`} hover>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{SOURCE_LABEL[c.source] ?? c.source}{c.locale ? ` · ${c.locale.toUpperCase()}` : ""}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{WHAT[c.what] ?? c.what}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{ago(c.lastAt)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(c.n)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </GlassCard>
-        </Grid>
-      </Grid>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Last call from each place" note="Proof by traffic of who uses the 3D Gateway" />
+        </Box>
+        <Table size="small">
+          <TableHead>
+            <TableRow>{["Who", "What", "Last", "Since start"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow>
+          </TableHead>
+          <TableBody>
+            {d.callers.length === 0 && (
+              <TableRow><TableCell colSpan={4} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>Nobody has called the 3D Gateway yet.</TableCell></TableRow>
+            )}
+            {d.callers.slice(0, 12).map((c) => (
+              <TableRow key={`${c.source}-${c.locale}-${c.what}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{SOURCE_LABEL[c.source] ?? c.source}{c.locale ? ` · ${c.locale.toUpperCase()}` : ""}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>{WHAT[c.what] ?? c.what}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{ago(c.lastAt)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(c.n)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </GlassCard>
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
         {d.status && <Chip tint={d.status.aplink.reachable ? "green" : "pink"}>{d.status.aplink.reachable ? `AP-Link reachable · ${d.status.aplink.ms} ms` : "AP-Link not reachable"}</Chip>}

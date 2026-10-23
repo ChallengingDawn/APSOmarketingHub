@@ -9,7 +9,7 @@
 
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { deltas, type Count } from "./counts";
+import { deltas, SEARCH_BAR_TAGGED_FROM, type Count } from "./counts";
 
 export type { Count } from "./counts";
 
@@ -113,8 +113,10 @@ export type CallsReport = {
 /** The counts between two days (inclusive), with the last callers and status the hub collected. */
 export async function readCalls(from: string, to: string): Promise<CallsReport> {
   await ensureTable();
+  // the days before the search bar named itself: their "other" is the search bar (SEARCH_BAR_TAGGED_FROM)
   const rows = (await query<{ source: string; locale: string; kind: string; n: string }>(
-    `SELECT source, locale, kind, SUM(n)::text AS n FROM apsomh_threed_usage WHERE day BETWEEN $1 AND $2 GROUP BY 1,2,3`, [from, to])).rows;
+    `SELECT CASE WHEN source = 'other' AND day < $3::date THEN 'search-bar' ELSE source END AS source, locale, kind, SUM(n)::text AS n
+       FROM apsomh_threed_usage WHERE day BETWEEN $1 AND $2 GROUP BY 1,2,3`, [from, to, SEARCH_BAR_TAGGED_FROM])).rows;
   const daily = (await query<{ day: string; aplink: string; requests: string }>(
     `SELECT to_char(day, 'YYYY-MM-DD') AS day, SUM(CASE WHEN kind = 'aplink' THEN n ELSE 0 END)::text AS aplink,
             SUM(CASE WHEN kind <> 'aplink' THEN n ELSE 0 END)::text AS requests

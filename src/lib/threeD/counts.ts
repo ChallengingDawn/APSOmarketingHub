@@ -18,8 +18,12 @@ export const SOURCE_LABEL: Record<string, string> = {
   other: "Other / not known",
 };
 
-/** The day the gateway started telling these apart; before it, they were all "other" and previews counted as downloads. */
-export const ORIGINS_FROM = "2026-10-23";
+/**
+ * Until this day the search bar's server called the 3D Gateway with no marker, so its data-sheet checks and
+ * downloads landed in "other" (src=search since 23.10.2026, 16:23). SARCLA, 23.10.2026: "give all this to the
+ * search bar" - the hub shows the "other" of the days before it as the search bar.
+ */
+export const SEARCH_BAR_TAGGED_FROM = "2026-10-24";
 
 /** What was asked for, as the page names it. */
 export const KIND_LABEL: Record<string, string> = {
