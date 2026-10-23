@@ -27,10 +27,11 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, KpiTile, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, Info } from "@/app/connectors/parts";
 import type { CallsReport } from "@/lib/threeD/calls";
-import { KIND_LABEL, SOURCE_LABEL } from "@/lib/threeD/counts";
+import { KIND_LABEL, ORIGINS_FROM, SOURCE_LABEL } from "@/lib/threeD/counts";
 import Bars from "./Bars";
 
-const WHAT: Record<string, string> = { page: "opened the catalogue", script: "loaded the 3D button", check: "checked an article", download: "downloaded a file", search: "searched", request: "sent the form" };
+const WHAT: Record<string, string> = { page: "opened the catalogue", script: "loaded the 3D button", check: "checked an article", download: "downloaded a file", view: "viewed a 3D model", search: "searched", request: "sent the form" };
+const swiss = (iso: string) => iso.split("-").reverse().join(".");
 const ago = (iso: string) => {
   const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
@@ -51,6 +52,11 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
   const bySource = Object.keys(SOURCE_LABEL)
     .map((s) => ({ label: SOURCE_LABEL[s], n: sum((x) => x.kind === "aplink" && x.source === s) }))
     .filter((x) => x.n > 0);
+  // where the files people downloaded were asked for (SARCLA 23.10.2026: 3D page, search bar, PDP, e-mail)
+  const dlBySource = Object.keys(SOURCE_LABEL)
+    .map((s) => ({ label: SOURCE_LABEL[s], n: sum((x) => x.kind === "download" && x.source === s) }))
+    .filter((x) => x.n > 0);
+  const views = sum((x) => x.kind === "view");
   const locales = [...new Set(d.rows.filter((x) => x.kind === "aplink").map((x) => x.locale))];
   const byLocale = locales
     .map((l) => ({ label: l ? l.toUpperCase() : "Store view not known", n: sum((x) => x.kind === "aplink" && x.locale === l) }))
@@ -73,9 +79,20 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HubOutlinedIcon />} tint="blue" label="AP-Link calls" value={full(aplink)} note="every query and download sent to AP-Link" /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<FactCheckOutlinedIcon />} tint="purple" label="Availability checks" value={full(sum((x) => x.kind === "check"))} note="is there a 3D, a drawing, a data sheet" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DownloadOutlinedIcon />} tint="green" label="Downloads" value={full(sum((x) => x.kind === "download"))} note="STEP models, drawings, data sheets" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DownloadOutlinedIcon />} tint="green" label="Downloads" value={full(sum((x) => x.kind === "download"))} note={views > 0 ? `files saved · ${full(views)} 3D previews counted apart` : "STEP models, drawings, data sheets"} /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SearchOutlinedIcon />} tint="amber" label="Searches" value={full(sum((x) => x.kind === "search"))} note="in the 3D catalogue (the search bar's catalogue)" /></Grid>
       </Grid>
+
+      <GlassCard>
+        <CardTitle icon={<DownloadOutlinedIcon />} tint="green" title="Downloads by origin" note="Where each file people downloaded was asked for: the 3D page, the search bar, the product page, an e-mail" />
+        <Bars rows={dlBySource} />
+        {from < ORIGINS_FROM && (
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
+            The origins are told apart from {swiss(ORIGINS_FROM)}. Before that, e-mails, direct links, robots and the search bar all
+            counted as &quot;Other / not known&quot;, and the 3D page&apos;s live previews counted as downloads.
+          </Typography>
+        )}
+      </GlassCard>
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
