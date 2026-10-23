@@ -17,7 +17,6 @@ import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
 import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
@@ -26,7 +25,7 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, KpiTile, MUTED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, Info } from "@/app/connectors/parts";
 import type { CallsReport } from "@/lib/threeD/calls";
-import { SEARCH_BAR_TAGGED_FROM, SOURCE_LABEL } from "@/lib/threeD/counts";
+import { SOURCE_LABEL } from "@/lib/threeD/counts";
 import Bars from "./Bars";
 
 const WHAT: Record<string, string> = { page: "opened the catalogue", script: "loaded the 3D button", check: "checked an article", download: "downloaded a file", view: "viewed a 3D model", search: "searched", request: "sent the form" };
@@ -47,9 +46,6 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
 
   const sum = (f: (x: CallsReport["rows"][number]) => boolean) => d.rows.filter(f).reduce((a, x) => a + x.n, 0);
   const aplink = sum((x) => x.kind === "aplink");
-  const bySource = Object.keys(SOURCE_LABEL)
-    .map((s) => ({ label: SOURCE_LABEL[s], n: sum((x) => x.kind === "aplink" && x.source === s) }))
-    .filter((x) => x.n > 0);
   // where the files people downloaded were asked for (SARCLA 23.10.2026: 3D page, search bar, PDP, e-mail)
   const dlBySource = Object.keys(SOURCE_LABEL)
     .map((s) => ({ label: SOURCE_LABEL[s], n: sum((x) => x.kind === "download" && x.source === s) }))
@@ -81,27 +77,12 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
       <GlassCard>
         <CardTitle icon={<DownloadOutlinedIcon />} tint="green" title="Downloads by origin" note="Where each file people downloaded was asked for: the 3D page, the search bar, the product page, an e-mail" />
         <Bars rows={dlBySource} />
-        {from < SEARCH_BAR_TAGGED_FROM && (
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
-            Until 23.10.2026 the search bar&apos;s calls carried no origin; they are counted here under the search bar.
-          </Typography>
-        )}
       </GlassCard>
 
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="AP-Link calls by source" note="Where the request behind each call came from" />
-            <Bars rows={bySource} />
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="AP-Link calls by store view" note="The shop's language of the page that asked" />
-            <Bars rows={byLocale} />
-          </GlassCard>
-        </Grid>
-      </Grid>
+      <GlassCard>
+        <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="AP-Link calls by store view" note="The shop's language of the page that asked" />
+        <Bars rows={byLocale} />
+      </GlassCard>
 
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
