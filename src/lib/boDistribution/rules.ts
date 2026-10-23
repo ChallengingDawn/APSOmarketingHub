@@ -32,7 +32,14 @@ export const PEOPLE = {
   claudia: P("76134337", "Claudia Cagnoni"), claudioG: P("1229976030", "Claudio Gabinato"), leart: P("37413486", "Leart Asllani"),
   adriana: P("76134415", "Adriana Deblander"), sara: P("30050251", "Sara Gashi"), maida: P("1207485931", "Maida Osmani"),
   vanessa: P("76134388", "Vanessa Battaglia"), rose: P("31935670", "Rose Rasteiro"), backofficeTeam: P("76164822", "Backoffice Team"),
+  // helpline@apsoparts.com. The ESO/chat re-route to Back Office "Redirected from Chat/Helpline" writes this queue user as
+  // the owner; MAIN ROUTING overwrote it with a person - it is a queue, not somebody's ticket (23.10.2026)
+  tsaTeam: P("1202569408", "TSA Team"),
 };
+
+/** Queue users - an owner that is nobody yet: the distribution gives the ticket a person, the stray sweep picks it up. */
+export const QUEUE_OWNERS: ReadonlySet<string> = new Set([PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id]);
+export const isQueueOwner = (id: string | null | undefined): boolean => !!id && QUEUE_OWNERS.has(id);
 const { claudia, claudioG, leart, adriana, sara, maida, vanessa } = PEOPLE;
 
 /** The rosters exactly as the code steps carry them (order = tie-break). */

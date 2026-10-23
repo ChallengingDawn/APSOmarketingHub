@@ -23,7 +23,7 @@ import { hubspotToken } from "@/lib/integrations/status";
 import { NOTE_NO_O, anysealsToFolder, gqsTaskFor, mergeIntoGqs, note, noteNoMatch, oNumber, salesSplit, type Call } from "./codeSteps";
 import {
   BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
-  assignBo, assignGqs, findSalesAgent, priorityFacts, priorityFor, route,
+  assignBo, assignGqs, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route,
   type Priority, type PriorityFacts, type PrioritySettings,
   type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload,
 } from "./rules";
@@ -611,7 +611,7 @@ async function act(row: Row, settings: Settings, opts: ActOpts = {}): Promise<No
   // the ticket as it is NOW: still in its entry stage, still nobody's (Backoffice Team or empty)
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline_stage,status_of_gqs`);
   const cur = now.properties.hubspot_owner_id ?? "";
-  if (cur && cur !== PEOPLE.backofficeTeam.id) return skip(`already owned (${(await ownerNames()).get(cur) ?? cur})`);
+  if (cur && !isQueueOwner(cur)) return skip(`already owned (${(await ownerNames()).get(cur) ?? cur})`);
   if (!(ENTRY_STAGES[row.pipeline] as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
   try {
     if (row.pipeline === "gqs" && row.inherit) {
@@ -661,7 +661,7 @@ async function actBo(row: Row, settings: Settings, opts: ActOpts = {}): Promise<
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${row.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage,subject`);
   if (now.properties.hs_pipeline !== BO || !(ENTRY_STAGES.bo as readonly string[]).includes(now.properties.hs_pipeline_stage ?? "")) return skip("no longer in its entry stage");
   const cur = now.properties.hubspot_owner_id ?? "";
-  const free = !cur || cur === PEOPLE.backofficeTeam.id;
+  const free = !cur || isQueueOwner(cur);
   const call: Call = <T,>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hs<T>(path, method, body);
   const names = await ownerNames();
   const done: string[] = [];
@@ -750,7 +750,7 @@ export type Stray = {
   ticketId: string; pipeline: "bo" | "gqs" | "eso" | "tsa"; subject: string; stage: string | null; stageLabel: string | null;
   /** in its stage since */
   since: string | null;
-  why: "no owner" | "Backoffice Team" | "deactivated owner";
+  why: "no owner" | "Backoffice Team" | "TSA Team" | "deactivated owner";
   /** the person who had it last (a deactivated account included) */
   was: string | null;
   hub: Answer | null;
@@ -779,7 +779,7 @@ async function strayCandidates(archived: Set<string>): Promise<{ id: string; pip
     const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }];
     const owners: object[] = [
       { propertyName: "hubspot_owner_id", operator: "NOT_HAS_PROPERTY" },
-      ...(kind === "bo" || kind === "gqs" ? [{ propertyName: "hubspot_owner_id", operator: "EQ", value: PEOPLE.backofficeTeam.id }] : []),
+      ...(kind === "bo" || kind === "gqs" ? [{ propertyName: "hubspot_owner_id", operator: "IN", values: [PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id] }] : []),
       ...Array.from({ length: Math.ceil(gone.length / 100) }, (_, i) => ({ propertyName: "hubspot_owner_id", operator: "IN", values: gone.slice(i * 100, i * 100 + 100) })),
     ];
     for (const f of owners) {
@@ -801,7 +801,7 @@ async function strayCandidates(archived: Set<string>): Promise<{ id: string; pip
  *  deactivated account - an active owner with exactly the same name (Leart Asllani's new account, 14.09.2026). */
 async function lastRealOwner(id: string, shared: Shared, names: Map<string, string>): Promise<{ name: string | null; active: Person | null; moved: boolean }> {
   const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hubspot_owner_id&propertiesWithHistory=hubspot_owner_id`);
-  const h = (t.propertiesWithHistory?.hubspot_owner_id ?? []).find((x) => x.value && x.value !== PEOPLE.backofficeTeam.id);
+  const h = (t.propertiesWithHistory?.hubspot_owner_id ?? []).find((x) => x.value && !isQueueOwner(x.value));
   if (!h) return { name: null, active: null, moved: false };
   const name = names.get(h.value) ?? h.value;
   if (!shared.archived!.has(h.value)) return { name, active: { id: h.value, name }, moved: false };
@@ -813,7 +813,7 @@ async function lastRealOwner(id: string, shared: Shared, names: Map<string, stri
 /** ESO / TSA: the owner of the ticket's company, else of its contact - active people only. `company`: the first one's name. */
 async function companyOwner(id: string, archived: Set<string>, names: Map<string, string>): Promise<{ owner: { id: string; name: string; method: string } | null; company: string | null }> {
   const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hs_pipeline&associations=companies,contacts`);
-  const active = (o: string | null | undefined): o is string => !!o && /^\d+$/.test(o) && names.has(o) && !archived.has(o) && o !== PEOPLE.backofficeTeam.id;
+  const active = (o: string | null | undefined): o is string => !!o && /^\d+$/.test(o) && names.has(o) && !archived.has(o) && !isQueueOwner(o);
   let company: string | null = null;
   for (const { id: cid } of (t.associations?.companies?.results ?? []).slice(0, 5)) {
     const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${cid}?properties=name,domain,hubspot_owner_id`);
@@ -848,7 +848,7 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
       ticketId: c.id, pipeline: c.pipeline, subject: c.p.subject ?? "", stage: c.p.hs_pipeline_stage ?? null,
       stageLabel: ({ bo: st.bo, gqs: st.gqs, eso: st.eso, tsa: st.tsa }[c.pipeline]).find((x) => x.id === c.p.hs_pipeline_stage)?.label ?? null,
       since: c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? null,
-      why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : "deactivated owner", was: null, hub: null,
+      why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : owner === PEOPLE.tsaTeam.id ? "TSA Team" : "deactivated owner", was: null, hub: null,
     };
     try {
       if (c.pipeline === "eso" || c.pipeline === "tsa") {
@@ -897,7 +897,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
   if ((await writesThisHour()) >= breaker) return skip(`breaker: ${breaker} writes this hour - look at the page before raising it`);
   const now = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/tickets/${s.ticketId}?properties=hubspot_owner_id,hs_pipeline,hs_pipeline_stage`);
   const cur = now.properties.hubspot_owner_id ?? "";
-  if (cur && cur !== PEOPLE.backofficeTeam.id && !archived.has(cur)) return skip(`owned meanwhile (${(await ownerNames()).get(cur) ?? cur})`);
+  if (cur && !isQueueOwner(cur) && !archived.has(cur)) return skip(`owned meanwhile (${(await ownerNames()).get(cur) ?? cur})`);
   if (now.properties.hs_pipeline !== STRAY_PIPE[s.pipeline] || now.properties.hs_pipeline_stage !== s.stage) return skip("moved on meanwhile");
   try {
     // a GQS task still in "New for Back-Office" (it waited for someone available): the whole GQS step, as live mode writes
