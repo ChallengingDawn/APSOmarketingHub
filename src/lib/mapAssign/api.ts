@@ -167,6 +167,9 @@ export type LayerData = {
   unplaced: number;
   /** GDP per region (shapes regions[].code), where known; null = unknown */
   gdp: { code: string; gdp: number | null }[];
+  /** where the GDP comes from (public/geo/gdp/index.json): the country's GDP year and the year of the regions' shares
+   *  (SARCLA 24.10.2026: "put also the source of GDP at the end"); absent from an older hub */
+  gdpSource?: { year: number | null; regionalYear: number | null } | null;
   revenueField: string; customersField: string;
   /** the sales workload per person in this country (SARCLA 20.10.2026: "the KPI page should have ticket workload,
    *  revenue, GDP, everything - really a KPI page measuring the sales workload"); absent from an older hub */

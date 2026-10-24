@@ -36,7 +36,7 @@ import { full } from "@/app/charts/format";
 import { FAINT, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { saeKey, type AssignRules, type CountryRule, type Zone } from "@/lib/mapAssign/rules";
-import type { CompanyRow, MapData, OwnerLoad, TicketLoad } from "@/lib/mapAssign/api";
+import type { CompanyRow, LayerData, MapData, OwnerLoad, TicketLoad } from "@/lib/mapAssign/api";
 import {
   API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, prefixProblem, saeTarget, splitPrefixes,
   splitRegions, withOverride, type Names, type Palette, type SetDraft,
@@ -270,6 +270,18 @@ function SplitTable({ c, load, names, palette, vs }: { c: string; load: OwnerLoa
         Each person&apos;s companies by these rules, by their HubSpot Sales Priority and APSO CUSTOMER.{known ? "" : " APSO customer is read with the next full read of every company - empty until then."}
       </Typography>
     </Box>
+  );
+}
+
+/** Where the GDP comes from, at the end of the KPIs (SARCLA 24.10.2026: "put also the source of GDP at the end"). */
+function GdpSource({ c, src }: { c: string; src: LayerData["gdpSource"] | undefined }) {
+  const shares = src?.regionalYear ? ` in ${src.regionalYear}` : "";
+  const year = src?.year ? ` ${src.year}` : "";
+  return (
+    <Typography sx={{ fontSize: "0.72rem", color: FAINT, borderTop: `1px solid ${HAIRLINE}`, pt: 1 }}>
+      GDP source: Eurostat. Each region gets its share of {c}&apos;s GDP{shares}, from &quot;Gross domestic product (GDP) at current market prices by NUTS 3 region&quot; (nama_10r_3gdp).
+      That share is applied to {c}&apos;s GDP{year} from &quot;GDP and main components&quot; (nama_10_gdp), at current prices in EUR. A person&apos;s GDP is each region&apos;s GDP split by their share of its zip codes.
+    </Typography>
   );
 }
 
@@ -527,13 +539,14 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
     </Box>
   );
 
-  if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} liveJoined={compare ? liveJoined : null} />;
+  if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} liveJoined={compare ? liveJoined : null} gdpSource={layers.data?.gdpSource} />;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
       {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} vs={vs} />}
       {kpi && <SplitTable c={c} load={layers.data?.load ?? []} names={names} palette={palette} vs={vs} />}
       {rule1}
       {rule2}
+      {kpi && <GdpSource c={c} src={layers.data?.gdpSource} />}
     </Box>
   );
 }
@@ -607,11 +620,12 @@ const placeKm2 = (m: CountryMap, place: Place): number | null => {
 
 /* ── one place: its SAEs and its zip zones ── */
 
-function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, mode, joined, liveJoined }: {
+function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, mode, joined, liveJoined, gdpSource }: {
   place: Place; cc: string; rules: AssignRules; d: MapData; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean;
   m: CountryMap; mode: Mode; joined: ReturnType<typeof joinLayer> | null;
   /** the sandbox: the same figures as live decides them */
   liveJoined?: ReturnType<typeof joinLayer> | null;
+  gdpSource?: LayerData["gdpSource"];
 }) {
   const c = countryName(cc);
   const rule = rules.countries[cc];
@@ -715,6 +729,7 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
           </Box>
         )}
       </Box>
+      {kpi && <GdpSource c={c} src={gdpSource} />}
     </Box>
   );
 }

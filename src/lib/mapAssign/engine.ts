@@ -461,6 +461,14 @@ async function gdpOf(country: string): Promise<LayerData["gdp"]> {
   return out;
 }
 
+let gdpIndex: Promise<Record<string, { year?: number | null; regionalYear?: number | null }>> | null = null;
+/** The GDP's years for a country (public/geo/gdp/index.json, written by scripts/geo/build_gdp.py). */
+async function gdpSourceOf(country: string): Promise<LayerData["gdpSource"]> {
+  gdpIndex ??= readJson(path.join(geoDir(), "gdp", "index.json")).then((x) => (x && typeof x === "object" ? x as Record<string, { year?: number | null; regionalYear?: number | null }> : {})).catch(() => ({}));
+  const e = (await gdpIndex)[country];
+  return e ? { year: Number(e.year) || null, regionalYear: Number(e.regionalYear) || null } : null;
+}
+
 async function chainRunning(): Promise<boolean> {
   try {
     const c = await hubChain();
@@ -1367,7 +1375,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
   }
   const load = [...by.values()].map((l) => ({ ...l, revenue: Math.round(l.revenue) })).sort((a, b) => b.after - a.after || b.now - a.now);
   return {
-    country: cc, at: last?.at ?? null, points, unplaced, gdp: await gdpOf(cc),
+    country: cc, at: last?.at ?? null, points, unplaced, gdp: await gdpOf(cc), gdpSource: await gdpSourceOf(cc),
     revenueField: revenueField(year), customersField: CUSTOMERS_FIELD,
     load, tickets: (await kvGet<TicketLoad>(KV.tickets)) ?? null,
   };
