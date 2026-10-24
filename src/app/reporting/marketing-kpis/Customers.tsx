@@ -101,6 +101,7 @@ export const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNo
   type: { name: "Customer type", lower: "customer type", icon: <CategoryOutlinedIcon />, tint: "pink", note: "OEM, C2S workshops, MRO, resellers", kpi: "KPI C04" },
   apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The company's APIC industry code - 1.x OEM industries, down to the sub-industry", kpi: "" },
   mandant: { name: "Mandant", lower: "mandant", icon: <AccountBalanceOutlinedIcon />, tint: "slate", note: "The ERP company the customer is invoiced from", kpi: "KPI C05" },
+  sae: { name: "Performis SAE", lower: "Performis SAE", icon: <PersonOutlineIcon />, tint: "purple", note: "The sales agent Performis has on the customer, as a person", kpi: "" },
 };
 const ORDER: Dim[] = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant"];
 
@@ -611,7 +612,9 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", period = true, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+  /** the breakdowns it offers - this page's, unless given (the Figures add the Performis SAE) */
+  dims?: Dim[];
   /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
   id?: string;
   /** the Period fold - the Figures stand on the ERP's month and year to date, they have none */
@@ -653,7 +656,7 @@ export function FilterWindow({ id = "customers-filters", period = true, open, on
         </Typography>
       </Section>
       )}
-      {ORDER.map((dim, i) => (
+      {dims.map((dim, i) => (
         <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>

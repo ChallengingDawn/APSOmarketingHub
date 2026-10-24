@@ -9,6 +9,9 @@
 // The year to date and month to date are the ERP's own per company (erp_rev_* / erp_oi_*): the monthly order intake
 // per company lags months behind (SARCLA: "not sure the figures are right" - order intake MTD read 0). ESO | TSA |
 // Total as the pages' tabs, the Filters window as Digital Growth's (without its period: the ERP's figures are to date).
+// Split by the Performis SAE - the sales agent Performis has on the customer, as its person - or by the company owner
+// (SARCLA 24.10.2026: "the revenue should come from Performis SAE, the split as well next to the company owner; TSA as
+// individuals, not only TSA Team" - under the owner most TSA customers sit with "TSA Team").
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -70,12 +73,17 @@ export type TeamKey = "eso" | "tsa" | "total";
 const TEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "tsa", label: "TSA", count: null }, { id: "total", label: "Total", count: null }];
 const TEAM_OF: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
 const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
-const teamOwners = (cube: Cube, team: TeamKey) => (team === "total" ? null : cube.labels.owner.filter((l) => cube.teams?.[l] === TEAM_OF[team]));
-function withTeam(cube: Cube, filters: Filters, team: TeamKey): Filters {
-  const owners = teamOwners(cube, team);
-  if (!owners) return filters;
-  const chosen = filters.owner?.length ? filters.owner.filter((o) => owners.includes(o)) : owners;
-  return { ...filters, owner: chosen.length ? chosen : ["\u0000 none"] };
+/** Who the figures are split by: the Performis SAE (its person), or the company's owner in HubSpot. */
+export type Split = "sae" | "owner";
+const SPLITS: { id: Split; label: string }[] = [{ id: "sae", label: "Performis SAE" }, { id: "owner", label: "Company owner" }];
+const teamsOf = (cube: Cube, split: Split) => (split === "sae" ? cube.saeTeams : cube.teams) ?? {};
+/** The people of a team under the split, as the cube names them; null for Total. */
+const teamMembers = (cube: Cube, team: TeamKey, split: Split) => (team === "total" ? null : cube.labels[split].filter((l) => teamsOf(cube, split)[l] === TEAM_OF[team]));
+function withTeam(cube: Cube, filters: Filters, team: TeamKey, split: Split): Filters {
+  const members = teamMembers(cube, team, split);
+  if (!members) return filters;
+  const chosen = filters[split]?.length ? filters[split]!.filter((o) => members.includes(o)) : members;
+  return { ...filters, [split]: chosen.length ? chosen : ["\u0000 none"] };
 }
 /** ESO | TSA | Total, drawn as the pages' tabs - a click changes every figure. */
 export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKey) => void }) {
@@ -162,7 +170,7 @@ function FigureCards({ items }: { items: Fig[] }) {
 /* ── what every section is drawn with ──────────────────────────────────── */
 
 export type FigCtx = {
-  cube: Cube; kpi: EsoFigures | null; team: TeamKey;
+  cube: Cube; kpi: EsoFigures | null; team: TeamKey; split: Split;
   /** the filters chosen, and with the team in them */
   filters: Filters; eff: Filters;
   actions?: React.ReactNode; half?: boolean;
@@ -271,19 +279,19 @@ const addMonths = (a: MonthFig[], b: MonthFig[]) => a.map((m, i) => ({ ...m, rev
 
 /** ESO or TSA: its people; Total: the teams. Largest year to date first. */
 function peopleOf(c: FigCtx): Person[] {
-  const erp = erpBy(c.cube, c.eff, "owner");
-  const months = byMonthBy(c.cube, c.eff, "owner");
+  const erp = erpBy(c.cube, c.eff, c.split);
+  const months = byMonthBy(c.cube, c.eff, c.split);
   const blank = () => (months.values().next().value as MonthFig[] | undefined)?.map((m) => ({ ...m, rev: 0, revPy: 0, oi: 0, oiPy: 0 })) ?? [];
   if (c.team !== "total") {
-    const owners = new Set(teamOwners(c.cube, c.team) ?? []);
-    const chosen = c.filters.owner?.length ? new Set(c.filters.owner) : null;
+    const owners = new Set(teamMembers(c.cube, c.team, c.split) ?? []);
+    const chosen = c.filters[c.split]?.length ? new Set(c.filters[c.split]) : null;
     return [...new Set([...erp.keys(), ...months.keys()])].filter((o) => owners.has(o) && (!chosen || chosen.has(o)))
       .map((o) => ({ key: o, label: o, e: erp.get(o) ?? zeroErp(), months: months.get(o) ?? blank() }))
       .filter((p) => p.e.revYtd || p.e.revYtdPy || p.e.oiYtd || p.months.some((m) => m.rev || m.revPy))
       .sort((a, b) => b.e.revYtd - a.e.revYtd);
   }
-  const groups: [string, string, TeamKey | undefined][] = [["ESO", "ESO", "eso"], ["TSA", "TSA", "tsa"], ["Other", "Other owners", undefined], ["None", "No owner", undefined]];
-  const teamOfOwner = (o: string) => (o === "No owner" ? "None" : c.cube.teams?.[o] ?? "Other");
+  const groups: [string, string, TeamKey | undefined][] = [["ESO", "ESO", "eso"], ["TSA", "TSA", "tsa"], ["Other", c.split === "sae" ? "Other SAE" : "Other owners", undefined], ["None", c.split === "sae" ? "No SAE" : "No owner", undefined]];
+  const teamOfOwner = (o: string) => (o === "No owner" || o === "No SAE" ? "None" : teamsOf(c.cube, c.split)[o] ?? "Other");
   return groups.map(([k, label, team]) => {
     const own = [...new Set([...erp.keys(), ...months.keys()])].filter((o) => teamOfOwner(o) === k);
     return { key: k, label, team, e: own.reduce((a, o) => addErp(a, erp.get(o) ?? zeroErp()), zeroErp()), months: own.reduce((a, o) => addMonths(a, months.get(o) ?? blank()), blank()) };
@@ -333,13 +341,13 @@ function PeopleSection({ c }: { c: FigCtx }) {
   const shown = all ? people : people.slice(0, LIMIT);
   const total = c.team === "total";
   return (
-    <Section icon={<GroupsOutlinedIcon />} tint="purple" title={total ? "The teams" : `The people - ${teamWord(c.team)}`} actions={c.actions}
-      note={total ? "A card per team: its year to date against the same days a year earlier, its months as a curve (dashed: last year) - a click opens the team" : `A card per ${teamWord(c.team)} person, the largest first: the year to date against the same days a year earlier, the months as a curve (dashed: last year) - a click shows only them`}>
+    <Section icon={<GroupsOutlinedIcon />} tint="purple" title={`${total ? "The teams" : `The people - ${teamWord(c.team)}`} · by ${c.split === "sae" ? "Performis SAE" : "company owner"}`} actions={c.actions}
+      note={`${total ? "A card per team" : `A card per ${teamWord(c.team)} person, the largest first`}, ${c.split === "sae" ? "as Performis has the customers (the SAE, as its person)" : "as HubSpot has the customers (their owner today)"}: the year to date against the same days a year earlier, the months as a curve (dashed: last year) - a click ${total ? "opens the team" : "shows only them"}`}>
       {people.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nobody with figures under these filters.</Typography> : (
         <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(auto-fill, minmax(230px, 1fr))" } }}>
           {shown.map((p) => (
-            <PersonCard key={p.key} p={p} cube={c.cube} on={!total && !!c.filters.owner?.includes(p.label)}
-              onClick={total ? (p.team && c.onTeam ? () => c.onTeam!(p.team!) : undefined) : c.onPick ? () => c.onPick!("owner", p.label) : undefined} />
+            <PersonCard key={p.key} p={p} cube={c.cube} on={!total && !!c.filters[c.split]?.includes(p.label)}
+              onClick={total ? (p.team && c.onTeam ? () => c.onTeam!(p.team!) : undefined) : c.onPick ? () => c.onPick!(c.split, p.label) : undefined} />
           ))}
         </Box>
       )}
@@ -352,13 +360,13 @@ function PeopleSection({ c }: { c: FigCtx }) {
 
 /* ── 3 · the drivers: who moves the figure ─────────────────────────────── */
 
-const DRIVER_DIMS: Dim[] = ["country", "prio", "segment", "type", "owner"];
+const DRIVER_DIMS: Dim[] = ["country", "prio", "segment", "type", "sae", "owner"];
 type SortBy = "value" | "change";
 
 function DriverRows({ c, dim, sortBy }: { c: FigCtx; dim: Dim; sortBy: SortBy }) {
   const [all, setAll] = useState(false);
   const by = erpBy(c.cube, c.eff, dim);
-  const owners = dim === "owner" ? teamOwners(c.cube, c.team) : null;
+  const owners = dim === "owner" || dim === "sae" ? teamMembers(c.cube, c.team, dim) : null;
   const rows = [...by.entries()].filter(([l, e]) => (!owners || owners.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy))
     .map(([label, e]) => ({ label, e, diff: e.revYtd - e.revYtdPy }))
     .sort((a, b) => (sortBy === "change" ? Math.abs(b.diff) - Math.abs(a.diff) : b.e.revYtd - a.e.revYtd) || a.label.localeCompare(b.label));
@@ -465,7 +473,7 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
   );
 }
 /** The cube read before the ERP's figures were in it (until the first new read after a deployment). */
-const tooOld = (cube: Cube) => !cube.erp;
+const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
 
 export function FiguresExplorer() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
@@ -475,6 +483,8 @@ export function FiguresExplorer() {
   const which: Which = params.get("show") === "oi" ? "oi" : "rev";
   const setWhich = (w: Which) => setQuery((q) => { if (w === "rev") q.delete("show"); else q.set("show", w); });
   const dim: Dim = (DRIVER_DIMS as string[]).includes(params.get("by") ?? "") ? (params.get("by") as Dim) : "country";
+  const split: Split = params.get("split") === "owner" ? "owner" : "sae";
+  const setSplit = (x: Split) => setQuery((q) => { if (x === "sae") q.delete("split"); else q.set("split", x); });
   const setDim = (d: Dim) => setQuery((q) => { if (d === "country") q.delete("by"); else q.set("by", d); });
   const filters: Filters = useMemo(() => Object.fromEntries(DIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
   const toggle = (d: Dim, label: string) => setQuery((q) => {
@@ -499,14 +509,14 @@ export function FiguresExplorer() {
       <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />
     </Box>
   );
-  const eff = withTeam(cube, filters, team);
-  const c: FigCtx = { cube, kpi, team, filters, eff, onPick: (d, l) => toggle(d, l), onTeam: setTeam };
+  const eff = withTeam(cube, filters, team, split);
+  const c: FigCtx = { cube, kpi, team, split, filters, eff, onPick: (d, l) => toggle(d, l), onTeam: setTeam };
   const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   const act = (key: string, title: string, part?: string) => (
     <TileActions where="tab" start="tab" edge={{ xs: 2, md: 2.75 }}
       tile={{ key: `eso-figures:figures:${key}${part ? `-${part}` : ""}`, page: "eso-figures", tab: "figures", title, summary: `${teamWord(team)} · to ${erpDayWords(cube)}`,
-        filters: { ...Object.fromEntries(chosenDims(filters).map((d) => [d, filters[d] ?? []])), team: [team], ...(part ? { part: [part] } : {}) }, kind: "card" }} />
+        filters: { ...Object.fromEntries(chosenDims(filters).map((d) => [d, filters[d] ?? []])), team: [team], split: [split], ...(part ? { part: [part] } : {}) }, kind: "card" }} />
   );
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
@@ -515,11 +525,14 @@ export function FiguresExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>Figures</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamWord(team)}</b> · the year to {erpDayWords(cube)} against the same days of {cube.years[1]} - the ERP&apos;s figures{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamWord(team)}</b>{team !== "total" ? ` by ${split === "sae" ? "Performis SAE" : "company owner"}` : ""} · the year to {erpDayWords(cube)} against the same days of {cube.years[1]} - the ERP&apos;s figures{computing ? " · reading HubSpot again" : ""}
           </Typography>
           <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
             <TeamToggle team={team} onTeam={setTeam} />
-            <Box sx={{ flex: 1 }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+              <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>Split by</Typography>
+              <Switch label="Split by" value={split} onChange={setSplit} options={SPLITS} />
+            </Box>
           </Box>
           {chosen.length > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
@@ -549,11 +562,11 @@ export function FiguresExplorer() {
 
       <Typography component="div" sx={{ fontSize: "0.76rem", color: FAINT }}>
         Year and month to date: the ERP file&apos;s own figures per customer, of {erpDayWords(cube)}, against the same days a year earlier. The curves: each customer&apos;s monthly revenue and order intake, summed
-        {cube.oiLoaded != null ? ` (order intake per customer loaded to ${MONTH_NAMES[Math.max(0, cube.oiLoaded - 1)]})` : ""}. ESO and TSA: the companies their people own today (the rosters, else their HubSpot team).
+        {cube.oiLoaded != null ? ` (order intake per customer loaded to ${MONTH_NAMES[Math.max(0, cube.oiLoaded - 1)]})` : ""}. ESO and TSA by Performis SAE: the customers Performis gives their people (the SAE as Map assignment maps it to a person); by company owner: the companies they own in HubSpot today - a person's team from the rosters, else their HubSpot team.
         {forecast ? " The forecast: the ERP's, the whole company - shown on Total with nothing filtered." : ""} Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
       </Typography>
 
-      <FilterWindow id="eso-figures-filters" period={false} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={defaultWindow(cube)} setWin={() => {}} filters={filters} toggle={toggle} clearAll={clearAll} />
+      <FilterWindow id="eso-figures-filters" period={false} dims={["prio", "segment", "potential", "country", "sae", "owner", "type", "apic", "mandant"]} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={defaultWindow(cube)} setWin={() => {}} filters={filters} toggle={toggle} clearAll={clearAll} />
     </Box>
   );
 }
@@ -570,7 +583,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   useEffect(() => { try { const x = localStorage.getItem(KEPT); if (x === "eso" || x === "tsa" || x === "total") setTeam(x); } catch { /* ESO */ } }, []);
   const pick = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, team, filters: {}, eff: withTeam(cube, {}, team) } : null;
+  const c: FigCtx | null = ready ? { cube, kpi, team, split: "sae", filters: {}, eff: withTeam(cube, {}, team, "sae") } : null;
   const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
     const [, tab, raw] = spec.key.split(":");
     const [card] = (raw ?? "").split("-");
@@ -580,7 +593,8 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
     const actions = <TileActions where="nutshell" start="tab" edge={{ xs: 2, md: 2.75 }} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind }} />;
-    const sc: FigCtx = { cube: cube!, kpi, team: st, filters: sf, eff: withTeam(cube!, sf, st), actions, half: fmt === "half" };
+    const sp: Split = spec.filters?.split?.[0] === "owner" ? "owner" : "sae";
+    const sc: FigCtx = { cube: cube!, kpi, team: st, split: sp, filters: sf, eff: withTeam(cube!, sf, st, sp), actions, half: fmt === "half" };
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, spec.filters?.part?.[0]) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   });
@@ -595,7 +609,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Figures</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.purple.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(team)} · the year to ${erpDayWords(c.cube)} against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(team)}${team !== "total" ? " by Performis SAE" : ""} · the year to ${erpDayWords(c.cube)} against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
         </Box>
         <TeamToggle team={team} onTeam={pick} />
       </Box>

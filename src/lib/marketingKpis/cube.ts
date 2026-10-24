@@ -10,7 +10,9 @@
 // three - so "who bought between October and March" counts each company once,
 // over a year end too. Counts and sums only - no company, no id.
 
-export const DIMS = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant"] as const;
+// "sae" - the Performis sales agent (sae_performis), as the person Map assignment maps it to (SARCLA 24.10.2026: "the
+// revenue should come from Performis SAE, the split as well, next to the company owner; TSA as individuals")
+export const DIMS = ["prio", "segment", "potential", "country", "owner", "type", "apic", "mandant", "sae"] as const;
 export type Dim = (typeof DIMS)[number];
 
 /** A cell: the dimension indexes in DIMS order, then these. */
@@ -48,6 +50,8 @@ export type Cube = {
   intake?: number[][];
   /** the team of each sales rep, by the name the cube carries: "ESO", "TSA", "Other" (rosters.ts) - the Figures' ESO | TSA | Total */
   teams?: Record<string, string>;
+  /** the same for the Performis SAE's people: "ESO", "TSA", "Other" */
+  saeTeams?: Record<string, string>;
   /**
    * [cell, ...ERP] - the ERP file's own figures per company, summed (ERP_FIELDS order): month and year to date, this
    * year and last, cut on the same day. The monthly order intake per company lags months behind the ERP (loaded
@@ -483,3 +487,15 @@ export function erpBy(cube: Cube, filters: Filters, dim?: Dim): Map<string, ErpA
   return out;
 }
 export const erpTotals = (cube: Cube, filters: Filters): ErpAgg => erpBy(cube, filters).get("") ?? (Object.fromEntries(ERP_FIELDS.map((f) => [f, 0])) as ErpAgg);
+
+/**
+ * A company's Performis SAE as a person: the Map assignment's mapping (SAE value -> owner id, "Pielock Nancy" -> Nancy
+ * Pielock, "ESO CH GER" -> Jan Kalt) and the owners' names; a value it does not map stays as Performis writes it.
+ */
+export function saeLabel(raw: string | null | undefined, sae: Record<string, string>, names: Map<string, string>): { label: string; owner: string | null } {
+  const v = (raw ?? "").trim();
+  if (!v) return { label: "No SAE", owner: null };
+  const id = sae[v] ?? Object.entries(sae).find(([k]) => k.toLowerCase() === v.toLowerCase())?.[1];
+  return id ? { label: names.get(String(id)) ?? v, owner: String(id) } : { label: v, owner: null };
+}
+

@@ -20,7 +20,7 @@ function cubeOf(list: In[], loaded = 9): Cube {
   return { generatedAt: "", years: [2026, 2025, 2024], loaded: [loaded, 12, 12], running: null, labels, ...fold(companies) };
 }
 const co = (prio: string, segment: string, country: string, owner: string, x: Omit<In, "dims"> = {}): In => ({
-  dims: { prio, segment, potential: potentialBand(x.potential ?? null), country, owner, type: "OEM", apic: "1.1 Machine Manufacturing (OEM)", mandant: "M100" }, ...x,
+  dims: { prio, segment, potential: potentialBand(x.potential ?? null), country, owner, type: "OEM", apic: "1.1 Machine Manufacturing (OEM)", mandant: "M100", sae: owner }, ...x,
 });
 const cube = cubeOf([
   co("Prio 1", "APSOcore", "Switzerland", "Anna", { potential: 120_000, cy: { 0: 30_000, 5: 30_000 }, py: { 0: 50_000, 11: 7_000 } }),
@@ -240,4 +240,15 @@ test("the ERP's own figures per cell (the Figures' MTD / YTD): summed under the 
   assert.equal(erpTotals(c, { country: ["DE"] }).oiYtd, 40);
   const by = erpBy(c, { owner: ["Ben"] }, "owner");
   assert.deepEqual([by.get("Anna")!.revYtd, by.get("Ben")!.revYtd], [110, 50]);
+});
+
+test("the Performis SAE as a person (the Figures' split): the Map assignment's mapping, then the owner's name; a value it does not map stays as written", async () => {
+  const { saeLabel } = await import("../src/lib/marketingKpis/cube");
+  const map = { "Pielock Nancy": "1229976026", "ESO CH GER": "37053854", "Resident APZ": "1202569408" };
+  const names = new Map([["1229976026", "Nancy Pielock"], ["37053854", "Jan Kalt"], ["1202569408", "TSA Team"]]);
+  assert.deepEqual(saeLabel("Pielock Nancy", map, names), { label: "Nancy Pielock", owner: "1229976026" });
+  assert.deepEqual(saeLabel("eso ch ger", map, names), { label: "Jan Kalt", owner: "37053854" });
+  assert.deepEqual(saeLabel("Resident APZ", map, names), { label: "TSA Team", owner: "1202569408" });
+  assert.deepEqual(saeLabel("WIESTE", map, names), { label: "WIESTE", owner: null });
+  assert.deepEqual(saeLabel("  ", map, names), { label: "No SAE", owner: null });
 });

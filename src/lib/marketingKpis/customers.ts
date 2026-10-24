@@ -16,11 +16,14 @@ import { chainHistory } from "@/lib/connectors/chainStatus";
 import { MONTHS, monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
-import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
+import { DIMS, fold, monthOf, potentialBand, saeLabel, type CompanyIn, type Cube, type Dim } from "./cube";
+import { getRules } from "@/lib/mapAssign/engine";
+import { SEED } from "@/lib/mapAssign/seed";
 
 // v8: order intake per month beside the revenue, and each sales rep's team (the ESO reports' Figures, 24.10.2026)
 // v9: the ERP's own month and year to date per company, the order intake months loaded, the team from HubSpot's teams
-const KEY = "marketingKpis:customers:v9";
+// v10: the Performis SAE as a dimension, as its person (the Figures' split next to the company owner, 24.10.2026)
+const KEY = "marketingKpis:customers:v10";
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -51,9 +54,10 @@ function firstMonthOf(v: string | null | undefined, firstYear: number): number |
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 /** The company properties that place a company in the cube. */
-export const DIM_PROPS = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id", "yearly_customer_potential"];
+export const DIM_PROPS = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id", "yearly_customer_potential", "sae_performis"];
 /** Where a company sits on each dimension - shared with the online share's read (online.ts), so both place it alike. */
-export function labelsOf(p: Record<string, string | null | undefined>, owners: Map<string, string>): Record<Dim, string> {
+/** The Performis SAE as a person: the cube's read passes the Map assignment's mapping; without one, the value as written. */
+export function labelsOf(p: Record<string, string | null | undefined>, owners: Map<string, string>, sae: Record<string, string> = {}): Record<Dim, string> {
   return {
     prio: prioOf(p.sales_priority),
     segment: p.apso_customer || "No APSO segment",
@@ -63,6 +67,7 @@ export function labelsOf(p: Record<string, string | null | undefined>, owners: M
     type: p.customer_type || "Not set",
     apic: p.apic_ap || "Not set",
     mandant: p.mandant || "Not set",
+    sae: saeLabel(p.sae_performis, sae, owners).label,
   };
 }
 
@@ -82,6 +87,10 @@ async function build(): Promise<Cube> {
   try { for (const o of await readOwners()) if (o.team) hsTeam.set(String(o.id), o.team); } catch { /* the rosters alone */ }
   const teamFor = (id: string) => teamOf(id) ?? (/\bTSA\b/i.test(hsTeam.get(id) ?? "") ? "TSA" : /\bESO\b/i.test(hsTeam.get(id) ?? "") ? "ESO" : "Other");
   const filledOi = years.map(() => Array(12).fill(0));
+  // the SAE -> person mapping Map assignment keeps (its saved rules, else its seed)
+  let saeMap: Record<string, string> = SEED.sae;
+  try { saeMap = (await getRules()).value.sae ?? SEED.sae; } catch { /* the seed */ }
+  const saeTeams: Record<string, string> = {};
   const erpDays = new Map<string, number>();
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
@@ -107,7 +116,8 @@ async function build(): Promise<Cube> {
         });
       });
       const potential = num(p.yearly_customer_potential);
-      const l = labelsOf(p, owners);
+      const l = labelsOf(p, owners, saeMap);
+      if (!saeTeams[l.sae]) { const s = saeLabel(p.sae_performis, saeMap, owners); saeTeams[l.sae] = s.owner ? teamFor(s.owner) : /^TSA\b/i.test(l.sae) ? "TSA" : /^ESO\b/i.test(l.sae) ? "ESO" : "Other"; }
       if (p.hubspot_owner_id && !teams[l.owner]) teams[l.owner] = teamFor(p.hubspot_owner_id);
       const intake = years.map((y, yi) => MONTHS.map((m, mi) => { const x = num(p[`oi_${y}_${m}`]) ?? 0; if (x) filledOi[yi][mi]++; return x; }));
       const erp = ERP_PROPS.map((k) => num(p[k]) ?? 0);
@@ -135,5 +145,5 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, erpDay, oiLoaded: monthsLoaded(filledOi[0], filledOi[1], monthsDone), ...fold(companies) };
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, saeTeams, erpDay, oiLoaded: monthsLoaded(filledOi[0], filledOi[1], monthsDone), ...fold(companies) };
 }
