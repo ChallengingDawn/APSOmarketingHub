@@ -91,7 +91,8 @@ export function useCustomersCube(): { cube: Cube | null; computing: boolean; pro
 
 /* ── words and numbers, in full ───────────────────────────────────────── */
 
-const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string; kpi: string }> = {
+/** The breakdowns' names, glyphs and words - shared with the ESO reports' Figures, which filter alike (SARCLA 24.10.2026). */
+export const DIM: Record<Dim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string; kpi: string }> = {
   prio: { name: "Sales priority", lower: "sales priority", icon: <StarOutlineIcon />, tint: "green", note: "Which priority bands buy, and which carry the revenue", kpi: "KPI C01 · C02 · C06" },
   segment: { name: "APSO customer", lower: "APSO customer", icon: <GroupsOutlinedIcon />, tint: "purple", note: "APSOcore, APSOgrowth, APSOprospect, APSOlost, APSOmicro, Growth Engine", kpi: "KPI C03 · C06" },
   potential: { name: "Potential", lower: "potential", icon: <SavingsOutlinedIcon />, tint: "amber", note: "The yearly customer potential, and how much of it we get", kpi: "KPI C07" },
@@ -284,8 +285,8 @@ function DimTable({ cube, dim, rows, win, selected, onPick, withNew = false, onl
   const sumRev = rows.reduce((s, r) => s + Math.max(0, r.rev), 0);
   const tot: Row = rows.reduce<Row>((t, r) => ({
     label: "Total", n: t.n + r.n, pot: t.pot + r.pot, bought: t.bought + r.bought, boughtPy: t.boughtPy + r.boughtPy,
-    rev: t.rev + r.rev, revPy: t.revPy + r.revPy, revPot: t.revPot + r.revPot, newC: t.newC + r.newC, newCPy: t.newCPy + r.newCPy,
-  }), { label: "Total", n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0 });
+    rev: t.rev + r.rev, revPy: t.revPy + r.revPy, revPot: t.revPot + r.revPot, newC: t.newC + r.newC, newCPy: t.newCPy + r.newCPy, oi: t.oi + r.oi, oiPy: t.oiPy + r.oiPy,
+  }), { label: "Total", n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0, oi: 0, oiPy: 0 });
   if (onlineTotal) { tot.online = onlineShare(onlineTotal.all, onlineTotal.web); tot.onlinePy = onlineShare(onlineTotal.allPy, onlineTotal.webPy); }
   const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
   const cols: Col[] = [
@@ -610,7 +611,9 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+  /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
+  id?: string;
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -632,7 +635,7 @@ function FilterWindow({ open, onClose, focus, cube, win, setWin, filters, toggle
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [focus]);
   return (
-    <FilterPanel id="customers-filters" open={open} onClose={onClose}
+    <FilterPanel id={id} open={open} onClose={onClose}
       subtitle={chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}
       onClearAll={chosen.length ? clearAll : undefined}
       chips={chosen.length > 0 ? chosen.map(([x, v]) => (

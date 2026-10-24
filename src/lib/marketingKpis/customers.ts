@@ -13,10 +13,12 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { chainHistory } from "@/lib/connectors/chainStatus";
-import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
+import { MONTHS, monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
+import { teamOf } from "@/lib/datatracker/rosters";
 import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
-const KEY = "marketingKpis:customers:v7";
+// v8: order intake per month beside the revenue, and each sales rep's team (the ESO reports' Figures, 24.10.2026)
+const KEY = "marketingKpis:customers:v8";
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -68,7 +70,9 @@ async function build(): Promise<Cube> {
   reportProgress(KEY, "reading the owners");
   const owners = await ownerNames();
 
-  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`)];
+  // order intake per month as the nightly revenue load writes it (oi_2026_jan…) - 36 names, well inside the address's 2 KB
+  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`))];
+  const teams: Record<string, string> = {};
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
     let i = labels[d].indexOf(v);
@@ -94,10 +98,12 @@ async function build(): Promise<Cube> {
       });
       const potential = num(p.yearly_customer_potential);
       const l = labelsOf(p, owners);
+      if (p.hubspot_owner_id && !teams[l.owner]) teams[l.owner] = teamOf(p.hubspot_owner_id) ?? "Other";
       companies.push({
         dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
         potential, months,
         firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
+        intake: years.map((y) => MONTHS.map((m) => num(p[`oi_${y}_${m}`]) ?? 0)),
       });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
@@ -113,5 +119,5 @@ async function build(): Promise<Cube> {
   const running = reach.getUTCFullYear() === year && reach.getUTCMonth() >= loaded[0]
     ? { month: monthOf(0, reach.getUTCMonth()), day: reach.getUTCDate(), days: new Date(Date.UTC(year, reach.getUTCMonth() + 1, 0)).getUTCDate() }
     : null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, ...fold(companies) };
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, ...fold(companies) };
 }

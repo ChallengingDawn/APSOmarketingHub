@@ -176,3 +176,27 @@ test("new customers: a first order ever in the window, against the same months a
   const y2 = totals(c, {}, presets(c)[0].win);
   assert.equal(Math.round(y2.newCPy * 1000) / 1000, Math.round((1 + 12 / 31) * 1000) / 1000);
 });
+
+test("order intake beside the revenue (the ESO reports' Figures): summed over the window against the same months a year earlier, the month in progress pro rata, month by month", async () => {
+  const { byMonth } = await import("../src/lib/marketingKpis/cube");
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const dims = (owner: string) => Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "owner" ? owner : "x")])) as Record<Dim, number>;
+  const companies: CompanyIn[] = [
+    { dims: dims("Anna"), potential: null, months: [months({ 0: 100 }), months({ 0: 80 }), months()], intake: [months({ 0: 90, 9: 40 }), months({ 0: 70, 9: 100 }), months()] },
+    { dims: dims("Ben"), potential: null, months: [months(), months(), months()], intake: [months({ 1: 10 }), months({ 1: 20 }), months()] },
+  ];
+  // October in progress: 10 of 31 days
+  const c: Cube = { generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: { month: monthOf(0, 9), day: 10, days: 31 }, labels, teams: { Anna: "ESO", Ben: "TSA" }, ...fold(companies) };
+  const all = totals(c, {}, { start: monthOf(0, 0), end: monthOf(0, 9) });
+  assert.equal(all.oi, 140);
+  // last year: January 70 + February 20 in full, October 100 pro rata 10/31
+  assert.equal(Math.round(all.oiPy * 100) / 100, Math.round((90 + (100 * 10) / 31) * 100) / 100);
+  assert.equal(totals(c, { owner: ["Ben"] }, { start: monthOf(0, 0), end: monthOf(0, 9) }).oi, 10);
+  assert.deepEqual(breakdown(c, "owner", {}, { start: monthOf(0, 0), end: monthOf(0, 0) }).map((r) => [r.label, r.oi, r.oiPy]), [["Anna", 90, 70], ["Ben", 0, 0]]);
+  const m = byMonth(c, {});
+  assert.equal(m.length, 10);
+  assert.deepEqual([m[0].rev, m[0].revPy, m[0].oi, m[0].oiPy], [100, 80, 90, 70]);
+  assert.equal(m[9].oi, 40);
+  assert.equal(c.teams!.Ben, "TSA");
+});

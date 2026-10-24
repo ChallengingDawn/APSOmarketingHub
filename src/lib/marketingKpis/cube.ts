@@ -44,6 +44,10 @@ export type Cube = {
   buyers: number[][];
   /** [cell, month number, companies whose first order ever falls in that month] - the new customers */
   newCustomers: number[][];
+  /** [cell, year index, order intake Jan…Dec] - as revenue; the ESO reports' Figures (SARCLA 24.10.2026: "OI MTD, OI YTD as the revenue") */
+  intake?: number[][];
+  /** the team of each sales rep, by the name the cube carries: "ESO", "TSA", "Other" (rosters.ts) - the Figures' ESO | TSA | Total */
+  teams?: Record<string, string>;
 };
 
 /**
@@ -56,7 +60,7 @@ export type Win = { start: number; end: number };
 export type Filters = Partial<Record<Dim, string[]>>;
 /** The dimensions with at least one value chosen. */
 export const chosenDims = (f: Filters): Dim[] => DIMS.filter((d) => (f[d]?.length ?? 0) > 0);
-export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number; newC: number; newCPy: number };
+export type Agg = { n: number; pot: number; bought: number; boughtPy: number; rev: number; revPy: number; revPot: number; newC: number; newCPy: number; oi: number; oiPy: number };
 /** A row of one breakdown; the online share (KPI C06) joins it on the page once its own read is in. */
 export type Row = Agg & { label: string; online?: number | null; onlinePy?: number | null };
 
@@ -104,13 +108,15 @@ export type CompanyIn = {
   months: number[][];
   /** the month number of the company's first order ever, when it falls in the three years; null otherwise */
   firstMonth?: number | null;
+  /** order intake per month, per year index, as `months` */
+  intake?: number[][];
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */
-export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers"> {
+export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake"> {
   const cellIx = new Map<string, number>();
   const cells: number[][] = [];
-  const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>();
+  const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>(), oi = new Map<string, number[]>();
   for (const c of companies) {
     const idx = DIMS.map((d) => c.dims[d]);
     const key = idx.join(",");
@@ -140,6 +146,13 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       const b = buyers.get(k);
       if (b) b[3] += 1; else buyers.set(k, [ci, lo, hi, 1]);
     }
+    (c.intake ?? []).forEach((months, y) => {
+      if (!months.some((x) => x !== 0)) return;
+      const k = `${ci},${y}`;
+      let r = oi.get(k);
+      if (!r) { r = [ci, y, ...Array(12).fill(0)]; oi.set(k, r); }
+      months.forEach((x, m) => { r![2 + m] += x; });
+    });
     if (c.firstMonth != null && c.firstMonth >= 0 && c.firstMonth <= 35) {
       const k = `${ci},${c.firstMonth}`;
       const f = fresh.get(k);
@@ -147,12 +160,12 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
     }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
-  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()] };
+  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]) };
 }
 
 /* ── slicing ──────────────────────────────────────────────────────────── */
 
-const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0 });
+const zero = (): Agg => ({ n: 0, pot: 0, bought: 0, boughtPy: 0, rev: 0, revPy: 0, revPot: 0, newC: 0, newCPy: 0, oi: 0, oiPy: 0 });
 
 /**
  * Everything the filters leave in the window, against the same months a year
@@ -194,6 +207,18 @@ function aggregate(cube: Cube, filters: Filters, win: Win, groupBy?: Dim): Map<n
     }
     if (cur || prev) { const a = at(r[0]); a.rev += cur; a.revPot += cur; a.revPy += prev; }
   }
+  // order intake: as revenue, last year's month in progress pro rata too
+  for (const r of cube.intake ?? []) {
+    if (!ok[r[0]]) continue;
+    const base = monthOf(r[1], 0);
+    let cur = 0, prev = 0;
+    for (let m = 0; m < 12; m++) {
+      const k = base + m;
+      if (k >= start && k <= end) cur += r[2 + m];
+      if (k >= ps && k <= pe) prev += r[2 + m] * (k === pyRun ? share : 1);
+    }
+    if (cur || prev) { const a = at(r[0]); a.oi += cur; a.oiPy += prev; }
+  }
   for (const r of cube.revenueNoPot) {
     if (!ok[r[0]]) continue;
     const base = monthOf(r[1], 0);
@@ -230,7 +255,7 @@ export function breakdown(cube: Cube, dim: Dim, filters: Filters, win: Win): Row
   return sortRows(rows, "natural", dim);
 }
 
-export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "newC" | "newCPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow" | "online";
+export type SortKey = "natural" | "label" | "n" | "bought" | "boughtPy" | "newC" | "newCPy" | "rev" | "revPy" | "diff" | "change" | "share" | "sow" | "online" | "oi" | "oiPy";
 export const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
 /** Every sort is largest first except the name; `desc: false` turns it round. */
 export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[] {
@@ -240,6 +265,7 @@ export function sortRows(rows: Row[], key: SortKey, dim: Dim, desc = true): Row[
     diff: (r) => r.rev - r.revPy, change: (r) => change(r.rev, r.revPy) ?? -Infinity, share: (r) => r.rev,
     sow: (r) => (r.pot > 0 ? r.revPot / r.pot : -Infinity),
     online: (r) => r.online ?? -Infinity,
+    oi: (r) => r.oi, oiPy: (r) => r.oiPy,
   };
   const dir = desc ? 1 : -1;
   // names compare as people read them: APIC 1.1.9 before 1.1.10
@@ -326,4 +352,21 @@ export function clampWindow(cube: Cube, w: Win): Win {
   const start = Math.min(Math.max(FIRST_MONTH, Math.round(w.start)), last);
   const end = Math.min(Math.max(start, Math.round(w.end)), last);
   return { start, end };
+}
+
+/* ── month by month (the ESO reports' Figures) ────────────────────────── */
+
+export type MonthFig = { month: number; rev: number; revPy: number; oi: number; oiPy: number };
+/**
+ * This year month by month to the last month read, under the filters: revenue and order intake against the same
+ * month a year earlier - the month in progress against last year's pro rata, as everywhere on the cube.
+ */
+export function byMonth(cube: Cube, filters: Filters): MonthFig[] {
+  const jan = monthOf(0, 0), last = lastMonth(cube);
+  const out: MonthFig[] = [];
+  for (let k = jan; k <= last; k++) {
+    const a = totals(cube, filters, { start: k, end: k });
+    out.push({ month: k, rev: a.rev, revPy: a.revPy, oi: a.oi, oiPy: a.oiPy });
+  }
+  return out;
 }

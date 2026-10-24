@@ -1,17 +1,22 @@
 "use client";
-// THE ESO REPORTS' FIGURES - first in the BUC View and the first page (SARCLA 24.10.2026: "first on BUC View, and also
-// a tab, Figures - it should be simple to read: revenue per month per ESO; a toggle ESO | TSA | TOTAL, on click change
-// all; OI MTD, OI YTD as the revenue; to forecast" - the forecast "on total per month, as it is today on the dashboard").
-// Total is the company's own series, the one SARCLA's HubSpot dashboard reads; ESO and TSA are their people's
-// customers, summed (src/lib/reporting/esoFigures.ts). Drawn as the other ESO pages: title, figures top right, tabs
-// with Views, each tab its charts then all the figures; every chart with Actions, so it can go to the BUC View.
+// THE ESO REPORTS' FIGURES - first in the BUC View and the first page (SARCLA 24.10.2026: "simple to read: revenue per
+// month per ESO; a toggle ESO | TSA | TOTAL, on click change all; OI MTD, OI YTD as the revenue; to forecast" - the
+// forecast "on total per month, as it is today on the dashboard"). Second version the same day (SARCLA: "the toggle
+// should follow the design of Digital Growth; rethink the graphics, this is far from good; the filters should be
+// country and the others, as in Digital Growth"): built on Who are our customers' cube and drawn as that page -
+// the same Filters window and periods, a tab per breakdown, revenue and order intake side by side as its charts,
+// then all the figures; ESO | TSA | Total as its tabs are drawn. The forecast (the ERP's, the whole company) is the
+// KPI series the HubSpot dashboard reads (src/lib/reporting/esoFigures.ts), shown on Total with nothing filtered.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import TuneIcon from "@mui/icons-material/Tune";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
@@ -19,256 +24,244 @@ import ShoppingBagOutlinedIcon from "@mui/icons-material/ShoppingBagOutlined";
 import TodayOutlinedIcon from "@mui/icons-material/TodayOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
-import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 
 import { GUTTER } from "@/app/analytics/Shell";
-import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
+import { Badge, CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { DimChart, THIS, BEFORE } from "@/app/reporting/marketing-kpis/DimChart";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
 import { Table } from "@/app/reporting/marketing-kpis/ExplorerKit";
+import { DIM, FilterWindow, useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, refreshActions, send, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
-import type { Book, EsoFigures, MPair } from "@/lib/reporting/esoFiguresRules";
-import { ChartBox, Change, Figures as FigureCards, chg, type EsoFigure } from "./EsoKit";
-import { money, moneyShort, n0 } from "./shared";
+import {
+  DIMS, MONTH_NAMES, breakdown, byMonth, chosenDims, clampWindow, defaultWindow, lastComplete, monthOf, partial, presets, sortRows, totals, windowLabel,
+  yearOfMonth, type Agg, type Cube, type Dim, type Filters, type Win,
+} from "@/lib/marketingKpis/cube";
+import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
+import { ChartBox } from "./EsoKit";
 
-/* ── the read ──────────────────────────────────────────────────────────── */
+/* ── the forecast's read: the company's own series ─────────────────────── */
 
-type State = { ok?: boolean; value?: EsoFigures; computing?: boolean; progress?: string; computedAt?: string; error?: string };
-export function useFigures(): State | null {
-  const [state, setState] = useState<State | null>(null);
+type KpiState = { ok?: boolean; value?: EsoFigures; computing?: boolean; error?: string };
+function useKpiSeries(): EsoFigures | null {
+  const [v, setV] = useState<EsoFigures | null>(null);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = () => fetch("/api/reporting/eso-figures").then((r) => r.json())
-      .then((j: State) => { if (!alive) return; setState(j); if (j.computing) timer = setTimeout(load, 5000); })
-      .catch((e) => { if (alive) setState({ error: String(e) }); });
+      .then((j: KpiState) => { if (!alive) return; if (j.value) setV(j.value); if (j.computing) timer = setTimeout(load, 5000); })
+      .catch(() => {});
     load();
     return () => { alive = false; if (timer) clearTimeout(timer); };
   }, []);
-  return state;
+  return v;
 }
 
-/* ── one team's figures ────────────────────────────────────────────────── */
+/* ── ESO | TSA | Total ─────────────────────────────────────────────────── */
 
 export type TeamKey = "eso" | "tsa" | "total";
-export const TEAMS: { id: TeamKey; label: string }[] = [{ id: "eso", label: "ESO" }, { id: "tsa", label: "TSA" }, { id: "total", label: "Total" }];
-const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** A row of the breakdown: a person (ESO, TSA) or a team (Total). Its months: null where not loaded yet. */
-type Row = { key: string; label: string; rev: (MPair | null)[]; oi: (MPair | null)[]; revMtd: MPair; revYtd: MPair; oiMtd: MPair; oiYtd: MPair; companies: number };
-export type FigView = {
-  team: TeamKey; d: EsoFigures;
-  /** the running month, 0-based: its figures are month-to-date */
-  m: number;
-  rev: MPair[]; oi: (MPair | null)[]; revMtd: MPair; revYtd: MPair; oiMtd: MPair; oiYtd: MPair;
-  /** Total only: the ERP forecast, 12 months */
-  forecast: number[] | null;
-  rows: Row[];
-  /** "Jan–Oct 2026" */
-  cy: string; py: string;
-};
-const sum = (ps: MPair[]): MPair => ps.reduce((t, p) => ({ cy: t.cy + p.cy, py: t.py + p.py }), { cy: 0, py: 0 });
-const z = (): MPair => ({ cy: 0, py: 0 });
-
-function rowOf(key: string, label: string, books: Book[], d: EsoFigures): Row {
-  const m = d.month - 1;
-  const rev = Array.from({ length: m + 1 }, (_, i) => sum(books.map((b) => b.rev.months[i])));
-  // order intake per customer is loaded month by month behind the ERP: a month not loaded yet is "—", the running month is the ERP's
-  const oi = Array.from({ length: m + 1 }, (_, i) => (i < d.oiMonths || i === m ? sum(books.map((b) => b.oi.months[i])) : null));
-  return {
-    key, label, rev, oi, companies: books.reduce((s, b) => s + b.companies, 0),
-    revMtd: sum(books.map((b) => b.rev.mtd)), revYtd: sum(books.map((b) => b.rev.ytd)), oiMtd: sum(books.map((b) => b.oi.mtd)), oiYtd: sum(books.map((b) => b.oi.ytd)),
-  };
+const TEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "tsa", label: "TSA", count: null }, { id: "total", label: "Total", count: null }];
+const TEAM_OF: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
+const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
+/** The sales reps of a team, as the cube names them; null for Total. */
+const teamOwners = (cube: Cube, team: TeamKey) => (team === "total" ? null : cube.labels.owner.filter((l) => cube.teams?.[l] === TEAM_OF[team]));
+/** The filters with the team: its sales reps, or those of them chosen; nothing when none of the chosen is in the team. */
+function withTeam(cube: Cube, filters: Filters, team: TeamKey): Filters {
+  const owners = teamOwners(cube, team);
+  if (!owners) return filters;
+  const chosen = filters.owner?.length ? filters.owner.filter((o) => owners.includes(o)) : owners;
+  return { ...filters, owner: chosen.length ? chosen : ["\u0000 none"] };
 }
 
-export function viewOf(d: EsoFigures, team: TeamKey): FigView {
-  const m = d.month - 1;
-  const cy = `Jan–${MONTH[m]} ${d.year}`, py = `Jan–${MONTH[m]} ${d.py}`;
-  if (team === "total") {
-    const rev = d.total.rev, oi = d.total.oi;
-    const groups: [string, string, Book["team"][]][] = [["ESO", "ESO", ["ESO"]], ["TSA", "TSA", ["TSA"]], ["Other", "Other owners", ["Other"]], ["None", "No owner", ["None"]]];
-    return {
-      team, d, m, cy, py, rev, oi, forecast: d.total.forecast,
-      revMtd: rev[m] ?? z(), revYtd: sum(rev.slice(0, m + 1)), oiMtd: oi[m] ?? z(), oiYtd: sum(oi.slice(0, m + 1)),
-      rows: groups.map(([key, label, teams]) => rowOf(key, label, d.books.filter((b) => teams.includes(b.team)), d)).filter((r) => r.companies > 0),
-    };
-  }
-  const books = d.books.filter((b) => b.team === (team === "eso" ? "ESO" : "TSA"));
-  const all = rowOf("all", "", books, d);
-  return {
-    team, d, m, cy, py, rev: all.rev as MPair[], oi: all.oi, forecast: null,
-    revMtd: all.revMtd, revYtd: all.revYtd, oiMtd: all.oiMtd, oiYtd: all.oiYtd,
-    rows: books.map((b) => rowOf(b.id, b.active ? b.name : `${b.name} (left)`, [b], d)).sort((a, b) => b.revYtd.cy - a.revYtd.cy),
-  };
-}
-
-const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : t === "eso" ? "ESO" : "TSA");
-const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
-/** "Oct to the 23rd" - how far the running month goes */
-const asOfWords = (d: EsoFigures) => (d.asOf ? `${MONTH[d.month - 1]} to the ${ordinal(Number(d.asOf.slice(8, 10)))}` : `${MONTH[d.month - 1]} so far`);
-/** The forecast of the completed months, and the revenue against it. */
-const forecastDone = (v: FigView) => {
-  if (!v.forecast) return null;
-  const fc = v.forecast.slice(0, v.m).reduce((s, x) => s + x, 0);
-  const rev = v.rev.slice(0, v.m).reduce((s, p) => s + p.cy, 0);
-  return { fc, rev, pct: fc ? rev / fc : null, monthFc: v.forecast[v.m] ?? 0 };
-};
-const pctOf = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
-
-/* ── the pieces ────────────────────────────────────────────────────────── */
-
-/** ESO | TSA | Total - a click changes every figure of the page. */
+/** ESO | TSA | Total, drawn as the pages' tabs - a click changes every figure. */
 export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKey) => void }) {
+  return <Box sx={{ justifySelf: "start" }}><ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TEAMS} /></Box>;
+}
+
+/* ── words and numbers, in full (as Who are our customers) ─────────────── */
+
+const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
+const int = (n: number) => Math.round(n).toLocaleString("en");
+const changeOf = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
+const signedPct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x * 100).toFixed(1)}%`);
+const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
+const Chg = ({ a, b }: { a: number; b: number }) => <Box component="span" sx={{ fontWeight: 700, color: tone(changeOf(a, b)) }}>{b ? signedPct(changeOf(a, b)) : "—"}</Box>;
+const ym = (cube: Cube, k: number) => `${yearOfMonth(cube, k)}-${String((k % 12) + 1).padStart(2, "0")}`;
+const fromYm = (cube: Cube, s: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(s ?? "");
+  return m ? (Number(m[1]) - cube.years[2]) * 12 + Number(m[2]) - 1 : null;
+};
+/** The month in progress, as "Oct to the 23rd"; null when the data end with a whole month. */
+function runningWords(cube: Cube): string | null {
+  const run = partial(cube);
+  if (!run) return null;
+  const d = run.day, th = d % 100 >= 11 && d % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][d % 10] ?? "th";
+  return `${MONTH_NAMES[run.month % 12]} to the ${d}${th}`;
+}
+
+/* ── the figures top right: revenue and order intake, year and month to date ── */
+
+/** The windows the four figures stand on: the year to date, and the month to date (the last month when it is complete). */
+function fixedWindows(cube: Cube) {
+  const p = presets(cube);
+  const ytd = defaultWindow(cube);
+  const mtd = p.find((x) => x.id === "mtd")?.win ?? p.find((x) => x.id === "lm")!.win;
+  return { ytd, mtd, mtdName: p.some((x) => x.id === "mtd") ? "MTD" : MONTH_NAMES[mtd.end % 12] };
+}
+
+/** Completed months of this year: the company's revenue (ERP series) against the ERP's forecast. */
+function againstForecast(cube: Cube, kpi: EsoFigures | null) {
+  if (!kpi) return null;
+  const done = lastComplete(cube) - monthOf(0, 0) + 1;
+  if (done < 1) return null;
+  const fc = kpi.total.forecast.slice(0, done).reduce((s, x) => s + x, 0);
+  const rev = kpi.total.rev.slice(0, done).reduce((s, p) => s + p.cy, 0);
+  return fc ? { fc, rev, reached: rev / fc, through: MONTH_NAMES[(done - 1) % 12] } : null;
+}
+
+type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint };
+export function figuresOf(cube: Cube, eff: Filters, forecast: ReturnType<typeof againstForecast>): Fig[] {
+  const { ytd, mtd, mtdName } = fixedWindows(cube);
+  const y = totals(cube, eff, ytd), m = totals(cube, eff, mtd);
+  const out: Fig[] = [
+    { label: "Revenue YTD", value: eur(y.rev), ch: changeOf(y.rev, y.revPy), sub: `a year earlier: ${eur(y.revPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
+    { label: `Revenue ${mtdName}`, value: eur(m.rev), ch: changeOf(m.rev, m.revPy), sub: `a year earlier: ${eur(m.revPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
+    { label: "Order intake YTD", value: eur(y.oi), ch: changeOf(y.oi, y.oiPy), sub: `a year earlier: ${eur(y.oiPy)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
+    { label: `Order intake ${mtdName}`, value: eur(m.oi), ch: changeOf(m.oi, m.oiPy), sub: `a year earlier: ${eur(m.oiPy)}`, icon: <TodayOutlinedIcon />, tint: "purple" },
+  ];
+  if (forecast) out.push({ label: "Against forecast", value: `${(forecast.reached * 100).toFixed(1)}%`, sub: `Jan–${forecast.through}: ${eur(forecast.rev)} of ${eur(forecast.fc)}`, icon: <FlagOutlinedIcon />, tint: "amber" });
+  return out;
+}
+
+/** The figures, each in a small card - Who are our customers' KpiCards. */
+function FigureCards({ items }: { items: Fig[] }) {
   return (
-    <Box role="group" aria-label="Whose figures" sx={{ display: "inline-flex", p: 0.5, gap: 0.5, borderRadius: "14px", bgcolor: "rgba(255,255,255,.75)", border: `1px solid ${HAIRLINE}`, justifySelf: "start" }}>
-      {TEAMS.map((t) => {
-        const on = t.id === team;
-        return (
-          <Box key={t.id} component="button" type="button" onClick={() => onTeam(t.id)} aria-pressed={on}
-            sx={{ border: 0, font: "inherit", fontSize: "0.88rem", fontWeight: 700, px: 2.25, py: 0.85, borderRadius: "10px", cursor: "pointer", color: on ? "#fff" : INK, bgcolor: on ? TINT.blue.fg : "transparent", "&:hover": { bgcolor: on ? TINT.blue.fg : "rgba(21,34,58,.05)" } }}>
-            {t.label}
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${items.length}, minmax(124px, 172px))` }, flex: "0 1 auto" }}>
+      {items.map((it) => (
+        <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Badge icon={it.icon} tint={it.tint} size={22} />
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{it.label}</Typography>
           </Box>
-        );
-      })}
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
+            {it.ch !== undefined && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
+          </Box>
+          <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{it.sub}</Typography>
+        </Box>
+      ))}
     </Box>
   );
 }
 
-export function figureItems(v: FigView): EsoFigure[] {
-  const f = forecastDone(v);
-  const items: EsoFigure[] = [
-    { label: "Revenue MTD", icon: <TodayOutlinedIcon />, tint: "purple", value: moneyShort(v.revMtd.cy), d: chg(v.revMtd), sub: `${moneyShort(v.revMtd.py)} the same days last year` },
-    { label: "Revenue YTD", icon: <EuroOutlinedIcon />, tint: "purple", value: moneyShort(v.revYtd.cy), d: chg(v.revYtd), sub: `${moneyShort(v.revYtd.py)} last year` },
-    { label: "Order intake MTD", icon: <TodayOutlinedIcon />, tint: "blue", value: moneyShort(v.oiMtd.cy), d: chg(v.oiMtd), sub: `${moneyShort(v.oiMtd.py)} the same days last year` },
-    { label: "Order intake YTD", icon: <ShoppingBagOutlinedIcon />, tint: "blue", value: moneyShort(v.oiYtd.cy), d: chg(v.oiYtd), sub: `${moneyShort(v.oiYtd.py)} last year` },
-  ];
-  if (f) items.push({ label: "Against forecast", icon: <FlagOutlinedIcon />, tint: "amber", value: pctOf(f.pct), d: null, sub: `Jan–${MONTH[v.m - 1] ?? "—"}: ${moneyShort(f.rev)} of ${moneyShort(f.fc)}` });
-  return items;
-}
+/* ── the charts, by key "<tab>:<chart>": the page draws them, and so does the BUC View ── */
 
-/** Month by month: this year's bars against last year's - and, on Total, the forecast as a line, the whole year. */
-function MonthsChart({ v, which, half }: { v: FigView; which: "rev" | "oi"; half?: boolean }) {
-  const fc = which === "rev" ? v.forecast : null;
-  const last = fc ? 11 : v.m;
-  const ps = which === "rev" ? v.rev : v.oi;
-  const data = MONTH.slice(0, last + 1).map((x, i) => ({
-    x: i === v.m ? `${x}*` : x,
-    cy: i <= v.m ? ps[i]?.cy ?? null : null, py: i <= v.m ? ps[i]?.py ?? null : null,
-    ...(fc ? { fc: fc[i] ?? null } : {}),
-  }));
+const DIM_TABS: Dim[] = ["owner", "country", "prio", "segment", "type"];
+export type FigCtx = {
+  cube: Cube; kpi: EsoFigures | null; team: TeamKey;
+  /** the filters chosen, and with the team in them */
+  filters: Filters; eff: Filters; win: Win;
+  actions?: React.ReactNode; half?: boolean;
+  /** a bar picks its value (on the page) */
+  onPick?: (dim: Dim, label: string) => void; onFilter?: (dim: Dim) => void;
+};
+/** One breakdown under the filters and the team: a team's sales reps only on the Sales rep tab. */
+function rowsOf(c: FigCtx, dim: Dim) {
+  const rows = breakdown(c.cube, dim, c.eff, c.win);
+  const owners = dim === "owner" ? teamOwners(c.cube, c.team) : null;
+  const kept = owners ? rows.filter((r) => owners.includes(r.label)) : rows;
+  return dim === "prio" ? kept : sortRows(kept, "rev", dim);
+}
+const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
+
+function MonthColumns({ c, which }: { c: FigCtx; which: "rev" | "oi" }) {
+  const months = byMonth(c.cube, c.eff);
+  const run = partial(c.cube);
+  const data = months.map((m) => ({ x: `${MONTH_NAMES[m.month % 12]}${run && m.month === run.month ? "*" : ""}`, current: which === "rev" ? m.rev : m.oi, prior: which === "rev" ? m.revPy : m.oiPy, partial: !!run && m.month === run.month }));
   return (
-    <ResponsiveContainer width="100%" height={half ? 240 : 300}>
-      <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barGap={2} barCategoryGap="22%">
-        <CartesianGrid vertical={false} stroke="#e6e8ec" />
-        <XAxis dataKey="x" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: MUTED }} />
-        <YAxis tickFormatter={(x: number) => moneyShort(x)} tickLine={false} axisLine={false} width={64} tick={{ fontSize: 11.5, fill: MUTED }} />
-        <Tooltip formatter={(x: unknown, n: unknown) => [x == null ? "—" : money(Number(x)), String(n)]} contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
-        <Legend verticalAlign="top" align="left" height={28} iconType="circle" wrapperStyle={{ fontSize: "0.78rem" }} />
-        <Bar dataKey="cy" name={String(v.d.year)} fill={THIS} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
-        <Bar dataKey="py" name={String(v.d.py)} fill={BEFORE} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
-        {fc && <Line dataKey="fc" name={`Forecast ${v.d.year}`} stroke="#d99a2b" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3, fill: "#fff", stroke: "#d99a2b", strokeWidth: 2 }} isAnimationActive={false} />}
-      </ComposedChart>
-    </ResponsiveContainer>
+    <ChartFrame table={{ columns: ["Month", String(c.cube.years[0]), String(c.cube.years[1]), "Change"], rows: data.map((d) => [d.x, Math.round(d.current), Math.round(d.prior), signedPct(changeOf(d.current, d.prior))]), numeric: [1, 2] }}>
+      <GroupedColumns data={data} currentLabel={String(c.cube.years[0])} priorLabel={String(c.cube.years[1])} height={c.half ? 220 : 260} />
+    </ChartFrame>
   );
 }
+const monthNote = (c: FigCtx) => `${teamWord(c.team)} · ${c.cube.years[0]} month by month against ${c.cube.years[1]}${runningWords(c.cube) ? ` · ${runningWords(c.cube)}*, against the same days of ${c.cube.years[1]}` : ""}`;
 
-/** A figure per person (ESO, TSA) or per team (Total), this year against last. */
-function RowsChart({ v, title, pick, actions, half }: { v: FigView; title: string; pick: (r: Row) => MPair; actions?: React.ReactNode; half?: boolean }) {
-  const rows = v.rows.map((r) => ({ label: r.label, p: pick(r) }));
-  return <DimChart title={title} rows={rows} cur={(r) => r.p.cy} prev={(r) => r.p.py} curLabel={v.cy} prevLabel={v.py} fmt={moneyShort} fixedOrder={v.team === "total"} pageSize={half ? 6 : 12} actions={actions} />;
-}
-
-/* ── the charts, by key: the page draws them, and so does the BUC View ─── */
-
-const monthNote = (v: FigView, which: "rev" | "oi") => `${teamWord(v.team)} · ${MONTH[v.m]}* = ${asOfWords(v.d)}, against the same days of ${v.d.py}${which === "rev" && v.forecast ? " · the forecast: the ERP's, the whole company" : ""}${which === "oi" && v.team !== "total" && v.d.oiMonths < v.m ? ` · order intake per customer is loaded through ${MONTH[v.d.oiMonths - 1] ?? "—"}` : ""}`;
-export const FIG_CHARTS: Record<string, { title: (v: FigView) => string; draw: (v: FigView, actions?: React.ReactNode, half?: boolean) => React.ReactNode }> = {
-  "revenue:months": {
-    title: (v) => `Revenue per month - ${teamWord(v.team)}`,
-    draw: (v, actions, half) => <ChartBox title={`Revenue per month${v.forecast ? ", against the forecast" : ""} - ${teamWord(v.team)}`} note={monthNote(v, "rev")} actions={actions}><MonthsChart v={v} which="rev" half={half} /></ChartBox>,
+export const FIG_CHARTS: Record<string, { title: (c: FigCtx) => string; when?: (c: FigCtx) => boolean; draw: (c: FigCtx) => React.ReactNode }> = {
+  "months:revenue": { title: (c) => `Revenue per month - ${teamWord(c.team)}`, draw: (c) => <ChartBox title={`Revenue per month - ${teamWord(c.team)}`} note={monthNote(c)} actions={c.actions}><MonthColumns c={c} which="rev" /></ChartBox> },
+  "months:intake": { title: (c) => `Order intake per month - ${teamWord(c.team)}`, draw: (c) => <ChartBox title={`Order intake per month - ${teamWord(c.team)}`} note={monthNote(c)} actions={c.actions}><MonthColumns c={c} which="oi" /></ChartBox> },
+  "months:forecast": {
+    title: () => "Revenue against the forecast",
+    when: forecastShown,
+    draw: (c) => {
+      const k = c.kpi!;
+      const done = lastComplete(c.cube) - monthOf(0, 0) + 1;
+      const data = MONTH_NAMES.map((x, i) => ({ x, current: i < done ? k.total.rev[i].cy : 0, prior: k.total.forecast[i] ?? 0, partial: false }));
+      return (
+        <ChartBox title="Revenue against the forecast" note={`APSOparts · the completed months against the ERP's forecast, the whole year - the company's own series, as on the HubSpot dashboard`} actions={c.actions}>
+          <ChartFrame table={{ columns: ["Month", `Revenue ${k.year}`, `Forecast ${k.year}`, "Reached"], rows: data.map((d, i) => [d.x, i < done ? Math.round(d.current) : "—", Math.round(d.prior), i < done && d.prior ? `${((d.current / d.prior) * 100).toFixed(1)}%` : "—"]), numeric: [1, 2] }}>
+            <GroupedColumns data={data} currentLabel={`Revenue ${k.year}`} priorLabel={`Forecast ${k.year}`} height={c.half ? 220 : 260} />
+          </ChartFrame>
+        </ChartBox>
+      );
+    },
   },
-  "revenue:rows": {
-    title: (v) => (v.team === "total" ? "Revenue YTD per team" : `Revenue YTD per person - ${teamWord(v.team)}`),
-    draw: (v, actions, half) => <RowsChart v={v} title={v.team === "total" ? "Revenue YTD per team" : `Revenue YTD per person - ${teamWord(v.team)}`} pick={(r) => r.revYtd} actions={actions} half={half} />,
-  },
-  "oi:months": {
-    title: (v) => `Order intake per month - ${teamWord(v.team)}`,
-    draw: (v, actions, half) => <ChartBox title={`Order intake per month - ${teamWord(v.team)}`} note={monthNote(v, "oi")} actions={actions}><MonthsChart v={v} which="oi" half={half} /></ChartBox>,
-  },
-  "oi:rows": {
-    title: (v) => (v.team === "total" ? "Order intake YTD per team" : `Order intake YTD per person - ${teamWord(v.team)}`),
-    draw: (v, actions, half) => <RowsChart v={v} title={v.team === "total" ? "Order intake YTD per team" : `Order intake YTD per person - ${teamWord(v.team)}`} pick={(r) => r.oiYtd} actions={actions} half={half} />,
-  },
-  "mtd:revenue": {
-    title: (v) => `Revenue MTD per ${v.team === "total" ? "team" : "person"}`,
-    draw: (v, actions, half) => <RowsChart v={v} title={`Revenue MTD per ${v.team === "total" ? "team" : "person"} - ${MONTH[v.m]} to the same day`} pick={(r) => r.revMtd} actions={actions} half={half} />,
-  },
-  "mtd:oi": {
-    title: (v) => `Order intake MTD per ${v.team === "total" ? "team" : "person"}`,
-    draw: (v, actions, half) => <RowsChart v={v} title={`Order intake MTD per ${v.team === "total" ? "team" : "person"} - ${MONTH[v.m]} to the same day`} pick={(r) => r.oiMtd} actions={actions} half={half} />,
-  },
+  ...Object.fromEntries(DIM_TABS.flatMap((d) => [
+    [`${d}:revenue`, {
+      title: (c: FigCtx) => `Revenue, by ${DIM[d].lower} - ${teamWord(c.team)}`,
+      draw: (c: FigCtx) => <DimChart title={`Revenue, by ${DIM[d].lower} - ${teamWord(c.team)}`} rows={rowsOf(c, d)} cur={(r) => r.rev} prev={(r) => r.revPy} curLabel={windowLabel(c.cube, c.win)} prevLabel={windowLabel(c.cube, c.win, 1)}
+        fmt={eur} fixedOrder={d === "prio"} pageSize={c.half ? 6 : 12} selected={c.filters[d]} actions={c.actions}
+        onPick={c.onPick ? (l) => c.onPick!(d, l) : undefined} onFilter={c.onFilter ? () => c.onFilter!(d) : undefined} filterLabel={`Filter by ${DIM[d].lower}`} />,
+    }],
+    [`${d}:intake`, {
+      title: (c: FigCtx) => `Order intake, by ${DIM[d].lower} - ${teamWord(c.team)}`,
+      draw: (c: FigCtx) => <DimChart title={`Order intake, by ${DIM[d].lower} - ${teamWord(c.team)}`} rows={rowsOf(c, d)} cur={(r) => r.oi} prev={(r) => r.oiPy} curLabel={windowLabel(c.cube, c.win)} prevLabel={windowLabel(c.cube, c.win, 1)}
+        fmt={eur} fixedOrder={d === "prio"} pageSize={c.half ? 6 : 12} selected={c.filters[d]} actions={c.actions}
+        onPick={c.onPick ? (l) => c.onPick!(d, l) : undefined} onFilter={c.onFilter ? () => c.onFilter!(d) : undefined} filterLabel={`Filter by ${DIM[d].lower}`} />,
+    }],
+  ])),
 };
 
-/* ── the tables ────────────────────────────────────────────────────────── */
+/* ── all the figures ───────────────────────────────────────────────────── */
 
-const k = (x: number | null | undefined) => (x == null ? "—" : moneyShort(x));
-const dim = (s: string) => <Box component="span" sx={{ color: MUTED }}>{s}</Box>;
+const HEAD = ["Revenue", "A year earlier", "Change", "Order intake", "A year earlier", "Change"];
+const figCells = (a: Pick<Agg, "rev" | "revPy" | "oi" | "oiPy">) => [eur(a.rev), <Box key="r" component="span" sx={{ color: MUTED }}>{eur(a.revPy)}</Box>, <Chg key="rc" a={a.rev} b={a.revPy} />, eur(a.oi), <Box key="o" component="span" sx={{ color: MUTED }}>{eur(a.oiPy)}</Box>, <Chg key="oc" a={a.oi} b={a.oiPy} />];
 
-/** A row per person (or team) and a column per month, this year; then the year to date against last year's. */
-function PerMonth({ v, which }: { v: FigView; which: "rev" | "oi" }) {
-  const months = MONTH.slice(0, v.m + 1);
-  const ytd = (r: Row) => (which === "rev" ? r.revYtd : r.oiYtd);
-  const all = { months: which === "rev" ? v.rev : v.oi, ytd: which === "rev" ? v.revYtd : v.oiYtd };
+function MonthTable({ c }: { c: FigCtx }) {
+  const months = byMonth(c.cube, c.eff);
+  const run = partial(c.cube);
+  const all = totals(c.cube, c.eff, { start: monthOf(0, 0), end: months[months.length - 1]?.month ?? monthOf(0, 0) });
   return (
-    <Table head={[v.team === "total" ? "Team" : "Person", ...months.map((x, i) => (i === v.m ? `${x}*` : x)), "YTD", "Last year", "Change"]}
-      firstWidth="minmax(170px, 1.6fr)" widths={[...months.map(() => "minmax(62px, .7fr)"), "minmax(80px, 1fr)", "minmax(80px, 1fr)", "minmax(76px, .8fr)"]} minWidth={190 + months.length * 66 + 260}
+    <Table head={["Month", ...HEAD]} firstWidth="minmax(150px, 1.2fr)" minWidth={170 + 6 * 120}
       rows={[
-        ...v.rows.map((r) => ({ key: r.key, cells: [r.label, ...(which === "rev" ? r.rev : r.oi).map((p) => k(p?.cy)), k(ytd(r).cy), dim(k(ytd(r).py)), <Change key="c" p={ytd(r)} />] })),
-        { key: "total", strong: true, cells: [v.team === "total" ? "APSOparts (the ERP's series)" : `All ${teamWord(v.team)}`, ...all.months.slice(0, v.m + 1).map((p) => k(p?.cy)), k(all.ytd.cy), k(all.ytd.py), <Change key="c" p={all.ytd} />] },
+        ...months.map((m) => ({ key: String(m.month), cells: [run && m.month === run.month ? `${MONTH_NAMES[m.month % 12]}* (${runningWords(c.cube)})` : MONTH_NAMES[m.month % 12], ...figCells(m)] })),
+        { key: "total", strong: true, cells: [`${windowLabel(c.cube, { start: monthOf(0, 0), end: months[months.length - 1]?.month ?? monthOf(0, 0) })}`, ...figCells(all)] },
       ]} />
   );
 }
 
-/** Total: month by month - revenue, last year, the forecast and how much of it was reached. */
-function AgainstForecast({ v }: { v: FigView }) {
-  const fc = v.forecast ?? [];
+function DimTable({ c, dim, onPick }: { c: FigCtx; dim: Dim; onPick?: (label: string) => void }) {
+  // a value with nothing in either year (81 countries on file, half of them empty) is no row - unless it is chosen
+  const rows = rowsOf(c, dim).filter((r) => r.rev || r.revPy || r.oi || r.oiPy || r.bought || c.filters[dim]?.includes(r.label));
+  // the total of the rows shown, as on Who are our customers (a breakdown shows all its values, its own filter only lights them)
+  const all = rows.reduce((t, r) => ({ rev: t.rev + r.rev, revPy: t.revPy + r.revPy, oi: t.oi + r.oi, oiPy: t.oiPy + r.oiPy, bought: t.bought + r.bought }), { rev: 0, revPy: 0, oi: 0, oiPy: 0, bought: 0 });
   return (
-    <Table head={["Month", `Revenue ${v.d.year}`, String(v.d.py), "Change", "Forecast", "Reached"]} firstWidth="minmax(110px, 1fr)"
+    <Table head={[DIM[dim].name, ...HEAD, "Companies that bought"]} firstWidth="minmax(200px, 1.8fr)" minWidth={220 + 7 * 120}
       rows={[
-        ...MONTH.map((x, i) => ({
-          key: x, cells: [i === v.m ? `${x}* (${asOfWords(v.d)})` : x, i <= v.m ? money(v.rev[i]?.cy ?? 0) : "—", i <= v.m ? dim(money(v.rev[i]?.py ?? 0)) : "—", i <= v.m ? <Change key="c" p={v.rev[i] ?? z()} /> : "—",
-            fc[i] ? money(fc[i]) : "—", i < v.m && fc[i] ? <Reached key="r" x={(v.rev[i]?.cy ?? 0) / fc[i]} /> : i === v.m && fc[i] ? <Box key="r" component="span" sx={{ color: FAINT }}>{pctOf((v.rev[i]?.cy ?? 0) / fc[i])} so far</Box> : "—"],
-        })),
-        (() => { const f = forecastDone(v)!; return { key: "done", strong: true, cells: [`Jan–${MONTH[v.m - 1] ?? "—"}`, money(f.rev), money(v.rev.slice(0, v.m).reduce((s, p) => s + p.py, 0)), <Change key="c" p={sum(v.rev.slice(0, v.m))} />, money(f.fc), <Reached key="r" x={f.pct ?? NaN} />] }; })(),
-      ]} />
-  );
-}
-function Reached({ x }: { x: number }) {
-  return <Box component="span" sx={{ fontWeight: 700, color: !Number.isFinite(x) ? FAINT : x >= 1 ? GREEN : x >= 0.95 ? MUTED : RED }}>{pctOf(x)}</Box>;
-}
-
-/** Month and year to date, revenue and order intake, per person (or team). */
-function MtdYtd({ v }: { v: FigView }) {
-  return (
-    <Table head={[v.team === "total" ? "Team" : "Person", "Revenue MTD", "Last year", "Revenue YTD", "Last year", "Change", "Order intake MTD", "Last year", "Order intake YTD", "Last year", "Change"]}
-      firstWidth="minmax(170px, 1.6fr)" minWidth={190 + 10 * 96}
-      rows={[
-        ...v.rows.map((r) => ({ key: r.key, cells: [r.label, k(r.revMtd.cy), dim(k(r.revMtd.py)), k(r.revYtd.cy), dim(k(r.revYtd.py)), <Change key="a" p={r.revYtd} />, k(r.oiMtd.cy), dim(k(r.oiMtd.py)), k(r.oiYtd.cy), dim(k(r.oiYtd.py)), <Change key="b" p={r.oiYtd} />] })),
-        { key: "total", strong: true, cells: [v.team === "total" ? "APSOparts (the ERP's series)" : `All ${teamWord(v.team)}`, k(v.revMtd.cy), k(v.revMtd.py), k(v.revYtd.cy), k(v.revYtd.py), <Change key="a" p={v.revYtd} />, k(v.oiMtd.cy), k(v.oiMtd.py), k(v.oiYtd.cy), k(v.oiYtd.py), <Change key="b" p={v.oiYtd} />] },
+        ...rows.map((r) => ({ key: r.label, on: c.filters[dim]?.includes(r.label), onPick: onPick ? () => onPick(r.label) : undefined, cells: [r.label, ...figCells(r), int(r.bought)] })),
+        { key: "total", strong: true, cells: ["Total", ...figCells(all), int(all.bought)] },
       ]} />
   );
 }
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
-const TABS = [
-  { id: "revenue", label: "Revenue" },
-  { id: "oi", label: "Order intake" },
-  { id: "mtd", label: "MTD & YTD" },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
+type View = "months" | Dim;
+const TABS: { id: View; label: string }[] = [{ id: "months", label: "Months" }, ...DIM_TABS.map((d) => ({ id: d as View, label: DIM[d].name }))];
 const KEPT = "eso.team";
 function setQuery(mut: (q: URLSearchParams) => void) {
   const q = new URLSearchParams(window.location.search);
@@ -284,20 +277,20 @@ function useTeam(): [TeamKey, (t: TeamKey) => void] {
   useEffect(() => { try { const x = localStorage.getItem(KEPT); if (x === "eso" || x === "tsa" || x === "total") setKept(x); } catch { /* a private window starts on ESO */ } }, []);
   const team: TeamKey = asked === "eso" || asked === "tsa" || asked === "total" ? asked : kept ?? "eso";
   const set = (t: TeamKey) => {
-    setQuery((q) => { if (t === "eso") q.delete("team"); else q.set("team", t); });
+    setQuery((q) => q.set("team", t));
     setKept(t);
     try { localStorage.setItem(KEPT, t); } catch { /* still applies here */ }
   };
   return [team, set];
 }
 
-function Waiting({ state }: { state: State | null }) {
+function Waiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
   return (
     <GlassCard>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-        {!state?.error && <CircularProgress size={18} />}
-        <Typography sx={{ fontSize: "0.9rem", color: state?.error ? RED : MUTED }}>
-          {state?.error ? `The figures could not be read: ${state.error}` : `Reading HubSpot - the customers' ERP figures and the company's series${state?.progress ? ` · ${state.progress}` : ""}…`}
+        {computing && !error && <CircularProgress size={18} />}
+        <Typography sx={{ fontSize: "0.9rem", color: error ? RED : MUTED }}>
+          {error ? `The figures could not be read: ${error}` : `Reading every company in HubSpot - revenue and order intake${progress ? ` · ${progress}` : ""}…`}
         </Typography>
       </Box>
     </GlassCard>
@@ -305,75 +298,108 @@ function Waiting({ state }: { state: State | null }) {
 }
 
 export function FiguresExplorer() {
-  const state = useFigures();
-  const d = state?.value;
+  const { cube, computing, progress, error, computedAt } = useCustomersCube();
+  const kpi = useKpiSeries();
   const params = useSearchParams();
   const [team, setTeam] = useTeam();
-  const tab: TabId = (TABS.find((t) => t.id === params.get("tab"))?.id ?? "revenue") as TabId;
-  const setTab = (id: TabId) => setQuery((q) => { if (id === "revenue") q.delete("tab"); else q.set("tab", id); });
-  const v = d ? viewOf(d, team) : null;
+  const view: View = (TABS.find((t) => t.id === params.get("view"))?.id ?? "months") as View;
+  const setView = (v: View) => setQuery((q) => { if (v === "months") q.delete("view"); else q.set("view", v); });
+  const filters: Filters = useMemo(() => Object.fromEntries(DIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
+  const toggle = (d: Dim, label: string) => setQuery((q) => {
+    const cur = q.getAll(d), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
+    q.delete(d);
+    for (const x of next) q.append(d, x);
+  });
+  const clearAll = () => setQuery((q) => { for (const d of DIMS) q.delete(d); q.delete("from"); q.delete("to"); });
+  const [panel, setPanel] = useState(false);
+  const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
+  const openOn = (dim: Dim) => { setFocus((f) => ({ dim, n: (f?.n ?? 0) + 1 })); setPanel(true); };
+
+  if (!cube) return (
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gap: 1.75 }}>
+      <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" } }}>Figures</Typography>
+      <Waiting computing={computing} progress={progress} error={error} />
+    </Box>
+  );
+  const s = fromYm(cube, params.get("from")), e = fromYm(cube, params.get("to"));
+  const win: Win = s != null && e != null ? clampWindow(cube, { start: s, end: e }) : defaultWindow(cube);
+  const setWin = (w: Win) => setQuery((q) => { const d = defaultWindow(cube); if (w.start === d.start && w.end === d.end) { q.delete("from"); q.delete("to"); } else { q.set("from", ym(cube, w.start)); q.set("to", ym(cube, w.end)); } });
+  const eff = withTeam(cube, filters, team);
+  const c: FigCtx = { cube, kpi, team, filters, eff, win, onPick: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
+  const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
+  const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
+  const charts = Object.keys(FIG_CHARTS).filter((k) => k.startsWith(`${view}:`) && (FIG_CHARTS[k].when?.(c) ?? true));
   const act = (key: string, title: string) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-figures:${tab}:${key}`, page: "eso-figures", tab, title, summary: v ? `${teamWord(team)} · revenue YTD ${moneyShort(v.revYtd.cy)}, order intake YTD ${moneyShort(v.oiYtd.cy)}` : undefined, filters: { team: [team] }, kind: "card" }} />
+      tile={{ key: `eso-figures:${view}:${key}`, page: "eso-figures", tab: view, title, summary: `${teamWord(team)} · ${windowLabel(cube, win)} against ${windowLabel(cube, win, 1)}`,
+        filters: { ...Object.fromEntries(chosenDims(filters).map((d) => [d, filters[d] ?? []])), team: [team] }, from: ym(cube, win.start), to: ym(cube, win.end), kind: "card" }} />
   );
-  const charts = Object.keys(FIG_CHARTS).filter((key) => key.startsWith(`${tab}:`));
+  const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
       <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
         <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
       </Box>
+      {/* the title, the period and the team on the left; the figures top right */}
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 1 }}>
+        <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>Figures</Typography>
-          {v && (
-            <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-              <b style={{ color: INK }}>{v.cy}</b> ({asOfWords(v.d)}) against the same days of {v.d.py} · {teamWord(team)} · the ERP&apos;s figures{v.d.asOf ? ` of ${new Date(v.d.asOf).toLocaleDateString("en-GB")}` : ""}{state?.computing ? " · reading HubSpot again" : ""}
-            </Typography>
-          )}
-          <TeamToggle team={team} onTeam={setTeam} />
-        </Box>
-        {v && <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><FigureCards items={figureItems(v)} /></Box>}
-      </Box>
-      {!v || !d ? <Waiting state={state} /> : (
-        <>
-          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
-            <Box sx={{ minWidth: 0, flex: "0 1 auto" }}>
-              <ReportTabs name="eso-figures" tab={tab} onSelect={setTab} tabs={TABS.map((t) => ({ id: t.id, label: t.label, count: null }))} />
-            </Box>
-            <Box sx={{ flex: 1 }} />
-            <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-figures" /></Box>
-          </Box>
-          <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
-            <CardTitle icon={tab === "oi" ? <ShoppingBagOutlinedIcon /> : tab === "mtd" ? <TodayOutlinedIcon /> : <EuroOutlinedIcon />} tint={tab === "oi" ? "blue" : tab === "mtd" ? "amber" : "purple"}
-              title={tab === "revenue" ? `Revenue - ${teamWord(team)}` : tab === "oi" ? `Order intake - ${teamWord(team)}` : `Month and year to date - ${teamWord(team)}`}
-              note={team === "total" ? "The company's own series, as on the HubSpot dashboard - and by team, each customer under its owner today" : `Each ${teamWord(team)} person's customers, under their owner today - a click on ESO, TSA or Total changes every figure`} />
-            <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
-              {charts.map((key) => <Box key={`${key}-${team}`} sx={{ minWidth: 0 }}>{FIG_CHARTS[key].draw(v, act(key.split(":")[1], FIG_CHARTS[key].title(v)))}</Box>)}
-            </Box>
-            {tab === "revenue" && team === "total" && (
-              <Box>
-                <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>Month by month, against the forecast</Typography>
-                <AgainstForecast v={v} />
-              </Box>
-            )}
-            <Box>
-              <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>
-                {tab === "mtd" ? "All the figures" : `All the figures, ${tab === "revenue" ? "revenue" : "order intake"} per ${team === "total" ? "team" : "person"} and month`}
-              </Typography>
-              {tab === "mtd" ? <MtdYtd v={v} /> : <PerMonth v={v} which={tab === "oi" ? "oi" : "rev"} />}
-            </Box>
-            <Typography component="div" sx={{ fontSize: "0.76rem", color: FAINT }}>
-              {MONTH[v.m]}* = month to date: {asOfWords(d)}, against the same days of {d.py}. {team === "total"
-                ? "Total = the KPI series the HubSpot dashboard reads (revenue_geo_erp_monthly, oi_geo_monthly, forecast_monthly). The teams add up each customer's own figures - a few tenths of a per cent under the series (customers without a HubSpot record); Other owners = Back Office and everyone outside the ESO and TSA rosters."
-                : `Months before ${MONTH[v.m]} from each customer's monthly revenue and order intake; month and year to date from the ERP file - so the months can lag the ERP's year to date by the last load. A customer counts for its owner today.`}
-            </Typography>
-          </GlassCard>
-          <Typography component="div" sx={{ fontSize: "0.76rem", color: FAINT }}>
-            Read from HubSpot {new Date(state?.computedAt ?? d.generatedAt).toLocaleString("en-GB")} · {n0(d.companies)} customers with ERP figures · refreshed every 6 hours.
-            {d.errors.length > 0 && <Box component="span" sx={{ color: RED }}> {d.errors.join(" ")}</Box>}
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
+            <b style={{ color: INK }}>{teamWord(team)}</b> · {view === "months" ? `${cube.years[0]} month by month against ${cube.years[1]}` : <><b style={{ color: INK }}>{w}</b> against {pw}</>}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-        </>
-      )}
+          <TeamToggle team={team} onTeam={setTeam} />
+          {chosen.length > 0 && (
+            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+              {chosen.map(([x, v]) => (
+                <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
+                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+              ))}
+              <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+            </Box>
+          )}
+        </Box>
+        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><FigureCards items={figuresOf(cube, eff, forecast)} /></Box>
+      </Box>
+
+      {/* the tabs, Views and Filters at their right end */}
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
+          <ReportTabs name="eso-figures" tab={view} onSelect={setView} tabs={TABS.map((t) => ({ ...t, count: t.id !== "months" && filters[t.id as Dim]?.length ? String(filters[t.id as Dim]!.length) : null }))} />
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-figures" /></Box>
+        <Button onClick={() => (panel ? setPanel(false) : view === "months" ? setPanel(true) : openOn(view))} variant={panel || chosen.length ? "contained" : "outlined"} disableElevation
+          aria-expanded={panel} aria-controls="eso-figures-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen.length ? undefined : "#fff" }}>
+          Filters{chosen.length ? ` · ${chosen.length}` : ""}
+        </Button>
+      </Box>
+
+      {/* the tab: its charts side by side, then all the figures */}
+      <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+        <CardTitle icon={view === "months" ? <CalendarMonthOutlinedIcon /> : DIM[view].icon} tint={view === "months" ? "blue" : DIM[view].tint}
+          title={view === "months" ? `${teamWord(team)}, month by month` : `${teamWord(team)}, by ${DIM[view].lower}`}
+          note={view === "months" ? "Revenue and order intake this year against last - the period in Filters applies to the other tabs" : `Revenue and order intake, ${w} against ${pw} - a click on a bar shows only it`} />
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
+          {charts.map((k, i) => (
+            <Box key={`${k}-${team}`} sx={{ minWidth: 0, gridColumn: { lg: charts.length % 2 === 1 && i === charts.length - 1 ? "1 / -1" : "auto" } }}>
+              {FIG_CHARTS[k].draw({ ...c, actions: act(k.split(":")[1], FIG_CHARTS[k].title(c)) })}
+            </Box>
+          ))}
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>{view === "months" ? "All the figures, month by month" : `All the figures, by ${DIM[view].lower}`}</Typography>
+          {view === "months" ? <MonthTable c={c} /> : <DimTable c={c} dim={view} onPick={(l) => toggle(view, l)} />}
+        </Box>
+        <Typography component="div" sx={{ fontSize: "0.76rem", color: FAINT }}>
+          Every company in HubSpot, as on Who are our customers: revenue from each company&apos;s monthly revenue, order intake from its monthly order intake (the nightly ERP loads)
+          {runningWords(cube) ? `; ${runningWords(cube)} against the same month a year earlier pro rata` : ""}. ESO and TSA = the companies their sales reps own today (the rosters).
+          {forecastShown(c) ? " The forecast: the ERP's, the whole company, against the company's own revenue series - as on the HubSpot dashboard." : team === "total" && chosen.length ? " The forecast is the whole company's: it shows with nothing filtered." : ""}
+        </Typography>
+      </GlassCard>
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""} · again with every ERP delivery, at the latest every 6 hours.</Typography>
+
+      <FilterWindow id="eso-figures-filters" open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={clearAll} />
     </Box>
   );
 }
@@ -384,55 +410,59 @@ const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minma
 
 /** The figures for ESO, TSA or Total with the same toggle, revenue per month - and the Figures charts sent here. */
 export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
-  const state = useFigures();
-  const d = state?.value;
+  const { cube, computing, progress, error } = useCustomersCube();
+  const kpi = useKpiSeries();
   const [team, setTeam] = useState<TeamKey>("eso");
   useEffect(() => { try { const x = localStorage.getItem(KEPT); if (x === "eso" || x === "tsa" || x === "total") setTeam(x); } catch { /* ESO */ } }, []);
   const pick = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
-  const v = d ? viewOf(d, team) : null;
-  const items: SortItem[] = !d ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
+  const c: FigCtx | null = cube ? { cube, kpi, team, filters: {}, eff: withTeam(cube, {}, team), win: defaultWindow(cube) } : null;
+  const items: SortItem[] = !cube ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
     const [, tab, card] = spec.key.split(":");
     const ch = FIG_CHARTS[`${tab}:${card}`];
     const sent = spec.filters?.team?.[0];
-    const tv = viewOf(d, sent === "eso" || sent === "tsa" || sent === "total" ? sent : team);
+    const st: TeamKey = sent === "eso" || sent === "tsa" || sent === "total" ? sent : team;
+    const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
+    const s0 = fromYm(cube, spec.from), e0 = fromYm(cube, spec.to);
     const fmt = formatOf(acts, spec);
-    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind }} />;
+    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, from: spec.from, to: spec.to, href: spec.href, kind: spec.kind }} />;
+    const sc: FigCtx = { cube, kpi, team: st, filters: sf, eff: withTeam(cube, sf, st), win: s0 != null && e0 != null ? clampWindow(cube, { start: s0, end: e0 }) : defaultWindow(cube), actions, half: fmt === "half" };
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
-      node: ch ? ch.draw(tv, actions, fmt === "half") : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
+      node: ch && (ch.when?.(sc) ?? true) ? ch.draw(sc) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   });
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  const figs = c ? figuresOf(c.cube, c.eff, forecastShown(c) ? againstForecast(c.cube, kpi) : null) : [];
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<QueryStatsOutlinedIcon />} tint="purple" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/figures${team === "eso" ? "" : `?team=${team}`}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
+          <Box component={Link} href={`/reporting/eso-benchmark/figures?team=${team}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Figures</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.purple.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{v ? `${v.cy} (${asOfWords(v.d)}) against the same days of ${v.d.py} · ${teamWord(team)}` : "Revenue and order intake, per month and per person"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(team)} · ${windowLabel(c.cube, c.win)} against ${windowLabel(c.cube, c.win, 1)}` : "Revenue and order intake"}</Typography>
         </Box>
         <TeamToggle team={team} onTeam={pick} />
       </Box>
-      {!v ? <Waiting state={state} /> : (
+      {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <>
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${figureItems(v).length}, minmax(0, 1fr))` } }}>
-            {figureItems(v).map((f) => (
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${figs.length}, minmax(0, 1fr))` } }}>
+            {figs.map((f) => (
               <Box key={f.label} sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "grid", gap: 0.75, alignContent: "start", minWidth: 0 }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
                   <Badge icon={f.icon} tint={f.tint} size={32} />
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{f.label}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-                  <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{f.value}</Typography>
-                  {f.d && <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: f.d.color }}>{f.d.text}</Typography>}
+                  <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{f.value}</Typography>
+                  {f.ch !== undefined && <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: tone(f.ch ?? null) }}>{signedPct(f.ch ?? null)}</Typography>}
                 </Box>
                 <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{f.sub}</Typography>
               </Box>
             ))}
           </Box>
-          {/* revenue per month - with the forecast on Total - the panel's own chart */}
-          {FIG_CHARTS["revenue:months"].draw(v)}
+          {/* revenue per month - the panel's own chart */}
+          {FIG_CHARTS["months:revenue"].draw(c)}
           {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-figures"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
         </>
       )}
