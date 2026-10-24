@@ -211,8 +211,10 @@ const add = (m: Record<string, Sum>, k: string, n: number, v: number) => { const
 /** The days from..to (inclusive, YYYY-MM-DD) added up, each pipeline on its own. */
 export function sumPeriod(b: DayBucket[], from: string, to: string): { ESO: PeriodSum; TSA: PeriodSum } {
   const out = { ESO: emptySum(), TSA: emptySum() };
-  for (const [day, pipe, path, conf, n, value] of b) {
-    if (day < from || day > to) continue;
+  for (const x of b) {
+    if (!Array.isArray(x)) continue; // never an older shape's bucket
+    const [day, pipe, path, conf, n, value] = x;
+    if (day < from || day > to || (pipe !== "ESO" && pipe !== "TSA")) continue;
     const s = out[pipe];
     s.total.n += n;
     s.total.value += value;

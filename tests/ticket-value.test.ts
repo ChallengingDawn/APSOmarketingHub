@@ -357,6 +357,11 @@ test("the days' figures: the days chosen, each pipeline, both added", () => {
   assert.deepEqual(pickPipe(oct, "TSA").total, { n: 5, value: 50 });
 });
 
+test("the days' figures skip what is not a day's bucket (the months of an older answer)", () => {
+  const old = [{ m: 9, pipe: "ESO", path: "direct", conf: "high", n: 2, value: 100 }] as unknown as DayBucket[];
+  assert.deepEqual(pickPipe(sumPeriod(old, "2026-01-01", "2026-12-31"), "both").total, { n: 0, value: 0 });
+});
+
 test("a ticket's day is its day in Zurich", () => {
   assert.equal(zurichDay(Date.parse("2026-10-23T22:30:00Z")), "2026-10-24"); // 00:30 in Zurich (summer time)
   assert.equal(zurichDay(Date.parse("2026-12-31T23:30:00Z")), "2027-01-01"); // 00:30 in Zurich (winter time)

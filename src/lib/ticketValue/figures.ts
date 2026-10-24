@@ -5,7 +5,7 @@
 // report: kept 2 hours, read again after.
 
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { reportProgress, slowReport } from "@/lib/integrations/slowReport";
+import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { pathOf, zurichDay, zurichMidnight, type DayBucket } from "./model";
 
 export type Figures = { shape: 2; from: string; to: string; buckets: DayBucket[] };
@@ -16,7 +16,14 @@ export const PIPE_IDS = { ESO: "1726599376", TSA: "1726599377" } as const;
 export const PATH_PROPS = ["sales_potential_estimate", "sales_potential_source", "sales_potential_confidence", "subject", "erosion_key", "sept_push_target", "price_check_key", "hs_tag_ids"];
 type Raw = { id: string; properties: Record<string, string | null> };
 
-export const figures = () => slowReport<Figures>(KEY, (v) => (v?.shape !== SHAPE ? 0 : 2 * 3600_000), build);
+/**
+ * The days' figures. While a new read runs, the report hands back the last answer it kept - and an answer of an older
+ * shape (the months of 24.10 afternoon) is no answer here: it is left out, and the page waits for the new read.
+ */
+export async function figures(): Promise<SlowState<Figures>> {
+  const s = await slowReport<Figures>(KEY, (v) => (v?.shape !== SHAPE ? 0 : 2 * 3600_000), build);
+  return s.value && s.value.shape !== SHAPE ? { ...s, value: undefined, computing: !s.error } : s;
+}
 
 async function build(): Promise<Figures> {
   const since = zurichMidnight(Date.now(), -DAYS_BACK);
