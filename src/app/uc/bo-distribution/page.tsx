@@ -1,10 +1,20 @@
 "use client";
 
-// BACK OFFICE DISTRIBUTION - a HubSpot app (UC & HubSpot Apps > HubSpot apps), in SHADOW MODE (SARCLA 18.10.2026: move the
-// distribution to the hub, "really vital ... it should work seamlessly"; then "really raw - much more: people, GQS, the
-// flow, the detection, changing people without changing the code"). For every ticket entering Back Office "New" or GQS
-// "New for Back-Office" the hub works out what the HubSpot workflows decide and puts it next to what HubSpot did; the
-// last 7 days are replayed. Nothing is written to HubSpot. Tabs: Overview, Tickets, Flow, Detection, People, GQS, Settings.
+// BACK OFFICE DISTRIBUTION - a HubSpot app (UC & HubSpot Apps > HubSpot apps). The hub DOES the
+// distribution (SARCLA 18.10.2026: move it to the hub, "really vital ... it should work seamlessly";
+// then "really raw - much more: people, GQS, the flow, the detection, changing people without
+// changing the code"). Every ticket entering Back Office "New" or GQS "New for Back-Office" gets its
+// owner, stage and category from here, and the last 7 days are replayed so a rule change can be
+// seen before it is saved.
+//
+// It began as a shadow of two HubSpot workflows - BACK OFFICE MAIN ROUTING 3678508243 and NEW FOR
+// BACK-OFFICE GQS DISTRIBUTION 3680656607 - and both were switched off on 19.10.2026, when the hub
+// took over. The page was still written as though they were running: SARCLA, 24.10.2026, "a lot of
+// Back Office distribution still talks about workflow ... the service has been migrated, it should
+// not mention it anymore". So the present tense belongs to the hub, and the workflows appear only
+// where they are genuinely the subject - the rollback path, and figures from before the hand-over.
+//
+// Tabs: Overview, Tickets, Flow, Detection, Sentiment, Priority, People, GQS, Settings.
 
 import { Fragment, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -77,9 +87,9 @@ function Overview({ d }: { d: Data }) {
   }, [d.rows]);
   const kpis = [
     { label: "Tickets, 7 days", value: full(m.total), note: `${full(m.bo)} Back Office, ${full(m.gqs)} GQS${d.backfill && !d.backfill.done ? " - replay still running" : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-    { label: "Same owner as HubSpot", value: pct(m.liveSame, m.live), note: `${full(m.liveSame)} of ${full(m.live)} live tickets; replayed days ${pct(m.replaySame, m.replay)} (availability of today)`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
-    { label: "Same category", value: pct(m.catSame, m.cat), note: `${full(m.catSame)} of ${full(m.cat)}; same priority ${pct(m.prioSame, m.prio)}`, icon: <CategoryOutlinedIcon />, tint: "purple" as const },
-    { label: "Fixes change the owner", value: full(m.fixes), note: "The hub's fixed rules would pick someone else than the copy", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
+    { label: "Owner left as chosen", value: pct(m.liveSame, m.live), note: `${full(m.liveSame)} of ${full(m.live)} tickets still carry the owner the hub picked - the rest a person moved afterwards`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
+    { label: "Category left as set", value: pct(m.catSame, m.cat), note: `${full(m.catSame)} of ${full(m.cat)}; priority left alone on ${pct(m.prioSame, m.prio)}`, icon: <CategoryOutlinedIcon />, tint: "purple" as const },
+    { label: "Corrections change the owner", value: full(m.fixes), note: "Tickets where the corrected rules pick someone else than the old routing would have", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
   ];
   const owners = count(d.rows.filter((r) => r.actual), (r) => gave(r)!.name);
   const steps = count(d.rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
@@ -105,7 +115,7 @@ function Overview({ d }: { d: Data }) {
       </GlassCard>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PersonOutlineOutlinedIcon />} tint="green" title="Who got them" note="Owner in HubSpot" /><BarList rows={owners} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which step picked" note="The workflow step on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which rule picked" note="The rule that chose the owner on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Categories" note="As HubSpot has them now - click one to see its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -116,7 +126,7 @@ function Overview({ d }: { d: Data }) {
       {cat && (
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} - ${full(inCat.length)} tickets`}
-            note={cat === "Others" ? "Others = the keyword classifier recognised nothing in the e-mail (or a form / hub ticket came without a known category) - the workflow then sets Others and the Load Balancer picks. Detection > Not recognised shows why." : "Click the category again to close"} />
+            note={cat === "Others" ? "Others = the keyword classifier recognised nothing in the e-mail (or a form / hub ticket came without a known category) - it then goes to whoever is least busy. Detection > Not recognised shows why." : "Click the category again to close"} />
           <TicketTable rows={inCat} empty="No ticket." />
         </GlassCard>
       )}
@@ -152,7 +162,7 @@ function Tickets({ d }: { d: Data }) {
             { key: "fixes", label: "Fixes change it", count: d.rows.filter(fixesDiffer).length },
             { key: "live", label: "Seen live (not replayed)", count: d.rows.filter((r) => !r.approx).length },
             // live mode (SARCLA 19.10.2026: "this filter should also show the change now"): written, or left to the workflow and why
-            { key: "wrote", label: `Live: written by the hub ${d.rows.filter((r) => r.wrote?.ok).length} / left to the workflow`, count: d.rows.filter((r) => r.wrote).length },
+            { key: "wrote", label: `Written by the hub ${d.rows.filter((r) => r.wrote?.ok).length}`, count: d.rows.filter((r) => r.wrote).length },
           ]} />
           <Choice<"all" | "bo" | "gqs"> value={pipe} onChange={setPipe} options={[{ key: "all", label: "Both" }, { key: "bo", label: "Back Office" }, { key: "gqs", label: "GQS" }]} />
         </Box>
@@ -180,7 +190,7 @@ function RosterEditor({ k, d, owners, onSaved }: { k: RosterKey; d: Data; owners
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, alignItems: "center" }}>
         <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{d.labels[k]}</Typography>
-        {custom ? <Chip tint="amber">changed here</Chip> : <Chip tint="slate">as in the workflow</Chip>}
+        {custom ? <Chip tint="amber">changed here</Chip> : <Chip tint="slate">unchanged</Chip>}
       </Box>
       <Box sx={{ display: "grid", gap: 0.5, my: 1 }}>
         {list.map((p, i) => (
@@ -200,7 +210,7 @@ function RosterEditor({ k, d, owners, onSaved }: { k: RosterKey; d: Data; owners
           <Autocomplete size="small" options={owners.filter((o) => !list.some((x) => x.id === o.id))} getOptionLabel={(o) => o.name} sx={{ minWidth: 220, flex: 1 }}
             onChange={(_, o) => o && setList((l) => [...l, o])} value={null} renderInput={(p) => <TextField {...p} placeholder="add a person" />} />
           <Button size="small" variant="contained" disabled={!changed || busy} onClick={() => void save(list)} sx={{ textTransform: "none" }}>Save</Button>
-          {custom && <Button size="small" disabled={busy} onClick={() => void save(null)} sx={{ textTransform: "none" }}>Back to the workflow&apos;s</Button>}
+          {custom && <Button size="small" disabled={busy} onClick={() => void save(null)} sx={{ textTransform: "none" }}>Back to the original list</Button>}
         </Box>
       )}
     </Box>
@@ -239,10 +249,10 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
             </TableBody>
           </Table>
         </Box>
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>&quot;Available&quot; is the green dot of HubSpot chat - what the workflows use today. In brackets: GQS open tickets counted with the right &quot;Waiting on APSO&quot; stage.</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>&quot;Available&quot; is the green dot of HubSpot chat. In brackets: GQS open tickets counted with the right &quot;Waiting on APSO&quot; stage.</Typography>
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="The teams - change them here, not in code" note="The hub's answer uses these lists now; the copy keeps the workflow's. Order matters: it breaks ties and sets who is tried first" />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="The teams - change them here, not in code" note="These are the lists tickets are handed out from. Order matters: it breaks ties and sets who is tried first" />
         <Grid container spacing={2}>
           {(Object.keys(d.labels) as RosterKey[]).map((k) => <Grid key={k} size={{ xs: 12, md: 6, xl: 4 }}><RosterEditor k={k} d={d} owners={p.owners} onSaved={() => { onSaved(); setN((x) => x + 1); }} /></Grid>)}
         </Grid>
@@ -293,7 +303,7 @@ export default function BoDistribution() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Back Office distribution"
-        subtitle="Who gets each new Back Office and GQS ticket, and why - the workflows side by side with the hub (shadow mode)"
+        subtitle="Who gets each new Back Office and GQS ticket, and why - decided here since 19.10.2026"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}

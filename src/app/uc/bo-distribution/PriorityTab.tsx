@@ -104,23 +104,24 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   return (
     <>
       <Info>
-        The priority the workflow sets comes from the category alone. Here you can change any line of that table and switch on three signals it does not
-        read. Every change is first worked out on the last 7 days&apos; tickets (below); the hub uses the saved rules for its answer - and once it is live, for the ticket.
+        Priority comes from the ticket&apos;s category alone. Change any line of the table below to give a category another priority, or switch on one of
+        the three signals the category cannot see. Every change is tried on the last 7 days&apos; tickets first, so you can see what it would have done
+        before you save it - and what you save is what the next ticket gets.
       </Info>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="blue" label="Tickets with a priority" value={full(rows.length)} note="Back Office, last 7 days - set by the workflow's router" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="blue" label="Tickets with a priority" value={full(rows.length)} note="Back Office tickets of the last 7 days that carry a priority" /></Grid>
         <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Would change" value={full(changed.length)} note={`${pct(changed.length, rows.length)} of them, with the rules as they stand on this page`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<BoltOutlinedIcon />} tint="pink" label="URGENT" value={`${full(results.filter((x) => base(x.r) === "URGENT").length)} → ${full(results.filter((x) => x.hub?.value === "URGENT").length)}`} note="Workflow → with this page's rules" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<BoltOutlinedIcon />} tint="pink" label="URGENT" value={`${full(results.filter((x) => base(x.r) === "URGENT").length)} → ${full(results.filter((x) => x.hub?.value === "URGENT").length)}`} note="As they stand today → with the rules on this page" /></Grid>
       </Grid>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PriorityHighOutlinedIcon />} tint="slate" title="Today: the workflow" note="Priorities it set, last 7 days" /><BarList rows={byPrio((x) => base(x.r))} labelWidth={90} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PriorityHighOutlinedIcon />} tint="green" title="With this page's rules" note="The same tickets" /><BarList rows={byPrio((x) => x.hub?.value ?? null)} labelWidth={90} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PriorityHighOutlinedIcon />} tint="slate" title="As it stands today" note="The priorities these tickets carry, last 7 days" /><BarList rows={byPrio((x) => base(x.r))} labelWidth={90} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PriorityHighOutlinedIcon />} tint="green" title="With the rules on this page" note="The same tickets, if you saved your changes" /><BarList rows={byPrio((x) => x.hub?.value ?? null)} labelWidth={90} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="By category" note="The workflow's table - change a line to set another priority for it; 'any other' is the rest of that category" />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="By category" note="One line per category - change a line to set another priority for it; 'any other' is the rest of that category" />
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
-            <TableHead><TableRow>{["Category", "Sub-category", "Tickets", "Workflow", "Hub"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableHead><TableRow>{["Category", "Sub-category", "Tickets", "Today", "If saved"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
             <TableBody>
               {d.priorityTable.map((l) => {
                 const v = p.overrides[l.key] ?? l.priority;
@@ -133,7 +134,7 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
                     <TableCell sx={bodyCell}>
                       <TextField select size="small" value={v} disabled={!d.admin} sx={{ minWidth: 130 }}
                         onChange={(e) => setP((x) => { const o = { ...x.overrides }; if (e.target.value === l.priority) delete o[l.key]; else o[l.key] = e.target.value as Priority; return { ...x, overrides: o }; })}>
-                        {PRIORITIES.map((pr) => <MenuItem key={pr} value={pr}>{pr}{pr === l.priority ? " (as the workflow)" : ""}</MenuItem>)}
+                        {PRIORITIES.map((pr) => <MenuItem key={pr} value={pr}>{pr}{pr === l.priority ? " (unchanged)" : ""}</MenuItem>)}
                       </TextField>
                     </TableCell>
                   </TableRow>
@@ -172,7 +173,7 @@ export function PriorityTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
           </Table>
         </Box>
         {pager}
-        {!changed.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nothing changes - the page&apos;s rules are the workflow&apos;s.</Typography>}
+        {!changed.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nothing changes - the rules on this page are the ones in use.</Typography>}
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 1.5 }}>
           <Button variant="contained" size="small" disabled={!d.admin || busy} onClick={() => void save()} sx={{ textTransform: "none" }}>Save the priority rules</Button>
           {busy && <CircularProgress size={14} />}

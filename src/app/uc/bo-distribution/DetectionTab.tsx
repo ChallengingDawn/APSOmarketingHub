@@ -89,9 +89,9 @@ export function DetectionTab({ d }: { d: Data }) {
   return (
     <>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: workflow → improved" value={`${pct(read.length - others1.length, read.length)} → ${pct(withV2.length - others2.length, withV2.length)}`} note={`${full(read.length)} e-mails read by the classifier in 7 days`} /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: in use → improved" value={`${pct(read.length - others1.length, read.length)} → ${pct(withV2.length - others2.length, withV2.length)}`} note={`${full(read.length)} e-mails read by the classifier in 7 days`} /></Grid>
         <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Right where a person changed it" value={`${pct(right1.length, corrected.length)} → ${pct(right2.length, corrected.length)}`} note={`${full(corrected.length)} tickets a person re-filed. On 30 days: 10% → 26%; the 90 before: 13% → 46%`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others: workflow → improved" value={`${full(others1.length)} → ${full(others2.length)}`} note={`Nothing recognised: the workflow sets Others and the Load Balancer picks.${asked.length ? ` The AI files ${full(aiFiled.length)} of the ${full(asked.length)} it was asked` : ""}`} /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others: in use → improved" value={`${full(others1.length)} → ${full(others2.length)}`} note={`Nothing recognised means Others, and the ticket goes to whoever is least busy.${asked.length ? ` The AI files ${full(aiFiled.length)} of the ${full(asked.length)} it was asked` : ""}`} /></Grid>
       </Grid>
 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -164,7 +164,7 @@ export function DetectionTab({ d }: { d: Data }) {
         </Box>
         {res && (
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            {([["The workflow's classifier (today)", res.v1, [] as string[]], ["The improved classifier", res.v2, res.v2.fixes]] as const).map(([title, c, fx]) => (
+            {([["The classifier in use", res.v1, [] as string[]], ["The improved classifier", res.v2, res.v2.fixes]] as const).map(([title, c, fx]) => (
               <Grid key={title} size={{ xs: 12, md: 6 }}>
                 <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, display: "grid", gap: 0.75 }}>
                   <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</Typography>
@@ -179,7 +179,7 @@ export function DetectionTab({ d }: { d: Data }) {
       </GlassCard>
 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="The keyword lists" note="The workflow's: six languages, the subject counts ten times, the highest score wins, then the sub-category"
+        <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="The keyword lists" note="Six languages, the subject counts ten times, the highest score wins, then the sub-category"
           right={<Button size="small" onClick={() => setLists((x) => !x)} sx={{ textTransform: "none" }}>{lists ? "Hide" : "Show"}</Button>} />
         <Collapse in={lists}>
           <Grid container spacing={2}>

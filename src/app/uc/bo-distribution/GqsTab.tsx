@@ -65,7 +65,7 @@ const ruleOf = (a: Answer | null | undefined) => {
   const m = a?.method ?? "";
   return !a ? "q:none" : /^Sales Agent/.test(m) ? "q:sa" : /^SA Sub/.test(m) ? "q:sub" : /^DT New Business/.test(m) ? "q:dt" : /^Least busy/.test(m) ? "q:least" : "q:other";
 };
-/** The rule that picked in the copy of the workflow. */
+/** The rule that picked, under the rules as they stood before the hand-over. */
 export const gqsRule = (r: Row) => ruleOf(r.legacy);
 const RULE_SHORT: Record<string, string> = { "q:sa": "Sales Agent", "q:sub": "SA Sub", "q:dt": "DT New Business", "q:least": "Least busy", "q:other": "other rule", "q:none": "" };
 
@@ -79,7 +79,7 @@ function gqsColumns(d: Data, types: FlowNode[], owners: FlowNode[]): FlowColumn[
     { title: "Entry", how: "On New for Back-Office (2338266314), every time it enters", nodes: [
       { id: "g:auto", label: "Automatically approved", short: "Auto-approved", color: ROAD.main, text: "No review needed" },
       { id: "g:lm", label: "Approved by line manager", short: "Line manager", color: ROAD.main, text: "Reviewed, then approved" },
-      { id: "g:other", label: "Other status", color: ROAD.fallback, text: "The workflow sets Approved by Line Manager first" },
+      { id: "g:other", label: "Other status", color: ROAD.fallback, text: "Approved by Line Manager is set first" },
     ] },
     { title: "Type", how: "The type of request; only DT - New Business has a rule of its own", nodes: types },
     { title: "Rule", how: "In this order; available = the green dot of HubSpot chat", nodes: [
@@ -253,7 +253,7 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
     const a = wfDt.indexOf(o.id), b = hubDt.indexOf(o.id);
     if (a >= 0 || b >= 0) chips.push(a === b ? { t: `DT New Business ${ord(a)}`, tint: "purple" } : a < 0 ? { t: `DT ${ord(b)} - hub only`, tint: "amber" } : b < 0 ? { t: `DT ${ord(a)} - workflow only`, tint: "amber" } : { t: `DT ${ord(a)}, hub ${ord(b)}`, tint: "amber" });
     const ta = wfTeam.includes(o.id), tb = hubTeam.includes(o.id);
-    if (ta || tb) chips.push(ta && tb ? { t: "GQS team", tint: "blue" } : ta ? { t: "GQS team - workflow only", tint: "amber" } : { t: "GQS team - hub only", tint: "amber" });
+    if (ta || tb) chips.push(ta && tb ? { t: "GQS team", tint: "blue" } : ta ? { t: "GQS team - old list only", tint: "amber" } : { t: "GQS team - hub only", tint: "amber" });
     if (!member && saNames.has(o.id)) chips.push({ t: "Sales Agent name", tint: "slate" });
     return chips.length ? <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>{chips.map((c) => <Chip key={c.t} tint={c.tint}>{c.t}</Chip>)}</Box> : <Box component="span" sx={{ color: FAINT }}>–</Box>;
   };
@@ -270,9 +270,9 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
     if (!p) return <Box component="span" sx={{ color: FAINT }}>–</Box>;
     const right = p.gqsOpenFixed, wf = p.gqsOpen;
     const tip = wf === null
-      ? `The workflow's count failed for ${o.name}: its code then reads 999, so the least-busy step passes them over. The hub leaves a failed count out instead of guessing.`
+      ? `The old routing's count failed for ${o.name}: its code then read 999, so its least-busy step passed them over. The hub leaves a failed count out instead of guessing.`
       : right === null ? "The count on the right stages failed this time - read again later."
-      : `The workflow's least-busy step counts a stage that no longer exists and misses "Waiting on APSO", so it sees ${full(wf)} where ${full(right)} are open${wf < right ? ` - ${full(right - wf)} waiting on APSO are not counted, and ${o.name.split(" ")[0]} looks less busy than they are` : ""}. The hub counts the right stages.`;
+      : `The old routing's least-busy step counted a stage that no longer exists and missed "Waiting on APSO", so it sees ${full(wf)} where ${full(right)} are open${wf < right ? ` - ${full(right - wf)} waiting on APSO are not counted, and ${o.name.split(" ")[0]} looks less busy than they are` : ""}. The hub counts the right stages.`;
     return (
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
@@ -282,7 +282,7 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
         {wf !== right && (
           <Tooltip title={tip}>
             <Box component="span" tabIndex={0} sx={{ fontSize: "0.72rem", color: AMBER, borderBottom: `1px dotted ${AMBER}`, cursor: "help", whiteSpace: "nowrap" }}>
-              {wf === null ? "the workflow reads 999" : `the workflow sees ${full(wf)}`}
+              {wf === null ? "the old routing read 999" : `the old routing saw ${full(wf)}`}
             </Box>
           </Tooltip>
         )}
@@ -328,12 +328,12 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
           <TableHead>
             <TableRow>
               <Head label="Person" />
-              <Head label="Chat status" tip={`The green dot of HubSpot chat - what the workflow reads.${availability !== "chat" ? ` The hub reads ${AVAIL_WORDS[availability]} (Settings).` : ""}`} />
-              <Head label="Open GQS tasks" tip={`Open now on the right stages - with "Waiting on APSO". When the workflow's own count differs, the line under it says what the workflow sees.`} />
-              <Head label="Got · 7 days" align="right" tip="What HubSpot's workflow gave the person in the last 7 days" />
-              <Head label="Copy would give" align="right" tip="The hub's copy of the workflow's rules, on the same tickets - it should match Got" />
-              <Head label="Hub would give" align="right" tip="The same tickets with the hub's fixed rules (How it decides, below); the small figure is the change against the copy" />
-              <Head label="Lists" tip="DT New Business order and the GQS team - the workflow's lists and the hub's (People tab); amber where they differ" />
+              <Head label="Chat status" tip={`The green dot of HubSpot chat.${availability !== "chat" ? ` The hub reads ${AVAIL_WORDS[availability]} (Settings).` : ""}`} />
+              <Head label="Open GQS tasks" tip={`Open now on the right stages - with "Waiting on APSO". Where the old routing counted differently, the line under it says what it saw.`} />
+              <Head label="Got · 7 days" align="right" tip="What the person was actually given in the last 7 days" />
+              <Head label="Old rules" align="right" tip="The rules as they stood before the hand-over, on the same tickets" />
+              <Head label="Hub would give" align="right" tip="The same tickets with the corrected rules (How it decides, at the end of this page); the small figure is the change against the old ones" />
+              <Head label="Lists" tip="DT New Business order and the GQS team - the old lists and the ones in use (People tab); amber where they differ" />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -359,7 +359,7 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
   );
 }
 
-/* ── the rules: the workflow's beside the hub's ── */
+/* ── the rules now, beside how they stood before the hand-over ── */
 
 type Side = { text: React.ReactNode; n?: number; extra?: string; chips?: string[] };
 type Step = { title: string; wf: Side; hub: Side };
@@ -373,7 +373,7 @@ function SideBox({ side, kind }: { side: Side; kind: "wf" | "hub" }) {
       bgcolor: fixed ? "rgba(231,246,238,.65)" : "rgba(21,34,58,.035)", borderLeft: `3px solid ${fixed ? GREEN : "transparent"}`,
     }}>
       <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ ...KICK, fontSize: "0.64rem", display: { xs: "block", md: "none" }, color: kind === "hub" ? GREEN : FAINT, mb: 0.25 }}>{kind === "hub" ? "The hub" : "The workflow"}</Typography>
+        <Typography sx={{ ...KICK, fontSize: "0.64rem", display: { xs: "block", md: "none" }, color: kind === "hub" ? GREEN : FAINT, mb: 0.25 }}>{kind === "hub" ? "Now" : "Before"}</Typography>
         <Typography component="div" sx={{ fontSize: "0.8rem", color: kind === "hub" && !fixed ? MUTED : INK, lineHeight: 1.5 }}>{side.text}</Typography>
         {!!chips.length && (
           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.75 }}>
@@ -442,10 +442,10 @@ function Rules({ d, rows }: { d: Data; rows: Row[] }) {
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={<RuleOutlinedIcon />} tint="purple" title="How it decides"
-        note="Code step #1 of the workflow, in its order - the first rule that finds someone wins. Beside it, the same step as the hub runs it: green where it fixes the workflow" />
+        note="The rules in their order - the first that finds someone wins. Beside them, how they stood before the hand-over: green where they were corrected" />
       <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "32px minmax(0, 1fr) minmax(0, 1fr)", columnGap: 1.5, mb: 1 }}>
         <span />
-        <Typography sx={KICK}>The workflow - HubSpot today</Typography>
+        <Typography sx={KICK}>Before the hand-over, until 19.10.2026</Typography>
         <Typography sx={{ ...KICK, color: GREEN }}>The hub - with the fixes</Typography>
       </Box>
       <Box>
@@ -464,7 +464,7 @@ function Rules({ d, rows }: { d: Data; rows: Row[] }) {
         ))}
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 2, lineHeight: 1.5 }}>
-        The figures: the last 7 days&apos; {full(rows.length)} tickets - on the left as the hub&apos;s copy of the workflow reads them, on the right with the fixes. Change the hub&apos;s rules on the Settings and People tabs.
+        The figures: the last 7 days&apos; {full(rows.length)} tickets - on the left as the rules stood before the hand-over, on the right as they are now. Change the hub&apos;s rules on the Settings and People tabs.
       </Typography>
     </GlassCard>
   );
@@ -648,9 +648,9 @@ export function GqsTab({ d }: { d: Data }) {
     { label: "GQS tickets, 7 days", value: full(rows.length), note: `Entered New for Back-Office${rows.some((r) => r.approx) ? ` - ${full(rows.filter((r) => r.approx).length)} replayed` : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "purple" as const },
     { label: "Still open", value: read.length ? full(openRows.length) : "—", note: read.length ? `${pct(openRows.length, read.length)} of the ${full(read.length)} read${topOpen ? ` - most in ${topOpen.label}` : ""}` : "Not read yet", icon: <PendingActionsOutlinedIcon />, tint: "blue" as const },
     { label: "Closed", value: read.length ? full(closedRows.length) : "—", note: closedBy.length ? closedBy.map((x) => `${x.label} ${full(x.value)}`).join(" · ") : read.length ? "None yet" : "Not read yet", icon: <TaskAltOutlinedIcon />, tint: "green" as const },
-    { label: "Same owner as HubSpot", value: pct(same, settled.length), note: `${full(same)} of ${full(settled.length)} settled${live.length ? `; live ${pct(live.filter(sameOwner).length, live.length)}` : ""}`, icon: <PersonOutlineOutlinedIcon />, tint: "slate" as const },
-    { label: "Fixes change the owner", value: full(rows.filter(fixesDiffer).length), note: "Deactivated people, failed counts, the stages counted", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
-    ...(liveOn || writes.length ? [{ label: "Written by the hub", value: full(wrote), note: liveOn ? `Live for GQS - ${full(left)} left to the workflow${failed ? `, ${full(failed)} failed` : ""}` : "Live mode is off for GQS now", icon: <EditNoteOutlinedIcon />, tint: "pink" as const }] : []),
+    { label: "Owner left as chosen", value: pct(same, settled.length), note: `${full(same)} of ${full(settled.length)} settled${live.length ? `; live ${pct(live.filter(sameOwner).length, live.length)}` : ""}`, icon: <PersonOutlineOutlinedIcon />, tint: "slate" as const },
+    { label: "Corrections change the owner", value: full(rows.filter(fixesDiffer).length), note: "Deactivated people, failed counts, the stages counted - where the corrected rules differ from the old routing", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
+    ...(liveOn || writes.length ? [{ label: "Written by the hub", value: full(wrote), note: liveOn ? `Live for GQS${left ? ` - ${full(left)} left alone` : ""}${failed ? `, ${full(failed)} failed` : ""}` : "Live mode is off for GQS now", icon: <EditNoteOutlinedIcon />, tint: "pink" as const }] : []),
   ];
   const k = kpis.length;
   return (
@@ -661,11 +661,10 @@ export function GqsTab({ d }: { d: Data }) {
       <Outcome rows={rows} pick={now} onPick={pickNow} />
       <FlowCard
         icon={<AltRouteOutlinedIcon />} tint="purple" title="How the GQS tickets were given out"
-        note={`SARCLA | NEW FOR BACK-OFFICE GQS DISTRIBUTION, the last 7 days: from the approval to the owner - ${full(rows.length)} tickets`}
+        note={`The last 7 days: from the approval to the owner - ${full(rows.length)} tickets`}
         columns={columns} ways={ways} sel={sel} onPick={pick} onClear={clear} roads={GQS_ROADS}
       />
       <Team d={d} rows={rows} />
-      <Rules d={d} rows={rows} />
       <Box id="gqs-tickets" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="GQS tickets"
@@ -695,6 +694,8 @@ export function GqsTab({ d }: { d: Data }) {
           <GqsTable rows={shown} />
         </GlassCard>
       </Box>
+      {/* how it works, after what happened - reference, not a figure */}
+      <Rules d={d} rows={rows} />
     </>
   );
 }

@@ -26,7 +26,7 @@ import type { HubOptions } from "@/lib/boDistribution/engine";
 import { type Data } from "./shared";
 
 const AVAIL: { key: HubOptions["availability"]; label: string; text: string }[] = [
-  { key: "chat", label: "Chat dot (as the workflows)", text: "Available = the green dot of HubSpot chat. People who never open chat look away all day." },
+  { key: "chat", label: "Chat dot", text: "Available = the green dot of HubSpot chat. People who never open chat look away all day." },
   { key: "ooo", label: "Out of office", text: "Available unless HubSpot says the person is out of office - the same flag the Holiday redirection uses." },
   { key: "both", label: "Both", text: "Available only with the green dot AND not out of office." },
 ];
@@ -48,7 +48,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
     const name = pipe === "bo" ? "Back Office" : "GQS";
     const ask = pipe === "strays"
       ? `Give the tickets waiting for an owner one?\n\nEvery 5 minutes the hub writes the owner (only the owner, and a note) on open Back Office and GQS tickets with no owner, Backoffice Team or an owner who has left - at most 10 a look, within the writes-per-hour limit. ${d.strays ? `Right now: ${d.strays.total}.` : ""}`
-      : `Switch the hub LIVE for ${name}?\n\nFrom the next ticket the hub writes the owner, the stage and a note. Do this only once the HubSpot workflow has its safety net (wait 3 minutes - still Backoffice Team? - the old step).`;
+      : `Switch the hub LIVE for ${name}?\n\nFrom the next ticket the hub writes the owner, the stage and a note. Its HubSpot workflow is already off, so nothing else is assigning these tickets.`;
     if (on && !window.confirm(ask)) return;
     await call(`live-${pipe}`, "PUT", { live: { [pipe]: on } });
   };
@@ -61,9 +61,9 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
         {(pipe === "bo" ? d.stages.bo : d.stages.gqs).map((st) => (
           <FormControlLabel key={st.id} sx={{ m: 0 }} disabled={!d.admin}
             control={<Checkbox size="small" checked={chosen.includes(st.id)} onChange={() => setHub((h) => pipe === "bo" ? { ...h, boStages: toggle(h.boStages, st.id) } : { ...h, gqsStages: toggle(h.gqsStages, st.id) })} />}
-            label={<Typography sx={{ fontSize: "0.8rem", color: INK }}>{st.label}{wf.includes(st.id) ? <span style={{ color: MUTED }}> · the workflow counts it</span> : null}</Typography>} />
+            label={<Typography sx={{ fontSize: "0.8rem", color: INK }}>{st.label}{wf.includes(st.id) ? <span style={{ color: MUTED }}> · counted before the hand-over too</span> : null}</Typography>} />
         ))}
-        {pipe === "gqs" && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>The workflow also counts a stage that no longer exists and misses &quot;Waiting on APSO&quot;; the hub counts &quot;Waiting on APSO&quot; instead.</Typography>}
+        {pipe === "gqs" && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>The old routing counted a stage that no longer exists and missed &quot;Waiting on APSO&quot;; the hub counts &quot;Waiting on APSO&quot; instead.</Typography>}
       </Box>
     );
   };
@@ -78,7 +78,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
     <>
       {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Live mode - the hub writes the owner" note="Per pipeline. Off = shadow: the hub only compares. Switch back off at any time - the workflow's safety net takes over" />
+        <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Live mode - the hub writes the owner" note="Per pipeline. Off means nobody hands these tickets out - switch the pipeline's HubSpot workflow back on first" />
         <Grid container spacing={2}>
           {(["gqs", "bo"] as const).map((pipe) => (
             <Grid key={pipe} size={{ xs: 12, md: 6 }}>
@@ -107,7 +107,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
                 })()}
                 <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                   {pipe === "gqs"
-                    ? "Writes owner, stage “Open the GQS Task”, the GQS status and a note; a task without contact or company first gets them from its linked ticket, as the workflow does. To hand GQS to the hub, the workflow's code step is replaced by a 2-minute delay (its status and \u201cNEW GQS TASK\u201d notification stay)."
+                    ? "Writes owner, stage “Open the GQS Task”, the GQS status and a note; a task without contact or company first gets them from its linked ticket. The old workflow's own code step was replaced by a 2-minute delay when GQS was handed over (its status and \u201cNEW GQS TASK\u201d notification stay)."
                     : "Writes everything the routing wrote: category, sub-categories, order number, priority, dispatch, the stage moves (Microsoft quarantine, chat parking, CAD, Anyseals) and the owner - with the Task Status Report merge into its GQS task, the sales@ split to ESO and the Anyseals stock file. A ticket a person already owns keeps its owner."}
                 </Typography>
               </Box>
@@ -132,18 +132,18 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid size={{ xs: 12, md: 6 }}>
             <Box sx={box}>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>How a pipeline is handed over</Typography>
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Both pipelines were handed over on 19.10.2026</Typography>
               <Typography component="ol" sx={{ fontSize: "0.8rem", color: INK, m: 0, pl: 2.25, display: "grid", gap: 0.4 }}>
-                <li>Switch the pipeline live here - while its HubSpot workflow is still on, the hub writes nothing (it shows why on each ticket).</li>
-                <li>Switch the workflow off in HubSpot - from the next ticket the hub writes, within about two minutes of entry.</li>
-                <li>Back: switch the workflow on again - the hub stops at once.</li>
+                <li>Back Office and GQS are handed out from here. Their HubSpot workflows are switched off.</li>
+                <li>The way back, if ever needed: switch the pipeline&apos;s workflow on again in HubSpot. The hub stops writing that pipeline at once, by itself, with no deploy - it checks before every write.</li>
+                <li>Switching a pipeline off here WITHOUT switching its workflow back on leaves nobody handing those tickets out. They sit on Backoffice Team until a person picks them up.</li>
               </Typography>
             </Box>
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <Box sx={{ ...box, display: "grid", gap: 1.25 }}>
               <TextField size="small" type="number" label="Writes per hour, at most" value={hub.breaker} disabled={!d.admin} onChange={(e) => setHub({ ...hub, breaker: Number(e.target.value) })}
-                helperText="A runaway stop: past it the hub writes nothing and the workflow's safety net assigns. Back Office gets about 15 tickets in its busiest hour." />
+                helperText="A runaway stop: past it the hub writes nothing and the tickets wait on Backoffice Team until a person takes them. Back Office gets about 15 tickets in its busiest hour." />
               <FormControlLabel sx={{ m: 0 }} disabled={!d.admin} control={<Switch size="small" checked={hub.note} onChange={(e) => setHub({ ...hub, note: e.target.checked })} />}
                 label={<Typography sx={{ fontSize: "0.8rem" }}>A note on the ticket: who, how and why (&quot;Auto-assigned by APSOhub&quot;)</Typography>} />
             </Box>
@@ -166,8 +166,8 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
             </Box>
             <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, mt: 2 }}>When nobody is available</Typography>
             <Box sx={{ display: "grid", gap: 1, mt: 0.5 }}>
-              {([["wait", "Wait in the queue", "Never pass a ticket to someone who is away: it stays with Backoffice Team until someone is available. (Once live, the workflow's safety net still assigns it after 3 minutes - that branch would need the same rule.)"],
-                 ["leastBusy", "Least busy of everyone (as the workflow)", "The person with the fewest open tickets gets it, away or not."]] as const).map(([k, l, t]) => (
+              {([["wait", "Wait in the queue", "Never pass a ticket to someone who is away: it stays with Backoffice Team until someone is available, and a person has to notice it."],
+                 ["leastBusy", "Least busy of everyone", "The person with the fewest open tickets gets it, away or not. This is what the old routing did."]] as const).map(([k, l, t]) => (
                 <Box key={k} component="button" type="button" disabled={!d.admin} onClick={() => setHub({ ...hub, whenNobody: k })}
                   sx={{ textAlign: "left", cursor: d.admin ? "pointer" : "default", ...box, bgcolor: hub.whenNobody === k ? "rgba(27,122,85,.08)" : "transparent", borderColor: hub.whenNobody === k ? "#1b7a55" : HAIRLINE }}>
                   <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{l}</Typography>
@@ -186,7 +186,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
               <Grid size={{ xs: 12, md: 6 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 700, mb: 0.5 }}>GQS</Typography>{stages("gqs")}</Grid>
             </Grid>
             <TextField size="small" type="number" label="Open tickets per person, at most" value={hub.cap ?? ""} disabled={!d.admin} sx={{ mt: 1.5, maxWidth: 300 }}
-              onChange={(e) => setHub({ ...hub, cap: e.target.value ? Number(e.target.value) : null })} helperText="Empty = no limit (the workflows have none). Past it, the least-busy step passes the person over." />
+              onChange={(e) => setHub({ ...hub, cap: e.target.value ? Number(e.target.value) : null })} helperText="Empty = no limit, which is what the old routing had. Past it, the least-busy rule passes the person over." />
             {save("load")}
           </GlassCard>
         </Grid>
