@@ -78,8 +78,17 @@ const WORKFLOWS: AssignRules = {
     "Kalt Jan": "37053854", // Jan Kalt
     "Gustak Marzena": "1229976029", // Maya Marzena Gustak
     "Falk Luna": "1229976031", // Luna Bianca Falk
-    "Alioua Yani": "32968527", // Yani Alioua
+    // SARCLA 24.10.2026: "Yani Alioua's companies should all go to Jeremy"
+    "Alioua Yani": "29117550", // Jeremy Borey
     "Di Martino Vincenzo": "37659386", // Vincenzo Di Martino
+    // SARCLA 24.10.2026: "Resident APZ goes to TSA"; the SAE values written as a person's name go to that person
+    // ("these are mistakes and should be corrected") - the same corrections fixes.ts applies once to the saved rules
+    "Resident APZ": "1202569408", // TSA Team
+    "Sara Gashi": "30050251", // Sara Gashi
+    "Leart Asllani": "37413486", // Leart Asllani
+    "Claudio Gabinato": "1229976030", // Claudio Gabinato
+    "Hans Peter Höhn": "1229976027", // Hans Peter Höhn
+    "Luca Fantasia": "1229999587", // Luca Fantasia
   },
   countries: {
     CH: {

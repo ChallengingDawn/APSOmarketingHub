@@ -322,6 +322,8 @@ export type LayerRow = {
   sae?: string | null; decided?: OwnerId | null; region?: OwnerId | null; via?: string | null;
   /** tickets of the last 90 days on the company: every pipeline / the sales ones */
   tickets?: number | null; sales?: number | null;
+  /** apso_customer */
+  category?: string | null;
 };
 /**
  * One country's companies per postcode point (PostcodeStat): companies, customers this year (an order this year -
@@ -336,7 +338,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     const code = place(r.zip);
     if (!code) { unplaced++; continue; }
     let s = by.get(code);
-    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} }; by.set(code, s); }
+    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, category: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} }; by.set(code, s); }
     s.companies++;
     const sae = String(r.sae ?? "").trim().replace(/\s+/g, " ");
     s.sae![sae] = (s.sae![sae] ?? 0) + 1;
@@ -369,6 +371,8 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     if (Number.isFinite(rev) && rev) s.revenue += rev;
     const p = priorityKey(r.priority);
     if (p) s.priority[p] = (s.priority[p] ?? 0) + 1;
+    const cat = String(r.category ?? "").trim();
+    if (cat) s.category![cat] = (s.category![cat] ?? 0) + 1;
     if (Number.isFinite(rev) && rev > 0) {
       const t = { id: String(r.id), name: r.name ?? `Company ${r.id}`, revenue: Math.round(rev * 100) / 100, owner: r.owner };
       // the list stays sorted, biggest first, at most topN

@@ -12,6 +12,9 @@
 //               the KPI toggle turns the same rows into figures: companies, contacts, owner now -> after
 //   Key accounts, Who works {country}, SAE table (every country) - the other jobs, one tab each
 // Every edit is the page's draft (the map behind recolours at once); Save here or on the page's bar keeps it.
+// 24.10.2026 (SARCLA): "a Sandbox / Live toggle ... always the comparing KPIs, to measure the result with one ESO less, the
+// km², the money, everything" - in the sandbox the KPI view shows each figure with its difference to live; "the split of
+// PRIO and APSOcustomer" - a table of each person's companies by sales priority and APSO customer, live and sandbox.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -55,7 +58,9 @@ export type Place = {
   /** give some zip codes to this person (one zip code of the place: SARCLA "cannot change an individual zip code") */
   giveZips: (zips: string[], owner: string, what: string) => void;
 };
-type Mode = "rules" | "kpi";
+export type Mode = "rules" | "kpi";
+/** The sandbox against live (SARCLA 24.10.2026): the sandbox's version (its layers) and the live rules on the map. */
+export type Compare = { sandbox: string | null; live: { m: CountryMap; rules: AssignRules } };
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
 const head = { fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.05em" };
 const row = { display: "grid", gap: 1.25, alignItems: "center", px: 1.25, py: 0.9, borderBottom: `1px solid ${HAIRLINE}` };
@@ -88,22 +93,43 @@ function ModeSwitch({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void 
   );
 }
 
-/** The sales workload per person: companies now -> after, customers and revenue this year, contacts, tickets, and the
- *  land rule 2 gives them (zip codes, km², the GDP of their part of each region). */
-function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
-  c: string; load: OwnerLoad[]; tickets: TicketLoad | null; m: CountryMap; joined: ReturnType<typeof joinLayer> | null; names: Names; palette: Palette;
-}) {
-  const land = m.tally.byOwner;
+/** Each person's share of the regions' GDP: a region's GDP split by its postcodes per person. */
+function gdpByOwner(m: CountryMap, joined: ReturnType<typeof joinLayer> | null): Map<string, number> {
   const gdp = new Map<string, number>();
   if (joined) m.tally.regions.forEach((rt, i) => {
     const g = joined.gdp[i];
     if (g === null || g === undefined || !rt.total) return;
     for (const [o, n] of rt.owners) gdp.set(String(o), (gdp.get(String(o)) ?? 0) + (g * n) / rt.total);
   });
-  const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String)])];
+  return gdp;
+}
+
+/** The sandbox against live, under a figure: "+12" / "−3" (nothing when the same). Neutral colours - more for one person
+ *  is less for another. */
+function Delta({ now, was, fmt = (v) => full(Math.round(v)) }: { now: number; was: number | null | undefined; fmt?: (v: number) => string }) {
+  const d = now - (was ?? 0);
+  if (!Number.isFinite(d) || Math.abs(d) < 0.5) return null;
+  return <Typography component="span" sx={{ display: "block", fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: d > 0 ? "#5b45c9" : "#a96a12" }}>{d > 0 ? "+" : "−"}{fmt(Math.abs(d))}</Typography>;
+}
+
+/** Live's figures, for the sandbox's KPIs to compare with. */
+type Vs = { load: OwnerLoad[]; m: CountryMap; joined: ReturnType<typeof joinLayer> | null } | null;
+
+/** The sales workload per person: companies now -> after, customers and revenue this year, contacts, tickets, and the
+ *  land rule 2 gives them (zip codes, km², the GDP of their part of each region). `vs`: the sandbox - each figure with
+ *  its difference to live. */
+function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
+  c: string; load: OwnerLoad[]; tickets: TicketLoad | null; m: CountryMap; joined: ReturnType<typeof joinLayer> | null; names: Names; palette: Palette; vs?: Vs;
+}) {
+  const land = m.tally.byOwner;
+  const gdp = gdpByOwner(m, joined);
+  const vsLand = vs ? vs.m.tally.byOwner : null;
+  const vsGdp = vs ? gdpByOwner(vs.m, vs.joined) : null;
+  const vsBy = new Map((vs?.load ?? []).map((l) => [String(l.owner), l]));
+  const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String), ...(vs ? [...vsBy.keys(), ...[...vsLand!.keys()].filter(Boolean).map(String)] : [])])];
   const byOwner = new Map(load.map((l) => [String(l.owner), l]));
-  const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o) }))
-    .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0));
+  const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o), v: vsBy.get(o), vz: vsLand?.get(o) }))
+    .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0) || (b.v?.after ?? 0) - (a.v?.after ?? 0));
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
   const cols = "minmax(170px, 1.4fr) 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
   const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
@@ -118,7 +144,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
   );
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
-      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Sales workload in {c}</Typography>
+      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Sales workload in {c}{vs ? " - the sandbox, and how it differs from live" : ""}</Typography>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflowX: "auto" }}>
         <Box sx={{ minWidth: 1180 }}>
           <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
@@ -133,21 +159,28 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
               <Typography key={h} sx={{ ...head, textAlign: i ? "right" : "left" }}>{h}</Typography>
             ))}
           </Box>
-          {rows.map(({ o, l, t, z }) => {
+          {rows.map(({ o, l, t, z, v, vz }) => {
+            // a figure, and in the sandbox its difference to live under it
+            const fig = (now: number | null | undefined, was: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }, bold?: boolean) => (
+              <Box sx={{ textAlign: "right" }}>
+                <Typography sx={{ ...cell, fontWeight: bold ? 700 : 400 }}>{num(now, opts)}</Typography>
+                {vs && <Delta now={now ?? 0} was={was} fmt={(x) => num(x, opts)} />}
+              </Box>
+            );
             return (
               <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
                 <Who owner={o} names={names} palette={palette} />
-                <Typography sx={{ ...cell, fontWeight: 700 }}>{num(l?.after)}</Typography>
-                <Typography sx={cell}>{num(l?.customers)}</Typography>
-                <Typography sx={cell}>{num(l?.newCustomers)}</Typography>
-                <Typography sx={cell}>{num(l?.revenue)}</Typography>
-                <Typography sx={cell}>{num(l?.contacts)}</Typography>
-                <Typography sx={cell}>{num(l?.tickets)}</Typography>
-                <Typography sx={{ ...cell, fontWeight: l?.sales ? 700 : 400 }}>{num(l?.sales)}</Typography>
+                {fig(l?.after ?? (vs ? 0 : null), v?.after, undefined, true)}
+                {fig(l?.customers ?? (vs ? 0 : null), v?.customers)}
+                {fig(l?.newCustomers ?? (vs ? 0 : null), v?.newCustomers)}
+                {fig(l?.revenue ?? (vs ? 0 : null), v?.revenue)}
+                {fig(l?.contacts ?? (vs ? 0 : null), v?.contacts)}
+                {fig(l?.tickets ?? (vs ? 0 : null), v?.tickets)}
+                {fig(l?.sales ?? (vs ? 0 : null), v?.sales, undefined, !!l?.sales)}
                 <Typography sx={cell}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>
-                <Typography sx={cell}>{num(z?.postcodes)}</Typography>
-                <Typography sx={cell}>{num(z?.km2, { km: true })}</Typography>
-                <Typography sx={cell}>{gdp.has(o) ? num(gdp.get(o), { gdp: true }) : "—"}</Typography>
+                {fig(z?.postcodes ?? (vs ? 0 : null), vz?.postcodes)}
+                {fig(z?.km2 ?? (vs ? 0 : null), vz?.km2, { km: true })}
+                {gdp.has(o) || vsGdp?.has(o) ? fig(gdp.get(o) ?? 0, vsGdp?.get(o), { gdp: true }) : <Typography sx={cell}>—</Typography>}
               </Box>
             );
           })}
@@ -168,7 +201,73 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette }: {
         </Box>
       </Box>
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-        Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = their open ESO + TSA tickets, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = their open ESO + TSA tickets, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+      </Typography>
+    </Box>
+  );
+}
+
+/** sales_priority as the KPIs name it (priorityKey: P1..P4, "" = none). */
+const PRIO_COLS: [string, string][] = [["P1", "Prio 1"], ["P2", "Prio 2"], ["P3", "Prio 3"], ["P4", "No prio"], ["", "none"]];
+const CATEGORY_ORDER = ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", ""];
+const categoryLabel = (k: string) => (k === "" ? "none" : k === "Growth Engine Customer" ? "Growth Engine" : k);
+
+/** Each person's companies by sales priority and by APSO customer (SARCLA 24.10.2026: "on the KPI map put also the split
+ *  per country of PRIO and APSOcustomer"); in the sandbox each with its difference to live. */
+function SplitTable({ c, load, names, palette, vs }: { c: string; load: OwnerLoad[]; names: Names; palette: Palette; vs?: Vs }) {
+  const vsBy = new Map((vs?.load ?? []).map((l) => [String(l.owner), l]));
+  const people = [...new Set([...load.map((l) => String(l.owner)), ...vsBy.keys()])];
+  const byOwner = new Map(load.map((l) => [String(l.owner), l]));
+  const rows = people.map((o) => ({ o, l: byOwner.get(o), v: vsBy.get(o) })).filter((r) => (r.l?.after ?? 0) + (r.v?.after ?? 0) > 0)
+    .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0));
+  const seen = new Set<string>();
+  for (const l of [...load, ...(vs?.load ?? [])]) for (const k of Object.keys(l.category ?? {})) seen.add(k);
+  const cats = [...CATEGORY_ORDER.filter((k) => seen.has(k) || k === ""), ...[...seen].filter((k) => !CATEGORY_ORDER.includes(k)).sort()];
+  const known = load.some((l) => Object.keys(l.category ?? {}).some((k) => k));
+  if (!load.some((l) => l.priority)) return null; // an older hub
+  const cols = `minmax(170px, 1.4fr) repeat(${PRIO_COLS.length + cats.length}, minmax(76px, 1fr))`;
+  const cell = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  const fig = (now: number, was: number | undefined) => (
+    <Box sx={{ textAlign: "right" }}>
+      <Typography sx={{ ...cell, color: now ? INK : FAINT }}>{now ? full(now) : "—"}</Typography>
+      {vs && <Delta now={now} was={was ?? 0} />}
+    </Box>
+  );
+  const total = (f: (l: OwnerLoad) => number) => load.reduce((a, l) => a + f(l), 0);
+  const group = (label: string, span: number, color: string) => (
+    <Box sx={{ gridColumn: `span ${span}`, borderBottom: `2px solid ${color}`, pb: 0.25, textAlign: "center" }}><Typography sx={{ ...head, color }}>{label}</Typography></Box>
+  );
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Companies by sales priority and APSO customer in {c}</Typography>
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflowX: "auto" }}>
+        <Box sx={{ minWidth: 170 + 80 * (PRIO_COLS.length + cats.length) }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
+            <span />
+            {group("Sales priority", PRIO_COLS.length, "#2459d1")}
+            {group("APSO customer", cats.length, "#1b7a55")}
+          </Box>
+          <Box sx={{ ...row, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
+            <Typography sx={head}>Person</Typography>
+            {PRIO_COLS.map(([k, label]) => <Typography key={`p${k}`} sx={{ ...head, textAlign: "right" }}>{label}</Typography>)}
+            {cats.map((k) => <Typography key={`c${k}`} sx={{ ...head, textAlign: "right" }}>{categoryLabel(k)}</Typography>)}
+          </Box>
+          {rows.map(({ o, l, v }) => (
+            <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
+              <Who owner={o} names={names} palette={palette} />
+              {PRIO_COLS.map(([k]) => <Box key={`p${k}`}>{fig(l?.priority?.[k] ?? 0, v?.priority?.[k])}</Box>)}
+              {cats.map((k) => <Box key={`c${k}`}>{fig(l?.category?.[k] ?? 0, v?.category?.[k])}</Box>)}
+            </Box>
+          ))}
+          <Box sx={{ ...row, gridTemplateColumns: cols, py: 0.65, borderBottom: "none", bgcolor: "rgba(21,34,58,.02)" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED }}>{c}</Typography>
+            {PRIO_COLS.map(([k]) => <Typography key={`p${k}`} sx={{ ...cell, fontWeight: 700 }}>{full(total((l) => l.priority?.[k] ?? 0))}</Typography>)}
+            {cats.map((k) => <Typography key={`c${k}`} sx={{ ...cell, fontWeight: 700 }}>{full(total((l) => l.category?.[k] ?? 0))}</Typography>)}
+          </Box>
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
+        Each person&apos;s companies by these rules, by their HubSpot Sales Priority and APSO CUSTOMER.{known ? "" : " APSO customer is read with the next full read of every company - empty until then."}
       </Typography>
     </Box>
   );
@@ -258,9 +357,9 @@ function ZoneCodes({ zone, cc, admin, onChange }: { zone: Zone; cc: string; admi
 
 const shortRegions = (regions: string[] | undefined, cc: string) => (regions ?? []).map((r) => (r.startsWith(`${cc}-`) ? r.slice(cc.length + 1) : r)).join(", ");
 
-function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, mode, place }: {
+function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, mode, place, compare }: {
   cc: string; got: Got; rules: AssignRules; d: MapData; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean; rev: number;
-  m: CountryMap; mode: Mode; place: Place | null;
+  m: CountryMap; mode: Mode; place: Place | null; compare?: Compare | null;
 }) {
   const c = countryName(cc);
   const rule = rules.countries[cc];
@@ -272,8 +371,12 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
   const kpi = mode === "kpi";
 
   // rule 2 figures per zone (KPI): postcodes and km² from the map, companies the postcodes decide from the scan
-  const layers = useLayers(cc);
+  const layers = useLayers(cc, compare ? compare.sandbox : null);
   const joined = useMemo(() => (m.base && layers.data ? joinLayer(m.base, layers.data) : null), [m.base, layers.data]);
+  // the sandbox: live's figures beside it
+  const liveLayers = useLayers(cc);
+  const liveJoined = useMemo(() => (compare && m.base && liveLayers.data ? joinLayer(m.base, liveLayers.data) : null), [compare, m.base, liveLayers.data]);
+  const vs: Vs = compare && liveLayers.data ? { load: liveLayers.data.load ?? [], m: compare.live.m, joined: liveJoined } : null;
   const zoneFig = useMemo(() => {
     const out = new Map<string, { postcodes: number; km2: number; companies: number }>();
     const base = m.base;
@@ -424,10 +527,11 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
     </Box>
   );
 
-  if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} />;
+  if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} liveJoined={compare ? liveJoined : null} />;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
-      {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} />}
+      {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} vs={vs} />}
+      {kpi && <SplitTable c={c} load={layers.data?.load ?? []} names={names} palette={palette} vs={vs} />}
       {rule1}
       {rule2}
     </Box>
@@ -436,8 +540,10 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
 
 /** A place in figures (SARCLA 21.10.2026: "not now / after - insightful KPIs: GDP, revenue, orders incoming, new
  *  customers, number of tickets, number of sales tickets"): the totals, then per person the rules give the companies. */
-function PlaceKpi({ place, st, gdp, km2, names, palette }: {
+function PlaceKpi({ place, st, gdp, km2, names, palette, vsSt }: {
   place: Place; st: NonNullable<ReturnType<typeof joinLayer>["regions"][number]>; gdp: number | null; km2: number | null; names: Names; palette: Palette;
+  /** the sandbox: the same place as live decides it */
+  vsSt?: ReturnType<typeof joinLayer>["regions"][number] | null;
 }) {
   const tiles: [string, string][] = [
     ["companies", full(st.companies)], ["bought this year", full(st.customers)], ["new customers this year", full(st.newCustomers)],
@@ -445,12 +551,21 @@ function PlaceKpi({ place, st, gdp, km2, names, palette }: {
     ...(gdp !== null && gdp !== undefined ? [["GDP (EUR)", gdp >= 1000 ? `${(gdp / 1000).toFixed(1)} bn` : `${full(Math.round(gdp))} m`] as [string, string]] : []),
     ...(km2 ? [["km²", km2Text(km2).replace(" km²", "")] as [string, string]] : []),
   ];
-  const people = Object.entries(st.byOwner ?? {}).sort((a, b) => b[1].companies - a[1].companies);
+  const vsBy = vsSt?.byOwner ?? null;
+  const zero = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, tickets: 0, sales: 0 };
+  const people = [...new Set([...Object.keys(st.byOwner ?? {}), ...Object.keys(vsBy ?? {})])]
+    .map((o) => [o, st.byOwner?.[o] ?? zero] as const).sort((a, b) => b[1].companies - a[1].companies);
+  const fig = (o: string, k: keyof typeof zero, bold?: boolean) => (
+    <Box sx={{ textAlign: "right" }}>
+      <Typography sx={{ ...cell, fontWeight: bold ? 700 : 400 }}>{full(Math.round((st.byOwner?.[o] ?? zero)[k]))}</Typography>
+      {vsBy && <Delta now={(st.byOwner?.[o] ?? zero)[k]} was={vsBy[o]?.[k] ?? 0} />}
+    </Box>
+  );
   const cols = "minmax(170px, 1.4fr) 100px 110px 110px 120px 100px 100px";
   const cell = { fontSize: "0.84rem", color: INK, fontVariantNumeric: "tabular-nums", textAlign: "right" as const };
   return (
     <Box sx={{ display: "grid", gap: 1.25 }}>
-      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{place.title} in figures</Typography>
+      <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{place.title} in figures{vsBy ? " - per person, the sandbox minus live under each figure" : ""}</Typography>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" }, gap: 1 }}>
         {tiles.map(([label, value]) => (
           <Box key={label} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", px: 1.5, py: 1, bgcolor: "rgba(255,255,255,.7)" }}>
@@ -459,17 +574,23 @@ function PlaceKpi({ place, st, gdp, km2, names, palette }: {
           </Box>
         ))}
       </Box>
+      {(Object.keys(st.priority ?? {}).length > 0 || Object.keys(st.category ?? {}).length > 0) && (
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+          {PRIO_COLS.filter(([k]) => k).map(([k, label]) => `${label} ${full(st.priority?.[k] ?? 0)}`).join(" · ")}
+          {Object.keys(st.category ?? {}).length ? ` - ${CATEGORY_ORDER.filter((k) => k && st.category?.[k]).map((k) => `${categoryLabel(k)} ${full(st.category![k])}`).join(" · ")}` : ""}
+        </Typography>
+      )}
       {people.length > 0 && (
         <Table cols={cols} heads={["Person (by the rules)", ...["Companies", "Bought this year", "New this year", "Revenue EUR", "Tickets 90 d", "Sales 90 d"].map((h) => <Box key={h} sx={{ textAlign: "right" }}>{h}</Box>)]}>
           {people.map(([o, x]) => (
             <Box key={o} sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: cols }, py: 0.6 }}>
               <Who owner={o} names={names} palette={palette} />
-              <Typography sx={{ ...cell, fontWeight: 700 }}>{full(x.companies)}</Typography>
-              <Typography sx={cell}>{full(x.customers)}</Typography>
-              <Typography sx={cell}>{full(x.newCustomers)}</Typography>
-              <Typography sx={cell}>{full(Math.round(x.revenue))}</Typography>
-              <Typography sx={cell}>{full(x.tickets)}</Typography>
-              <Typography sx={{ ...cell, fontWeight: x.sales ? 700 : 400 }}>{full(x.sales)}</Typography>
+              {fig(o, "companies", true)}
+              {fig(o, "customers")}
+              {fig(o, "newCustomers")}
+              {fig(o, "revenue")}
+              {fig(o, "tickets")}
+              {fig(o, "sales", !!x.sales)}
             </Box>
           ))}
         </Table>
@@ -486,9 +607,11 @@ const placeKm2 = (m: CountryMap, place: Place): number | null => {
 
 /* ── one place: its SAEs and its zip zones ── */
 
-function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, mode, joined }: {
+function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, mode, joined, liveJoined }: {
   place: Place; cc: string; rules: AssignRules; d: MapData; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean;
   m: CountryMap; mode: Mode; joined: ReturnType<typeof joinLayer> | null;
+  /** the sandbox: the same figures as live decides them */
+  liveJoined?: ReturnType<typeof joinLayer> | null;
 }) {
   const c = countryName(cc);
   const rule = rules.countries[cc];
@@ -517,7 +640,8 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
   const defaultPerson = rule?.defaultOwner || rules.defaultOwner;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
-      {kpi && st && <PlaceKpi place={place} st={st} gdp={place.kind === "region" && joined ? joined.gdp[place.index] : null} km2={placeKm2(m, place)} names={names} palette={palette} />}
+      {kpi && st && <PlaceKpi place={place} st={st} gdp={place.kind === "region" && joined ? joined.gdp[place.index] : null} km2={placeKm2(m, place)} names={names} palette={palette}
+        vsSt={liveJoined ? (place.kind === "region" ? liveJoined.regions[place.index] : liveJoined.cells[place.index]) ?? null : null} />}
       <Box sx={{ display: "grid", gap: 1 }}>
         <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={1} />Performis SAE in {place.title}</Typography>
         {off ? <Typography sx={hint}>Rule 1 is off in {c}: rule 2 decides every company.</Typography>
@@ -800,7 +924,7 @@ function KeysTab({ cc, rules, setDraft, names, palette, admin, mode }: {
 
 /* ── the window ── */
 
-export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, names, palette, rev, m, n, dirty, busy, check, msg, onSave, onUndo, seededNow, onSeeded, place, onWholeCountry }: {
+export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, names, palette, rev, m, n, dirty, busy, check, msg, onSave, onUndo, seededNow, onSeeded, place, onWholeCountry, mode, setMode, compare = null }: {
   open: boolean; onClose: () => void; cc: string; setCc: (cc: string) => void;
   d: MapData; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette;
   /** the page's rules version: a save or an undo re-reads every field */
@@ -814,10 +938,14 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
   seededNow: boolean; onSeeded: () => void;
   /** a place clicked on the map: the window shows only it; onWholeCountry drops it */
   place?: Place | null; onWholeCountry?: () => void;
+  /** Rules or KPI - the page's, so the map's KPIs button opens the window on KPI */
+  mode: Mode; setMode: (m: Mode) => void;
+  /** the sandbox (SARCLA 24.10.2026): its KPIs against live; changes save themselves in the sandbox */
+  compare?: Compare | null;
 }) {
   const [tab, setTab] = useState<Tab>("rules");
   useEffect(() => { if (place) setTab("rules"); }, [place]);
-  const [mode, setMode] = useState<Mode>("rules");
+  useEffect(() => { if (open && mode === "kpi" && tab === "people") setTab("rules"); }, [open, mode, tab]);
   const got = usePerformis(n);
   const c = countryName(cc);
   const rule = rules.countries[cc];
@@ -832,7 +960,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
             <Typography component="h2" sx={{ fontSize: "1.2rem", fontWeight: 700, color: INK }}>Rules</Typography>
             <CountryMenu list={countryList(d, rules)} cc={cc} onPick={setCc} label={countryName} />
-            {d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
+            {compare ? <Chip tint="amber">SANDBOX</Chip> : d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}
             {place && (
               <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1.25, pr: 0.5, py: 0.25, borderRadius: "999px", bgcolor: "#e6edfd", color: "#2459d1" }}>
                 <Typography sx={{ fontSize: "0.86rem", fontWeight: 700 }}>{place.title}</Typography>
@@ -853,7 +981,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
         <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2, position: "relative" }}>
           {tab === "rules" && <PlaceShape m={m} place={place ?? null} />}
           <Box sx={{ position: "relative", zIndex: 1 }}>
-          {tab === "rules" && <RulesTab key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} rev={rev} m={m} mode={mode} place={place ?? null} />}
+          {tab === "rules" && <RulesTab key={`${cc}-${rev}`} cc={cc} got={got} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} rev={rev} m={m} mode={mode} place={place ?? null} compare={compare} />}
           {tab === "keys" && <KeysTab key={`${cc}-${rev}`} cc={cc} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={admin} mode={mode} />}
           {tab === "people" && (
             <Box sx={{ display: "grid", gap: 1.5, maxWidth: 720 }}>
@@ -864,6 +992,16 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
           )}
           </Box>
         </Box>
+        {compare ? (
+          <Box sx={{ px: { xs: 2, md: 3 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "#fbf7ee", display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "0.8rem", color: "#7a5410" }}>Sandbox - changes save themselves here and never touch HubSpot or the live rules. An admin brings them to live from the page.</Typography>
+            {check.errors.length > 0 && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{check.errors[0]}{check.errors.length > 1 ? ` (+${check.errors.length - 1})` : ""}</Typography>}
+            {msg && <Typography sx={{ fontSize: "0.8rem", color: msg.ok ? "#1b7a55" : RED }}>{msg.text}</Typography>}
+            <Box sx={{ flex: 1 }} />
+            {(busy || dirty) && <CircularProgress size={14} />}
+            <Button onClick={onClose} sx={{ textTransform: "none" }}>Close</Button>
+          </Box>
+        ) : (
         <Box sx={{ px: { xs: 2, md: 3 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           {dirty ? <Chip tint="amber">Unsaved changes - the map shows them</Chip> : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{admin ? "Nothing to save" : "Read only - admins change the rules"}</Typography>}
           {check.errors.length > 0 && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{check.errors[0]}{check.errors.length > 1 ? ` (+${check.errors.length - 1})` : ""}</Typography>}
@@ -876,6 +1014,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
           {admin && <Button variant="contained" disableElevation startIcon={<SaveOutlinedIcon />} disabled={!dirty || busy || check.errors.length > 0} onClick={onSave}
             sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Save</Button>}
         </Box>
+        )}
       </Box>
     </Dialog>
   );

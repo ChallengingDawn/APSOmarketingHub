@@ -100,6 +100,9 @@ export type MapData = {
   moves: MoveStat[];
   /** Owner redirection rules against the map, open ones first */
   conflicts: RedirectionConflict[];
+  /** the sandbox (SARCLA 24.10.2026): rules to try things on - never decide or write; null = none yet (it starts as a
+   *  copy of the live rules). Absent from an older hub. */
+  sandbox?: { rules: AssignRules; by: string | null; at: string | null; from: string | null } | null;
   admin: boolean;
   by: string | null; at: string | null;
 };
@@ -110,6 +113,11 @@ export type MapPut = {
   patch?: { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, import("./rules").CountryRule | null> };
   /** a conflict answered: "map" switches the rule off in Owner redirection, "rule" keeps it over the map, null forgets the answer */
   redirection?: { ruleId: string; decision: "map" | "rule" | null };
+  /** the sandbox: a patch merged into it, a part put back to live (reset: "sae" | country), or reset: true = start again
+   *  from live - in a request of its own; everyone who can open the page may change the sandbox */
+  sandbox?: { patch?: { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, import("./rules").CountryRule | null> }; reset?: string | boolean };
+  /** admins: bring one part of the sandbox into the live rules ("sae" = the SAE table and the default, or a country) */
+  promote?: { part: string };
 };
 /** POST body: {action: "run"} a scan now; {action: "link", contactId, companyId} links a contact from the list (admins). */
 export type MapPost = { action: "run" } | { action: "link"; contactId: string; companyId: string };
@@ -131,6 +139,8 @@ export type PostcodeStat = {
   revenue: number;
   /** sales_priority P1..P4 -> companies */
   priority: Record<string, number>;
+  /** apso_customer (APSOcore, APSOgrowth ...) -> companies; absent from an older hub */
+  category?: Record<string, number>;
   /** the three biggest customers here by revenue */
   top: { id: string; name: string; revenue: number; owner: OwnerId | null }[];
   /** where it comes from (SARCLA 20.10.2026: "from what it comes - Performis to HubSpot"): the Performis SAE as
@@ -173,6 +183,9 @@ export type OwnerLoad = {
   customers: number; newCustomers: number; revenue: number; contacts: number;
   /** of "after": tickets of the last 90 days on their companies - every pipeline, and the sales ones (ESO + TSA) */
   tickets: number; sales: number;
+  /** of "after", by sales_priority (P1..P4, "" = none) and by apso_customer ("" = none) - SARCLA 24.10.2026: "the split
+   *  of PRIO and APSOcustomer"; absent from an older hub */
+  priority?: Record<string, number>; category?: Record<string, number>;
 };
 export type TicketLoad = { at: string; byOwner: Record<string, { open: number; last90: number }> };
 

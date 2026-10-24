@@ -248,7 +248,7 @@ test("map assignment engine: the map's layers per postcode", () => {
   const row = (id: string, zip: string | null, x: Partial<LayerRow> = {}): LayerRow =>
     ({ id, name: `C${id}`, zip, owner: "1", revenue: null, lastOrder: null, firstOrder: null, priority: null, ...x });
   const rows = [
-    row("1", "3011", { revenue: 1000, lastOrder: "2026-05-01", firstOrder: "2019-01-01", priority: "1-Prio 1 - Pot >25000€" }),
+    row("1", "3011", { revenue: 1000, lastOrder: "2026-05-01", firstOrder: "2019-01-01", priority: "1-Prio 1 - Pot >25000€", category: "APSOcore" }),
     row("2", "3011", { revenue: 50.5, lastOrder: "2026-02-01", firstOrder: "2026-02-01", priority: "3-Prio 3 - Pot btw 500 & 2499€" }),
     row("3", "3011", { revenue: -20, lastOrder: "2025-12-01", priority: "3-Prio 3 - Pot btw 500 & 2499€" }), // a credit note this year
     row("4", "3011", { revenue: 400, lastOrder: "2026-01-02" }),
@@ -267,9 +267,10 @@ test("map assignment engine: the map's layers per postcode", () => {
   assert.equal(b.newCustomers, 1); // first order this year
   assert.equal(b.revenue, 1730.5); // net: the credit note counts
   assert.deepEqual(b.priority, { P1: 1, P3: 2 });
+  assert.deepEqual(b.category, { APSOcore: 1 });
   assert.deepEqual(b.top.map((t) => [t.id, t.revenue]), [["1", 1000], ["4", 400], ["5", 300]]);
   // a row without its decision (an old caller) counts no change
-  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, priority: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {}, tickets: 0, sales: 0 });
+  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, priority: {}, category: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {}, tickets: 0, sales: 0 });
 });
 
 test("map assignment engine: the Performis tab per country and SAE", () => {

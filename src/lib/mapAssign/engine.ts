@@ -36,6 +36,7 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
+import { applyFixes } from "./fixes";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
 import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
@@ -44,7 +45,7 @@ import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 import { newContactsKpi } from "./contactsKpi";
 import {
   DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy, inYear,
-  internalFromList, isInternal, layerPoints, likeEscape, mergeRules, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
+  internalFromList, isInternal, layerPoints, likeEscape, mergeRules, priorityKey, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
   type Checked, type ConflictRow, type Internal, type LayerRow, type RulesPatch, type SaeRow, type Settings, type ZipIndex,
 } from "./plan";
 
@@ -76,10 +77,14 @@ const KV = {
   decidedWith: "mapAssign:decidedWith",
   /** ESO + TSA tickets per owner (the KPI workload), refreshed at most hourly */
   tickets: "mapAssign:tickets",
+  /** the sandbox's rules (SARCLA 24.10.2026): {rules, by, at, from} - never used to decide or write */
+  sandbox: "mapAssign:sandbox",
+  /** the ids of the corrections applied once to the saved rules (fixes.ts) */
+  fixes: "mapAssign:fixes",
 };
 
 /** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
-const SCAN_VERSION = 2;
+const SCAN_VERSION = 3; // 3 (24.10.2026): apso_customer
 
 /** The calendar year in Zurich - the year of "revenue this year", "customer this year". */
 const yearNow = () => Number(zurich(Date.now()).day.slice(0, 4));
@@ -89,9 +94,11 @@ export const revenueField = (year: number) => `revenue_${year}`;
 export const CUSTOMERS_FIELD = "order_last_order_date";
 const FIRST_ORDER_FIELD = "order_first_order_date";
 const PRIORITY_FIELD = "sales_priority";
+/** APSOcore / APSOgrowth / APSOprospect / APSOlost / APSOmicro / Growth Engine Customer (the segmentation) */
+const CATEGORY_FIELD = "apso_customer";
 const BASE_PROPS = ["name", "country", "country_custom", "zip", "sae_performis", "erp_customer_id", "hubspot_owner_id", "region_responsibility", "hs_lastmodifieddate"];
 /** What a company read asks for: the rules' facts and the map's layers. */
-const companyProps = (year = yearNow()) => [...BASE_PROPS, revenueField(year), CUSTOMERS_FIELD, FIRST_ORDER_FIELD, PRIORITY_FIELD];
+const companyProps = (year = yearNow()) => [...BASE_PROPS, revenueField(year), CUSTOMERS_FIELD, FIRST_ORDER_FIELD, PRIORITY_FIELD, CATEGORY_FIELD];
 const CONTACT_PROPS = ["email", "hubspot_owner_id", "region_responsibility", "sae_performis", "associatedcompanyid"];
 /** v4 association types: contact -> company, unlabeled and primary. */
 const CONTACT_TO_COMPANY = 279, CONTACT_TO_PRIMARY_COMPANY = 1;
@@ -154,6 +161,8 @@ export function ensureMapAssign(): Promise<void> {
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS contacts_mism INTEGER;
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS tickets_90    INTEGER;
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS sales_90      INTEGER;
+      -- v5 (24.10.2026): the APSO customer category, for the KPI split per person (SARCLA: "the split of PRIO and APSOcustomer")
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS apso_customer TEXT;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -230,6 +239,67 @@ export async function saveSettings(x: unknown, by: string): Promise<Settings> {
   const next = cleanSettings({ ...(await getSettings()), ...(x && typeof x === "object" ? x : {}) });
   await kvSet(KV.settings, { ...next, by, at: new Date().toISOString() });
   return next;
+}
+
+/* ── the sandbox and the one-time corrections ─────────────────────────── */
+
+/**
+ * The sandbox (SARCLA 24.10.2026: "a Sandbox / Live toggle so the sales leader can play around and do tests on regions
+ * ... always the comparing KPIs, to measure the result with one ESO less, the km², the money, everything ... then we
+ * bring it back on the main one - this should not in any way be automatic, a human pushes the button"): a second set
+ * of rules, a copy of the live ones until someone changes it. It never decides a stored company and never writes to
+ * HubSpot - the KPIs decide the stored companies with it on the fly (layerData). Promote = an admin brings one part
+ * (a country, or the SAE table) into the saved rules.
+ */
+export type SandboxSaved = { rules: AssignRules; by: string | null; at: string | null; from: string | null };
+export async function getSandbox(): Promise<SandboxSaved | null> {
+  const x = await kvGet<{ rules?: AssignRules | null; by?: string | null; at?: string | null; from?: string | null }>(KV.sandbox);
+  return x?.rules?.countries ? { rules: x.rules, by: x.by ?? null, at: x.at ?? null, from: x.from ?? null } : null;
+}
+/** A patch merged into the sandbox (a copy of the live rules when there is none), or a part put back to live ("sae" or a
+ *  country), or reset: true = the sandbox gone (it starts again from live). */
+export async function saveSandbox(input: { patch?: RulesPatch; reset?: string | boolean }, by: string): Promise<Checked<SandboxSaved | null>> {
+  if (input.reset === true) {
+    await kvSet(KV.sandbox, { rules: null, by, at: new Date().toISOString() });
+    return { ok: true, value: null };
+  }
+  const live = (await getRules()).value;
+  const cur = await getSandbox();
+  let base = cur?.rules ?? live;
+  if (typeof input.reset === "string") {
+    const part = input.reset.trim().toUpperCase();
+    base = part === "SAE" ? { ...base, sae: live.sae, defaultOwner: live.defaultOwner } : mergeRules(base, { countries: { [part]: live.countries[part] ?? null } });
+  }
+  if (input.patch) base = mergeRules(base, input.patch);
+  const v = validateRules(base);
+  if (!v.ok) return v;
+  const value = { rules: v.value, by, at: new Date().toISOString(), from: cur?.from ?? new Date().toISOString() };
+  await kvSet(KV.sandbox, value);
+  return { ok: true, value };
+}
+/** An admin brings one part of the sandbox into the live rules: "sae" (the SAE table and the default) or a country. */
+export async function promoteSandbox(part: string, by: string): Promise<Checked<{ redecided: number }>> {
+  const sb = await getSandbox();
+  if (!sb) return { ok: false, errors: ["there is no sandbox - nothing to bring to live"] };
+  const p = part.trim().toUpperCase();
+  const patch: RulesPatch = p === "SAE" ? { sae: sb.rules.sae, defaultOwner: sb.rules.defaultOwner } : { countries: { [p]: sb.rules.countries[p] ?? null } };
+  return saveRules({ patch }, `${by} (from the sandbox)`);
+}
+
+/** The corrections of fixes.ts not applied yet: applied once to the SAVED rules (the seed carries them already). */
+async function applyRuleFixes(): Promise<void> {
+  const had = await kvGet<string[]>(KV.fixes);
+  const done = Array.isArray(had) ? had : [];
+  const saved = await kvGet<{ rules?: AssignRules; by?: string | null; at?: string | null }>(KV.rules);
+  const { rules, applied } = applyFixes(saved?.rules?.countries ? saved.rules : SEED, done);
+  if (!applied.length) return;
+  if (saved?.rules?.countries) {
+    const v = validateRules(rules);
+    if (!v.ok) { console.warn(`[map-assign] corrections not applied: ${v.errors[0]}`); return; }
+    await kvSet(KV.rules, { rules: v.value, by: "SARCLA 24.10.2026 (asked in chat)", at: new Date().toISOString() });
+  }
+  await kvSet(KV.fixes, [...done, ...applied.map((f) => f.id)]);
+  console.log(`[map-assign] corrections applied to the saved rules: ${applied.map((f) => f.why).join("; ")}`);
 }
 
 /* ── Owner redirection against the map ────────────────────────────────── */
@@ -430,6 +500,7 @@ type Rec = {
   region: string | null; sae: string | null; erp_id: string | null; owner_now: string | null; region_now: string | null;
   owner_decided: string; via: Via; detail: string; flags: string; contacts_off: number | null; contacts_checked: boolean; modified_at: string | null;
   revenue_cy: number | null; revenue_year: number; last_order: string | null; first_order: string | null; priority: string | null;
+  category: string | null;
   /** associated contacts, counted on a full read (null = keep the stored count) */
   contacts_n: number | null;
   /** of its own contacts: owner or region not the company's now (null = keep the stored count) */
@@ -458,7 +529,7 @@ function toRec(o: Obj, ctx: Ctx): Rec {
     ...base, name: nz(p.name), country: d.country, owner_now: nz(p.hubspot_owner_id), region_now: nz(p.region_responsibility),
     owner_decided: d.owner, via: d.via, detail: d.detail, flags: d.flags.join(","), contacts_off: null, contacts_checked: false, modified_at: nz(p.hs_lastmodifieddate),
     revenue_cy: num(p[revenueField(ctx.year)]), revenue_year: ctx.year, last_order: nz(p[CUSTOMERS_FIELD]), first_order: nz(p[FIRST_ORDER_FIELD]),
-    priority: nz(p[PRIORITY_FIELD]), contacts_n: null, contacts_mism: null,
+    priority: nz(p[PRIORITY_FIELD]), category: nz(p[CATEGORY_FIELD]), contacts_n: null, contacts_mism: null,
   };
 }
 const differs = (r: { owner_now: string | null; region_now: string | null; owner_decided: string }) =>
@@ -471,22 +542,22 @@ async function upsert(recs: Rec[]): Promise<void> {
     await query(
       `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, region_now,
          owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at,
-         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism)
+         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism, apso_customer)
        SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.region, x.sae, x.erp_id, x.owner_now, x.region_now,
          x.owner_decided, x.via, x.detail, COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'), x.contacts_off,
          CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW(),
-         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism
+         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism, x.category
        FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, region text,
          sae text, erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
          contacts_checked boolean, modified_at timestamptz, revenue_cy double precision, revenue_year int, last_order text, first_order text,
-         priority text, contacts_n int, contacts_mism int)
+         priority text, contacts_n int, contacts_mism int, category text)
        ON CONFLICT (company_id) DO UPDATE SET
          name = EXCLUDED.name, country = EXCLUDED.country, country_raw = EXCLUDED.country_raw, country_custom = EXCLUDED.country_custom,
          zip = EXCLUDED.zip, region = EXCLUDED.region, sae = EXCLUDED.sae, erp_id = EXCLUDED.erp_id, owner_now = EXCLUDED.owner_now,
          region_now = EXCLUDED.region_now, owner_decided = EXCLUDED.owner_decided, via = EXCLUDED.via, detail = EXCLUDED.detail, flags = EXCLUDED.flags,
          contacts_off = EXCLUDED.contacts_off, contacts_at = EXCLUDED.contacts_at, modified_at = EXCLUDED.modified_at, checked_at = NOW(),
          revenue_cy = EXCLUDED.revenue_cy, revenue_year = EXCLUDED.revenue_year, last_order = EXCLUDED.last_order, first_order = EXCLUDED.first_order,
-         priority = EXCLUDED.priority,
+         priority = EXCLUDED.priority, apso_customer = EXCLUDED.apso_customer,
          -- counted on a full read only: a 15-minute read keeps the count
          contacts_n = COALESCE(EXCLUDED.contacts_n, m.contacts_n),
          contacts_n_at = CASE WHEN EXCLUDED.contacts_n IS NOT NULL THEN NOW() ELSE m.contacts_n_at END,
@@ -951,6 +1022,7 @@ async function* changedCompanies(since: number, ctx: Ctx): AsyncGenerator<Obj[]>
 async function run(want: "full" | "changes" | undefined, signal: AbortSignal | undefined, by: string): Promise<RunInfo> {
   await ensureMapAssign();
   const t0 = Date.now();
+  await applyRuleFixes().catch((e) => console.warn(`[map-assign] corrections not applied: ${msg(e)}`));
   const ctx = await context(signal);
   const cursor = await kvGet<number>(KV.cursor);
   const lastFull = await kvGet<RunInfo>(KV.lastFull);
@@ -1147,7 +1219,7 @@ export async function mapData(admin: boolean): Promise<MapData> {
   const latest = [rules, live].filter((x) => x.at).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
   return {
     rules: rules.value, seeded: SEED, owners: own?.list ?? [], live: live.value, last, countries, changes, noCompany, admin,
-    moves, conflicts: await conflicts(),
+    moves, conflicts: await conflicts(), sandbox: await getSandbox(),
     by: latest?.by ?? null, at: latest?.at ?? null,
   };
 }
@@ -1235,24 +1307,34 @@ export async function changesPage(f: { country?: string | null; from?: string | 
  * A postcode is shown at its own point, else the nearest one with the same beginning (placeZip); none = `unplaced`.
  * Without a postcode file the cleaned postcode is the key (the page cannot place those).
  */
-export async function layerData(country: string): Promise<LayerData> {
+export async function layerData(country: string, opts: { rules?: AssignRules } = {}): Promise<LayerData> {
   await ensureMapAssign();
   const cc = country.trim().toUpperCase();
   const year = yearNow();
   const r = await query<{
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
     last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
-    via: string | null; tickets_90: number | null; sales_90: number | null;
+    via: string | null; tickets_90: number | null; sales_90: number | null; apso_customer: string | null;
+    country_raw: string | null; country_custom: string | null; region: string | null; erp_id: string | null;
   }>(
-    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via, tickets_90, sales_90
+    `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via, tickets_90, sales_90,
+       apso_customer, country_raw, country_custom, region, erp_id
      FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
+  // the sandbox: every company decided again with its rules, here only (the table keeps the live decision)
+  if (opts.rules) {
+    const ctx = { rules: opts.rules, own: await owners(), redir: await redirState() };
+    for (const x of r.rows) {
+      const d = decideRec(factsOf({ company_id: x.company_id, country_raw: x.country_raw, country_custom: x.country_custom, zip: x.zip, region: x.region, sae: x.sae, erp_id: x.erp_id }), ctx, x.owner_now);
+      x.owner_decided = d.owner; x.via = d.via;
+    }
+  }
   const rows: LayerRow[] = r.rows.map((x) => ({
     id: String(x.company_id), name: x.name, zip: x.zip, owner: x.owner_now,
     // a row read before New Year holds last year's revenue: none until the next read
     revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
     lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now, via: x.via,
-    tickets: x.tickets_90, sales: x.sales_90,
+    tickets: x.tickets_90, sales: x.sales_90, category: x.apso_customer,
   }));
   const ix = await zipsOf(cc);
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
@@ -1260,7 +1342,7 @@ export async function layerData(country: string): Promise<LayerData> {
   const last = await lastRun();
   // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
   const by = new Map<string, OwnerLoad>();
-  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0 }), by.get(o)!);
+  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0, priority: {}, category: {} }), by.get(o)!);
   const extra = await query<{ company_id: string; contacts_n: number | null }>(`SELECT company_id, contacts_n FROM apsomh_map_assign WHERE country = $1`, [cc]);
   const contactsOf = new Map(extra.rows.map((x) => [String(x.company_id), Number(x.contacts_n) || 0]));
   for (const x of r.rows) {
@@ -1274,6 +1356,11 @@ export async function layerData(country: string): Promise<LayerData> {
     a.sales += Number(x.sales_90) || 0;
     if (Number(x.revenue_year) === year && Number.isFinite(Number(x.revenue_cy))) a.revenue += Number(x.revenue_cy);
     a.contacts += contactsOf.get(String(x.company_id)) ?? 0;
+    // the split SARCLA asked for (24.10.2026): "PRIO and APSOcustomer" - "" = none
+    const pk = priorityKey(x.priority) ?? "";
+    a.priority![pk] = (a.priority![pk] ?? 0) + 1;
+    const ck = String(x.apso_customer ?? "").trim();
+    a.category![ck] = (a.category![ck] ?? 0) + 1;
   }
   const load = [...by.values()].map((l) => ({ ...l, revenue: Math.round(l.revenue) })).sort((a, b) => b.after - a.after || b.now - a.now);
   return {

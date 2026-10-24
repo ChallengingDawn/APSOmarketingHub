@@ -5,13 +5,17 @@
 // GET                         MapData (everyone who may open Use cases)
 // GET ?layers=CC              LayerData: the country's companies per postcode (companies, customers / new customers
 //                             this year, revenue this year, sales priority, top 3) and GDP per region
+//     &sandbox=1              the same with every company decided by the sandbox's rules (the KPIs compare the two)
 // GET ?performis=1            PerformisData: companies and contacts per country and SAE, who the rules give each SAE
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
 // GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
 // GET ?topics=1(&country=CC|??)   TopicsData: the differences grouped by why, with the OK answers (src/lib/mapAssign/topics.ts)
 // GET ?contacts=1             ContactsData: the new contacts of the last 30 days against the rules (kept hourly by the
 //                             run) and how every contact matches its company (src/lib/mapAssign/contactsKpi.ts)
+// PUT {sandbox: {patch} | {reset: "sae" | CC | true}}   the sandbox (SARCLA 24.10.2026: "so the sales leader can play
+//                             around") - everyone who can open the page; it never decides or writes anything
 // Admins:
+// PUT {promote: {part}}       bring one part of the sandbox into the live rules: "sae" or a country
 // PUT {rules}                 the whole rules, validated; every stored company decided again at once
 // PUT {patch}                 part of them (sae / defaultOwner / countries: {CC: rule | null}) merged into the saved
 //                             ones - one country per request keeps the body under the hub's 8 KB request limit
@@ -29,7 +33,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { changesPage, companyRows, isRunning, kick, layerData, linkContact, mapData, performisData, saveLive, saveRules, saveSettings } from "@/lib/mapAssign/engine";
+import { changesPage, companyRows, getRules, getSandbox, isRunning, kick, layerData, linkContact, mapData, performisData, promoteSandbox, saveLive, saveRules, saveSandbox, saveSettings } from "@/lib/mapAssign/engine";
 import { answerConflict } from "@/lib/mapAssign/redirections";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
@@ -56,7 +60,9 @@ export async function GET(req: NextRequest) {
     if (layers !== null) {
       const cc = layers.trim().toUpperCase();
       if (!/^[A-Z]{2}$/.test(cc)) return NextResponse.json({ ok: false, error: "layers must be an ISO 3166 two-letter country code" }, { status: 400 });
-      return NextResponse.json({ configured: true, ok: true, data: await layerData(cc) });
+      // the sandbox's rules, or the live ones while there is no sandbox (it starts as their copy)
+      const rules = sp.get("sandbox") ? ((await getSandbox())?.rules ?? (await getRules()).value) : undefined;
+      return NextResponse.json({ configured: true, ok: true, data: await layerData(cc, rules ? { rules } : {}) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
     if (sp.get("contacts") !== null) return NextResponse.json({ configured: true, ok: true, data: await contactsData() });
@@ -89,9 +95,26 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const b = (await req.json().catch(() => null)) as (MapPut & { patch?: RulesPatch; settings?: Record<string, unknown>; topicOk?: unknown }) | null;
   if (!b || typeof b !== "object") return NextResponse.json({ ok: false, error: "No body" }, { status: 400 });
+  // the sandbox: anyone who can open the page, in a request of its own - it changes nothing that decides or writes
+  if (b.sandbox !== undefined) {
+    if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
+    const x = b.sandbox as { patch?: unknown; reset?: unknown } | null;
+    if (Object.keys(b).some((k) => k !== "sandbox")) return NextResponse.json({ ok: false, error: "sandbox goes in a request of its own" }, { status: 400 });
+    if (!x || typeof x !== "object" || (x.patch !== undefined && (typeof x.patch !== "object" || x.patch === null))
+      || (x.reset !== undefined && x.reset !== true && !(typeof x.reset === "string" && /^([A-Za-z]{2}|sae)$/i.test(x.reset)))) {
+      return NextResponse.json({ ok: false, error: "sandbox must be {patch} or {reset: \"sae\" | a country | true}" }, { status: 400 });
+    }
+    try {
+      const r = await saveSandbox({ patch: x.patch as RulesPatch | undefined, reset: x.reset as string | boolean | undefined }, await who(access.userId));
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.errors[0], errors: r.errors }, { status: 400 });
+      return NextResponse.json({ ok: true, data: await mapData(access.role === "admin") });
+    } catch (err) {
+      return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 });
+    }
+  }
+  if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
   // everything is checked before anything is stored
   const problems: string[] = [];
   if (b.rules !== undefined) { const v = validateRules(b.rules); if (!v.ok) problems.push(...v.errors); }
@@ -120,6 +143,13 @@ export async function PUT(req: NextRequest) {
     let redecided: number | undefined;
     if (b.rules !== undefined || b.patch !== undefined) {
       const r = await saveRules({ rules: b.rules, patch: b.patch }, by);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.errors[0], errors: r.errors }, { status: 400 });
+      redecided = r.value.redecided;
+    }
+    if (b.promote !== undefined) {
+      const part = String((b.promote as { part?: unknown } | null)?.part ?? "").trim();
+      if (!/^([A-Za-z]{2}|sae)$/i.test(part)) return NextResponse.json({ ok: false, error: "promote must be {part: \"sae\" | a country}" }, { status: 400 });
+      const r = await promoteSandbox(part, by);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.errors[0], errors: r.errors }, { status: 400 });
       redecided = r.value.redecided;
     }

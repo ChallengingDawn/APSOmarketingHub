@@ -117,28 +117,33 @@ export function useCountryMap(cc: string, rulesNow: AssignRules, saved: AssignRu
 /* ── the engine's layers ── */
 
 const layerCache = new Map<string, { at: number; p: Promise<LayerData | null> }>();
-function loadLayers(cc: string): Promise<LayerData | null> {
-  const hit = layerCache.get(cc);
+/** `sandbox`: the sandbox's version (its save time) - the companies decided by the sandbox's rules; null = live. */
+function loadLayers(cc: string, sandbox: string | null = null): Promise<LayerData | null> {
+  const key = `${cc}|${sandbox ?? ""}`;
+  const hit = layerCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.p;
-  const p = fetch(`${API}?layers=${encodeURIComponent(cc)}`)
+  const p = fetch(`${API}?layers=${encodeURIComponent(cc)}${sandbox !== null ? `&sandbox=1&v=${encodeURIComponent(sandbox)}` : ""}`)
     .then(async (r) => {
       if (!r.ok) return null;
       const j = (await r.json()) as { ok?: boolean; data?: unknown };
       return j && j.ok && isLayerData(j.data, cc) ? j.data : null; // a route that does not know ?layers answers with MapData
     })
     .catch(() => null);
-  layerCache.set(cc, { at: Date.now(), p });
+  layerCache.set(key, { at: Date.now(), p });
   return p;
 }
 
-export function useLayers(cc: string): { data: LayerData | null; loading: boolean } {
-  const [got, setGot] = useState<{ cc: string; data: LayerData | null } | null>(null);
+export function useLayers(cc: string, sandbox: string | null = null): { data: LayerData | null; loading: boolean } {
+  const key = `${cc}|${sandbox ?? ""}`;
+  const [got, setGot] = useState<{ key: string; data: LayerData | null } | null>(null);
   useEffect(() => {
     let live = true;
-    void loadLayers(cc).then((data) => { if (live) setGot({ cc, data }); });
+    void loadLayers(cc, sandbox).then((data) => { if (live) setGot({ key, data }); });
     return () => { live = false; };
-  }, [cc]);
-  return got && got.cc === cc ? { data: got.data, loading: false } : { data: null, loading: true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  // a new sandbox version keeps the last figures on screen while it reads
+  return got && got.key === key ? { data: got.data, loading: false } : { data: got && got.key.split("|")[0] === cc ? got.data : null, loading: true };
 }
 
 /* ── colours ── */
@@ -173,12 +178,17 @@ const sameTarget = (a: Target | null, b: Target | null) => {
 
 type Note = { text: string; bad?: boolean; undo?: { rule: CountryRule; text: string } };
 
-export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, onRules, onPlace }: {
+export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, top, onRules, onKpi, onPlace, sandbox = null }: {
   m: CountryMap; cc: string; rules: AssignRules; d: MapData; names: Names; palette: Palette;
   onAssign?: (country: string, change: MapAssign) => void;
   setDraft?: SetDraft; top?: React.ReactNode;
   /** the Rules button: the page opens its rules window */
   onRules?: () => void;
+  /** the KPIs button: the page opens its rules window on KPI (SARCLA 24.10.2026: "the KPI button still leads to the old
+   *  KPI side bar - this should change") */
+  onKpi?: () => void;
+  /** the sandbox's version: the map's figures are the sandbox's (null = live) */
+  sandbox?: string | null;
   /** a click on a region or a zip code: the page opens its rules window on that place (SARCLA 20.10.2026: "default to rules") */
   onPlace?: (p: Place) => void;
 }) {
@@ -207,8 +217,10 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   useEffect(() => { viewRef.current = { k: 1, x: 0, y: 0 }; setPinned(null); setHover(null); setHl(null); setNote(null); setUi({ detail: false, atMin: true, atMax: false }); }, [cc]);
   useEffect(() => { if (pinned) setSide(null); }, [pinned]);
 
-  const layers = useLayers(cc);
+  const layers = useLayers(cc, sandbox);
   const joined = useMemo<Joined | null>(() => (base && layers.data ? joinLayer(base, layers.data) : null), [base, layers.data]);
+  // "+N more" opens the whole list of people here (it opened the old KPI panel)
+  const [allPeople, setAllPeople] = useState(false);
   const hasGdp = !!joined?.gdp.some((g) => g !== null);
   const effLayer: LayerKey = layer === "owners" || (joined && (layer !== "gdp" || hasGdp) && (layer !== "top" || joined.top.length)) ? layer : "owners";
 
@@ -727,7 +739,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   // the people on screen, small, bottom left: a click picks out their land
   const mini = effLayer === "owners" || effLayer === "top" ? (
     <Box sx={{ ...glassBar, px: 1, py: 0.6, display: "flex", flexWrap: "wrap", gap: 0.25, maxWidth: { xs: "100%", sm: 460 } }}>
-      {people.slice(0, 8).map((p) => {
+      {(allPeople ? people : people.slice(0, 8)).map((p) => {
         const on = hl === p.owner;
         return (
           <Box key={p.owner} component="button" type="button" onClick={() => setHl(on ? null : p.owner)} aria-pressed={on}
@@ -737,7 +749,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
           </Box>
         );
       })}
-      {people.length > 8 && <Box component="button" type="button" onClick={() => toggle("kpis")} sx={{ all: "unset", cursor: "pointer", px: 0.75, py: 0.3, fontSize: "0.76rem", fontWeight: 600, color: "#2459d1" }}>+{people.length - 8} more</Box>}
+      {people.length > 8 && <Box component="button" type="button" onClick={() => setAllPeople((v) => !v)} sx={{ all: "unset", cursor: "pointer", px: 0.75, py: 0.3, fontSize: "0.76rem", fontWeight: 600, color: "#2459d1" }}>{allPeople ? "fewer" : `+${people.length - 8} more`}</Box>}
     </Box>
   ) : values ? (
     <Box sx={{ ...glassBar, px: 1.25, py: 0.75, display: "flex", alignItems: "center", gap: 1 }}>
@@ -785,7 +797,8 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   return (
     <Box sx={{ display: "grid", gap: 1, minWidth: 0 }}>
       <Box ref={boxRef} sx={{
-        position: "relative", width: "100%", overflow: "hidden", borderRadius: "18px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
+        position: "relative", width: "100%", overflow: "hidden", borderRadius: "18px", bgcolor: sandbox !== null ? "#fbf7ee" : "#f3f5f8",
+        border: sandbox !== null ? "2px solid #e0a43a" : `1px solid ${HAIRLINE}`,
         height: { xs: "72vh", md: "calc(100vh - 210px)" }, minHeight: { xs: 460, md: 560 },
       }}>
         {stage}
@@ -794,7 +807,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
             {top}
             {onRules && <Button onClick={onRules} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} sx={sideBtn(false)}>Rules</Button>}
-            <Button onClick={() => toggle("kpis")} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={side === "kpis" && !pinned} sx={sideBtn(side === "kpis" && !pinned)}>KPIs</Button>
+            <Button onClick={() => (onKpi ? onKpi() : toggle("kpis"))} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={!onKpi && side === "kpis" && !pinned} sx={sideBtn(!onKpi && side === "kpis" && !pinned)}>KPIs</Button>
           </Box>
           <Box sx={{ flex: 1 }} />
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
@@ -833,7 +846,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
         {/* what changed: edits, a gift and its undo - top centre */}
         {(note || (m.moved !== null && m.moved > 0)) && (
           <Box sx={{ position: "absolute", top: { xs: 120, sm: 64 }, left: "50%", transform: "translateX(-50%)", zIndex: 5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "center", maxWidth: "calc(100% - 24px)" }}>
-            {note ? <Chip tint={note.bad ? "amber" : "blue"}>{note.text}</Chip> : <Chip tint="amber">{`Your edits give ${full(m.moved ?? 0)} postcodes to someone else - Save keeps them`}</Chip>}
+            {note ? <Chip tint={note.bad ? "amber" : "blue"}>{note.text}</Chip> : <Chip tint="amber">{sandbox !== null ? `The sandbox gives ${full(m.moved ?? 0)} postcodes to someone else than live` : `Your edits give ${full(m.moved ?? 0)} postcodes to someone else - Save keeps them`}</Chip>}
             {note?.undo && canGive && <Button size="small" onClick={undo} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0, py: 0.25, bgcolor: "rgba(255,255,255,.94)" }}>Undo</Button>}
           </Box>
         )}

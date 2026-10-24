@@ -56,19 +56,21 @@ export async function send(method: "PUT" | "POST", body: object): Promise<{ ok: 
  * country - since the whole rules are past 8 KB (8.4 KB as seeded). Every part's size is checked before anything is
  * sent; then they go one after the other, and a failure says which parts were saved before it.
  */
-export async function saveRules(draft: AssignRules, saved: AssignRules): Promise<{ ok: boolean; text: string }> {
+export async function saveRules(draft: AssignRules, saved: AssignRules, target: "live" | "sandbox" = "live"): Promise<{ ok: boolean; text: string }> {
   const parts: { what: string; body: object }[] = [];
+  // the sandbox (SARCLA 24.10.2026): the same patches, sent as {sandbox: {patch}}
+  const wrap = (patch: object) => (target === "sandbox" ? { sandbox: { patch } } : { patch });
   const saeChanged = canon(draft.sae) !== canon(saved.sae);
   const defaultChanged = String(draft.defaultOwner) !== String(saved.defaultOwner);
   if (saeChanged || defaultChanged) {
     parts.push({
       what: saeChanged && defaultChanged ? "the SAE table and the default" : saeChanged ? "the SAE table" : "the default",
-      body: { patch: { ...(saeChanged ? { sae: draft.sae } : {}), ...(defaultChanged ? { defaultOwner: draft.defaultOwner } : {}) } },
+      body: wrap({ ...(saeChanged ? { sae: draft.sae } : {}), ...(defaultChanged ? { defaultOwner: draft.defaultOwner } : {}) }),
     });
   }
   for (const cc of [...new Set([...Object.keys(draft.countries), ...Object.keys(saved.countries)])].sort()) {
     const a = draft.countries[cc] ?? null, b = saved.countries[cc] ?? null;
-    if (canon(a) !== canon(b)) parts.push({ what: countryName(cc), body: { patch: { countries: { [cc]: a } } } });
+    if (canon(a) !== canon(b)) parts.push({ what: countryName(cc), body: wrap({ countries: { [cc]: a } }) });
   }
   if (!parts.length) return { ok: true, text: "Nothing to save." };
   const big = parts.find((p) => bodyBytes(p.body) > MAX_BODY);
@@ -79,8 +81,19 @@ export async function saveRules(draft: AssignRules, saved: AssignRules): Promise
     if (!r.ok) return { ok: false, text: `${done.length ? `Saved ${done.join(", ")}; ` : "Not saved: "}${p.what} failed - ${r.error ?? "?"}` };
     done.push(p.what);
   }
-  return { ok: true, text: `Saved ${done.join(", ")}. Every company is decided again with these rules.` };
+  return { ok: true, text: target === "sandbox" ? `Saved in the sandbox: ${done.join(", ")}.` : `Saved ${done.join(", ")}. Every company is decided again with these rules.` };
 }
+
+/** Where two sets of rules differ, part by part as they are saved: "sae" (the SAE table and the default) and countries. */
+export function rulesParts(a: AssignRules, b: AssignRules): string[] {
+  const out: string[] = [];
+  if (canon(a.sae) !== canon(b.sae) || String(a.defaultOwner) !== String(b.defaultOwner)) out.push("sae");
+  for (const cc of [...new Set([...Object.keys(a.countries), ...Object.keys(b.countries)])].sort()) {
+    if (canon(a.countries[cc] ?? null) !== canon(b.countries[cc] ?? null)) out.push(cc);
+  }
+  return out;
+}
+export const partName = (part: string) => (part === "sae" ? "the SAE table" : countryName(part));
 
 /* ── countries ── */
 
