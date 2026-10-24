@@ -4,7 +4,7 @@ import {
   articleQuantities, branchOf, decide, decideHub, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
   priceArticles, priceCheckArticles, scoreTicket, toNum, unwrapUrl, type Api, type Better, type Resp,
 } from "../src/lib/ticketValue/rules";
-import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pricesOf, sameValue, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
+import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pathOf, pricesOf, sameValue, sumFigures, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
 
 /** A fake HubSpot: answers by path; every call is recorded. */
 function fake(routes: Record<string, unknown>, calls: string[] = []): Api {
@@ -318,4 +318,41 @@ test("the figures: live tickets count as written, tickets from before the path w
   ]);
   assert.deepEqual([m.live, m.written, m.earlier, m.valued, m.valueBetter, m.checked], [2, 1, 1, 2, 105, 2]);
   assert.deepEqual(m.byConfidence.map((x) => [x.confidence, x.n]).sort(), [["high", 1], ["low", 1]]);
+});
+
+test("a ticket's path, read from what is on it", () => {
+  const t = (src: string | null, extra: Record<string, string> = {}, conf = "high") => pathOf({ sales_potential_source: src, sales_potential_confidence: conf, subject: "", ...extra });
+  assert.equal(t(null), "none");
+  assert.equal(t("manual_override"), "manual");
+  assert.equal(t("unqualified"), "unqualified");
+  assert.equal(t("direct_field", { erosion_key: "E1" }), "erosion");
+  assert.equal(t("direct_field", { price_check_key: "P1" }), "pricecheck");
+  assert.equal(t("direct_field", { subject: "Abandoned cart - 420 EUR" }), "cart");
+  assert.equal(t("direct_field", { sept_push_target: "5000" }), "push");
+  assert.equal(t("direct_field"), "direct");
+  assert.equal(t("company_baseline", { hs_tag_ids: "1;43412670" }, "low"), "registrant");
+  assert.equal(t("company_baseline", { subject: "Lost Lead - Muster AG" }, "low"), "lostlead");
+  assert.equal(t("company_baseline", { subject: "Push for Second Purchase - Muster AG" }, "medium"), "secondpurchase");
+  assert.equal(t("company_baseline", {}, "low"), "company");
+  assert.equal(t("child_gqs"), "gqs");
+  assert.equal(t("text_qty_price", {}, "medium"), "textqty");
+  assert.equal(t("product_lookup", {}, "medium"), "product");
+  assert.equal(t("unknown", {}, "low"), "unknown");
+});
+
+test("the months' figures: the months chosen, one pipeline or both", () => {
+  const b = [
+    { m: 0, pipe: "ESO" as const, path: "direct", conf: "high", n: 2, value: 100 },
+    { m: 1, pipe: "ESO" as const, path: "company", conf: "low", n: 3, value: 30 },
+    { m: 1, pipe: "TSA" as const, path: "direct", conf: "high", n: 1, value: 50 },
+    { m: 2, pipe: "TSA" as const, path: "none", conf: "(none)", n: 4, value: 0 },
+  ];
+  const all = sumFigures(b, 0, 2, "both");
+  assert.deepEqual(all.total, { n: 10, value: 180 });
+  assert.deepEqual(all.byPath.get("direct"), { n: 3, value: 150 });
+  assert.deepEqual(all.byConf.get("(none)"), { n: 4, value: 0 });
+  const feb = sumFigures(b, 1, 1, "ESO");
+  assert.deepEqual(feb.total, { n: 3, value: 30 });
+  assert.deepEqual([...feb.byPath.keys()], ["company"]);
+  assert.deepEqual(sumFigures(b, 1, 2, "TSA").total, { n: 5, value: 50 });
 });

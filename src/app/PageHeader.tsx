@@ -5,7 +5,8 @@ import Chip from "@mui/material/Chip";
 
 interface PageHeaderProps {
   title: string;
-  subtitle: string;
+  /** One line of context; left out (and no room kept for it) when empty. */
+  subtitle?: string;
   rightSlot?: React.ReactNode;
   badge?: string;
 }
@@ -60,9 +61,11 @@ export default function PageHeader({ title, subtitle, rightSlot, badge }: PageHe
             />
           )}
         </Box>
-        <Typography sx={{ color: "#5b6470", fontSize: "0.95rem", mt: 0.75, maxWidth: 760, lineHeight: 1.5 }}>
-          {subtitle}
-        </Typography>
+        {subtitle ? (
+          <Typography sx={{ color: "#5b6470", fontSize: "0.95rem", mt: 0.75, maxWidth: 760, lineHeight: 1.5 }}>
+            {subtitle}
+          </Typography>
+        ) : null}
       </Box>
       {rightSlot && <Box sx={{ flexShrink: 0 }}>{rightSlot}</Box>}
     </Box>

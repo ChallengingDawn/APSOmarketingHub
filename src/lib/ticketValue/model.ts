@@ -170,3 +170,42 @@ export function pricesOf(rows: { article: string; revenueCy: number; revenueLy: 
   }
   return out;
 }
+
+// ---------------- the period figures: a ticket's path, read from what is on it (24.10.2026) ----------------
+
+type TicketProps = Record<string, string | null | undefined>;
+const LOST_LEAD = /^\s*lost\s*lead\b/i, SECOND_PURCHASE = /^\s*push\s*for\s*second\s*purchase\b/i, PUSH = /\bpush\b/i, CART = /abandoned\s*cart/i;
+const NEW_CUSTOMER = ["43412670", "43412983"];
+/**
+ * Where the value on a ticket comes from, from the ticket itself (its source, confidence, keys and subject) - the
+ * same paths as the hub's rules, so a month before the hub took over reads the same way. "none" = no value yet.
+ */
+export function pathOf(p: TicketProps): string {
+  const src = (p.sales_potential_source ?? "").trim(), conf = (p.sales_potential_confidence ?? "").trim(), subject = p.subject ?? "";
+  if (!src) return "none";
+  if (src === "manual_override") return "manual";
+  if (src === "unqualified") return "unqualified";
+  if (p.erosion_key) return "erosion";
+  if (p.price_check_key) return "pricecheck";
+  if (src === "direct_field") return CART.test(subject) ? "cart" : p.sept_push_target || PUSH.test(subject) ? "push" : "direct";
+  if (src === "company_baseline") {
+    if ((p.hs_tag_ids ?? "").split(";").some((t) => NEW_CUSTOMER.includes(t.trim()))) return "registrant";
+    if (LOST_LEAD.test(subject)) return "lostlead";
+    if (SECOND_PURCHASE.test(subject) && conf === "medium") return "secondpurchase";
+    return "company";
+  }
+  return ({ child_gqs: "gqs", text_qty_price: "textqty", product_lookup: "product", unknown: "unknown" } as Record<string, string>)[src] ?? "unknown";
+}
+
+export type FigureBucket = { m: number; pipe: "ESO" | "TSA"; path: string; conf: string; n: number; value: number };
+/** The buckets of a time frame (months from..to of the year), one pipeline or both, added up. */
+export function sumFigures(b: FigureBucket[], from: number, to: number, pipe: "both" | "ESO" | "TSA") {
+  const sel = b.filter((x) => x.m >= from && x.m <= to && (pipe === "both" || x.pipe === pipe));
+  const by = <K extends string>(key: (x: FigureBucket) => K) => {
+    const m = new Map<K, { n: number; value: number }>();
+    for (const x of sel) { const e = m.get(key(x)) ?? { n: 0, value: 0 }; e.n += x.n; e.value += x.value; m.set(key(x), e); }
+    return m;
+  };
+  const total = sel.reduce((t, x) => ({ n: t.n + x.n, value: t.value + x.value }), { n: 0, value: 0 });
+  return { total, byPath: by((x) => x.path), byConf: by((x) => x.conf || "(none)") };
+}
