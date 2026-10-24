@@ -3,7 +3,9 @@
 // TICKET VALUE - a HubSpot app (UC & HubSpot Apps > HubSpot apps). The hub gives every ESO and TSA ticket its sales
 // potential, how sure it is (confidence) and the path the value came from, and writes them on the ticket (live since
 // 21.10.2026; SARCLA: "take out all reference to the past workflow"). Overview, Tickets, How it works and Settings as
-// UC tabs; figures from src/lib/ticketValue/model.ts, the rules in rules.ts (decideHub), the writing in live.ts.
+// UC tabs; the time frame is the hub's reporting window in the header, like the other apps (SARCLA 24.10.2026); only ESO
+// and TSA tickets are shown, amounts in EUR. Figures from src/lib/ticketValue/figures.ts (by day) and list.ts (ticket by
+// ticket), the rules in rules.ts (decideHub), the writing in live.ts.
 
 import { Fragment, useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -11,12 +13,12 @@ import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import MuiChip from "@mui/material/Chip";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import TablePagination from "@mui/material/TablePagination";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -30,39 +32,36 @@ import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import ScheduleIcon from "@mui/icons-material/ScheduleOutlined";
 import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
-import TuneIcon from "@mui/icons-material/Tune";
-import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, TRACK, bodyCell, clip, headCell, hsTicket, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
-import type { Row, RunInfo, Settings } from "@/lib/ticketValue/engine";
-import type { Jobs, PipelineValue } from "@/lib/ticketValue/live";
-import { sumFigures, type Measure, type Values } from "@/lib/ticketValue/model";
-import type { Figures } from "@/lib/ticketValue/figures";
-import type { SlowState } from "@/lib/integrations/slowReport";
-import { PeriodPicker, monthsLabel } from "@/app/reporting/marketing-kpis/ExplorerKit";
-import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
-import type { MonthWindow } from "@/app/reporting/marketing-kpis/data";
+import { Chip, Choice, Info, when } from "@/app/connectors/parts";
+import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
+import type { RunInfo, Settings } from "@/lib/ticketValue/engine";
+import type { PipelineValue } from "@/lib/ticketValue/live";
+import type { ListRow } from "@/lib/ticketValue/list";
+import { pickPipe, type PeriodSum, type Pipe, type Values } from "@/lib/ticketValue/model";
 import { HUB_RULES, REENROL_STAGES } from "@/lib/ticketValue/rules";
 
 type BetterInfo = { firstOrder: number | null; firstOrderMedian: number | null; firstOrderN: number; firstOrderAt: string | null; pricedArticles: number; firstOrderProgress: { done: number; of: number } | null };
-type LiveInfo = { workflowOn: boolean | null; writing: boolean; jobs: Jobs | null };
-type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; days: number; rows: Row[]; totalRows: number; measure: Measure; better?: BetterInfo; live?: LiveInfo; pipeline?: PipelineValue | null; figures?: SlowState<Figures>; admin: boolean };
+type LiveInfo = { workflowOn: boolean | null; writing: boolean };
+type Period = { from: string; to: string; readFrom: string | null; computing: boolean; progress: string | null; error: string | null; computedAt: string | null; sums: { ESO: PeriodSum; TSA: PeriodSum } | null };
+type Data = { settings: Settings; last: RunInfo | null; everyMinutes: number; better?: BetterInfo; live?: LiveInfo; pipeline?: PipelineValue | null; period: Period; admin: boolean };
+type List = { total: number; page: number; rows: ListRow[] };
 /** The hub writes. */
 const writing = (d: Data) => !!d.live?.writing;
 type View = "overview" | "tickets" | "how" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", how: "#how-it-works", settings: "#settings" };
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
-/** The filters of Overview and How it works: the months of this year, the pipeline (the Digital Growth pages' window). */
-type Pipe = "both" | "ESO" | "TSA";
-type Frame = { win: MonthWindow; pipe: Pipe; year: number };
 const pipeLabel = (p: Pipe) => (p === "both" ? "ESO and TSA" : p);
-const frameLabel = (f: Frame) => `${monthsLabel(f.win)} ${f.year}`;
+/** The header's window in a sentence: "in the last 28 days", "this month so far", "1 Oct – 24 Oct 2026". */
+const inWindow = (label: string) => (/^Last \d+ days$/.test(label) ? `in the ${label.toLowerCase()}` : /^(This month so far|Last month)$/.test(label) ? label.toLowerCase() : label);
 const small = { fontSize: "0.8rem" } as const;
+/** Amounts in EUR, as the other apps write them. */
+const eur = (n: number) => `${full(n)} EUR`;
 
 /** Where a value comes from, in words (sales_potential_source). */
 const SOURCE: Record<string, string> = {
@@ -70,22 +69,14 @@ const SOURCE: Record<string, string> = {
   company_baseline: "the company's potential", unknown: "no signal (0)", unqualified: "not a sales ticket", manual_override: "typed by a person", "(none)": "no value",
 };
 const srcLabel = (s: string | null | undefined) => SOURCE[s ?? "(none)"] ?? s ?? "no value";
+/** A ticket's value in EUR, to the cent when it has cents. */
 const amount = (v: string | null | undefined) => {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
-  return Number.isFinite(n) ? n.toLocaleString("de-CH", { maximumFractionDigits: 2 }) : v;
+  return Number.isFinite(n) ? `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} EUR` : v;
 };
 const valueText = (v: Values) => v.sales_potential_source || v.sales_potential_estimate ? `${amount(v.sales_potential_estimate)} · ${srcLabel(v.sales_potential_source)}` : "no value";
-/** The amount, and where it comes from under it. */
-function ValueCell({ v }: { v: Values }) {
-  if (!v.sales_potential_source && !v.sales_potential_estimate) return <Box component="span" sx={{ color: FAINT }}>no value</Box>;
-  return (
-    <Box>
-      <Box sx={{ fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" }}>{amount(v.sales_potential_estimate)}</Box>
-      <Box sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap" }}>{srcLabel(v.sales_potential_source)}</Box>
-    </Box>
-  );
-}
+const hasValue = (v: Values) => !!(v.sales_potential_source || v.sales_potential_estimate);
 /** The confidence of a value, as a chip. */
 const CONF_TINT: Record<string, Tint> = { high: "green", medium: "blue", low: "amber", unqualified: "slate" };
 function Conf({ c }: { c: string | null | undefined }) {
@@ -93,36 +84,20 @@ function Conf({ c }: { c: string | null | undefined }) {
   return <Chip tint={CONF_TINT[c] ?? "slate"}>{c}</Chip>;
 }
 const ruleOf = (k: string | undefined) => HUB_RULES.find((x) => x.rule === k);
-/** The hub's value: the amount, its confidence, the path that gave it. */
-function HubCell({ v, rule }: { v: Values; rule?: string }) {
-  const r = ruleOf(rule);
-  if (rule === "not-eso-tsa") return <Box component="span" sx={{ color: FAINT }}>not ESO/TSA</Box>;
-  if (!v.sales_potential_source && !v.sales_potential_estimate) return <Box component="span" sx={{ color: FAINT }}>no value</Box>;
-  return (
-    <Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Box sx={{ fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" }}>{amount(v.sales_potential_estimate)}</Box>
-        <Conf c={v.sales_potential_confidence} />
-      </Box>
-      <Box sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap" }}>{r?.label ?? srcLabel(v.sales_potential_source)}</Box>
-    </Box>
-  );
-}
-/** What happened to a ticket. */
-function StatusChip({ r }: { r: Row }) {
-  if (r.verdict !== "live") return <Chip tint="slate">worked out, not written</Chip>;
-  if (r.written?.error) return <Chip tint="pink">not written</Chip>;
-  return r.written?.changed ? <Chip tint="green">written</Chip> : <Chip tint="slate">no change</Chip>;
-}
+const pathLabel = (k: string) => (k === "none" ? "No value yet" : ruleOf(k)?.label ?? k);
+const confLabel = (k: string) => (k === "(none)" ? "no value yet" : k);
+const CONF_ORDER = ["high", "medium", "low", "unqualified", "(none)"];
+const PATH_ORDER = [...HUB_RULES.map((x) => x.rule as string), "none"];
+const byOrder = (order: string[]) => (a: [string, unknown], b: [string, unknown]) => (order.indexOf(a[0]) + 1 || 99) - (order.indexOf(b[0]) + 1 || 99);
 
 function SmallTable({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
   return (
     <Box sx={{ overflowX: "auto" }}>
       <Table size="small">
-        <TableHead><TableRow>{head.map((h, i) => <TableCell key={i} sx={{ ...headCell, textAlign: typeof rows[0]?.[i] === "number" ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+        <TableHead><TableRow>{head.map((h, i) => <TableCell key={i} sx={{ ...headCell, textAlign: i > 0 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
         <TableBody>
           {rows.map((r, i) => (
-            <TableRow key={i}>{r.map((c, j) => <TableCell key={j} sx={{ ...bodyCell, fontSize: "0.84rem", textAlign: typeof c === "number" ? "right" : "left", fontVariantNumeric: "tabular-nums" }}>{typeof c === "number" ? full(c) : c}</TableCell>)}</TableRow>
+            <TableRow key={i}>{r.map((c, j) => <TableCell key={j} sx={{ ...bodyCell, fontSize: "0.84rem", textAlign: j > 0 ? "right" : "left", fontVariantNumeric: "tabular-nums" }}>{typeof c === "number" ? full(c) : c}</TableCell>)}</TableRow>
           ))}
         </TableBody>
       </Table>
@@ -130,32 +105,20 @@ function SmallTable({ head, rows }: { head: string[]; rows: (string | number)[][
   );
 }
 
-/** The one-time jobs of going live, as far as they have come. */
-function JobsCard({ j }: { j: Jobs }) {
-  const line = (title: string, done: boolean, text: string) => (
-    <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", gap: 1, alignItems: "baseline" }}>
-      <Chip tint={done ? "green" : "amber"}>{done ? "done" : "running"}</Chip>
-      <Typography sx={{ fontSize: "0.84rem", color: INK }}><b>{title}</b> - {text}</Typography>
-    </Box>
-  );
+/** While the days are being read from HubSpot, or when they could not be. */
+function PeriodWait({ p }: { p: Period }) {
   return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="amber" title="Going live, once" note={`Started ${when(j.started)}; a little every 2 minutes; every change kept with what was there before`} />
-      <Box sx={{ display: "grid", gap: 1 }}>
-        {line("Open ESO and TSA tickets valued with the hub's rules", !!j.revalue.finished, `${full(j.revalue.done)} looked at, ${full(j.revalue.changed)} changed${j.revalue.errors ? `, ${full(j.revalue.errors)} could not be written` : ""}${j.revalue.finished ? ` - finished ${when(j.revalue.finished)}` : ""}`)}
-        {line("Old values on Back Office, GQS and Special Prices tickets cleared", !!j.clear.finished, `${full(j.clear.cleared)} cleared${j.clear.keptTyped ? `, ${full(j.clear.keptTyped)} typed by a person kept` : ""}; ${full(j.clear.kpiFixed)} open-ticket rows in the KPI object counted without a value${j.clear.finished ? ` - finished ${when(j.clear.finished)}` : ""}`)}
-      </Box>
+    <GlassCard>
+      <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
+        {p.error ? `The tickets could not be read from HubSpot: ${p.error}` : `Reading the ESO and TSA tickets of the last 400 days from HubSpot${p.progress ? ` - ${p.progress}` : ""} (a minute or two, then kept 2 hours).`}
+      </Typography>
     </GlassCard>
   );
 }
+/** The days asked for before the first day read. */
+const before = (p: Period) => (p.readFrom && p.from < p.readFrom ? ` Tickets are read back to ${p.readFrom}.` : "");
 
 // ---------------------------------------------------------------- Overview
-
-const pathLabel = (k: string) => (k === "none" ? "No value yet" : ruleOf(k)?.label ?? k);
-const confLabel = (k: string) => (k === "(none)" ? "no value yet" : k);
-const CONF_ORDER = ["high", "medium", "low", "unqualified", "(none)"];
-const PATH_ORDER = [...HUB_RULES.map((x) => x.rule as string), "none"];
-const byOrder = (order: string[]) => (a: [string, unknown], b: [string, unknown]) => (order.indexOf(a[0]) + 1 || 99) - (order.indexOf(b[0]) + 1 || 99);
 
 /** The open pipeline as a funnel: all of it, then the part the hub is surer of - one hue, darker as it gets surer. */
 function Funnel({ steps }: { steps: { label: string; n: number; value: number; shade: number }[] }) {
@@ -163,17 +126,17 @@ function Funnel({ steps }: { steps: { label: string; n: number; value: number; s
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       {steps.map((x, i) => (
-        <Box key={x.label} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "210px minmax(0, 1fr) 150px" }, alignItems: "center", gap: { xs: 0.5, md: 1.5 } }}>
+        <Box key={x.label} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "210px minmax(0, 1fr) 170px" }, alignItems: "center", gap: { xs: 0.5, md: 1.5 } }}>
           <Box>
             <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK }}>{x.label}</Typography>
             <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{full(x.n)} open tickets</Typography>
           </Box>
           <Box sx={{ display: "flex", justifyContent: "center" }}>
             <Box sx={{
-              width: `${Math.max(12, (x.value / max) * 100)}%`, height: 44, borderRadius: "10px", display: "grid", placeItems: "center",
+              width: `${Math.max(14, (x.value / max) * 100)}%`, height: 44, borderRadius: "10px", display: "grid", placeItems: "center", whiteSpace: "nowrap",
               bgcolor: `rgba(36, 89, 209, ${x.shade})`, color: x.shade > 0.6 ? "#fff" : INK, fontWeight: 700, fontSize: "0.98rem", fontVariantNumeric: "tabular-nums", transition: "width .3s",
             }}>
-              {full(Math.round(x.value))}
+              {eur(x.value)}
             </Box>
           </Box>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED, textAlign: { xs: "left", md: "right" } }}>{`${i === 0 ? "100%" : pct(x.value, steps[0].value)} of the open value`}</Typography>
@@ -183,24 +146,28 @@ function Funnel({ steps }: { steps: { label: string; n: number; value: number; s
   );
 }
 
-function Overview({ d, f }: { d: Data; f: Frame }) {
-  const label = pipeLabel(f.pipe);
+const PIPES: { key: Pipe; label: string }[] = [{ key: "both", label: "ESO and TSA" }, { key: "ESO", label: "ESO" }, { key: "TSA", label: "TSA" }];
+
+function Overview({ d, pipe, setPipe, label }: { d: Data; pipe: Pipe; setPipe: (p: Pipe) => void; label: string }) {
+  const name = pipeLabel(pipe);
   // the open pipeline today, by confidence
-  const open = (d.pipeline?.pipes ?? []).filter((x) => f.pipe === "both" || x.pipeline === f.pipe).reduce((t, x) => {
+  const open = (d.pipeline?.pipes ?? []).filter((x) => pipe === "both" || x.pipeline === pipe).reduce((t, x) => {
     const c = (k: string) => x.byConf[k] ?? { n: 0, value: 0 };
     return { n: t.n + x.open, value: t.value + x.value, mhN: t.mhN + c("high").n + c("medium").n, mh: t.mh + c("high").value + c("medium").value, hN: t.hN + c("high").n, h: t.h + c("high").value };
   }, { n: 0, value: 0, mhN: 0, mh: 0, hN: 0, h: 0 });
-  // the months chosen, from every ticket's own value
-  const fig = d.figures?.value;
-  const s = fig ? sumFigures(fig.buckets, f.win.start, f.win.end, f.pipe) : null;
-  const conf = (k: string) => s?.byConf.get(k) ?? { n: 0, value: 0 };
-  const paths = s ? [...s.byPath].sort(byOrder(PATH_ORDER)) : [];
-  const confRows = s ? [...s.byConf].sort(byOrder(CONF_ORDER)) : [];
+  // the days chosen, from every ticket's own value
+  const s = d.period.sums ? pickPipe(d.period.sums, pipe) : null;
+  const conf = (k: string) => s?.byConf[k] ?? { n: 0, value: 0 };
+  const paths = s ? Object.entries(s.byPath).sort(byOrder(PATH_ORDER)) : [];
+  const confRows = s ? Object.entries(s.byConf).sort(byOrder(CONF_ORDER)) : [];
+  const created = `${name} tickets created ${inWindow(label)}`;
   return (
     <>
       {!writing(d) && <Info>Paused - the hub works each ticket&apos;s value out but writes nothing to HubSpot. Settings switches it back to Live.</Info>}
       <GlassCard>
-        <CardTitle icon={<PaidOutlinedIcon />} tint="blue" title={`Open ${label} pipeline`} note={d.pipeline ? `Today, whatever the months chosen - every open ticket's value, and how much of it the hub is sure of · worked out ${when(d.pipeline.at)}, every 30 minutes` : "Worked out within minutes"} />
+        <CardTitle icon={<PaidOutlinedIcon />} tint="blue" title={`Open ${name} pipeline`}
+          note={d.pipeline ? `Today - every open ticket's value, and how much of it the hub is sure of · worked out ${when(d.pipeline.at)}, every 30 minutes` : "Worked out within minutes"}
+          right={<Choice<Pipe> value={pipe} onChange={setPipe} options={PIPES} />} />
         {d.pipeline ? (
           <Funnel steps={[
             { label: "All open tickets", n: open.n, value: open.value, shade: 0.14 },
@@ -209,21 +176,18 @@ function Overview({ d, f }: { d: Data; f: Frame }) {
           ]} />
         ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Being worked out.</Typography>}
       </GlassCard>
-      {d.live?.jobs && !(d.live.jobs.revalue.finished && d.live.jobs.clear.finished) && <JobsCard j={d.live.jobs} />}
-      {!s ? (
-        <GlassCard><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{d.figures?.error ? `The tickets of the months could not be read: ${d.figures.error}` : `Reading this year's ${label} tickets from HubSpot${d.figures?.progress ? ` - ${d.figures.progress}` : ""} (about a minute).`}</Typography></GlassCard>
-      ) : (
+      {!s ? <PeriodWait p={d.period} /> : (
         <>
           <Grid container spacing={2}>
             {[
-              { label: "Tickets", value: full(s.total.n), note: `${label} tickets created ${frameLabel(f)}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-              { label: "Their value", value: full(Math.round(s.total.value)), note: "Their sales potential added up, as it is on them now", icon: <PaidOutlinedIcon />, tint: "purple" as const },
-              { label: "High confidence", value: full(Math.round(conf("high").value)), note: `${full(conf("high").n)} tickets · ${pct(conf("high").value, s.total.value)} of the value`, icon: <AutoFixHighOutlinedIcon />, tint: "green" as const },
-              { label: "Medium / low", value: `${full(Math.round(conf("medium").value))} / ${full(Math.round(conf("low").value))}`, note: `${full(conf("medium").n)} / ${full(conf("low").n)} tickets`, icon: <EditNoteOutlinedIcon />, tint: "amber" as const },
+              { label: "Tickets", value: full(s.total.n), note: created, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
+              { label: "Their value", value: eur(s.total.value), note: "Their sales potential added up, as it is on them now", icon: <PaidOutlinedIcon />, tint: "purple" as const },
+              { label: "High confidence", value: eur(conf("high").value), note: `${full(conf("high").n)} tickets · ${pct(conf("high").value, s.total.value)} of the value`, icon: <AutoFixHighOutlinedIcon />, tint: "green" as const },
+              { label: "Medium / low", value: `${full(conf("medium").value)} / ${full(conf("low").value)} EUR`, note: `${full(conf("medium").n)} / ${full(conf("low").n)} tickets`, icon: <EditNoteOutlinedIcon />, tint: "amber" as const },
             ].map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
           </Grid>
           <GlassCard>
-            <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Where each value comes from" note={`${label} tickets created ${frameLabel(f)} - the path that gave the value, how many tickets, how much, how sure`} />
+            <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Where each value comes from" note={`${created} - the path that gave the value, how many tickets, how much, how sure.${before(d.period)}`} />
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead><TableRow>{["Path", "The value is", "Confidence", "Tickets", "Value", "Per ticket"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i > 2 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
@@ -236,19 +200,19 @@ function Overview({ d, f }: { d: Data; f: Frame }) {
                         <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{k === "none" ? "Not valued yet - picked up within minutes" : r?.from ?? ""}</TableCell>
                         <TableCell sx={bodyCell}><Conf c={r?.confidence} /></TableCell>
                         <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(x.n)}</TableCell>
-                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(Math.round(x.value))}</TableCell>
-                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: MUTED }}>{x.n ? full(Math.round(x.value / x.n)) : "—"}</TableCell>
+                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(x.value)}</TableCell>
+                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: MUTED, whiteSpace: "nowrap" }}>{x.n ? eur(x.value / x.n) : "—"}</TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
             </Box>
-            {!paths.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No ticket in these months.</Typography>}
+            {!paths.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No ticket in these days.</Typography>}
           </GlassCard>
           <GlassCard>
-            <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="green" title="By confidence" note={`How sure the hub is of the values - ${label} tickets created ${frameLabel(f)}`} />
-            <SmallTable head={["Confidence", "Tickets", "Value", "Share"]} rows={confRows.map(([k, x]) => [confLabel(k), x.n, Math.round(x.value), pct(x.value, s.total.value)])} />
+            <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="green" title="By confidence" note={`How sure the hub is of the values - ${created}`} />
+            <SmallTable head={["Confidence", "Tickets", "Value", "Share"]} rows={confRows.map(([k, x]) => [confLabel(k), x.n, eur(x.value), pct(x.value, s.total.value)])} />
           </GlassCard>
         </>
       )}
@@ -258,52 +222,74 @@ function Overview({ d, f }: { d: Data; f: Frame }) {
 
 // ---------------------------------------------------------------- Tickets
 
-const esoTsa = (r: Row) => r.pipeline === "ESO" || r.pipeline === "TSA";
-function TicketsTab({ d, days, onDays }: { d: Data; days: number; onDays: (n: number) => void }) {
-  const [what, setWhat] = useState<"written" | "nochange" | "all">("written");
-  const [pipes, setPipes] = useState<"esotsa" | "all">("esotsa");
+/** The ESO and TSA tickets of the days chosen, newest first, read from HubSpot page by page. */
+function TicketsTab({ d, pipe, setPipe, label }: { d: Data; pipe: Pipe; setPipe: (p: Pipe) => void; label: string }) {
+  const [conf, setConf] = useState("all");
+  const [page, setPage] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
-  const inScope = d.rows.filter((r) => r.verdict !== "error" && (pipes === "all" || esoTsa(r)));
-  const test = { written: (r: Row) => !!r.written?.changed, nochange: (r: Row) => !r.written?.changed, all: () => true };
-  const rows = inScope.filter(test[what]);
-  const { slice, pager } = usePaged(rows, 15);
+  const [list, setList] = useState<{ key: string; data?: List; error?: string } | null>(null);
+  const { from, to } = d.period;
+  const key = `${from}|${to}|${pipe}|${conf}|${page}`;
+  useEffect(() => {
+    const ctl = new AbortController();
+    fetch(`/api/uc/ticket-value?list=1&from=${from}&to=${to}&pipe=${pipe}&conf=${encodeURIComponent(conf)}&page=${page}`, { signal: ctl.signal })
+      .then((r) => r.json() as Promise<{ ok: boolean; data?: List; error?: string }>)
+      .then((j) => setList(j.ok && j.data ? { key, data: j.data } : { key, error: j.error ?? "could not be read" }))
+      .catch((e: Error) => { if (e.name !== "AbortError") setList({ key, error: e.message }); });
+    return () => ctl.abort();
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sums = d.period.sums;
+  const s = sums ? pickPipe(sums, pipe) : null;
+  const confs = s ? Object.entries(s.byConf).sort(byOrder(CONF_ORDER)) : [];
+  const loading = !list || list.key !== key;
+  const rows = list?.data?.rows ?? [];
   const l = d.last;
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="What the hub did, ticket by ticket" note={l ? `Kept 21 days · last look ${when(l.at)}: ${full(l.found)} found, ${full(l.checked)} handled, ${full(l.written ?? 0)} written${l.error ? ` - ${l.error}` : ""}` : "Not run yet"} />
+      <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket"
+        note={`${pipeLabel(pipe)} tickets created ${inWindow(label)}, newest first - the value on each one now${l ? ` · the hub last looked ${when(l.at)}` : ""}.${before(d.period)}`} />
       <Box sx={{ mb: 1.5, display: "grid", gap: 1 }}>
-        <Choice<"1" | "7" | "14" | "21"> value={String(days) as "1" | "7" | "14" | "21"} onChange={(k) => onDays(Number(k))} options={[
-          { key: "1", label: "Today" }, { key: "7", label: "Last 7 days" }, { key: "14", label: "Last 14 days" }, { key: "21", label: "Last 21 days" },
-        ]} />
-        <Choice<"written" | "nochange" | "all"> value={what} onChange={setWhat} options={[
-          { key: "written", label: "Written", count: inScope.filter(test.written).length }, { key: "nochange", label: "No change", count: inScope.filter(test.nochange).length }, { key: "all", label: "All", count: inScope.length },
-        ]} />
-        <Choice<"esotsa" | "all"> value={pipes} onChange={setPipes} options={[
-          { key: "esotsa", label: "ESO and TSA", count: d.rows.filter(esoTsa).length }, { key: "all", label: "All pipelines", count: d.rows.length },
+        <Choice<Pipe> value={pipe} onChange={(p) => { setPipe(p); setPage(0); }} options={PIPES.map((x) => ({ ...x, count: sums ? pickPipe(sums, x.key).total.n : undefined }))} />
+        <Choice<string> value={conf} onChange={(c) => { setConf(c); setPage(0); }} options={[
+          { key: "all", label: "All", count: s?.total.n }, ...confs.map(([k, x]) => ({ key: k, label: k === "(none)" ? "No value yet" : k === "unqualified" ? "Not a sales ticket" : k[0].toUpperCase() + k.slice(1), count: x.n })),
         ]} />
       </Box>
-      <Box sx={{ overflowX: "auto" }}>
+      <Box sx={{ overflowX: "auto", opacity: loading && list ? 0.55 : 1, transition: "opacity .15s" }}>
         <Table size="small">
-          <TableHead><TableRow>{["When", "Ticket", "Why", "Before", "The hub: value, confidence, path", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Created", "Ticket", "Value, confidence, path", "Before", "The hub", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
-            {slice.map((r) => (
-              <Fragment key={r.key}>
-                <TableRow hover onClick={() => setOpen(open === r.key ? null : r.key)} sx={{ cursor: "pointer" }}>
-                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", color: MUTED, fontSize: "0.8rem" }}>{when(r.at)}</TableCell>
+            {rows.map((r) => (
+              <Fragment key={r.id}>
+                <TableRow hover onClick={() => setOpen(open === r.id ? null : r.id)} sx={{ cursor: "pointer" }}>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap", color: MUTED, fontSize: "0.8rem" }}>{when(r.created)}</TableCell>
                   <TableCell sx={bodyCell}>
-                    <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(300) }}>{r.subject || r.ticketId}</Box>
-                    <Box sx={{ fontSize: "0.74rem", color: MUTED }}>{r.pipeline || "—"}</Box>
+                    <Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(320) }}>{r.subject || r.id}</Box>
+                    <Box sx={{ fontSize: "0.74rem", color: MUTED }}>{r.pipeline}</Box>
                   </TableCell>
-                  <TableCell sx={{ ...bodyCell, ...small, color: MUTED, minWidth: 90 }}>{r.trigger === "created" ? "created" : r.stage}</TableCell>
-                  <TableCell sx={{ ...bodyCell, ...small }}><ValueCell v={r.before} /></TableCell>
-                  <TableCell sx={{ ...bodyCell, ...small }}>{r.hub?.better ? <HubCell v={r.hub.better.final} rule={r.hub.better.rule} /> : "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><StatusChip r={r} /></TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small }}>
+                    {hasValue(r.now) ? (
+                      <Box>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Box sx={{ fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{amount(r.now.sales_potential_estimate)}</Box>
+                          <Conf c={r.now.sales_potential_confidence} />
+                        </Box>
+                        <Box sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap" }}>{pathLabel(r.path)}</Box>
+                      </Box>
+                    ) : <Box component="span" sx={{ color: FAINT }}>no value yet</Box>}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small, color: MUTED, whiteSpace: "nowrap" }}>{r.hub ? (hasValue(r.hub.before) ? amount(r.hub.before.sales_potential_estimate) : "no value") : "—"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, ...small, color: MUTED, whiteSpace: "nowrap" }}>{r.hub ? when(r.hub.at) : "—"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>
+                    {r.hub ? (r.hub.error ? <Chip tint="pink">not written</Chip> : r.hub.changed ? <Chip tint="green">written</Chip> : <Chip tint="slate">no change</Chip>) : null}
+                  </TableCell>
                 </TableRow>
-                {open === r.key && (
+                {open === r.id && (
                   <TableRow>
                     <TableCell colSpan={6} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.04)", fontSize: "0.8rem" }}>
-                      <b>The hub:</b> {r.hub?.better ? `${valueText(r.hub.better.final)} · confidence ${r.hub.better.final.sales_potential_confidence ?? "—"} · path: ${ruleOf(r.hub.better.rule)?.label ?? "—"} (${r.hub.better.action})` : "—"}
-                      {r.written?.link ? ` · linked to company ${r.written.link}` : ""}{r.written ? ` · ${r.written.kpi} KPI rows` : ""}{r.written?.error ? ` · not written: ${r.written.error}` : ""}
+                      <b>On the ticket now:</b> {valueText(r.now)} · confidence {r.now.sales_potential_confidence ?? "—"} · path: {pathLabel(r.path)}
+                      {r.hub
+                        ? <> · <b>the hub</b> {when(r.hub.at)} ({r.hub.why}): {r.hub.changed ? `wrote it - before: ${valueText(r.hub.before)}` : "nothing to change"}{r.hub.error ? ` - not written: ${r.hub.error}` : ""}</>
+                        : " · the hub's change log keeps 21 days - Settings, Check a ticket, shows its whole history"}
                     </TableCell>
                   </TableRow>
                 )}
@@ -312,8 +298,13 @@ function TicketsTab({ d, days, onDays }: { d: Data; days: number; onDays: (n: nu
           </TableBody>
         </Table>
       </Box>
-      {pager}
-      {!rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>Nothing here.</Typography>}
+      {list?.data && list.data.total > 15 && (
+        <TablePagination component="div" count={Math.min(list.data.total, 9990)} page={page} onPageChange={(_, n) => setPage(n)} rowsPerPage={15} rowsPerPageOptions={[15]}
+          labelDisplayedRows={({ from: a, to: b }) => `${a}-${b} of ${full(list.data!.total)}`} sx={{ borderTop: `1px solid ${HAIRLINE}` }} />
+      )}
+      {loading && !list && <Box sx={{ py: 2, display: "flex", gap: 1, alignItems: "center", color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={14} /> Reading HubSpot…</Box>}
+      {list?.error && list.key === key && <Typography sx={{ fontSize: "0.85rem", color: RED, mt: 1 }}>{list.error}</Typography>}
+      {!loading && list?.data && !rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>No ticket in these days.</Typography>}
     </GlassCard>
   );
 }
@@ -348,11 +339,11 @@ function Step({ n, tint, title, text, count, of, last, aside }: { n: number; tin
   );
 }
 
-function HowTab({ d, f }: { d: Data; f: Frame }) {
+function HowTab({ d, label }: { d: Data; label: string }) {
   const bi: BetterInfo = d.better ?? { firstOrder: null, firstOrderMedian: null, firstOrderN: 0, firstOrderAt: null, pricedArticles: 0, firstOrderProgress: null };
-  const s = d.figures?.value ? sumFigures(d.figures.value.buckets, f.win.start, f.win.end, f.pipe) : null;
-  const n = (k: string) => s?.byPath.get(k)?.n ?? 0;
-  const tickets = `${pipeLabel(f.pipe)} tickets created ${frameLabel(f)}`;
+  const s = d.period.sums ? pickPipe(d.period.sums, "both") : null;
+  const n = (k: string) => s?.byPath[k]?.n ?? 0;
+  const tickets = `ESO and TSA tickets created ${inWindow(label)}`;
   const auto = HUB_RULES.filter((x) => x.automated);
   const path = HUB_RULES.filter((x) => !x.automated && x.rule !== "not-eso-tsa");
   const requests = path.reduce((t, x) => t + n(x.rule), 0);
@@ -360,7 +351,7 @@ function HowTab({ d, f }: { d: Data; f: Frame }) {
   return (
     <>
       <GlassCard>
-        <CardTitle icon={<ScheduleIcon />} tint="blue" title="When the value is worked out" note="Every 2 minutes, for the tickets of these moments" />
+        <CardTitle icon={<ScheduleIcon />} tint="blue" title="When the value is worked out" note="Every 2 minutes, for the ESO and TSA tickets of these moments" />
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A new ticket</b>, 4 minutes after it is created.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A ticket entering</b> {Object.values(REENROL_STAGES).join(", ")} - worked out again.</Typography>
@@ -378,22 +369,22 @@ function HowTab({ d, f }: { d: Data; f: Frame }) {
                   <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: 600, whiteSpace: "nowrap" }}>{x.label}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{x.from}</TableCell>
                   <TableCell sx={bodyCell}><Conf c={x.confidence} /></TableCell>
-                  <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(n(x.rule))}</TableCell>
+                  <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s ? full(n(x.rule)) : "…"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </Box>
         <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.25 }}>
-          The average first order: {bi.firstOrder ? <><b>{full(Math.round(bi.firstOrder))}</b> (median {full(Math.round(bi.firstOrderMedian ?? 0))}) - the first orders of the newest {full(bi.firstOrderN)} customers of the last 12 months, worked out {when(bi.firstOrderAt)}, again every week.</> : bi.firstOrderProgress ? `being worked out - ${bi.firstOrderProgress.done} of ${bi.firstOrderProgress.of} customers read.` : "worked out within the hour."}
+          The average first order: {bi.firstOrder ? <><b>{eur(bi.firstOrder)}</b> (median {eur(bi.firstOrderMedian ?? 0)}) - the first orders of the newest {full(bi.firstOrderN)} customers of the last 12 months, worked out {when(bi.firstOrderAt)}, again every week.</> : bi.firstOrderProgress ? `being worked out - ${bi.firstOrderProgress.done} of ${bi.firstOrderProgress.of} customers read.` : "worked out within the hour."}
           {" "}What an article sells for per piece: its revenue ÷ quantity this year and last ({full(bi.pricedArticles)} articles, from last night&apos;s orders).
         </Typography>
       </GlassCard>
       <GlassCard>
-        <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Customer requests: the path, in order" note={`E-mails, forms, chats - the first rule that finds a value wins · ${full(requests)} ${tickets}`} />
+        <CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Customer requests: the path, in order" note={`E-mails, forms, chats - the first rule that finds a value wins · ${s ? `${full(requests)} ` : ""}${tickets}`} />
         <Box sx={{ maxWidth: 940 }}>
           {path.map((x, i) => (
-            <Step key={x.rule} n={i + 1} tint={tint(x.confidence)} title={x.label} count={n(x.rule)} of={requests} last={i === path.length - 1}
+            <Step key={x.rule} n={i + 1} tint={tint(x.confidence)} title={x.label} count={s ? n(x.rule) : undefined} of={s ? requests : undefined} last={i === path.length - 1}
               text={<>{x.from}{x.rule === "product" ? ". Products & Pricing's list price is per price unit (1, 100 or 1,000 pieces) and never says which - so the hub uses what the article really sold for. “1120036838 x 100”, “100 Stk”, “Menge: 100” count, and every article is added up." : x.rule === "company" ? ". The ticket is linked to the company when it was found through its contact or the e-mail domain." : ""}</>}
               aside={<Conf c={x.confidence} />} />
           ))}
@@ -402,9 +393,10 @@ function HowTab({ d, f }: { d: Data; f: Frame }) {
       <GlassCard>
         <CardTitle icon={<TuneOutlinedIcon />} tint="green" title="What it writes" note="Every change kept with what was there before" />
         <Box sx={{ display: "grid", gap: 0.75 }}>
-          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• On the ticket: <b>Sales potential estimate</b>, <b>its source</b> and <b>its confidence</b> - only when one of them changes.</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• On the ticket: <b>Sales potential estimate</b> (EUR), <b>its source</b> and <b>its confidence</b> - only when one of them changes.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• The ticket&apos;s <b>link to its company</b>, when the company was found through the contact or the e-mail domain.</Typography>
-          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• Rows in the <b>KPI object</b> (ticket created, value created, closed, won / lost, open) - the Customer journey KPIs read them. Back Office, GQS and Special Prices tickets are counted there, without a value.</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• Rows in the <b>KPI object</b> (ticket created, value created, closed, won / lost, open) - the Customer journey KPIs read them.</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• Only ESO and TSA tickets get a value; no other pipeline is valued.</Typography>
         </Box>
       </GlassCard>
     </>
@@ -470,7 +462,6 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
         </Box>
       </GlassCard>
-      {d.live?.jobs && <JobsCard j={d.live.jobs} />}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Check a ticket" note="Read only - what the hub's rules give it now, next to what is on it. Nothing is written" />
         <Box component="form" onSubmit={(e: React.FormEvent) => { e.preventDefault(); if (tid.trim() && !busy) void doCheck(); }} sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
@@ -487,8 +478,8 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
               <Box component="span" sx={{ color: MUTED, fontWeight: 400 }}> - {c.pipeline}</Box>
             </Typography>
             <Typography sx={{ ...small, color: INK }}><b>On it now:</b> {valueText(c.now)} · confidence {c.now.sales_potential_confidence ?? "—"}</Typography>
-            {c.better && <Typography sx={{ ...small, color: INK }}><b>The hub&apos;s rules give:</b> {c.better.rule === "not-eso-tsa" ? "no value - not an ESO or TSA ticket" : <>{valueText(c.better.final)} · confidence {c.better.final.sales_potential_confidence ?? "—"} · path: {c.better.ruleLabel ?? "—"} ({c.better.action}){c.better.changes ? "" : " - already on the ticket"}</>}</Typography>}
-            {company && <Typography sx={{ ...small, color: INK }}><b>Company:</b> {company.id} (found through the {company.via}) · {company.mandant} · yearly potential {full(company.yp)} · {full(company.tickets12m)} tickets in 12 months</Typography>}
+            {c.better && <Typography sx={{ ...small, color: INK }}><b>The hub&apos;s rules give:</b> {c.better.rule === "not-eso-tsa" ? "no value - only ESO and TSA tickets get one" : <>{valueText(c.better.final)} · confidence {c.better.final.sales_potential_confidence ?? "—"} · path: {c.better.ruleLabel ?? "—"} ({c.better.action}){c.better.changes ? "" : " - already on the ticket"}</>}</Typography>}
+            {company && <Typography sx={{ ...small, color: INK }}><b>Company:</b> {company.id} (found through the {company.via}) · {company.mandant} · yearly potential {eur(company.yp)} · {full(company.tickets12m)} tickets in 12 months</Typography>}
             <Box sx={{ overflowX: "auto", mt: 0.5 }}>
               <Table size="small">
                 <TableHead><TableRow>{["Property", "Value", "When", "By"].map((h) => <TableCell key={h} sx={{ ...headCell, py: 0.5 }}>{h}</TableCell>)}</TableRow></TableHead>
@@ -514,26 +505,15 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
 export default function TicketValue() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
-  const [days, setDays] = useState(7);
-  const [chosenWin, setChosenWin] = useState<MonthWindow | null>(null);
   const [pipe, setPipe] = useState<Pipe>("both");
-  const [panel, setPanel] = useState(false);
-  const [fold, setFold] = useState<{ period?: boolean; pipe?: boolean }>({ period: true });
-  const url = `/api/uc/ticket-value?days=${days}${n ? `&n=${n}` : ""}`;
+  const { window: win, label } = useReportingWindow();
+  const url = `/api/uc/ticket-value?from=${win.from}&to=${win.to}${n ? `&n=${n}` : ""}`;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
   const again = () => setN((x) => x + 1);
   const ok = r?.state === "ok" ? r.data : null;
-  // the months of this year, the current one too
-  const fig = ok?.figures?.value;
-  const done = fig?.months ?? new Date().getMonth() + 1, year = fig?.year ?? new Date().getFullYear();
-  const win: MonthWindow = chosenWin && chosenWin.end < done ? chosenWin : { start: 0, end: done - 1 };
-  const isDefault = win.start === 0 && win.end === done - 1;
-  const chosen = (isDefault ? 0 : 1) + (pipe === "both" ? 0 : 1);
-  const frame: Frame = { win, pipe, year };
-  const filtered = view === "overview" || view === "how";
-  // the months' figures are read in the background: ask again until they are in
-  const computing = !!ok?.figures?.computing && !fig;
+  // the days' figures are read in the background: ask again until they are in
+  const computing = !!ok?.period.computing && !ok.period.sums;
   useEffect(() => {
     if (!computing) return;
     const t = setTimeout(() => setN((x) => x + 1), 15_000);
@@ -543,54 +523,30 @@ export default function TicketValue() {
   if (r === null) body = <LoadingPanel label="Reading the tickets…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Ticket value" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={again} />;
   else if (view === "settings") body = <SettingsTab d={r.data} onChanged={again} />;
-  else if (view === "tickets") body = <TicketsTab key={`${days}`} d={r.data} days={days} onDays={setDays} />;
-  else if (view === "how") body = <HowTab d={r.data} f={frame} />;
-  else body = <Overview d={r.data} f={frame} />;
+  else if (view === "tickets") body = <TicketsTab d={r.data} pipe={pipe} setPipe={setPipe} label={label} />;
+  else if (view === "how") body = <HowTab d={r.data} label={label} />;
+  else body = <Overview d={r.data} pipe={pipe} setPipe={setPipe} label={label} />;
+  const total = ok?.period.sums ? pickPipe(ok.period.sums, "both").total.n : null;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Ticket value"
         rightSlot={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {(r === null || held.stale || computing) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            {view !== "settings" && <WindowPicker />}
             <Tooltip title="Read again"><IconButton size="small" onClick={again} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
       />
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
-        <Box sx={{ minWidth: 0, flex: "0 1 auto" }}>
+      <Box>
         <ReportTabs name="ticketvalue" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
-          { id: "tickets", label: "Tickets", count: ok ? full(ok.measure.written ?? 0) : null },
+          { id: "tickets", label: "Tickets", count: total !== null ? full(total) : null },
           { id: "how", label: "How it works", count: null },
           { id: "settings", label: "Settings", count: null },
         ]} />
-        </Box>
-        <Box sx={{ flex: 1 }} />
-        {filtered && (
-          <Button onClick={() => setPanel((x) => !x)} variant={panel || chosen ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="ticketvalue-filters" startIcon={<TuneIcon />}
-            sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen ? undefined : "#fff" }}>
-            Filters{chosen ? ` · ${chosen}` : ""}
-          </Button>
-        )}
       </Box>
-      {filtered && (
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", mt: -1 }}>
-          <Typography sx={{ fontSize: "0.82rem", color: MUTED, mr: 0.5 }}>
-            <b style={{ color: INK }}>{frameLabel(frame)}</b> · {pipeLabel(pipe)} tickets created in these months, their value as it is on them now{computing ? " · being read from HubSpot" : ""}
-          </Typography>
-          {!isDefault && <MuiChip size="small" label={<span><b>Period:</b> {monthsLabel(win)}</span>} onDelete={() => setChosenWin(null)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg }} />}
-          {pipe !== "both" && <MuiChip size="small" label={<span><b>Pipeline:</b> {pipe}</span>} onDelete={() => setPipe("both")} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.purple.bg }} />}
-        </Box>
-      )}
-      <FilterPanel id="ticketvalue-filters" open={panel && filtered} onClose={() => setPanel(false)} subtitle="The months, the pipeline" onClearAll={chosen ? () => { setChosenWin(null); setPipe("both"); } : undefined}>
-        <FilterSection id="tv-f-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={!!fold.period} onFlip={() => setFold((o) => ({ ...o, period: !o.period }))} summary={monthsLabel(win)} chosen={!isDefault}>
-          <PeriodPicker done={done} win={win} onChange={(x) => setChosenWin(x)} />
-        </FilterSection>
-        <FilterSection id="tv-f-pipe" index={1} title="Pipeline" icon={<AltRouteOutlinedIcon />} tint="purple" open={!!fold.pipe} onFlip={() => setFold((o) => ({ ...o, pipe: !o.pipe }))} summary={pipeLabel(pipe)} chosen={pipe !== "both"}>
-          <Choice<Pipe> value={pipe} onChange={setPipe} options={[{ key: "both", label: "ESO and TSA" }, { key: "ESO", label: "ESO" }, { key: "TSA", label: "TSA" }]} />
-        </FilterSection>
-      </FilterPanel>
       <Box id={`ticketvalue-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

@@ -4,7 +4,7 @@ import {
   articleQuantities, branchOf, decide, decideHub, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
   priceArticles, priceCheckArticles, scoreTicket, toNum, unwrapUrl, type Api, type Better, type Resp,
 } from "../src/lib/ticketValue/rules";
-import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pathOf, pricesOf, sameValue, sumFigures, zurichMidnight, type Values } from "../src/lib/ticketValue/model";
+import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pathOf, pickPipe, pricesOf, sameValue, sumPeriod, zurichDay, zurichMidnight, type DayBucket, type Values } from "../src/lib/ticketValue/model";
 
 /** A fake HubSpot: answers by path; every call is recorded. */
 function fake(routes: Record<string, unknown>, calls: string[] = []): Api {
@@ -340,19 +340,25 @@ test("a ticket's path, read from what is on it", () => {
   assert.equal(t("unknown", {}, "low"), "unknown");
 });
 
-test("the months' figures: the months chosen, one pipeline or both", () => {
-  const b = [
-    { m: 0, pipe: "ESO" as const, path: "direct", conf: "high", n: 2, value: 100 },
-    { m: 1, pipe: "ESO" as const, path: "company", conf: "low", n: 3, value: 30 },
-    { m: 1, pipe: "TSA" as const, path: "direct", conf: "high", n: 1, value: 50 },
-    { m: 2, pipe: "TSA" as const, path: "none", conf: "(none)", n: 4, value: 0 },
+test("the days' figures: the days chosen, each pipeline, both added", () => {
+  const b: DayBucket[] = [
+    ["2026-09-30", "ESO", "direct", "high", 2, 100],
+    ["2026-10-01", "ESO", "company", "low", 3, 30],
+    ["2026-10-01", "TSA", "direct", "high", 1, 50],
+    ["2026-10-24", "TSA", "none", "(none)", 4, 0],
   ];
-  const all = sumFigures(b, 0, 2, "both");
-  assert.deepEqual(all.total, { n: 10, value: 180 });
-  assert.deepEqual(all.byPath.get("direct"), { n: 3, value: 150 });
-  assert.deepEqual(all.byConf.get("(none)"), { n: 4, value: 0 });
-  const feb = sumFigures(b, 1, 1, "ESO");
-  assert.deepEqual(feb.total, { n: 3, value: 30 });
-  assert.deepEqual([...feb.byPath.keys()], ["company"]);
-  assert.deepEqual(sumFigures(b, 1, 2, "TSA").total, { n: 5, value: 50 });
+  const oct = sumPeriod(b, "2026-10-01", "2026-10-24");
+  assert.deepEqual(oct.ESO.total, { n: 3, value: 30 });
+  assert.deepEqual(oct.TSA.byConf["(none)"], { n: 4, value: 0 });
+  const both = pickPipe(oct, "both");
+  assert.deepEqual(both.total, { n: 8, value: 80 });
+  assert.deepEqual(both.byPath.direct, { n: 1, value: 50 });
+  assert.deepEqual(pickPipe(sumPeriod(b, "2026-09-30", "2026-09-30"), "both").byPath, { direct: { n: 2, value: 100 } });
+  assert.deepEqual(pickPipe(oct, "TSA").total, { n: 5, value: 50 });
+});
+
+test("a ticket's day is its day in Zurich", () => {
+  assert.equal(zurichDay(Date.parse("2026-10-23T22:30:00Z")), "2026-10-24"); // 00:30 in Zurich (summer time)
+  assert.equal(zurichDay(Date.parse("2026-12-31T23:30:00Z")), "2027-01-01"); // 00:30 in Zurich (winter time)
+  assert.equal(zurichDay(Date.parse("2026-10-24T21:59:00Z")), "2026-10-24");
 });

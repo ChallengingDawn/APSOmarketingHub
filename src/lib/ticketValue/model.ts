@@ -197,15 +197,40 @@ export function pathOf(p: TicketProps): string {
   return ({ child_gqs: "gqs", text_qty_price: "textqty", product_lookup: "product", unknown: "unknown" } as Record<string, string>)[src] ?? "unknown";
 }
 
-export type FigureBucket = { m: number; pipe: "ESO" | "TSA"; path: string; conf: string; n: number; value: number };
-/** The buckets of a time frame (months from..to of the year), one pipeline or both, added up. */
-export function sumFigures(b: FigureBucket[], from: number, to: number, pipe: "both" | "ESO" | "TSA") {
-  const sel = b.filter((x) => x.m >= from && x.m <= to && (pipe === "both" || x.pipe === pipe));
-  const by = <K extends string>(key: (x: FigureBucket) => K) => {
-    const m = new Map<K, { n: number; value: number }>();
-    for (const x of sel) { const e = m.get(key(x)) ?? { n: 0, value: 0 }; e.n += x.n; e.value += x.value; m.set(key(x), e); }
-    return m;
-  };
-  const total = sel.reduce((t, x) => ({ n: t.n + x.n, value: t.value + x.value }), { n: 0, value: 0 });
-  return { total, byPath: by((x) => x.path), byConf: by((x) => x.conf || "(none)") };
+/** A ticket's day of creation, in Zurich: YYYY-MM-DD. */
+export const zurichDay = (ms: number) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
+
+/** The tickets of one day, one pipeline, one path, one confidence: how many, their value. */
+export type DayBucket = [day: string, pipe: "ESO" | "TSA", path: string, conf: string, n: number, value: number];
+export type Sum = { n: number; value: number };
+export type PeriodSum = { total: Sum; byPath: Record<string, Sum>; byConf: Record<string, Sum> };
+export type Pipe = "both" | "ESO" | "TSA";
+const emptySum = (): PeriodSum => ({ total: { n: 0, value: 0 }, byPath: {}, byConf: {} });
+const add = (m: Record<string, Sum>, k: string, n: number, v: number) => { const e = (m[k] ??= { n: 0, value: 0 }); e.n += n; e.value += v; };
+
+/** The days from..to (inclusive, YYYY-MM-DD) added up, each pipeline on its own. */
+export function sumPeriod(b: DayBucket[], from: string, to: string): { ESO: PeriodSum; TSA: PeriodSum } {
+  const out = { ESO: emptySum(), TSA: emptySum() };
+  for (const [day, pipe, path, conf, n, value] of b) {
+    if (day < from || day > to) continue;
+    const s = out[pipe];
+    s.total.n += n;
+    s.total.value += value;
+    add(s.byPath, path, n, value);
+    add(s.byConf, conf || "(none)", n, value);
+  }
+  return out;
+}
+
+/** One pipeline's sums, or both added. */
+export function pickPipe(s: { ESO: PeriodSum; TSA: PeriodSum }, pipe: Pipe): PeriodSum {
+  if (pipe !== "both") return s[pipe];
+  const out = emptySum();
+  for (const x of [s.ESO, s.TSA]) {
+    out.total.n += x.total.n;
+    out.total.value += x.total.value;
+    for (const [k, v] of Object.entries(x.byPath)) add(out.byPath, k, v.n, v.value);
+    for (const [k, v] of Object.entries(x.byConf)) add(out.byConf, k, v.n, v.value);
+  }
+  return out;
 }

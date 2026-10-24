@@ -1,53 +1,54 @@
-// TICKET VALUE BY MONTH - the Overview's time frame (SARCLA 24.10.2026: "a time frame as the other applications, not the
-// tab and the time limitation"). Every ESO and TSA ticket created this year, read from HubSpot itself - its value, source
-// and confidence as they are on the ticket now - and added up per month, pipeline, path and confidence. The page picks
-// the months (the Digital Growth pages' picker). A background report: kept 2 hours, read again after.
+// TICKET VALUE BY DAY - the page's time frame (SARCLA 24.10.2026: "a time frame on top like the other applications").
+// Every ESO and TSA ticket created in the last 400 days, read from HubSpot itself - its value, source and confidence as
+// they are on the ticket now - and added up per day (Zurich), pipeline, path and confidence. The page sums the days of
+// the hub's reporting window (the picker in the header: up to 365 days). Only sums are kept, no ticket. A background
+// report: kept 2 hours, read again after.
 
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { reportProgress, slowReport } from "@/lib/integrations/slowReport";
-import { pathOf, type FigureBucket } from "./model";
+import { pathOf, zurichDay, zurichMidnight, type DayBucket } from "./model";
 
-export type Figures = { shape: 1; year: number; months: number; buckets: FigureBucket[] };
+export type Figures = { shape: 2; from: string; to: string; buckets: DayBucket[] };
 const KEY = "ticketValue:figures";
-const SHAPE = 1;
-const PIPES = [["1726599376", "ESO"], ["1726599377", "TSA"]] as const;
-const PROPS = ["sales_potential_estimate", "sales_potential_source", "sales_potential_confidence", "subject", "erosion_key", "sept_push_target", "price_check_key", "hs_tag_ids"];
+const SHAPE = 2;
+export const DAYS_BACK = 400;
+export const PIPE_IDS = { ESO: "1726599376", TSA: "1726599377" } as const;
+export const PATH_PROPS = ["sales_potential_estimate", "sales_potential_source", "sales_potential_confidence", "subject", "erosion_key", "sept_push_target", "price_check_key", "hs_tag_ids"];
 type Raw = { id: string; properties: Record<string, string | null> };
 
 export const figures = () => slowReport<Figures>(KEY, (v) => (v?.shape !== SHAPE ? 0 : 2 * 3600_000), build);
 
 async function build(): Promise<Figures> {
-  const now = new Date();
-  const year = now.getUTCFullYear(), months = now.getUTCMonth() + 1;
-  const acc = new Map<string, FigureBucket>();
-  for (let m = 0; m < months; m++) {
-    const from = Date.UTC(year, m, 1), to = Date.UTC(year, m + 1, 1) - 1;
-    for (const [id, pipe] of PIPES) {
-      reportProgress(KEY, `reading ${pipe} tickets of ${new Date(from).toLocaleString("en", { month: "long", timeZone: "UTC" })}`);
-      let cursor = "0";
-      for (let page = 0; page < 200; page++) {
-        const r = await hubspotRetry<{ results?: Raw[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
-          filterGroups: [{ filters: [
-            { propertyName: "hs_pipeline", operator: "EQ", value: id },
-            { propertyName: "createdate", operator: "BETWEEN", value: String(from), highValue: String(to) },
-            { propertyName: "hs_object_id", operator: "GT", value: cursor },
-          ] }],
-          properties: PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
-        } });
-        const res = r.results ?? [];
-        for (const t of res) {
-          const p = t.properties;
-          const path = pathOf(p), conf = (p.sales_potential_confidence ?? "").trim() || "(none)";
-          const k = `${m}|${pipe}|${path}|${conf}`;
-          const e = acc.get(k) ?? { m, pipe, path, conf, n: 0, value: 0 };
-          e.n++;
-          e.value += Number(p.sales_potential_estimate) || 0;
-          acc.set(k, e);
-        }
-        if (res.length < 100) break;
-        cursor = String(res[res.length - 1].id);
+  const since = zurichMidnight(Date.now(), -DAYS_BACK);
+  const acc = new Map<string, DayBucket>();
+  let read = 0;
+  for (const [pipe, id] of Object.entries(PIPE_IDS) as ["ESO" | "TSA", string][]) {
+    let cursor = "0";
+    for (let page = 0; page < 500; page++) {
+      reportProgress(KEY, `reading the ${pipe} tickets - ${read.toLocaleString("en-US")} so far`);
+      const r = await hubspotRetry<{ results?: Raw[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+        filterGroups: [{ filters: [
+          { propertyName: "hs_pipeline", operator: "EQ", value: id },
+          { propertyName: "createdate", operator: "GTE", value: String(since) },
+          { propertyName: "hs_object_id", operator: "GT", value: cursor },
+        ] }],
+        properties: [...PATH_PROPS, "createdate"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
+      } });
+      const res = r.results ?? [];
+      for (const t of res) {
+        const p = t.properties;
+        const day = zurichDay(Date.parse(p.createdate ?? "") || 0);
+        const path = pathOf(p), conf = (p.sales_potential_confidence ?? "").trim() || "(none)";
+        const k = `${day}|${pipe}|${path}|${conf}`;
+        const e = acc.get(k) ?? [day, pipe, path, conf, 0, 0];
+        e[4]++;
+        e[5] += Number(p.sales_potential_estimate) || 0;
+        acc.set(k, e);
       }
+      read += res.length;
+      if (res.length < 100) break;
+      cursor = String(res[res.length - 1].id);
     }
   }
-  return { shape: SHAPE, year, months, buckets: [...acc.values()] };
+  return { shape: SHAPE, from: zurichDay(since + 12 * 3600_000), to: zurichDay(Date.now()), buckets: [...acc.values()] };
 }
