@@ -67,6 +67,14 @@ async function stepsTick() {
   await every("mandant_sweep", live, 30 * 60_000);
   await every("wrong_owners", live, 30 * 60_000);
   await every("deputy_sweep", live, 15 * 60_000);
+  // The TASKS half of Holiday redirection, and the Back-Office sentiment sweep. Both were added
+  // to the registry with cadence "15min" and neither ran: `cadence` is documentation, and THIS
+  // list is what actually gives a step a rhythm. task_deputy_sweep had not run once in the 48
+  // hours after it shipped, and bo_sentiment_sweep ran only the single "first preview" - so the
+  // Tasks switch on /uc/holiday-redirection would have been switched on to no effect.
+  // A step still has to be live (its own page's switch) before `every` runs it.
+  await every("task_deputy_sweep", live, 15 * 60_000);
+  await every("bo_sentiment_sweep", live, 15 * 60_000);
   await every("owner_rules", live, 15 * 60_000);
   await every("magento_link", live, 15 * 60_000);
   // the chain can take an hour: it runs beside the ticks, so the sweeps above keep their

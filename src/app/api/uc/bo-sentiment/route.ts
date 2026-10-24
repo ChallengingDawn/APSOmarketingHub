@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { getAnthropic } from "@/lib/ai/claude";
+import { setLive } from "@/lib/connectors/steps/run";
 import {
   aiUsedToday, checkTicket, getSettings, lastRun, recentRows, runOnce, saveSettings, workflowOn,
   type Mode,
@@ -77,6 +78,13 @@ export async function PUT(req: NextRequest) {
   if (!Object.keys(patch).length) return NextResponse.json({ error: "Nothing to change" }, { status: 400 });
   try {
     const settings = await saveSettings(patch, access.userId ? `user ${access.userId}` : "admin");
+    // ONE control, not two. The sweep only gets its 15-minute rhythm while its connectors step is
+    // live, which is a switch on a different page - so a mode set here would have looked set and
+    // done nothing. The mode on this page is the gate, and it carries the step with it.
+    if (patch.mode) {
+      const r = await setLive("bo_sentiment_sweep", patch.mode !== "off");
+      if (!r.ok) console.warn(`[bo-sentiment] could not switch the step ${patch.mode !== "off" ? "on" : "off"}: ${r.note}`);
+    }
     return NextResponse.json({ ok: true, data: { settings, workflowOn: await workflowOn() } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: describeIntegrationError(e) }, { status: 200 });
