@@ -99,3 +99,28 @@ test("the headline leads with how much was not a customer", () => {
   assert.match(h, /50% give nothing to go on/);
   assert.equal(headline(summarise([])), "Nothing looked at yet.");
 });
+
+/* ─────────── what reaches HubSpot ─────────── */
+
+import { NOT_VALID_VALUE, UNKNOWN_VALUE, WRITABLE, valuesFor } from "../src/lib/boSentiment/engine";
+
+test("every answer the hub can reach is a value HubSpot now accepts", () => {
+  // the two options SARCLA had added on 24.10.2026
+  assert.equal(UNKNOWN_VALUE, "unknown");
+  assert.equal(NOT_VALID_VALUE, "not_valid_email");
+  // "unknown" is writable now, so no real ticket is ever left on a stale value
+  assert.deepEqual(WRITABLE, ["positive", "neutral", "negative", "unknown"]);
+});
+
+test("a ticket that is not a customer is marked as such on both properties", () => {
+  const v = valuesFor({ real: false, answer: { tone: "positive", resolution: "positive", source: "keywords" } });
+  // its old "positive" came from a machine's words, so it must not survive
+  assert.deepEqual(v, { tone: "not_valid_email", resolution: "not_valid_email" });
+});
+
+test("a real ticket writes exactly what the hub concluded, 'unknown' included", () => {
+  assert.deepEqual(valuesFor({ real: true, answer: { tone: "negative", resolution: "neutral", source: "model" } }),
+    { tone: "negative", resolution: "neutral" });
+  assert.deepEqual(valuesFor({ real: true, answer: { tone: "unknown", resolution: "unknown", source: "none" } }),
+    { tone: "unknown", resolution: "unknown" });
+});

@@ -35,10 +35,32 @@ const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: un
 export const BO_PIPELINE = "1726786777";
 export const WORKFLOW_STAGES = ["2338266328", "2338266327", "2338266326", "2728031473"];
 export const WORKFLOW_ID = "4333972706";
-/** The two properties the workflow writes. Only these three values are allowed in them. */
+/**
+ * The two properties the workflow writes.
+ *
+ * They were enumerations of positive/neutral/negative only, so the hub could not say "no
+ * evidence" or "this was never a customer" - it had to leave a known-wrong value in place.
+ * SARCLA had two options added on 24.10.2026 ("add two option on hubspot unknow and not valid
+ * email"), so every answer the hub can reach can now be written down.
+ */
 export const TONE_PROP = "sentiment_customer_tone";
 export const RESOL_PROP = "sentiment_resolution";
-export const WRITABLE: Bucket[] = ["positive", "neutral", "negative"];
+/** No evidence either way - said out loud instead of dressed up as "neutral". */
+export const UNKNOWN_VALUE = "unknown";
+/** Not a customer talking at all: a machine, a newsletter, or only our own people. */
+export const NOT_VALID_VALUE = "not_valid_email";
+export const WRITABLE: Bucket[] = ["positive", "neutral", "negative", "unknown"];
+
+/**
+ * What goes into the two properties for one row.
+ *
+ * A disqualified ticket gets "not a valid e-mail" on BOTH properties: its old tone was scored
+ * from a machine's words, so leaving it would keep exactly the figure this work exists to remove.
+ */
+export function valuesFor(row: Pick<Row, "real" | "answer">): { tone: string; resolution: string } {
+  if (!row.real) return { tone: NOT_VALID_VALUE, resolution: NOT_VALID_VALUE };
+  return { tone: row.answer.tone, resolution: row.answer.resolution };
+}
 
 const MAX_PER_RUN = 40;
 const DAYS_KEPT = 21;
@@ -341,10 +363,13 @@ export async function runOnce(client: Client | null, by = "schedule"): Promise<R
       }
 
       if (writing) {
-        const props: Record<string, string> = {};
-        if (row.real && WRITABLE.includes(row.answer.tone)) props[TONE_PROP] = row.answer.tone;
-        if (row.real && WRITABLE.includes(row.answer.resolution)) props[RESOL_PROP] = row.answer.resolution;
-        if (Object.keys(props).length) {
+        const v = valuesFor(row);
+        const props: Record<string, string> = { [TONE_PROP]: v.tone, [RESOL_PROP]: v.resolution };
+        // Only write what would change: re-writing the same value on every pass would fill the
+        // property history with noise and make "when did this ticket turn negative" unreadable.
+        if (props[TONE_PROP] === row.workflow.tone && props[RESOL_PROP] === row.workflow.resolution) {
+          row.skipped = "already right";
+        } else {
           try {
             await hs(`/crm/v3/objects/tickets/${t.id}`, "PATCH", { properties: props });
             row.written = props;
@@ -352,11 +377,6 @@ export async function runOnce(client: Client | null, by = "schedule"): Promise<R
           } catch (e) {
             row.error = (e as Error).message.slice(0, 160);
           }
-        } else {
-          // The property is an enumeration of positive/neutral/negative only, so "unknown" and
-          // a disqualified ticket cannot be SAID in HubSpot - the old value is left alone rather
-          // than a wrong one written over it. Adding an "unknown" option would let the hub say it.
-          row.skipped = row.real ? "nothing certain to write" : "not a real ticket";
         }
       }
 

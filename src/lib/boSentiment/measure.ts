@@ -28,7 +28,7 @@ export type Summary = {
   versusWorkflow: { agree: number; differ: number; workflowBlank: number; moves: { from: string; to: string; n: number }[] };
   /** Where the model disagreed with the free scorer - the cases worth reading. */
   modelChanged: { ticketId: string; subject: string; from: Bucket; to: Bucket; why: string }[];
-  /** live mode: written, and left alone because the property has no word for the answer. */
+  /** live mode: written, and left alone because the ticket already carried the right value. */
   written: number;
   skipped: number;
 };
