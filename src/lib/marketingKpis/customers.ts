@@ -15,10 +15,14 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { chainHistory } from "@/lib/connectors/chainStatus";
 import { MONTHS, monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { teamOf } from "@/lib/datatracker/rosters";
+import { readOwners } from "@/lib/ownerRules/hubspot";
 import { DIMS, fold, monthOf, potentialBand, type CompanyIn, type Cube, type Dim } from "./cube";
 
 // v8: order intake per month beside the revenue, and each sales rep's team (the ESO reports' Figures, 24.10.2026)
-const KEY = "marketingKpis:customers:v8";
+// v9: the ERP's own month and year to date per company, the order intake months loaded, the team from HubSpot's teams
+const KEY = "marketingKpis:customers:v9";
+/** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
+const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
 const TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -71,8 +75,14 @@ async function build(): Promise<Cube> {
   const owners = await ownerNames();
 
   // order intake per month as the nightly revenue load writes it (oi_2026_jan…) - 36 names, well inside the address's 2 KB
-  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`))];
+  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
   const teams: Record<string, string> = {};
+  // a sales rep's team: the roster first, else the team HubSpot has them in (as Retain & grow's path does)
+  const hsTeam = new Map<string, string>();
+  try { for (const o of await readOwners()) if (o.team) hsTeam.set(String(o.id), o.team); } catch { /* the rosters alone */ }
+  const teamFor = (id: string) => teamOf(id) ?? (/\bTSA\b/i.test(hsTeam.get(id) ?? "") ? "TSA" : /\bESO\b/i.test(hsTeam.get(id) ?? "") ? "ESO" : "Other");
+  const filledOi = years.map(() => Array(12).fill(0));
+  const erpDays = new Map<string, number>();
   const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
   const index = (d: Dim, v: string) => {
     let i = labels[d].indexOf(v);
@@ -98,12 +108,16 @@ async function build(): Promise<Cube> {
       });
       const potential = num(p.yearly_customer_potential);
       const l = labelsOf(p, owners);
-      if (p.hubspot_owner_id && !teams[l.owner]) teams[l.owner] = teamOf(p.hubspot_owner_id) ?? "Other";
+      if (p.hubspot_owner_id && !teams[l.owner]) teams[l.owner] = teamFor(p.hubspot_owner_id);
+      const intake = years.map((y, yi) => MONTHS.map((m, mi) => { const x = num(p[`oi_${y}_${m}`]) ?? 0; if (x) filledOi[yi][mi]++; return x; }));
+      const erp = ERP_PROPS.map((k) => num(p[k]) ?? 0);
+      const erpDay = String(p.erp_rev_as_of ?? "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(erpDay)) erpDays.set(erpDay, (erpDays.get(erpDay) ?? 0) + 1);
       companies.push({
         dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
         potential, months,
         firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
-        intake: years.map((y) => MONTHS.map((m) => num(p[`oi_${y}_${m}`]) ?? 0)),
+        intake, erp: erp.some((x) => x !== 0) ? erp : null,
       });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
@@ -119,5 +133,7 @@ async function build(): Promise<Cube> {
   const running = reach.getUTCFullYear() === year && reach.getUTCMonth() >= loaded[0]
     ? { month: monthOf(0, reach.getUTCMonth()), day: reach.getUTCDate(), days: new Date(Date.UTC(year, reach.getUTCMonth() + 1, 0)).getUTCDate() }
     : null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, ...fold(companies) };
+  // the ERP day most companies carry (a straggler from an older file does not move it)
+  const erpDay = [...erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, erpDay, oiLoaded: monthsLoaded(filledOi[0], filledOi[1], monthsDone), ...fold(companies) };
 }

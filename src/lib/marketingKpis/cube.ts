@@ -48,7 +48,22 @@ export type Cube = {
   intake?: number[][];
   /** the team of each sales rep, by the name the cube carries: "ESO", "TSA", "Other" (rosters.ts) - the Figures' ESO | TSA | Total */
   teams?: Record<string, string>;
+  /**
+   * [cell, ...ERP] - the ERP file's own figures per company, summed (ERP_FIELDS order): month and year to date, this
+   * year and last, cut on the same day. The monthly order intake per company lags months behind the ERP (loaded
+   * through June in October 2026), so the Figures' MTD / YTD stand on these (SARCLA 24.10.2026: "not sure the
+   * figures are right" - order intake MTD read 0).
+   */
+  erp?: number[][];
+  /** the day of the ERP file those figures are of ("2026-10-21") */
+  erpDay?: string | null;
+  /** this year's months with the order intake per company loaded (60% of last year's companies, as revenue) */
+  oiLoaded?: number;
 };
+
+/** The ERP's figures a cell carries, in this order. */
+export const ERP_FIELDS = ["revMtd", "revMtdPy", "revYtd", "revYtdPy", "oiMtd", "oiMtdPy", "oiYtd", "oiYtdPy"] as const;
+export type ErpAgg = Record<(typeof ERP_FIELDS)[number], number>;
 
 /**
  * A time window: its first and last month, both included, counted from January
@@ -110,13 +125,16 @@ export type CompanyIn = {
   firstMonth?: number | null;
   /** order intake per month, per year index, as `months` */
   intake?: number[][];
+  /** the ERP's figures (ERP_FIELDS order), when the company is in the ERP file */
+  erp?: number[] | null;
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */
-export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake"> {
+export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake" | "erp"> {
   const cellIx = new Map<string, number>();
   const cells: number[][] = [];
   const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>(), oi = new Map<string, number[]>();
+  const erp = new Map<number, number[]>();
   for (const c of companies) {
     const idx = DIMS.map((d) => c.dims[d]);
     const key = idx.join(",");
@@ -146,6 +164,11 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       const b = buyers.get(k);
       if (b) b[3] += 1; else buyers.set(k, [ci, lo, hi, 1]);
     }
+    if (c.erp?.some((x) => x !== 0)) {
+      let e = erp.get(ci);
+      if (!e) { e = [ci, ...ERP_FIELDS.map(() => 0)]; erp.set(ci, e); }
+      c.erp.forEach((x, i) => { e![1 + i] += x || 0; });
+    }
     (c.intake ?? []).forEach((months, y) => {
       if (!months.some((x) => x !== 0)) return;
       const k = `${ci},${y}`;
@@ -160,7 +183,7 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
     }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
-  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]) };
+  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]), erp: [...erp.values()].map((r) => r.map((x, i) => (i ? Math.round(x) : x))) };
 }
 
 /* ── slicing ──────────────────────────────────────────────────────────── */
@@ -370,3 +393,93 @@ export function byMonth(cube: Cube, filters: Filters): MonthFig[] {
   }
   return out;
 }
+
+/** The months of this year (index 0 = January) as one value per month: revenue and order intake, this year to the last month read, last year whole. */
+export type YearCurve = { rev: number[]; revPy: number[]; oi: number[]; oiPy: number[] };
+const passes = (cube: Cube, filters: Filters, except?: Dim) => {
+  const f: [number, Set<number>][] = [];
+  DIMS.forEach((d, i) => {
+    const vs = filters[d];
+    if (vs?.length && d !== except) f.push([i, new Set(vs.map((v) => cube.labels[d].indexOf(v)).filter((x) => x >= 0))]);
+  });
+  return cube.cells.map((c) => f.every(([i, vs]) => vs.has(c[i])));
+};
+
+/**
+ * The year as curves (the ESO reports' Figures' trajectory, SARCLA 24.10.2026): month by month as read - this year
+ * to the last month read (the month in progress as far as it has gone), last year all twelve, no pro rata: a curve
+ * shows what each month holds; the comparison to date is `totals`.
+ */
+export function yearCurve(cube: Cube, filters: Filters): YearCurve {
+  const ok = passes(cube, filters);
+  const last = lastMonth(cube);
+  const out: YearCurve = { rev: Array(12).fill(0), revPy: Array(12).fill(0), oi: Array(12).fill(0), oiPy: Array(12).fill(0) };
+  const fill = (rows: number[][] | undefined, cy: number[], py: number[]) => {
+    for (const r of rows ?? []) {
+      if (!ok[r[0]] || r[1] > 1) continue;
+      for (let m = 0; m < 12; m++) {
+        if (r[1] === 0 && monthOf(0, m) <= last) cy[m] += r[2 + m];
+        else if (r[1] === 1) py[m] += r[2 + m];
+      }
+    }
+  };
+  fill(cube.revenue, out.rev, out.revPy);
+  fill(cube.intake, out.oi, out.oiPy);
+  return out;
+}
+
+/**
+ * This year month by month for every value of one dimension, in one pass (the Figures' cards per person): as
+ * byMonth - the month in progress against last year's pro rata - grouped like breakdown (the dimension's own filter
+ * left out, so every value shows).
+ */
+export function byMonthBy(cube: Cube, filters: Filters, dim: Dim): Map<string, MonthFig[]> {
+  const ok = passes(cube, filters, dim);
+  const gi = DIMS.indexOf(dim);
+  const jan = monthOf(0, 0), last = lastMonth(cube);
+  const run = partial(cube);
+  const pyRun = run ? run.month - 12 : -99, share = run ? run.day / run.days : 1;
+  const out = new Map<string, MonthFig[]>();
+  const of = (ci: number) => {
+    const label = cube.labels[dim][cube.cells[ci][gi]];
+    let ms = out.get(label);
+    if (!ms) { ms = Array.from({ length: last - jan + 1 }, (_, i) => ({ month: jan + i, rev: 0, revPy: 0, oi: 0, oiPy: 0 })); out.set(label, ms); }
+    return ms;
+  };
+  const add = (rows: number[][] | undefined, cur: "rev" | "oi", prev: "revPy" | "oiPy") => {
+    for (const r of rows ?? []) {
+      if (!ok[r[0]] || r[1] > 1) continue;
+      for (let m = 0; m < 12; m++) {
+        const x = r[2 + m];
+        if (!x) continue;
+        const k = monthOf(r[1], m), kCy = r[1] === 0 ? k : k + 12;
+        if (kCy < jan || kCy > last) continue;
+        const ms = of(r[0]);
+        if (r[1] === 0) ms[kCy - jan][cur] += x;
+        else ms[kCy - jan][prev] += x * (k === pyRun ? share : 1);
+      }
+    }
+  };
+  add(cube.revenue, "rev", "revPy");
+  add(cube.intake, "oi", "oiPy");
+  return out;
+}
+
+/**
+ * The ERP's figures under the filters, grouped by one dimension (its own filter left out, as breakdown) or all
+ * together under "" - month and year to date, this year and last.
+ */
+export function erpBy(cube: Cube, filters: Filters, dim?: Dim): Map<string, ErpAgg> {
+  const ok = passes(cube, filters, dim);
+  const gi = dim ? DIMS.indexOf(dim) : -1;
+  const out = new Map<string, ErpAgg>();
+  for (const r of cube.erp ?? []) {
+    if (!ok[r[0]]) continue;
+    const key = gi < 0 ? "" : cube.labels[dim!][cube.cells[r[0]][gi]];
+    let a = out.get(key);
+    if (!a) { a = Object.fromEntries(ERP_FIELDS.map((f) => [f, 0])) as ErpAgg; out.set(key, a); }
+    ERP_FIELDS.forEach((f, i) => { a![f] += r[1 + i]; });
+  }
+  return out;
+}
+export const erpTotals = (cube: Cube, filters: Filters): ErpAgg => erpBy(cube, filters).get("") ?? (Object.fromEntries(ERP_FIELDS.map((f) => [f, 0])) as ErpAgg);

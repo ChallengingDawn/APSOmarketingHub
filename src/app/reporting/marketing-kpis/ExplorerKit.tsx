@@ -72,7 +72,8 @@ export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)"
     <Box sx={{ overflowX: "auto" }}>
       {/* the cells stretch to their row, so a row's line runs straight across */}
       <Box sx={{ display: "grid", gridTemplateColumns: cols, minWidth: minWidth ?? 220 + (head.length - 1) * 115, alignItems: "stretch" }}>
-        {head.map((h, i) => <Typography key={h} sx={{ display: "flex", alignItems: "flex-end", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: right(i) ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
+        {/* keyed by place: two columns may share a name ("A year earlier"), and same-named keys let React drop or move a cell - the grid then shifts (ESO Figures, 24.10.2026) */}
+        {head.map((h, i) => <Typography key={`${i}-${h}`} sx={{ display: "flex", alignItems: "flex-end", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: right(i) ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
         {rows.map((r) => (
           <Box key={r.key} role={r.onPick ? "button" : undefined} tabIndex={r.onPick ? 0 : undefined} aria-pressed={r.onPick ? !!r.on : undefined}
             onClick={r.onPick} onKeyDown={r.onPick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); r.onPick!(); } } : undefined}

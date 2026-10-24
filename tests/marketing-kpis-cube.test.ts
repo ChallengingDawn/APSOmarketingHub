@@ -200,3 +200,44 @@ test("order intake beside the revenue (the ESO reports' Figures): summed over th
   assert.equal(m[9].oi, 40);
   assert.equal(c.teams!.Ben, "TSA");
 });
+
+test("the Figures' curves: the year month by month as read, and every value of a dimension month by month in one pass - the same as byMonth per value", async () => {
+  const { byMonth, byMonthBy, yearCurve } = await import("../src/lib/marketingKpis/cube");
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const dims = (owner: string, country: string) => Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "owner" ? owner : d === "country" ? country : "x")])) as Record<Dim, number>;
+  const companies: CompanyIn[] = [
+    { dims: dims("Anna", "CH"), potential: null, months: [months({ 0: 100, 9: 30 }), months({ 0: 80, 9: 62, 11: 50 }), months()], intake: [months({ 0: 90 }), months({ 0: 70, 11: 40 }), months()] },
+    { dims: dims("Ben", "DE"), potential: null, months: [months({ 1: 10 }), months({ 1: 20 }), months()], intake: [months(), months(), months()] },
+  ];
+  const c: Cube = { generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: { month: monthOf(0, 9), day: 10, days: 31 }, labels, ...fold(companies) };
+  const y = yearCurve(c, {});
+  // this year to October (in progress), last year whole - no pro rata on a curve
+  assert.deepEqual([y.rev[0], y.rev[9], y.rev[11], y.revPy[9], y.revPy[11], y.oiPy[11]], [100, 30, 0, 62, 50, 40]);
+  assert.deepEqual(yearCurve(c, { country: ["DE"] }).rev.slice(0, 2), [0, 10]);
+  const by = byMonthBy(c, {}, "owner");
+  for (const o of ["Anna", "Ben"]) assert.deepEqual(by.get(o), byMonth(c, { owner: [o] }));
+  // the dimension's own filter is left out: every value shows
+  assert.equal(byMonthBy(c, { owner: ["Ben"] }, "owner").size, 2);
+  // another dimension's filter applies
+  assert.deepEqual([...byMonthBy(c, { country: ["DE"] }, "owner").keys()], ["Ben"]);
+});
+
+test("the ERP's own figures per cell (the Figures' MTD / YTD): summed under the filters, grouped like breakdown", async () => {
+  const { erpBy, erpTotals } = await import("../src/lib/marketingKpis/cube");
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const dims = (owner: string, country: string) => Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "owner" ? owner : d === "country" ? country : "x")])) as Record<Dim, number>;
+  // [revMtd, revMtdPy, revYtd, revYtdPy, oiMtd, oiMtdPy, oiYtd, oiYtdPy]
+  const companies: CompanyIn[] = [
+    { dims: dims("Anna", "CH"), potential: null, months: [months(), months(), months()], erp: [10, 8, 100, 90, 12, 9, 95, 85] },
+    { dims: dims("Anna", "CH"), potential: null, months: [months(), months(), months()], erp: [1, 1, 10, 10, 1, 1, 10, 10] },
+    { dims: dims("Ben", "DE"), potential: null, months: [months(), months(), months()], erp: [0, 0, 50, 0, 0, 0, 40, 0] },
+    { dims: dims("Ben", "DE"), potential: null, months: [months(), months(), months()], erp: null },
+  ];
+  const c: Cube = { generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: null, labels, ...fold(companies) };
+  assert.deepEqual(erpTotals(c, {}), { revMtd: 11, revMtdPy: 9, revYtd: 160, revYtdPy: 100, oiMtd: 13, oiMtdPy: 10, oiYtd: 145, oiYtdPy: 95 });
+  assert.equal(erpTotals(c, { country: ["DE"] }).oiYtd, 40);
+  const by = erpBy(c, { owner: ["Ben"] }, "owner");
+  assert.deepEqual([by.get("Anna")!.revYtd, by.get("Ben")!.revYtd], [110, 50]);
+});

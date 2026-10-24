@@ -611,9 +611,11 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
   /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
   id?: string;
+  /** the Period fold - the Figures stand on the ERP's month and year to date, they have none */
+  period?: boolean;
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -642,6 +644,7 @@ export function FilterWindow({ id = "customers-filters", open, onClose, focus, c
         <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
           sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
       )) : null}>
+      {period && (
       <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
         summary={windowLabel(cube, win)}>
         <Period cube={cube} win={win} onChange={setWin} />
@@ -649,6 +652,7 @@ export function FilterWindow({ id = "customers-filters", open, onClose, focus, c
           Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
         </Typography>
       </Section>
+      )}
       {ORDER.map((dim, i) => (
         <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
