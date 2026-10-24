@@ -57,8 +57,8 @@ export type Data = {
   defaults: { hub: Settings["hub"]; priority: Settings["priority"] };
 };
 export type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
-export type View = "overview" | "tickets" | "flow" | "detection" | "priority" | "people" | "gqs" | "settings";
-export const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", priority: "#priority", people: "#people", gqs: "#gqs", settings: "#settings" };
+export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "gqs" | "settings";
+export const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", gqs: "#gqs", settings: "#settings" };
 export const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 export const STEP: Record<string, string> = {
   "23": "Assignment System - Maida, Sara, team", "27": "General Distribution", "42": "General Distribution, then ESO/TSA",

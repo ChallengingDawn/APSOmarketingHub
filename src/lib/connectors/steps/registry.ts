@@ -17,6 +17,7 @@ import { erpRevenue } from "./erpRevenue";
 import { orderSync, ordersDaily, stageLoad } from "./orders";
 import { deputySweep, ticketAssoc, wrongOwners } from "./tickets";
 import { taskDeputySweep } from "@/lib/holiday/taskSweep";
+import { runScheduled as boSentimentSweep } from "@/lib/boSentiment/engine";
 import { stockLoad } from "./stock";
 import { FCT_FILE } from "./stockRules";
 import { ownerRulesSweep } from "../../ownerRules/sweep";
@@ -85,6 +86,11 @@ export const REGISTRY: StepDef[] = [
   // (the HubSpot workflow "SARCLA | DEPUTY TASK", brought here 21.10.2026). Same chain as
   // the ticket sweep above, different object; it needs no ERP data, so it runs on the clock.
   { key: "task_deputy_sweep", cadence: "15min", hubOnly: true, run: (c) => taskDeputySweep(c.live, c.beat, { tsaFallback: process.env.DEPUTY_TSA_FALLBACK === "1" }) },
+  // HUB ONLY: the customer's tone and whether we resolved the matter - the HubSpot workflow
+  // "SARCLA | BO SENTIMENT AND TONE" brought here (SARCLA 24.10.2026). Shadow until it is
+  // switched to live on the Sentiment tab AND that workflow is switched off; it reads only
+  // HubSpot, so it runs on the clock rather than on the ERP chain.
+  { key: "bo_sentiment_sweep", cadence: "15min", hubOnly: true, run: () => boSentimentSweep() },
   // HUB ONLY: Owner redirection's safety net (/uc/owner-redirection) - the HubSpot app function
   // reacts at once; this applies the same published rules to every company every 15 minutes
   { key: "owner_rules", cadence: "15min", hubOnly: true, run: (c) => ownerRulesSweep(c.live, c.beat) },

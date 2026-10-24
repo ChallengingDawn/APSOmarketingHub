@@ -59,6 +59,7 @@ import { GqsTab } from "./GqsTab";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
 import { DetectionTab } from "./DetectionTab";
+import { SentimentTab, type SentimentData } from "./SentimentTab";
 import { StraysCard } from "./StraysCard";
 /* ── Overview ── */
 
@@ -250,6 +251,24 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
   );
 }
 
+/**
+ * The Sentiment tab reads its own endpoint (/api/uc/bo-sentiment), so it loads itself rather than
+ * widening this page's payload with figures the other tabs never use. Rendered with a key of its
+ * own: two held loaders in one slot is the crash we fixed once already.
+ */
+function SentimentPanel() {
+  const [n, setN] = useState(0);
+  const url = `/api/uc/bo-sentiment${n ? `?n=${n}` : ""}`;
+  const held = useHeld<SentimentData>(url, [url]);
+  const r = held.result;
+  if (r === null) return <LoadingPanel label="Reading the tone of the Back Office tickets…" />;
+  if (r.state !== "ok") {
+    return <UpstreamPanel source="Back Office sentiment" error={r.state === "error" ? r.error : "not configured"}
+      status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
+  }
+  return <SentimentTab d={r.data} onChanged={() => setN((x) => x + 1)} />;
+}
+
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
@@ -263,6 +282,7 @@ export default function BoDistribution() {
   else if (view === "tickets") body = <Tickets d={r.data} />;
   else if (view === "flow") body = <FlowTab d={r.data} />;
   else if (view === "detection") body = <DetectionTab d={r.data} />;
+  else if (view === "sentiment") body = <SentimentPanel key="sentiment" />;
   else if (view === "people") body = <People d={r.data} onSaved={reload} />;
   else if (view === "gqs") body = <GqsTab d={r.data} />;
   else if (view === "settings") body = <SettingsTab key={r.data.settings.at ?? "s"} d={r.data} onChanged={reload} />;
@@ -287,6 +307,7 @@ export default function BoDistribution() {
           { id: "tickets", label: "Tickets", count: rows.length ? full(rows.length) : null },
           { id: "flow", label: "Flow", count: null },
           { id: "detection", label: "Detection", count: null },
+          { id: "sentiment", label: "Sentiment", count: null },
           { id: "priority", label: "Priority", count: null },
           { id: "people", label: "People", count: null },
           { id: "gqs", label: "GQS", count: rows.filter((x) => x.pipeline === "gqs").length ? full(rows.filter((x) => x.pipeline === "gqs").length) : null },
