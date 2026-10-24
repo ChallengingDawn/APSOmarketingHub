@@ -341,6 +341,7 @@ function HowTab({ d }: { d: Data }) {
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A new ticket</b>, 4 minutes after it is created ({full(created)} in this period).</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>A ticket entering</b> {Object.values(REENROL_STAGES).join(", ")} - worked out again ({full(stage)} in this period).</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>• <b>Any ESO or TSA ticket without a value</b> - for example one handed over from Back Office - picked up within minutes.</Typography>
         </Box>
       </GlassCard>
       <GlassCard>

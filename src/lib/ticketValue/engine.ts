@@ -16,7 +16,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { BRANCH_LABEL, HUB_RULES, PIPELINES, REENROL_STAGES, TICKET_PROPS, WAIT_MS, decide, decideHub, lastEditorIsHuman, toNum, type Api, type Better, type Branch, type HistoryEntry, type HubRule } from "./rules";
 import { loadReport } from "@/lib/integrations/articleReport";
 import { firstOrderState, firstOrderStep } from "./firstOrder";
-import { jobsState, liveTicket, oneTimeJobs, pipelineStep, workflowOn, type Jobs, type Written } from "./live";
+import { jobsState, liveTicket, oneTimeJobs, pipelineStep, sweepUnvalued, workflowOn, type Jobs, type Written } from "./live";
 import { enrolsOnStage, finalOf, pricesOf, sameValue, type Values, type Verdict } from "./model";
 
 export type { Verdict } from "./model";
@@ -316,6 +316,23 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     }
   }
   await flush();
+  // live: ESO/TSA tickets with no value at all - handed over from Back Office, or left behind by an outage
+  if (live && more()) {
+    try {
+      const now = new Date().toISOString();
+      const rows = await rowsFor(day(now));
+      for (const { id, r } of await sweepUnvalued(better, more)) {
+        rows.push({
+          key: `${id}:stage:${now}`, ticketId: id, subject: r.subject, pipeline: r.pipeline, trigger: "stage", stage: "had no value yet", at: now, enrols: true, before: r.before,
+          hub: { branch: "score", action: "live", final: r.before, better: r.better }, workflow: { wrote: false, at: null, by: null, final: r.before },
+          verdict: "live", checkedAt: now, written: r.written, error: r.written.error,
+        });
+        if (r.written.changed) info.written = (info.written ?? 0) + 1;
+        dirty.add(day(now));
+      }
+      await flush();
+    } catch (e) { info.error = `no-value sweep: ${(e as Error).message.slice(0, 120)}`; }
+  }
   // the open pipeline's value, ESO and TSA - every 30 minutes
   if (more()) await pipelineStep(more).catch((e) => { info.error = `pipeline: ${(e as Error).message.slice(0, 120)}`; });
   // live: the one-time jobs - every open ESO/TSA ticket once, the old values on the other pipelines cleared

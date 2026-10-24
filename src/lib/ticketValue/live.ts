@@ -120,6 +120,36 @@ export async function liveTicket(id: string, better: Better, job: "ticket" | "re
 type Page = { results?: Raw[]; paging?: { next?: { after?: string } } };
 const closedStages = [...ALL_CLOSED_STAGES];
 
+// ---------------- ESO/TSA tickets still without a value (24.10.2026) ----------------
+// A ticket handed over from Back Office ("Redirected from Back-Office") was created in Back Office - no value there - and
+// enters ESO/TSA at no moment the hub watches; an outage leaves tickets behind too (22.10: 24 found). The old workflow
+// caught both because "value unknown" was itself a reason for it to run. So every run the hub also takes the newest ESO/TSA
+// tickets that have no value at all - 30 a run; a ticket that could not be written is tried again after 6 hours.
+const SWEEP_PER_RUN = 30;
+const sweepTried = new Map<string, number>();
+export async function sweepUnvalued(better: Better, more: () => boolean): Promise<{ id: string; r: LiveResult }[]> {
+  const page = await hubspotRetry<Page>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+    filterGroups: [ESO, TSA].map((pipe) => ({ filters: [
+      { propertyName: "hs_pipeline", operator: "EQ", value: pipe },
+      { propertyName: "sales_potential_source", operator: "NOT_HAS_PROPERTY" },
+      // the 4 minutes a new ticket is given before its first look
+      { propertyName: "createdate", operator: "LTE", value: String(Date.now() - 4 * 60_000) },
+    ] })),
+    properties: ["hs_object_id"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100,
+  } });
+  const out: { id: string; r: LiveResult }[] = [];
+  for (const t of page.results ?? []) {
+    if (out.length >= SWEEP_PER_RUN || !more()) break;
+    const id = String(t.id);
+    const last = sweepTried.get(id);
+    if (last && Date.now() - last < 6 * 3600_000) continue;
+    sweepTried.set(id, Date.now());
+    try { out.push({ id, r: await liveTicket(id, better) }); } catch { /* tried again in 6 hours */ }
+  }
+  if (sweepTried.size > 5000) for (const [k, v] of sweepTried) if (Date.now() - v > 6 * 3600_000) sweepTried.delete(k);
+  return out;
+}
+
 // ---------------- the open pipeline's value (SARCLA 21.10.2026: "as an extra KPI the value of the pipeline, ESO and TSA") ----
 export type PipeValue = { pipeline: "ESO" | "TSA"; open: number; value: number; byConf: Record<string, { n: number; value: number }> };
 export type PipelineValue = { at: string; pipes: PipeValue[] };
