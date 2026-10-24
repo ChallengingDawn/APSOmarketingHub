@@ -49,7 +49,7 @@ import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
 import { contactsData } from "@/lib/mapAssign/contactsKpi";
 import { performisWrong, performisWrongXlsx } from "@/lib/mapAssign/performisWrongDb";
 import { WRONG_ORDER } from "@/lib/mapAssign/performisWrong";
-import { isFollowRunning, kickFollow, saveFollow } from "@/lib/mapAssign/contactFollow";
+import { isFollowRunning, kickFollow, saveFollow, stopRest } from "@/lib/mapAssign/contactFollow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,12 +158,14 @@ export async function PUT(req: NextRequest) {
     else topicOk = { topic: x.topic, ok: x.ok, country: country || null };
   }
   let follow: boolean | null = null;
+  let stopCarry = false;
   const cf = (b as { contactFollow?: unknown }).contactFollow;
   if (cf !== undefined) {
-    const x = cf as { auto?: unknown } | null;
-    if (!x || typeof x !== "object" || typeof x.auto !== "boolean") problems.push("contactFollow must be {auto: true | false}");
+    const x = cf as { auto?: unknown; rest?: unknown } | null;
+    if (!x || typeof x !== "object" || (typeof x.auto !== "boolean" && x.rest !== false)) problems.push("contactFollow must be {auto: true | false} or {rest: false}");
     else if (Object.keys(b).some((k) => k !== "contactFollow")) problems.push("contactFollow goes in a request of its own");
-    else follow = x.auto;
+    else if (typeof x.auto === "boolean") follow = x.auto;
+    else stopCarry = true;
   }
   if (problems.length) return NextResponse.json({ ok: false, error: problems[0], errors: problems }, { status: 400 });
   try {
@@ -173,6 +175,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ ok: true, data: await topicsData(topicOk.country) });
     }
     if (follow !== null) return NextResponse.json({ ok: true, data: await saveFollow(follow, by) });
+    if (stopCarry) { await stopRest(); return NextResponse.json({ ok: true, data: { rest: null } }); }
     let redecided: number | undefined;
     if (b.rules !== undefined || b.patch !== undefined) {
       const r = await saveRules({ rules: b.rules, patch: b.patch }, by);

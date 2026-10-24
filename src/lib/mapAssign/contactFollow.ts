@@ -37,6 +37,9 @@ const KV = {
   switch: "mapAssign:contactFollow", last: "mapAssign:contactFollowLast", cursor: "mapAssign:contactFollowCursor",
   /** the pass going: how far it is (SARCLA 24.10.2026: "A pass is going ... No pass yet - this is not moving") */
   now: "mapAssign:contactFollowNow",
+  /** "Correct now" not finished yet (cut by its time limit or a restart): {by, at} - the engine's runs carry on until no
+   *  contact is left (SARCLA 24.10.2026: "it doesn't progress?" - one pass stopped at 2,000 and nothing went on) */
+  rest: "mapAssign:contactFollowRest",
 };
 /** "new": HubSpot's search index trails a create, and the company is often associated a few minutes after the contact. */
 const NEW_OVERLAP_MS = 10 * 60_000;
@@ -45,8 +48,11 @@ const NEW_FIRST_MS = 60 * 60_000;
 const NEW_MAX_BACK_MS = 24 * 3600_000;
 /** "new": 200 a page - past this the pass stops short and the next one reads the same window again. */
 const NEW_PAGES = 25;
-/** A "Correct now" is stopped after this long (its lock dropped); the engine's run has its own limit. */
-const MANUAL_LIMIT_MS = 20 * 60_000;
+/** A "Correct now" is stopped after this long (its lock dropped); it works batch after batch for MANUAL_WORK_MS, then
+ *  the engine's runs carry on (REST_WORK_MS a run) until none is left. */
+const MANUAL_LIMIT_MS = 50 * 60_000;
+const MANUAL_WORK_MS = 40 * 60_000;
+const REST_WORK_MS = 8 * 60_000;
 const AUTO_BY = "contacts follow (automatic)";
 const CONTACT_PROPS = ["email", "hubspot_owner_id", "region_responsibility", "associatedcompanyid"];
 const COMPANY_PROPS = ["hubspot_owner_id", "region_responsibility"];
@@ -68,6 +74,13 @@ export async function saveFollow(auto: boolean, by: string): Promise<FollowSwitc
   await kvSet(KV.switch, next);
   return next;
 }
+/** "Correct now" still to finish: who asked, when; null = nothing left to carry on. */
+export async function getRest(): Promise<{ by: string; at: string } | null> {
+  const x = await kvGet<{ by?: string; at?: string } | null>(KV.rest);
+  return x?.at ? { by: String(x.by ?? ""), at: String(x.at) } : null;
+}
+/** PUT {contactFollow: {rest: false}} - stop carrying on (an admin); a pass going ends after its batch. */
+export async function stopRest(): Promise<void> { await kvSet(KV.rest, null); }
 
 /* ── one pass ──────────────────────────────────────────────────────────── */
 
@@ -80,6 +93,8 @@ type Pass = {
   checked: number; wrote: number; failed: number; left: number; companies: number; notSure: number;
   /** when it started (ISO) */
   at: string;
+  /** the companies looked at in this pass - a batch never takes one twice */
+  seen: Set<string>;
 };
 const stop = (p: Pass) => { if (p.signal?.aborted) throw new Error("stopped: the time limit"); };
 
@@ -131,15 +146,17 @@ async function write(p: Pass, writes: FollowWrite[]): Promise<Set<string>> {
   return failed;
 }
 
-/** "all": the companies whose contacts differ, biggest first - each read again with its own contacts (ownContacts). */
-async function passAll(p: Pass, maxCompanies: number): Promise<void> {
-  if (p.budget <= 0) return;
+/** "all", one batch: the companies whose contacts differ, biggest first (none looked at before in this pass) - each read
+ *  again with its own contacts (ownContacts). Answers how many companies it took: 0 = none is left. */
+async function passAll(p: Pass, maxCompanies: number): Promise<number> {
+  if (p.budget <= 0) return 0;
   const r = await query<{ company_id: string }>(
-    `SELECT company_id FROM apsomh_map_assign WHERE contacts_mism > 0 AND owner_now = ANY($1::text[])
+    `SELECT company_id FROM apsomh_map_assign WHERE contacts_mism > 0 AND owner_now = ANY($1::text[]) AND NOT (company_id = ANY($3::text[]))
      ORDER BY contacts_mism DESC, company_id LIMIT $2`,
-    [[...p.active], maxCompanies],
+    [[...p.active], maxCompanies, [...p.seen]],
   );
   const ids = r.rows.map((x) => String(x.company_id));
+  for (const id of ids) p.seen.add(id);
   for (let i = 0; i < ids.length && p.budget > 0; i += 100) {
     stop(p);
     const part = ids.slice(i, i + 100);
@@ -151,7 +168,9 @@ async function passAll(p: Pass, maxCompanies: number): Promise<void> {
     const left = new Map<string, number>();
     for (const id of part) {
       const t = targetOf(p, fresh.get(id));
-      if (!t) continue; // gone, nobody, or someone who has left: its count stays until the next read
+      // gone, nobody, or someone who has left (the table's owner is older than HubSpot's): nothing to correct here - the
+      // next nightly read counts it again, so the batches end
+      if (!t) { left.set(id, 0); continue; }
       const before = p.left;
       writes.push(...plan(p, id, t, (mine.get(id) ?? []).map((c) => contactOf(c, props.get(c)))));
       left.set(id, p.left - before);
@@ -165,6 +184,19 @@ async function passAll(p: Pass, maxCompanies: number): Promise<void> {
         [JSON.stringify([...left].map(([id, n]) => ({ id, n })))],
       );
     }
+  }
+  return ids.length;
+}
+
+/** "all" batch after batch (FOLLOW_CAP contacts, FOLLOW_COMPANIES companies each) until none is left or `workMs` has
+ *  gone (or "stop" was asked); true = none is left. */
+async function passAllUntil(p: Pass, workMs: number, stopped: () => Promise<boolean>): Promise<boolean> {
+  const until = Date.now() + workMs;
+  for (;;) {
+    p.budget = FOLLOW_CAP;
+    const n = await passAll(p, FOLLOW_COMPANIES);
+    if (n === 0) return true;
+    if (Date.now() > until || (await stopped())) return false;
   }
 }
 
@@ -291,7 +323,7 @@ async function correctSure(p: Pass, ids: string[], sure: Map<string, NewContactR
 let busy = false;
 
 /** One pass under the lock; null = another one is going (on the other copy of the hub). The last pass is kept in kv. */
-async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSignal, known?: Internal): Promise<FollowLast | null> {
+async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSignal, known?: Internal, carry?: "manual" | "rest"): Promise<FollowLast | null> {
   await ensureMapAssign();
   const client: PoolClient = await getPool().connect();
   let dropped = false;
@@ -302,14 +334,20 @@ async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSigna
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return null;
     const t0 = Date.now();
-    const p: Pass = { scope, by, signal, internal: { domains: new Set(), emails: new Set() }, active: new Set(), budget: FOLLOW_CAP, checked: 0, wrote: 0, failed: 0, left: 0, companies: 0, notSure: 0, at: new Date(t0).toISOString() };
+    const p: Pass = { scope, by, signal, internal: { domains: new Set(), emails: new Set() }, active: new Set(), budget: FOLLOW_CAP, checked: 0, wrote: 0, failed: 0, left: 0, companies: 0, notSure: 0, at: new Date(t0).toISOString(), seen: new Set() };
     let error: string | undefined;
     await progress(p);
     try {
       p.internal = known ?? (await internalPeople());
       p.active = (await owners()).active;
       if (scope === "new" || scope === "auto") await passNew(p);
-      if (scope === "all" || scope === "auto") await passAll(p, FOLLOW_COMPANIES);
+      if (scope === "all" && carry) {
+        // "Correct now": batch after batch until none is left - what is not done in time is carried on by the engine's
+        // runs (kv rest) until none is left; an admin's "stop" ends it after the batch going
+        // (kickFollow set kv rest before the start, so a restart mid-way is carried on too; an admin's stop clears it)
+        const done = await passAllUntil(p, carry === "manual" ? MANUAL_WORK_MS : REST_WORK_MS, async () => !(await getRest()));
+        if (done) await kvSet(KV.rest, null);
+      } else if (scope === "all" || scope === "auto") await passAll(p, FOLLOW_COMPANIES);
       if (scope === "latest") await passLatest(p);
     } catch (e) {
       error = msg(e);
@@ -333,10 +371,14 @@ async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSigna
 /** The engine's run (engine.ts run(), every 15 minutes, right after the new contacts' count): while Automatic is on,
  *  the contacts created since the last pass, then a batch of the rest. A "Correct now" going = skipped this time. */
 export async function followOnRun(signal?: AbortSignal, known?: Internal): Promise<void> {
-  if (busy || !(await getFollow()).auto) return;
+  if (busy) return;
+  const [sw, rest] = [await getFollow(), await getRest()];
+  if (!sw.auto && !rest) return;
   busy = true;
   try {
-    await pass("auto", AUTO_BY, signal, known);
+    // Automatic: the new contacts and a batch of the rest; a "Correct now" not finished: carried on until none is left
+    if (sw.auto) await pass("auto", AUTO_BY, signal, known);
+    if (rest) await pass("all", `${rest.by} (Correct now, carried on)`, signal, known, "rest");
   } finally {
     busy = false;
   }
@@ -353,7 +395,9 @@ export function kickFollow(scope: "all" | "latest", by: string): boolean {
     busy = false;
   }, MANUAL_LIMIT_MS);
   timer.unref?.();
-  void pass(scope, by, limit.signal)
+  // a pass going is cut by the time limit: what is left is carried on by the engine's runs (kv rest)
+  if (scope === "all") void kvSet(KV.rest, { by, at: new Date().toISOString() }).catch(() => {});
+  void pass(scope, by, limit.signal, undefined, scope === "all" ? "manual" : undefined)
     .then((last) => { if (!last) console.warn("[map-assign] contacts follow: a pass is going on the other copy - not started"); })
     .catch((e) => console.warn(`[map-assign] contacts follow: ${msg(e)}`))
     .finally(() => { clearTimeout(timer); if (!limit.signal.aborted) busy = false; });
@@ -393,7 +437,7 @@ export async function followData(kpi: NewContactsKpi | null, countedAt: string |
   }
   const known = typeof kpi?.sure === "number" && !!kpi?.notSure;
   return {
-    ...sw, last, running, now, pending, cap: FOLLOW_CAP,
+    ...sw, last, running, now, pending, cap: FOLLOW_CAP, rest: await getRest().catch(() => null),
     latest: { sure: known ? kpi!.sure! : 0, notSure: known ? notSureTotal(kpi!.notSure) : 0, why: known ? kpi!.notSure! : null, known, at: kpi?.at ?? null },
   };
 }

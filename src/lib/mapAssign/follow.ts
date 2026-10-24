@@ -54,6 +54,8 @@ export type ContactFollow = FollowSwitch & {
   running: boolean;
   /** how far it is (null: none going, or an older hub) */
   now?: FollowNow | null;
+  /** "Correct now" carried on by the engine's runs until none is left (who asked, when); null = nothing to carry on */
+  rest?: { by: string; at: string } | null;
   pending: FollowPending;
   /** the new contacts of the last 30 days that do not follow the rules: sure (written by "Correct the sure ones") and
    *  not sure - the company first (why: per reason); known false = the hourly count predates the sure ones */
@@ -61,8 +63,9 @@ export type ContactFollow = FollowSwitch & {
   /** the most one pass writes */
   cap: number;
 };
-/** PUT {contactFollow: {auto}} (admins, a request of its own); POST {action: "contacts-follow", scope} (admins). */
-export type FollowPut = { contactFollow: { auto: boolean } };
+/** PUT {contactFollow: {auto}} or {contactFollow: {rest: false}} (stop carrying on) (admins, a request of its own);
+ *  POST {action: "contacts-follow", scope} (admins). */
+export type FollowPut = { contactFollow: { auto: boolean } | { rest: false } };
 export type FollowPost = { action: "contacts-follow"; scope: "all" | "latest" };
 
 /** Ids compared as text - kv and pg can hand back a number. null = "" (nobody). */

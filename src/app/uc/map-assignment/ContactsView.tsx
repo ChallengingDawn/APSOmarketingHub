@@ -496,7 +496,7 @@ function MatchCard({ m, names, palette }: { m: ContactMatch; names: Names; palet
 /* ── contacts follow their company (SARCLA 24.10.2026) ── */
 
 /** What an admin can ask: a pass over every contact that differs, the sure ones of the latest, Automatic on / off. */
-type FollowAct = "all" | "latest" | "auto-on" | "auto-off";
+type FollowAct = "all" | "latest" | "auto-on" | "auto-off" | "stop";
 type Acts = {
   admin: boolean; busy: FollowAct | null;
   /** the answer, shown where it was asked */
@@ -546,9 +546,9 @@ function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
       {acts.admin ? (
         <Box sx={{ display: "grid", gap: 0.75, pt: 1.5, borderTop: `1px solid ${HAIRLINE}` }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-            <Button variant="contained" disableElevation size="small" disabled={off || !p.contacts} onClick={() => acts.ask("all")}
+            <Button variant="contained" disableElevation size="small" disabled={off || !p.contacts || !!f.rest} onClick={() => acts.ask("all")}
               startIcon={acts.busy === "all" ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <AutoFixHighOutlinedIcon />}
-              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Correct now</Button>
+              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Correct all now</Button>
             <FormControlLabel sx={{ m: 0 }} label={<Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>Automatic</Typography>}
               control={<Switch checked={f.auto} disabled={acts.busy !== null} onChange={(e) => acts.ask(e.target.checked ? "auto-on" : "auto-off")} />} />
             {(acts.busy === "auto-on" || acts.busy === "auto-off") && <CircularProgress size={14} />}
@@ -575,7 +575,17 @@ function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
             </Typography>
           </Box>
         )}
-        {(l || !f.running) && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{l ? `${f.running ? "Before: " : ""}${lastSays(l)}` : "No pass yet - Correct now starts one."}</Typography>}
+        {/* "Correct all now" not finished: carried on by itself every 15 minutes until none is left (SARCLA 24.10.2026: "it
+            doesn't progress?") */}
+        {f.rest && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#5b45c9" }}>
+              Correct all now, asked by {f.rest.by} {when(f.rest.at)}: {f.running ? "going" : `${full(p.contacts)} left - it carries on by itself every 15 minutes until none is left`}.
+            </Typography>
+            {acts.admin && <Button size="small" disabled={acts.busy !== null} onClick={() => acts.ask("stop")} sx={{ textTransform: "none", color: MUTED, py: 0 }}>Stop</Button>}
+          </Box>
+        )}
+        {(l || !f.running) && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{l ? `${f.running ? "Before: " : ""}${lastSays(l)}` : "No pass yet - Correct all now starts one."}</Typography>}
         {l?.error && !f.running && <Typography sx={{ fontSize: "0.8rem", color: RED }}>It stopped: {l.error}</Typography>}
       </Box>
     </GlassCard>
@@ -587,9 +597,9 @@ function FollowAsk({ a, f, busy, onCancel, onGo }: { a: FollowAct | null; f: Con
   const sure = f?.latest.sure ?? 0;
   const say = !a || !f ? null
     : a === "all" ? {
-      title: "Correct the contacts now?",
-      text: `The contacts that differ from their company get the company's owner and region responsibility - up to ${full(f.cap)} now, the biggest companies first. Only those two fields are written; A+P people and companies with no owner are left alone. Every change is logged.`,
-      go: "Correct now",
+      title: `Correct all ${full(f.pending.contacts)} contacts?`,
+      text: `The contacts that differ from their company get the company's owner and region responsibility - the biggest companies first, ${full(f.cap)} at a time, until none is left. It carries on by itself (every 15 minutes) if it does not finish at once; Stop ends it. Only those two fields are written; A+P people and companies with no owner are left alone. Every change is logged.`,
+      go: "Correct all",
     } : a === "latest" ? {
       title: `Correct the ${many(sure, "sure one", "sure ones")}?`,
       text: "These new contacts get their company's owner and region responsibility - their company already has the ones the rules give it. The not sure ones are left alone. Every change is logged.",
@@ -644,6 +654,7 @@ export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
     setBusy(a); setMsg(null);
     const res = a === "auto-on" || a === "auto-off"
       ? await send("PUT", { contactFollow: { auto: a === "auto-on" } })
+      : a === "stop" ? await send("PUT", { contactFollow: { rest: false } })
       : await send("POST", { action: "contacts-follow", scope: a });
     setBusy(null); setAskFor(null);
     if (res.ok && (a === "all" || a === "latest")) setWatchUntil(Date.now() + 90_000);
@@ -652,13 +663,14 @@ export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
     const text = !res.ok ? `Not done: ${res.error ?? "failed"}`
       : a === "auto-on" ? "Automatic is on - from the next run, every 15 minutes."
       : a === "auto-off" ? "Automatic is off - nothing is corrected by itself any more."
+      : a === "stop" ? "Stopped - Correct all now does not carry on (a batch going ends first)."
       : got.started === false ? `Not started: ${got.why ?? "a pass is going already"}.`
-      : a === "all" ? "Started - the contacts are corrected in the background, the biggest companies first. The count below moves by itself."
+      : a === "all" ? "Started - every contact that differs is corrected in the background, the biggest companies first, until none is left. The count below moves by itself."
       : "Started - the sure ones get their company's owner and region in the background. The count moves by itself.";
     setMsg({ at, ok: res.ok && got.started !== false, text });
     retry();
   };
-  const acts: Acts = { admin: d.admin, busy, msg, ask: (a) => (a === "auto-off" ? void go(a) : setAskFor(a)) };
+  const acts: Acts = { admin: d.admin, busy, msg, ask: (a) => (a === "auto-off" || a === "stop" ? void go(a) : setAskFor(a)) };
   // while a pass is going (and for a while after one was started - it may start on the other copy of the hub): read the
   // card again every 8 seconds, so its count moves by itself
   const [watchUntil, setWatchUntil] = useState(0);

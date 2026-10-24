@@ -16,16 +16,20 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import TablePagination from "@mui/material/TablePagination";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import RuleOutlinedIcon from "@mui/icons-material/RuleOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, INK, MUTED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
+import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { Choice } from "@/app/connectors/parts";
 import { WRONG_ORDER, WRONG_TEXT, type PerformisWrongData, type WrongReason } from "@/lib/mapAssign/performisWrong";
 import { API, countryName, hsCompany, type Names } from "./shared";
+
+/** A page as the hub reads it (performisWrongDb.ts PAGE). */
+const PER_PAGE = 50;
 
 export function WrongPerformisView({ names, n }: { names: Names; n: number }) {
   const [reason, setReason] = useState<WrongReason | "">("");
@@ -113,12 +117,12 @@ export function WrongPerformisView({ names, n }: { names: Names; n: number }) {
           </Table>
         </Box>
         {!d.rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{d.total ? "Nothing with this filter." : "Performis names the right person for every customer."}</Typography>}
-        {d.filtered > d.rows.length && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.25, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{full(d.offset + 1)}-{full(d.offset + d.rows.length)} of {full(d.filtered)}</Typography>
-            <Button size="small" disabled={d.offset === 0 || held.stale} onClick={() => setOffset(Math.max(0, d.offset - 50))} sx={{ textTransform: "none" }}>Previous</Button>
-            <Button size="small" disabled={d.offset + d.rows.length >= d.filtered || held.stale} onClick={() => setOffset(d.offset + 50)} sx={{ textTransform: "none" }}>Next</Button>
-          </Box>
+        {/* the hub's pager (usePaged's), the pages read from the hub 50 at a time (SARCLA 24.10.2026: "pagination doesn't respect
+            the rest of the hub's pagination") */}
+        {d.filtered > PER_PAGE && (
+          <TablePagination component="div" count={d.filtered} page={Math.floor(d.offset / PER_PAGE)} onPageChange={(_, p) => setOffset(p * PER_PAGE)}
+            rowsPerPage={PER_PAGE} rowsPerPageOptions={[PER_PAGE]} labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count}`}
+            sx={{ borderTop: `1px solid ${HAIRLINE}` }} />
         )}
       </GlassCard>
     </>
