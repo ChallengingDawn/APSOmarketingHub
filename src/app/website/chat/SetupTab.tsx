@@ -11,13 +11,16 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import SettingsEthernetOutlinedIcon from "@mui/icons-material/SettingsEthernetOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import type { Health } from "@/lib/chat/shape";
 import type { OrchestratorSetting } from "@/lib/chat/orchestrator";   // a type only: nothing of the server file reaches the browser
+import type { LogCopyRun } from "@/lib/chat/logCopy";                  // a type only, likewise
 import { Loaded, pill, post, when } from "./shared";
 
-type Setup = { setting: OrchestratorSetting; health: Health | null; keySet: boolean; isAdmin: boolean };
+type LogCopy = { last: LogCopyRun | null; held: number; heldMaxId: number };
+type Setup = { setting: OrchestratorSetting; health: Health | null; keySet: boolean; isAdmin: boolean; logCopy: LogCopy | null };
 
 const CHECKS: [keyof Health, string][] = [
   ["postgres", "Database"], ["redis", "Chat memory"], ["hubspot", "HubSpot"], ["claude", "AI model"], ["embedding", "Knowledge search"],
@@ -55,9 +58,56 @@ export default function SetupTab() {
               </Typography>
             </GlassCard>
           </Grid>
+          <Grid size={{ xs: 12 }}>
+            <LogCopyCard c={s.logCopy} isAdmin={s.isAdmin} reload={reload} />
+          </Grid>
         </Grid>
       )}
     </Loaded>
+  );
+}
+
+/* The chat log on AWS (SARCLA 24.10.2026: "a db on AWS ... we should not lose any data"): the orchestrator's own
+   count beside the hub's, so "nothing is missing" is something the page shows, not something it claims. */
+function LogCopyCard({ c, isAdmin, reload }: { c: LogCopy | null; isAdmin: boolean; reload: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const last = c?.last ?? null;
+  const n = (v: number) => v.toLocaleString("de-CH");
+  const state = !c ? { tint: "pink" as const, text: "Not readable" }
+    : !last ? { tint: "slate" as const, text: "First copy not run yet" }
+    : !last.ok ? { tint: "pink" as const, text: "Last copy failed" }
+    : last.complete ? { tint: "green" as const, text: "Complete" }
+    : { tint: "amber" as const, text: `Copying - ${n(Math.max(0, last.source - last.held))} rows still to come` };
+  const copy = async () => {
+    setBusy(true); setMsg(null);
+    const r = await post({ action: "log-copy" });
+    setBusy(false);
+    setMsg(r.ok ? null : (r.error ?? "Did not work."));
+    reload();
+  };
+  return (
+    <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      <CardTitle icon={<StorageOutlinedIcon />} tint="green" title="The chat log on AWS"
+        note="Every message's record - language, topic, hand-over, ticket and the AI's own trace, no message text - copied from the orchestrator's database on Railway into the hub's, every 5 minutes. The conversations themselves are in HubSpot." />
+      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+        <Chip tint={state.tint}>{state.text}</Chip>
+        {last && <Typography component="span" sx={{ fontSize: "0.8rem", color: MUTED }}>last run {when(last.at)}{last.copied ? `, ${n(last.copied)} copied` : ""}</Typography>}
+      </Box>
+      {c && (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Held on AWS: <b>{n(c.held)}</b> rows{c.heldMaxId ? `, up to #${c.heldMaxId}` : ""}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Orchestrator on Railway: <b>{last?.ok ? n(last.source) : "?"}</b> rows{last?.ok && last.sourceMaxId ? `, up to #${last.sourceMaxId}` : ""}</Typography>
+        </Box>
+      )}
+      {last && !last.ok && last.error && <Notice tone="bad">{last.error}</Notice>}
+      {msg && <Notice tone="bad">{msg}</Notice>}
+      {isAdmin && (
+        <Box>
+          <Button variant="outlined" sx={pill} disabled={busy} onClick={() => void copy()}>{busy ? "Copying…" : "Copy now"}</Button>
+        </Box>
+      )}
+    </GlassCard>
   );
 }
 

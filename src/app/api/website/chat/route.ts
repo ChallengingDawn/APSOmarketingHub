@@ -14,6 +14,7 @@
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
 //        { action: "orchestrator", url }   admins: which orchestrator the hub reads
+//        { action: "log-copy" }   admins: copy the orchestrator's chat log into the hub's database now (logCopy.ts)
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/chat/orchestrator";
 import { chatTranscript } from "@/lib/chat/transcript";
 import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
+import { copyNow, logCopyState } from "@/lib/chat/logCopy";
 import type { HsState } from "@/lib/chat/shape";
 import { adminToken as searchBarKey, gateway as searchBarGateway, type AiConversations } from "@/lib/searchbar/gateway";
 
@@ -71,8 +73,8 @@ export async function GET(req: NextRequest) {
       return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100)));
     }
     if (part === "setup") {
-      const [setting, health] = await Promise.all([orchestratorSetting(), orchestratorHealth()]);
-      return ok({ setting, health, keySet: !!orchestratorKey(), isAdmin });
+      const [setting, health, logCopy] = await Promise.all([orchestratorSetting(), orchestratorHealth(), logCopyState().catch(() => null)]);
+      return ok({ setting, health, keySet: !!orchestratorKey(), isAdmin, logCopy });
     }
     if (!orchestratorKey()) return NextResponse.json({ configured: false, missing: ["CHAT_ORCHESTRATOR_KEY"] });
     if (part === "overview") {
@@ -170,6 +172,12 @@ export async function POST(req: NextRequest) {
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
       const run = await fileNow();
       console.log(`[chat-topics] run by ${who}: ${run.filed} filed${run.error ? ` (${run.error})` : ""}`);
+      return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
+    }
+    if (body.action === "log-copy") {
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const run = await copyNow();
+      console.log(`[chat-log] copy run by ${who}: ${run.copied} copied${run.error ? ` (${run.error})` : ""}`);
       return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
     }
     if (body.action === "orchestrator") {

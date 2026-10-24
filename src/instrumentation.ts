@@ -90,5 +90,10 @@ export async function register() {
     // (src/lib/chat/topics.ts, a small Claude model, every 20 min). CHAT_TOPICS=off stops it. SARCLA, 18.10.2026.
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
+
+    // APSOassistant Chat > Setup: the orchestrator's chat log copied whole into the hub's database, every 5 min, so
+    // nothing of the chat lives only on Railway (src/lib/chat/logCopy.ts). CHAT_LOG_COPY=off stops it. SARCLA, 24.10.2026.
+    const { startChatLogCopy } = await import("./lib/chat/logCopy");
+    startChatLogCopy();
   }
 }
