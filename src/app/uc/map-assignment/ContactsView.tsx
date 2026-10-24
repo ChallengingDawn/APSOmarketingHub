@@ -3,8 +3,12 @@
 // MAP ASSIGNMENT - Contacts (SARCLA 21.10.2026: "instead of Differences I want to see the KPI of new contacts entering
 // the assignment - to whom, if it hit the rules or not - and also the contact association: every contact associated to
 // a company matches the same as in the company"). Top to bottom:
+//   Contacts follow their company (SARCLA 24.10.2026: "the steering module for the contact associations - when a
+//     contact's properties differ from the company's it should be corrected instantly as associated"): how many differ
+//     (the nightly read), per country, "Correct now" and the Automatic switch (admins), the last pass
 //   New contacts - last 30 days: how many, the share that follows the rules, a bar per day, by person (the company's
-//     owner by the rules), by rule, the latest that do not follow - counted at most hourly by the engine's run
+//     owner by the rules), by rule, the latest that do not follow - counted at most hourly by the engine's run - with
+//     "Correct the N sure ones" (24.10.2026: "if we are 100% sure that they don't follow the rules")
 //   Contacts match their company: per country and per person, the share of associated contacts with the company's
 //     owner + region in HubSpot now, and with the owner by the rules (the table's counts, from the nightly full read)
 //   Differences by topic, folded: the former Differences view (DiffView), unchanged
@@ -17,6 +21,14 @@ import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import PublishedWithChangesOutlinedIcon from "@mui/icons-material/PublishedWithChangesOutlined";
+import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
 import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
 import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
@@ -26,14 +38,15 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useHeld, type Held } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice, TRACK, clip, headCell, type Tint } from "@/app/uc/report/ui";
+import { ACCENT, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, TRACK, clip, headCell, type Tint } from "@/app/uc/report/ui";
 import { Chip, Choice, Info, when } from "@/app/connectors/parts";
 import type { MapData } from "@/lib/mapAssign/api";
 import type {
-  ClassCounts, ContactClass, ContactMatch, ContactsData, DayCount, MatchCounts, NewContactExample, NewContactsKpi, NewContactsPart, RuleKey,
+  ClassCounts, ContactClass, ContactMatch, ContactsData, DayCount, MatchCounts, NewContactExample, NewContactsKpi, NewContactsPart, NotSureCounts, RuleKey,
 } from "@/lib/mapAssign/contactsKpi";
+import type { ContactFollow, FollowLast } from "@/lib/mapAssign/follow";
 import { DiffView } from "./DiffView";
-import { API, Swatch, countryName, hsCompany, hsContact, type Names, type Palette } from "./shared";
+import { API, Swatch, countryName, hsCompany, hsContact, send, type Names, type Palette } from "./shared";
 
 /* ── the data ── */
 
@@ -244,11 +257,51 @@ function ByRule({ p }: { p: NewContactsPart }) {
 
 const LATEST_SHOWN = 8;
 
-function Latest({ list, names }: { list: NewContactExample[]; names: Names }) {
+/** The not sure ones, by why, as one short phrase. */
+const NOT_SURE_LABEL: Record<keyof NotSureCounts, string> = {
+  company: "their company differs from the rules", "unknown-company": "company not read yet", "no-company": "no company",
+};
+const notSureSays = (n: NotSureCounts) => (Object.keys(NOT_SURE_LABEL) as (keyof NotSureCounts)[]).filter((k) => n[k] > 0).map((k) => `${full(n[k])} ${NOT_SURE_LABEL[k]}`).join(" · ");
+
+/** "Correct the N sure ones" (SARCLA 24.10.2026): the counts for all countries (what the button corrects) and for the
+ *  country picked. */
+type SureProps = { latest: ContactFollow["latest"]; running: boolean; acts: Acts; part: Pick<NewContactsPart, "sure" | "notSure">; where: string };
+
+function SureLine({ s }: { s: SureProps }) {
+  const { latest, acts } = s;
+  if (!latest.known) return <Typography sx={{ ...note, mb: 0.75 }}>Which of them are sure to correct is counted from the next hourly count.</Typography>;
+  const here = s.where && typeof s.part.sure === "number" ? ` - ${full(s.part.sure)} of them${s.where}` : "";
+  return (
+    <Box sx={{ display: "grid", gap: 0.4, mb: 1 }}>
+      <Typography sx={note}>
+        <b>Sure</b>: the company already has the owner and region responsibility the rules give it - the contact then takes the company's.
+        {" "}{latest.sure ? `${many(latest.sure, "sure one", "sure ones")} in all countries${here}.` : "None is sure right now."}
+      </Typography>
+      {latest.notSure > 0 && (
+        <Typography sx={note}>
+          <b>Not sure - the company first</b>: {full(latest.notSure)}{latest.why ? ` (${notSureSays(latest.why)})` : ""}. Never written from here.
+        </Typography>
+      )}
+      {acts.msg?.at === "latest" && <Typography sx={{ fontSize: "0.8rem", color: acts.msg.ok ? "#1b7a55" : RED }}>{acts.msg.text}</Typography>}
+    </Box>
+  );
+}
+
+function Latest({ list, names, sure }: { list: NewContactExample[]; names: Names; sure?: SureProps }) {
   const [all, setAll] = useState(false);
+  const n = sure?.latest.known ? sure.latest.sure : 0;
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography sx={subhead}>The latest that do not follow the rules</Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.75 }}>
+        <Typography sx={{ ...subhead, mb: 0, mr: "auto" }}>The latest that do not follow the rules</Typography>
+        {sure?.acts.admin && n > 0 && (
+          <Button size="small" variant="outlined" startIcon={sure.acts.busy === "latest" ? <CircularProgress size={12} /> : <AutoFixHighOutlinedIcon />}
+            disabled={sure.acts.busy !== null || sure.running} onClick={() => sure.acts.ask("latest")} sx={{ textTransform: "none" }}>
+            {`Correct the ${many(n, "sure one", "sure ones")}`}
+          </Button>
+        )}
+      </Box>
+      {sure && <SureLine s={sure} />}
       {(all ? list : list.slice(0, LATEST_SHOWN)).map((e) => {
         const ownerRight = !!e.decided && String(e.owner ?? "") === String(e.decided);
         return (
@@ -257,6 +310,7 @@ function Latest({ list, names }: { list: NewContactExample[]; names: Names }) {
               <Box component="a" href={hsContact(e.id)} target="_blank" rel="noopener" title={e.email ?? e.id} sx={{ ...link, fontSize: "0.84rem", flex: 1, minWidth: 0 }}>
                 {e.email || `Contact ${e.id}`}
               </Box>
+              {e.sure && <Chip tint="green">Sure</Chip>}
               <Chip tint={KIND[e.kind].tint}>{KIND[e.kind].label}</Chip>
             </Box>
             <Box sx={{ display: "flex", gap: 0.75, alignItems: "baseline", minWidth: 0, fontSize: "0.76rem", color: MUTED }}>
@@ -299,7 +353,11 @@ function Latest({ list, names }: { list: NewContactExample[]; names: Names }) {
 /** Country pills shown before the rest go behind "more". */
 const TOP_COUNTRIES = 7;
 
-function NewContactsCard({ k, names, palette, stale }: { k: NewContactsKpi | null; names: Names; palette: Palette; stale: boolean }) {
+function NewContactsCard({ k, names, palette, stale, sure }: {
+  k: NewContactsKpi | null; names: Names; palette: Palette; stale: boolean;
+  /** "Correct the N sure ones" - absent from an older hub */
+  sure?: Omit<SureProps, "part" | "where">;
+}) {
   const [cc, setCc] = useState("all");
   if (!k) {
     return (
@@ -361,7 +419,7 @@ function NewContactsCard({ k, names, palette, stale }: { k: NewContactsKpi | nul
             <ByPerson p={p} names={names} palette={palette} />
             <ByRule p={p} />
           </Box>
-          <Box sx={{ mt: 2.5 }}><Latest list={p.examples} names={names} /></Box>
+          <Box sx={{ mt: 2.5 }}><Latest list={p.examples} names={names} sure={sure ? { ...sure, part: p, where } : undefined} /></Box>
         </>
       ) : (
         <Typography sx={note}>No new contact{where} in the last 30 days.</Typography>
@@ -434,6 +492,124 @@ function MatchCard({ m, names, palette }: { m: ContactMatch; names: Names; palet
   );
 }
 
+/* ── contacts follow their company (SARCLA 24.10.2026) ── */
+
+/** What an admin can ask: a pass over every contact that differs, the sure ones of the latest, Automatic on / off. */
+type FollowAct = "all" | "latest" | "auto-on" | "auto-off";
+type Acts = {
+  admin: boolean; busy: FollowAct | null;
+  /** the answer, shown where it was asked */
+  msg: { at: "card" | "latest"; ok: boolean; text: string } | null;
+  /** a write asks first (Automatic off does not) */
+  ask: (a: FollowAct) => void;
+};
+
+/** Country chips shown before the rest are "+N more". */
+const FOLLOW_CHIPS = 8;
+const PASS_NAME: Record<FollowLast["scope"], string> = { auto: "automatic", all: "Correct now", latest: "the sure ones", new: "new contacts" };
+
+function lastSays(l: FollowLast): string {
+  const who = l.scope === "auto" ? "" : `, ${l.by}`;
+  return `Last pass ${when(l.at)} (${PASS_NAME[l.scope] ?? l.scope}${who}): ${full(l.checked)} checked, ${full(l.wrote)} corrected`
+    + `${l.failed ? `, ${full(l.failed)} not taken by HubSpot` : ""}${l.left ? ` - ${full(l.left)} more next time` : ""}`
+    + `${l.notSure ? ` · ${full(l.notSure)} not sure, left alone` : ""}.`;
+}
+
+function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
+  const p = f.pending;
+  const countries = Object.entries(p.byCountry).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = countries.slice(0, FOLLOW_CHIPS), more = countries.length - top.length;
+  const off = acts.busy !== null || f.running;
+  const l = f.last;
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<PublishedWithChangesOutlinedIcon />} tint="purple" title="Contacts follow their company"
+        note="A contact gets its company's owner and region responsibility in HubSpot - nothing else is touched. A+P people are left alone."
+        right={f.auto ? <Chip tint="green">Automatic</Chip> : <Chip tint="slate">Automatic off</Chip>} />
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap", mb: 0.25 }}>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, letterSpacing: "-0.03em", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{full(p.contacts)}</Typography>
+        <Typography sx={{ fontSize: "0.95rem", color: INK, fontWeight: 600 }}>
+          {p.contacts === 1 ? "contact differs" : "contacts differ"} from their company{p.companies ? ` · in ${many(p.companies, "company", "companies")}` : ""}
+        </Typography>
+      </Box>
+      <Typography sx={{ ...note, mb: 1.25 }}>
+        {p.at ? `As of the nightly read ${when(p.at)} - each pass takes off what it corrects` : "Counted on the nightly read - the first numbers come after the next one"}
+        {p.noOwner.contacts ? ` · ${many(p.noOwner.contacts, "contact", "contacts")} of ${many(p.noOwner.companies, "company", "companies")} with no owner left alone` : ""}.
+      </Typography>
+      {top.length > 0 && (
+        <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mb: 2 }}>
+          {top.map(([cc, n]) => <Chip key={cc} tint="slate">{`${countryName(cc)} · ${full(n)}`}</Chip>)}
+          {more > 0 && <Box component="span" sx={{ fontSize: "0.76rem", color: MUTED }}>+{more} more</Box>}
+        </Box>
+      )}
+      {acts.admin ? (
+        <Box sx={{ display: "grid", gap: 0.75, pt: 1.5, borderTop: `1px solid ${HAIRLINE}` }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <Button variant="contained" disableElevation size="small" disabled={off || !p.contacts} onClick={() => acts.ask("all")}
+              startIcon={acts.busy === "all" ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <AutoFixHighOutlinedIcon />}
+              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Correct now</Button>
+            <FormControlLabel sx={{ m: 0 }} label={<Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>Automatic</Typography>}
+              control={<Switch checked={f.auto} disabled={acts.busy !== null} onChange={(e) => acts.ask(e.target.checked ? "auto-on" : "auto-off")} />} />
+            {(acts.busy === "auto-on" || acts.busy === "auto-off") && <CircularProgress size={14} />}
+          </Box>
+          <Typography sx={note}>
+            When on, the hub corrects every 15 minutes - new contacts as they come, the rest a batch at a time (up to {full(f.cap)}). Nothing else is touched.
+            {f.at && f.by ? ` Switched ${f.auto ? "on" : "off"} by ${f.by}, ${when(f.at)}.` : ""}
+          </Typography>
+        </Box>
+      ) : (
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Admins can correct the contacts and switch Automatic on.</Typography>
+      )}
+      {acts.msg?.at === "card" && <Typography sx={{ fontSize: "0.82rem", color: acts.msg.ok ? "#1b7a55" : RED, mt: 1 }}>{acts.msg.text}</Typography>}
+      <Box sx={{ display: "grid", gap: 0.3, mt: 1.25 }}>
+        {f.running && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <CircularProgress size={12} sx={{ color: MUTED }} />
+            <Typography sx={{ fontSize: "0.8rem", color: INK }}>A pass is going - read again in a minute.</Typography>
+          </Box>
+        )}
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{l ? lastSays(l) : "No pass yet."}</Typography>
+        {l?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>It stopped: {l.error}</Typography>}
+      </Box>
+    </GlassCard>
+  );
+}
+
+/** Asked before a write: what it does, in a sentence or two. */
+function FollowAsk({ a, f, busy, onCancel, onGo }: { a: FollowAct | null; f: ContactFollow | null; busy: boolean; onCancel: () => void; onGo: (a: FollowAct) => void }) {
+  const sure = f?.latest.sure ?? 0;
+  const say = !a || !f ? null
+    : a === "all" ? {
+      title: "Correct the contacts now?",
+      text: `The contacts that differ from their company get the company's owner and region responsibility - up to ${full(f.cap)} now, the biggest companies first. Only those two fields are written; A+P people and companies with no owner are left alone. Every change is logged.`,
+      go: "Correct now",
+    } : a === "latest" ? {
+      title: `Correct the ${many(sure, "sure one", "sure ones")}?`,
+      text: "These new contacts get their company's owner and region responsibility - their company already has the ones the rules give it. The not sure ones are left alone. Every change is logged.",
+      go: `Correct ${full(sure)}`,
+    } : {
+      title: "Switch Automatic on?",
+      text: `Every 15 minutes the hub gives contacts their company's owner and region responsibility: new contacts as they come, the rest up to ${full(f.cap)} at a time. Nothing else is touched; every change is logged.`,
+      go: "Switch on",
+    };
+  return (
+    <Dialog open={!!say} onClose={() => !busy && onCancel()} maxWidth="xs" fullWidth>
+      {say && a && (
+        <>
+          <DialogTitle sx={{ fontWeight: 700 }}>{say.title}</DialogTitle>
+          <DialogContent><Typography sx={{ fontSize: "0.9rem", color: INK }}>{say.text}</Typography></DialogContent>
+          <DialogActions>
+            <Button onClick={onCancel} disabled={busy} sx={{ textTransform: "none" }}>Cancel</Button>
+            <Button variant="contained" disableElevation disabled={busy} onClick={() => onGo(a)} sx={{ textTransform: "none" }}>
+              {busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : say.go}
+            </Button>
+          </DialogActions>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
 /* ── the view ── */
 
 export function ContactsView({ d, names, palette, held, onRetry }: {
@@ -450,6 +626,30 @@ export function ContactsView({ d, names, palette, held, onRetry }: {
   const data = contactsOf(h);
   const retry = onRetry ?? (() => setN((x) => x + 1));
 
+  // contacts follow their company: admins correct now, switch Automatic, correct the sure ones (each asked first)
+  const follow = data?.follow ?? null;
+  const [askFor, setAskFor] = useState<FollowAct | null>(null);
+  const [busy, setBusy] = useState<FollowAct | null>(null);
+  const [msg, setMsg] = useState<Acts["msg"]>(null);
+  const go = async (a: FollowAct) => {
+    setBusy(a); setMsg(null);
+    const res = a === "auto-on" || a === "auto-off"
+      ? await send("PUT", { contactFollow: { auto: a === "auto-on" } })
+      : await send("POST", { action: "contacts-follow", scope: a });
+    setBusy(null); setAskFor(null);
+    const at = a === "latest" ? "latest" : "card";
+    const got = (res.data ?? {}) as { started?: boolean; why?: string };
+    const text = !res.ok ? `Not done: ${res.error ?? "failed"}`
+      : a === "auto-on" ? "Automatic is on - from the next run, every 15 minutes."
+      : a === "auto-off" ? "Automatic is off - nothing is corrected by itself any more."
+      : got.started === false ? `Not started: ${got.why ?? "a pass is going already"}.`
+      : a === "all" ? "Started - the contacts are corrected in the background, the biggest companies first. Read again in a minute."
+      : "Started - the sure ones get their company's owner and region in the background. Read again in a minute.";
+    setMsg({ at, ok: res.ok && got.started !== false, text });
+    retry();
+  };
+  const acts: Acts = { admin: d.admin, busy, msg, ask: (a) => (a === "auto-off" ? void go(a) : setAskFor(a)) };
+
   let top: React.ReactNode;
   if (r === null) top = <LoadingPanel label="Counting the contacts…" />;
   else if (!data) {
@@ -459,13 +659,16 @@ export function ContactsView({ d, names, palette, held, onRetry }: {
   } else {
     top = (
       <>
-        <NewContactsCard k={data.newContacts} names={names} palette={palette} stale={h.stale} />
+        {follow && <FollowCard f={follow} acts={acts} />}
+        <NewContactsCard k={data.newContacts} names={names} palette={palette} stale={h.stale}
+          sure={follow ? { latest: follow.latest, running: follow.running, acts } : undefined} />
         <MatchCard m={data.match} names={names} palette={palette} />
       </>
     );
   }
   return (
     <>
+      <FollowAsk a={askFor} f={follow} busy={busy !== null} onCancel={() => setAskFor(null)} onGo={(a) => void go(a)} />
       {top}
       <GlassCard sx={{ p: 0 }}>
         <Box component="button" type="button" onClick={() => setFolded((x) => !x)} aria-expanded={!folded} sx={{

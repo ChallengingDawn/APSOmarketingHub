@@ -43,6 +43,7 @@ import { listRules } from "@/lib/ownerRules/store";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 // used inside run() only - contactsKpi.ts imports ensureMapAssign from here, a cycle that is safe at runtime
 import { newContactsKpi } from "./contactsKpi";
+import { followOnRun } from "./contactFollow"; // the same: inside run() only
 import {
   DEFAULT_SETTINGS, EMPTY_ZIP_INDEX, INTERNAL_DOMAINS, cleanSettings, companyChanges, conflictCounts, contactChanges, emailDomain, fullDue, heldBy, inYear,
   internalFromList, isInternal, layerPoints, likeEscape, mergeRules, priorityKey, ownContacts, placeZip, redirectionSig, saeStats, validateLive, validateRules, zipIndex, zurich,
@@ -372,7 +373,7 @@ export async function owners(): Promise<OwnersInfo> {
 
 let internalCache: { at: number; v: Internal } | null = null;
 /** A+P people (list 2865's domains and addresses), six hours old at most; unreadable = the two company domains. */
-async function internal(): Promise<Internal> {
+export async function internal(): Promise<Internal> {
   if (internalCache && Date.now() - internalCache.at < 6 * 3600_000) return internalCache.v;
   let v: Internal;
   try {
@@ -385,7 +386,7 @@ async function internal(): Promise<Internal> {
   return v;
 }
 
-async function batchRead(obj: "companies" | "contacts", ids: string[], properties: string[]): Promise<Map<string, Props>> {
+export async function batchRead(obj: "companies" | "contacts", ids: string[], properties: string[]): Promise<Map<string, Props>> {
   const out = new Map<string, Props>();
   for (let i = 0; i < ids.length; i += 100) {
     const j = await hs<{ results?: Obj[] }>(`/crm/v3/objects/${obj}/batch/read`, "POST", { properties, inputs: ids.slice(i, i + 100).map((id) => ({ id })) });
@@ -396,7 +397,7 @@ async function batchRead(obj: "companies" | "contacts", ids: string[], propertie
 
 type AssocRow = { from: { id: string }; to?: { toObjectId: string | number }[]; paging?: { next?: { after?: string } } };
 /** company id -> its contact ids, every page. */
-async function companyContacts(ids: string[]): Promise<Map<string, string[]>> {
+export async function companyContacts(ids: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   for (let i = 0; i < ids.length; i += 100) {
     const j = await hs<{ results?: AssocRow[] }>("/crm/v4/associations/companies/contacts/batch/read", "POST", { inputs: ids.slice(i, i + 100).map((id) => ({ id })) });
@@ -658,7 +659,7 @@ async function recheck(ctx: Ctx): Promise<void> {
 
 /** Batch update, 100 at a time: id -> null (written) or the error. One bad record fails a whole batch, so a failed
  *  batch is written record by record to find it. 401/403 stops the run - no permission is not a per-record matter. */
-async function writeBatch(obj: "companies" | "contacts", inputs: { id: string; properties: Record<string, string> }[]): Promise<Map<string, string | null>> {
+export async function writeBatch(obj: "companies" | "contacts", inputs: { id: string; properties: Record<string, string> }[]): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
   for (let i = 0; i < inputs.length; i += 100) {
     const chunk = inputs.slice(i, i + 100);
@@ -1061,6 +1062,8 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   await ticketLoad(ctx).catch((e) => console.warn(`[map-assign] ticket workload not read: ${msg(e)}`));
   // the Contacts view: the new contacts of the last 30 days and whether they follow the rules - at most hourly
   await newContactsKpi(signal, ctx.internal).catch((e) => console.warn(`[map-assign] new contacts not counted: ${msg(e)}`));
+  // contacts follow their company when Automatic is on (SARCLA 24.10.2026: "corrected instantly as associated") - contactFollow.ts
+  await followOnRun(signal, ctx.internal).catch((e) => console.warn(`[map-assign] contacts follow: ${msg(e)}`));
 
   // the rules were saved while this run decided with the old ones
   const rulesNow = await getRules();

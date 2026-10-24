@@ -1,10 +1,11 @@
 // MAP ASSIGNMENT - contacts, the pure part (SARCLA 21.10.2026: "instead of Differences I want to see the KPI of new
 // contacts entering the assignment - to whom, if it hit the rules or not - and also the contact association: every
 // contact associated to a company matches the same as in the company"). How a new contact stands against its company,
-// and the page's numbers counted from them. No HubSpot, no database, relative imports only - tests/map-assign-contacts.test.ts
+// which of those that do not follow the rules are sure to correct (24.10.2026), and the page's numbers counted from them. No HubSpot, no database, relative imports only - tests/map-assign-contacts.test.ts
 // runs it as is. The reads, the kv and the match totals: contactsKpi.ts (which re-exports everything here).
 
 import { INTERNAL_DOMAINS, isInternal, zurich, type Internal } from "./plan";
+import type { ContactFollow } from "./follow";
 
 /* ── one new contact ───────────────────────────────────────────────────── */
 
@@ -61,6 +62,27 @@ export function contactClass(c: { owner?: unknown; region?: unknown; companyId?:
   return "differs";
 }
 
+/**
+ * SARCLA 24.10.2026: "Can we correct all 'The latest that do not follow the rules'? If we are 100% sure that they don't
+ * follow the rules." A contact that does not follow the rules is SURE when its company does - the company's owner AND
+ * region responsibility in HubSpot now are the person the rules give it: then the right owner and region of the
+ * contact are the company's, whichever way one looks, and once written the contact follows the rules. Every other one
+ * is not sure - the company first:
+ *   company          the company itself differs from the rules (owner or region) - right the company, its contacts follow
+ *   unknown-company  the company is not in the table yet (the next run reads it)
+ *   no-company       no primary company (the No company tab)
+ * null = the contact follows the rules: nothing to correct. A+P people are left out before (isInternal).
+ */
+export type SureClass = "sure" | "company" | "unknown-company" | "no-company";
+export type NotSureCounts = Record<Exclude<SureClass, "sure">, number>;
+export function sureClass(c: { owner?: unknown; region?: unknown; companyId?: unknown }, co: CompanyRuleRow | null | undefined): SureClass | null {
+  const kind = contactClass(c, co);
+  if (kind === "follows") return null;
+  if (kind === "no-company" || kind === "unknown-company") return kind;
+  const decided = v(co!.decided);
+  return decided && v(co!.ownerNow) === decided && v(co!.regionNow) === decided ? "sure" : "company";
+}
+
 /* ── the 30 days ───────────────────────────────────────────────────────── */
 
 /** "2026-10-21" -> the ms of midnight in Zurich (CET +1 / CEST +2). */
@@ -109,6 +131,9 @@ export type NewContactExample = {
   /** the company's owner in HubSpot now, and by the rules */
   companyOwnerNow: string | null; decided: string | null;
   rule: RuleKey;
+  /** its company follows the rules: "Correct the sure ones" gives it the company's owner and region (absent from an
+   *  older count) */
+  sure?: boolean;
 };
 export type NewContactsPart = {
   total: number; classes: ClassCounts;
@@ -118,6 +143,10 @@ export type NewContactsPart = {
   byRule: RuleCount[];
   /** the latest that do not follow the rules (no-company ones are on the No company tab), newest first */
   examples: NewContactExample[];
+  /** of those that do not follow the rules: the sure ones (sureClass) and the not sure ones by why - absent from a
+   *  count made before 24.10.2026 */
+  sure?: number;
+  notSure?: NotSureCounts;
 };
 export type NewContactsKpi = NewContactsPart & {
   /** kept shape version */
@@ -153,14 +182,16 @@ export function followShare(p: Pick<NewContactsPart, "classes">): number | null 
 type Acc = {
   total: number; classes: ClassCounts; days: Map<string, DayCount>;
   person: Map<string, PersonCount>; rule: Map<RuleKey, RuleCount>; examples: NewContactExample[]; max: number;
+  sure: number; notSure: NotSureCounts;
 };
 const acc = (dayList: string[], max: number): Acc => ({
   total: 0, classes: zero(), days: new Map(dayList.map((day) => [day, { day, total: 0, classes: zero() }])),
-  person: new Map(), rule: new Map(), examples: [], max,
+  person: new Map(), rule: new Map(), examples: [], max, sure: 0, notSure: { company: 0, "unknown-company": 0, "no-company": 0 },
 });
-function add(a: Acc, day: string, kind: ContactClass, person: string, rule: RuleKey, ex: NewContactExample | null) {
+function add(a: Acc, day: string, kind: ContactClass, person: string, rule: RuleKey, ex: NewContactExample | null, sc: SureClass | null) {
   const f = kind === "follows" ? 1 : 0;
   a.total++; a.classes[kind]++;
+  if (sc === "sure") a.sure++; else if (sc) a.notSure[sc]++;
   const d = a.days.get(day);
   if (d) { d.total++; d.classes[kind]++; }
   const p = a.person.get(person) ?? { owner: person, n: 0, follows: 0 };
@@ -173,7 +204,7 @@ const part = (a: Acc): NewContactsPart => ({
   total: a.total, classes: a.classes, perDay: [...a.days.values()],
   byPerson: [...a.person.values()].sort((x, y) => y.n - x.n || y.follows - x.follows || x.owner.localeCompare(y.owner)),
   byRule: RULE_ORDER.map((k) => a.rule.get(k)).filter((x): x is RuleCount => !!x),
-  examples: a.examples,
+  examples: a.examples, sure: a.sure, notSure: { ...a.notSure },
 });
 
 /**
@@ -205,6 +236,7 @@ export function buildNewContacts(
     const cid = v(r.companyId);
     const co = cid ? companies.get(cid) : undefined;
     const kind = contactClass(r, co);
+    const sc = sureClass(r, co);
     const known = kind !== "no-company" && kind !== "unknown-company" && !!co;
     const person = known ? v(co!.decided) : "";
     const rule: RuleKey = known ? ruleOf(co!.via) : kind === "no-company" ? "no-company" : "unknown-company";
@@ -213,16 +245,16 @@ export function buildNewContacts(
     const ex: NewContactExample | null = kind === "follows" || kind === "no-company" ? null : {
       id: v(r.id), email: r.email, created: new Date(t).toISOString(), kind, owner: r.owner ? v(r.owner) : null, region: r.region ? v(r.region) : null,
       companyId: cid || null, companyName: co?.name ?? null, country: co ? (v(co.country).toUpperCase() || null) : null,
-      companyOwnerNow: co?.ownerNow ? v(co.ownerNow) : null, decided: co ? v(co.decided) : null, rule,
+      companyOwnerNow: co?.ownerNow ? v(co.ownerNow) : null, decided: co ? v(co.decided) : null, rule, sure: sc === "sure",
     };
-    add(all, day, kind, person, rule, ex);
+    add(all, day, kind, person, rule, ex, sc);
     const c = byCountry.get(country) ?? { country, n: 0, follows: 0 };
     c.n++; if (kind === "follows") c.follows++;
     byCountry.set(country, c);
     if (country) {
       let a = per.get(country);
       if (!a) { a = acc(dayList, COUNTRY_EXAMPLES); per.set(country, a); }
-      add(a, day, kind, person, rule, ex);
+      add(a, day, kind, person, rule, ex, sc);
     }
   }
   return {
@@ -262,8 +294,8 @@ export type ContactMatch = {
   byOwner: MatchByOwner[];
   totals: MatchCounts;
 };
-/** GET /api/uc/map-assignment?contacts=1 */
-export type ContactsData = { newContacts: NewContactsKpi | null; match: ContactMatch };
+/** GET /api/uc/map-assignment?contacts=1 (follow: the steering card, follow.ts - absent from an older hub) */
+export type ContactsData = { newContacts: NewContactsKpi | null; match: ContactMatch; follow?: ContactFollow };
 
 /** The share that matches (0..1): of the contacts counted, those that do not differ; null = none counted. */
 export function matchShare(counted: number, differ: number): number | null {

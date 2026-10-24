@@ -7,13 +7,18 @@
 //                     "mapAssign:newContacts", read again only when older than an hour. Called by the engine's run
 //                     (which catches its errors); it catches nothing itself.
 //   contactsData()    GET /api/uc/map-assignment?contacts=1: that kv value and the contact <-> company match totals,
-//                     counted from the table on request (per country, per owner by the rules, all).
+//                     counted from the table on request (per country, per owner by the rules, all), and the steering
+//                     card "Contacts follow their company" (contactFollow.ts followData, 24.10.2026).
+// readNewContacts() / companiesOf() / saveNewContacts(): the KPI's read, join and count apart - contactFollow.ts's
+// "latest" pass corrects the sure ones from the same read and counts again.
 // The pure part (classes, counting, every type) is contacts.ts - re-exported here, so callers import from this file.
 
 import { query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ensureMapAssign } from "./engine";
+// used inside contactsData() only - contactFollow.ts imports from here, a cycle that is safe at runtime
+import { followData } from "./contactFollow";
 import type { Internal } from "./plan";
 import {
   KPI_VERSION, buildNewContacts, windowStart,
@@ -48,7 +53,13 @@ function stored(x: unknown): NewContactsKpi | null {
 export async function newContactsKpi(signal?: AbortSignal, internal?: Internal): Promise<NewContactsKpi> {
   const had = stored(await kvGet<unknown>(KV_NEW));
   if (had && Date.now() - Date.parse(had.at) < FRESH_MS) return had;
+  return saveNewContacts(await readNewContacts(signal), internal);
+}
 
+/** The contacts created in the last 30 Zurich days as HubSpot has them now (A+P people still in) - the KPI's read, and
+ *  the "latest" pass of contactFollow.ts (24.10.2026), which corrects the sure ones and counts again from it. */
+export type NewContactsRead = { now: number; rows: NewContactRow[]; capped: boolean };
+export async function readNewContacts(signal?: AbortSignal): Promise<NewContactsRead> {
   const now = Date.now();
   const since = windowStart(now, DAYS);
   const byId = new Map<string, NewContactRow>();
@@ -77,8 +88,11 @@ export async function newContactsKpi(signal?: AbortSignal, internal?: Internal):
     if (!after || !res.length) break;
     if (read >= MAX_READ) { capped = true; break; }
   }
+  return { now, rows: [...byId.values()], capped };
+}
 
-  const rows = [...byId.values()];
+/** Their companies as the table keeps them: company id -> its row (absent = not in the table yet). */
+export async function companiesOf(rows: NewContactRow[]): Promise<Map<string, CompanyRuleRow>> {
   const ids = [...new Set(rows.map((r) => r.companyId).filter((x): x is string => !!x))];
   const companies = new Map<string, CompanyRuleRow>();
   if (ids.length) {
@@ -92,7 +106,13 @@ export async function newContactsKpi(signal?: AbortSignal, internal?: Internal):
       });
     }
   }
-  const kpi = buildNewContacts(rows, companies, { now, days: DAYS, capped, internal });
+  return companies;
+}
+
+/** A read counted and kept in kv (`companies`: already read for these rows). */
+export async function saveNewContacts(read: NewContactsRead, internal?: Internal, companies?: Map<string, CompanyRuleRow>): Promise<NewContactsKpi> {
+  const { now, rows, capped } = read;
+  const kpi = buildNewContacts(rows, companies ?? (await companiesOf(rows)), { now, days: DAYS, capped, internal });
   if (capped) console.warn(`[map-assign] new contacts: HubSpot's search stops at ${MAX_READ} - the oldest days of the ${DAYS} are short`);
   await kvSet(KV_NEW, kpi);
   return kpi;
@@ -158,5 +178,7 @@ export async function contactsData(): Promise<ContactsData> {
       byOwner: byOwner.rows.map((x) => ({ owner: String(x.owner), ...counts(x) })),
       totals: counts(t),
     },
+    // the steering card (24.10.2026: "contacts follow their company") - unreadable = the view without it
+    follow: await followData(newContacts, iso(t?.counted_at)).catch((e) => { console.warn(`[map-assign] contacts follow: ${String((e as Error)?.message ?? e)}`); return undefined; }),
   };
 }

@@ -28,6 +28,10 @@
 // POST {action: "run"}        a run now, in the background (unless one is going)
 // POST {action: "link", contactId, companyId}   link a contact from the "No company" list (its owner too when the
 //                             company's country is live)
+// Contacts follow their company (SARCLA 24.10.2026, src/lib/mapAssign/contactFollow.ts; GET ?contacts=1 -> follow):
+// PUT {contactFollow: {auto}} Automatic on / off, in a request of its own; answers {ok, data: {auto, by, at}}
+// POST {action: "contacts-follow", scope: "all" | "latest"}   a pass now, in the background: the contacts that differ
+//                             from their company / the sure ones of "The latest that do not follow the rules"
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
@@ -40,6 +44,7 @@ import type { MapPost, MapPut } from "@/lib/mapAssign/api";
 import { TOPIC_ORDER, isTopicId, type TopicId } from "@/lib/mapAssign/topics";
 import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
 import { contactsData } from "@/lib/mapAssign/contactsKpi";
+import { isFollowRunning, kickFollow, saveFollow } from "@/lib/mapAssign/contactFollow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -133,6 +138,14 @@ export async function PUT(req: NextRequest) {
     else if (Object.keys(b).some((k) => k !== "topicOk")) problems.push("topicOk goes in a request of its own");
     else topicOk = { topic: x.topic, ok: x.ok, country: country || null };
   }
+  let follow: boolean | null = null;
+  const cf = (b as { contactFollow?: unknown }).contactFollow;
+  if (cf !== undefined) {
+    const x = cf as { auto?: unknown } | null;
+    if (!x || typeof x !== "object" || typeof x.auto !== "boolean") problems.push("contactFollow must be {auto: true | false}");
+    else if (Object.keys(b).some((k) => k !== "contactFollow")) problems.push("contactFollow goes in a request of its own");
+    else follow = x.auto;
+  }
   if (problems.length) return NextResponse.json({ ok: false, error: problems[0], errors: problems }, { status: 400 });
   try {
     const by = await who(access.userId);
@@ -140,6 +153,7 @@ export async function PUT(req: NextRequest) {
       await answerTopic(topicOk.topic, topicOk.ok, by);
       return NextResponse.json({ ok: true, data: await topicsData(topicOk.country) });
     }
+    if (follow !== null) return NextResponse.json({ ok: true, data: await saveFollow(follow, by) });
     let redecided: number | undefined;
     if (b.rules !== undefined || b.patch !== undefined) {
       const r = await saveRules({ rules: b.rules, patch: b.patch }, by);
@@ -182,6 +196,13 @@ export async function POST(req: NextRequest) {
       const contactId = String(b.contactId ?? "").trim(), companyId = String(b.companyId ?? "").trim();
       if (!/^\d+$/.test(contactId) || !/^\d+$/.test(companyId)) return NextResponse.json({ ok: false, error: "contactId and companyId must be HubSpot ids" }, { status: 400 });
       return NextResponse.json({ ok: true, data: await linkContact(contactId, companyId, await who(access.userId), { auto: false }) });
+    }
+    if ((b as { action?: unknown }).action === "contacts-follow") {
+      const scope = (b as { scope?: unknown }).scope;
+      if (scope !== "all" && scope !== "latest") return NextResponse.json({ ok: false, error: "scope must be \"all\" or \"latest\"" }, { status: 400 });
+      if (await isFollowRunning()) return NextResponse.json({ ok: true, data: { started: false, why: "a pass is going already" } });
+      const started = kickFollow(scope, await who(access.userId));
+      return NextResponse.json({ ok: true, data: started ? { started: true } : { started: false, why: "a pass is going already" } });
     }
     return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
   } catch (err) {
