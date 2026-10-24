@@ -19,7 +19,7 @@ import type { OrchestratorSetting } from "@/lib/chat/orchestrator";   // a type 
 import type { LogCopyRun } from "@/lib/chat/logCopy";                  // a type only, likewise
 import { Loaded, pill, post, when } from "./shared";
 
-type LogCopy = { last: LogCopyRun | null; held: number; heldMaxId: number };
+type LogCopy = { last: LogCopyRun | null; held: number; heldLastAt: string | null };
 type Setup = { setting: OrchestratorSetting; health: Health | null; keySet: boolean; isAdmin: boolean; logCopy: LogCopy | null };
 
 const CHECKS: [keyof Health, string][] = [
@@ -96,8 +96,8 @@ function LogCopyCard({ c, isAdmin, reload }: { c: LogCopy | null; isAdmin: boole
       </Box>
       {c && (
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
-          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Held on AWS: <b>{n(c.held)}</b> rows{c.heldMaxId ? `, up to #${c.heldMaxId}` : ""}</Typography>
-          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Orchestrator on Railway: <b>{last?.ok ? n(last.source) : "?"}</b> rows{last?.ok && last.sourceMaxId ? `, up to #${last.sourceMaxId}` : ""}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Held on AWS: <b>{n(c.held)}</b> rows{c.heldLastAt ? `, newest ${when(c.heldLastAt)}` : ""}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>Orchestrator on Railway: <b>{last?.ok ? n(last.source) : "?"}</b> rows{last?.ok && last.sourceLastAt ? `, newest ${when(last.sourceLastAt)}` : ""}</Typography>
         </Box>
       )}
       {last && !last.ok && last.error && <Notice tone="bad">{last.error}</Notice>}
