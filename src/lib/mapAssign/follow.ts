@@ -45,11 +45,15 @@ export type FollowPending = {
   /** companies with no owner: their contacts are left alone (not in the figures above) */
   noOwner: { contacts: number; companies: number };
 };
+/** The pass going, as far as it is: written after every hundred contacts (seen = then). */
+export type FollowNow = { at: string; scope: FollowScope | "auto"; by: string; checked: number; wrote: number; failed: number; companies: number; seen: string };
 /** GET ?contacts=1 -> follow: the steering card. */
 export type ContactFollow = FollowSwitch & {
   last: FollowLast | null;
   /** a pass is going (here or on the other copy of the hub) */
   running: boolean;
+  /** how far it is (null: none going, or an older hub) */
+  now?: FollowNow | null;
   pending: FollowPending;
   /** the new contacts of the last 30 days that do not follow the rules: sure (written by "Correct the sure ones") and
    *  not sure - the company first (why: per reason); known false = the hourly count predates the sure ones */

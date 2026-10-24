@@ -29,11 +29,15 @@ import { sureClass, type NewContactRow, type NewContactsKpi } from "./contacts";
 import { isInternal, ownContacts, type Internal } from "./plan";
 import {
   FOLLOW_CAP, FOLLOW_COMPANIES, companyFollowsRules, followTarget, notSureTotal, ownCompanyOf, planFollow,
-  type ContactFollow, type FollowContact, type FollowLast, type FollowPending, type FollowScope, type FollowSwitch, type FollowTarget, type FollowWrite,
+  type ContactFollow, type FollowContact, type FollowLast, type FollowNow, type FollowPending, type FollowScope, type FollowSwitch, type FollowTarget, type FollowWrite,
 } from "./follow";
 
 const LOCK = 4_107_234;
-const KV = { switch: "mapAssign:contactFollow", last: "mapAssign:contactFollowLast", cursor: "mapAssign:contactFollowCursor" };
+const KV = {
+  switch: "mapAssign:contactFollow", last: "mapAssign:contactFollowLast", cursor: "mapAssign:contactFollowCursor",
+  /** the pass going: how far it is (SARCLA 24.10.2026: "A pass is going ... No pass yet - this is not moving") */
+  now: "mapAssign:contactFollowNow",
+};
 /** "new": HubSpot's search index trails a create, and the company is often associated a few minutes after the contact. */
 const NEW_OVERLAP_MS = 10 * 60_000;
 /** The first "new" pass (no cursor yet) looks back an hour - the older ones are the "all" pass's; never more than a day. */
@@ -74,6 +78,8 @@ type Pass = {
   /** contacts still to be written this pass (FOLLOW_CAP at the start) */
   budget: number;
   checked: number; wrote: number; failed: number; left: number; companies: number; notSure: number;
+  /** when it started (ISO) */
+  at: string;
 };
 const stop = (p: Pass) => { if (p.signal?.aborted) throw new Error("stopped: the time limit"); };
 
@@ -104,6 +110,9 @@ async function log(rows: LogRow[]): Promise<void> {
   );
 }
 
+/** How far the pass is, for the page (kv, after every hundred): started, by whom, counted so far. */
+const progress = (p: Pass) => kvSet(KV.now, { at: p.at, scope: p.scope, by: p.by, checked: p.checked, wrote: p.wrote, failed: p.failed, companies: p.companies, seen: new Date().toISOString() } satisfies FollowNow).catch(() => {});
+
 /** Written 100 at a time (writeBatch: a failed batch record by record), each hundred logged at once - a refusal
  *  (401/403) stops the pass with everything written before it logged. The ids HubSpot did not take come back. */
 async function write(p: Pass, writes: FollowWrite[]): Promise<Set<string>> {
@@ -116,7 +125,9 @@ async function write(p: Pass, writes: FollowWrite[]): Promise<Set<string>> {
     for (const w of chunk) {
       if (res.get(w.id)) { failed.add(w.id); p.failed++; } else p.wrote++;
     }
+    await progress(p);
   }
+  if (!writes.length) await progress(p); // a hundred companies looked at, nothing to write: still moving
   return failed;
 }
 
@@ -291,8 +302,9 @@ async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSigna
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return null;
     const t0 = Date.now();
-    const p: Pass = { scope, by, signal, internal: { domains: new Set(), emails: new Set() }, active: new Set(), budget: FOLLOW_CAP, checked: 0, wrote: 0, failed: 0, left: 0, companies: 0, notSure: 0 };
+    const p: Pass = { scope, by, signal, internal: { domains: new Set(), emails: new Set() }, active: new Set(), budget: FOLLOW_CAP, checked: 0, wrote: 0, failed: 0, left: 0, companies: 0, notSure: 0, at: new Date(t0).toISOString() };
     let error: string | undefined;
+    await progress(p);
     try {
       p.internal = known ?? (await internalPeople());
       p.active = (await owners()).active;
@@ -309,6 +321,7 @@ async function pass(scope: FollowScope | "auto", by: string, signal?: AbortSigna
       seconds: Math.round((Date.now() - t0) / 1000), ...(scope === "latest" ? { notSure: p.notSure } : {}), ...(error ? { error } : {}),
     };
     await kvSet(KV.last, last).catch(() => {});
+    await kvSet(KV.now, null).catch(() => {});
     if (p.wrote || p.failed || error) console.log(`[map-assign] contacts follow (${scope}): ${p.wrote} written, ${p.failed} not${error ? ` - ${error}` : ""}`);
     return last;
   } finally {
@@ -364,6 +377,9 @@ export async function followData(kpi: NewContactsKpi | null, countedAt: string |
   await ensureMapAssign();
   const sw = await getFollow();
   const last = (await kvGet<FollowLast>(KV.last)) ?? null;
+  const running = await isFollowRunning().catch(() => false);
+  // how far the pass going is - only while one is going (a pass cut by a restart leaves its last count behind)
+  const now = running ? ((await kvGet<FollowNow | null>(KV.now).catch(() => null)) ?? null) : null;
   const r = await query<{ country: string; owned: boolean; companies: number; contacts: number }>(
     `SELECT COALESCE(country, '??') AS country, (owner_now IS NOT NULL) AS owned, count(*)::int AS companies, COALESCE(sum(contacts_mism), 0)::int AS contacts
      FROM apsomh_map_assign WHERE contacts_mism > 0 GROUP BY 1, 2 ORDER BY 4 DESC, 1`,
@@ -377,7 +393,7 @@ export async function followData(kpi: NewContactsKpi | null, countedAt: string |
   }
   const known = typeof kpi?.sure === "number" && !!kpi?.notSure;
   return {
-    ...sw, last, running: await isFollowRunning().catch(() => false), pending, cap: FOLLOW_CAP,
+    ...sw, last, running, now, pending, cap: FOLLOW_CAP,
     latest: { sure: known ? kpi!.sure! : 0, notSure: known ? notSureTotal(kpi!.notSure) : 0, why: known ? kpi!.notSure! : null, known, at: kpi?.at ?? null },
   };
 }

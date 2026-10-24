@@ -287,17 +287,23 @@ export async function promoteSandbox(part: string, by: string): Promise<Checked<
   return saveRules({ patch }, `${by} (from the sandbox)`);
 }
 
+/** Who the corrections are saved by: SARCLA, who asked for them (24.10.2026: "take out 'asked in chat'" - the page read
+ *  "Saved ... by SARCLA 24.10.2026 (asked in chat)"). */
+const FIX_BY = "Claudio Saraiva";
+const FIX_BY_BEFORE = "SARCLA 24.10.2026 (asked in chat)";
+
 /** The corrections of fixes.ts not applied yet: applied once to the SAVED rules (the seed carries them already). */
 async function applyRuleFixes(): Promise<void> {
   const had = await kvGet<string[]>(KV.fixes);
   const done = Array.isArray(had) ? had : [];
   const saved = await kvGet<{ rules?: AssignRules; by?: string | null; at?: string | null }>(KV.rules);
+  if (saved?.rules?.countries && saved.by === FIX_BY_BEFORE) await kvSet(KV.rules, { ...saved, by: FIX_BY });
   const { rules, applied } = applyFixes(saved?.rules?.countries ? saved.rules : SEED, done);
   if (!applied.length) return;
   if (saved?.rules?.countries) {
     const v = validateRules(rules);
     if (!v.ok) { console.warn(`[map-assign] corrections not applied: ${v.errors[0]}`); return; }
-    await kvSet(KV.rules, { rules: v.value, by: "SARCLA 24.10.2026 (asked in chat)", at: new Date().toISOString() });
+    await kvSet(KV.rules, { rules: v.value, by: FIX_BY, at: new Date().toISOString() });
   }
   await kvSet(KV.fixes, [...done, ...applied.map((f) => f.id)]);
   console.log(`[map-assign] corrections applied to the saved rules: ${applied.map((f) => f.why).join("; ")}`);

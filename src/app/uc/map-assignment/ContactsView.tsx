@@ -14,7 +14,7 @@
 //   Differences by topic, folded: the former Differences view (DiffView), unchanged
 // From GET ?contacts=1 (src/lib/mapAssign/contactsKpi.ts) - the page loads it once, its tab shows the share.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
@@ -51,8 +51,9 @@ import { API, Swatch, countryName, hsCompany, hsContact, send, type Names, type 
 /* ── the data ── */
 
 /** GET ?contacts=1, held while it reloads. */
-export function useContactsData(n: number): Held<ContactsData> {
-  const url = `${API}?contacts=1${n ? `&n=${n}` : ""}`;
+export function useContactsData(n: number, k = 0): Held<ContactsData> {
+  // k: the Contacts view reads again by itself while a pass is going (the page's n reads everything again)
+  const url = `${API}?contacts=1${n ? `&n=${n}` : ""}${k ? `&k=${k}` : ""}`;
   return useHeld<ContactsData>(url, [url]);
 }
 /** The data when the route answered with it (a hub without this route answers ?contacts=1 with the map's data). */
@@ -562,14 +563,20 @@ function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
       )}
       {acts.msg?.at === "card" && <Typography sx={{ fontSize: "0.82rem", color: acts.msg.ok ? "#1b7a55" : RED, mt: 1 }}>{acts.msg.text}</Typography>}
       <Box sx={{ display: "grid", gap: 0.3, mt: 1.25 }}>
+        {/* a pass going: how far it is, read again by itself (SARCLA 24.10.2026: "A pass is going ... No pass yet - this is not moving") */}
         {f.running && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-            <CircularProgress size={12} sx={{ color: MUTED }} />
-            <Typography sx={{ fontSize: "0.8rem", color: INK }}>A pass is going - read again in a minute.</Typography>
+            <CircularProgress size={12} sx={{ color: "#5b45c9" }} />
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK }}>
+              {f.now
+                ? `Correcting now - started ${when(f.now.at)}${f.now.scope === "auto" ? "" : ` by ${f.now.by}`}: ${full(f.now.wrote)} ${f.now.wrote === 1 ? "contact" : "contacts"} corrected so far, ${many(f.now.companies, "company", "companies")} looked at${f.now.failed ? `, ${full(f.now.failed)} not taken by HubSpot` : ""}.`
+                : "Correcting now - starting."}
+              {" "}This line moves by itself.
+            </Typography>
           </Box>
         )}
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{l ? lastSays(l) : "No pass yet."}</Typography>
-        {l?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>It stopped: {l.error}</Typography>}
+        {(l || !f.running) && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{l ? `${f.running ? "Before: " : ""}${lastSays(l)}` : "No pass yet - Correct now starts one."}</Typography>}
+        {l?.error && !f.running && <Typography sx={{ fontSize: "0.8rem", color: RED }}>It stopped: {l.error}</Typography>}
       </Box>
     </GlassCard>
   );
@@ -612,10 +619,12 @@ function FollowAsk({ a, f, busy, onCancel, onGo }: { a: FollowAct | null; f: Con
 
 /* ── the view ── */
 
-export function ContactsView({ d, names, palette, held, onRetry }: {
+export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
   d: MapData; names: Names; palette: Palette;
   /** the page's load (its tab shows the share); without it the view loads its own */
   held?: Held<ContactsData>; onRetry?: () => void;
+  /** read the contacts again (only them) - while a pass is going */
+  onRefresh?: () => void;
 }) {
   const [n, setN] = useState(0);
   const ownUrl = held ? null : `${API}?contacts=1${n ? `&n=${n}` : ""}`;
@@ -637,18 +646,30 @@ export function ContactsView({ d, names, palette, held, onRetry }: {
       ? await send("PUT", { contactFollow: { auto: a === "auto-on" } })
       : await send("POST", { action: "contacts-follow", scope: a });
     setBusy(null); setAskFor(null);
+    if (res.ok && (a === "all" || a === "latest")) setWatchUntil(Date.now() + 90_000);
     const at = a === "latest" ? "latest" : "card";
     const got = (res.data ?? {}) as { started?: boolean; why?: string };
     const text = !res.ok ? `Not done: ${res.error ?? "failed"}`
       : a === "auto-on" ? "Automatic is on - from the next run, every 15 minutes."
       : a === "auto-off" ? "Automatic is off - nothing is corrected by itself any more."
       : got.started === false ? `Not started: ${got.why ?? "a pass is going already"}.`
-      : a === "all" ? "Started - the contacts are corrected in the background, the biggest companies first. Read again in a minute."
-      : "Started - the sure ones get their company's owner and region in the background. Read again in a minute.";
+      : a === "all" ? "Started - the contacts are corrected in the background, the biggest companies first. The count below moves by itself."
+      : "Started - the sure ones get their company's owner and region in the background. The count moves by itself.";
     setMsg({ at, ok: res.ok && got.started !== false, text });
     retry();
   };
   const acts: Acts = { admin: d.admin, busy, msg, ask: (a) => (a === "auto-off" ? void go(a) : setAskFor(a)) };
+  // while a pass is going (and for a while after one was started - it may start on the other copy of the hub): read the
+  // card again every 8 seconds, so its count moves by itself
+  const [watchUntil, setWatchUntil] = useState(0);
+  const refresh = onRefresh ?? retry;
+  const watching = !!follow?.running || Date.now() < watchUntil;
+  useEffect(() => {
+    if (!watching || h.stale) return;
+    const t = window.setTimeout(refresh, 8000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watching, h.stale, h.result]);
 
   let top: React.ReactNode;
   if (r === null) top = <LoadingPanel label="Counting the contacts…" />;

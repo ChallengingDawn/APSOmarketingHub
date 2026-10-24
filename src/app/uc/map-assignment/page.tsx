@@ -48,6 +48,7 @@ import { ContactsView, followPct, useContactsData } from "./ContactsView";
 import { NoCompanyView } from "./NoCompanyView";
 import { LiveView } from "./LiveView";
 import { SaeTableView } from "./SaeTableView";
+import { WrongPerformisView } from "./WrongPerformisView";
 import {
   API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, partName, rulesParts, saveRules, send,
   type Names, type Palette, type SetDraft, type View,
@@ -60,7 +61,7 @@ type Space = "live" | "sandbox";
 const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", contacts: "Contacts", nocompany: "No company", live: "Live",
+  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", contacts: "Contacts", nocompany: "No company", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded, sandbox, liveRules }: {
@@ -215,7 +216,9 @@ export default function MapAssignment() {
   const url = `${API}${n ? `?n=${n}` : ""}`;
   const held = useHeld<MapData>(url, [url]);
   // the Contacts view's numbers: its tab shows the share of new contacts that follow the rules
-  const contacts = useContactsData(n);
+  // the Contacts view reads itself again while a pass is going (cn), without the whole page
+  const [cn, setCn] = useState(0);
+  const contacts = useContactsData(n, cn);
   const follow = followPct(contacts);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
@@ -333,7 +336,8 @@ export default function MapAssignment() {
   } else if (d && rules) {
     // the sandbox: the map and the SAE table work on its rules - everyone may change them (they decide nothing)
     const dv: MapData = sandboxOn ? { ...d, rules: sbRules ?? d.rules, admin: true } : d;
-    if (view === "contacts") body = <ContactsView key="contacts" d={d} names={names} palette={palette} held={contacts} onRetry={reload} />;
+    if (view === "contacts") body = <ContactsView key="contacts" d={d} names={names} palette={palette} held={contacts} onRetry={reload} onRefresh={() => setCn((x) => x + 1)} />;
+    else if (view === "performis") body = <WrongPerformisView key="performis" names={names} n={n} />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
     else if (view === "sae") body = <SaeTableView key={`sae-${space}`} d={dv} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n} />;
@@ -360,6 +364,7 @@ export default function MapAssignment() {
         <ReportTabs name="mapassign" tab={view} onSelect={setView} tabs={[
           { id: "map", label: VIEW_LABEL.map, count: dirty ? "edited" : null },
           { id: "sae", label: VIEW_LABEL.sae, count: d ? String(Object.keys((rules ?? d.rules).sae).length) : null },
+          { id: "performis", label: VIEW_LABEL.performis, count: null },
           { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },

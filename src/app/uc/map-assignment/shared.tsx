@@ -18,9 +18,11 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // map"); Owner redirection's own rules keep running until switched off
 // Differences became Contacts 21.10.2026 (SARCLA: "instead of Differences I want to see the KPI of new contacts ... and
 // the contact association"); the differences by topic are folded inside it
-export type View = "map" | "sae" | "contacts" | "nocompany" | "live";
+// Wrong Performis Owners 24.10.2026 (SARCLA: "change it in Performis but create a tab Wrong Performis Owners so we can
+// list the deviation")
+export type View = "map" | "sae" | "performis" | "contacts" | "nocompany" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", contacts: "#contacts", nocompany: "#no-company", live: "#live",
+  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", contacts: "#contacts", nocompany: "#no-company", live: "#live",
 };
 /** Old links: #differences opens Contacts (and the address becomes #contacts). */
 export const OLD_VIEW_HASH = { differences: "#differences" } as const;

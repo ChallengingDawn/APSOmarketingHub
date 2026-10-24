@@ -10,6 +10,9 @@
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
 // GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
 // GET ?topics=1(&country=CC|??)   TopicsData: the differences grouped by why, with the OK answers (src/lib/mapAssign/topics.ts)
+// GET ?performisWrong=1(&country=&reason=&q=&offset=)   PerformisWrongData: Performis customers whose SAE does not name
+//                             the person the rules give them - what to write in Performis (SARCLA 24.10.2026)
+//     &format=xlsx            the Excel file: those, and every company whose HubSpot owner differs from the rules
 // GET ?contacts=1             ContactsData: the new contacts of the last 30 days against the rules (kept hourly by the
 //                             run) and how every contact matches its company (src/lib/mapAssign/contactsKpi.ts)
 // PUT {sandbox: {patch} | {reset: "sae" | CC | true}}   the sandbox (SARCLA 24.10.2026: "so the sales leader can play
@@ -44,6 +47,8 @@ import type { MapPost, MapPut } from "@/lib/mapAssign/api";
 import { TOPIC_ORDER, isTopicId, type TopicId } from "@/lib/mapAssign/topics";
 import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
 import { contactsData } from "@/lib/mapAssign/contactsKpi";
+import { performisWrong, performisWrongXlsx } from "@/lib/mapAssign/performisWrongDb";
+import { WRONG_ORDER } from "@/lib/mapAssign/performisWrong";
 import { isFollowRunning, kickFollow, saveFollow } from "@/lib/mapAssign/contactFollow";
 
 export const runtime = "nodejs";
@@ -71,6 +76,20 @@ export async function GET(req: NextRequest) {
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
     if (sp.get("contacts") !== null) return NextResponse.json({ configured: true, ok: true, data: await contactsData() });
+    if (sp.get("performisWrong") !== null) {
+      if (sp.get("format") === "xlsx") {
+        const file = await performisWrongXlsx();
+        return new NextResponse(new Uint8Array(file), { headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="wrong-performis-owners-${new Date().toISOString().slice(0, 10)}.xlsx"`, "Cache-Control": "no-store",
+        } });
+      }
+      const country = (sp.get("country") ?? "").trim().toUpperCase();
+      if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
+      const reason = (sp.get("reason") ?? "").trim();
+      if (reason && !(WRONG_ORDER as string[]).includes(reason)) return NextResponse.json({ ok: false, error: `reason must be one of ${WRONG_ORDER.join(", ")}` }, { status: 400 });
+      return NextResponse.json({ configured: true, ok: true, data: await performisWrong({ country: country || null, reason: reason || null, q: sp.get("q"), offset: Number(sp.get("offset") ?? 0) }) });
+    }
     if (sp.get("topics") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
       if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
