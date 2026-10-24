@@ -19,6 +19,7 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import TablePagination from "@mui/material/TablePagination";
 import Tooltip from "@mui/material/Tooltip";
 import Chip from "@mui/material/Chip";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -75,15 +76,42 @@ export type SentimentData = {
 };
 
 const pc = (n: number, d: number) => (d ? `${Math.round((1000 * n) / d) / 10}%` : "—");
+/** How the customer sounds. */
 const TONE_WORD: Record<Bucket, string> = {
   positive: "Pleased", neutral: "Ordinary business", negative: "Unhappy", unknown: "Nothing to go on",
+};
+/**
+ * Whether WE settled the matter - a different question with different answers.
+ *
+ * These were showing the tone words, so the table said "Unhappy" and "Pleased" about our own
+ * resolution, which reads as nonsense (SARCLA spotted it on the live tab, 24.10.2026).
+ */
+const RESOL_WORD: Record<Bucket, string> = {
+  positive: "We settled it", neutral: "We replied, not settled", negative: "Not settled", unknown: "Nothing to go on",
 };
 const toneColour = (b: string) =>
   b === "negative" ? "#c5221f" : b === "positive" ? "#1b7a55" : b === "unknown" ? MUTED : INK;
 
-function Bucketed({ title, counts, scored, old }: {
+/**
+ * The three modes in words rather than in jargon.
+ *
+ * "shadow" and "live" mean nothing to somebody opening the page (SARCLA, 24.10.2026: "I'm not
+ * understanding also this steering"), and the difference between them is the only thing on this
+ * page that changes data.
+ */
+const MODE_WORD: Record<"off" | "shadow" | "live", string> = {
+  off: "Switched off - it is not looking at tickets at all.",
+  shadow: "Watching only. It works out an answer for every new Back Office ticket and keeps it here, and changes nothing in HubSpot.",
+  live: "Writing. Every new Back Office ticket has its tone and its outcome written into HubSpot.",
+};
+const MODE_BUTTON: Record<"off" | "shadow" | "live", string> = {
+  off: "Switch off", shadow: "Watch only", live: "Write it to HubSpot",
+};
+
+function Bucketed({ title, counts, scored, old, words }: {
   title: string; counts: Record<Bucket, number>; scored: number;
   old?: { positive: number; neutral: number; negative: number };
+  words: Record<Bucket, string>;
 }) {
   const order: Bucket[] = ["negative", "neutral", "positive", "unknown"];
   return (
@@ -100,7 +128,7 @@ function Bucketed({ title, counts, scored, old }: {
         <TableBody>
           {order.map((b) => (
             <TableRow key={b}>
-              <TableCell sx={{ ...bodyCell, color: toneColour(b), fontWeight: 600 }}>{TONE_WORD[b]}</TableCell>
+              <TableCell sx={{ ...bodyCell, color: toneColour(b), fontWeight: 600 }}>{words[b]}</TableCell>
               <TableCell sx={bodyCell} align="right">
                 {full(counts[b])} <Typography component="span" sx={{ color: MUTED, fontSize: "0.78rem" }}>{pc(counts[b], scored)}</Typography>
               </TableCell>
@@ -186,6 +214,9 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
   const s = d.summary;
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // the ticket list is long enough to page (SARCLA 24.10: "use pagination")
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(50);
   useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 8000); return () => clearTimeout(t); }, [note]);
 
   const send = async (what: string, body: Record<string, unknown>, method: "PUT" | "POST") => {
@@ -200,17 +231,104 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
     } catch (e) { setNote((e as Error).message); } finally { setBusy(null); }
   };
 
-  // the workflow's own answers on the same tickets, for the side-by-side
+  // the workflow's own answers on the same tickets, for the side-by-side - both questions, so
+  // the two tables read the same way
   const old = { positive: 0, neutral: 0, negative: 0 };
+  const oldResol = { positive: 0, neutral: 0, negative: 0 };
   for (const r of d.rows) {
     if (!r.real) continue;
     if (r.workflow.tone === "positive") old.positive += 1;
     else if (r.workflow.tone === "neutral") old.neutral += 1;
     else if (r.workflow.tone === "negative") old.negative += 1;
+    if (r.workflow.resolution === "positive") oldResol.positive += 1;
+    else if (r.workflow.resolution === "neutral") oldResol.neutral += 1;
+    else if (r.workflow.resolution === "negative") oldResol.negative += 1;
   }
 
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
+      <GlassCard>
+        <CardTitle icon={<TuneIcon />} tint="amber" title="What this is doing right now"
+          note={d.admin ? "And how to change it" : "Admins can change this"} />
+        <Box sx={{ mt: 1.5, display: "grid", gap: 1.25 }}>
+          <Typography sx={{ fontSize: "1rem", color: INK }}>
+            <b>{MODE_WORD[d.settings.mode]}</b>
+            {d.settings.at ? <Typography component="span" sx={{ color: MUTED, fontSize: "0.85rem" }}> · set by {d.settings.by} on {new Date(d.settings.at).toLocaleString()}</Typography> : null}
+          </Typography>
+          {/* The one state nobody should sit in by accident: the old workflow handed over and
+              nothing took the job on. Said first and in red, because new tickets are getting no
+              tone at all while it lasts (SARCLA hit exactly this on 24.10.2026). */}
+          {d.workflowOn === false && d.settings.mode !== "live" ? (
+            <Typography sx={{ color: "#c5221f", fontSize: "0.9rem", fontWeight: 600 }}>
+              Nobody is filling these two fields in. The old HubSpot workflow is switched off and this is only watching,
+              so every new Back Office ticket is being left without a tone. Press &ldquo;Write it to HubSpot&rdquo; to take
+              the job on, or switch the workflow back on in HubSpot.
+            </Typography>
+          ) : d.workflowOn === true ? (
+            <Typography sx={{ color: "#a96a12", fontSize: "0.88rem" }}>
+              The old HubSpot workflow is still switched on, so this will not write even if you ask it to - the two of them
+              would overwrite each other. Switch the workflow off in HubSpot to hand over, and back on to undo.
+            </Typography>
+          ) : d.workflowOn === false ? (
+            <Typography sx={{ color: "#1b7a55", fontSize: "0.88rem" }}>
+              The old HubSpot workflow is off and this is writing the two fields instead. Switching that workflow back on
+              stops the hub writing, with no deploy - that is the way back.
+            </Typography>
+          ) : (
+            <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>Could not check whether the old workflow is on, so this will not write until it can.</Typography>
+          )}
+          {d.last ? (
+            <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>
+              Last pass {new Date(d.last.at).toLocaleString()} in {d.last.seconds}s: looked at {d.last.looked},
+              {" "}{d.last.excluded} not a customer, {d.last.scored} scored, {d.last.asked} asked of the model, {d.last.wrote} written.
+              {d.last.heldBy ? ` Held: ${d.last.heldBy}.` : ""}{d.last.error ? ` Error: ${d.last.error}` : ""}
+            </Typography>
+          ) : <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>It has not run yet.</Typography>}
+          {!d.ai.available ? (
+            <Typography sx={{ color: "#a96a12", fontSize: "0.85rem" }}>
+              No model key on this server, so only the keyword layer answers and more tickets read &ldquo;nothing to go on&rdquo;.
+            </Typography>
+          ) : null}
+          {d.admin ? (
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center", pt: 0.5, borderTop: `1px solid ${HAIRLINE}`, mt: 0.5 }}>
+              <Button size="small" variant="contained" disabled={busy !== null}
+                onClick={() => send("run", { action: "run" }, "POST")}>{busy === "run" ? "Looking…" : "Look now"}</Button>
+              {(["off", "shadow", "live"] as const).map((m) => (
+                <Tooltip key={m} title={MODE_WORD[m]}>
+                  <span>
+                    <Button size="small" variant={d.settings.mode === m ? "contained" : "outlined"}
+                      disabled={busy !== null || d.settings.mode === m}
+                      onClick={() => send(m, { mode: m }, "PUT")}>{MODE_BUTTON[m]}</Button>
+                  </span>
+                </Tooltip>
+              ))}
+              {busy ? <CircularProgress size={16} /> : null}
+              {note ? <Chip size="small" label={note} /> : null}
+            </Box>
+          ) : null}
+          {d.admin ? (
+            <Box sx={{ display: "grid", gap: 0.25, pt: 1, borderTop: `1px solid ${HAIRLINE}` }}>
+              <FormControlLabel control={<Switch size="small" checked={d.settings.aiOn} disabled={busy !== null}
+                onChange={(e) => send("ai", { aiOn: e.target.checked }, "PUT")} />}
+                label="Ask the AI when the words are not clear" />
+              <Typography sx={{ color: MUTED, fontSize: "0.8rem", ml: 5.5, mt: -0.5, mb: 0.75 }}>
+                Most Back Office mail contains no word that gives the mood away, so without this about two thirds of
+                tickets read &ldquo;nothing to go on&rdquo;. With it, roughly {d.ai.perDay} a day at most are read by the
+                AI ({d.ai.usedToday} so far today).
+              </Typography>
+              <FormControlLabel control={<Switch size="small" checked={d.settings.templateRepliesCount} disabled={busy !== null}
+                onChange={(e) => send("tpl", { templateRepliesCount: e.target.checked }, "PUT")} />}
+                label="Count a customer's reply to our own automatic mails" />
+              <Typography sx={{ color: MUTED, fontSize: "0.8rem", ml: 5.5, mt: -0.5 }}>
+                Our order confirmations and shipping notices are not a customer talking, so they are left out. Sometimes a
+                customer answers one with &ldquo;perfect, thanks&rdquo;. Off, those answers are left out too and the
+                figures stay clean. On, they count - more tickets, but a lot of one-line pleasantries land in
+                &ldquo;Pleased&rdquo;.
+              </Typography>
+            </Box>
+          ) : null}
+        </Box>
+      </GlassCard>
       <GlassCard>
         <CardTitle icon={<MoodIcon />} tint="purple" title="Customer tone and resolution"
           note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
@@ -231,8 +349,8 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
             <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="What the answers are"
               note="The same tickets, scored here and by the workflow" />
             <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
-              <Bucketed title="How the customer sounds" counts={s.tone} scored={s.scored} old={old} />
-              <Bucketed title="Whether we resolved it" counts={s.resolution} scored={s.scored} />
+              <Bucketed title="How the customer sounds" counts={s.tone} scored={s.scored} old={old} words={TONE_WORD} />
+              <Bucketed title="Whether we settled the matter" counts={s.resolution} scored={s.scored} old={oldResol} words={RESOL_WORD} />
             </Box>
           </GlassCard>
         </Grid>
@@ -282,60 +400,6 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
 
       <CheckOne />
 
-      <GlassCard>
-        <CardTitle icon={<TuneIcon />} tint="amber" title="How it runs"
-          note={d.admin ? "Shadow stores and compares; live also writes the two properties" : "Admins can change this"} />
-        <Box sx={{ mt: 1.5, display: "grid", gap: 1.25 }}>
-          <Typography sx={{ fontSize: "0.9rem" }}>
-            Mode <b>{d.settings.mode}</b>
-            {d.settings.at ? <Typography component="span" sx={{ color: MUTED }}> · set by {d.settings.by} on {new Date(d.settings.at).toLocaleString()}</Typography> : null}
-          </Typography>
-          {d.workflowOn === true ? (
-            <Typography sx={{ color: "#a96a12", fontSize: "0.88rem" }}>
-              The HubSpot workflow &ldquo;SARCLA | BO SENTIMENT AND TONE&rdquo; is still switched on, so live mode writes
-              nothing - both would be writing the same two properties. Switch the workflow off in HubSpot to hand over, and
-              back on to roll back.
-            </Typography>
-          ) : d.workflowOn === false ? (
-            <Typography sx={{ color: "#1b7a55", fontSize: "0.88rem" }}>
-              The HubSpot workflow is off, so live mode writes the two properties itself.
-            </Typography>
-          ) : (
-            <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>Could not read whether the workflow is on - live mode stands down until it can.</Typography>
-          )}
-          {d.last ? (
-            <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>
-              Last pass {new Date(d.last.at).toLocaleString()} in {d.last.seconds}s: looked at {d.last.looked},
-              {" "}{d.last.excluded} not a customer, {d.last.scored} scored, {d.last.asked} asked of the model, {d.last.wrote} written.
-              {d.last.heldBy ? ` Held: ${d.last.heldBy}.` : ""}{d.last.error ? ` Error: ${d.last.error}` : ""}
-            </Typography>
-          ) : <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>It has not run yet.</Typography>}
-          {!d.ai.available ? (
-            <Typography sx={{ color: "#a96a12", fontSize: "0.85rem" }}>
-              No model key on this server, so only the keyword layer answers and more tickets read &ldquo;nothing to go on&rdquo;.
-            </Typography>
-          ) : null}
-          {d.admin ? (
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center", pt: 0.5, borderTop: `1px solid ${HAIRLINE}`, mt: 0.5 }}>
-              <Button size="small" variant="contained" disabled={busy !== null}
-                onClick={() => send("run", { action: "run" }, "POST")}>{busy === "run" ? "Looking…" : "Look now"}</Button>
-              {(["off", "shadow", "live"] as const).map((m) => (
-                <Button key={m} size="small" variant={d.settings.mode === m ? "contained" : "outlined"}
-                  disabled={busy !== null || d.settings.mode === m}
-                  onClick={() => send(m, { mode: m }, "PUT")}>{m}</Button>
-              ))}
-              <FormControlLabel control={<Switch size="small" checked={d.settings.aiOn} disabled={busy !== null}
-                onChange={(e) => send("ai", { aiOn: e.target.checked }, "PUT")} />} label="Ask the model" />
-              <Tooltip title="A template the customer replied to - an order confirmation answered with 'perfect, thanks' - counts as a real ticket">
-                <FormControlLabel control={<Switch size="small" checked={d.settings.templateRepliesCount} disabled={busy !== null}
-                  onChange={(e) => send("tpl", { templateRepliesCount: e.target.checked }, "PUT")} />} label="Count replies to templates" />
-              </Tooltip>
-              {busy ? <CircularProgress size={16} /> : null}
-              {note ? <Chip size="small" label={note} /> : null}
-            </Box>
-          ) : null}
-        </Box>
-      </GlassCard>
 
       <GlassCard>
         <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="The latest tickets"
@@ -352,7 +416,7 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
             </TableRow>
           </TableHead>
           <TableBody>
-            {d.rows.slice(0, 120).map((r) => (
+            {d.rows.slice(page * perPage, page * perPage + perPage).map((r) => (
               <TableRow key={`${r.ticketId}-${r.at}`}>
                 <TableCell sx={{ ...bodyCell, ...clip(280) }}>
                   <Box component="a" href={hsTicket(r.ticketId)} target="_blank" rel="noreferrer"
@@ -373,7 +437,13 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
             ))}
           </TableBody>
         </Table>
-        {!d.rows.length ? <Typography sx={{ color: MUTED, fontSize: "0.88rem", mt: 1 }}>Nothing yet - press &ldquo;Look now&rdquo;.</Typography> : null}
+        {d.rows.length ? (
+          <TablePagination component="div" count={d.rows.length} page={page} rowsPerPage={perPage}
+            rowsPerPageOptions={[25, 50, 100, 200]}
+            onPageChange={(_, p) => setPage(p)}
+            onRowsPerPageChange={(e) => { setPerPage(Number(e.target.value)); setPage(0); }}
+            sx={{ ".MuiTablePagination-toolbar": { px: 0 } }} />
+        ) : <Typography sx={{ color: MUTED, fontSize: "0.88rem", mt: 1 }}>Nothing yet - press &ldquo;Look now&rdquo;.</Typography>}
       </GlassCard>
     </Box>
   );
