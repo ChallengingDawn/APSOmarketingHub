@@ -166,7 +166,7 @@ function Overview({ d, pipe, setPipe, label }: { d: Data; pipe: Pipe; setPipe: (
       {!writing(d) && <Info>Paused - the hub works each ticket&apos;s value out but writes nothing to HubSpot. Settings switches it back to Live.</Info>}
       <GlassCard>
         <CardTitle icon={<PaidOutlinedIcon />} tint="blue" title={`Open ${name} pipeline`}
-          note={d.pipeline ? `Today - every open ticket's value, and how much of it the hub is sure of · worked out ${when(d.pipeline.at)}, every 30 minutes` : "Worked out within minutes"}
+          note={d.pipeline ? `Today, whatever the dates chosen - every ticket open now, whenever it was created, and how much of its value the hub is sure of · worked out ${when(d.pipeline.at)}, every 30 minutes` : "Worked out within minutes"}
           right={<Choice<Pipe> value={pipe} onChange={setPipe} options={PIPES} />} />
         {d.pipeline ? (
           <Funnel steps={[
@@ -178,10 +178,13 @@ function Overview({ d, pipe, setPipe, label }: { d: Data; pipe: Pipe; setPipe: (
       </GlassCard>
       {!s ? <PeriodWait p={d.period} /> : (
         <>
+          <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: -1 }}>
+            <b style={{ color: INK }}>{name} tickets created {inWindow(label)}</b> - open and closed (won, lost, done), their value as it is on them now. The funnel above is only what is open today.
+          </Typography>
           <Grid container spacing={2}>
             {[
-              { label: "Tickets", value: full(s.total.n), note: created, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-              { label: "Their value", value: eur(s.total.value), note: "Their sales potential added up, as it is on them now", icon: <PaidOutlinedIcon />, tint: "purple" as const },
+              { label: "Tickets created", value: full(s.total.n), note: `${full(s.open.n)} still open · ${full(s.closed.n)} closed`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
+              { label: "Their value", value: eur(s.total.value), note: `${eur(s.open.value)} still open · ${eur(s.closed.value)} closed`, icon: <PaidOutlinedIcon />, tint: "purple" as const },
               { label: "High confidence", value: eur(conf("high").value), note: `${full(conf("high").n)} tickets · ${pct(conf("high").value, s.total.value)} of the value`, icon: <AutoFixHighOutlinedIcon />, tint: "green" as const },
               { label: "Medium / low", value: `${full(conf("medium").value)} / ${full(conf("low").value)} EUR`, note: `${full(conf("medium").n)} / ${full(conf("low").n)} tickets`, icon: <EditNoteOutlinedIcon />, tint: "amber" as const },
             ].map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}

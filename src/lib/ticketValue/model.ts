@@ -200,12 +200,12 @@ export function pathOf(p: TicketProps): string {
 /** A ticket's day of creation, in Zurich: YYYY-MM-DD. */
 export const zurichDay = (ms: number) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
 
-/** The tickets of one day, one pipeline, one path, one confidence: how many, their value. */
-export type DayBucket = [day: string, pipe: "ESO" | "TSA", path: string, conf: string, n: number, value: number];
+/** The tickets of one day, one pipeline, one path, one confidence, open or closed now: how many, their value. */
+export type DayBucket = [day: string, pipe: "ESO" | "TSA", path: string, conf: string, n: number, value: number, state: "open" | "closed"];
 export type Sum = { n: number; value: number };
-export type PeriodSum = { total: Sum; byPath: Record<string, Sum>; byConf: Record<string, Sum> };
+export type PeriodSum = { total: Sum; open: Sum; closed: Sum; byPath: Record<string, Sum>; byConf: Record<string, Sum> };
 export type Pipe = "both" | "ESO" | "TSA";
-const emptySum = (): PeriodSum => ({ total: { n: 0, value: 0 }, byPath: {}, byConf: {} });
+const emptySum = (): PeriodSum => ({ total: { n: 0, value: 0 }, open: { n: 0, value: 0 }, closed: { n: 0, value: 0 }, byPath: {}, byConf: {} });
 const add = (m: Record<string, Sum>, k: string, n: number, v: number) => { const e = (m[k] ??= { n: 0, value: 0 }); e.n += n; e.value += v; };
 
 /** The days from..to (inclusive, YYYY-MM-DD) added up, each pipeline on its own. */
@@ -213,11 +213,14 @@ export function sumPeriod(b: DayBucket[], from: string, to: string): { ESO: Peri
   const out = { ESO: emptySum(), TSA: emptySum() };
   for (const x of b) {
     if (!Array.isArray(x)) continue; // never an older shape's bucket
-    const [day, pipe, path, conf, n, value] = x;
+    const [day, pipe, path, conf, n, value, state] = x;
     if (day < from || day > to || (pipe !== "ESO" && pipe !== "TSA")) continue;
     const s = out[pipe];
     s.total.n += n;
     s.total.value += value;
+    const st = state === "closed" ? s.closed : s.open;
+    st.n += n;
+    st.value += value;
     add(s.byPath, path, n, value);
     add(s.byConf, conf || "(none)", n, value);
   }
@@ -229,8 +232,7 @@ export function pickPipe(s: { ESO: PeriodSum; TSA: PeriodSum }, pipe: Pipe): Per
   if (pipe !== "both") return s[pipe];
   const out = emptySum();
   for (const x of [s.ESO, s.TSA]) {
-    out.total.n += x.total.n;
-    out.total.value += x.total.value;
+    for (const k of ["total", "open", "closed"] as const) { out[k].n += x[k].n; out[k].value += x[k].value; }
     for (const [k, v] of Object.entries(x.byPath)) add(out.byPath, k, v.n, v.value);
     for (const [k, v] of Object.entries(x.byConf)) add(out.byConf, k, v.n, v.value);
   }

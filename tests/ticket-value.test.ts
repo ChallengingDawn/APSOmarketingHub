@@ -342,10 +342,10 @@ test("a ticket's path, read from what is on it", () => {
 
 test("the days' figures: the days chosen, each pipeline, both added", () => {
   const b: DayBucket[] = [
-    ["2026-09-30", "ESO", "direct", "high", 2, 100],
-    ["2026-10-01", "ESO", "company", "low", 3, 30],
-    ["2026-10-01", "TSA", "direct", "high", 1, 50],
-    ["2026-10-24", "TSA", "none", "(none)", 4, 0],
+    ["2026-09-30", "ESO", "direct", "high", 2, 100, "closed"],
+    ["2026-10-01", "ESO", "company", "low", 3, 30, "open"],
+    ["2026-10-01", "TSA", "direct", "high", 1, 50, "closed"],
+    ["2026-10-24", "TSA", "none", "(none)", 4, 0, "open"],
   ];
   const oct = sumPeriod(b, "2026-10-01", "2026-10-24");
   assert.deepEqual(oct.ESO.total, { n: 3, value: 30 });
@@ -353,6 +353,7 @@ test("the days' figures: the days chosen, each pipeline, both added", () => {
   const both = pickPipe(oct, "both");
   assert.deepEqual(both.total, { n: 8, value: 80 });
   assert.deepEqual(both.byPath.direct, { n: 1, value: 50 });
+  assert.deepEqual([both.open, both.closed], [{ n: 7, value: 30 }, { n: 1, value: 50 }]);
   assert.deepEqual(pickPipe(sumPeriod(b, "2026-09-30", "2026-09-30"), "both").byPath, { direct: { n: 2, value: 100 } });
   assert.deepEqual(pickPipe(oct, "TSA").total, { n: 5, value: 50 });
 });

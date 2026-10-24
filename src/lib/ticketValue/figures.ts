@@ -1,16 +1,18 @@
 // TICKET VALUE BY DAY - the page's time frame (SARCLA 24.10.2026: "a time frame on top like the other applications").
 // Every ESO and TSA ticket created in the last 400 days, read from HubSpot itself - its value, source and confidence as
-// they are on the ticket now - and added up per day (Zurich), pipeline, path and confidence. The page sums the days of
+// they are on the ticket now - and added up per day (Zurich), pipeline, path, confidence and open or closed (the tiles'
+// split, SARCLA 24.10.2026). The page sums the days of
 // the hub's reporting window (the picker in the header: up to 365 days). Only sums are kept, no ticket. A background
 // report: kept 2 hours, read again after.
 
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { pathOf, zurichDay, zurichMidnight, type DayBucket } from "./model";
+import { ALL_CLOSED_STAGES } from "./rules";
 
-export type Figures = { shape: 2; from: string; to: string; buckets: DayBucket[] };
+export type Figures = { shape: 3; from: string; to: string; buckets: DayBucket[] };
 const KEY = "ticketValue:figures";
-const SHAPE = 2;
+const SHAPE = 3;
 export const DAYS_BACK = 400;
 export const PIPE_IDS = { ESO: "1726599376", TSA: "1726599377" } as const;
 export const PATH_PROPS = ["sales_potential_estimate", "sales_potential_source", "sales_potential_confidence", "subject", "erosion_key", "sept_push_target", "price_check_key", "hs_tag_ids"];
@@ -39,15 +41,16 @@ async function build(): Promise<Figures> {
           { propertyName: "createdate", operator: "GTE", value: String(since) },
           { propertyName: "hs_object_id", operator: "GT", value: cursor },
         ] }],
-        properties: [...PATH_PROPS, "createdate"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
+        properties: [...PATH_PROPS, "createdate", "hs_pipeline_stage"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
       } });
       const res = r.results ?? [];
       for (const t of res) {
         const p = t.properties;
         const day = zurichDay(Date.parse(p.createdate ?? "") || 0);
         const path = pathOf(p), conf = (p.sales_potential_confidence ?? "").trim() || "(none)";
-        const k = `${day}|${pipe}|${path}|${conf}`;
-        const e = acc.get(k) ?? [day, pipe, path, conf, 0, 0];
+        const state = ALL_CLOSED_STAGES.has(p.hs_pipeline_stage ?? "") ? "closed" : "open";
+        const k = `${day}|${pipe}|${path}|${conf}|${state}`;
+        const e = acc.get(k) ?? [day, pipe, path, conf, 0, 0, state];
         e[4]++;
         e[5] += Number(p.sales_potential_estimate) || 0;
         acc.set(k, e);
