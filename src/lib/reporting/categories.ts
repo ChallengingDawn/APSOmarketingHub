@@ -83,6 +83,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         name: "ESO KPIs", href: "/reporting/eso-benchmark/visits", note: "The optimal ESO benchmark, page by page", icon: "route",
         overview: "BUC View", overviewHref: "/reporting/eso-benchmark",
         children: [
+          // revenue and order intake per month and per person, ESO | TSA | Total, the forecast on Total (SARCLA 24.10.2026: "first")
+          { name: "Figures", href: "/reporting/eso-benchmark/figures", icon: "bar" },
           { name: "Visits", href: "/reporting/eso-benchmark/visits", icon: "route" },
           { name: "Customer development", href: "/reporting/eso-benchmark/customers", icon: "groups" },
           { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },

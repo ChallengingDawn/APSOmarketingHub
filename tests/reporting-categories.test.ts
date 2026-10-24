@@ -29,11 +29,11 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa");
 });
 
-test("ESO's side panel as Digital Growth's: one report, BUC View first, the seven pages beneath it in the deck's order (SARCLA 21.10.2026)", () => {
+test("ESO's side panel as Digital Growth's: one report, BUC View first, Figures, then the seven pages in the deck's order (SARCLA 21-24.10.2026)", () => {
   const eso = categoryBySlug("eso")!;
   assert.equal(eso.reports.length, 1);
   assert.equal(eso.reports[0].overview, "BUC View");
-  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Visits", "Customer development", "New customers", "Registrations", "Revenue & order intake", "Tickets", "Shop behaviour"]);
+  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Figures", "Visits", "Customer development", "New customers", "Registrations", "Revenue & order intake", "Tickets", "Shop behaviour"]);
   assert.ok(eso.reports[0].children!.every((k) => k.href.startsWith("/reporting/eso-benchmark/")));
 });
 

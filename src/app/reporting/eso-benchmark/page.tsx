@@ -16,6 +16,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import { EsoWaiting, ctxOf, pageHref, pageKey, type EsoPageDef } from "./EsoKit";
 import { ESO_PAGES } from "./pages";
+import { FiguresPanel } from "./Figures";
 import { useEso, type EsoBenchmark } from "./shared";
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
@@ -87,6 +88,8 @@ export default function EsoBucView() {
   return (
     // no title: the panels straight away, as in Digital Growth's BUC View
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+      {/* the figures first - revenue and order intake, ESO | TSA | Total (SARCLA 24.10.2026: "first on BUC View") - their own read */}
+      <FiguresPanel acts={acts} />
       {!b ? <EsoWaiting state={state} /> : (
         <>
           {ESO_PAGES.map((p) => <PagePanel key={p.slug} def={p} b={b} acts={acts} />)}
