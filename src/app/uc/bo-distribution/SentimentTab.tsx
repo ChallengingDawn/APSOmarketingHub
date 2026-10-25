@@ -81,6 +81,8 @@ export type SentimentData = {
   /** The days of DETAIL the store holds - the tables below, not the figures. */
   days: number;
   detailDays: number;
+  /** how many rows the window actually holds, before the newest were taken for the browser */
+  rowsHeld?: number;
   /** Counted in HubSpot for the period asked for; null when that read failed. */
   figures: Figures | null;
   /** The same span of time immediately before it - what every chart here draws beside it. */
@@ -359,6 +361,17 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, customers) : "—"} note="said, not hidden as neutral"
             delta={f && b ? vs(shareOf(f.tone.unknown ?? 0, customers), shareOf(b.tone.unknown ?? 0, beforeCustomers), false) : undefined} /></Grid>
         </Grid>
+        {/* Said here, where the consequence shows, not in the settings below. A sweep that has
+            spent the day's budget logs "0 asked, 0 written" in 2 seconds and looks exactly like a
+            broken one - I read it that way myself on 25.10 with the whole log in front of me. */}
+        {d.settings.aiOn && d.ai.usedToday >= d.ai.perDay && (
+          <Typography sx={{ color: MUTED, fontSize: "0.82rem", mt: 1.75 }}>
+            <b>Today&rsquo;s AI budget is spent</b> &mdash; {full(d.ai.usedToday)} of {full(d.ai.perDay)} readings used.
+            Until midnight the sweep answers from keywords alone, so tickets arriving for the rest of today will
+            mostly read &ldquo;Nothing to go on&rdquo;, and its own card will show nothing asked and nothing
+            written. That is the budget running out, not a fault.
+          </Typography>
+        )}
       </GlassCard>
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -501,7 +514,9 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
 
       <GlassCard>
         <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="The latest tickets"
-          note={`The last ${d.detailDays} days - which words fired and what the model said is kept here, not on the ticket`} />
+          note={(d.rowsHeld ?? 0) > d.rows.length
+            ? `The newest ${full(d.rows.length)} of ${full(d.rowsHeld ?? 0)} in the last ${d.detailDays} days - which words fired and what the model said is kept here, not on the ticket`
+            : `The last ${d.detailDays} days - which words fired and what the model said is kept here, not on the ticket`} />
         <Table size="small" sx={{ mt: 1 }}>
           <TableHead>
             <TableRow>

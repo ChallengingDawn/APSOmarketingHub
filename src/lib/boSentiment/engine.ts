@@ -97,7 +97,10 @@ export function primaryReason(reasons: DisqualifyReason[]): string {
 }
 
 const MAX_PER_RUN = 40;
-const DAYS_KEPT = 21;
+// 21 days was not a period picker (SARCLA: "why only 21, this is not what is expected"), so the
+// tables stopped long before the figures did. One kv key per day, so this costs 90 small rows
+// rather than one large one, and the sweep still only clears the single day that falls out.
+const DAYS_KEPT = 90;
 const MAIL_PROPS = ["hs_email_text", "hs_email_html", "hs_email_direction", "hs_timestamp", "hs_email_from_email"];
 const TICKET_PROPS = ["subject", "content", "close_note", "closed_lost_reason", "hs_pipeline_stage", "createdate", "hs_lastmodifieddate", TONE_PROP, RESOL_PROP, REASON_PROP];
 
@@ -184,11 +187,12 @@ export const aiUsedToday = async () => (await kvGet<number>(KV.aiDay(today()))) 
 
 const rowsOfDay = async (d: string) => (await kvGet<Row[]>(KV.day(d))) ?? [];
 export async function recentRows(days = 7): Promise<Row[]> {
-  const out: Row[] = [];
-  for (let i = 0; i < days; i++) {
-    out.push(...(await rowsOfDay(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10))));
-  }
-  return out.sort((a, b) => b.at.localeCompare(a.at));
+  // One read per day, so a 90-day window is 90 of them: sequentially that is a page load spent
+  // waiting on the database, in parallel it is one round trip.
+  const wanted = Array.from({ length: days }, (_, i) =>
+    new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10));
+  const perDay = await Promise.all(wanted.map((d) => rowsOfDay(d).catch(() => [] as Row[])));
+  return perDay.flat().sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /**

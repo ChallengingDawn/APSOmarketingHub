@@ -27,6 +27,11 @@ export const dynamic = "force-dynamic";
 /** The figures cache's own TTL - the default window ends on one of these boundaries, see GET. */
 const FIG_BUCKET_MS = 10 * 60_000;
 
+/** How far back the ticket-by-ticket store goes - keep in step with DAYS_KEPT in the engine. */
+const DETAIL_DAYS = 90;
+/** The newest rows the browser is given. The figures cover the whole period either way. */
+const ROWS_SENT = 1000;
+
 /** The model is optional: without a key the keyword layer still answers, and the page says so. */
 function client() {
   try {
@@ -50,7 +55,7 @@ export async function GET(req: NextRequest) {
     // because the two values live on the ticket and the whole history can be counted. The ROWS -
     // which ticket, which words fired, what the model said - exist only in the 21-day store, so
     // the detail tables say the shorter window out loud rather than pretending.
-    const days = Math.min(21, Math.max(1, Number(sp.get("days")) || 7));
+    const days = Math.min(DETAIL_DAYS, Math.max(1, Number(sp.get("days")) || 7));
     const iso = (v: string | null, fallback: Date) => {
       const d = v ? new Date(v) : fallback;
       return (Number.isNaN(d.getTime()) ? fallback : d).toISOString();
@@ -77,7 +82,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, rows: rows.slice(0, 1000), summary, days, figures, before, detailDays: days,
+        settings, last, rows: rows.slice(0, ROWS_SENT), rowsHeld: rows.length, summary, days, figures, before, detailDays: days,
         // Whether the sweep actually has its 15-minute rhythm. A mode of "live" with this false
         // means the page would otherwise claim to be writing while nothing ran since the last
         // button press - which is exactly what happened to SARCLA on 25.10.2026.

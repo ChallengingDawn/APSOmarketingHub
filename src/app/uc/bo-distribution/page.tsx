@@ -305,7 +305,8 @@ function SentimentPanel({ days, from, to, label }: { days: number; from: string;
  * of silently showing less: the Sentiment figures come from HubSpot and cover any period, the
  * decision detail is capped at what is stored.
  */
-const STORE_DAYS = 21;
+// keep in step with DAYS_KEPT in src/lib/boSentiment/engine.ts and DETAIL_DAYS in the route
+const STORE_DAYS = 90;
 
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
