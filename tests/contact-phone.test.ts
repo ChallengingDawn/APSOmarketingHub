@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkPhone, cleanPhone, decidePhone, normCountry, repairPhone, samePhone, toE164, validE164 } from "../src/lib/contactPhone/rules";
+import { checkPhone, cleanPhone, decidePhone, manualPhone, normCountry, repairPhone, samePhone, toE164, validE164 } from "../src/lib/contactPhone/rules";
 
 test("contact phone: the workflow's helpers", () => {
   assert.equal(normCountry(" Österreich "), "OSTERREICH");
@@ -81,4 +81,15 @@ test("contact phone: a phone already in HubSpot - valid, or its certain repair, 
   assert.deepEqual(checkPhone({ phone: "+41791234", countryCustom: "Switzerland" }), { repair: null, how: null });
   // two codes only when the old workflow put them there (the shop phone is the number without the code)
   assert.deepEqual(checkPhone({ phone: "+4131612345678", shop: "+41 31 612 34 56 78", countryCustom: "Switzerland" }), { repair: null, how: null });
+});
+
+test("contact phone: a number a person types - as written, else in the contact's country, only when valid", () => {
+  assert.equal(manualPhone("+41 79 123 45 67"), "+41791234567");
+  assert.equal(manualPhone("0041 79 123 45 67"), "+41791234567");
+  assert.equal(manualPhone("079 123 45 67", "Switzerland"), "+41791234567");
+  assert.equal(manualPhone("079 123 45 67", "", "Switzerland"), "+41791234567");
+  assert.equal(manualPhone("06 12 34 56 78", "France"), "+33612345678");
+  assert.equal(manualPhone("+41 79 123"), null);
+  assert.equal(manualPhone("079 123 45 67"), null); // no country to read it in
+  assert.equal(manualPhone(""), null);
 });

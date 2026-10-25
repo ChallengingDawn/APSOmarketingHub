@@ -8,14 +8,15 @@
 // Live AND while the workflow is switched off (never both writing), only a contact that still has no phone (read again
 // just before); every write kept with what was there before (kv contactPhone:log:<time>).
 // Once a day every phone in HubSpot is checked (SARCLA 25.10.2026: "numbers it can't make valid are listed on the tab
-// for someone to fix, including the 958 old ones"): the ones that are not valid, with the certain repair where there is
-// one - an admin repairs those from the tab ("Repair the certain ones", Live only). CONTACT_PHONE=off stops the schedule.
+// for someone to fix, including the 958 old ones"): a certain repair is written by itself; the others are listed for a
+// person, who types the right number on the tab (setPhone - checked, then written). SARCLA the same evening: "this
+// should be correct once and then automatic" - Live is the default. CONTACT_PHONE=off stops the schedule.
 
 import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { WORKFLOW_ID, checkPhone, decidePhone, type Repair, type Verdict } from "./rules";
+import { WORKFLOW_ID, checkPhone, decidePhone, manualPhone, type Repair, type Verdict } from "./rules";
 
 const LOCK = 4_107_244;
 const EVERY_MS = 15 * 60_000;
@@ -28,8 +29,8 @@ const KEEP_WRITTEN_MS = 30 * 86400_000;
 const KV = { settings: "contactPhone:settings", state: "contactPhone:state", last: "contactPhone:last", bad: "contactPhone:invalid" };
 /** every phone in HubSpot checked once a day */
 const SCAN_EVERY_MS = 20 * 3600_000;
-/** the most certain repairs one click writes */
-const REPAIR_PER_CLICK = 500;
+/** the most certain repairs one run writes */
+const REPAIR_PER_RUN = 2000;
 const PROPS = ["firstname", "lastname", "email", "eyemagine_telephone", "phone", "country_custom", "country", "createdate", "lastmodifieddate"];
 
 export type Mode = "off" | "shadow" | "live";
@@ -39,14 +40,15 @@ export type Row = { id: string; name: string; email: string; shop: string; creat
 export type State = { at: string; rows: Row[] };
 export type RunInfo = { at: string; seconds: number; waiting: number; fillable: number; invalid: number; written: number; live: boolean; repaired?: number; error?: string };
 /** A phone in HubSpot that is not valid - the certain repair when there is one. */
-export type BadRow = { id: string; name: string; email: string; phone: string; shop: string; country: string; created: string; repair: string | null; how: Repair | "nocode" | null; repaired?: Written };
+export type BadRow = { id: string; name: string; email: string; phone: string; shop: string; country: string; created: string; repair: string | null; how: Repair | "nocode" | null; repaired?: Written & { by?: string } };
 export type BadState = { at: string; scanned: number; rows: BadRow[] };
 
 type Obj = { id: string; properties: Record<string, string | null> };
 
 // ---------------- settings, the workflow ----------------
 export async function getSettings(): Promise<Settings> {
-  return (await kvGet<Settings>(KV.settings)) ?? { mode: "shadow", liveFrom: null };
+  // Live unless someone paused it (SARCLA 25.10.2026: "this should be correct once and then automatic")
+  return (await kvGet<Settings>(KV.settings)) ?? { mode: "live", liveFrom: null };
 }
 export async function saveSettings(mode: Mode, by: string): Promise<Settings> {
   const cur = await getSettings();
@@ -163,6 +165,11 @@ async function run(): Promise<RunInfo> {
   // every phone in HubSpot, once a day (or when an admin asks)
   const bad = await kvGet<BadState>(KV.bad);
   if (scanAsked || !bad?.at || Date.now() - Date.parse(bad.at) > SCAN_EVERY_MS) { scanAsked = false; await scanPhones(bad ?? null); }
+  // the certain repairs, by themselves
+  if (live) {
+    const r = await repairCertain();
+    if (r.written) { info.repaired = (info.repaired ?? 0) + r.written; await kvSet(KV.last, info); console.log(`[contact-phone] ${r.written} phone number(s) repaired`); }
+  }
   return info;
 }
 
@@ -205,12 +212,12 @@ export async function startScan(): Promise<{ started: boolean; why?: string }> {
   return { started: true };
 }
 
-/** "Repair the certain ones": the listed phones with a certain repair, each read again first (written only while it is
- *  still the same), Live and the workflow off only; kept in kv contactPhone:log:<time>:repair. */
+/** The listed phones with a certain repair, each read again first (written only while it is still the same), Live and
+ *  the workflow off only - every run, by itself; kept in kv contactPhone:log:<time>:repair. */
 export async function repairCertain(): Promise<{ ok: boolean; written: number; left: number; why?: string }> {
   if (!(await writing())) return { ok: false, written: 0, left: 0, why: "the tab is not Live, or the old workflow is still switched on" };
   const bad = await kvGet<BadState>(KV.bad);
-  const todo = (bad?.rows ?? []).filter((r) => r.repair && !r.repaired).slice(0, REPAIR_PER_CLICK);
+  const todo = (bad?.rows ?? []).filter((r) => r.repair && !r.repaired).slice(0, REPAIR_PER_RUN);
   if (!todo.length) return { ok: true, written: 0, left: 0 };
   const now = new Date().toISOString();
   const cur = new Map<string, string>();
@@ -256,6 +263,31 @@ export async function runOnce(): Promise<RunInfo | null> {
 }
 
 let started = false, running = false;
+/**
+ * A person's number for a contact on the list (SARCLA 25.10.2026: "for a person should allow to correct here manually
+ * the number"): read with the contact's ERP / own country ("079 …" -> +41 79 …), written only when valid, kept with what
+ * was there before (kv contactPhone:log:<time>:manual) and the list updated at once.
+ */
+export async function setPhone(id: string, input: string, by: string): Promise<{ ok: boolean; phone?: string; why?: string }> {
+  const j = await hubspotRetry<Obj>({ path: `/crm/v3/objects/contacts/${encodeURIComponent(id)}?properties=phone,country_custom,country` });
+  const p = j.properties ?? {};
+  const phone = manualPhone(input, p.country_custom, p.country);
+  if (!phone) return { ok: false, why: `"${input}" is not a valid phone number${p.country_custom || p.country ? ` for ${p.country_custom || p.country}` : ""} - type it with its country code (+41 …)` };
+  const before = String(p.phone ?? "").trim() || null;
+  const result = await writeContacts([{ id, before: { phone: before }, after: { phone } }]);
+  const err = result.get(id);
+  if (err) return { ok: false, why: err };
+  const now = new Date().toISOString();
+  await kvSet(`contactPhone:log:${now}:manual`, [{ id, before: { phone: before }, after: { phone }, by }]);
+  const bad = await kvGet<BadState>(KV.bad);
+  const row = bad?.rows.find((r) => r.id === id);
+  if (row) { row.repaired = { at: now, phone, by }; await kvSet(KV.bad, bad); }
+  const state = await kvGet<State>(KV.state);
+  const w = state?.rows.find((r) => r.id === id);
+  if (w) { w.written = { at: now, phone }; await kvSet(KV.state, state); }
+  return { ok: true, phone };
+}
+
 export function startContactPhone() {
   if (started || process.env.CONTACT_PHONE === "off") return;
   started = true;

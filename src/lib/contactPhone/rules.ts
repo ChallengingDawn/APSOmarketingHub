@@ -190,6 +190,20 @@ export function decidePhone(c: { shop?: string | null; phone?: string | null; co
   return { phone: null, status: "invalid", from, country, countryFrom, asWorkflow: workflowAnswer(source, country) };
 }
 
+/** A number a person typed on the tab: as written (+41 …, 0041 …), else read in the contact's ERP / own country - only
+ *  when valid. */
+export function manualPhone(input: string | null | undefined, countryCustom?: string | null, country?: string | null): string | null {
+  const s = String(input ?? "").trim();
+  if (!s) return null;
+  const direct = readValid(cleanPhone(s).replace(/^00/, "+"));
+  if (direct) return direct.phone;
+  for (const k of [countryCustom, country]) {
+    const v = readValid(toE164(s, k));
+    if (v) return v.phone;
+  }
+  return null;
+}
+
 /**
  * A phone already in HubSpot (the list of the ones that are not valid): null = valid; else the certain repair, if any -
  *   nocode  written without a country code; the contact's ERP / own country gives a valid number
