@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EXACT_SUBJECTS, OPEN_STATUSES, PREFIX_SUBJECTS, subjectInScope } from "../src/lib/holiday/taskSweep";
-import { deputyTarget, userState, type UserState } from "../src/lib/connectors/steps/ticketRules";
+import { USER_PROPS, deputyTarget, userState, type UserState } from "../src/lib/connectors/steps/ticketRules";
 
 /** A user who is away right now, with an absence window around today. */
 const away = (id: string, d1: string | null = null, d2: string | null = null): UserState => {
@@ -81,4 +81,24 @@ test("the out-of-office boolean alone is not a holiday - the window is", () => {
   assert.equal("to" in d && d.to, "B");
   // and with a real window it is a genuine absence
   assert.notEqual(away("A", "B").window, null);
+});
+
+test("somebody who has LEFT is not handed to a deputy - that is Owner redirection's work", () => {
+  // f5 read the live users on 25.10.2026: deactivated accounts DO come back from the users search
+  // with their properties, and one (Bozek) still carries a deputy. An out-of-office flag nobody
+  // cleared would otherwise have this sweep and Owner redirection's leaver rules moving the same
+  // task to different owners every 15 minutes, for ever.
+  assert.ok(USER_PROPS.includes("hs_deactivated"), "the read must bring the flag back");
+
+  // the chain itself still answers - the guard is the sweep's, applied before it acts
+  const leaver = userState("A", {
+    hubspot_owner_id: "A", hs_email: "a@apsoparts.com", hs_is_out_of_office: "true",
+    ap_deputy_owner_id: "B", ap_deputy_2_owner_id: null,
+    hs_out_of_office_hours: JSON.stringify([{ startTimestamp: Date.now() - 1000, endTimestamp: Date.now() + 1000 }]),
+    hs_deactivated: "true",
+  }, Date.now());
+  assert.equal(leaver.ooo, true);
+  assert.notEqual(leaver.window, null);
+  const d = deputyTarget("A", (id) => ({ A: leaver, B: present("B") }[id]), false);
+  assert.equal("to" in d && d.to, "B", "the chain would hand it over, which is why the sweep checks first");
 });

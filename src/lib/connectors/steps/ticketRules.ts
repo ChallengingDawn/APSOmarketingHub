@@ -285,7 +285,9 @@ export const NEW = "2338232556", REDIRECTED = "2624466140", CUSTOMER_REPLIED = "
 export const DEPUTY_STAGES = [NEW, REDIRECTED, CUSTOMER_REPLIED];
 export const TSA_OWNER = "1202569408";
 export const SYSTEM_PREFIXES = ["EROSION |", "SEPT PUSH |", "Lost Lead", "Push for", "C2S PROBLEM", "DUPLICATE", "DUP |"];
-export const USER_PROPS = ["hubspot_owner_id", "hs_email", "hs_is_out_of_office", "ap_deputy_owner_id", "ap_deputy_2_owner_id", "hs_out_of_office_hours"];
+// hs_deactivated: somebody who has LEFT, which beats being away - see taskSweep.ts. Reading one
+// more property costs nothing and both sweeps share this list.
+export const USER_PROPS = ["hubspot_owner_id", "hs_email", "hs_is_out_of_office", "ap_deputy_owner_id", "ap_deputy_2_owner_id", "hs_out_of_office_hours", "hs_deactivated"];
 
 /** Campaign tickets written by our own engines stay with the absent owner. */
 export const isSystemSubject = (subject: string | null | undefined): boolean => {

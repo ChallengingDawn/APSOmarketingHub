@@ -119,6 +119,8 @@ export type TaskSweepResult = {
   away_no_deputy: number;
   /** Flagged out of office, but with no absence window holding now - left alone. */
   no_absence_window: number;
+  /** The owner has left: left to Owner redirection's leaver rules, not handed to a deputy. */
+  owner_has_left: number;
   /** Somebody else moved or closed it between the search and the write. */
   changed_under_us: number;
   write_failed: number;
@@ -148,6 +150,8 @@ export async function taskDeputySweep(
   // over hundreds of tasks owned by a dozen people must not be a dozen hundred
   // searches.
   const users = new Map<string, UserState>();
+  /** Owners HubSpot says have left. Filled from the same read, so it costs no extra call. */
+  const gone = new Set<string>();
   let lookups = 0, lookupFailed = 0;
   const load = async (id: string) => {
     lookups += 1;
@@ -158,6 +162,7 @@ export async function taskDeputySweep(
         properties: USER_PROPS, limit: 1,
       });
       props = j.results?.[0]?.properties ?? null;
+      if (props?.hs_deactivated === "true") gone.add(id);
     } catch (e) {
       const st = (e as { status?: number })?.status;
       if (st === 401 || st === 403) {
@@ -169,7 +174,7 @@ export async function taskDeputySweep(
   };
 
   const moves: TaskMove[] = [];
-  let inScope = 0, noOwner = 0, inOffice = 0, awayNoDeputy = 0, noWindow = 0;
+  let inScope = 0, noOwner = 0, inOffice = 0, awayNoDeputy = 0, noWindow = 0, left = 0;
   for (const t of tasks) {
     const p = t.properties ?? {};
     if (!subjectInScope(p.hs_task_subject)) continue; // the token search is wider than the rule
@@ -182,6 +187,13 @@ export async function taskDeputySweep(
       await load(d.need);
       d = deputyTarget(owner, (id) => users.get(id), tsaFallback);
     }
+    // LEFT BEATS AWAY (agreed with f5, 25.10.2026). Owner redirection moves the open work of
+    // people who have left, and its leaver rules target a company or team owner. This sweep only
+    // knows about absence, and a deactivated account often still carries an out-of-office flag
+    // nobody cleared - so without this guard the two would move the same task to different owners
+    // every 15 minutes, for ever. A deputy standing in for somebody who is never coming back is
+    // the wrong answer anyway: their work belongs to whoever took the job over.
+    if (gone.has(owner)) { left += 1; continue; }
     if (!d.to) { if (d.reason) awayNoDeputy += 1; else inOffice += 1; continue; }
     if (d.to === owner) { inOffice += 1; continue; }
     // Out of office, but no absence window holding now: the boolean on its own
@@ -216,7 +228,7 @@ export async function taskDeputySweep(
 
   return {
     dry: !live, scanned: tasks.length, in_scope: inScope, moved: live ? moved : moves.length,
-    no_owner: noOwner, owner_in_office: inOffice, away_no_deputy: awayNoDeputy, no_absence_window: noWindow,
+    no_owner: noOwner, owner_in_office: inOffice, away_no_deputy: awayNoDeputy, no_absence_window: noWindow, owner_has_left: left,
     changed_under_us: stale, write_failed: failed,
     tsa_fallback: tsaFallback, user_lookups: lookups, user_lookup_failed: lookupFailed,
     moves: moves.slice(0, 50), seconds: Math.round((Date.now() - t0) / 100) / 10,
