@@ -1,11 +1,15 @@
 // CONTACT PHONE - the rules (Map assignment > Phone numbers; the engine in engine.ts). The HubSpot workflow "SARCLA |
 // Contact phone number correction" (3078691018) brought into the hub, SARCLA 25.10.2026: a contact that has the shop's
-// phone (eyemagine_telephone) but no phone gets one - in the international form (+41 …) from its country. The code is
-// the workflow's own Python, line for line, with two repairs: the contact's own country is the second choice when its
-// ERP country (country_custom) is not one we know (the workflow asked for it but never received it), and "Österreich"
-// (the workflow's table had it garbled).
+// phone (eyemagine_telephone) but no phone gets one - in the international form (+41 …) from its country. The
+// conversion is the workflow's own Python, line for line (toE164), with two repairs: the contact's own country is the
+// second choice when its ERP country (country_custom) is not one we know (the workflow asked for it but never received
+// it), and "Österreich" (the workflow's table had it garbled). Since the audit of the same evening (1,179 of the
+// workflow's 48,501 numbers not valid) every number is checked with libphonenumber-js and only a valid one is written.
 //
-// Pure: tests use it as is.
+// Pure: tests use it as is. libphonenumber-js is bundled (it is not in next.config's serverExternalPackages - this
+// file is reached from instrumentation.ts).
+
+import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
 export const WORKFLOW_ID = "3078691018";
 
@@ -88,32 +92,128 @@ export function toE164(raw: string | null | undefined, country: string | null | 
   return `+${dial}${digits}`;
 }
 
-/** normalized = +country form · cleaned = digits only (no country known) · kept = as typed · invalid = too short · same = nothing to write */
-export type Status = "normalized" | "cleaned" | "kept" | "invalid" | "same" | "none";
+/** A valid phone number in the international form (+41791234567), or null - libphonenumber-js with its full metadata
+ *  (SARCLA 25.10.2026: "the hub writes only valid numbers"; 1,179 of the workflow's 48,501 were not). */
+export function validE164(s: string | null | undefined): string | null {
+  if (!s || !s.startsWith("+")) return null;
+  try {
+    const n = parsePhoneNumberFromString(s);
+    return n && n.isValid() ? n.number : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The valid form of a number, and whether reading it dropped a 0 typed after the country code ("+41 079 …" - the
+ *  library reads it as +41 79 …; Italy keeps its 0, which the library knows). */
+export function readValid(s: string | null | undefined): { phone: string; zero: boolean } | null {
+  const v = validE164(s);
+  if (!v || !s) return null;
+  const c = cleanPhone(s);
+  return { phone: v, zero: c !== v && c.length === v.length + 1 && c.replace(/^(\+\d{1,3})0/, "$1") === v };
+}
+
+/** Italy, San Marino and the Vatican keep their 0 after the country code - it is part of the number. */
+const KEEP_ZERO = new Set(["39", "378", "379"]);
+export type Repair = "double" | "zero";
+/**
+ * The workflow's two faults put right, only when the result is valid (the audit of 25.10.2026):
+ *   double  a full international number typed without "+" ("31 6 1234 5678") - the workflow put the contact's own
+ *           country code in front of it; it is the number with a "+"
+ *   zero    "+41 079 …" - one 0 typed after the country code (not Italy, San Marino, the Vatican)
+ */
+export function repairPhone(raw: string | null | undefined): { phone: string; how: Repair } | null {
+  const s = cleanPhone(raw), digits = s.replace(/\D/g, "");
+  if (!s.startsWith("+") && !s.startsWith("00") && !digits.startsWith("0") && digits.length >= 10) {
+    const v = validE164(`+${digits}`);
+    return v ? { phone: v, how: "double" } : null;
+  }
+  if (s.startsWith("+") && /^\+\d+$/.test(s)) {
+    for (const len of [1, 2, 3]) {
+      const cc = digits.slice(0, len), rest = digits.slice(len);
+      if (!rest.startsWith("0") || KEEP_ZERO.has(cc)) continue;
+      const want = `+${cc}${rest.slice(1)}`;
+      // exactly one 0 dropped - never a number the library would read differently
+      if (validE164(want) === want) return { phone: want, how: "zero" };
+    }
+  }
+  return null;
+}
+
+/** normalized = a valid +country number · repaired = valid after putting a workflow fault right · invalid = no valid
+ *  number can be made (listed, nothing written) · same = nothing to write · none = no phone to take */
+export type Status = "normalized" | "repaired" | "invalid" | "same" | "none";
 export const STATUS_TEXT: Record<Status, string> = {
-  normalized: "International form from the country",
-  cleaned: "No country known - digits only, without the country code",
-  kept: "Kept as typed",
-  invalid: "Too short or not a number - nothing written",
+  normalized: "A valid number, in the international form",
+  repaired: "Repaired - the shop phone already had a country code, or a 0 after it",
+  invalid: "Not a valid phone number - nothing written, for a person to look at",
   same: "Already the same - nothing to write",
   none: "No phone to take",
 };
-export type Verdict = { phone: string | null; status: Status; from: "shop" | "phone" | null; country: string; countryFrom: "erp" | "contact" | "none" };
+export type Verdict = {
+  phone: string | null; status: Status; from: "shop" | "phone" | null; country: string; countryFrom: "erp" | "contact" | "none";
+  /** what the old workflow would have written (shown next to a number that is not valid) */
+  asWorkflow?: string | null; how?: Repair;
+};
 
-/** What the contact's phone becomes: the shop's phone (else its own), in the international form when its country is known. */
+/** The workflow's own answer: the +country form, else the digits, else the number as typed. */
+function workflowAnswer(source: string, country: string): string | null {
+  const e = toE164(source, country);
+  if (e) return e;
+  const cleaned = cleanPhone(source);
+  if (cleaned && cleaned.replace(/\+/g, "").length >= 4) return cleaned;
+  return /\d{4,}/.test(source) ? source : null;
+}
+
+/**
+ * What the contact's phone becomes: the shop's phone (else its own), in the international form from its ERP country -
+ * the workflow's own way first; then the contact's own country, then the two repairs. Only a valid number is ever
+ * given; none = "invalid" (the workflow's answer kept to show).
+ */
 export function decidePhone(c: { shop?: string | null; phone?: string | null; countryCustom?: string | null; country?: string | null }): Verdict {
   const cc = String(c.countryCustom ?? "").trim(), co = String(c.country ?? "").trim();
   const [country, countryFrom]: [string, Verdict["countryFrom"]] = dialCode(cc) ? [cc, "erp"] : dialCode(co) ? [co, "contact"] : [cc || co, "none"];
   const shop = String(c.shop ?? "").trim(), own = String(c.phone ?? "").trim();
   const [source, from]: [string, Verdict["from"]] = !phoneEmpty(shop) ? [shop, "shop"] : !phoneEmpty(own) ? [own, "phone"] : ["", null];
   if (!from) return { phone: null, status: "none", from, country, countryFrom };
-  let phone = toE164(source, country), status: Status = "normalized";
-  if (!phone) {
-    const cleaned = cleanPhone(source);
-    if (cleaned && cleaned.replace(/\+/g, "").length >= 4) { phone = cleaned; status = "cleaned"; }
-    else if (/\d{4,}/.test(source)) { phone = source; status = "kept"; }
-    else return { phone: null, status: "invalid", from, country, countryFrom };
+  const done = (phone: string, status: Status, cf: Verdict["countryFrom"], how?: Repair): Verdict =>
+    ({ phone, status: samePhone(phone, own) ? "same" : status, from, country: cf === "contact" && countryFrom === "erp" ? co : country, countryFrom: cf, ...(how ? { how } : {}) });
+  const first = readValid(toE164(source, country));
+  if (first) return first.zero ? done(first.phone, "repaired", countryFrom, "zero") : done(first.phone, "normalized", countryFrom);
+  // the ERP country gives no valid number: the contact's own country
+  if (countryFrom === "erp" && dialCode(co) && dialCode(co) !== dialCode(cc)) {
+    const second = readValid(toE164(source, co));
+    if (second) return second.zero ? done(second.phone, "repaired", "contact", "zero") : done(second.phone, "normalized", "contact");
   }
-  if (samePhone(phone, own)) return { phone, status: "same", from, country, countryFrom };
-  return { phone, status, from, country, countryFrom };
+  const fixed = repairPhone(source);
+  if (fixed) return done(fixed.phone, "repaired", countryFrom, fixed.how);
+  return { phone: null, status: "invalid", from, country, countryFrom, asWorkflow: workflowAnswer(source, country) };
+}
+
+/**
+ * A phone already in HubSpot (the list of the ones that are not valid): null = valid; else the certain repair, if any -
+ *   nocode  written without a country code; the contact's ERP / own country gives a valid number
+ *   double  the old workflow put the country code in front of a shop phone that already had one
+ *   zero    one 0 after the country code
+ */
+export function checkPhone(c: { phone: string; shop?: string | null; countryCustom?: string | null; country?: string | null }): { repair: string | null; how: Repair | "nocode" | null } | null {
+  const phone = String(c.phone ?? "").trim();
+  // valid as it is stored (spaces and dashes do not count); a 0 the library had to drop is a repair
+  const r = readValid(cleanPhone(phone));
+  if (r) return r.zero ? { repair: r.phone, how: "zero" } : null;
+  if (!phone.startsWith("+") && !phone.startsWith("00")) {
+    for (const k of [c.countryCustom, c.country]) {
+      const v = validE164(toE164(phone, k));
+      if (v) return { repair: v, how: "nocode" };
+    }
+  }
+  const shop = cleanPhone(c.shop), shopDigits = shop.replace(/\D/g, "");
+  const dial = dialCode(c.countryCustom) || dialCode(c.country);
+  if (dial && shopDigits && phone.replace(/\D/g, "") === dial + shopDigits) {
+    const r = repairPhone(shop);
+    if (r?.how === "double") return { repair: r.phone, how: "double" };
+  }
+  const z = repairPhone(phone);
+  if (z?.how === "zero") return { repair: z.phone, how: "zero" };
+  return { repair: null, how: null };
 }

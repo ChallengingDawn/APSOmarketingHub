@@ -30,6 +30,7 @@
     "jose": "^5.10.0",
     "jspdf": "^4.2.1",
     "konva": "^10.3.1",
+    "libphonenumber-js": "1.13.14",
     "next": "^15.3.0",
     "nodemailer": "^10.0.14",
     "otpauth": "^9.3.4",
