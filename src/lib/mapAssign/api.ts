@@ -194,6 +194,8 @@ export type OwnerLoad = {
   /** of "after", by sales_priority (P1..P4, "" = none) and by apso_customer ("" = none) - SARCLA 24.10.2026: "the split
    *  of PRIO and APSOcustomer"; absent from an older hub */
   priority?: Record<string, number>; category?: Record<string, number>;
+  /** of "after": the open ESO + TSA tickets on their companies in this country (25.10.2026); absent from an older hub */
+  salesOpen?: number;
 };
 export type TicketLoad = { at: string; byOwner: Record<string, { open: number; last90: number }> };
 

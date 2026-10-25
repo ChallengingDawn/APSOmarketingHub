@@ -128,9 +128,15 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
   const vsBy = new Map((vs?.load ?? []).map((l) => [String(l.owner), l]));
   const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String), ...(vs ? [...vsBy.keys(), ...[...vsLand!.keys()].filter(Boolean).map(String)] : [])])];
   const byOwner = new Map(load.map((l) => [String(l.owner), l]));
+  // someone with no company and no zip code in this country by these rules (and none in the sandbox's other side) is left
+  // out (SARCLA 25.10.2026: "what am I doing in Italy if I have no companies or contacts")
   const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o), v: vsBy.get(o), vz: vsLand?.get(o) }))
+    .filter((r) => (r.l?.after ?? 0) > 0 || (r.z?.postcodes ?? 0) > 0 || (r.v?.after ?? 0) > 0 || (r.vz?.postcodes ?? 0) > 0)
     .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0) || (b.v?.after ?? 0) - (a.v?.after ?? 0));
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
+  // "Sales open" per country: the open ESO + TSA tickets on the companies these rules give each person here (an older hub:
+  // the person's open tickets in every country)
+  const perCountry = load.some((l) => l.salesOpen !== undefined);
   const cols = "minmax(170px, 1.4fr) 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
   const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -177,7 +183,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
                 {fig(l?.contacts ?? (vs ? 0 : null), v?.contacts)}
                 {fig(l?.tickets ?? (vs ? 0 : null), v?.tickets)}
                 {fig(l?.sales ?? (vs ? 0 : null), v?.sales, undefined, !!l?.sales)}
-                <Typography sx={cell}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>
+                {perCountry ? fig(l?.salesOpen ?? (vs ? 0 : null), v?.salesOpen) : <Typography sx={cell}>{tickets ? num(t?.open ?? 0) : "…"}</Typography>}
                 {fig(z?.postcodes ?? (vs ? 0 : null), vz?.postcodes)}
                 {fig(z?.km2 ?? (vs ? 0 : null), vz?.km2, { km: true })}
                 {gdp.has(o) || vsGdp?.has(o) ? fig(gdp.get(o) ?? 0, vsGdp?.get(o), { gdp: true }) : <Typography sx={cell}>—</Typography>}
@@ -193,7 +199,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
             <Typography sx={cell}>{num(sum((r) => r.l?.contacts ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.tickets ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.sales ?? 0))}</Typography>
-            <span />
+            {perCountry ? <Typography sx={cell}>{num(sum((r) => r.l?.salesOpen ?? 0))}</Typography> : <span />}
             <Typography sx={cell}>{num(sum((r) => r.z?.postcodes ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.z?.km2 ?? 0), { km: true })}</Typography>
             <Typography sx={cell}>{gdp.size ? num([...gdp.values()].reduce((a, v) => a + v, 0), { gdp: true }) : "—"}</Typography>
@@ -201,7 +207,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
         </Box>
       </Box>
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = their open ESO + TSA tickets, every country{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = the open ESO + TSA tickets on these companies{perCountry ? ` in ${c}` : ", every country"}{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Someone with no company and no zip code here is not listed. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
       </Typography>
     </Box>
   );
@@ -409,7 +415,7 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
         <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={1} />Performis SAE</Typography>
-        <Typography sx={{ ...hint, flex: 1, minWidth: 220 }}>Each SAE goes to its person, as the workflow SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS.</Typography>
+        <Typography sx={{ ...hint, flex: 1, minWidth: 220 }}>Each SAE goes to its person - when the ERP load writes a new SAE, the hub gives the company that person.</Typography>
         <Choice<"sae" | "map"> value={rule?.source ?? "sae"} onChange={(source) => admin && setRule((r) => ({ ...r, source }))} options={[
           { key: "sae", label: "On" }, { key: "map", label: "Off" },
         ]} />
@@ -1023,7 +1029,7 @@ export function RulesDialog({ open, onClose, cc, setCc, d, rules, setDraft, name
           {check.errors.length > 0 && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{check.errors[0]}{check.errors.length > 1 ? ` (+${check.errors.length - 1})` : ""}</Typography>}
           {msg && <Typography sx={{ fontSize: "0.8rem", color: msg.ok ? "#1b7a55" : RED }}>{msg.text}</Typography>}
           <Box sx={{ flex: 1 }} />
-          {admin && !seededNow && <Button size="small" onClick={onSeeded} disabled={busy} sx={{ textTransform: "none", color: MUTED }}>Back to the workflows&apos; rules</Button>}
+          {admin && !seededNow && <Button size="small" onClick={onSeeded} disabled={busy} sx={{ textTransform: "none", color: MUTED }}>Back to the first rules</Button>}
           {busy && <CircularProgress size={14} />}
           {admin && <Button disabled={!dirty || busy} onClick={onUndo} sx={{ textTransform: "none" }}>Undo</Button>}
           <Button onClick={onClose} sx={{ textTransform: "none" }}>Close</Button>

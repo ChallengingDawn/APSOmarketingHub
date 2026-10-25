@@ -167,6 +167,9 @@ export function ensureMapAssign(): Promise<void> {
       -- v6 (25.10.2026): when the facts the rules decide by last changed (SAE, postcode, country) or the company was new -
       -- a live country writes what changed since it went live, like the Performis workflow on an SAE change
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS facts_at TIMESTAMPTZ;
+      -- v7 (25.10.2026): open ESO + TSA tickets on the company, hourly - the KPI's "Sales open" per country (SARCLA: "what
+      -- am I doing in Italy if I have no companies or contacts" - it counted a person's open tickets in every country)
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS sales_open INTEGER;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -1396,11 +1399,11 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
   const r = await query<{
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
     last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
-    via: string | null; tickets_90: number | null; sales_90: number | null; apso_customer: string | null;
+    via: string | null; tickets_90: number | null; sales_90: number | null; apso_customer: string | null; sales_open: number | null;
     country_raw: string | null; country_custom: string | null; region: string | null; erp_id: string | null;
   }>(
     `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via, tickets_90, sales_90,
-       apso_customer, country_raw, country_custom, region, erp_id
+       apso_customer, country_raw, country_custom, region, erp_id, sales_open
      FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
   // the sandbox: every company decided again with its rules, here only (the table keeps the live decision)
@@ -1424,7 +1427,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
   const last = await lastRun();
   // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
   const by = new Map<string, OwnerLoad>();
-  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0, priority: {}, category: {} }), by.get(o)!);
+  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0, salesOpen: 0, priority: {}, category: {} }), by.get(o)!);
   const extra = await query<{ company_id: string; contacts_n: number | null }>(`SELECT company_id, contacts_n FROM apsomh_map_assign WHERE country = $1`, [cc]);
   const contactsOf = new Map(extra.rows.map((x) => [String(x.company_id), Number(x.contacts_n) || 0]));
   for (const x of r.rows) {
@@ -1436,6 +1439,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     if (inYear(x.first_order, year)) a.newCustomers++;
     a.tickets += Number(x.tickets_90) || 0;
     a.sales += Number(x.sales_90) || 0;
+    a.salesOpen! += Number(x.sales_open) || 0;
     if (Number(x.revenue_year) === year && Number.isFinite(Number(x.revenue_cy))) a.revenue += Number(x.revenue_cy);
     a.contacts += contactsOf.get(String(x.company_id)) ?? 0;
     // the split SARCLA asked for (24.10.2026): "PRIO and APSOcustomer" - "" = none
@@ -1487,7 +1491,7 @@ async function ticketLoad(ctx: Ctx): Promise<void> {
 /** Every ticket of the last 90 days, pipeline by pipeline in 30-day windows (a search answers 10,000 at most), and
  *  its companies: tickets_90 (all) and sales_90 (ESO + TSA) on each company row. */
 async function ticketsPerCompany(ctx: Ctx): Promise<void> {
-  const pipes = await hs<{ results?: { id: string }[] }>("/crm/v3/pipelines/tickets");
+  const pipes = await hs<{ results?: { id: string; stages?: { id: string; metadata?: { isClosed?: string | boolean } }[] }[] }>("/crm/v3/pipelines/tickets");
   const sales = new Set(SALES_PIPELINES);
   const tickets = new Map<string, boolean>(); // ticket -> a sales ticket
   const now = Date.now();
@@ -1528,6 +1532,41 @@ async function ticketsPerCompany(ctx: Ctx): Promise<void> {
       }
     }
   }
+  // the open ESO + TSA tickets, whenever created, per company (the KPI's "Sales open" in a country)
+  const open: string[] = [];
+  for (const pl of (pipes.results ?? []).filter((p) => SALES_PIPELINES.includes(String(p.id)))) {
+    const closed = (pl.stages ?? []).filter((st) => st.metadata?.isClosed === true || st.metadata?.isClosed === "true").map((st) => st.id);
+    let cursor = "0";
+    for (let page = 0; page < 100; page++) {
+      stop(ctx);
+      const j = await hs<{ results?: { id: string }[] }>("/crm/v3/objects/tickets/search", "POST", {
+        filterGroups: [{ filters: [
+          { propertyName: "hs_pipeline", operator: "EQ", value: pl.id },
+          ...(closed.length ? [{ propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }] : []),
+          { propertyName: "hs_object_id", operator: "GT", value: cursor },
+        ] }],
+        properties: ["hs_pipeline"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200,
+      });
+      const res = j.results ?? [];
+      open.push(...res.map((t) => String(t.id)));
+      if (res.length < 200) break;
+      cursor = String(res[res.length - 1].id);
+    }
+  }
+  const openPer = new Map<string, number>();
+  for (let i = 0; i < open.length; i += 1000) {
+    stop(ctx);
+    const j = await hs<{ results?: { from: { id: string }; to?: { toObjectId: string | number }[] }[] }>("/crm/v4/associations/tickets/companies/batch/read", "POST", {
+      inputs: open.slice(i, i + 1000).map((id) => ({ id })),
+    });
+    for (const r of j.results ?? []) for (const t of r.to ?? []) openPer.set(String(t.toObjectId), (openPer.get(String(t.toObjectId)) ?? 0) + 1);
+  }
+  await query(`UPDATE apsomh_map_assign SET sales_open = 0 WHERE COALESCE(sales_open, -1) <> 0`);
+  const openRows = [...openPer].map(([id, n]) => ({ id, n }));
+  for (let i = 0; i < openRows.length; i += 2000) {
+    await query(`UPDATE apsomh_map_assign m SET sales_open = x.n FROM jsonb_to_recordset($1::jsonb) AS x(id text, n int) WHERE m.company_id = x.id`, [JSON.stringify(openRows.slice(i, i + 2000))]);
+  }
+
   await query(`UPDATE apsomh_map_assign SET tickets_90 = 0, sales_90 = 0 WHERE COALESCE(tickets_90, -1) <> 0 OR COALESCE(sales_90, -1) <> 0`);
   const rows = [...per].map(([id, c]) => ({ id, all: c.all, sales: c.sales }));
   for (let i = 0; i < rows.length; i += 2000) {

@@ -223,7 +223,7 @@ function Rule1Here({ cc, rules, sae, names, palette, onRedirect }: {
               {goes ? <Swatch paint={palette(goes)} size={11} /> : null}
               {onRedirect ? (
                 <OwnerPicker value={t.how === "redirect" ? t.owner ?? "" : ""} names={names} allowEmpty
-                  placeholder={table ? `${names.name(table)} (the workflow)` : "nobody - rule 2"} onChange={(o) => onRedirect(s, o || null)} sx={{ flex: 1, minWidth: 0 }} />
+                  placeholder={table ? `${names.name(table)} (the SAE table)` : "nobody - rule 2"} onChange={(o) => onRedirect(s, o || null)} sx={{ flex: 1, minWidth: 0 }} />
               ) : (
                 <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: goes ? INK : MUTED }}>{goes ? names.name(goes) : "rule 2"}</Typography>
               )}
@@ -245,7 +245,7 @@ function HubSpotGets({ cc, d }: { cc: string; d: MapData }) {
   return (
     <Box sx={{ bgcolor: "rgba(36,89,209,.05)", border: "1px solid rgba(36,89,209,.15)", borderRadius: "10px", px: 1.25, py: 1, display: "grid", gap: 0.4 }}>
       <Typography sx={{ fontSize: "0.78rem", color: INK }}>
-        As the workflow <b>SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS</b>: the person goes to the company&apos;s <b>owner</b> and <b>region responsibility</b>, and to each contact&apos;s <b>owner</b>, <b>region responsibility</b> and <b>SAE</b>.
+        The person goes to the company&apos;s <b>owner</b> and <b>region responsibility</b>, and to each contact&apos;s <b>owner</b>, <b>region responsibility</b> and <b>SAE</b>.
       </Typography>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
         {live ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>}

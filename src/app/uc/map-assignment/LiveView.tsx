@@ -4,8 +4,8 @@
 // replaces - SARCLA: "it will really copy as per today after the ERP load? we will not have crazy stuff?"): the hub writes
 // owner + region responsibility, and the contacts follow, for a company whose SAE, postcode or country changes (the ERP
 // load) or that is new, that has no owner, or whose owner has left (to their successor) - every other difference stays
-// as it is (Differences: Fix, or Performis). The HubSpot workflows that did it go off the same hour, by their names. All
-// countries at once too (SARCLA 20.10.2026: "on LIVE you should be able to toggle for all") - one request.
+// as it is (Differences: Fix, or Performis). The HubSpot workflows that did it are off since 25.10.2026. All countries
+// at once too (SARCLA 20.10.2026: "on LIVE you should be able to toggle for all") - one request.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -30,30 +30,6 @@ import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, bodyCell, head
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { MapData } from "@/lib/mapAssign/api";
 import { countryList, countryName, send } from "./shared";
-
-/** The HubSpot workflows the hub replaces (read 25.10.2026 - all six switched on until then). They run for every
- *  country: switch them off when the countries are live, in the same hour. */
-const WORKFLOWS = [
-  "SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS",
-  "FEHDIA_Company_Owners_2510",
-  "FEHDIA_Contact_Owners_2510",
-  "FEHDIA_Company_Owners_Key_Customers_2510",
-  "SARCLA | COMPANY TO CONTACT WITH SALES AGENT",
-  "Set Contact Region Responsibility | Based off Company",
-];
-/** The redirections of the people who have left - Owner redirection does them since 25.10.2026 (SARCLA: "bring them as
- *  overrides on the hub"): switch these off once its rules are published. */
-const REDIRECTIONS = [
-  "SARCLA | STACHR TASK REDIRECTION", "SARCLA | STACHR TICKET REDICTION",
-  "FEHDIA | Paulina TASK REDIRECTION", "FEHDIA | Paulina TICKET REDICTION",
-  "FEHDIA | NIBE TASK REDIRECTION NEW RABE", "FEHDIA | NIBE TICKET REDICTION NEW RABE",
-  "Tasks Andrea to Luca", "Tickets Andrea to Luca",
-  "Tasks reassignment PIRAHM to TSA", "Tasks CH", "Tickets CH",
-];
-/** These stay on: they decide no owner. */
-const KEEP = [
-  "AP Employees - set as non marketing customers, Associations | Contact - Companies, SARCLA | REGIONS SET, SARCLA | REGION TO COUNTRY CUSTOM",
-];
 
 /** A switch asked for: the countries it changes (the figures), and the switches the one request sends. */
 type Ask = { ccs: string[]; on: boolean; send: string[]; bulk: boolean };
@@ -159,21 +135,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
         {pager}
         {!list.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{all.length ? "No country with this filter." : "No country yet - they appear with the rules and the first scan."}</Typography>}
         <Box sx={{ mt: 2, display: "grid", gap: 0.5 }}>
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>In the same hour as the countries go live, switch off in HubSpot</Typography>
-          <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
-            {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}
-          </Box>
-          <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.5 }}>And on the Contacts tab, switch Automatic on - new contacts then follow their company, as the last two workflows did.</Typography>
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, mt: 0.75 }}>The redirections of the people who have left - once Owner redirection&apos;s rules are published (<Box component="a" href="/uc/owner-redirection" sx={{ color: "#2459d1", textDecoration: "none" }}>Owner redirection</Box> → Publish)</Typography>
-          <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
-            {REDIRECTIONS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}
-          </Box>
-          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, mt: 0.75 }}>These stay on</Typography>
-          <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
-            {KEEP.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.78rem", color: MUTED }}>{w}</Typography>)}
-            <Typography component="li" sx={{ fontSize: "0.78rem", color: MUTED }}>Owner redirection (France → Jeremy Borey, Sandra Kuridza → James Koeremez, and the people who have left): the hub follows its rules while they are on</Typography>
-          </Box>
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>The workflows run for every country - switch them off when the countries you want are live. Back: shadow here and the workflows on again.</Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: INK }}>New contacts follow their company with Automatic on the Contacts tab. The redirections (France, Sandra Kuridza, the people who have left) run on the Redirections tab - the hub follows them.</Typography>
         </Box>
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -202,17 +164,10 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
                   <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
                     The other {full(Math.max(0, a.change - a.atOnce))} differences stay as they are in HubSpot - the Differences tab shows them: Fix in HubSpot, or correct the SAE in Performis.
                   </Typography>
-                  <Box sx={{ borderLeft: `3px solid ${RED}`, pl: 1.5 }}>
-                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>In the same hour, switch off in HubSpot:</Typography>
-                    <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
-                      {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.84rem", color: INK }}>{w}</Typography>)}
-                    </Box>
-                    <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>And switch Automatic on, on the Contacts tab. Owner redirection stays as it is - the hub follows it.</Typography>
-                  </Box>
                   {dirty && <Typography sx={{ fontSize: "0.84rem", color: RED }}>Your unsaved rule changes are not used - save them first.</Typography>}
                 </>
               ) : (
-                <Typography sx={{ fontSize: "0.9rem", color: INK }}>The hub stops writing in {one ?? `these ${full(ask.ccs.length)} countries`} and only compares. Switch the HubSpot workflows on again if they should take over.</Typography>
+                <Typography sx={{ fontSize: "0.9rem", color: INK }}>The hub stops writing in {one ?? `these ${full(ask.ccs.length)} countries`} and only compares - nothing assigns their owners until they are live again.</Typography>
               )}
             </DialogContent>
             <DialogActions>

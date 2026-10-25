@@ -51,6 +51,7 @@ import { SaeTableView } from "./SaeTableView";
 import { WrongPerformisView } from "./WrongPerformisView";
 import { DomainsView } from "./DomainsView";
 import { DiffView } from "./DiffView";
+import { OwnerRedirectionView } from "@/app/uc/owner-redirection/OwnerRedirection";
 import {
   API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, effectiveRules, namesOf, partName, rulesParts, saveRules, send,
   type Names, type Palette, type SetDraft, type View,
@@ -63,7 +64,7 @@ type Space = "live" | "sandbox";
 const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", nocompany: "No company", domains: "Domains", live: "Live",
+  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", nocompany: "No company", domains: "Domains", redirections: "Redirections", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded, sandbox, liveRules }: {
@@ -187,7 +188,7 @@ function SaveStrip({ d, dirty, check, busy, msg, onSave, onUndo, space }: {
       </Box>
     );
   }
-  const saved = d.at ? `Saved ${when(d.at)}${d.by ? ` by ${d.by}` : ""}` : "As seeded from the HubSpot workflows";
+  const saved = d.at ? `Saved ${when(d.at)}${d.by ? ` by ${d.by}` : ""}` : "As first set up";
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end", minWidth: 0 }}>
       {msg && <Typography sx={{ fontSize: "0.78rem", color: msg.ok ? "#1b7a55" : RED, maxWidth: 420 }}>{msg.text}</Typography>}
@@ -346,6 +347,7 @@ export default function MapAssignment() {
     if (view === "contacts") body = <ContactsView key="contacts" d={d} names={names} palette={palette} held={contacts} onRetry={reload} onRefresh={() => setCn((x) => x + 1)} />;
     else if (view === "performis") body = <WrongPerformisView key="performis" names={names} n={n} />;
     else if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
+    else if (view === "redirections") body = <OwnerRedirectionView key="redirections" />;
     else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
     else if (view === "sae") body = <SaeTableView key={`sae-${space}`} d={dv} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n} />;
@@ -377,6 +379,7 @@ export default function MapAssignment() {
           { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "domains", label: VIEW_LABEL.domains, count: null },
+          { id: "redirections", label: VIEW_LABEL.redirections, count: null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />
         <Box sx={{ flex: 1 }} />

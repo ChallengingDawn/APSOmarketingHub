@@ -11,11 +11,12 @@
 import { randomUUID } from "node:crypto";
 import { getPool, query } from "@/lib/db/client";
 import { ensureSchema, kvGet, kvSet } from "@/lib/db/init";
-import { LEAVER_RULES, SEED_RULE, checkRule, newRuleId, type Rule } from "./rules";
+import { LEAVER_NOTE_SUFFIXES, LEAVER_RULES, SEED_RULE, checkRule, newRuleId, type Rule } from "./rules";
 
 const KV_SEEDED = "ownerRules:seeded";
 /** the leavers' rules added once (25.10.2026) - deleting one later does not bring it back */
 const KV_LEAVERS = "ownerRules:leavers20261025";
+const KV_LEAVER_NOTES = "ownerRules:leaverNotes20261025";
 const LOG_KEEP_DAYS = 180;
 
 let ready: Promise<void> | null = null;
@@ -72,6 +73,16 @@ export function ensureOwnerRules(): Promise<void> {
         );
       }
       await kvSet(KV_LEAVERS, true);
+    }
+    if (!(await kvGet<boolean>(KV_LEAVER_NOTES))) {
+      // SARCLA 25.10.2026: "take out all reference to workflows" - the leaver rules' notes as first added named them
+      for (const lr of LEAVER_RULES) {
+        await query(
+          `UPDATE apsomh_owner_rules SET rule = jsonb_set(rule, '{note}', to_jsonb($2::text)) WHERE id = $1 AND rule->>'note' = ANY($3::text[])`,
+          [lr.id, lr.note, LEAVER_NOTE_SUFFIXES.map((x) => lr.note.replace(/\.$/, x))],
+        );
+      }
+      await kvSet(KV_LEAVER_NOTES, true);
     }
   })().catch((e) => {
     ready = null;

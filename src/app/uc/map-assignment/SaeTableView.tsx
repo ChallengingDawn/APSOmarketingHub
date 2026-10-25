@@ -19,7 +19,6 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/repo
 import { saeKey, type AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData, PerformisData } from "@/lib/mapAssign/api";
 import { API, OwnerPicker, Swatch, newId, takesOver, type Names, type Palette, type SetDraft } from "./shared";
-import { SUCCESSOR_SOURCE } from "@/lib/mapAssign/fixes";
 import type { Owner } from "@/lib/mapAssign/api";
 import TextFieldSelect from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -68,7 +67,7 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
   const cols = { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(220px, 1fr) 100px 36px" };
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
-      <Typography sx={hint}>The workflow&apos;s table, for <b>every country</b> where rule 1 is on: SAE → person. A country&apos;s overrides (Rules on the map) come first. Case, accents and word order do not count.</Typography>
+      <Typography sx={hint}>For <b>every country</b> where rule 1 is on: SAE → person. A country&apos;s overrides (Rules on the map) come first. Case, accents and word order do not count.</Typography>
       <TextField size="small" placeholder="find an SAE or person" value={q} onChange={(e) => setQ(e.target.value)} sx={{ maxWidth: 320 }} />
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
         <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
@@ -137,16 +136,15 @@ function Successors({ rules, setDraft, names, palette, admin, owners }: { rules:
     return { ...dr, successors: next };
   });
   const [adding, setAdding] = useState("");
-  const cols = { xs: "minmax(0, 1fr)", md: "minmax(200px, 1fr) minmax(220px, 1fr) minmax(0, 1.2fr) 36px" };
+  const cols = { xs: "minmax(0, 1fr)", md: "minmax(200px, 1fr) minmax(220px, 1.2fr) 36px" };
   return (
     <Box sx={{ display: "grid", gap: 1.25, mt: 3 }}>
       <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>People who have left - who takes over</Typography>
-      <Typography sx={hint}>Wherever the rules give a company to someone who has left - an SAE above, a zip-code zone, a key account - it goes to who takes over (otherwise to the default person). Filled from the HubSpot workflows that move their tickets and tasks today.</Typography>
+      <Typography sx={hint}>Wherever the rules give a company to someone who has left - an SAE above, a zip-code zone, a key account - it goes to who takes over (otherwise to the default person). Their open tickets and tasks go to the same person on the Redirections tab.</Typography>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
         <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
           <Typography sx={head}>Has left</Typography>
           <Typography sx={head}>Takes over</Typography>
-          <Typography sx={head}>As today in HubSpot</Typography>
           <span />
         </Box>
         {ids.map((id) => (
@@ -156,7 +154,6 @@ function Successors({ rules, setDraft, names, palette, admin, owners }: { rules:
               <Swatch paint={palette(succ[id] ?? "")} size={13} />
               <OwnerPicker value={succ[id] ?? null} names={names} disabled={!admin} allowEmpty placeholder="nobody - the default person" onChange={(o) => set(id, o || null)} sx={{ flex: 1, minWidth: 0 }} />
             </Box>
-            <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{SUCCESSOR_SOURCE[id] ?? "—"}</Typography>
             {admin && succ[id] ? <IconButton size="small" onClick={() => set(id, null)} aria-label={`No successor for ${names.name(id)}`}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
           </Box>
         ))}
@@ -181,7 +178,7 @@ export function SaeTableView({ d, rules, setDraft, names, palette, rev, n }: {
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="purple" title={`SAE table · all countries · ${Object.keys(rules.sae).length}`}
-        note="The HubSpot workflow's table: SAE -> person, wherever rule 1 is on. Save on the bar above keeps changes" />
+        note="SAE -> person, wherever rule 1 is on. Save on the bar above keeps changes" />
       <TableTab key={`table-${rev}`} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={d.admin} got={got} />
       <Successors key={`succ-${rev}`} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={d.admin} owners={d.owners} />
     </GlassCard>
