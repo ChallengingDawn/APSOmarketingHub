@@ -34,6 +34,8 @@ import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
+import MoodBadOutlinedIcon from "@mui/icons-material/MoodBadOutlined";
 import { BarList } from "@/app/charts/BarList";
 import { ChartFrame, type TableTwin } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
@@ -321,7 +323,6 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
   const nowLabel = f ? `${dmy(f.from)} - ${dmy(f.to)}` : periodLabel;
   // A figure with nothing beside it is a number, not an indicator: every tile carries its movement
   // against the same span of days before this one.
-  const shareOf = (n: number, dd: number) => (dd > 0 ? n / dd : 0);
   const vs = (now: number, then: number, goodWhenUp: boolean) =>
     then > 0 ? { ratio: (now - then) / then, versus: beforeLabel, goodWhenUp } : undefined;
   const [busy, setBusy] = useState<string | null>(null);
@@ -349,17 +350,18 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
         <CardTitle icon={<MoodIcon />} tint="purple" title="Customer tone and resolution"
           note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
         <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
-          {/* Four tiles, the period's own figures, each against the same span before it. There is
-              no sentence above them any more: it repeated these four numbers in one comma-spliced
-              line, which is harder to read than the tiles and says nothing they do not. */}
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(customers) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"}
+          {/* FOUR COUNTS, one unit. The row used to be one count beside three percentages, each
+              over a different base, which is four things that do not compare on one line (SARCLA,
+              26.10.2026: "KPIs are not clear"). Every tile is now a number of tickets, with its
+              share and its movement against the same span of days underneath. */}
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets" value={f ? full(f.total) : "—"} note="every Back Office ticket in the period"
+            delta={f && b ? vs(f.total, b.total, true) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodIcon />} tint="green" label="Customers" value={f ? full(customers) : "—"} note={f ? `${pc(customers, f.total)} of all tickets - the rest is machines` : "—"}
             delta={f && b ? vs(customers, beforeCustomers, true) : undefined} /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(machine, f.total) : "—"} note={f ? `${full(machine)} tickets` : "—"}
-            delta={f && b ? vs(shareOf(machine, f.total), shareOf(beforeMachine, b.total), false) : undefined} /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, customers) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"}
-            delta={f && b ? vs(shareOf(f.tone.negative ?? 0, customers), shareOf(b.tone.negative ?? 0, beforeCustomers), false) : undefined} /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, customers) : "—"} note="said, not hidden as neutral"
-            delta={f && b ? vs(shareOf(f.tone.unknown ?? 0, customers), shareOf(b.tone.unknown ?? 0, beforeCustomers), false) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodBadOutlinedIcon />} tint="pink" label="Unhappy" value={f ? full(f.tone.negative ?? 0) : "—"} note={f ? `${pc(f.tone.negative ?? 0, customers)} of the customers` : "—"}
+            delta={f && b ? vs(f.tone.negative ?? 0, b.tone.negative ?? 0, false) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="No signal" value={f ? full(f.tone.unknown ?? 0) : "—"} note={f ? `${pc(f.tone.unknown ?? 0, customers)} of the customers - said, not hidden as neutral` : "—"}
+            delta={f && b ? vs(f.tone.unknown ?? 0, b.tone.unknown ?? 0, false) : undefined} /></Grid>
         </Grid>
         {/* Said here, where the consequence shows, not in the settings below. A sweep that has
             spent the day's budget logs "0 asked, 0 written" in 2 seconds and looks exactly like a
