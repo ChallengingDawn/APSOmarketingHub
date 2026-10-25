@@ -126,7 +126,8 @@ test("map seed: decisions with the engine's rules", () => {
   assert.equal(d({ country: "FR", zip: "75001" }).owner, TSA); // no SAE: rule 2, Paris is no zone of his
   assert.equal(d({ country: "FR", zip: "90000" }).owner, JEREMY); // no SAE: rule 2, Territoire de Belfort (SARCLA's 20th)
   const left = d({ country: "DE", zip: "01067" });
-  assert.equal(left.owner, TSA); assert.ok(left.flags.includes("owner-deactivated")); // Nitschke has left
+  // Nitschke has left: Bernd Rausmann takes over (the NIBE redirection workflows, SARCLA 25.10.2026)
+  assert.equal(left.owner, "817647087"); assert.ok(left.flags.includes("successor")); assert.ok(!left.flags.includes("owner-deactivated"));
   assert.equal(d({ country: "CH", zip: "3000", sae: "Kalt Jan", erpId: "799177" }).owner, "37053854"); // a known SAE beats the key list (as the workflows)
   assert.equal(d({ country: "CH", zip: "3000", erpId: "799177" }).owner, CLAUDIO); // no SAE: the key account
   assert.equal(d({ country: "IT", zip: "20121", erpId: "770354" }).owner, "1229999587"); // Luca's reseller list

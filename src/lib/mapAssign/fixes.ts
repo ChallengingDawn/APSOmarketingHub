@@ -46,6 +46,45 @@ export const RULE_FIXES: RuleFix[] = [
   { id: "2026-10-24-ch-rochat", why: "Switzerland: Rochat Industrie SA (788310) on Claudio Saraiva's key accounts", apply: (r) => withKeyAccount(r, "CH", CLAUDIO, "788310", "Claudio Saraiva - key customers") },
 ];
 
+/** Who takes over from someone who has left - as the HubSpot redirection workflows move their tickets and tasks today
+ *  (read 25.10.2026): SARCLA | STACHR TASK/TICKET REDIRECTION, FEHDIA | Paulina TASK/TICKET REDIRECTION (Paulina Bozek and
+ *  Paulina Kulczyk), FEHDIA | NIBE TASK/TICKET REDIRECTION NEW RABE, Tasks/Tickets Andrea to Luca, Tasks reassignment
+ *  PIRAHM to TSA (Ahmad Pirzad's Swiss tickets and tasks go to Claudio Saraiva by "Tasks CH"/"Tickets CH"; he owns no
+ *  company - TSA Team, as the general one). */
+export const SUCCESSORS_FROM_WORKFLOWS: Record<OwnerId, OwnerId> = {
+  "32984810": TSA, // Christopher Stahl -> TSA Team (1,590 companies)
+  "31218632": TSA, // Paulina Bozek -> TSA Team (1,016)
+  "1229976038": TSA, // Paulina Kulczyk -> TSA Team
+  "1229976034": "817647087", // Benjamin Nitschke -> Bernd Rausmann (1,272)
+  "29285069": "1229999587", // Andrea Codognola -> Luca Fantasia
+  "30795573": TSA, // Ahmad Pirzad -> TSA Team
+};
+
+/** Where each successor comes from - shown next to it on the SAE table tab. */
+export const SUCCESSOR_SOURCE: Record<OwnerId, string> = {
+  "32984810": "SARCLA | STACHR TASK / TICKET REDIRECTION",
+  "31218632": "FEHDIA | Paulina TASK / TICKET REDIRECTION",
+  "1229976038": "FEHDIA | Paulina TASK / TICKET REDIRECTION",
+  "1229976034": "FEHDIA | NIBE TASK / TICKET REDIRECTION NEW RABE",
+  "29285069": "Tasks / Tickets Andrea to Luca",
+  "30795573": "Tasks reassignment PIRAHM to TSA (Swiss tickets and tasks: Tasks CH / Tickets CH to Claudio Saraiva)",
+};
+
+/** Zone names without the workflows' "(placeholder for ...)" (SARCLA 25.10.2026: "take out this comment"). */
+export function withoutPlaceholders(r: AssignRules): AssignRules {
+  const countries = Object.fromEntries(Object.entries(r.countries).map(([cc, rule]) => [cc, {
+    ...rule, zones: rule.zones.map((z) => (z.label && /\(placeholder for [^)]*\)/i.test(z.label) ? { ...z, label: z.label.replace(/\s*\(placeholder for [^)]*\)/gi, "").trim() } : z)),
+  }]));
+  return { ...r, countries };
+}
+
+RULE_FIXES.push(
+  // SARCLA 25.10.2026: "check all the workflow redirections - task, ticket and assignment - and put them"; "the rules
+  // should be filled" (the SAE rows of Stahl / Nitschke / Bozek still read "keep Christopher Stahl")
+  { id: "2026-10-25-successors", why: "who takes over from the people who have left (the HubSpot redirection workflows)", apply: (r) => ({ ...r, successors: { ...SUCCESSORS_FROM_WORKFLOWS, ...(r.successors ?? {}) } }) },
+  { id: "2026-10-25-zone-labels", why: "zone names without \"(placeholder for ...)\"", apply: withoutPlaceholders },
+);
+
 /** The fixes not applied yet, applied in order; `done` = the ids applied before. */
 export function applyFixes(rules: AssignRules, done: string[]): { rules: AssignRules; applied: RuleFix[] } {
   const seen = new Set(done);

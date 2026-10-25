@@ -186,12 +186,26 @@ export function validateRules(x: unknown): Checked<AssignRules> {
       countries[cc] = rule;
     }
   }
-  return errors.length ? { ok: false, errors } : { ok: true, value: { sae, countries, defaultOwner } };
+  // someone who has left -> who takes over (one hop: a successor is never someone's predecessor in the same table)
+  const successors: Record<OwnerId, OwnerId> = {};
+  if (x.successors !== undefined && x.successors !== null) {
+    if (!isObj(x.successors)) err("successors: not a table of person -> person");
+    else {
+      if (Object.keys(x.successors).length > 200) err("successors: more than 200");
+      for (const [k, v] of Object.entries(x.successors)) {
+        const from = owner(k, "successors"), to = owner(v, `successors of ${k}`);
+        if (from === to) { err(`successors: ${from} takes over from themselves`); continue; }
+        successors[from] = to;
+      }
+    }
+  }
+  const value: AssignRules = { sae, countries, defaultOwner, ...(Object.keys(successors).length ? { successors } : {}) };
+  return errors.length ? { ok: false, errors } : { ok: true, value };
 }
 
 /** A part of the rules, merged into the current ones before validateRules - one country per PUT keeps the body under
  *  the hub's 8 KB request limit. A country set to null is removed (back to the SAE table and the default owner). */
-export type RulesPatch = { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, CountryRule | null> };
+export type RulesPatch = { sae?: Record<string, OwnerId>; defaultOwner?: OwnerId; countries?: Record<string, CountryRule | null>; successors?: Record<OwnerId, OwnerId> };
 export function mergeRules(cur: AssignRules, p: RulesPatch): AssignRules {
   const countries = { ...cur.countries };
   for (const [k, v] of Object.entries(p.countries ?? {})) {
@@ -199,7 +213,8 @@ export function mergeRules(cur: AssignRules, p: RulesPatch): AssignRules {
     if (v === null) delete countries[cc];
     else countries[cc] = v;
   }
-  return { sae: p.sae ?? cur.sae, defaultOwner: p.defaultOwner ?? cur.defaultOwner, countries };
+  const successors = p.successors ?? cur.successors;
+  return { sae: p.sae ?? cur.sae, defaultOwner: p.defaultOwner ?? cur.defaultOwner, countries, ...(successors && Object.keys(successors).length ? { successors } : {}) };
 }
 
 /** live: country (ISO2) -> on/off; anything else is refused. */

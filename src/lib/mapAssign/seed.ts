@@ -43,9 +43,13 @@
 //              Countries the workflows had no rule for get a plain Performis rule (source "sae", no zones) carrying it.
 
 import type { AssignRules, OwnerId } from "./rules";
+import { SUCCESSORS_FROM_WORKFLOWS } from "./fixes";
 
 const WORKFLOWS: AssignRules = {
   defaultOwner: "1202569408", // TSA Team
+  // SARCLA 25.10.2026: who takes over from the people who have left - as the HubSpot redirection workflows move their
+  // tickets and tasks (fixes.ts); the same is applied once to the saved rules
+  successors: { ...SUCCESSORS_FROM_WORKFLOWS },
   sae: {
     "Borey Jeremy": "29117550", // Jeremy Borey - branch "JEREMY BOREY"
     "Schawlochow Denis": "1229999295", // Denis Schawlochow
@@ -147,13 +151,13 @@ const WORKFLOWS: AssignRules = {
         // workflow branch "Benjamin Nitschke" -> Benjamin Nitschke (deactivated)
         { id: "de-benjamin-nitschke", owner: "1229976034", label: "Benjamin Nitschke", prefixes: ["01-09", "15", "99"] },
         // workflow branch "Placeholder for Tobias Witt - TSA now" -> TSA Team
-        { id: "de-tsa-team-placeholder-for-tobias-witt", owner: "1202569408", label: "TSA Team (placeholder for Tobias Witt)", prefixes: ["20-22", "26-29"] },
+        { id: "de-tsa-team-placeholder-for-tobias-witt", owner: "1202569408", label: "TSA Team", prefixes: ["20-22", "26-29"] },
         // workflow branch "Katja Storm" -> Katja Storm
         { id: "de-katja-storm", owner: "1229998779", label: "Katja Storm", prefixes: ["34-35", "40-42", "50-53", "57-59"] },
         // workflow branch "Stefan Wieneber" -> Stefan Wieneber
         { id: "de-stefan-wieneber", owner: "1229976035", label: "Stefan Wieneber", prefixes: ["10-14", "16", "30-33", "37-39"] },
         // workflow branch "Placeholder for Volkan/Vanessa" -> Christopher Stahl (deactivated)
-        { id: "de-christopher-stahl-placeholder-for-volkan-vanessa", owner: "32984810", label: "Christopher Stahl (placeholder for Volkan/Vanessa)", prefixes: ["70-75", "860-868", "89"] },
+        { id: "de-christopher-stahl-placeholder-for-volkan-vanessa", owner: "32984810", label: "Christopher Stahl", prefixes: ["70-75", "860-868", "89"] },
         // workflow branch "Marc Frech" -> Marc Frech
         { id: "de-marc-frech", owner: "817497321", label: "Marc Frech", prefixes: ["80-85", "93-94"] },
       ],

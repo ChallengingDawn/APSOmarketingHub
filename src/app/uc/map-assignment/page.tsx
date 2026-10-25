@@ -52,7 +52,7 @@ import { WrongPerformisView } from "./WrongPerformisView";
 import { DomainsView } from "./DomainsView";
 import { DiffView } from "./DiffView";
 import {
-  API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, namesOf, partName, rulesParts, saveRules, send,
+  API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, effectiveRules, namesOf, partName, rulesParts, saveRules, send,
   type Names, type Palette, type SetDraft, type View,
 } from "./shared";
 
@@ -73,8 +73,12 @@ function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n,
   /** the sandbox's version (null = live): the map and the KPIs show the sandbox, compared with the live rules */
   sandbox: string | null; liveRules: AssignRules;
 }) {
-  const m = useCountryMap(cc, rules, sandbox !== null ? liveRules : d.rules, sandbox !== null ? canon(rules) !== canon(liveRules) : dirty);
-  const liveM = useCountryMap(cc, liveRules, liveRules, false);
+  // a zone of someone who has left is painted in their successor's colour (rules.successors)
+  const eff = useMemo(() => effectiveRules(rules, names), [rules, names]);
+  const effLive = useMemo(() => effectiveRules(liveRules, names), [liveRules, names]);
+  const effSaved = useMemo(() => effectiveRules(d.rules, names), [d.rules, names]);
+  const m = useCountryMap(cc, eff, sandbox !== null ? effLive : effSaved, sandbox !== null ? canon(rules) !== canon(liveRules) : dirty);
+  const liveM = useCountryMap(cc, effLive, effLive, false);
   const onAssign = useMemo(() => assignInto(setDraft), [setDraft]);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("rules");

@@ -164,6 +164,9 @@ export function ensureMapAssign(): Promise<void> {
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS sales_90      INTEGER;
       -- v5 (24.10.2026): the APSO customer category, for the KPI split per person (SARCLA: "the split of PRIO and APSOcustomer")
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS apso_customer TEXT;
+      -- v6 (25.10.2026): when the facts the rules decide by last changed (SAE, postcode, country) or the company was new -
+      -- a live country writes what changed since it went live, like the Performis workflow on an SAE change
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS facts_at TIMESTAMPTZ;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -208,10 +211,13 @@ export async function getRules(): Promise<Saved<AssignRules>> {
   if (x?.rules?.countries) return { value: x.rules, by: x.by ?? null, at: x.at ?? null };
   return { value: SEED, by: null, at: null };
 }
-export async function getLive(): Promise<Saved<Record<string, boolean>>> {
-  const x = await kvGet<{ live?: Record<string, boolean>; by?: string | null; at?: string | null }>(KV.live);
+export async function getLive(): Promise<Saved<Record<string, boolean>> & { since: Record<string, string> }> {
+  const x = await kvGet<{ live?: Record<string, boolean>; by?: string | null; at?: string | null; since?: Record<string, string> }>(KV.live);
   const v = validateLive(x?.live ?? {});
-  return { value: v.ok ? v.value : {}, by: x?.by ?? null, at: x?.at ?? null };
+  const value = v.ok ? v.value : {};
+  // when each live country went live (a switch saved before 25.10.2026 has none: from now)
+  const since = Object.fromEntries(Object.keys(value).filter((cc) => value[cc]).map((cc) => [cc, x?.since?.[cc] ?? x?.at ?? new Date().toISOString()]));
+  return { value, by: x?.by ?? null, at: x?.at ?? null, since };
 }
 export async function getSettings(): Promise<Settings> {
   return cleanSettings((await kvGet<Partial<Settings>>(KV.settings)) ?? DEFAULT_SETTINGS);
@@ -232,8 +238,12 @@ export async function saveRules(input: { rules?: unknown; patch?: RulesPatch }, 
 export async function saveLive(x: unknown, by: string): Promise<Checked<Record<string, boolean>>> {
   const v = validateLive(x);
   if (!v.ok) return v;
-  const next = { ...(await getLive()).value, ...v.value };
-  await kvSet(KV.live, { live: next, by, at: new Date().toISOString() });
+  const cur = await getLive();
+  const next = { ...cur.value, ...v.value };
+  const now = new Date().toISOString();
+  // a country switched on now: it writes what changes from now on (and every company with no owner or one who has left)
+  const since = Object.fromEntries(Object.keys(next).filter((cc) => next[cc]).map((cc) => [cc, cur.value[cc] ? cur.since[cc] ?? now : now]));
+  await kvSet(KV.live, { live: next, by, at: now, since });
   return { ok: true, value: next };
 }
 export async function saveSettings(x: unknown, by: string): Promise<Settings> {
@@ -269,7 +279,7 @@ export async function saveSandbox(input: { patch?: RulesPatch; reset?: string | 
   let base = cur?.rules ?? live;
   if (typeof input.reset === "string") {
     const part = input.reset.trim().toUpperCase();
-    base = part === "SAE" ? { ...base, sae: live.sae, defaultOwner: live.defaultOwner } : mergeRules(base, { countries: { [part]: live.countries[part] ?? null } });
+    base = part === "SAE" ? { ...base, sae: live.sae, defaultOwner: live.defaultOwner, successors: live.successors } : mergeRules(base, { countries: { [part]: live.countries[part] ?? null } });
   }
   if (input.patch) base = mergeRules(base, input.patch);
   const v = validateRules(base);
@@ -283,7 +293,7 @@ export async function promoteSandbox(part: string, by: string): Promise<Checked<
   const sb = await getSandbox();
   if (!sb) return { ok: false, errors: ["there is no sandbox - nothing to bring to live"] };
   const p = part.trim().toUpperCase();
-  const patch: RulesPatch = p === "SAE" ? { sae: sb.rules.sae, defaultOwner: sb.rules.defaultOwner } : { countries: { [p]: sb.rules.countries[p] ?? null } };
+  const patch: RulesPatch = p === "SAE" ? { sae: sb.rules.sae, defaultOwner: sb.rules.defaultOwner, successors: sb.rules.successors ?? {} } : { countries: { [p]: sb.rules.countries[p] ?? null } };
   return saveRules({ patch }, `${by} (from the sandbox)`);
 }
 
@@ -491,6 +501,8 @@ async function chainRunning(): Promise<boolean> {
 
 type Ctx = {
   rules: AssignRules; rulesAt: string | null; live: Record<string, boolean>; settings: Settings; own: OwnersInfo; internal: Internal;
+  /** when each live country went live */
+  liveSince: Record<string, string>;
   /** the postcode points per country (regions), read once for the run */
   geo: Map<string, ZipIndex>;
   /** the year of revenue_<year>, fixed for the run */
@@ -504,7 +516,7 @@ type Ctx = {
 async function context(signal?: AbortSignal): Promise<Ctx> {
   const [rules, live, settings] = [await getRules(), await getLive(), await getSettings()];
   return {
-    rules: rules.value, rulesAt: rules.at, live: live.value, settings, own: await owners(), internal: await internal(), geo: await loadGeo(),
+    rules: rules.value, rulesAt: rules.at, live: live.value, liveSince: live.since, settings, own: await owners(), internal: await internal(), geo: await loadGeo(),
     year: yearNow(), full: false, redir: await redirState(), signal, companies: 0, contacts: 0, differ: 0,
   };
 }
@@ -560,11 +572,11 @@ async function upsert(recs: Rec[]): Promise<void> {
     await query(
       `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, region_now,
          owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at,
-         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism, apso_customer)
+         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism, apso_customer, facts_at)
        SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.region, x.sae, x.erp_id, x.owner_now, x.region_now,
          x.owner_decided, x.via, x.detail, COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'), x.contacts_off,
          CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW(),
-         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism, x.category
+         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism, x.category, NOW()
        FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, region text,
          sae text, erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
          contacts_checked boolean, modified_at timestamptz, revenue_cy double precision, revenue_year int, last_order text, first_order text,
@@ -576,6 +588,8 @@ async function upsert(recs: Rec[]): Promise<void> {
          contacts_off = EXCLUDED.contacts_off, contacts_at = EXCLUDED.contacts_at, modified_at = EXCLUDED.modified_at, checked_at = NOW(),
          revenue_cy = EXCLUDED.revenue_cy, revenue_year = EXCLUDED.revenue_year, last_order = EXCLUDED.last_order, first_order = EXCLUDED.first_order,
          priority = EXCLUDED.priority, apso_customer = EXCLUDED.apso_customer,
+         facts_at = CASE WHEN m.sae IS DISTINCT FROM EXCLUDED.sae OR m.zip IS DISTINCT FROM EXCLUDED.zip
+           OR m.country_raw IS DISTINCT FROM EXCLUDED.country_raw OR m.country_custom IS DISTINCT FROM EXCLUDED.country_custom THEN NOW() ELSE m.facts_at END,
          -- counted on a full read only: a 15-minute read keeps the count
          contacts_n = COALESCE(EXCLUDED.contacts_n, m.contacts_n),
          contacts_n_at = CASE WHEN EXCLUDED.contacts_n IS NOT NULL THEN NOW() ELSE m.contacts_n_at END,
@@ -703,22 +717,31 @@ export async function writeBatch(obj: "companies" | "contacts", inputs: { id: st
 export type Wrote = { companies: number; contacts: number; links: number; failed: number };
 
 /**
- * Live countries: the companies that differ (owner, region, or contacts), at most `breaker` a run. Each is read again
- * and decided again first - only what still differs is written: the company, then its own contacts (A+P people left
- * alone). A deactivated owner is never written.
+ * Live countries, at most `breaker` companies a run - like the workflows they replace, NOT a sweep of every difference
+ * (SARCLA 25.10.2026: "it will really copy as per today after the ERP load?"; "the redirections and the voluntary ones
+ * exist in every country in different forms - only in HubSpot, both, or Performis"): a company is written when
+ *   - its SAE, postcode or country changed since its country went live (the ERP load writes a new SAE - the Performis
+ *     copy did the same), or it is new
+ *   - it has no owner
+ *   - its owner has left (to their successor, rules.successors)
+ * Every other difference (an owner set by hand in HubSpot, one Performis has wrong) stays as it is - the Differences
+ * tab shows it, "Fix" or Performis corrects it. Each company is read and decided again first; only what still differs
+ * is written: the company, then its own contacts (A+P people left alone). A deactivated owner is never written.
  */
 async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
   const w: Wrote = { companies: 0, contacts: 0, links: 0, failed: 0 };
   const live = liveList(ctx.live);
   if (!live.length || ctx.settings.breaker <= 0) return w;
   const pending = await query<{ company_id: string }>(
-    `SELECT company_id FROM apsomh_map_assign
+    `SELECT company_id FROM apsomh_map_assign m
      WHERE country = ANY($1::text[])
        AND (owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided OR contacts_off > 0)
        AND (wrote_error IS NULL OR wrote_at IS NULL OR wrote_at < NOW() - INTERVAL '${RETRY_FAILED_AFTER}')
+       AND (owner_now IS NULL OR NOT (owner_now = ANY($3::text[]))
+         OR m.facts_at >= COALESCE(($4::jsonb ->> m.country)::timestamptz, 'infinity'::timestamptz))
      ORDER BY (owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided) DESC, company_id
      LIMIT $2`,
-    [live, ctx.settings.breaker],
+    [live, ctx.settings.breaker, [...ctx.own.active], JSON.stringify(ctx.liveSince)],
   );
   await writeCompanies(pending.rows.map((r) => String(r.company_id)), ctx, by, w, { contacts: ctx.settings.contactBreaker }, { liveOnly: true });
   return w;
@@ -1226,6 +1249,12 @@ export async function mapData(admin: boolean): Promise<MapData> {
   const vias = await query<{ country: string; via: string; n: number }>(
     `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, via, count(*)::int AS n FROM apsomh_map_assign GROUP BY 1, 2`,
   );
+  // what a country writes as soon as it goes live: the companies with no owner, or one who has left (writeLive)
+  const atOnce = own ? await query<{ country: string; n: number }>(
+    `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, count(*)::int AS n FROM apsomh_map_assign
+     WHERE (owner_now IS DISTINCT FROM owner_decided OR region_now IS DISTINCT FROM owner_decided)
+       AND (owner_now IS NULL OR NOT (owner_now = ANY($1::text[]))) GROUP BY 1`, [[...own.active]],
+  ) : { rows: [] as { country: string; n: number }[] };
   const flags = await query<{ country: string; f: string; n: number }>(
     `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, f, count(*)::int AS n FROM apsomh_map_assign, unnest(flags) AS f GROUP BY 1, 2`,
   );
@@ -1235,6 +1264,8 @@ export async function mapData(admin: boolean): Promise<MapData> {
     flags: Object.fromEntries(flags.rows.filter((f) => f.country === s.country).map((f) => [f.f, f.n])),
     byVia: Object.fromEntries(vias.rows.filter((v) => v.country === s.country).map((v) => [v.via, v.n])),
     live: !!live.value[s.country],
+    writeAtOnce: atOnce.rows.find((a) => a.country === s.country)?.n ?? 0,
+    liveSince: live.since[s.country] ?? null,
   }));
 
   const ch = await query<DbChange>(

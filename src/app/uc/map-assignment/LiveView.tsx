@@ -1,9 +1,11 @@
 "use client";
 
-// MAP ASSIGNMENT - shadow or live, per country. Shadow: the hub only compares. Live: every scan writes the company's
-// owner and region responsibility, and its contacts follow - with the SAVED rules. Before a country goes live the
-// HubSpot workflows that do the same there must be off, or the two write over each other. All countries at once too
-// (SARCLA 20.10.2026: "on LIVE you should be able to toggle for all") - one request, the same warnings.
+// MAP ASSIGNMENT - shadow or live, per country. Shadow: the hub only compares. Live (25.10.2026, like the workflows it
+// replaces - SARCLA: "it will really copy as per today after the ERP load? we will not have crazy stuff?"): the hub writes
+// owner + region responsibility, and the contacts follow, for a company whose SAE, postcode or country changes (the ERP
+// load) or that is new, that has no owner, or whose owner has left (to their successor) - every other difference stays
+// as it is (Differences: Fix, or Performis). The HubSpot workflows that did it go off the same hour, by their names. All
+// countries at once too (SARCLA 20.10.2026: "on LIVE you should be able to toggle for all") - one request.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -29,11 +31,20 @@ import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { MapData } from "@/lib/mapAssign/api";
 import { countryList, countryName, send } from "./shared";
 
-/** The HubSpot workflows the hub replaces, country by country (rules.ts). */
+/** The HubSpot workflows the hub replaces (read 25.10.2026 - all six switched on until then). They run for every
+ *  country: switch them off when the countries are live, in the same hour. */
 const WORKFLOWS = [
-  "“SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS” (SAE -> owner)",
-  "Diana's FEHDIA owner workflows - company and contact (owner by country and postcode)",
-  "the company -> contact owner copies, where they run for this country",
+  "SARCLA | COMPANY/CONTACT OWNER COPY FROM PERFORMIS",
+  "FEHDIA_Company_Owners_2510",
+  "FEHDIA_Contact_Owners_2510",
+  "FEHDIA_Company_Owners_Key_Customers_2510",
+  "SARCLA | COMPANY TO CONTACT WITH SALES AGENT",
+  "Set Contact Region Responsibility | Based off Company",
+];
+/** These stay on: they decide no owner, or move only the tickets and tasks of people who have left. */
+const KEEP = [
+  "the ticket and task redirections of the people who have left (STACHR, Paulina, NIBE, Andrea to Luca, PIRAHM, Tasks/Tickets CH) - the hub gives their companies to the same people",
+  "AP Employees - set as non marketing customers, Associations | Contact - Companies, SARCLA | REGIONS SET, SARCLA | REGION TO COUNTRY CUSTOM",
 ];
 
 /** A switch asked for: the countries it changes (the figures), and the switches the one request sends. */
@@ -51,7 +62,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
   }, [d.moves]);
   const figures = (cc: string) => {
     const s = d.countries.find((c) => c.country === cc);
-    return { companies: s?.companies ?? 0, change: s?.change ?? 0, contacts: contactsIn.get(cc) ?? 0 };
+    return { companies: s?.companies ?? 0, change: s?.change ?? 0, contacts: contactsIn.get(cc) ?? 0, atOnce: s?.writeAtOnce ?? 0 };
   };
   // live countries first, then the biggest; paged as the other views (SARCLA 19.10.2026: "paginate live")
   const all = [...new Set([...countryList(d, d.rules).map((c) => c.cc), ...Object.keys(d.live)])]
@@ -78,7 +89,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
     setMsg(!r.ok ? { ok: false, text: r.error ?? "failed" } : got.started === false ? { ok: true, text: `Not started: ${got.why ?? "a run is going already"}.` } : { ok: true, text: "Scan started - read again in a minute for the new figures." });
     onChanged();
   };
-  const a = ask ? ask.ccs.map(figures).reduce((x, f) => ({ change: x.change + f.change, contacts: x.contacts + f.contacts }), { change: 0, contacts: 0 }) : null;
+  const a = ask ? ask.ccs.map(figures).reduce((x, f) => ({ change: x.change + f.change, contacts: x.contacts + f.contacts, atOnce: x.atOnce + f.atOnce }), { change: 0, contacts: 0, atOnce: 0 }) : null;
   const one = ask && ask.ccs.length === 1 ? countryName(ask.ccs[0]) : null;
   const named = ask ? (one ?? `${ask.ccs.slice(0, 12).map(countryName).join(", ")}${ask.ccs.length > 12 ? ` and ${ask.ccs.length - 12} more` : ""}`) : "";
   const l = d.last;
@@ -88,7 +99,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
       {msg && <Typography sx={{ fontSize: "0.82rem", color: msg.ok ? "#1b7a55" : RED }}>{msg.text}</Typography>}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Shadow or live, per country"
-          note="Shadow: the hub only compares. Live: every scan writes owner and region responsibility, and the contacts follow" />
+          note="Shadow: the hub only compares. Live: like the Performis copy - a company whose SAE, zip code or country changes (the ERP load) or that is new, that has no owner, or whose owner has left gets the owner and region responsibility the rules give, and its contacts follow. Every other difference stays as it is (Differences: Fix, or Performis)." />
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 1.5, pb: 1.5, borderBottom: `1px solid ${HAIRLINE}` }}>
           <Box sx={{ mr: "auto", minWidth: 0 }}>
             <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>All countries</Typography>
@@ -110,7 +121,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
         </Box>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
-            <TableHead><TableRow>{["Country", "Mode", "Companies", "Would change", "Contacts off"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableHead><TableRow>{["Country", "Mode", "Companies", "Written when it goes live", "Differ from the rules", "Contacts off"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
             <TableBody>
               {slice.map((cc) => {
                 const f = figures(cc);
@@ -128,7 +139,8 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
                       </Box>
                     </TableCell>
                     <TableCell sx={bodyCell}>{full(f.companies)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontWeight: f.change ? 700 : 400 }}>{full(f.change)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontWeight: f.atOnce ? 700 : 400 }}>{full(f.atOnce)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, color: MUTED }}>{full(f.change)}</TableCell>
                     <TableCell sx={bodyCell}>{f.contacts ? full(f.contacts) : "—"}</TableCell>
                   </TableRow>
                 );
@@ -139,11 +151,17 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
         {pager}
         {!list.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{all.length ? "No country with this filter." : "No country yet - they appear with the rules and the first scan."}</Typography>}
         <Box sx={{ mt: 2, display: "grid", gap: 0.5 }}>
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Before a country goes live, switch off for it in HubSpot</Typography>
+          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>In the same hour as the countries go live, switch off in HubSpot</Typography>
           <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
             {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}
           </Box>
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Back: switch the country to shadow here and the workflows on again.</Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.5 }}>And on the Contacts tab, switch Automatic on - new contacts then follow their company, as the last two workflows did.</Typography>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, mt: 0.75 }}>These stay on</Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
+            {KEEP.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.78rem", color: MUTED }}>{w}</Typography>)}
+            <Typography component="li" sx={{ fontSize: "0.78rem", color: MUTED }}>Owner redirection (France → Jeremy Borey, Sandra Kuridza → James Koeremez): the hub follows its rules while they are on</Typography>
+          </Box>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>The workflows run for every country - switch them off when the countries you want are live. Back: shadow here and the workflows on again.</Typography>
         </Box>
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -167,20 +185,17 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
               {ask.on ? (
                 <>
                   <Typography sx={{ fontSize: "0.9rem", color: INK }}>
-                    From the next scan the hub writes the owner and region responsibility of <b>{full(a.change)} compan{a.change === 1 ? "y" : "ies"}</b> in {one ?? `these ${full(ask.ccs.length)} countries`},
-                    and <b>{full(a.contacts)} contact{a.contacts === 1 ? "" : "s"}</b> follow{a.contacts === 1 ? "s" : ""} their company - with the saved rules.
+                    At the next scan the hub writes <b>{full(a.atOnce)} compan{a.atOnce === 1 ? "y" : "ies"}</b> in {one ?? `these ${full(ask.ccs.length)} countries`} - those with no owner or whose owner has left (to who takes over) - at most 500 every 15 minutes, their contacts following. From then on: every company whose SAE, zip code or country changes, and every new one, as the Performis copy did.
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
+                    The other {full(Math.max(0, a.change - a.atOnce))} differences stay as they are in HubSpot - the Differences tab shows them: Fix in HubSpot, or correct the SAE in Performis.
                   </Typography>
                   <Box sx={{ borderLeft: `3px solid ${RED}`, pl: 1.5 }}>
-                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>First switch off, for {one ?? "these countries"}, the HubSpot workflows that do the same:</Typography>
+                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>In the same hour, switch off in HubSpot:</Typography>
                     <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
                       {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.84rem", color: INK }}>{w}</Typography>)}
-                      {ask.ccs.includes("FR") && (
-                        <Typography component="li" sx={{ fontSize: "0.84rem", color: INK }}>
-                          and on <Box component="a" href="/uc/owner-redirection" sx={{ color: "#2459d1", textDecoration: "none" }}>Owner redirection</Box>, the old France rule (France → Jeremy Borey): it gives him all of France whatever the SAE
-                        </Typography>
-                      )}
                     </Box>
-                    <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>Otherwise they write over each other.</Typography>
+                    <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>And switch Automatic on, on the Contacts tab. Owner redirection stays as it is - the hub follows it.</Typography>
                   </Box>
                   {dirty && <Typography sx={{ fontSize: "0.84rem", color: RED }}>Your unsaved rule changes are not used - save them first.</Typography>}
                 </>

@@ -27,6 +27,11 @@ export type CountrySummary = {
    *  (sae = rule 1, zone / default = rule 2, key = key account, redirection = an Owner redirection rule kept) */
   byVia: Record<string, number>;
   live: boolean;
+  /** what going live writes at once: the differing companies with no owner, or one who has left (25.10.2026: live
+   *  writes only those and what changes from then on - like the workflows it replaces); absent from an older hub */
+  writeAtOnce?: number;
+  /** when the country went live (ISO), null in shadow */
+  liveSince?: string | null;
 };
 
 /** A recent contact with no company: what the domain says, and the candidates. */

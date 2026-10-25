@@ -38,7 +38,7 @@ import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { saeKey, type AssignRules, type CountryRule, type Zone } from "@/lib/mapAssign/rules";
 import type { CompanyRow, LayerData, MapData, OwnerLoad, TicketLoad } from "@/lib/mapAssign/api";
 import {
-  API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, prefixProblem, saeTarget, splitPrefixes,
+  API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, prefixProblem, saeTarget, splitPrefixes, takesOver,
   splitRegions, withOverride, type Names, type Palette, type SetDraft,
 } from "./shared";
 import { CountryMenu, PillGroup } from "./mapTabs";
@@ -423,7 +423,8 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
             : ["SAE Performis", ...PROPS, "Override"]}>
             {saes.map((x) => {
               const t = saeTarget(rules, cc, x.sae);
-              const person = t.how === "table" || t.how === "redirect" ? t.owner : null;
+              // someone who has left: who takes over (SARCLA 25.10.2026: "the rules should be filled")
+              const person = takesOver(rules, names, t.how === "table" || t.how === "redirect" ? t.owner : null);
               const over = t.how === "redirect";
               const wf = tableOf(x.sae);
               return (
@@ -493,7 +494,7 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
                 </>
               ) : (
                 <>
-                  {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0, pt: { md: 0.9 } }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={z.owner || null} names={names} palette={palette} over={over} empty="pick a person" /></Box>)}
+                  {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0, pt: { md: 0.9 } }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={takesOver(rules, names, z.owner || null)} names={names} palette={palette} over={over} empty="pick a person" /></Box>)}
                   <OwnerPicker value={was ? (over ? z.owner : "") : z.owner} names={names} disabled={!admin} allowEmpty={!!was}
                     placeholder={was ? `keep ${names.name(was)}` : "pick a person"}
                     onChange={(o) => setRule((r) => ({ ...r, zones: r.zones.map((x) => (x.id === z.id ? { ...x, owner: String(o || was || x.owner) } : x)) }))} />

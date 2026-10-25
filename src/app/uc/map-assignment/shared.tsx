@@ -68,10 +68,12 @@ export async function saveRules(draft: AssignRules, saved: AssignRules, target: 
   const wrap = (patch: object) => (target === "sandbox" ? { sandbox: { patch } } : { patch });
   const saeChanged = canon(draft.sae) !== canon(saved.sae);
   const defaultChanged = String(draft.defaultOwner) !== String(saved.defaultOwner);
-  if (saeChanged || defaultChanged) {
+  // who takes over from the people who have left (25.10.2026) goes with the SAE table
+  const succChanged = canon(draft.successors ?? {}) !== canon(saved.successors ?? {});
+  if (saeChanged || defaultChanged || succChanged) {
     parts.push({
-      what: saeChanged && defaultChanged ? "the SAE table and the default" : saeChanged ? "the SAE table" : "the default",
-      body: wrap({ ...(saeChanged ? { sae: draft.sae } : {}), ...(defaultChanged ? { defaultOwner: draft.defaultOwner } : {}) }),
+      what: [saeChanged ? "the SAE table" : "", defaultChanged ? "the default" : "", succChanged ? "who takes over" : ""].filter(Boolean).join(" and "),
+      body: wrap({ ...(saeChanged ? { sae: draft.sae } : {}), ...(defaultChanged ? { defaultOwner: draft.defaultOwner } : {}), ...(succChanged ? { successors: draft.successors ?? {} } : {}) }),
     });
   }
   for (const cc of [...new Set([...Object.keys(draft.countries), ...Object.keys(saved.countries)])].sort()) {
@@ -93,7 +95,7 @@ export async function saveRules(draft: AssignRules, saved: AssignRules, target: 
 /** Where two sets of rules differ, part by part as they are saved: "sae" (the SAE table and the default) and countries. */
 export function rulesParts(a: AssignRules, b: AssignRules): string[] {
   const out: string[] = [];
-  if (canon(a.sae) !== canon(b.sae) || String(a.defaultOwner) !== String(b.defaultOwner)) out.push("sae");
+  if (canon(a.sae) !== canon(b.sae) || String(a.defaultOwner) !== String(b.defaultOwner) || canon(a.successors ?? {}) !== canon(b.successors ?? {})) out.push("sae");
   for (const cc of [...new Set([...Object.keys(a.countries), ...Object.keys(b.countries)])].sort()) {
     if (canon(a.countries[cc] ?? null) !== canon(b.countries[cc] ?? null)) out.push(cc);
   }
@@ -295,6 +297,21 @@ export function postcodePicker(rule: CountryRule | undefined, rules: AssignRules
 
 /** Where an SAE's companies go in a country under these rules - as decide() in rules.ts takes the SAE. */
 export type SaeTarget = { owner: OwnerId | null; how: "redirect" | "table" | "not-in-country" | "unmapped" | "map" };
+/** The person who really gets a company the rules give to `owner`: their successor when they have left (rules.successors). */
+export function takesOver(rules: AssignRules, names: Names, owner: OwnerId | null): OwnerId | null {
+  if (!owner || names.active(owner)) return owner;
+  const next = rules.successors?.[String(owner)];
+  return next && names.active(next) ? String(next) : owner;
+}
+/** The rules as the map should paint them: a zone or key account of someone who has left given to their successor. */
+export function effectiveRules(rules: AssignRules, names: Names): AssignRules {
+  if (!rules.successors || !Object.keys(rules.successors).length) return rules;
+  const countries = Object.fromEntries(Object.entries(rules.countries).map(([cc, r]) => [cc, {
+    ...r, zones: r.zones.map((z) => { const o = takesOver(rules, names, z.owner); return o && o !== z.owner ? { ...z, owner: o } : z; }),
+  }]));
+  return { ...rules, countries };
+}
+
 export function saeTarget(rules: AssignRules, cc: string, sae: string): SaeTarget {
   const rule = rules.countries[cc];
   if (rule?.source === "map") return { owner: null, how: "map" };
@@ -525,6 +542,7 @@ export const FLAG_LABEL: Record<string, string> = {
   "owner-deactivated": "person has left",
   "no-country": "no country",
   "no-zip": "no postcode",
+  successor: "person has left - their successor",
   "not-in-country": "SAE person does not work this country",
 };
 export const VIA_LABEL: Record<string, string> = { key: "key account", sae: "SAE", zone: "postcode zone", default: "default", redirection: "owner redirection" };

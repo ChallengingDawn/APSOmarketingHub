@@ -44,6 +44,11 @@ export type AssignRules = {
   countries: Record<string, CountryRule>;
   /** nothing matched anywhere: TSA Team */
   defaultOwner: OwnerId;
+  /** someone who has left -> who takes over their companies (SARCLA 25.10.2026: "check all the workflow redirections -
+   *  task, ticket and assignment - and put them" - the HubSpot workflows that move a leaver's tickets and tasks, e.g.
+   *  STACHR: Christopher Stahl -> TSA Team, NIBE: Benjamin Nitschke -> Bernd Rausmann). Wherever the rules give a company
+   *  to someone who has left (the SAE table, a zone, a key account), it goes to their successor instead of the default. */
+  successors?: Record<OwnerId, OwnerId>;
 };
 
 export type CompanyFacts = {
@@ -144,7 +149,12 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
   const rule = country ? rules.countries[country] : undefined;
   const fallback = rule?.defaultOwner || rules.defaultOwner;
   const done = (owner: OwnerId, via: Via, detail: string): Decision => {
-    if (!active(owner)) return { owner: fallback === owner ? rules.defaultOwner : fallback, via: "default", country, detail: `${detail} - ${names(owner)} has left`, flags: [...flags, "owner-deactivated"] };
+    if (!active(owner)) {
+      // their successor (rules.successors), when still here - else the default, flagged
+      const next = rules.successors?.[String(owner)];
+      if (next && active(next)) return { owner: String(next), via, country, detail: `${detail} - ${names(owner)} has left, ${names(next)} takes over`, flags: [...flags, "successor"] };
+      return { owner: fallback === owner ? rules.defaultOwner : fallback, via: "default", country, detail: `${detail} - ${names(owner)} has left`, flags: [...flags, "owner-deactivated"] };
+    }
     return { owner, via, country, detail, flags };
   };
   // key accounts: first in a "map" country; in an "sae" country only for a company WITHOUT an SAE, as Diana's

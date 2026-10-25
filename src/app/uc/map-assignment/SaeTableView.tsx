@@ -18,7 +18,11 @@ import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { saeKey, type AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData, PerformisData } from "@/lib/mapAssign/api";
-import { API, OwnerPicker, Swatch, newId, type Names, type Palette, type SetDraft } from "./shared";
+import { API, OwnerPicker, Swatch, newId, takesOver, type Names, type Palette, type SetDraft } from "./shared";
+import { SUCCESSOR_SOURCE } from "@/lib/mapAssign/fixes";
+import type { Owner } from "@/lib/mapAssign/api";
+import TextFieldSelect from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
 const head = { fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.05em" };
@@ -81,9 +85,16 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
               <TextField size="small" value={r.k} disabled={!admin} placeholder="SAE" error={dup !== null || (!r.k.trim() && !!r.owner)}
                 helperText={dup !== null ? `same as "${rows[dup].k}"` : undefined} slotProps={{ htmlInput: { "aria-label": "SAE" } }}
                 onChange={(e) => push(rows.map((x) => (x.id === r.id ? { ...x, k: e.target.value } : x)))} />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
-                <Swatch paint={palette(r.owner)} size={13} />
-                <OwnerPicker value={r.owner} names={names} disabled={!admin} onChange={(owner) => push(rows.map((x) => (x.id === r.id ? { ...x, owner } : x)))} sx={{ flex: 1, minWidth: 0 }} />
+              <Box sx={{ display: "grid", gap: 0.25, minWidth: 0 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                  <Swatch paint={palette(r.owner)} size={13} />
+                  <OwnerPicker value={r.owner} names={names} disabled={!admin} onChange={(owner) => push(rows.map((x) => (x.id === r.id ? { ...x, owner } : x)))} sx={{ flex: 1, minWidth: 0 }} />
+                </Box>
+                {r.owner && !names.active(r.owner) && (
+                  <Typography sx={{ fontSize: "0.74rem", color: takesOver(rules, names, r.owner) !== r.owner ? "#1b7a55" : "#a96a12" }}>
+                    {takesOver(rules, names, r.owner) !== r.owner ? `has left - ${names.name(takesOver(rules, names, r.owner))} takes over` : "has left - nobody takes over yet: the default person"}
+                  </Typography>
+                )}
               </Box>
               <Typography sx={numSx}>{k && counts.has(k) ? full(counts.get(k)!) : "—"}</Typography>
               {admin ? <IconButton size="small" onClick={() => push(rows.filter((x) => x.id !== r.id))} aria-label={`Remove SAE ${r.k}`}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
@@ -111,6 +122,56 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
   );
 }
 
+/** Who takes over from the people who have left (SARCLA 25.10.2026: "check all the workflow redirections - task, ticket
+ *  and assignment - and put them"): prefilled from the HubSpot workflows that move their tickets and tasks; wherever the
+ *  rules give a company to someone who has left (an SAE, a zone, a key account), it goes to their successor. */
+function Successors({ rules, setDraft, names, palette, admin, owners }: { rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette; admin: boolean; owners: Owner[] }) {
+  const succ = rules.successors ?? {};
+  const left = owners.filter((o) => !o.active);
+  // the people who have left that the rules still point to, and those already given a successor
+  const pointed = new Set<string>([...Object.values(rules.sae).map(String), ...Object.values(rules.countries).flatMap((r) => [...r.zones.map((z) => String(z.owner)), ...(r.keyAccounts ?? []).map((k) => String(k.owner))])]);
+  const ids = [...new Set([...Object.keys(succ), ...left.map((o) => String(o.id)).filter((id) => pointed.has(id))])];
+  const set = (from: string, to: string | null) => setDraft((dr) => {
+    const next = { ...(dr.successors ?? {}) };
+    if (to) next[from] = to; else delete next[from];
+    return { ...dr, successors: next };
+  });
+  const [adding, setAdding] = useState("");
+  const cols = { xs: "minmax(0, 1fr)", md: "minmax(200px, 1fr) minmax(220px, 1fr) minmax(0, 1.2fr) 36px" };
+  return (
+    <Box sx={{ display: "grid", gap: 1.25, mt: 3 }}>
+      <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>People who have left - who takes over</Typography>
+      <Typography sx={hint}>Wherever the rules give a company to someone who has left - an SAE above, a zip-code zone, a key account - it goes to who takes over (otherwise to the default person). Filled from the HubSpot workflows that move their tickets and tasks today.</Typography>
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
+        <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
+          <Typography sx={head}>Has left</Typography>
+          <Typography sx={head}>Takes over</Typography>
+          <Typography sx={head}>As today in HubSpot</Typography>
+          <span />
+        </Box>
+        {ids.map((id) => (
+          <Box key={id} sx={{ ...row, gridTemplateColumns: cols }}>
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{names.name(id)}</Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+              <Swatch paint={palette(succ[id] ?? "")} size={13} />
+              <OwnerPicker value={succ[id] ?? null} names={names} disabled={!admin} allowEmpty placeholder="nobody - the default person" onChange={(o) => set(id, o || null)} sx={{ flex: 1, minWidth: 0 }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{SUCCESSOR_SOURCE[id] ?? "—"}</Typography>
+            {admin && succ[id] ? <IconButton size="small" onClick={() => set(id, null)} aria-label={`No successor for ${names.name(id)}`}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
+          </Box>
+        ))}
+        {!ids.length && <Typography sx={{ ...hint, p: 1.5 }}>No rule points to someone who has left.</Typography>}
+      </Box>
+      {admin && (
+        <TextFieldSelect select size="small" value={adding} onChange={(e) => { const v = e.target.value; setAdding(""); if (v) set(v, rules.defaultOwner); }} label="Someone else who has left" sx={{ maxWidth: 320 }}>
+          <MenuItem value="">pick a person</MenuItem>
+          {left.filter((o) => !ids.includes(String(o.id))).sort((a, b) => a.name.localeCompare(b.name)).map((o) => <MenuItem key={o.id} value={String(o.id)}>{o.name}</MenuItem>)}
+        </TextFieldSelect>
+      )}
+    </Box>
+  );
+}
+
 export function SaeTableView({ d, rules, setDraft, names, palette, rev, n }: {
   d: MapData; rules: AssignRules; setDraft: SetDraft; names: Names; palette: Palette;
   /** the page's rules version (a save or an undo re-reads every field) and reload counter */
@@ -122,6 +183,7 @@ export function SaeTableView({ d, rules, setDraft, names, palette, rev, n }: {
       <CardTitle icon={<BadgeOutlinedIcon />} tint="purple" title={`SAE table · all countries · ${Object.keys(rules.sae).length}`}
         note="The HubSpot workflow's table: SAE -> person, wherever rule 1 is on. Save on the bar above keeps changes" />
       <TableTab key={`table-${rev}`} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={d.admin} got={got} />
+      <Successors key={`succ-${rev}`} rules={rules} setDraft={setDraft} names={names} palette={palette} admin={d.admin} owners={d.owners} />
     </GlassCard>
   );
 }
