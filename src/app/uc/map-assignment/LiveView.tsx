@@ -41,9 +41,17 @@ const WORKFLOWS = [
   "SARCLA | COMPANY TO CONTACT WITH SALES AGENT",
   "Set Contact Region Responsibility | Based off Company",
 ];
-/** These stay on: they decide no owner, or move only the tickets and tasks of people who have left. */
+/** The redirections of the people who have left - Owner redirection does them since 25.10.2026 (SARCLA: "bring them as
+ *  overrides on the hub"): switch these off once its rules are published. */
+const REDIRECTIONS = [
+  "SARCLA | STACHR TASK REDIRECTION", "SARCLA | STACHR TICKET REDICTION",
+  "FEHDIA | Paulina TASK REDIRECTION", "FEHDIA | Paulina TICKET REDICTION",
+  "FEHDIA | NIBE TASK REDIRECTION NEW RABE", "FEHDIA | NIBE TICKET REDICTION NEW RABE",
+  "Tasks Andrea to Luca", "Tickets Andrea to Luca",
+  "Tasks reassignment PIRAHM to TSA", "Tasks CH", "Tickets CH",
+];
+/** These stay on: they decide no owner. */
 const KEEP = [
-  "the ticket and task redirections of the people who have left (STACHR, Paulina, NIBE, Andrea to Luca, PIRAHM, Tasks/Tickets CH) - the hub gives their companies to the same people",
   "AP Employees - set as non marketing customers, Associations | Contact - Companies, SARCLA | REGIONS SET, SARCLA | REGION TO COUNTRY CUSTOM",
 ];
 
@@ -156,10 +164,14 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
             {WORKFLOWS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}
           </Box>
           <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.5 }}>And on the Contacts tab, switch Automatic on - new contacts then follow their company, as the last two workflows did.</Typography>
+          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, mt: 0.75 }}>The redirections of the people who have left - once Owner redirection&apos;s rules are published (<Box component="a" href="/uc/owner-redirection" sx={{ color: "#2459d1", textDecoration: "none" }}>Owner redirection</Box> → Publish)</Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
+            {REDIRECTIONS.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.8rem", color: INK }}>{w}</Typography>)}
+          </Box>
           <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, mt: 0.75 }}>These stay on</Typography>
           <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.25 }}>
             {KEEP.map((w) => <Typography component="li" key={w} sx={{ fontSize: "0.78rem", color: MUTED }}>{w}</Typography>)}
-            <Typography component="li" sx={{ fontSize: "0.78rem", color: MUTED }}>Owner redirection (France → Jeremy Borey, Sandra Kuridza → James Koeremez): the hub follows its rules while they are on</Typography>
+            <Typography component="li" sx={{ fontSize: "0.78rem", color: MUTED }}>Owner redirection (France → Jeremy Borey, Sandra Kuridza → James Koeremez, and the people who have left): the hub follows its rules while they are on</Typography>
           </Box>
           <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>The workflows run for every country - switch them off when the countries you want are live. Back: shadow here and the workflows on again.</Typography>
         </Box>

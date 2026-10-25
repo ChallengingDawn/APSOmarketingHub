@@ -133,7 +133,7 @@ export const FIX_ELSEWHERE: Partial<Record<TopicId, string>> = {
   "sae-nobody": "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
   "sae-elsewhere": "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
   rule1: "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
-  redirection: "Owner redirection keeps them while its rule is switched on - nothing to fix here.",
+  redirection: "Owner redirection gives them to its person (France, Sandra Kuridza, the people who have left) once its rules are published - nothing to fix here.",
 };
 
 /* ── the OK answers (kept for the record; the page shows Fix since 25.10.2026) ── */
