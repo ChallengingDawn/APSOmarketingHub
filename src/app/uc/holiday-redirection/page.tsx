@@ -115,8 +115,8 @@ function Tasks({ d, act }: { d: Data; act: (action: string, which?: string) => v
         <Box sx={{ flex: 1, minWidth: 240 }}>
           <Typography sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>Tasks</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-            {t.live ? "Runs every 15 minutes." : "Off - tasks stay with whoever is away."} Last run: {r?.finished ? when(r.finished) : "none yet"}.
-            {" "}New registrant, Mark Company as Qualified, Select Disqualification Reason.
+            {t.live ? `Last run ${r?.finished ? when(r.finished) : "none yet"}` : "Off - tasks stay with whoever is away"}
+            {" · New registrant, Mark Company as Qualified, Select Disqualification Reason"}
           </Typography>
         </Box>
         {d.admin && (
@@ -157,7 +157,7 @@ function Board({ d, act, note }: { d: Data; act: (action: string) => void; note:
         <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
           <Chip tint={d.live ? "green" : "slate"}>{d.live ? "On" : "Off"}</Chip>
           <Typography sx={{ fontSize: "0.86rem", color: INK, flex: 1, minWidth: 220 }}>
-            {d.live ? "Runs every 15 minutes in the hub." : "Off."} Last run: {r?.finished ? when(r.finished) : "none yet"}.
+            {d.live ? `Last run ${r?.finished ? when(r.finished) : "none yet"}` : "Off - tickets stay where they are"}
           </Typography>
           {d.admin && (
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -229,7 +229,7 @@ export default function HolidayRedirection() {
   else body = <Board d={r.data} act={act} note={note} />;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Holiday redirection" subtitle="ESO tickets of people who are out of office go to their deputy - every 15 minutes" />
+      <PageHeader title="Holiday redirection" subtitle="ESO tickets and Back Office tasks of people who are out of office go to their deputy - both swept every 15 minutes" />
       {body}
     </Box>
   );
