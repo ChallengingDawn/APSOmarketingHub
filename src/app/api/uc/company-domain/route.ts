@@ -44,15 +44,18 @@ export async function GET() {
     const g = s.guesses;
     const rows = g?.rows ?? [];
     const suspect = (r: (typeof rows)[number]) => r.exists === true && !!r.real && r.real !== r.domain;
-    const dead = rows.filter((r) => r.exists === false).sort((a, b) => Number(!!b.real) - Number(!!a.real));
+    // "don't exist" = still to clear; the cleared ones are their own list (SARCLA 25.10.2026: "clear but don't exist still")
+    const done = (r: (typeof rows)[number]) => !!r.cleared && !r.cleared.error;
+    const dead = rows.filter((r) => r.exists === false && !done(r)).sort((a, b) => Number(!!b.real) - Number(!!a.real));
+    const cleared = rows.filter(done);
     const guesses = g && {
       ...g,
       counts: {
         total: rows.length, dead: dead.length, alive: rows.filter((r) => r.exists === true).length, suspect: rows.filter(suspect).length,
         unsure: rows.filter((r) => r.exists === null).length, deadWithReal: dead.filter((r) => r.real).length,
-        cleared: rows.filter((r) => r.cleared && !r.cleared.error).length,
+        cleared: cleared.length,
       },
-      rows: [...dead.slice(0, PER_LIST), ...rows.filter(suspect).slice(0, PER_LIST), ...rows.filter((r) => r.exists === null).slice(0, PER_LIST)],
+      rows: [...dead.slice(0, PER_LIST), ...cleared.slice(0, PER_LIST), ...rows.filter(suspect).slice(0, PER_LIST), ...rows.filter((r) => r.exists === null).slice(0, PER_LIST)],
     };
     return NextResponse.json({ configured: true, ok: true, data: { ...s, state, guesses, admin: access.role === "admin" } });
   } catch (err) {
