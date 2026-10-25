@@ -128,7 +128,7 @@ const customer = (text = "Hello, where is my order?") => ({ direction: "INCOMING
 
 test("a customer writing in is a real ticket", () => {
   assert.deepEqual(gate({ subject: "Wrong delivery on order 12345", mails: [customer()] }),
-    { real: true, reasons: [], customerVoice: true });
+    { real: true, reasons: [], customerVoice: true, noCustomerWords: false });
 });
 
 test("the templates measured in the live data are disqualified", () => {
@@ -152,12 +152,22 @@ test("the templates measured in the live data are disqualified", () => {
   }
 });
 
-test("a ticket nobody outside wrote into has no tone to read", () => {
-  assert.deepEqual(gate({ subject: "Please check stock", mails: [] }).reasons, ["no_inbound_mail"]);
-  assert.equal(gate({ subject: "Please check stock", mails: [] }).real, false);
-  // only our own people talking
+test("a ticket nobody outside wrote into is still a real ticket", () => {
+  // It arrived by web form, by chat, by phone, or one of our own people raised it for a customer.
+  // 18 of 100 "not a customer" tickets were exactly this (SARCLA, 25.10.2026: "crazy high"), and
+  // calling them machine-made said the customer did not exist when only their words were missing.
+  const v = gate({ subject: "Customer Form | Delivery: Existing Order | michel roth", mails: [] });
+  assert.equal(v.real, true);
+  assert.deepEqual(v.reasons, []);
+  assert.equal(v.noCustomerWords, true, "real, but with no words to read a tone from");
+  // our own outgoing reply, and nothing in: still a real matter, still no tone
   const ours = [{ direction: "EMAIL", from: "claudia@apsoparts.com", text: "assigned" }];
-  assert.deepEqual(gate({ subject: "Please check stock", mails: ours }).reasons, ["only_our_own_words"]);
+  assert.equal(gate({ subject: "Please check stock", mails: ours }).real, true);
+  assert.equal(gate({ subject: "Please check stock", mails: ours }).noCustomerWords, true);
+
+  // but an INBOUND mail that is only ours or a no-reply IS a machine
+  const machine = [{ direction: "INCOMING_EMAIL", from: "no-reply@apsoparts.com", text: "ERP export stale" }];
+  assert.deepEqual(gate({ subject: "Stock report", mails: machine }).reasons, ["only_our_own_words"]);
 });
 
 test("our own address and no-reply senders are not the customer", () => {
@@ -188,7 +198,8 @@ test("every reason has the words the report shows", () => {
     "Order confirmation", "Shipping notification", "New registrant", "Automatic reply", "Undeliverable", "Newsletter"]) {
     for (const r of gate({ subject: s, mails: [customer()] }).reasons) used.add(r);
   }
-  used.add("no_inbound_mail"); used.add("only_our_own_words");
+  used.add("no_inbound_mail");       // kept as a label: rows written before 25.10.2026 carry it
+  used.add("only_our_own_words");
   used.add("bulk_mail");            // set from the body, tested on its own below
   used.add("model_says_machine");   // set by the engine from the model, never by the gate
   for (const r of used) assert.ok(REASON_LABEL[r as never], `${r} has no label`);

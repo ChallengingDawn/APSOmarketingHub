@@ -34,6 +34,17 @@ export type Verdict = {
   reasons: DisqualifyReason[];
   /** Did somebody outside actually write into the thread? */
   customerVoice: boolean;
+  /**
+   * A real matter, but with nothing written in from outside to read a tone from.
+   *
+   * SARCLA, 25.10.2026, on 60.9% of the inbox being "not a customer": "for me it's crazy high".
+   * He was right. Of 100 such tickets, 18 were genuine customer business that arrived by WEB FORM
+   * or was raised by our own people for a customer - "Customer Form | Delivery: Existing Order",
+   * "BO | Product Information | Raffaello Lonardi" - and they have no inbound e-mail object at
+   * all. Treating that as "not a valid e-mail" said the customer did not exist, when what was
+   * missing was only their words. Those tickets are real; their tone is unknown.
+   */
+  noCustomerWords: boolean;
 };
 
 /**
@@ -144,9 +155,14 @@ export function gate(input: GateInput, opts: GateOptions = {}): Verdict {
   // than calling it machine-made.
   const mails = input.mails ?? [];
   const voice = hasCustomerVoice(mails);
-  if (mails.length === 0) reasons.push("no_inbound_mail");
-  else if (!voice) reasons.push("only_our_own_words");
-  else if (mails.filter((m) => (m.direction || "") === "INCOMING_EMAIL").every((m) => looksBulk(mailText(m)))) {
+  const inbound = mails.filter((m) => (m.direction || "") === "INCOMING_EMAIL");
+
+  // NOTHING WRITTEN IN FROM OUTSIDE is not evidence of a machine. A web form, a chat, a phone
+  // call and a ticket our own people raise for a customer all look exactly like this, and all of
+  // them are real work. The ticket stays; only its tone is unknown.
+  const noWords = inbound.length === 0;
+  if (!noWords && !voice) reasons.push("only_our_own_words");
+  else if (!noWords && inbound.every((m) => looksBulk(mailText(m)))) {
     // every inbound mail is bulk - if even one is a real letter, the ticket stays
     reasons.push("bulk_mail");
   }
@@ -155,7 +171,7 @@ export function gate(input: GateInput, opts: GateOptions = {}): Verdict {
   // was that nobody outside wrote - that one is not a matter of taste.
   const templateOnly = templates > 0 && reasons.length === templates;
   const real = reasons.length === 0 || (templateOnly && voice && opts.templateRepliesCount === true);
-  return { real, reasons, customerVoice: voice };
+  return { real, reasons, customerVoice: voice, noCustomerWords: noWords && real };
 }
 
 /** Every reason, with the words the report uses - so the tab and the tests cannot drift. */

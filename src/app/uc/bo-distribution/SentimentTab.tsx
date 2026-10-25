@@ -366,38 +366,6 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
         </Grid>
       </Grid>
 
-      {s.modelChanged.length ? (
-        <GlassCard>
-          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="What the words would have got wrong"
-            note="Each of these is already written on the ticket. They are here as the evidence that the AI is worth its cost - read a few and you will see what the keywords alone would have recorded" />
-          <Table size="small" sx={{ mt: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={headCell}>Ticket</TableCell>
-                <TableCell sx={headCell}>Words</TableCell>
-                <TableCell sx={headCell}>Model</TableCell>
-                <TableCell sx={headCell}>Why</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {s.modelChanged.map((m) => (
-                <TableRow key={m.ticketId}>
-                  <TableCell sx={{ ...bodyCell, ...clip(240) }}>
-                    <Box component="a" href={hsTicket(m.ticketId)} target="_blank" rel="noreferrer"
-                      sx={{ color: ACCENT, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-                      {m.subject || m.ticketId}<OpenInNewIcon sx={{ fontSize: 13 }} />
-                    </Box>
-                  </TableCell>
-                  <TableCell sx={{ ...bodyCell, color: toneColour(m.from) }}>{m.from}</TableCell>
-                  <TableCell sx={{ ...bodyCell, color: toneColour(m.to), fontWeight: 600 }}>{m.to}</TableCell>
-                  <TableCell sx={{ ...bodyCell, color: MUTED, ...clip(360) }}>{m.why}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </GlassCard>
-      ) : null}
-
       <CheckOne />
 
 
