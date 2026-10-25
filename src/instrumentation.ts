@@ -102,6 +102,12 @@ export async function register() {
     const { startCompanyDomain } = await import("./lib/companyDomain/engine");
     startCompanyDomain();
 
+    // The Enquiry Category at the end of each Back Office ticket left "Others" or empty - the whole conversation, no
+    // customer request stays Others, the AI reads the rest; replaces the workflow SARCLA | CLASSIFIER END OF TICKET and
+    // writes once that workflow is switched off (src/lib/ticketClose). TICKET_CLOSE=off stops it. SARCLA, 25.10.2026.
+    const { startTicketClose } = await import("./lib/ticketClose/engine");
+    startTicketClose();
+
     // Map assignment > Phone numbers: a contact with the shop's phone and no phone gets it, in the international form from
     // its country - replaces the workflow SARCLA | Contact phone number correction; writes only in Live with the workflow
     // switched off (src/lib/contactPhone). CONTACT_PHONE=off stops it. SARCLA, 25.10.2026.

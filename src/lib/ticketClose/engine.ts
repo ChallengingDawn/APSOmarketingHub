@@ -1,0 +1,213 @@
+// ENQUIRY CATEGORY AT THE END OF A TICKET - the engine (rules in rules.ts). Replaces the HubSpot workflow "SARCLA |
+// CLASSIFIER END OF TICKET - ENQUIRY CATEGORY" (4088710379), SARCLA 25.10.2026 - automatic, no page of its own ("run the
+// re-detection ... without creating a tab, since then we can automate it to do it each time").
+//
+// Every 5 minutes, one copy of the hub at a time (advisory lock 4107245): the Back Office tickets that reached Resolved
+// with their category empty or "Others" are read (the whole conversation) and decided - no customer request (session
+// 88's sentiment flag) stays "Others", every other one is read by the AI (88's aiClassify, unchanged, this engine's own
+// daily budget). The category is written only while the workflow is switched off (never both writing), only onto
+// "Others" or empty, every change kept with what was there before (kv ticketClose:log:<time>). Each run that finds
+// something says so in the log ("[ticket-close] ..."). TICKET_CLOSE=off stops it.
+
+import type { PoolClient } from "pg";
+import { getPool } from "@/lib/db/client";
+import { kvGet, kvSet } from "@/lib/db/init";
+import { hubspotRetry } from "@/lib/connectors/steps/hs";
+import { getAnthropic } from "@/lib/ai/claude";
+import { aiClassify } from "@/lib/boDistribution/aiClassify";
+import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, isOpen, patchFor, type Decision, type Mail } from "./rules";
+
+const LOCK = 4_107_245;
+const EVERY_MS = 5 * 60_000;
+const KEEP_DAYS = 21;
+/** AI answers a day (a busy day has ~60 Back Office tickets closing on Others/empty) */
+const AI_PER_DAY = 300;
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last" };
+const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", `hs_v2_date_entered_${RESOLVED}`];
+
+export type Written = { at: string; error?: string; skipped?: string };
+export type Row = { id: string; subject: string; created: string; closed: string | null; now: string; d: Decision; written?: Written };
+export type RunInfo = { at: string; seconds: number; found: number; decided: number; written: number; live: boolean; error?: string };
+
+type Obj = { id: string; properties: Record<string, string | null> };
+const day = () => new Date().toISOString().slice(0, 10);
+
+let wfCache: { at: number; on: boolean | null } | null = null;
+/** The old workflow switched on? null = could not be read (then nothing is written). */
+async function workflowOn(): Promise<boolean | null> {
+  if (wfCache && Date.now() - wfCache.at < 2 * 60_000) return wfCache.on;
+  let on: boolean | null = null;
+  try { on = !!(await hubspotRetry<{ isEnabled?: boolean }>({ path: `/automation/v4/flows/${WORKFLOW_ID}` })).isEnabled; } catch { on = null; }
+  wfCache = { at: Date.now(), on };
+  return on;
+}
+
+// ---------------- HubSpot, reading the conversations ----------------
+async function search(filterGroups: Record<string, unknown>[][]): Promise<Obj[]> {
+  const out: Obj[] = [];
+  let cursor = "0";
+  for (let page = 0; page < 50; page++) {
+    const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+      filterGroups: filterGroups.map((f) => ({ filters: [...f, { propertyName: "hs_object_id", operator: "GT", value: cursor }] })),
+      properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
+    } });
+    const res = j.results ?? [];
+    out.push(...res);
+    if (res.length < 100) break;
+    cursor = String(res[res.length - 1].id);
+  }
+  return out;
+}
+async function assoc(to: string, ids: string[]): Promise<Map<string, string[]>> {
+  const m = new Map<string, string[]>();
+  for (let i = 0; i < ids.length; i += 500) {
+    const j = await hubspotRetry<{ results?: { from: { id: string }; to?: { toObjectId: string | number }[] }[] }>({
+      path: `/crm/v4/associations/tickets/${to}/batch/read`, method: "POST", body: { inputs: ids.slice(i, i + 500).map((id) => ({ id })) },
+    });
+    for (const r of j.results ?? []) m.set(String(r.from.id), (r.to ?? []).map((x) => String(x.toObjectId)));
+  }
+  return m;
+}
+async function batch(obj: string, ids: string[], props: string[]): Promise<Map<string, Record<string, string | null>>> {
+  const m = new Map<string, Record<string, string | null>>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const j = await hubspotRetry<{ results?: Obj[] }>({ path: `/crm/v3/objects/${obj}/batch/read`, method: "POST", body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: props } });
+    for (const o of j.results ?? []) m.set(String(o.id), o.properties);
+  }
+  return m;
+}
+async function chatOf(id: string): Promise<string[]> {
+  try {
+    const a = await hubspotRetry<{ results?: { id: string }[] }>({ path: `/crm/v3/objects/tickets/${id}/associations/conversations` });
+    const out: string[] = [];
+    for (const c of (a.results ?? []).slice(0, 2)) {
+      const m = await hubspotRetry<{ results?: { direction?: string; text?: string; richText?: string }[] }>({ path: `/conversations/v3/conversations/threads/${c.id}/messages?limit=100` });
+      for (const x of m.results ?? []) if (x.direction === "INCOMING" && (x.text || x.richText)) out.push(String(x.richText || x.text).replace(/<[^>]+>/g, " ").slice(0, 500));
+    }
+    return out;
+  } catch { return []; }
+}
+/** Each ticket's whole conversation, read in bulk. */
+async function conversations(tickets: Obj[]): Promise<Map<string, string>> {
+  const ids = tickets.map((t) => t.id);
+  const [mailsOf, notesOf] = [await assoc("emails", ids), await assoc("notes", ids)];
+  const mails = await batch("emails", [...new Set([...mailsOf.values()].flat())], ["hs_email_text", "hs_email_html", "hs_email_direction", "hs_timestamp"]);
+  const notes = await batch("notes", [...new Set([...notesOf.values()].map((x) => x.slice(0, 3)).flat())], ["hs_note_body"]);
+  const out = new Map<string, string>();
+  for (const t of tickets) {
+    const m: Mail[] = (mailsOf.get(t.id) ?? []).map((e) => mails.get(e)).filter((x): x is Record<string, string | null> => !!x)
+      .map((e) => ({ text: e.hs_email_text, html: e.hs_email_html, direction: e.hs_email_direction, at: e.hs_timestamp }));
+    const chat = t.properties.source_type === "CHAT" ? await chatOf(t.id) : [];
+    out.set(t.id, conversation({ content: t.properties.content, mails: m, chat, notes: (notesOf.get(t.id) ?? []).map((x) => notes.get(x)?.hs_note_body ?? null) }));
+  }
+  return out;
+}
+
+// ---------------- deciding, writing ----------------
+async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: number): Promise<{ rows: Row[]; ai: number }> {
+  const client = getAnthropic();
+  const rows: Row[] = [];
+  let ai = 0;
+  for (const t of tickets) {
+    const p = t.properties, txt = text.get(t.id) ?? "";
+    let d = before({ subject: p.subject, text: txt, notValid: p.sentiment_not_valid_reason });
+    if (!d) {
+      if (!client || ai >= aiMax) d = fromAi(null, txt, p.subject);
+      else {
+        ai++;
+        let ans = null;
+        for (let i = 0; i < 2 && !ans; i++) { try { ans = await aiClassify(client, p.subject, txt); } catch { /* asked again once */ } }
+        d = fromAi(ans, txt, p.subject);
+      }
+    }
+    rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: { ...d, why: d.why.slice(0, 120) } });
+  }
+  return { rows, ai };
+}
+/** Only onto Others / empty (read again just before); kept with what was there before. */
+async function writeSafe(rows: Row[]): Promise<number> {
+  let done = 0;
+  const cur = await batch("tickets", rows.map((r) => r.id), ["enquiry_category", "order_number"]);
+  const now = new Date().toISOString();
+  const log: { id: string; before: Record<string, string | null>; after: Record<string, string> }[] = [];
+  for (const r of rows) {
+    const c = cur.get(r.id);
+    if (!c) { r.written = { at: now, error: "ticket not found" }; continue; }
+    if (!isOpen(c.enquiry_category)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
+    const after = patchFor(r.d, c);
+    if (!Object.keys(after).length) continue;
+    try {
+      await hubspotRetry({ path: `/crm/v3/objects/tickets/${r.id}`, method: "PATCH", body: { properties: after } });
+      log.push({ id: r.id, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
+      r.written = { at: now };
+      done++;
+    } catch (e) { r.written = { at: now, error: (e as Error).message.slice(0, 160) }; }
+  }
+  if (log.length) await kvSet(`ticketClose:log:${now}`, log);
+  return done;
+}
+
+async function run(): Promise<RunInfo> {
+  const t0 = Date.now();
+  const live = (await workflowOn()) === false;
+  const last = await kvGet<RunInfo>(KV.last);
+  const since = last ? Date.parse(last.at) - 15 * 60_000 : Date.now() - 2 * 86400_000;
+  const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: `hs_v2_date_entered_${RESOLVED}`, operator: "GTE", value: String(since) }];
+  const found = await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]]);
+  const kept = ((await kvGet<Row[]>(KV.rows)) ?? []).filter((r) => Date.now() - Date.parse(r.closed ?? r.created) < KEEP_DAYS * 86400_000);
+  const seen = new Set(kept.filter((r) => r.d.stay !== "ai_failed").map((r) => r.id));
+  const todo = found.filter((t) => !seen.has(t.id));
+  let rows: Row[] = [], written = 0;
+  if (todo.length) {
+    const aiKey = `ticketClose:ai:${day()}`, used = (await kvGet<number>(aiKey)) ?? 0;
+    const r = await decideAll(todo, await conversations(todo), Math.max(0, AI_PER_DAY - used));
+    if (r.ai) await kvSet(aiKey, used + r.ai);
+    rows = r.rows;
+    if (live) written = await writeSafe(rows.filter((x) => x.d.category));
+    const cats = rows.filter((x) => x.d.category).map((x) => x.d.category).join(", ");
+    console.log(`[ticket-close] ${todo.length} resolved on Others/empty: ${rows.filter((x) => x.d.category).length} get a category${cats ? ` (${cats})` : ""}, ${rows.filter((x) => !x.d.category).length} stay Others - ${live ? `${written} written` : "the workflow is still on: nothing written"}`);
+  }
+  const byId = new Map(kept.map((x) => [x.id, x]));
+  for (const x of rows) byId.set(x.id, x);
+  await kvSet(KV.rows, [...byId.values()].sort((a, b) => String(b.closed).localeCompare(String(a.closed))).slice(0, 3000));
+  const info: RunInfo = { at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000), found: found.length, decided: rows.length, written, live };
+  await kvSet(KV.last, info);
+  return info;
+}
+
+export async function runOnce(): Promise<RunInfo | null> {
+  const client: PoolClient = await getPool().connect();
+  try {
+    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
+    if (!got.rows[0]?.ok) return null;
+    try {
+      return await run().catch(async (e) => {
+        const info: RunInfo = { at: new Date().toISOString(), seconds: 0, found: 0, decided: 0, written: 0, live: false, error: (e as Error).message.slice(0, 300) };
+        console.warn(`[ticket-close] ${info.error}`);
+        await kvSet(KV.last, info);
+        return info;
+      });
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+    }
+  } finally {
+    client.release();
+  }
+}
+
+let started = false, running = false;
+export function startTicketClose() {
+  if (started || process.env.TICKET_CLOSE === "off") return;
+  started = true;
+  const tick = () => {
+    if (running) return;
+    running = true;
+    const timer = setTimeout(() => { running = false; }, 4 * EVERY_MS);
+    timer.unref?.();
+    void runOnce()
+      .catch((e) => console.warn(`[ticket-close] ${(e as Error).message}`))
+      .finally(() => { clearTimeout(timer); running = false; });
+  };
+  setTimeout(tick, 240_000).unref?.();
+  setInterval(tick, EVERY_MS).unref?.();
+}
