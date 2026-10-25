@@ -324,13 +324,16 @@ export async function saveRedirAnswer(rule: PubRule, decision: "map" | "rule" | 
   else delete all[rule.id];
   await kvSet(KV.redirections, all);
 }
-/** The enabled Owner redirection rules, in order, and those kept over the map whose rule has not changed since.
- *  Owner redirection unreadable = nothing held (the map decides as before). */
+/** The enabled Owner redirection rules, in order, and those that hold their companies over the map: EVERY rule still
+ *  switched on (SARCLA 25.10.2026: "the overlapping rules - if it's overlapping it should not show as wrong": France ->
+ *  Jeremy gave 381 "Jeremy Borey -> TSA Team" differences while the rule itself keeps them on Jeremy) - unless the map was
+ *  chosen over it (an accepted conflict, which also switches the rule off). Switch a rule off on Owner redirection (the
+ *  day its country goes live here) and the map decides its companies. Owner redirection unreadable = nothing held. */
 async function redirState(): Promise<Redir> {
   try {
     const enabled = publishedRules(await listRules());
     const answers = await redirAnswers();
-    const held = new Set(enabled.filter((r) => answers[r.id]?.decision === "rule" && answers[r.id].sig === redirectionSig(r)).map((r) => r.id));
+    const held = new Set(enabled.filter((r) => !(answers[r.id]?.decision === "map" && answers[r.id].sig === redirectionSig(r))).map((r) => r.id));
     return { enabled, held };
   } catch (e) {
     console.warn(`[map-assign] owner redirection rules unreadable: ${msg(e)}`);

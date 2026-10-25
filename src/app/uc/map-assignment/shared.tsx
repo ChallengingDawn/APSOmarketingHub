@@ -22,12 +22,14 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // list the deviation")
 // Domains 25.10.2026 (SARCLA: "a new tab to replace the workflow SARCLA | COMPANY SETS DOMAIN") - its own engine and
 // API (src/lib/companyDomain, /api/uc/company-domain)
-export type View = "map" | "sae" | "performis" | "contacts" | "nocompany" | "domains" | "live";
+// Differences its own tab again 25.10.2026 (SARCLA: "differences by topic instead of a drop-down in the Contacts - create
+// another tab Differences")
+export type View = "map" | "sae" | "performis" | "differences" | "contacts" | "nocompany" | "domains" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", live: "#live",
+  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", differences: "#differences", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", live: "#live",
 };
-/** Old links: #differences opens Contacts (and the address becomes #contacts). */
-export const OLD_VIEW_HASH = { differences: "#differences" } as const;
+/** Old links that open another view - none since #differences is a view again. */
+export const OLD_VIEW_HASH = {} as const;
 
 const PORTAL = "26492587";
 export const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;

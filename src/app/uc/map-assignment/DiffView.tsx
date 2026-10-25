@@ -523,7 +523,7 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber"
           title={`${many(t.total.changeOwner, "company", "companies")} would change owner${inWhere} - grouped by why`}
-          note={`Give your OK topic by topic; nothing is written while a country is in shadow.${d.last ? ` Last scan ${when(d.last.at)}.` : ""}`}
+          note={`Counted with the saved rules (Live, not the sandbox), again at every save. The OK on a topic records that you agree with what the rules give there - it writes nothing; nothing is written while a country is in shadow.${d.last ? ` Last scan ${when(d.last.at)}.` : ""}`}
           right={cc === "all" ? (liveCount ? <Chip tint="pink">{liveCount} live</Chip> : <Chip tint="slate">all shadow</Chip>) : d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
           <Choice<string> value={cc} onChange={pickCountry} options={[

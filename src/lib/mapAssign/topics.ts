@@ -58,7 +58,7 @@ export const TOPIC_TEXT: Record<TopicId, { title: string; why: string }> = {
   },
   redirection: {
     title: "Kept by an Owner redirection rule",
-    why: "An Owner redirection rule you chose to keep over the map gives these companies to its own person.",
+    why: "An Owner redirection rule that is still switched on (France -> Jeremy Borey, Sandra Kuridza -> James Koeremez) gives these companies to its own person - the map follows it until the rule is switched off on Owner redirection, the day the country goes live here.",
   },
   other: {
     title: "Something else differs",

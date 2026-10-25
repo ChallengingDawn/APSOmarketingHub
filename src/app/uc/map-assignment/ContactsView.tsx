@@ -11,7 +11,7 @@
 //     "Correct the N sure ones" (24.10.2026: "if we are 100% sure that they don't follow the rules")
 //   Contacts match their company: per country and per person, the share of associated contacts with the company's
 //     owner + region in HubSpot now, and with the owner by the rules (the table's counts, from the nightly full read)
-//   Differences by topic, folded: the former Differences view (DiffView), unchanged
+//   (Differences by topic is its own tab again since 25.10.2026 - DiffView.tsx)
 // From GET ?contacts=1 (src/lib/mapAssign/contactsKpi.ts) - the page loads it once, its tab shows the share.
 
 import { useEffect, useState } from "react";
@@ -31,10 +31,7 @@ import PublishedWithChangesOutlinedIcon from "@mui/icons-material/PublishedWithC
 import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
 import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
 import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
-import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useHeld, type Held } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
@@ -45,7 +42,6 @@ import type {
   ClassCounts, ContactClass, ContactMatch, ContactsData, DayCount, MatchCounts, NewContactExample, NewContactsKpi, NewContactsPart, NotSureCounts, RuleKey,
 } from "@/lib/mapAssign/contactsKpi";
 import type { ContactFollow, FollowLast } from "@/lib/mapAssign/follow";
-import { DiffView } from "./DiffView";
 import { API, Swatch, countryName, hsCompany, hsContact, send, type Names, type Palette } from "./shared";
 
 /* ── the data ── */
@@ -641,7 +637,6 @@ export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
   const ownUrl = held ? null : `${API}?contacts=1${n ? `&n=${n}` : ""}`;
   const own = useHeld<ContactsData>(ownUrl, [ownUrl]);
   const h = held ?? own;
-  const [folded, setFolded] = useState(true);
   const r = h.result;
   const data = contactsOf(h);
   const retry = onRetry ?? (() => setN((x) => x + 1));
@@ -704,20 +699,6 @@ export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
     <>
       <FollowAsk a={askFor} f={follow} busy={busy !== null} onCancel={() => setAskFor(null)} onGo={(a) => void go(a)} />
       {top}
-      <GlassCard sx={{ p: 0 }}>
-        <Box component="button" type="button" onClick={() => setFolded((x) => !x)} aria-expanded={!folded} sx={{
-          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.5, width: "100%", minWidth: 0,
-          px: { xs: 2, md: 2.5 }, py: 1.75, borderRadius: "22px", "&:hover": { bgcolor: "rgba(21,34,58,.03)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` },
-        }}>
-          <CompareArrowsOutlinedIcon sx={{ fontSize: 20, color: MUTED }} />
-          <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
-            <Box component="span" sx={{ display: "block", fontSize: "0.98rem", fontWeight: 600, color: INK }}>Differences by topic</Box>
-            <Box component="span" sx={{ display: "block", fontSize: "0.8rem", color: MUTED }}>Companies whose owner, region or contacts differ from the rules, grouped by why - with an OK per topic</Box>
-          </Box>
-          {folded ? <ExpandMoreIcon sx={{ fontSize: 22, color: MUTED }} /> : <ExpandLessIcon sx={{ fontSize: 22, color: MUTED }} />}
-        </Box>
-      </GlassCard>
-      {!folded && <DiffView d={d} names={names} palette={palette} />}
     </>
   );
 }
