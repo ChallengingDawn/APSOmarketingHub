@@ -40,6 +40,24 @@ export const PEOPLE = {
 /** Queue users - an owner that is nobody yet: the distribution gives the ticket a person, the stray sweep picks it up. */
 export const QUEUE_OWNERS: ReadonlySet<string> = new Set([PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id]);
 export const isQueueOwner = (id: string | null | undefined): boolean => !!id && QUEUE_OWNERS.has(id);
+
+/**
+ * Did a PERSON put this ticket back on the queue?
+ *
+ * "Backoffice Team" is not a user - it is a name nobody watches, and a ticket left on it is
+ * invisible (SARCLA, 25.10.2026: "back office team nobody sees it's not a real user"). So when a
+ * person moves a ticket there by hand they are not parking it with themselves, they are putting
+ * it back in the pot: handing it straight back to them is the one answer that cannot be what
+ * they meant. An integration clearing the owner is the opposite case - nobody chose anything,
+ * and the person who had it should get it back.
+ *
+ * Takes the newest owner-history entry, which HubSpot returns first.
+ */
+export function requeuedByHand(latest: { value?: string | null; sourceType?: string | null } | undefined): boolean {
+  if (!latest?.value || !isQueueOwner(latest.value)) return false;
+  return latest.sourceType === "CRM_UI";
+}
+
 const { claudia, claudioG, leart, adriana, sara, maida, vanessa } = PEOPLE;
 
 /** The rosters exactly as the code steps carry them (order = tie-break). */

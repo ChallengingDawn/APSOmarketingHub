@@ -25,8 +25,7 @@ import {
   BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
   assignBo, assignGqs, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route,
   type Priority, type PriorityFacts, type PrioritySettings,
-  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload,
-} from "./rules";
+  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload, requeuedByHand,} from "./rules";
 
 const LOCK = 4_107_231;
 /** Every minute: in live mode the hub must assign before the workflow's safety net (3 minutes) falls back to its own step. */
@@ -800,15 +799,17 @@ async function strayCandidates(archived: Set<string>): Promise<{ id: string; pip
 
 /** The person who had the ticket last (not the queue), and that person's active account: the same one, or - for a
  *  deactivated account - an active owner with exactly the same name (Leart Asllani's new account, 14.09.2026). */
-async function lastRealOwner(id: string, shared: Shared, names: Map<string, string>): Promise<{ name: string | null; active: Person | null; moved: boolean }> {
+async function lastRealOwner(id: string, shared: Shared, names: Map<string, string>): Promise<{ name: string | null; active: Person | null; moved: boolean; byHand: boolean }> {
   const t = await hs<TicketFull>(`/crm/v3/objects/tickets/${id}?properties=hubspot_owner_id&propertiesWithHistory=hubspot_owner_id`);
-  const h = (t.propertiesWithHistory?.hubspot_owner_id ?? []).find((x) => x.value && !isQueueOwner(x.value));
-  if (!h) return { name: null, active: null, moved: false };
+  const hist = t.propertiesWithHistory?.hubspot_owner_id ?? [];
+  const byHand = requeuedByHand(hist[0]);
+  const h = hist.find((x) => x.value && !isQueueOwner(x.value));
+  if (!h) return { name: null, active: null, moved: false, byHand };
   const name = names.get(h.value) ?? h.value;
-  if (!shared.archived!.has(h.value)) return { name, active: { id: h.value, name }, moved: false };
+  if (!shared.archived!.has(h.value)) return { name, active: { id: h.value, name }, moved: false, byHand };
   const key = name.trim().toLowerCase();
   const twin = [...shared.avail!.all.keys()].find((oid) => oid !== h.value && !shared.archived!.has(oid) && (names.get(oid) ?? "").trim().toLowerCase() === key);
-  return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin };
+  return { name: `${name} (deactivated)`, active: twin ? { id: twin, name: names.get(twin) ?? name } : null, moved: !!twin, byHand };
 }
 
 /** ESO / TSA: the owner of the ticket's company, else of its contact - active people only. `company`: the first one's name. */
@@ -888,12 +889,13 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
       const back = await lastRealOwner(c.id, shared, names);
       item.was = back.name;
       const onTeam = !!back.active && team.some((x) => x.id === back.active!.id);
-      if (back.active && onTeam && avail.get(back.active.id) === "available") {
+      // a person who re-queued it by hand wants it off their desk, so it is redistributed
+      if (back.active && onTeam && !back.byHand && avail.get(back.active.id) === "available") {
         item.hub = { ownerId: back.active.id, ownerName: back.active.name, method: "Back to the person who had it", reasons: back.moved ? [`${back.active.name}'s new account`] : [] };
       } else {
         const row = await decide(c.id, c.pipeline, new Date(Date.now() - 45_000).toISOString(), shared, { stray: true });
         item.inherit = row.inherit ?? null;
-        const not = !back.name ? null : !back.active ? `${back.name}: no active account` : !onTeam ? `${back.active.name} is not on the team's lists` : `${back.active.name} is away`;
+        const not = back.byHand ? `${back.name ?? "somebody"} put it back on the queue by hand - redistributed rather than returned` : !back.name ? null : !back.active ? `${back.name}: no active account` : !onTeam ? `${back.active.name} is not on the team's lists` : `${back.active.name} is away`;
         item.hub = row.hub ? { ...row.hub, reasons: [...(not ? [not] : []), ...row.hub.reasons] } : null;
       }
       if (settings.live.strays && writes < STRAY_WRITES_PER_PASS) {
