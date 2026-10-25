@@ -102,7 +102,7 @@ test("the headline leads with how much was not a customer", () => {
 
 /* ─────────── what reaches HubSpot ─────────── */
 
-import { NOT_VALID_VALUE, UNKNOWN_VALUE, WRITABLE, valuesFor } from "../src/lib/boSentiment/engine";
+import { NOT_VALID_VALUE, UNKNOWN_VALUE, WRITABLE, primaryReason, valuesFor } from "../src/lib/boSentiment/engine";
 
 test("every answer the hub can reach is a value HubSpot now accepts", () => {
   // the two options SARCLA had added on 24.10.2026
@@ -113,14 +113,28 @@ test("every answer the hub can reach is a value HubSpot now accepts", () => {
 });
 
 test("a ticket that is not a customer is marked as such on both properties", () => {
-  const v = valuesFor({ real: false, answer: { tone: "positive", resolution: "positive", source: "keywords" } });
+  const v = valuesFor({ real: false, reasons: ["order_confirmation"], answer: { tone: "positive", resolution: "positive", source: "keywords" } });
   // its old "positive" came from a machine's words, so it must not survive
-  assert.deepEqual(v, { tone: "not_valid_email", resolution: "not_valid_email" });
+  assert.deepEqual(v, { tone: "not_valid_email", resolution: "not_valid_email", reason: "order_confirmation" });
 });
 
 test("a real ticket writes exactly what the hub concluded, 'unknown' included", () => {
-  assert.deepEqual(valuesFor({ real: true, answer: { tone: "negative", resolution: "neutral", source: "model" } }),
-    { tone: "negative", resolution: "neutral" });
-  assert.deepEqual(valuesFor({ real: true, answer: { tone: "unknown", resolution: "unknown", source: "none" } }),
-    { tone: "unknown", resolution: "unknown" });
+  assert.deepEqual(valuesFor({ real: true, reasons: [], answer: { tone: "negative", resolution: "neutral", source: "model" } }),
+    { tone: "negative", resolution: "neutral", reason: "" });
+  assert.deepEqual(valuesFor({ real: true, reasons: [], answer: { tone: "unknown", resolution: "unknown", source: "none" } }),
+    { tone: "unknown", resolution: "unknown", reason: "" });
+});
+
+test("one reason is written, and what the ticket IS beats how we noticed", () => {
+  // A ticket can trip several rules. "ERP stale-export warning" tells somebody reading a report
+  // what it is; "only our own words" tells them how the gate worked it out. The first wins.
+  assert.equal(primaryReason(["only_our_own_words", "erp_stale_warning"]), "erp_stale_warning");
+  assert.equal(primaryReason(["model_says_machine", "newsletter"]), "newsletter");
+  assert.equal(primaryReason(["only_our_own_words"]), "only_our_own_words");
+  assert.equal(primaryReason([]), "");
+});
+
+test("a ticket that IS a customer carries no reason, so a freed one loses its old excuse", () => {
+  const v = valuesFor({ real: true, reasons: [], answer: { tone: "neutral", resolution: "unknown", source: "keywords" } });
+  assert.equal(v.reason, "", "an empty value clears whatever the ticket carried before");
 });

@@ -45,6 +45,18 @@ export const WORKFLOW_ID = "4333972706";
  */
 export const TONE_PROP = "sentiment_customer_tone";
 export const RESOL_PROP = "sentiment_resolution";
+/**
+ * WHY a ticket is not a customer (SARCLA, 25.10.2026).
+ *
+ * The reason was worked out here and kept only in the hub's 21-day store, so "what are these
+ * 12,390 tickets" could be answered for three weeks and no longer. On the ticket it is
+ * answerable for ever, by anybody, in HubSpot's own filters - which is what he actually wanted
+ * when he asked for a figure that says what they are.
+ *
+ * One value, not several: a ticket can trip more than one rule, and a report somebody reads needs
+ * one answer each. The most specific reason wins - what the ticket IS beats how we noticed.
+ */
+export const REASON_PROP = "sentiment_not_valid_reason";
 /** No evidence either way - said out loud instead of dressed up as "neutral". */
 export const UNKNOWN_VALUE = "unknown";
 /** Not a customer talking at all: a machine, a newsletter, or only our own people. */
@@ -57,15 +69,33 @@ export const WRITABLE: Bucket[] = ["positive", "neutral", "negative", "unknown"]
  * A disqualified ticket gets "not a valid e-mail" on BOTH properties: its old tone was scored
  * from a machine's words, so leaving it would keep exactly the figure this work exists to remove.
  */
-export function valuesFor(row: Pick<Row, "real" | "answer">): { tone: string; resolution: string } {
-  if (!row.real) return { tone: NOT_VALID_VALUE, resolution: NOT_VALID_VALUE };
-  return { tone: row.answer.tone, resolution: row.answer.resolution };
+export function valuesFor(row: Pick<Row, "real" | "answer" | "reasons">): { tone: string; resolution: string; reason: string } {
+  if (!row.real) return { tone: NOT_VALID_VALUE, resolution: NOT_VALID_VALUE, reason: primaryReason(row.reasons ?? []) };
+  // a ticket that IS a customer carries no reason - and an old one must be cleared, or a ticket
+  // freed by a corrected rule would keep the excuse that no longer applies
+  return { tone: row.answer.tone, resolution: row.answer.resolution, reason: "" };
+}
+
+/**
+ * The one reason to write, when several fired.
+ *
+ * What the ticket IS (an ERP warning, a newsletter) beats how we noticed nobody was talking
+ * ("only our own words"), because the first is useful in a report and the second is plumbing.
+ */
+const REASON_ORDER: DisqualifyReason[] = [
+  "erp_stale_warning", "order_confirmation", "shipping_notification", "anyseals", "directcut",
+  "doc_declaration", "new_registrant", "newsletter", "bounce", "auto_reply",
+  "bulk_mail", "model_says_machine", "only_our_own_words", "no_inbound_mail",
+];
+export function primaryReason(reasons: DisqualifyReason[]): string {
+  for (const r of REASON_ORDER) if (reasons.includes(r)) return r;
+  return reasons[0] ?? "";
 }
 
 const MAX_PER_RUN = 40;
 const DAYS_KEPT = 21;
 const MAIL_PROPS = ["hs_email_text", "hs_email_html", "hs_email_direction", "hs_timestamp", "hs_email_from_email"];
-const TICKET_PROPS = ["subject", "content", "close_note", "closed_lost_reason", "hs_pipeline_stage", "createdate", "hs_lastmodifieddate", TONE_PROP, RESOL_PROP];
+const TICKET_PROPS = ["subject", "content", "close_note", "closed_lost_reason", "hs_pipeline_stage", "createdate", "hs_lastmodifieddate", TONE_PROP, RESOL_PROP, REASON_PROP];
 
 export type Mode = "off" | "shadow" | "live";
 export type Settings = {
@@ -96,7 +126,7 @@ export type Row = {
   /** What the hub stands behind. */
   answer: Answer;
   /** What the workflow itself wrote on this ticket, for the comparison. */
-  workflow: { tone: string | null; resolution: string | null };
+  workflow: { tone: string | null; resolution: string | null; reason?: string | null };
   /** The workflow's algorithm, re-run here on the same mails - so a difference can be explained. */
   replay: { tone: Bucket; resolution: Bucket };
   /** live only: what was written, or why it was not. */
@@ -247,7 +277,7 @@ export async function checkTicket(id: string, client: Client | null): Promise<{
   real: boolean; reasons: DisqualifyReason[];
   keywords: ReturnType<typeof detect>;
   replay: { tone: Bucket; resolution: Bucket; tonePos: number; toneNeg: number; resolPos: number; resolNeg: number };
-  workflow: { tone: string | null; resolution: string | null };
+  workflow: { tone: string | null; resolution: string | null; reason?: string | null };
   ai: AiAnswer | null;
   wouldAsk: boolean;
 }> {
@@ -330,7 +360,7 @@ export async function runOnce(client: Client | null, by = "schedule"): Promise<R
           hits: d.customer.hits.slice(0, 6).map((h) => `${h.term}(${h.dim})`),
         },
         answer: { tone: "unknown", resolution: "unknown", source: "none" },
-        workflow: { tone: p[TONE_PROP] ?? null, resolution: p[RESOL_PROP] ?? null },
+        workflow: { tone: p[TONE_PROP] ?? null, resolution: p[RESOL_PROP] ?? null, reason: p[REASON_PROP] ?? null },
         replay: { tone: replay.tone, resolution: replay.resolution },
       };
 
@@ -364,10 +394,11 @@ export async function runOnce(client: Client | null, by = "schedule"): Promise<R
 
       if (writing) {
         const v = valuesFor(row);
-        const props: Record<string, string> = { [TONE_PROP]: v.tone, [RESOL_PROP]: v.resolution };
+        const props: Record<string, string> = { [TONE_PROP]: v.tone, [RESOL_PROP]: v.resolution, [REASON_PROP]: v.reason };
         // Only write what would change: re-writing the same value on every pass would fill the
         // property history with noise and make "when did this ticket turn negative" unreadable.
-        if (props[TONE_PROP] === row.workflow.tone && props[RESOL_PROP] === row.workflow.resolution) {
+        if (props[TONE_PROP] === row.workflow.tone && props[RESOL_PROP] === row.workflow.resolution
+            && props[REASON_PROP] === (row.workflow.reason ?? "")) {
           row.skipped = "already right";
         } else {
           try {
