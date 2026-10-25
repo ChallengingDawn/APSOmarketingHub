@@ -38,7 +38,7 @@ import { Chip, Choice, usePaged } from "@/app/connectors/parts";
 import { saeKey, type AssignRules, type CountryRule, type Zone } from "@/lib/mapAssign/rules";
 import type { CompanyRow, LayerData, MapData, OwnerLoad, TicketLoad } from "@/lib/mapAssign/api";
 import {
-  API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, prefixProblem, saeTarget, splitPrefixes, takesOver,
+  API, OwnerPicker, PeoplePicker, Swatch, canon, countryList, countryName, emptyRule, hsCompany, newId, placeOverride, prefixProblem, saeTarget, saeTargetAt, splitPrefixes, takesOver, withPlaceOverride,
   splitRegions, withOverride, type Names, type Palette, type SetDraft,
 } from "./shared";
 import { CountryMenu, PillGroup } from "./mapTabs";
@@ -118,26 +118,36 @@ type Vs = { load: OwnerLoad[]; m: CountryMap; joined: ReturnType<typeof joinLaye
 /** The sales workload per person: companies now -> after, customers and revenue this year, contacts, tickets, and the
  *  land rule 2 gives them (zip codes, km², the GDP of their part of each region). `vs`: the sandbox - each figure with
  *  its difference to live. */
-function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
+function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules }: {
   c: string; load: OwnerLoad[]; tickets: TicketLoad | null; m: CountryMap; joined: ReturnType<typeof joinLayer> | null; names: Names; palette: Palette; vs?: Vs;
+  rules: AssignRules;
 }) {
   const land = m.tally.byOwner;
+  // the companies here whose Performis SAE names each person (the SAE table) - listed even when the rules give them none,
+  // so a wrong SAE shows (SARCLA 25.10.2026: "or SAE - if the SAE is wrong they should still be listed")
+  const named = new Map<string, number>();
+  for (const [sae, n] of Object.entries(joined?.total.sae ?? {})) {
+    if (!sae || !n) continue;
+    const k = saeKey(sae);
+    const hit = Object.entries(rules.sae).find(([x]) => saeKey(x) === k);
+    if (hit) named.set(String(hit[1]), (named.get(String(hit[1])) ?? 0) + n);
+  }
   const gdp = gdpByOwner(m, joined);
   const vsLand = vs ? vs.m.tally.byOwner : null;
   const vsGdp = vs ? gdpByOwner(vs.m, vs.joined) : null;
   const vsBy = new Map((vs?.load ?? []).map((l) => [String(l.owner), l]));
-  const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String), ...(vs ? [...vsBy.keys(), ...[...vsLand!.keys()].filter(Boolean).map(String)] : [])])];
+  const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String), ...named.keys(), ...(vs ? [...vsBy.keys(), ...[...vsLand!.keys()].filter(Boolean).map(String)] : [])])];
   const byOwner = new Map(load.map((l) => [String(l.owner), l]));
   // someone with no company and no zip code in this country by these rules (and none in the sandbox's other side) is left
   // out (SARCLA 25.10.2026: "what am I doing in Italy if I have no companies or contacts")
   const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o), v: vsBy.get(o), vz: vsLand?.get(o) }))
-    .filter((r) => (r.l?.after ?? 0) > 0 || (r.z?.postcodes ?? 0) > 0 || (r.v?.after ?? 0) > 0 || (r.vz?.postcodes ?? 0) > 0)
+    .filter((r) => (r.l?.after ?? 0) > 0 || (r.z?.postcodes ?? 0) > 0 || (r.v?.after ?? 0) > 0 || (r.vz?.postcodes ?? 0) > 0 || (named.get(r.o) ?? 0) > 0)
     .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0) || (b.v?.after ?? 0) - (a.v?.after ?? 0));
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
   // "Sales open" per country: the open ESO + TSA tickets on the companies these rules give each person here (an older hub:
   // the person's open tickets in every country)
   const perCountry = load.some((l) => l.salesOpen !== undefined);
-  const cols = "minmax(170px, 1.4fr) 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
+  const cols = "minmax(170px, 1.4fr) 90px 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
   const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
     if (opts?.gdp) return v >= 1000 ? `${(v / 1000).toFixed(1)} bn` : `${full(Math.round(v))} m`;
@@ -155,13 +165,13 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
         <Box sx={{ minWidth: 1180 }}>
           <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
             <span />
-            {group("Customers", 4, "#1b7a55")}
+            {group("Customers", 5, "#1b7a55")}
             <Box sx={{ gridColumn: "span 1" }} />
             {group("Tickets - last 90 days", 3, "#a96a12")}
             {group("Land - rule 2", 3, "#6250d6")}
           </Box>
           <Box sx={{ ...row, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
-            {["Person", "Companies", "Bought this year", "New this year", "Revenue EUR", "Contacts", "All", "Sales", "Sales open", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
+            {["Person", "Companies", "Named by Performis", "Bought this year", "New this year", "Revenue EUR", "Contacts", "All", "Sales", "Sales open", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
               <Typography key={h} sx={{ ...head, textAlign: i ? "right" : "left" }}>{h}</Typography>
             ))}
           </Box>
@@ -177,6 +187,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
               <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
                 <Who owner={o} names={names} palette={palette} />
                 {fig(l?.after ?? (vs ? 0 : null), v?.after, undefined, true)}
+                <Typography sx={{ ...cell, color: (named.get(o) ?? 0) !== (l?.after ?? 0) ? "#a96a12" : MUTED }} title="companies here whose Performis SAE names this person">{named.has(o) ? num(named.get(o)) : "—"}</Typography>
                 {fig(l?.customers ?? (vs ? 0 : null), v?.customers)}
                 {fig(l?.newCustomers ?? (vs ? 0 : null), v?.newCustomers)}
                 {fig(l?.revenue ?? (vs ? 0 : null), v?.revenue)}
@@ -193,6 +204,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
           <Box sx={{ ...row, gridTemplateColumns: cols, py: 0.65, borderBottom: "none", bgcolor: "rgba(21,34,58,.02)" }}>
             <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED }}>{c}</Typography>
             <Typography sx={{ ...cell, fontWeight: 700 }}>{num(sum((r) => r.l?.after ?? 0))}</Typography>
+            <Typography sx={{ ...cell, color: MUTED }}>{num(sum((r) => named.get(r.o) ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.customers ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.newCustomers ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.revenue ?? 0))}</Typography>
@@ -207,7 +219,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs }: {
         </Box>
       </Box>
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = the open ESO + TSA tickets on these companies{perCountry ? ` in ${c}` : ", every country"}{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Someone with no company and no zip code here is not listed. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = the open ESO + TSA tickets on these companies{perCountry ? ` in ${c}` : ", every country"}{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Named by Performis: the companies here whose Performis SAE names the person (amber when the rules give another number). Someone with no company, no zip code and no SAE here is not listed. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
       </Typography>
     </Box>
   );
@@ -549,7 +561,7 @@ function RulesTab({ cc, got, rules, d, setDraft, names, palette, admin, rev, m, 
   if (place) return <PlaceRules place={place} cc={cc} rules={rules} d={d} setDraft={setDraft} names={names} palette={palette} admin={admin} m={m} mode={mode} joined={joined} liveJoined={compare ? liveJoined : null} gdpSource={layers.data?.gdpSource} />;
   return (
     <Box sx={{ display: "grid", gap: 3 }}>
-      {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} vs={vs} />}
+      {kpi && <WorkloadTable c={c} load={layers.data?.load ?? []} tickets={layers.data?.tickets ?? null} m={m} joined={joined} names={names} palette={palette} vs={vs} rules={rules} />}
       {kpi && <SplitTable c={c} load={layers.data?.load ?? []} names={names} palette={palette} vs={vs} />}
       {rule1}
       {rule2}
@@ -653,6 +665,15 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
     return out;
   }, [m, place]);
   const [swap, setSwap] = useState("");
+  // where this place's own SAE overrides live: the region's code, or the zip codes of the cell
+  const scope = useMemo(() => {
+    const base = m.base;
+    if (!base) return {};
+    if (place.kind === "region") return { region: base.regions[place.index]?.code };
+    const pts = base.cells[place.index] ?? [];
+    const ri = pts.length ? base.points[pts[0]].region : -1;
+    return { zips: pts.map((i) => base.points[i].zip), ...(ri >= 0 ? { inRegion: base.regions[ri]?.code } : {}) };
+  }, [m.base, place]);
 
   const r1 = kpi ? "minmax(150px, 1.2fr) 120px minmax(160px, 1fr)" : "minmax(150px, 1.1fr) 110px repeat(3, minmax(120px, 1fr)) minmax(200px, 1.2fr)";
   const r2 = kpi ? "minmax(140px, 1fr) minmax(160px, 1fr) 120px" : "minmax(140px, 1fr) repeat(3, minmax(120px, 1fr)) minmax(200px, 1.2fr) 110px";
@@ -667,12 +688,14 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
         <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}><RuleTag n={1} />Performis SAE in {place.title}</Typography>
         {off ? <Typography sx={hint}>Rule 1 is off in {c}: rule 2 decides every company.</Typography>
           : !joined ? <Typography sx={hint}>The companies of {place.title} come with the engine&apos;s scans.</Typography> : (
-          <Table cols={r1} heads={kpi ? ["SAE Performis", <Box key="c" sx={{ textAlign: "right" }}>Companies here</Box>, "After"] : ["SAE Performis", <Box key="c" sx={{ textAlign: "right" }}>Companies here</Box>, ...PROPS, `Override (all of ${c})`]}>
+          <Table cols={r1} heads={kpi ? ["SAE Performis", <Box key="c" sx={{ textAlign: "right" }}>Companies here</Box>, "After"] : ["SAE Performis", <Box key="c" sx={{ textAlign: "right" }}>Companies here</Box>, ...PROPS, `Override in ${place.title}`]}>
             {saes.map(([sae, n]) => {
-              const t = saeTarget(rules, cc, sae);
-              const person = t.how === "table" || t.how === "redirect" ? t.owner : null;
+              // the override of this place first (SARCLA 25.10.2026: country, region and zip-code levels), then the country's
+              const t = saeTargetAt(rules, cc, sae, scope);
+              const person = takesOver(rules, names, t.how === "table" || t.how === "redirect" ? t.owner : null);
               const over = t.how === "redirect";
               const wf = tableOf(sae);
+              const countryOver = saeTarget(rules, cc, sae);
               return (
                 <Box key={sae} sx={{ ...row, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: r1 }, bgcolor: over ? "rgba(98,80,214,.05)" : "transparent" }}>
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sae}>{sae}</Typography>
@@ -680,8 +703,12 @@ function PlaceRules({ place, cc, rules, d, setDraft, names, palette, admin, m, m
                   {kpi ? <Who owner={person} names={names} palette={palette} over={over} empty="rule 2" /> : (
                     <>
                       {PROPS.map((pp) => <Box key={pp} sx={{ minWidth: 0 }}><Box component="span" sx={{ display: { md: "none" }, fontSize: "0.7rem", color: FAINT }}>{pp}: </Box><Who owner={person} names={names} palette={palette} over={over} empty="rule 2 (zip)" /></Box>)}
-                      <OwnerPicker value={over ? t.owner ?? "" : ""} names={names} disabled={!admin} allowEmpty placeholder={wf ? `keep ${names.name(wf)}` : "pick someone"}
-                        onChange={(o) => setRule((r) => withOverride(r, sae, o || null))} />
+                      <Box sx={{ display: "grid", gap: 0.25, minWidth: 0 }}>
+                        <OwnerPicker value={placeOverride(rule, scope, sae) ?? ""} names={names} disabled={!admin} allowEmpty
+                          placeholder={countryOver.how === "redirect" ? `keep ${names.name(countryOver.owner)} (all of ${c})` : wf ? `keep ${names.name(wf)}` : "pick someone"}
+                          onChange={(o) => setRule((r) => withPlaceOverride(r, scope, sae, o || null))} />
+                        {countryOver.how === "redirect" && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>all of {c}: {names.name(countryOver.owner)}</Typography>}
+                      </Box>
                     </>
                   )}
                 </Box>

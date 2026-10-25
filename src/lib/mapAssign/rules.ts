@@ -33,6 +33,11 @@ export type CountryRule = {
   keyAccounts?: { owner: OwnerId; erpIds: string[]; label?: string }[];
   /** an SAE redirected in this country only (the Performis tab): SAE value -> person, before the global SAE table */
   saeOverride?: Record<string, OwnerId>;
+  /** an SAE redirected in one region only (region code -> SAE -> person) and in one zip code (zip prefix -> SAE ->
+   *  person) - SARCLA 25.10.2026: "the override should work for the SAE and the zip code, by country (top level), region
+   *  (second level) and zip code"; the most precise wins: zip code, then region, then the country */
+  saeOverrideByRegion?: Record<string, Record<string, OwnerId>>;
+  saeOverrideByZip?: Record<string, Record<string, OwnerId>>;
   /** the people who work this country (SARCLA 13.10: each person only in their home country). An SAE that points to
    *  someone else is not used here - the zone decides, flagged "not-in-country". Empty / missing = anyone. */
   people?: OwnerId[];
@@ -173,10 +178,10 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
     const sae = String(c.sae ?? "").trim();
     let elsewhere: OwnerId | null = null;
     if (sae) {
-      const local = Object.entries(rule?.saeOverride ?? {}).find(([k]) => saeKey(k) === saeKey(sae));
+      const local = saeOverrideFor(rule, sae, c.zip, c.region);
       const hit = local ?? Object.entries(rules.sae).find(([k]) => saeKey(k) === saeKey(sae));
       if (hit && rule?.people?.length && !rule.people.includes(hit[1]) && !local) { flags.push("not-in-country"); elsewhere = hit[1]; } // the zone decides
-      else if (hit) return done(hit[1], "sae", `SAE ${sae}${local ? ` (redirected in ${country})` : ""} - ${names(hit[1])}`);
+      else if (hit) return done(hit[1], "sae", `SAE ${sae}${local ? ` (redirected in ${local[2] ?? country})` : ""} - ${names(hit[1])}`);
       else flags.push("sae-unmapped");
     }
     const z = zone();
@@ -187,6 +192,23 @@ export function decide(c: CompanyFacts, rules: AssignRules, active: (owner: Owne
   const z = zone();
   if (z) return z;
   return done(fallback, "default", "no zone for this postcode - default");
+}
+
+/** The override of an SAE for one company: its zip code's (the longest matching prefix that names this SAE), else its
+ *  region's, else the country's - [SAE as written, person, where] or undefined. */
+export function saeOverrideFor(rule: CountryRule | undefined, sae: string, zip: string | null | undefined, region: string | null | undefined): [string, OwnerId, string | null] | undefined {
+  if (!rule) return undefined;
+  const k = saeKey(sae);
+  const pick = (m: Record<string, OwnerId> | undefined) => Object.entries(m ?? {}).find(([x]) => saeKey(x) === k);
+  const z = cleanZip(zip);
+  if (z && rule.saeOverrideByZip) {
+    const keys = Object.keys(rule.saeOverrideByZip).filter((p) => prefixMatches(z, p)).sort((a, b) => cleanZip(b).length - cleanZip(a).length);
+    for (const p of keys) { const hit = pick(rule.saeOverrideByZip[p]); if (hit) return [hit[0], hit[1], `zip code ${p}`]; }
+  }
+  const r = String(region ?? "").trim();
+  if (r && rule.saeOverrideByRegion?.[r]) { const hit = pick(rule.saeOverrideByRegion[r]); if (hit) return [hit[0], hit[1], r]; }
+  const hit = pick(rule.saeOverride);
+  return hit ? [hit[0], hit[1], null] : undefined;
 }
 
 /** Generic mail domains a contact's company is never guessed from. */

@@ -192,7 +192,7 @@ function Rules({ d, n, onEdit, onAdd, onMove, onDelete, onToggle, busy }: {
         </Table>
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: { xs: 2, md: 2.75 }, py: 1.25 }}>
-        Every rule writes the company owner and region_responsibility, and only what differs. For someone who has left, every open ticket and task they still own goes to the rule&apos;s person too, in every pipeline.
+        Every rule writes the company owner and region_responsibility, and only what differs.
         Only open ESO and TSA tickets follow: Back Office, GQS and every other pipeline keep their owner. Closed tickets and completed tasks keep theirs too. Leaving a country does not hand a company back.
       </Typography>
     </GlassCard>

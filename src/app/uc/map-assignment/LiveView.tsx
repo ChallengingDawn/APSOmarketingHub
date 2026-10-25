@@ -135,7 +135,7 @@ export function LiveView({ d, dirty, onChanged }: { d: MapData; dirty: boolean; 
         {pager}
         {!list.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{all.length ? "No country with this filter." : "No country yet - they appear with the rules and the first scan."}</Typography>}
         <Box sx={{ mt: 2, display: "grid", gap: 0.5 }}>
-          <Typography sx={{ fontSize: "0.8rem", color: INK }}>New contacts follow their company with Automatic on the Contacts tab. The redirections (France, Sandra Kuridza, the people who have left) run on the Redirections tab - the hub follows them.</Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: INK }}>When the hub gives a company a new owner, its contacts, its open ESO / TSA tickets and its open tasks of the old owner follow; the open tickets and tasks of someone who has left go to who takes over (SAE table). New contacts follow their company with Automatic on the Contacts tab.</Typography>
         </Box>
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>

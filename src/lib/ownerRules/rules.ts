@@ -77,36 +77,6 @@ export const SEED_RULE: CountryRule = {
   note: "French customers belong to Jeremy Borey - the rule of the old HubSpot app sarcla-france-owner (live since 01.09.2026).",
 };
 
-/**
- * The redirections of the people who have left, as the HubSpot workflows run them today (read 25.10.2026) - SARCLA
- * 25.10.2026: "STACHR (Stahl -> TSA), Paulina (Bozek -> TSA), NIBE NEW RABE (Nitschke -> Bernd Rausmann), Andrea to Luca,
- * PIRAHM (Pirzad -> TSA): this we should bring as overrides on the hub". Owner rules with the full cascade; for someone
- * who has left the sweep also moves every open ticket and task they still own (sweep.ts leavers), as those workflows
- * did. Added once to the hub's rules (store.ts), NOT published - Publish on the page puts them to work.
- */
-export const TSA_TEAM = "1202569408";
-/** The notes as first added (25.10.2026 13:43) - they named the HubSpot workflows; store.ts puts the ones above in their
- *  place once (SARCLA: "take out all reference to workflows"). */
-export const LEAVER_NOTE_SUFFIXES = [
-  " - as SARCLA | STACHR TASK / TICKET REDIRECTION did.", " - as FEHDIA | Paulina TASK / TICKET REDIRECTION did.",
-  " - as FEHDIA | NIBE TASK / TICKET REDIRECTION NEW RABE did.", " - as Tasks / Tickets Andrea to Luca did.",
-  " - as Tasks reassignment PIRAHM to TSA did (Tasks CH / Tickets CH gave the Swiss ones to Claudio Saraiva).",
-];
-export const LEAVER_RULES: OwnerRule[] = [
-  { id: "leaver-stahl", enabled: true, kind: "owner", fromOwner: "32984810", toOwner: TSA_TEAM, cascade: { ...FULL_CASCADE },
-    note: "Christopher Stahl has left: his companies, contacts, open tickets and tasks go to TSA Team." },
-  { id: "leaver-bozek", enabled: true, kind: "owner", fromOwner: "31218632", toOwner: TSA_TEAM, cascade: { ...FULL_CASCADE },
-    note: "Paulina Bozek has left: her companies, contacts, open tickets and tasks go to TSA Team." },
-  { id: "leaver-kulczyk", enabled: true, kind: "owner", fromOwner: "1229976038", toOwner: TSA_TEAM, cascade: { ...FULL_CASCADE },
-    note: "Paulina Kulczyk has left: her open tickets and tasks go to TSA Team." },
-  { id: "leaver-nitschke", enabled: true, kind: "owner", fromOwner: "1229976034", toOwner: "817647087", cascade: { ...FULL_CASCADE },
-    note: "Benjamin Nitschke has left: his companies, contacts, open tickets and tasks go to Bernd Rausmann." },
-  { id: "leaver-codognola", enabled: true, kind: "owner", fromOwner: "29285069", toOwner: "1229999587", cascade: { ...FULL_CASCADE },
-    note: "Andrea Codognola has left: her open tickets and tasks go to Luca Fantasia." },
-  { id: "leaver-pirzad", enabled: true, kind: "owner", fromOwner: "30795573", toOwner: TSA_TEAM, cascade: { ...FULL_CASCADE },
-    note: "Ahmad Pirzad has left: his open tickets and tasks go to TSA Team." },
-];
-
 /** The company properties the rules read. */
 export type CompanyProps = {
   country?: string | null;

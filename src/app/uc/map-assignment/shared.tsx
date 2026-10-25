@@ -24,11 +24,9 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // API (src/lib/companyDomain, /api/uc/company-domain)
 // Differences its own tab again 25.10.2026 (SARCLA: "differences by topic instead of a drop-down in the Contacts - create
 // another tab Differences")
-// Redirections back on the page 25.10.2026 (SARCLA: "owner redirection is not integrated on the page - it's on a separate
-// page, that's what I could find"): Owner redirection's board, as its own tab
-export type View = "map" | "sae" | "performis" | "differences" | "contacts" | "nocompany" | "domains" | "redirections" | "live";
+export type View = "map" | "sae" | "performis" | "differences" | "contacts" | "nocompany" | "domains" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", differences: "#differences", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", redirections: "#redirections", live: "#live",
+  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", differences: "#differences", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", live: "#live",
 };
 /** Old links that open another view - none since #differences is a view again. */
 export const OLD_VIEW_HASH = {} as const;
@@ -324,6 +322,48 @@ export function saeTarget(rules: AssignRules, cc: string, sae: string): SaeTarge
   if (!hit) return { owner: null, how: "unmapped" };
   if (rule?.people?.length && !rule.people.map(String).includes(String(hit[1]))) return { owner: String(hit[1]), how: "not-in-country" };
   return { owner: String(hit[1]), how: "table" };
+}
+
+/** Where a place's SAE override lives (SARCLA 25.10.2026: "country top level, region second level, zip code level"): a
+ *  region by its code, a zip-code cell by its zip codes. */
+export type PlaceScope = { region?: string; zips?: string[]; /** a cell's region: its override applies under the cell's own */ inRegion?: string };
+const pickSae = (m: Record<string, OwnerId> | undefined, sae: string) => { const k = saeKey(sae); const hit = Object.entries(m ?? {}).find(([x]) => saeKey(x) === k); return hit ? String(hit[1]) : null; };
+/** The override of an SAE set on this place itself (not the country's), or null. */
+export function placeOverride(rule: CountryRule | undefined, scope: PlaceScope, sae: string): OwnerId | null {
+  if (!rule) return null;
+  if (scope.region) return pickSae(rule.saeOverrideByRegion?.[scope.region], sae);
+  for (const z of scope.zips ?? []) { const o = pickSae(rule.saeOverrideByZip?.[z], sae); if (o) return o; }
+  return null;
+}
+/** The SAE's person in a place: the place's own override first (zip code / region), else as in the whole country. */
+export function saeTargetAt(rules: AssignRules, cc: string, sae: string, scope: PlaceScope): SaeTarget & { here: boolean } {
+  const rule = rules.countries[cc];
+  if (rule?.source === "map") return { owner: null, how: "map", here: false };
+  const own = placeOverride(rule, scope, sae);
+  if (own) return { owner: own, how: "redirect", here: true };
+  // a zip code inside a region with its own override
+  const reg = scope.inRegion ? pickSae(rule?.saeOverrideByRegion?.[scope.inRegion], sae) : null;
+  if (reg) return { owner: reg, how: "redirect", here: false };
+  return { ...saeTarget(rules, cc, sae), here: false };
+}
+/** A place's SAE override set (owner) or taken out (null): the region's, or every zip code of the cell. */
+export function withPlaceOverride(rule: CountryRule, scope: PlaceScope, sae: string, owner: OwnerId | null): CountryRule {
+  const k = saeKey(sae);
+  const put = (m: Record<string, Record<string, OwnerId>> | undefined, key: string) => {
+    const next = { ...(m ?? {}) };
+    const t = Object.fromEntries(Object.entries(next[key] ?? {}).filter(([x]) => saeKey(x) !== k));
+    if (owner) t[sae] = owner;
+    if (Object.keys(t).length) next[key] = t; else delete next[key];
+    return Object.keys(next).length ? next : undefined;
+  };
+  const out: CountryRule = { ...rule };
+  if (scope.region) { const m = put(rule.saeOverrideByRegion, scope.region); if (m) out.saeOverrideByRegion = m; else delete out.saeOverrideByRegion; }
+  else {
+    let m = rule.saeOverrideByZip;
+    for (const z of scope.zips ?? []) m = put(m, z);
+    if (m) out.saeOverrideByZip = m; else delete out.saeOverrideByZip;
+  }
+  return out;
 }
 
 /** A country's SAE redirects with one set (owner) or taken out (null) - matched by saeKey, so a respelt key is replaced. */

@@ -174,6 +174,22 @@ export function validateRules(x: unknown): Checked<AssignRules> {
           if (Object.keys(t).length) rule.saeOverride = t;
         }
       }
+      // an SAE redirected in one region / one zip code (SARCLA 25.10.2026: country, region and zip-code levels)
+      for (const [field, what] of [["saeOverrideByRegion", "region"], ["saeOverrideByZip", "zip code"]] as const) {
+        const raw2 = (raw as Record<string, unknown>)[field];
+        if (raw2 === undefined || raw2 === null) continue;
+        if (!isObj(raw2)) { err(`${cc}: ${field} is not a table of ${what} -> SAE -> person`); continue; }
+        if (Object.keys(raw2).length > 2000) err(`${cc}: more than 2000 ${what} overrides`);
+        const out: Record<string, Record<string, OwnerId>> = {};
+        for (const [place, t] of Object.entries(raw2)) {
+          const key = field === "saeOverrideByRegion" ? str(place).toUpperCase() : cleanPrefix(place);
+          if (!key || (field === "saeOverrideByRegion" && !REGION.test(key))) { err(`${cc}: "${place}" is not a ${what}`); continue; }
+          if (!isObj(t)) { err(`${cc} ${what} ${key}: not a table of SAE -> person`); continue; }
+          const table = saeTable(t, `${cc} ${what} ${key}`);
+          if (Object.keys(table).length) out[key] = table;
+        }
+        if (Object.keys(out).length) rule[field] = out;
+      }
       // the people who work this country (an empty list = anyone)
       if (raw.people !== undefined && raw.people !== null) {
         if (!Array.isArray(raw.people)) err(`${cc}: people is not a list`);

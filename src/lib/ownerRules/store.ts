@@ -11,12 +11,12 @@
 import { randomUUID } from "node:crypto";
 import { getPool, query } from "@/lib/db/client";
 import { ensureSchema, kvGet, kvSet } from "@/lib/db/init";
-import { LEAVER_NOTE_SUFFIXES, LEAVER_RULES, SEED_RULE, checkRule, newRuleId, type Rule } from "./rules";
+import { SEED_RULE, checkRule, newRuleId, type Rule } from "./rules";
 
 const KV_SEEDED = "ownerRules:seeded";
-/** the leavers' rules added once (25.10.2026) - deleting one later does not bring it back */
-const KV_LEAVERS = "ownerRules:leavers20261025";
-const KV_LEAVER_NOTES = "ownerRules:leaverNotes20261025";
+/** the leavers' rules of 25.10.2026 13:43, taken out again once (Map assignment moves a leaver's records) */
+const KV_LEAVERS_GONE = "ownerRules:leaversRemoved20261025";
+const LEAVER_IDS = ["leaver-stahl", "leaver-bozek", "leaver-kulczyk", "leaver-nitschke", "leaver-codognola", "leaver-pirzad"];
 const LOG_KEEP_DAYS = 180;
 
 let ready: Promise<void> | null = null;
@@ -58,31 +58,12 @@ export function ensureOwnerRules(): Promise<void> {
       );
       await kvSet(KV_SEEDED, true);
     }
-    if (!(await kvGet<boolean>(KV_LEAVERS))) {
-      // SARCLA 25.10.2026: the HubSpot redirection workflows of the people who have left, as rules here - at the end of
-      // the list, a person who already has an owner rule keeps theirs; not published (Publish on the page)
-      const have = await query<{ id: string; position: number; rule: { kind?: string; fromOwner?: string } }>(`SELECT id, position, rule FROM apsomh_owner_rules`);
-      const taken = new Set(have.rows.filter((r) => r.rule?.kind === "owner").map((r) => String(r.rule.fromOwner)));
-      let pos = have.rows.reduce((m, r) => Math.max(m, Number(r.position) || 0), 0);
-      for (const { id, ...rule } of LEAVER_RULES) {
-        if (taken.has(rule.fromOwner)) continue;
-        pos += 1;
-        await query(
-          `INSERT INTO apsomh_owner_rules (id, position, rule, updated_by) VALUES ($1, $2, $3::jsonb, 'SARCLA 25.10.2026: the HubSpot redirection workflows') ON CONFLICT (id) DO NOTHING`,
-          [id, pos, JSON.stringify(rule)],
-        );
-      }
-      await kvSet(KV_LEAVERS, true);
-    }
-    if (!(await kvGet<boolean>(KV_LEAVER_NOTES))) {
-      // SARCLA 25.10.2026: "take out all reference to workflows" - the leaver rules' notes as first added named them
-      for (const lr of LEAVER_RULES) {
-        await query(
-          `UPDATE apsomh_owner_rules SET rule = jsonb_set(rule, '{note}', to_jsonb($2::text)) WHERE id = $1 AND rule->>'note' = ANY($3::text[])`,
-          [lr.id, lr.note, LEAVER_NOTE_SUFFIXES.map((x) => lr.note.replace(/\.$/, x))],
-        );
-      }
-      await kvSet(KV_LEAVER_NOTES, true);
+    if (!(await kvGet<boolean>(KV_LEAVERS_GONE))) {
+      // the leavers' rules added 25.10.2026 13:43 (never published) are Map assignment's job since 14:30 the same day
+      // (SARCLA: "the override on the map is the redirection, nothing more - everything is redirected, tickets and tasks
+      // too"): out of this list, once
+      await query(`DELETE FROM apsomh_owner_rules WHERE id = ANY($1::text[])`, [LEAVER_IDS]);
+      await kvSet(KV_LEAVERS_GONE, true);
     }
   })().catch((e) => {
     ready = null;

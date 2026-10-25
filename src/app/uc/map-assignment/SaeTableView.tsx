@@ -140,7 +140,7 @@ function Successors({ rules, setDraft, names, palette, admin, owners }: { rules:
   return (
     <Box sx={{ display: "grid", gap: 1.25, mt: 3 }}>
       <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>People who have left - who takes over</Typography>
-      <Typography sx={hint}>Wherever the rules give a company to someone who has left - an SAE above, a zip-code zone, a key account - it goes to who takes over (otherwise to the default person). Their open tickets and tasks go to the same person on the Redirections tab.</Typography>
+      <Typography sx={hint}>Wherever the rules give a company to someone who has left - an SAE above, a zip-code zone, a key account - it goes to who takes over (otherwise to the default person). In a live country their open tickets and tasks go to the same person.</Typography>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden" }}>
         <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
           <Typography sx={head}>Has left</Typography>

@@ -51,18 +51,3 @@ test("the corrections of 25.10: successors from the redirection workflows, zone 
   const tobias = withoutPlaceholders({ ...SEED, countries: { DE: { ...SEED.countries.DE, zones: [{ id: "x", owner: TSA, prefixes: ["20"], label: "TSA Team (placeholder for Tobias Witt)" }, { id: "y", owner: TSA, prefixes: ["21"], label: "Marc Frech" }] } } });
   assert.deepEqual(tobias.countries.DE.zones.map((z) => z.label), ["TSA Team", "Marc Frech"]);
 });
-
-test("the leavers' Owner redirection rules read as rules, one per person, all to someone still here (SARCLA 25.10.2026)", async () => {
-  const { LEAVER_RULES, checkRule } = await import("../src/lib/ownerRules/rules");
-  const from = new Set<string>();
-  for (const r of LEAVER_RULES) {
-    const c = checkRule(r);
-    assert.ok(c.ok, `${r.id}: ${c.ok ? "" : c.error}`);
-    assert.equal(r.kind, "owner"); assert.ok(r.enabled);
-    assert.ok(!from.has(r.fromOwner)); from.add(r.fromOwner);
-    assert.ok(LEFT.has(r.fromOwner) && !LEFT.has(r.toOwner));
-    // the same person takes over in Map assignment
-    assert.equal(SUCCESSORS_FROM_WORKFLOWS[r.fromOwner], r.toOwner);
-  }
-  assert.equal(LEAVER_RULES.length, Object.keys(SUCCESSORS_FROM_WORKFLOWS).length);
-});

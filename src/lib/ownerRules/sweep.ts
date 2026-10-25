@@ -22,7 +22,7 @@ import { hubspotRetry as hs } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import type { StepResult } from "@/lib/connectors/steps/companyFacts";
 import { COMPANY_PROPS, TICKET_PROPS, childMoves, groupKey, resolve, ticketMoves, type ChildType, type PubRule, type Resolution } from "./rules";
-import { readOwners, readPublished } from "./hubspot";
+import { readPublished } from "./hubspot";
 import { logCorrections } from "./store";
 
 type Beat = () => Promise<void>;
@@ -237,66 +237,6 @@ async function cascade(plans: Plan[], live: boolean): Promise<GroupOut> {
   return { per, childFailed, errors };
 }
 
-/* ── the people who have left: their own open tickets and tasks ───────── */
-
-/** At most this many tickets and as many tasks a run, all leavers together. */
-const LEAVER_MAX = 1000;
-
-/** Every id a search on one object finds, by id cursor. */
-async function searchAll(obj: "tickets" | "tasks", filters: object[], props: string[], beat: Beat): Promise<Obj[]> {
-  const out: Obj[] = [];
-  let cursor = "0";
-  for (let pages = 1; out.length < 5 * LEAVER_MAX; pages++) {
-    const j = await hs<Page>({
-      path: `/crm/v3/objects/${obj}/search`, method: "POST",
-      body: { filterGroups: [{ filters: [...filters, { propertyName: "hs_object_id", operator: "GT", value: cursor }] }], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], properties: props, limit: 200 },
-    });
-    const res = j.results ?? [];
-    if (!res.length) break;
-    out.push(...res);
-    cursor = String(res[res.length - 1].id);
-    if (pages % 20 === 0) await beat();
-  }
-  return out;
-}
-
-/**
- * For an owner rule whose person has LEFT (SARCLA 25.10.2026: the HubSpot redirection workflows STACHR, Paulina, NIBE,
- * Andrea to Luca, PIRAHM "as overrides on the hub"): every open ticket - any pipeline, as those workflows did - and every
- * open task they still own goes to the rule's person, wherever it hangs (the company cascade only moves the children
- * of their companies). Someone still here (Sandra Kuridza -> James Koeremez) keeps the company cascade only.
- */
-async function leavers(rules: PubRule[], live: boolean, beat: Beat): Promise<{ byRule: Record<string, { tickets: number; tasks: number }>; errors: string[] }> {
-  const byRule: Record<string, { tickets: number; tasks: number }> = {};
-  const errors: string[] = [];
-  const owners = await readOwners();
-  const gone = new Set(owners.filter((o) => !o.active).map((o) => String(o.id)));
-  let budget = { tickets: LEAVER_MAX, tasks: LEAVER_MAX };
-  for (const r of rules) {
-    if (r.kind !== "owner" || !gone.has(String(r.fromOwner))) continue;
-    const t = (byRule[r.id] = { tickets: 0, tasks: 0 });
-    if (r.cascade.tickets && budget.tickets > 0) {
-      const closed = await closedStages();
-      const open = (await searchAll("tickets", [{ propertyName: "hubspot_owner_id", operator: "EQ", value: r.fromOwner }], ["hs_pipeline_stage", "hubspot_owner_id"], beat))
-        .filter((x) => !closed.has(String(x.properties?.hs_pipeline_stage ?? ""))).slice(0, budget.tickets);
-      const w = live ? await update("tickets", open.map((x) => ({ id: String(x.id), properties: { hubspot_owner_id: r.toOwner } }))) : null;
-      if (w) errors.push(...w.errors);
-      t.tickets = w ? w.ok.size : open.length;
-      budget = { ...budget, tickets: budget.tickets - open.length };
-    }
-    if (r.cascade.tasks && budget.tasks > 0) {
-      const open = (await searchAll("tasks", [{ propertyName: "hubspot_owner_id", operator: "EQ", value: r.fromOwner }, { propertyName: "hs_task_status", operator: "NEQ", value: "COMPLETED" }], ["hs_task_status", "hubspot_owner_id"], beat))
-        .slice(0, budget.tasks);
-      const w = live ? await update("tasks", open.map((x) => ({ id: String(x.id), properties: { hubspot_owner_id: r.toOwner } }))) : null;
-      if (w) errors.push(...w.errors);
-      t.tasks = w ? w.ok.size : open.length;
-      budget = { ...budget, tasks: budget.tasks - open.length };
-    }
-    await beat();
-  }
-  return { byRule, errors };
-}
-
 /* ── the step ──────────────────────────────────────────────────────────── */
 
 export async function ownerRulesSweep(live: boolean, beat: Beat): Promise<StepResult> {
@@ -369,10 +309,6 @@ export async function ownerRulesSweep(live: boolean, beat: Beat): Promise<StepRe
     }
   }
 
-  // the people who have left: their own open tickets and tasks, wherever they hang
-  const lv = await leavers(rules, live, beat).catch((e) => ({ byRule: {}, errors: [`leavers: ${msg(e)}`] }));
-  errors.push(...lv.errors);
-
   if (live && done.length) {
     await logCorrections(done.map(({ plan, counts }) => ({
       source: "sweep", ruleId: plan.res.rule, companyId: plan.id, companyName: plan.name,
@@ -382,7 +318,6 @@ export async function ownerRulesSweep(live: boolean, beat: Beat): Promise<StepRe
   return {
     ...out,
     [live ? "changed" : "would_change"]: done.length, failed, by_rule: byRule,
-    [live ? "leavers_moved" : "leavers_would_move"]: lv.byRule,
     ...(errors.length ? { errors: [...new Set(errors)].slice(0, 5) } : {}),
     loop_examples: loops.slice(0, 10),
     examples: done.slice(0, 50).map(({ plan, counts }) => ({
