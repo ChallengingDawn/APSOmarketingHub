@@ -210,7 +210,7 @@ export function DomainsView() {
             {d.last ? ` Last look ${when(d.last.at)}: ${full(d.last.without)} without a domain, ${full(d.last.looked)} looked at, ${full(d.last.found)} found, ${full(d.last.written)} written${d.last.error ? ` - ${d.last.error}` : ""}.` : ""}
           </Typography>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            Written: the company&apos;s <b>domain</b>, and <b>APSO customer = APSOmicro</b> for a private or micro company that is still APSOprospect (never one that bought). The old SARCLA segmentation property is no longer written.
+            Written: the company&apos;s <b>domain</b>, and <b>APSO customer = APSOmicro</b> for a private or micro company that is still APSOprospect (never one that bought).
           </Typography>
           {d.admin && (
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
