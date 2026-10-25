@@ -123,8 +123,8 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
   rules: AssignRules;
 }) {
   const land = m.tally.byOwner;
-  // the companies here whose Performis SAE names each person (the SAE table) - listed even when the rules give them none,
-  // so a wrong SAE shows (SARCLA 25.10.2026: "or SAE - if the SAE is wrong they should still be listed")
+  // the people Performis names here (an SAE of the SAE table) - listed, with the zip-code owners, even when an override
+  // gives their companies to someone else (SARCLA 25.10.2026: "we stay only with Performis + zip code owner")
   const named = new Map<string, number>();
   for (const [sae, n] of Object.entries(joined?.total.sae ?? {})) {
     if (!sae || !n) continue;
@@ -138,8 +138,8 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
   const vsBy = new Map((vs?.load ?? []).map((l) => [String(l.owner), l]));
   const people = [...new Set([...load.map((l) => String(l.owner)), ...[...land.keys()].filter(Boolean).map(String), ...named.keys(), ...(vs ? [...vsBy.keys(), ...[...vsLand!.keys()].filter(Boolean).map(String)] : [])])];
   const byOwner = new Map(load.map((l) => [String(l.owner), l]));
-  // someone with no company and no zip code in this country by these rules (and none in the sandbox's other side) is left
-  // out (SARCLA 25.10.2026: "what am I doing in Italy if I have no companies or contacts")
+  // someone with no company, no zip code and no SAE in this country (and none in the sandbox's other side) is left out
+  // (SARCLA 25.10.2026: "what am I doing in Italy if I have no companies or contacts")
   const rows = people.map((o) => ({ o, l: byOwner.get(o), t: tickets?.byOwner[o], z: land.get(o), v: vsBy.get(o), vz: vsLand?.get(o) }))
     .filter((r) => (r.l?.after ?? 0) > 0 || (r.z?.postcodes ?? 0) > 0 || (r.v?.after ?? 0) > 0 || (r.vz?.postcodes ?? 0) > 0 || (named.get(r.o) ?? 0) > 0)
     .sort((a, b) => (b.l?.after ?? 0) - (a.l?.after ?? 0) || (b.z?.postcodes ?? 0) - (a.z?.postcodes ?? 0) || (b.v?.after ?? 0) - (a.v?.after ?? 0));
@@ -147,7 +147,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
   // "Sales open" per country: the open ESO + TSA tickets on the companies these rules give each person here (an older hub:
   // the person's open tickets in every country)
   const perCountry = load.some((l) => l.salesOpen !== undefined);
-  const cols = "minmax(170px, 1.4fr) 90px 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
+  const cols = "minmax(170px, 1.4fr) 90px 90px 90px 110px 90px 90px 90px 90px 80px 90px 100px";
   const num = (v: number | null | undefined, opts?: { money?: boolean; km?: boolean; gdp?: boolean }) => {
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
     if (opts?.gdp) return v >= 1000 ? `${(v / 1000).toFixed(1)} bn` : `${full(Math.round(v))} m`;
@@ -162,16 +162,16 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
     <Box sx={{ display: "grid", gap: 1 }}>
       <Typography component="h3" sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>Sales workload in {c}{vs ? " - the sandbox, and how it differs from live" : ""}</Typography>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflowX: "auto" }}>
-        <Box sx={{ minWidth: 1180 }}>
+        <Box sx={{ minWidth: 1090 }}>
           <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 1.25, px: 1.25, pt: 1, bgcolor: "rgba(21,34,58,.03)" }}>
             <span />
-            {group("Customers", 5, "#1b7a55")}
+            {group("Customers", 4, "#1b7a55")}
             <Box sx={{ gridColumn: "span 1" }} />
             {group("Tickets - last 90 days", 3, "#a96a12")}
             {group("Land - rule 2", 3, "#6250d6")}
           </Box>
           <Box sx={{ ...row, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
-            {["Person", "Companies", "Named by Performis", "Bought this year", "New this year", "Revenue EUR", "Contacts", "All", "Sales", "Sales open", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
+            {["Person", "Companies", "Bought this year", "New this year", "Revenue EUR", "Contacts", "All", "Sales", "Sales open", "Zip codes", "km²", "GDP EUR"].map((h, i) => (
               <Typography key={h} sx={{ ...head, textAlign: i ? "right" : "left" }}>{h}</Typography>
             ))}
           </Box>
@@ -187,7 +187,6 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
               <Box key={o} sx={{ ...row, gridTemplateColumns: cols, py: 0.65 }}>
                 <Who owner={o} names={names} palette={palette} />
                 {fig(l?.after ?? (vs ? 0 : null), v?.after, undefined, true)}
-                <Typography sx={{ ...cell, color: (named.get(o) ?? 0) !== (l?.after ?? 0) ? "#a96a12" : MUTED }} title="companies here whose Performis SAE names this person">{named.has(o) ? num(named.get(o)) : "—"}</Typography>
                 {fig(l?.customers ?? (vs ? 0 : null), v?.customers)}
                 {fig(l?.newCustomers ?? (vs ? 0 : null), v?.newCustomers)}
                 {fig(l?.revenue ?? (vs ? 0 : null), v?.revenue)}
@@ -204,7 +203,6 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
           <Box sx={{ ...row, gridTemplateColumns: cols, py: 0.65, borderBottom: "none", bgcolor: "rgba(21,34,58,.02)" }}>
             <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED }}>{c}</Typography>
             <Typography sx={{ ...cell, fontWeight: 700 }}>{num(sum((r) => r.l?.after ?? 0))}</Typography>
-            <Typography sx={{ ...cell, color: MUTED }}>{num(sum((r) => named.get(r.o) ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.customers ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.newCustomers ?? 0))}</Typography>
             <Typography sx={cell}>{num(sum((r) => r.l?.revenue ?? 0))}</Typography>
@@ -219,7 +217,7 @@ function WorkloadTable({ c, load, tickets, m, joined, names, palette, vs, rules 
         </Box>
       </Box>
       <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = the open ESO + TSA tickets on these companies{perCountry ? ` in ${c}` : ", every country"}{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Named by Performis: the companies here whose Performis SAE names the person (amber when the rules give another number). Someone with no company, no zip code and no SAE here is not listed. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
+        {vs ? "Under each figure: the sandbox minus live. " : ""}Each person&apos;s companies by these rules: how many bought this year, how many are new this year (first order), their revenue this year and contacts; the tickets of the last 90 days on these companies - every pipeline, and the sales ones (ESO + TSA); sales open = the open ESO + TSA tickets on these companies{perCountry ? ` in ${c}` : ", every country"}{tickets ? ` (counted ${new Date(tickets.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })})` : " - counted within the hour"}. Listed: the people Performis (rule 1) or the zip codes (rule 2) name here. Land: the zip codes rule 2 gives each person, their km² and their share of each region&apos;s GDP.
       </Typography>
     </Box>
   );

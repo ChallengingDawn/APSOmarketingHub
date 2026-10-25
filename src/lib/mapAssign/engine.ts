@@ -717,132 +717,7 @@ export async function writeBatch(obj: "companies" | "contacts" | "tickets" | "ta
   return out;
 }
 
-export type Wrote = { companies: number; contacts: number; links: number; failed: number; tickets?: number; tasks?: number };
-
-/* ── open tickets and tasks follow (SARCLA 25.10.2026) ─────────────────── */
-
-/** The most open tickets + tasks one run moves (a company's change and the leavers' records together). */
-const WORK_PER_RUN = 3000;
-const SALES_TICKET_PIPELINES = ["1726599376", "1726599377"]; // ESO, TSA
-
-let closedStagesCache: { at: number; ids: Set<string> } | null = null;
-/** The ticket stages HubSpot marks closed, every pipeline - an hour old at most; none found = an error, never "all open". */
-async function closedTicketStages(): Promise<Set<string>> {
-  if (closedStagesCache && Date.now() - closedStagesCache.at < 3_600_000) return closedStagesCache.ids;
-  const d = await hs<{ results?: { stages?: { id: string; metadata?: { isClosed?: string | boolean } }[] }[] }>("/crm/v3/pipelines/tickets");
-  const ids = new Set<string>();
-  for (const pl of d.results ?? []) for (const st of pl.stages ?? []) if (st.metadata?.isClosed === true || st.metadata?.isClosed === "true") ids.add(st.id);
-  if (!ids.size) throw new Error("no closed ticket stage found - cannot tell open tickets from closed ones");
-  closedStagesCache = { at: Date.now(), ids };
-  return ids;
-}
-
-/** company id -> the ids of one associated object (v4, 100 companies a call, first page each). */
-async function companyLinks(to: "tickets" | "tasks", ids: string[]): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  for (let i = 0; i < ids.length; i += 100) {
-    const j = await hs<{ results?: { from: { id: string }; to?: { toObjectId: string | number }[] }[] }>(`/crm/v4/associations/companies/${to}/batch/read`, "POST", { inputs: ids.slice(i, i + 100).map((id) => ({ id })) });
-    for (const r of j.results ?? []) out.set(String(r.from.id), (r.to ?? []).map((t) => String(t.toObjectId)));
-  }
-  return out;
-}
-
-/**
- * A company that got a new owner: its open ESO / TSA tickets and its open tasks that the OLD owner held (or nobody, for
- * tickets) go to the new one - "everything is redirected, tickets and tasks too, because they trigger on the company and
- * contact owner" (SARCLA 25.10.2026). Someone else's ticket or task (Back Office, a colleague) keeps its owner; closed
- * tickets and completed tasks keep theirs. Every move logged (kind ticket / task, before / after).
- */
-async function moveOpenWork(moved: { company: string; from: string | null; to: string }[], by: string, logs: LogRow[], w: Wrote, budget: { work?: number }): Promise<void> {
-  if ((budget.work ?? Number.MAX_SAFE_INTEGER) <= 0) return;
-  const of = new Map(moved.map((m) => [m.company, m]));
-  const closed = await closedTicketStages();
-  const tl = await companyLinks("tickets", [...of.keys()]);
-  const ticketCo = new Map<string, string>();
-  for (const [co, list] of tl) for (const t of list) if (!ticketCo.has(t)) ticketCo.set(t, co);
-  const tprops = await batchRead("tickets", [...ticketCo.keys()], ["hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id"]);
-  const tw: { id: string; properties: Record<string, string>; company: string; before: string | null }[] = [];
-  for (const [id, p] of tprops) {
-    const m = of.get(ticketCo.get(id) ?? "");
-    if (!m || !SALES_TICKET_PIPELINES.includes(String(p.hs_pipeline ?? "")) || closed.has(String(p.hs_pipeline_stage ?? ""))) continue;
-    const owner = nz(p.hubspot_owner_id);
-    if (owner === m.to || (owner && owner !== m.from)) continue;
-    tw.push({ id, properties: { hubspot_owner_id: m.to }, company: m.company, before: owner });
-  }
-  const kl = await companyLinks("tasks", [...of.keys()]);
-  const taskCo = new Map<string, string>();
-  for (const [co, list] of kl) for (const t of list) if (!taskCo.has(t)) taskCo.set(t, co);
-  const kprops = await batchRead("tasks", [...taskCo.keys()], ["hs_task_status", "hubspot_owner_id"]);
-  const kw: { id: string; properties: Record<string, string>; company: string; before: string | null }[] = [];
-  for (const [id, p] of kprops) {
-    const m = of.get(taskCo.get(id) ?? "");
-    const owner = nz(p.hubspot_owner_id);
-    if (!m || p.hs_task_status === "COMPLETED" || !owner || owner !== m.from || owner === m.to) continue;
-    kw.push({ id, properties: { hubspot_owner_id: m.to }, company: m.company, before: owner });
-  }
-  await writeWork(tw, kw, by, logs, w, budget);
-}
-
-/** Tickets and tasks written (within the budget), each logged. */
-async function writeWork(tw: { id: string; properties: Record<string, string>; company: string | null; before: string | null }[],
-  kw: { id: string; properties: Record<string, string>; company: string | null; before: string | null }[], by: string, logs: LogRow[], w: Wrote, budget: { work?: number }): Promise<void> {
-  for (const [obj, list] of [["tickets", tw], ["tasks", kw]] as const) {
-    const room = budget.work ?? Number.MAX_SAFE_INTEGER;
-    const go = list.slice(0, Math.max(0, room));
-    if (!go.length) continue;
-    if (budget.work !== undefined) budget.work -= go.length;
-    const res = await writeBatch(obj, go.map(({ id, properties }) => ({ id, properties })));
-    for (const x of go) {
-      const e = res.get(x.id) ?? null;
-      logs.push({ kind: obj === "tickets" ? "ticket" : "task", object_id: x.id, company_id: x.company, before: { hubspot_owner_id: x.before }, after: x.properties, error: e, by });
-      if (e) w.failed++;
-      else if (obj === "tickets") w.tickets = (w.tickets ?? 0) + 1;
-      else w.tasks = (w.tasks ?? 0) + 1;
-    }
-  }
-}
-
-/** Every id of an open ticket or task one person owns (search by id cursor, at most `max`). */
-async function ownedOpen(obj: "tickets" | "tasks", owner: string, max: number, closed: Set<string>): Promise<string[]> {
-  const out: string[] = [];
-  let cursor = "0";
-  while (out.length < max) {
-    const j = await hs<Page>(`/crm/v3/objects/${obj}/search`, "POST", {
-      filterGroups: [{ filters: [
-        { propertyName: "hubspot_owner_id", operator: "EQ", value: owner },
-        ...(obj === "tasks" ? [{ propertyName: "hs_task_status", operator: "NEQ", value: "COMPLETED" }] : []),
-        { propertyName: "hs_object_id", operator: "GT", value: cursor },
-      ] }],
-      properties: obj === "tickets" ? ["hs_pipeline_stage"] : ["hs_task_status"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200,
-    });
-    const res = j.results ?? [];
-    for (const r of res) if (obj === "tasks" || !closed.has(String(r.properties?.hs_pipeline_stage ?? ""))) out.push(String(r.id));
-    if (res.length < 200) break;
-    cursor = String(res[res.length - 1].id);
-  }
-  return out.slice(0, max);
-}
-
-/**
- * The people who have left (rules.successors), once a country is live: every open ticket - any pipeline, as the HubSpot
- * redirection workflows did - and every open task they still own goes to who takes over, wherever it hangs (SARCLA
- * 25.10.2026: those workflows are off, "it should work by default"). 88's holiday sweep leaves a leaver's tasks to this.
- */
-async function leaversWork(ctx: Ctx, by: string, w: Wrote, budget: { work?: number }): Promise<void> {
-  const pairs = Object.entries(ctx.rules.successors ?? {}).filter(([from, to]) => !ctx.own.active.has(String(from)) && ctx.own.active.has(String(to)));
-  if (!pairs.length) return;
-  const closed = await closedTicketStages();
-  const logs: LogRow[] = [];
-  for (const [from, to] of pairs) {
-    if ((budget.work ?? 1) <= 0) break;
-    stop(ctx);
-    const tickets = await ownedOpen("tickets", from, budget.work ?? 1000, closed);
-    const tasks = await ownedOpen("tasks", from, budget.work ?? 1000, closed);
-    await writeWork(tickets.map((id) => ({ id, properties: { hubspot_owner_id: String(to) }, company: null, before: from })),
-      tasks.map((id) => ({ id, properties: { hubspot_owner_id: String(to) }, company: null, before: from })), by, logs, w, budget);
-  }
-  await log(logs);
-}
+export type Wrote = { companies: number; contacts: number; links: number; failed: number };
 
 /**
  * Live countries, at most `breaker` companies a run - like the workflows they replace, NOT a sweep of every difference
@@ -871,7 +746,7 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
      LIMIT $2`,
     [live, ctx.settings.breaker, [...ctx.own.active], JSON.stringify(ctx.liveSince)],
   );
-  await writeCompanies(pending.rows.map((r) => String(r.company_id)), ctx, by, w, { contacts: ctx.settings.contactBreaker, work: WORK_PER_RUN }, { liveOnly: true });
+  await writeCompanies(pending.rows.map((r) => String(r.company_id)), ctx, by, w, { contacts: ctx.settings.contactBreaker }, { liveOnly: true });
   return w;
 }
 
@@ -900,7 +775,7 @@ export async function fixCompanies(ids: string[], by: string, opts: { only?: (f:
 
 /** The writes of a live country (or a fix), 100 companies at a time: each read and decided again, the company then its
  *  own contacts, only what differs, logged; `budget.contacts` = the most contacts written. */
-async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, budget: { contacts: number; work?: number },
+async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, budget: { contacts: number },
   opts: { liveOnly: boolean; only?: (r: Rec) => boolean; onBatch?: () => Promise<void> }): Promise<void> {
   const active = isActive(ctx);
   for (let i = 0; i < all.length; i += 100) {
@@ -929,8 +804,6 @@ async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, bud
       } else ready.push(r);
     }
     const res = await writeBatch("companies", writes);
-    /** the companies whose OWNER this batch changed: their open tickets and tasks follow (moveOpenWork) */
-    const moved: { company: string; from: string | null; to: string }[] = [];
     for (const x of writes) {
       const r = recs.find((y) => y.company_id === x.id)!;
       const e = res.get(x.id) ?? null;
@@ -938,9 +811,6 @@ async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, bud
       logs.push({ kind: "company", object_id: x.id, company_id: x.id, before: before.get(x.id), after: x.properties, error: e, by });
       if (e) { w.failed++; continue; }
       w.companies++;
-      if (x.properties.hubspot_owner_id && String(before.get(x.id)?.hubspot_owner_id ?? "") !== String(x.properties.hubspot_owner_id)) {
-        moved.push({ company: x.id, from: (before.get(x.id)?.hubspot_owner_id as string | null) ?? null, to: String(x.properties.hubspot_owner_id) });
-      }
       r.owner_now = r.owner_decided;
       r.region_now = r.owner_decided;
       ready.push(r);
@@ -980,8 +850,6 @@ async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, bud
         else if (touched) outcome.set(r.company_id, outcome.get(r.company_id) ?? null);
       }
     }
-    // SARCLA 25.10.2026: "the override is the redirection - everything is redirected, tickets and tasks too"
-    if (moved.length) await moveOpenWork(moved, by, logs, w, budget).catch((e) => console.warn(`[map-assign] open tickets / tasks not moved: ${msg(e)}`));
     await upsert(recs);
     if (outcome.size) {
       await query(
@@ -1264,9 +1132,6 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   if (mode === "full") await kvSet(KV.lastFull, { at: new Date(t0).toISOString(), seconds: Math.round((Date.now() - t0) / 1000), companies: ctx.companies, contacts: ctx.contacts, mode, v: SCAN_VERSION } satisfies RunInfo);
   await recheck(ctx);
   const wrote = await writeLive(ctx, by);
-  // a leaver's open tickets and tasks, as soon as any country is live
-  if (liveList(ctx.live).length) await leaversWork(ctx, by, wrote, { work: WORK_PER_RUN }).catch((e) => console.warn(`[map-assign] leavers' tickets / tasks not moved: ${msg(e)}`));
-  if ((wrote.tickets ?? 0) + (wrote.tasks ?? 0) > 0) console.log(`[map-assign] open work followed: ${wrote.tickets ?? 0} tickets, ${wrote.tasks ?? 0} tasks`);
   const noCompany = await noCompanyScan(ctx, by, wrote);
   await ticketLoad(ctx).catch((e) => console.warn(`[map-assign] ticket workload not read: ${msg(e)}`));
   // the Contacts view: the new contacts of the last 30 days and whether they follow the rules - at most hourly
