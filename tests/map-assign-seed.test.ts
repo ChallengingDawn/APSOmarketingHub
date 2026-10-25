@@ -122,7 +122,7 @@ test("map seed: decisions with the engine's rules", () => {
   assert.equal(d({ country: "FR", zip: "75001", sae: "TSA Team" }).owner, JEREMY); // rule 1, overruled in France: TSA Team -> Jeremy
   assert.equal(d({ country: "CH", zip: "8400", sae: "TSA Team" }).owner, TSA); // ... in France only
   assert.equal(d({ country: "FR", zip: "75001", sae: "Köremez James" }).owner, JAMES); // James works France too
-  assert.equal(d({ country: "FR", zip: "69001", sae: "Kuridza Sandra" }).owner, JEREMY); // Sandra does not work France: rule 2, his zone
+  assert.equal(d({ country: "FR", zip: "69001", sae: "Kuridza Sandra" }).owner, "38431796"); // her SAE is James Koeremez's since 25.10.2026 (Owner redirection's rule), and he works France
   assert.equal(d({ country: "FR", zip: "75001" }).owner, TSA); // no SAE: rule 2, Paris is no zone of his
   assert.equal(d({ country: "FR", zip: "90000" }).owner, JEREMY); // no SAE: rule 2, Territoire de Belfort (SARCLA's 20th)
   const left = d({ country: "DE", zip: "01067" });

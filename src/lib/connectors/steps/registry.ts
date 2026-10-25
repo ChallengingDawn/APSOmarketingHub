@@ -20,7 +20,6 @@ import { taskDeputySweep } from "@/lib/holiday/taskSweep";
 import { runScheduled as boSentimentSweep } from "@/lib/boSentiment/engine";
 import { stockLoad } from "./stock";
 import { FCT_FILE } from "./stockRules";
-import { ownerRulesSweep } from "../../ownerRules/sweep";
 import { learnArticleIds, repairArticleLines } from "./articleMemory";
 import { directupNames } from "./directupNames";
 
@@ -91,9 +90,6 @@ export const REGISTRY: StepDef[] = [
   // switched to live on the Sentiment tab AND that workflow is switched off; it reads only
   // HubSpot, so it runs on the clock rather than on the ERP chain.
   { key: "bo_sentiment_sweep", cadence: "15min", hubOnly: true, run: () => boSentimentSweep() },
-  // HUB ONLY: Owner redirection's safety net (/uc/owner-redirection) - the HubSpot app function
-  // reacts at once; this applies the same published rules to every company every 15 minutes
-  { key: "owner_rules", cadence: "15min", hubOnly: true, run: (c) => ownerRulesSweep(c.live, c.beat) },
   // HUB ONLY: web orders get their A-number from the shop itself, as soon as it has transferred
   // them (SARCLA 15.10.2026) - magento_stamp's export.xml becomes a backup
   { key: "magento_link", cadence: "15min", hubOnly: true, run: (c) => magentoErpLink(c.live, c.beat) },

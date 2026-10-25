@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decide, type AssignRules } from "../src/lib/mapAssign/rules";
-import { RULE_FIXES, applyFixes, withKeyAccount, withSae } from "../src/lib/mapAssign/fixes";
+import { REDIRECTIONS_FIX, RULE_FIXES, applyFixes, withKeyAccount, withRedirectionsOnTheMap, withSae } from "../src/lib/mapAssign/fixes";
 import { SEED } from "../src/lib/mapAssign/seed";
 
 const TSA = "1202569408", JEREMY = "29117550", CLAUDIO = "1229976033", YANI = "32968527";
@@ -50,6 +50,31 @@ test("withSae replaces a value however it is spelled; withKeyAccount never doubl
   assert.deepEqual(none.countries.CH.keyAccounts, [{ owner: CLAUDIO, label: "Claudio Saraiva - key customers", erpIds: ["788310"] }]);
   // no rule for the country: unchanged
   assert.equal(withKeyAccount(SEED, "ZZ", CLAUDIO, "1", "x"), SEED);
+});
+
+test("Owner redirection's rules become overrides on the map: all of France to Jeremy, Sandra's SAE to James", () => {
+  assert.ok(RULE_FIXES.some((f) => f.id === REDIRECTIONS_FIX));
+  const base = saved();
+  base.sae["Kuridza Sandra"] = "30052119";
+  base.countries.FR = { ...base.countries.FR, zones: [...base.countries.FR.zones, { id: "fr-tsa", owner: TSA, label: "TSA Team", prefixes: ["75"] }], saeOverrideByZip: { "75": { "Köremez James": "38431796" } } };
+  const { rules } = applyFixes(base, []);
+  const fr = (zip: string, sae: string | null) => decide({ id: "1", country: "France", zip, sae }, rules, active).owner;
+  assert.equal(fr("75001", null), JEREMY); // a zone that was TSA Team's
+  assert.equal(fr("29200", null), JEREMY); // in no zone (was the country's default, TSA Team)
+  assert.equal(fr("69001", "TSA Team"), JEREMY);
+  assert.equal(fr("31000", "Köremez James"), JEREMY); // as Owner redirection's rule 1 did (first match)
+  assert.equal(fr("75001", "Köremez James"), JEREMY); // a zip-code override too
+  assert.equal(fr("31000", "Stahl Christopher"), JEREMY);
+  assert.equal(fr("31000", "Some Unknown SAE"), JEREMY);
+  assert.ok(rules.countries.FR.keyAccounts?.every((k) => k.owner === JEREMY));
+  assert.equal(rules.countries.FR.defaultOwner, JEREMY);
+  // Sandra's SAE to James wherever it lands; the other countries untouched
+  assert.equal(decide({ id: "2", country: "Switzerland", zip: "1200", sae: "Kuridza Sandra" }, rules, active).owner, "38431796");
+  assert.equal(decide({ id: "3", country: "Switzerland", zip: "8000", sae: "ESO CH GER" }, rules, active).owner, "37053854");
+  assert.deepEqual(rules.countries.DE, base.countries.DE);
+  // no France rule: only the SAE row changes
+  const noFr = { ...base, countries: Object.fromEntries(Object.entries(base.countries).filter(([cc]) => cc !== "FR")) };
+  assert.equal(withRedirectionsOnTheMap(noFr).countries.FR, undefined);
 });
 
 test("the seed carries the same corrections", () => {

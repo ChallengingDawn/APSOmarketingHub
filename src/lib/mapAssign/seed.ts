@@ -54,7 +54,9 @@ const WORKFLOWS: AssignRules = {
     "Borey Jeremy": "29117550", // Jeremy Borey - branch "JEREMY BOREY"
     "Schawlochow Denis": "1229999295", // Denis Schawlochow
     "TSA Team": "1202569408", // TSA Team
-    "Kuridza Sandra": "30052119", // Sandra Kuridza
+    // SARCLA 25.10.2026: Owner redirection's "owned by Sandra Kuridza -> James Koeremez" as the SAE table's own row
+    // (that page is gone - fixes.ts "2026-10-25-redirections-on-the-map")
+    "Kuridza Sandra": "38431796", // James Koeremez (was Sandra Kuridza 30052119)
     // SARCLA 19.10.2026: Sandra's customers go to James - Performis moved her list to "Köremez James" on 19.10 and the
     // workflow had no branch for it (230 companies to TSA Team)
     "Köremez James": "38431796", // James Koeremez

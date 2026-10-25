@@ -11,7 +11,7 @@
 //      contacts read: how many have another owner / region / SAE than the company's decided ones (contacts_off)
 //   3. LIVE countries only: owner + region_responsibility of the company (re-read first, only what differs), then its
 //      own contacts (owner, region, SAE) - at most `breaker` companies a run; every write logged; an archived owner is
-//      never written. Tickets and tasks are never touched (Owner redirection does that).
+//      never written. Tickets and tasks are never touched.
 //   4. recent contacts with no company (14 days, not A+P people): the companies with their e-mail domain, and
 //      contactCompany()'s answer - the page's "No company" list. Live country + a clear company = linked and owned.
 //
@@ -36,10 +36,11 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { IntegrationError } from "@/lib/integrations/status";
 import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
-import { applyFixes } from "./fixes";
+import { REDIRECTIONS_FIX, applyFixes } from "./fixes";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
 import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
+import { retireOwnerRedirection } from "@/lib/ownerRules/retire";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
 // used inside run() only - contactsKpi.ts imports ensureMapAssign from here, a cycle that is safe at runtime
 import { newContactsKpi } from "./contactsKpi";
@@ -320,6 +321,15 @@ async function applyRuleFixes(): Promise<void> {
   }
   await kvSet(KV.fixes, [...done, ...applied.map((f) => f.id)]);
   console.log(`[map-assign] corrections applied to the saved rules: ${applied.map((f) => f.why).join("; ")}`);
+}
+
+/** Owner redirection off for good once its two rules are overrides here (SARCLA 25.10.2026: "that page should not
+ *  exist") - every rule off, the empty set published so the HubSpot function changes nobody; once (ownerRules/retire). */
+async function retireRedirections(): Promise<void> {
+  const done = await kvGet<string[]>(KV.fixes);
+  if (!Array.isArray(done) || !done.includes(REDIRECTIONS_FIX)) return;
+  const note = await retireOwnerRedirection(FIX_BY);
+  if (note) console.log(`[map-assign] Owner redirection switched off - its rules are overrides on the map now. ${note}`);
 }
 
 /* ── Owner redirection against the map ────────────────────────────────── */
@@ -1098,6 +1108,7 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   await ensureMapAssign();
   const t0 = Date.now();
   await applyRuleFixes().catch((e) => console.warn(`[map-assign] corrections not applied: ${msg(e)}`));
+  await retireRedirections().catch((e) => console.warn(`[map-assign] Owner redirection not switched off yet (next run tries again): ${msg(e)}`));
   const ctx = await context(signal);
   const cursor = await kvGet<number>(KV.cursor);
   const lastFull = await kvGet<RunInfo>(KV.lastFull);
