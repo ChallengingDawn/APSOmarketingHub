@@ -233,7 +233,6 @@ const lowerOf = (d: Dim) => DIM[d].lower;
 
 /** The rows' columns, the same in every row of every chart: the name, the bar, the figures. */
 const ROW_COLS = { xs: "104px minmax(0, 1fr) 116px", sm: "150px minmax(0, 1fr) 128px" };
-type BulletRow = { label: string; cur: number; prev: number; sub?: string };
 const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
 /** The bullets' legend: this year up or down, last year's tick (and the forecast's dashes where they are drawn). */
 function BulletLegend({ cur, prev, forecast }: { cur: string; prev: string; forecast?: boolean }) {
@@ -269,24 +268,33 @@ function usePages<T>(rows: T[], size: number) {
 /** A row's change in its colour: in € and in %, "new" without last year. */
 const changeLine = (cur: number, prev: number) => { const ch = changeNote(cur, prev); return { text: `${signedEur(cur - prev)} · ${ch?.text ?? "—"}`, color: ch?.color ?? FAINT }; };
 
-function BulletBars({ title, rows: given, curLabel, prevLabel, pageSize = 12, fixedOrder = false, selected, onPick, onFilter, filterLabel, actions }: {
-  title: string; rows: BulletRow[]; curLabel: string; prevLabel: string; pageSize?: number;
-  /** priority keeps its own order; every other list ranks by this year */
-  fixedOrder?: boolean;
+/* ── the leaderboard: the top three as cards, everyone else ranked under them (SARCLA 25.10.2026 picked it - number 30 - from thirty proposals) ── */
+
+type BoardRow = { label: string; cur: number; prev: number; sub?: string };
+/** "−2.6% · −€141,542" in its colour - "new" without last year */
+const changeBoth = (cur: number, prev: number) => { const ch = changeNote(cur, prev); return { text: `${ch?.text ?? "—"} · ${signedEur(cur - prev)}`, color: ch?.color ?? FAINT }; };
+const PODIUM_BG = "rgba(45,111,168,.07)";
+
+function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions }: {
+  title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
+  /** the places shown before "Show all" */
+  first?: number;
   selected?: string[]; onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; actions?: React.ReactNode;
 }) {
-  const rows = useMemo(() => (fixedOrder ? given : [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label))), [given, fixedOrder]);
-  const p = usePages(rows, pageSize);
-  const max = Math.max(1, ...p.slice.map((r) => Math.max(r.cur, r.prev)));
-  const hint = [onPick ? "Click a row to show only it" : "", p.pages > 1 ? `${p.range}${fixedOrder ? "" : ", largest first"}` : ""].filter(Boolean).join(" · ");
+  const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, first);
+  const podium = shown.slice(0, 3), rest = shown.slice(3);
+  const hint = [onPick ? "Click a name to show only it" : "", `ranked by ${curLabel}`, rows.length > first && !all ? `the first ${first} of ${rows.length}` : ""].filter(Boolean).join(" · ");
+  const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
+  const tipOf = (r: BoardRow) => `${r.label} - ${curLabel}: ${eur(r.cur)} · ${prevLabel}: ${eur(r.prev)} · ${changeBoth(r.cur, r.prev).text}`;
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
-          {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>}
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>
         </Box>
-        <PagerArrows page={p.page} pages={p.pages} setPage={p.setPage} />
         {onFilter && (
           <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...NAV, color: selected?.length ? TINT.blue.fg : MUTED, bgcolor: selected?.length ? TINT.blue.bg : "transparent" }}>
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
@@ -294,35 +302,56 @@ function BulletBars({ title, rows: given, curLabel, prevLabel, pageSize = 12, fi
         )}
         {actions}
       </Box>
-      <BulletLegend cur={curLabel} prev={prevLabel} />
       {rows.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing with figures under these filters.</Typography> : (
-        <Box sx={{ display: "grid", gap: 0.25 }}>
-          {p.slice.map((r) => {
-            const on = !!selected?.includes(r.label);
-            const line = changeLine(r.cur, r.prev);
-            return (
-              <Box key={r.label} component={onPick ? "button" : "div"} type={onPick ? "button" : undefined} onClick={onPick ? () => onPick(r.label) : undefined} aria-pressed={onPick ? on : undefined}
-                title={`${r.label} - ${curLabel}: ${eur(r.cur)} · ${prevLabel}: ${eur(r.prev)} · ${line.text}`}
-                sx={{ display: "grid", gridTemplateColumns: ROW_COLS, alignItems: "center", columnGap: 1.5, px: 1, py: 0.6, width: "100%",
-                  border: 0, font: "inherit", textAlign: "left", borderRadius: "10px", cursor: onPick ? "pointer" : "default",
-                  bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.45 : 1,
-                  "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{r.label}</Typography>
-                  {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>{r.sub}</Typography>}
+        <>
+          {/* the first three as cards */}
+          <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" } }}>
+            {podium.map((r, i) => {
+              const on = !!selected?.includes(r.label), line = changeBoth(r.cur, r.prev);
+              return (
+                <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
+                  sx={{ font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default", borderRadius: "14px", p: 1.5, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start",
+                    bgcolor: on ? TINT.blue.bg : PODIUM_BG, border: `1px solid ${on ? TINT.blue.fg : "transparent"}`, opacity: selected?.length && !on ? 0.5 : 1,
+                    "&:hover": onPick ? { borderColor: TINT.blue.fg } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
+                  <Typography sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: "1.6rem", fontWeight: 700, color: THIS, lineHeight: 1 }}>{i + 1}</Typography>
+                  <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mt: 0.5 }}>{r.label}</Typography>
+                  <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{eur(r.cur)}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: line.color, fontVariantNumeric: "tabular-nums" }}>{line.text}</Typography>
+                  {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
                 </Box>
-                <Box sx={{ position: "relative", height: 22 }}>
-                  <Box sx={{ position: "absolute", left: 0, top: 5, height: 12, width: `${(Math.max(0, r.cur) / max) * 100}%`, minWidth: r.cur > 0 ? 2 : 0, bgcolor: THIS, borderRadius: "0 4px 4px 0" }} />
-                  {r.prev > 0 && <Box sx={{ position: "absolute", top: 0, bottom: 0, left: `calc(${(r.prev / max) * 100}% - 1px)`, width: 2, bgcolor: INK, borderRadius: 1 }} />}
-                </Box>
-                <Box sx={{ textAlign: "right", whiteSpace: "nowrap", minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{eur(r.cur)}</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: line.color, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{line.text}</Typography>
-                </Box>
-              </Box>
-            );
-          })}
-        </Box>
+              );
+            })}
+          </Box>
+          {/* everyone else, ranked */}
+          {rest.length > 0 && (
+            <Box sx={{ display: "grid" }}>
+              {rest.map((r, i) => {
+                const on = !!selected?.includes(r.label), ch = changeNote(r.cur, r.prev);
+                return (
+                  <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
+                    sx={{ display: "grid", gridTemplateColumns: { xs: "24px minmax(0, 1fr) auto 64px", sm: "30px minmax(0, 1fr) 128px 108px" }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
+                      border: 0, borderBottom: `1px solid ${HAIRLINE}`, font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default",
+                      bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.5 : 1,
+                      "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: FAINT, fontVariantNumeric: "tabular-nums" }}>{i + 4}</Typography>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{r.label}</Typography>
+                      {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>{r.sub}</Typography>}
+                    </Box>
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(r.cur)}</Typography>
+                    <Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: ch?.color ?? FAINT, lineHeight: 1.25 }}>{ch?.text ?? "—"}</Typography>
+                      <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.72rem", fontWeight: 600, color: ch?.color ?? FAINT, lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>{signedEur(r.cur - r.prev)}</Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+          {rows.length > first && (
+            <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? `Show the first ${first}` : `Show all ${rows.length}`}</Button>
+          )}
+        </>
       )}
     </Box>
   );
@@ -330,7 +359,7 @@ function BulletBars({ title, rows: given, curLabel, prevLabel, pageSize = 12, fi
 
 /** Revenue or order intake, year or month to date, by a breakdown - the period in the title; the customers under each name. */
 function ValueBars({ c, dim, period, which, actions }: { c: FigCtx; dim: Dim; period: Period; which: Which; actions?: React.ReactNode }) {
-  const rows: BulletRow[] = valuesOf(c, dim).map((r) => {
+  const rows: BoardRow[] = valuesOf(c, dim).map((r) => {
     const [cur, prev] = pick(r.e, period, which);
     const n = Math.round(period === "ytd" ? r.cust.ytd : r.cust.mtd);
     // the order intake's own line: book-to-bill, the order intake against the revenue (SARCLA 25.10.2026: "missing book to bill per SAE")
@@ -339,8 +368,8 @@ function ValueBars({ c, dim, period, which, actions }: { c: FigCtx; dim: Dim; pe
     return { label: r.label, cur, prev, sub };
   }).filter((r) => r.cur || r.prev);
   return (
-    <BulletBars key={`${period}-${which}-${dim}`} title={`${WHAT[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
-      curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} pageSize={c.half ? 8 : 12} fixedOrder={dim === "prio"}
+    <Leaderboard key={`${period}-${which}-${dim}`} title={`${WHAT[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
+      curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 8 : 12}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
@@ -684,8 +713,6 @@ const PC_ORDER: string[] = [...PC_KNOWN, "other"];
 const PC_NAME: Record<string, string> = { dt: "Sealing Technology (DT)", ft: "Fluid Technology (FT)", kt: "Engineering Plastics (KT)", at: "Drive Technology (AT)", st: "Antivibration Technology (ST)", other: "Other" };
 /** Fixed by the profit centre, never by its rank: the hub's four series slots and magenta (validated), "other" the de-emphasis grey. */
 const PC_COLOR: Record<string, string> = { dt: "#2d6fa8", ft: "#eb6834", kt: "#1baf7a", at: "#eda100", st: "#e87ba4", other: "#b9c0c9" };
-/** In a bar's row, where the name has little room: the tables and cards keep the full name. */
-const PC_SHORT: Record<string, string> = { dt: "Sealing (DT)", ft: "Fluid (FT)", kt: "Plastics (KT)", at: "Drive (AT)", st: "Antivibration (ST)", other: "Other" };
 const pcKey = (pc: string) => ((PC_KNOWN as readonly string[]).includes(pc) ? pc : "other");
 
 type PcFig = { ytd: number; ytdPy: number; mtd: number; mtdPy: number; months: { cy: number; py: number }[] };
@@ -741,8 +768,9 @@ function PcWaiting() {
 
 function PcBars({ c, period, actions }: { c: FigCtx; period: Period; actions?: React.ReactNode }) {
   if (!hasPc(c)) return <PcWaiting />;
-  const rows: BulletRow[] = pcRows(c).map((r) => ({ label: PC_SHORT[r.pc] ?? r.label, cur: period === "ytd" ? r.ytd : r.mtd, prev: period === "ytd" ? r.ytdPy : r.mtdPy }));
-  return <BulletBars key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} pageSize={12} actions={actions} />;
+  const all = pcRows(c), sum = all.reduce((a, x) => a + (period === "ytd" ? x.ytd : x.mtd), 0);
+  const rows: BoardRow[] = all.map((r) => { const cur = period === "ytd" ? r.ytd : r.mtd; return { label: r.label, cur, prev: period === "ytd" ? r.ytdPy : r.mtdPy, sub: `${sum > 0 ? pct(cur / sum) : "—"} of the revenue` }; });
+  return <Leaderboard key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} actions={actions} />;
 }
 
 /** The profit centres' colours and names. */
