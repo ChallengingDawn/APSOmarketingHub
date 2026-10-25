@@ -78,6 +78,8 @@ export type SentimentData = {
   detailDays: number;
   /** Counted in HubSpot for the period asked for; null when that read failed. */
   figures: { from: string; to: string; total: number; tone: Record<string, number>; resolution: Record<string, number>; at: string } | null;
+  /** Does the sweep actually have its rhythm? false with a live mode means it is NOT running. */
+  stepLive: boolean | null;
   ai: { usedToday: number; perRun: number; perDay: number; available: boolean };
   admin: boolean;
 };
@@ -212,7 +214,7 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
   const [note, setNote] = useState<string | null>(null);
   // the ticket list is long enough to page (SARCLA 24.10: "use pagination")
   const [page, setPage] = useState(0);
-  const [perPage, setPerPage] = useState(50);
+  const [perPage, setPerPage] = useState(25);
   useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 8000); return () => clearTimeout(t); }, [note]);
 
   const send = async (what: string, body: Record<string, unknown>, method: "PUT" | "POST") => {
@@ -247,9 +249,19 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
           note={d.admin ? "And how to change it" : "Admins can change this"} />
         <Box sx={{ mt: 1.5, display: "grid", gap: 1.25 }}>
           <Typography sx={{ fontSize: "1rem", color: INK }}>
-            <b>{MODE_WORD[d.settings.mode]}</b>
+            <b>{d.settings.mode !== "off" && d.stepLive === false ? "Set, but not running." : MODE_WORD[d.settings.mode]}</b>
             {d.settings.at ? <Typography component="span" sx={{ color: MUTED, fontSize: "0.85rem" }}> · set by {d.settings.by} on {new Date(d.settings.at).toLocaleString()}</Typography> : null}
           </Typography>
+          {/* A mode that is set but not running. The page used to say "Writing. Every new Back
+              Office ticket has its tone written into HubSpot" while the sweep had run once, by
+              hand, five hours earlier - SARCLA read that and believed it, which is the worst kind
+              of wrong a status line can be (25.10.2026). */}
+          {d.settings.mode !== "off" && d.stepLive === false ? (
+            <Typography sx={{ color: "#c5221f", fontSize: "0.9rem", fontWeight: 600 }}>
+              It is not actually running. The mode above is set, but the sweep is switched off, so nothing has happened
+              since the last time somebody pressed &ldquo;Look now&rdquo;. Press it once and it starts for good.
+            </Typography>
+          ) : null}
           {/* The one state nobody should sit in by accident: the old workflow handed over and
               nothing took the job on. Said first and in red, because new tickets are getting no
               tone at all while it lasts (SARCLA hit exactly this on 24.10.2026). */}

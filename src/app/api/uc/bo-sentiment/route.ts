@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { getAnthropic } from "@/lib/ai/claude";
-import { setLive } from "@/lib/connectors/steps/run";
+import { liveSteps, setLive } from "@/lib/connectors/steps/run";
 import {
   aiUsedToday, checkTicket, getSettings, lastRun, recentRows, runOnce, saveSettings, windowFigures, workflowOn,
   type Mode,
@@ -54,15 +54,20 @@ export async function GET(req: NextRequest) {
     };
     const to = iso(sp.get("to"), new Date());
     const from = iso(sp.get("from"), new Date(Date.now() - days * 86400_000));
-    const [settings, last, rows, usedToday, on, figures] = await Promise.all([
+    const [settings, last, rows, usedToday, on, figures, steps] = await Promise.all([
       getSettings(), lastRun(), recentRows(days), aiUsedToday(), workflowOn(),
       windowFigures(from, to).catch(() => null),
+      liveSteps().catch(() => null),
     ]);
     const summary = summarise(rows);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
         settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary), days, figures, detailDays: days,
+        // Whether the sweep actually has its 15-minute rhythm. A mode of "live" with this false
+        // means the page would otherwise claim to be writing while nothing ran since the last
+        // button press - which is exactly what happened to SARCLA on 25.10.2026.
+        stepLive: steps ? steps.has("bo_sentiment_sweep") : null,
         workflowOn: on, everyMinutes: 15,
         ai: { usedToday, perRun: AI_PER_RUN, perDay: AI_PER_DAY, available: client() !== null },
         admin: access.role === "admin",
@@ -115,6 +120,11 @@ export async function POST(req: NextRequest) {
   }
   if (body.action !== "run") return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   try {
+    // Repair the rhythm on the way past: a mode set before this page carried the step with it
+    // leaves the sweep switched off, and "Look now" is the button somebody presses when they
+    // notice nothing is happening. Making it fix the cause is better than documenting a dance.
+    const settings = await getSettings();
+    if (settings.mode !== "off") await setLive("bo_sentiment_sweep", true).catch(() => undefined);
     const info = await runOnce(client(), access.userId ? `user ${access.userId}` : "admin");
     return NextResponse.json({ ok: true, data: { last: info } });
   } catch (e) {
