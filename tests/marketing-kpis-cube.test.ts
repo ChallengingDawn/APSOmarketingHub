@@ -252,3 +252,23 @@ test("the Performis SAE as a person (the Figures' split): the Map assignment's m
   assert.deepEqual(saeLabel("WIESTE", map, names), { label: "WIESTE", owner: null });
   assert.deepEqual(saeLabel("  ", map, names), { label: "No SAE", owner: null });
 });
+
+test("the customers month by month for every value of a dimension (the Figures' cards): this year to the last month read, last year whole, the dimension's own filter left out", async () => {
+  const { buyersByMonthBy } = await import("../src/lib/marketingKpis/cube");
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const dims = (sae: string, country: string) => Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "sae" ? sae : d === "country" ? country : "x")])) as Record<Dim, number>;
+  const companies: CompanyIn[] = [
+    { dims: dims("Anna", "CH"), potential: null, months: [months({ 0: 100, 2: 5, 10: 7 }), months({ 0: 80, 11: 9 }), months()] },
+    { dims: dims("Anna", "CH"), potential: null, months: [months({ 0: 1 }), months(), months()] },
+    { dims: dims("Ben", "DE"), potential: null, months: [months({ 1: 10 }), months({ 1: 20 }), months()] },
+  ];
+  // read to September: November's order of this year is not in yet
+  const c: Cube = { generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: null, labels, ...fold(companies) };
+  const by = buyersByMonthBy(c, {}, "sae");
+  assert.deepEqual(by.get("Anna")!.cy.slice(0, 3), [2, 0, 1]);
+  assert.equal(by.get("Anna")!.cy[10], 0);
+  assert.deepEqual([by.get("Anna")!.py[0], by.get("Anna")!.py[11], by.get("Ben")!.py[1]], [1, 1, 1]);
+  assert.equal(buyersByMonthBy(c, { sae: ["Ben"] }, "sae").size, 2);
+  assert.deepEqual([...buyersByMonthBy(c, { country: ["DE"] }, "sae").keys()], ["Ben"]);
+});

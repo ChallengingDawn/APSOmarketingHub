@@ -488,6 +488,32 @@ export function erpBy(cube: Cube, filters: Filters, dim?: Dim): Map<string, ErpA
 }
 export const erpTotals = (cube: Cube, filters: Filters): ErpAgg => erpBy(cube, filters).get("") ?? (Object.fromEntries(ERP_FIELDS.map((f) => [f, 0])) as ErpAgg);
 
+/** The companies that bought each month (index 0 = January): this year to the last month read, last year all twelve. */
+export type BuyerMonths = { cy: number[]; py: number[] };
+/**
+ * The customers next to the revenue, month by month, for every value of one dimension in one pass (the ESO Figures,
+ * SARCLA 25.10.2026: "put also the number of customers") - grouped like breakdown, the dimension's own filter left out.
+ * Whole months as the buyers' masks hold them: no pro rata.
+ */
+export function buyersByMonthBy(cube: Cube, filters: Filters, dim: Dim): Map<string, BuyerMonths> {
+  const ok = passes(cube, filters, dim);
+  const gi = DIMS.indexOf(dim);
+  const last = lastMonth(cube) - monthOf(0, 0);
+  const out = new Map<string, BuyerMonths>();
+  for (const b of cube.buyers) {
+    if (!ok[b[0]]) continue;
+    const label = cube.labels[dim][cube.cells[b[0]][gi]];
+    let g = out.get(label);
+    if (!g) { g = { cy: Array(12).fill(0), py: Array(12).fill(0) }; out.set(label, g); }
+    for (let m = 0; m < 12; m++) {
+      // this year's months sit in the second mask; last year's are months 12-23 of the first
+      if (m <= last && b[2] & (1 << m)) g.cy[m] += b[3];
+      if (b[1] & (1 << (monthOf(1, m)))) g.py[m] += b[3];
+    }
+  }
+  return out;
+}
+
 /**
  * A company's Performis SAE as a person: the Map assignment's mapping (SAE value -> owner id, "Pielock Nancy" -> Nancy
  * Pielock, "ESO CH GER" -> Jan Kalt) and the owners' names; a value it does not map stays as Performis writes it.

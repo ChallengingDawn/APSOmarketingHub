@@ -5,12 +5,12 @@
 
 import { fetchKpiSeries } from "@/lib/integrations/hubspotKpi";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
-import { monthsOfSeries, type EsoFigures } from "./esoFiguresRules";
+import { familiesOf, monthsOfSeries, type EsoFigures } from "./esoFiguresRules";
 
-export type { EsoFigures, MPair } from "./esoFiguresRules";
+export type { EsoFigures, Family, MPair } from "./esoFiguresRules";
 
-// v2: the series only - the customers' figures moved into the cube
-const KEY = "esoFigures:v2";
+// v2: the series only - the customers' figures moved into the cube; v3: the revenue per profit centre beside them
+const KEY = "esoFigures:v3";
 /** the ERP file arrives once a morning; read again after six hours */
 const TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -21,6 +21,6 @@ async function build(): Promise<EsoFigures> {
   const year = new Date().getUTCFullYear();
   reportProgress(KEY, "the company's series (KPI)");
   const series = async (cat: string) => { try { return await fetchKpiSeries(cat); } catch (e) { errors.push(`${cat} not read: ${String((e as Error).message).slice(0, 120)}`); return []; } };
-  const [rev, oi, fc] = [await series("revenue_geo_erp_monthly"), await series("oi_geo_monthly"), await series("forecast_monthly")];
-  return { generatedAt: new Date().toISOString(), year, py: year - 1, total: { rev: monthsOfSeries(rev, year), oi: monthsOfSeries(oi, year), forecast: monthsOfSeries(fc, year).map((m) => m.cy) }, errors };
+  const [rev, oi, fc, pc] = [await series("revenue_geo_erp_monthly"), await series("oi_geo_monthly"), await series("forecast_monthly"), await series("revenue_pc_monthly")];
+  return { generatedAt: new Date().toISOString(), year, py: year - 1, total: { rev: monthsOfSeries(rev, year), oi: monthsOfSeries(oi, year), forecast: monthsOfSeries(fc, year).map((m) => m.cy) }, pc: familiesOf(pc, year), errors };
 }

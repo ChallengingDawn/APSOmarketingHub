@@ -20,7 +20,7 @@ export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 /** A row the chart can draw: its label (also what a click picks); revenue, when it has it, breaks ties. */
 export type ChartRow = { label: string; rev?: number };
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote }: {
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170 }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
@@ -35,6 +35,8 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   single?: boolean;
   /** a word after the first figure, in its own colour - the change against the year before (the ESO Figures, SARCLA 25.10.2026) */
   curNote?: (r: T) => { text: string; color: string } | null;
+  /** the names' column - wider for long names (the profit centres) */
+  labelWidth?: number;
 }) {
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
   // "this should follow revenue or customer count on top depending on the value")
@@ -73,7 +75,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: curNote ? 190 : 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
           <CartesianGrid horizontal={false} stroke="#e6e8ec" />
           <XAxis type="number" hide />
-          <YAxis type="category" dataKey="label" width={170} tickLine={false} axisLine={false} interval={0}
+          <YAxis type="category" dataKey="label" width={labelWidth} tickLine={false} axisLine={false} interval={0}
             tick={{ fontSize: 12.5, fill: INK }} />
           <Tooltip cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => [fmt(Number(v)), String(n)]}
             contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />

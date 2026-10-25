@@ -8,6 +8,12 @@ export type EsoFigures = {
   year: number; py: number;
   /** the whole company, from the KPI series - 12 months each, index 0 = January */
   total: { rev: MPair[]; oi: MPair[]; forecast: number[] };
+  /**
+   * The revenue per profit centre, month by month, as the ERP file has it (revenue_pc_monthly) - the whole company
+   * only: the file has no profit centre per customer, no order intake and no forecast per profit centre (SARCLA
+   * 25.10.2026: "also by profit center"). Absent in a read made before it was added.
+   */
+  pc?: Family[];
   errors: string[];
 };
 
@@ -22,4 +28,19 @@ export function monthsOfSeries(rows: { year: number | null; month: number | null
     else if (r.year === year - 1) out[r.month - 1].py += r.value;
   }
   return out;
+}
+
+export type Family = { label: string; months: MPair[] };
+/** The revenue per profit centre ("Sealing Technology (DT)") month by month, this year and last - the largest first. */
+export function familiesOf(rows: { year: number | null; month: number | null; value: number; family?: string | null }[], year: number): Family[] {
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const k = (r.family ?? "").trim();
+    if (!k) continue;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k)!.push(r);
+  }
+  const sum = (ms: MPair[]) => ms.reduce((s, m) => s + m.cy, 0);
+  return [...by.entries()].map(([label, rs]) => ({ label, months: monthsOfSeries(rs, year) }))
+    .sort((a, b) => sum(b.months) - sum(a.months) || a.label.localeCompare(b.label));
 }
