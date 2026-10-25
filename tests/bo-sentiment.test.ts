@@ -167,7 +167,8 @@ test("a ticket nobody outside wrote into is still a real ticket", () => {
 
   // but an INBOUND mail that is only ours or a no-reply IS a machine
   const machine = [{ direction: "INCOMING_EMAIL", from: "no-reply@apsoparts.com", text: "ERP export stale" }];
-  assert.deepEqual(gate({ subject: "Stock report", mails: machine }).reasons, ["only_our_own_words"]);
+  // no-reply is checked before our own domain, so a no-reply AT our domain is named as the robot
+  assert.deepEqual(gate({ subject: "Stock report", mails: machine }).reasons, ["mail_from_noreply"]);
 });
 
 test("our own address and no-reply senders are not the customer", () => {
@@ -199,11 +200,39 @@ test("every reason has the words the report shows", () => {
     for (const r of gate({ subject: s, mails: [customer()] }).reasons) used.add(r);
   }
   used.add("no_inbound_mail");       // kept as a label: rows written before 25.10.2026 carry it
-  used.add("only_our_own_words");
+  used.add("only_our_own_words");   // the mixed case, and rows written before the split
+  used.add("mail_from_colleague");
+  used.add("mail_from_noreply");
+  used.add("mail_had_no_words");
   used.add("bulk_mail");            // set from the body, tested on its own below
   used.add("model_says_machine");   // set by the engine from the model, never by the gate
   for (const r of used) assert.ok(REASON_LABEL[r as never], `${r} has no label`);
   assert.equal(Object.keys(REASON_LABEL).length, used.size, "a reason exists with no test, or a label with no reason");
+});
+
+test("the three ways nobody outside wrote are told apart", () => {
+  // SARCLA, 25.10.2026: one bucket of 9,608 tickets answered nothing - a colleague raising a
+  // ticket and a shipping robot are different problems.
+  const inbound = (from: string, text = "something") => [{ direction: "INCOMING_EMAIL", from, text }];
+
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus@angst-pfister.com") }).reasons,
+    ["mail_from_colleague"], "one of us wrote it");
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("donotreply@someshop.com") }).reasons,
+    ["mail_from_noreply"], "a robot wrote it");
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus@angst-pfister.com", "   ") }).reasons,
+    ["mail_from_colleague"], "a sender we recognise is named before an empty body");
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("someone@unknown-partner.io", "") }).reasons,
+    ["mail_had_no_words"], "nothing readable and nobody we recognise");
+
+  // a genuinely mixed thread is not forced into one of the three
+  const mixed = [
+    { direction: "INCOMING_EMAIL", from: "klaus@angst-pfister.com", text: "forwarding" },
+    { direction: "INCOMING_EMAIL", from: "noreply@dhl.com", text: "delivered" },
+  ];
+  assert.deepEqual(gate({ subject: "Stock", mails: mixed }).reasons, ["only_our_own_words"]);
+
+  // and none of this makes a customer's ticket disappear
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("buyer@kunde.de") }).reasons, []);
 });
 
 test("fold makes one rule cover every spelling", () => {

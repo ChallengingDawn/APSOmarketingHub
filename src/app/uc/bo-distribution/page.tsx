@@ -62,7 +62,7 @@ import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
 import {
-  CHAT_LABEL, Detail, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, measure, pct, sameOwner,
+  CHAT_LABEL, Detail, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, measure, movedAfterUs, pct, sameOwner,
   type Data, type PeopleData, type View,
 } from "./shared";
 import { FlowTab } from "./FlowTab";
@@ -136,12 +136,21 @@ function Overview({ d }: { d: Data }) {
 }
 
 function Tickets({ d }: { d: Data }) {
-  const [filter, setFilter] = useState<"all" | "different" | "fixes" | "live" | "wrote">("all");
+  const [filter, setFilter] = useState<"all" | "wrote" | "moved" | "fixes" | "error">("all");
   const [pipe, setPipe] = useState<"all" | "bo" | "gqs">("all");
   const [id, setId] = useState("");
   const [check, setCheck] = useState<string | null>(null);
   const checked = useHeld<Row>(check ? `/api/uc/bo-distribution?ticket=${check}` : null, [check]);
-  const rows = d.rows.filter((r) => (pipe === "all" || r.pipeline === pipe) && (filter === "all" || (filter === "different" ? r.actual && r.legacy && !sameOwner(r) : filter === "fixes" ? fixesDiffer(r) : filter === "wrote" ? !!r.wrote : !r.approx)));
+  const keep = (r: Row) =>
+    filter === "all" ? true
+      : filter === "wrote" ? !!r.wrote?.ok
+      : filter === "moved" ? movedAfterUs(r)
+      : filter === "fixes" ? fixesDiffer(r)
+      : !!r.error;
+  const rows = d.rows.filter((r) => (pipe === "all" || r.pipeline === pipe) && keep(r));
+  const inPipe = d.rows.filter((r) => pipe === "all" || r.pipeline === pipe);
+  const given = inPipe.filter((r) => r.wrote?.ok).length;
+  const moved = inPipe.filter(movedAfterUs).length;
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -156,14 +165,23 @@ function Tickets({ d }: { d: Data }) {
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={d.last ? `Last look ${when(d.last.at)}: ${full(d.last.read)} read, ${full(d.last.decided)} new, ${full(d.last.checked)} checked${d.last.error ? ` - ${d.last.error}` : ""}` : "Not run yet"} />
+        {/* How many tickets the hub has actually handled, which is what the tab is for. */}
+        <Grid container spacing={1.5} sx={{ mb: 2, mt: 0.5 }}>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note={pipe === "all" ? "Back Office and GQS" : pipe === "bo" ? "Back Office" : "GQS"} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label="Given an owner by the hub" value={full(given)} note={`${pct(given, inPipe.length)} of them`} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Moved after we gave it" value={full(moved)} note={given ? `${pct(moved, given)} of the ones we gave` : "nothing given yet"} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<AltRouteOutlinedIcon />} tint="pink" label="A fix changed the owner" value={full(inPipe.filter(fixesDiffer).length)} note="rules in fixes.ts" /></Grid>
+        </Grid>
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
-          <Choice<"all" | "different" | "fixes" | "live" | "wrote"> value={filter} onChange={setFilter} options={[
-            { key: "all", label: "All", count: d.rows.length },
-            { key: "different", label: "HubSpot did otherwise", count: d.rows.filter((r) => r.actual && r.legacy && !sameOwner(r)).length },
-            { key: "fixes", label: "Fixes change it", count: d.rows.filter(fixesDiffer).length },
-            { key: "live", label: "Seen live (not replayed)", count: d.rows.filter((r) => !r.approx).length },
-            // live mode (SARCLA 19.10.2026: "this filter should also show the change now"): written, or left to the workflow and why
-            { key: "wrote", label: `Written by the hub ${d.rows.filter((r) => r.wrote?.ok).length}`, count: d.rows.filter((r) => r.wrote).length },
+          {/* What the hub DID, not how it compares with a workflow that has not run since 19.10.2026.
+              "HubSpot did otherwise" measured the live owner against a replay of that dead workflow,
+              and "Seen live (not replayed)" was cut-over vocabulary. */}
+          <Choice<"all" | "wrote" | "moved" | "fixes" | "error"> value={filter} onChange={setFilter} options={[
+            { key: "all", label: "All", count: inPipe.length },
+            { key: "wrote", label: "Given an owner by the hub", count: given },
+            { key: "moved", label: "Moved after we gave it", count: moved },
+            { key: "fixes", label: "A fix changed the owner", count: inPipe.filter(fixesDiffer).length },
+            { key: "error", label: "Could not be read", count: inPipe.filter((r) => !!r.error).length },
           ]} />
           <Choice<"all" | "bo" | "gqs"> value={pipe} onChange={setPipe} options={[{ key: "all", label: "Both" }, { key: "bo", label: "Back Office" }, { key: "gqs", label: "GQS" }]} />
         </Box>

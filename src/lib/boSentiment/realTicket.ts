@@ -22,6 +22,8 @@ export type DisqualifyReason =
   | "order_confirmation" | "shipping_notification" | "new_registrant"
   | "auto_reply" | "bounce" | "newsletter"
   | "no_inbound_mail" | "only_our_own_words"
+  /** The three cases "only our own words" used to hide: a colleague, a robot, an empty mail. */
+  | "mail_from_colleague" | "mail_from_noreply" | "mail_had_no_words"
   /** Bulk mail recognised from the body, not the subject: an unsubscribe footer and friends. */
   | "bulk_mail"
   /** The model's second opinion, recorded by the engine - the gate never sets this itself. */
@@ -123,6 +125,31 @@ export function fold(s: string | null | undefined): string {
     .toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/**
+ * WHY no outside person wrote - the three cases, told apart.
+ *
+ * "Mail from us or a no-reply robot" was one bucket of 9,608 tickets, by far the largest thing on
+ * the card, and it answered nothing: a colleague raising a ticket for a customer and a shipping
+ * robot are different problems (SARCLA, 25.10.2026: "this is not possible, we need to still split
+ * this one"). Each inbound mail is put in one of three boxes and the bucket is named after the box
+ * they all fall in; a genuinely mixed thread keeps the old general reason.
+ */
+export function whyNoVoice(mails: GateInput["mails"]): DisqualifyReason {
+  let ours = 0, robot = 0, wordless = 0;
+  const inbound = (mails ?? []).filter((m) => (m.direction || "") === "INCOMING_EMAIL");
+  for (const m of inbound) {
+    const from = fold(m.from);
+    if (from && NO_REPLY.test(from)) robot += 1;
+    else if (from && OUR_DOMAINS.some((d) => from.includes("@" + d) || from.endsWith(d))) ours += 1;
+    else if (!mailText(m).trim()) wordless += 1;
+  }
+  const n = inbound.length;
+  if (n > 0 && ours === n) return "mail_from_colleague";
+  if (n > 0 && robot === n) return "mail_from_noreply";
+  if (n > 0 && wordless === n) return "mail_had_no_words";
+  return "only_our_own_words";
+}
+
 /** Did a real outside person write into this ticket? */
 export function hasCustomerVoice(mails: GateInput["mails"]): boolean {
   for (const m of mails ?? []) {
@@ -161,7 +188,7 @@ export function gate(input: GateInput, opts: GateOptions = {}): Verdict {
   // call and a ticket our own people raise for a customer all look exactly like this, and all of
   // them are real work. The ticket stays; only its tone is unknown.
   const noWords = inbound.length === 0;
-  if (!noWords && !voice) reasons.push("only_our_own_words");
+  if (!noWords && !voice) reasons.push(whyNoVoice(mails));
   else if (!noWords && inbound.every((m) => looksBulk(mailText(m)))) {
     // every inbound mail is bulk - if even one is a real letter, the ticket stays
     reasons.push("bulk_mail");
@@ -187,7 +214,10 @@ export const REASON_LABEL: Record<DisqualifyReason, string> = {
   bounce: "Undeliverable / bounce",
   newsletter: "Newsletter",
   no_inbound_mail: "No mail from outside",
-  only_our_own_words: "Mail from us or a no-reply robot",
+  only_our_own_words: "Mail from us or a robot (mixed)",
+  mail_from_colleague: "One of us wrote it, not a customer",
+  mail_from_noreply: "A no-reply robot wrote it",
+  mail_had_no_words: "The mail arrived empty",
   bulk_mail: "Bulk mail (unsubscribe footer)",
   model_says_machine: "The model says nobody is talking",
 };

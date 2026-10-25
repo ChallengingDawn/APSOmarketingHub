@@ -35,7 +35,7 @@ test("the reasons are ordered by how often they happen, with the page's own word
     row({ real: false, reasons: ["erp_stale_warning", "only_our_own_words"] }),
   ]);
   assert.deepEqual(s.reasons.map((r) => [r.label, r.n]), [
-    ["Mail from us or a no-reply robot", 3],
+    ["Mail from us or a robot (mixed)", 3],
     ["Bulk mail (unsubscribe footer)", 1],
     ["ERP stale-export warning", 1],
   ]);

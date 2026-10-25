@@ -85,7 +85,11 @@ export function valuesFor(row: Pick<Row, "real" | "answer" | "reasons">): { tone
 const REASON_ORDER: DisqualifyReason[] = [
   "erp_stale_warning", "order_confirmation", "shipping_notification", "anyseals", "directcut",
   "doc_declaration", "new_registrant", "newsletter", "bounce", "auto_reply",
-  "bulk_mail", "model_says_machine", "only_our_own_words", "no_inbound_mail",
+  "bulk_mail", "model_says_machine",
+  // what the ticket IS beats how we noticed: the three split cases name a sender, the
+  // general one only says we could not find a customer, so it ranks below them
+  "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
+  "only_our_own_words", "no_inbound_mail",
 ];
 export function primaryReason(reasons: DisqualifyReason[]): string {
   for (const r of REASON_ORDER) if (reasons.includes(r)) return r;
@@ -470,6 +474,7 @@ export type WindowFigures = {
 export const REASON_VALUES = [
   "erp_stale_warning", "order_confirmation", "shipping_notification", "anyseals", "directcut",
   "doc_declaration", "new_registrant", "newsletter", "bulk_mail", "auto_reply", "bounce",
+  "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
   "only_our_own_words", "model_says_machine", "no_inbound_mail",
 ] as const;
 

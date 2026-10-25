@@ -91,6 +91,12 @@ export type SentimentData = {
   admin: boolean;
 };
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** UTC and hand-built: a locale-formatted date renders differently on the server and in the browser. */
+const dmy = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "?" : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
 const pc = (n: number, d: number) => (d ? `${Math.round((1000 * n) / d) / 10}%` : "—");
 /** How the customer sounds. */
 const TONE_WORD: Record<Bucket, string> = {
@@ -132,7 +138,10 @@ const REASON_WORD: Record<string, string> = {
   bulk_mail: "Bulk mail (unsubscribe footer)",
   auto_reply: "Automatic reply / out of office",
   bounce: "Undeliverable / bounce",
-  only_our_own_words: "Mail from us or a no-reply robot",
+  only_our_own_words: "Mail from us or a robot (mixed)",
+  mail_from_colleague: "One of us wrote it, not a customer",
+  mail_from_noreply: "A no-reply robot wrote it",
+  mail_had_no_words: "The mail arrived empty",
   model_says_machine: "The model says nobody is talking",
   no_inbound_mail: "No mail from outside (historic)",
 };
@@ -303,7 +312,11 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
   const b = d.before;
   const beforeMachine = b ? b.tone.not_valid_email ?? 0 : 0;
   const beforeCustomers = b ? b.total - beforeMachine : 0;
-  const beforeLabel = "The same days before";
+  // "The same days before" meant nothing to anybody reading it, so the charts and the table
+  // name the actual days instead.
+  const beforeLabel = b ? `${dmy(b.from)} - ${dmy(b.to)}` : "The period before";
+  // both sides named the same way, or the pair reads as a date range against a riddle
+  const nowLabel = f ? `${dmy(f.from)} - ${dmy(f.to)}` : periodLabel;
   // A figure with nothing beside it is a number, not an indicator: every tile carries its movement
   // against the same span of days before this one.
   const shareOf = (n: number, dd: number) => (dd > 0 ? n / dd : 0);
@@ -357,10 +370,10 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
                 <>
                   <Answers caption="How the customer sounds" now={d.figures.tone} total={customers}
                     before={b ? b.tone : null} beforeTotal={beforeCustomers} words={TONE_WORD} short={TONE_SHORT}
-                    periodLabel={periodLabel} beforeLabel={beforeLabel} />
+                    periodLabel={nowLabel} beforeLabel={beforeLabel} />
                   <Answers caption="Whether we settled the matter" now={d.figures.resolution} total={customers}
                     before={b ? b.resolution : null} beforeTotal={beforeCustomers} words={RESOL_WORD} short={RESOL_SHORT}
-                    periodLabel={periodLabel} beforeLabel={beforeLabel} />
+                    periodLabel={nowLabel} beforeLabel={beforeLabel} />
                 </>
               ) : (
                 <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>HubSpot could not be counted for this period.</Typography>
@@ -375,9 +388,11 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
             <Box sx={{ mt: 1.5 }}>
               <MachineReasons now={f?.reasons ?? []} before={b ? b.reasons : null} total={machine} beforeLabel={beforeLabel} />
               <Typography sx={{ color: MUTED, fontSize: "0.8rem", mt: 1.5 }}>
-                <b>Mail from us or a no-reply robot</b> is much the largest kind, so it is worth saying what it means: a
-                mail did arrive on the ticket, but every sender was one of our own addresses or a robot nobody can write
-                back to. Nobody outside the company wrote a word, so there is no customer to have a tone.
+                The top three all mean the same thing in the end - mail arrived on the ticket, but nobody outside the
+                company wrote a word, so there is no customer to have a tone. They are kept apart because they are
+                different problems: <b>one of us wrote it</b> is a colleague raising a ticket, <b>a no-reply robot</b> is
+                a system mail, and <b>the mail arrived empty</b> is a mail we could not read. Tickets scored before
+                25.10.2026 still sit in the older single bucket.
               </Typography>
             </Box>
           </GlassCard>

@@ -68,6 +68,14 @@ export const CHAT_LABEL: Record<string, string> = { available: "Available", away
 /** What the distribution step gave: its own write; a later DUPS hand-over is shown apart (19.10.2026). */
 export const gave = (r: Row) => (r.actual ? { id: r.actual.distOwnerId ?? r.actual.ownerId, name: r.actual.distOwnerName ?? r.actual.ownerName } : null);
 export const sameOwner = (r: Row) => !!r.actual && !!r.legacy && gave(r)!.id === r.legacy.ownerId;
+/**
+ * The hub gave this ticket an owner and somebody moved it afterwards.
+ *
+ * This replaces the old "HubSpot did otherwise", which compared the live owner with a replay of
+ * the retired workflow - a comparison against a system that has not run since 19.10.2026.
+ */
+export const movedAfterUs = (r: Row) =>
+  !!r.wrote?.ok && !!r.wrote.ownerId && !!r.actual && r.actual.ownerId !== r.wrote.ownerId;
 export const fixesDiffer = (r: Row) => !!r.legacy && r.hub?.ownerId !== r.legacy.ownerId;
 
 /* ── figures ── */
