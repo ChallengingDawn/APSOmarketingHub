@@ -23,7 +23,8 @@ import { SEED } from "@/lib/mapAssign/seed";
 // v8: order intake per month beside the revenue, and each sales rep's team (the ESO reports' Figures, 24.10.2026)
 // v9: the ERP's own month and year to date per company, the order intake months loaded, the team from HubSpot's teams
 // v10: the Performis SAE as a dimension, as its person (the Figures' split next to the company owner, 24.10.2026)
-const KEY = "marketingKpis:customers:v10";
+// v11: the revenue kept apart by profit centre too (the Figures' Profit center tab, 25.10.2026)
+const KEY = "marketingKpis:customers:v11";
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -107,8 +108,11 @@ async function build(): Promise<Cube> {
     const r = await hubspotFetchJson<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({ path: `/crm/v3/objects/companies?${qs}` });
     for (const o of r.results ?? []) {
       const p = o.properties;
+      // the revenue by profit centre too, this year and last (the ESO Figures' Profit center tab)
+      const pcMonths: Record<string, number>[][] = [];
       const months = years.map((y, yi) => {
         const blob = parsePcMonthly(p[`rev_${y}_pc_monthly`]);
+        if (yi < 2) pcMonths.push(blob);
         return blob.map((_, m) => {
           const x = monthTotal(blob, m);
           if (x) filled[yi][m]++;
@@ -127,7 +131,7 @@ async function build(): Promise<Cube> {
         dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
         potential, months,
         firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
-        intake, erp: erp.some((x) => x !== 0) ? erp : null,
+        intake, erp: erp.some((x) => x !== 0) ? erp : null, pcMonths,
       });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);

@@ -63,6 +63,14 @@ export type Cube = {
   erpDay?: string | null;
   /** this year's months with the order intake per company loaded (60% of last year's companies, as revenue) */
   oiLoaded?: number;
+  /** the profit centres the revenue is split by, as the Compass connector writes them ("dt", "kt", "ft", "at", "st", "other") */
+  pcLabels?: string[];
+  /**
+   * [cell, year index (0 this year, 1 last), profit centre index, revenue Jan…Dec] - each customer's rev_<y>_pc_monthly
+   * kept apart by profit centre (the ESO Figures' Profit center tab, SARCLA 25.10.2026: "revenue by profit center by
+   * country and by sales" - "this data we bring via the Compass connector, it's already set by profit center").
+   */
+  pcRevenue?: number[][];
 };
 
 /** The ERP's figures a cell carries, in this order. */
@@ -131,14 +139,17 @@ export type CompanyIn = {
   intake?: number[][];
   /** the ERP's figures (ERP_FIELDS order), when the company is in the ERP file */
   erp?: number[] | null;
+  /** revenue per month by profit centre, per year index (this year, last) - the parsed rev_<y>_pc_monthly */
+  pcMonths?: Record<string, number>[][];
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */
-export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake" | "erp"> {
+export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake" | "erp" | "pcLabels" | "pcRevenue"> {
   const cellIx = new Map<string, number>();
   const cells: number[][] = [];
   const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>(), oi = new Map<string, number[]>();
   const erp = new Map<number, number[]>();
+  const pcLabels: string[] = [], pcRev = new Map<string, number[]>();
   for (const c of companies) {
     const idx = DIMS.map((d) => c.dims[d]);
     const key = idx.join(",");
@@ -180,6 +191,20 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       if (!r) { r = [ci, y, ...Array(12).fill(0)]; oi.set(k, r); }
       months.forEach((x, m) => { r![2 + m] += x; });
     });
+    // this year's and last year's revenue by profit centre, cell by cell
+    (c.pcMonths ?? []).slice(0, 2).forEach((months, y) => {
+      months.forEach((byPc, m) => {
+        for (const [pc, x] of Object.entries(byPc ?? {})) {
+          if (!x) continue;
+          let pi = pcLabels.indexOf(pc);
+          if (pi < 0) pi = pcLabels.push(pc) - 1;
+          const k = `${ci},${y},${pi}`;
+          let r = pcRev.get(k);
+          if (!r) { r = [ci, y, pi, ...Array(12).fill(0)]; pcRev.set(k, r); }
+          r[3 + m] += x;
+        }
+      });
+    });
     if (c.firstMonth != null && c.firstMonth >= 0 && c.firstMonth <= 35) {
       const k = `${ci},${c.firstMonth}`;
       const f = fresh.get(k);
@@ -187,7 +212,8 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
     }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
-  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]), erp: [...erp.values()].map((r) => r.map((x, i) => (i ? Math.round(x) : x))) };
+  return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]), erp: [...erp.values()].map((r) => r.map((x, i) => (i ? Math.round(x) : x))),
+    pcLabels, pcRevenue: [...pcRev.values()].map((r) => r.map((x, i) => (i < 3 ? x : Math.round(x)))) };
 }
 
 /* ── slicing ──────────────────────────────────────────────────────────── */
@@ -525,3 +551,29 @@ export function saeLabel(raw: string | null | undefined, sae: Record<string, str
   return id ? { label: names.get(String(id)) ?? v, owner: String(id) } : { label: v, owner: null };
 }
 
+/** A profit centre's revenue month by month (index 0 = January): this year to the last month read, last year all twelve. */
+export type PcMonths = { cy: number[]; py: number[] };
+/**
+ * The revenue by profit centre under the filters - grouped by one dimension (its own filter left out, as breakdown)
+ * or all together under "": group -> profit centre -> months. Whole months as the customers' figures hold them; the
+ * month in progress is compared pro rata by the page, as everywhere on the cube.
+ */
+export function pcBy(cube: Cube, filters: Filters, dim?: Dim): Map<string, Map<string, PcMonths>> {
+  const ok = passes(cube, filters, dim);
+  const gi = dim ? DIMS.indexOf(dim) : -1;
+  const last = lastMonth(cube) - monthOf(0, 0);
+  const out = new Map<string, Map<string, PcMonths>>();
+  for (const r of cube.pcRevenue ?? []) {
+    if (!ok[r[0]] || r[1] > 1) continue;
+    const g = gi < 0 ? "" : cube.labels[dim!][cube.cells[r[0]][gi]];
+    const pc = cube.pcLabels?.[r[2]] ?? "other";
+    let gm = out.get(g);
+    if (!gm) { gm = new Map(); out.set(g, gm); }
+    let p = gm.get(pc);
+    if (!p) { p = { cy: Array(12).fill(0), py: Array(12).fill(0) }; gm.set(pc, p); }
+    for (let m = 0; m < 12; m++) {
+      if (r[1] === 0) { if (m <= last) p.cy[m] += r[3 + m]; } else p.py[m] += r[3 + m];
+    }
+  }
+  return out;
+}

@@ -272,3 +272,25 @@ test("the customers month by month for every value of a dimension (the Figures' 
   assert.equal(buyersByMonthBy(c, { sae: ["Ben"] }, "sae").size, 2);
   assert.deepEqual([...buyersByMonthBy(c, { country: ["DE"] }, "sae").keys()], ["Ben"]);
 });
+
+test("the revenue by profit centre (the Figures' Profit center tab): kept apart cell by cell, summed under the filters, grouped like breakdown", async () => {
+  const { pcBy } = await import("../src/lib/marketingKpis/cube");
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const dims = (sae: string, country: string) => Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "sae" ? sae : d === "country" ? country : "x")])) as Record<Dim, number>;
+  const pcm = (pairs: Record<number, Record<string, number>>) => Array.from({ length: 12 }, (_, m) => pairs[m] ?? {});
+  const companies: CompanyIn[] = [
+    { dims: dims("Anna", "CH"), potential: null, months: [months({ 0: 100 }), months({ 0: 80 }), months()], pcMonths: [pcm({ 0: { dt: 60, kt: 40 }, 10: { dt: 9 } }), pcm({ 0: { dt: 80 } })] },
+    { dims: dims("Anna", "CH"), potential: null, months: [months({ 1: 10 }), months(), months()], pcMonths: [pcm({ 1: { dt: 10 } }), pcm({})] },
+    { dims: dims("Ben", "DE"), potential: null, months: [months({ 0: 5 }), months({ 0: 7 }), months()], pcMonths: [pcm({ 0: { ft: 5 } }), pcm({ 0: { ft: 7 } })] },
+  ];
+  const c: Cube = { generatedAt: "", years: [2026, 2025, 2024], loaded: [9, 12, 12], running: null, labels, ...fold(companies) };
+  const all = pcBy(c, {}).get("")!;
+  assert.deepEqual([all.get("dt")!.cy[0], all.get("dt")!.cy[1], all.get("kt")!.cy[0], all.get("ft")!.py[0], all.get("dt")!.py[0]], [60, 10, 40, 7, 80]);
+  // November of this year is not read yet (loaded to September)
+  assert.equal(all.get("dt")!.cy[10], 0);
+  const bySae = pcBy(c, { country: ["DE"] }, "sae");
+  assert.deepEqual([...bySae.keys()], ["Ben"]);
+  assert.equal(pcBy(c, { sae: ["Ben"] }, "sae").size, 2);
+  assert.equal(pcBy(c, {}, "country").get("CH")!.get("dt")!.cy[0], 60);
+});
