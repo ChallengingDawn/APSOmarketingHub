@@ -89,7 +89,8 @@ RULE_FIXES.push(
  * Owner redirection's two rules as overrides on the map (SARCLA 25.10.2026: "that page should not exist"; "the override
  * on the map is the redirection, nothing more"):
  *   France -> Jeremy Borey      every SAE, every zip zone, every key-account list and the rest of France to Jeremy -
- *                               Owner redirection's rule 1 gave him all of France, so nothing changes in HubSpot
+ *                               except James Koeremez's SAE ("Köremez James", and Sandra's now), which stays with him
+ *                               (SARCLA 25.10.2026: "the redirection was for all France outside of SAE James")
  *   Sandra Kuridza -> James     her SAE to James Koeremez, in every country (rule 2: "owned by Sandra -> James")
  * Each shows as an override in the France window and in the SAE table; change a row there to undo a part.
  */
@@ -97,15 +98,19 @@ export function withRedirectionsOnTheMap(r: AssignRules): AssignRules {
   let out = withSae(r, "Kuridza Sandra", JAMES);
   const fr = out.countries.FR;
   if (!fr) return out;
-  const toJeremy = (m: Record<string, OwnerId> | undefined) => Object.fromEntries(Object.keys(m ?? {}).map((k) => [k, JEREMY]));
+  // James's SAEs (the table gives them to him) keep him - no override on them at any level
+  const james = new Set(Object.entries(out.sae).filter(([, o]) => String(o) === JAMES).map(([k]) => saeKey(k)));
+  const toJeremy = (m: Record<string, OwnerId> | undefined) => Object.fromEntries(Object.keys(m ?? {}).filter((k) => !james.has(saeKey(k))).map((k) => [k, JEREMY]));
   const deep = (m: Record<string, Record<string, OwnerId>> | undefined) => (m ? Object.fromEntries(Object.entries(m).map(([k, t]) => [k, toJeremy(t)])) : undefined);
   // one entry per SAE of the table (whatever its spelling in the old override), plus the ones only France had
   const saeOverride = toJeremy(fr.saeOverride);
   for (const k of Object.keys(out.sae)) {
+    if (james.has(saeKey(k))) continue;
     for (const x of Object.keys(saeOverride)) if (x !== k && saeKey(x) === saeKey(k)) delete saeOverride[x];
     saeOverride[k] = JEREMY;
   }
-  const people = fr.people?.length && !fr.people.map(String).includes(JEREMY) ? [...fr.people, JEREMY] : fr.people;
+  const add = (list: OwnerId[] | undefined, o: OwnerId) => (list?.length && !list.map(String).includes(o) ? [...list, o] : list);
+  const people = add(add(fr.people, JEREMY), JAMES);
   out = { ...out, countries: { ...out.countries, FR: {
     ...fr, saeOverride,
     ...(fr.saeOverrideByRegion ? { saeOverrideByRegion: deep(fr.saeOverrideByRegion) } : {}),
@@ -120,7 +125,7 @@ export function withRedirectionsOnTheMap(r: AssignRules): AssignRules {
 
 /** The fix that carries Owner redirection's rules - once it is in the saved rules, Owner redirection is switched off. */
 export const REDIRECTIONS_FIX = "2026-10-25-redirections-on-the-map";
-RULE_FIXES.push({ id: REDIRECTIONS_FIX, why: "Owner redirection's rules on the map: France -> Jeremy Borey, SAE Kuridza Sandra -> James Koeremez", apply: withRedirectionsOnTheMap });
+RULE_FIXES.push({ id: REDIRECTIONS_FIX, why: "Owner redirection's rules on the map: France -> Jeremy Borey (James Koeremez's SAE stays his), SAE Kuridza Sandra -> James Koeremez", apply: withRedirectionsOnTheMap });
 
 /** The fixes not applied yet, applied in order; `done` = the ids applied before. */
 export function applyFixes(rules: AssignRules, done: string[]): { rules: AssignRules; applied: RuleFix[] } {

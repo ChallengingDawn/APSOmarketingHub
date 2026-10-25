@@ -52,18 +52,22 @@ test("withSae replaces a value however it is spelled; withKeyAccount never doubl
   assert.equal(withKeyAccount(SEED, "ZZ", CLAUDIO, "1", "x"), SEED);
 });
 
-test("Owner redirection's rules become overrides on the map: all of France to Jeremy, Sandra's SAE to James", () => {
+test("Owner redirection's rules become overrides on the map: all of France to Jeremy but James's SAE, Sandra's SAE to James", () => {
   assert.ok(RULE_FIXES.some((f) => f.id === REDIRECTIONS_FIX));
   const base = saved();
   base.sae["Kuridza Sandra"] = "30052119";
-  base.countries.FR = { ...base.countries.FR, zones: [...base.countries.FR.zones, { id: "fr-tsa", owner: TSA, label: "TSA Team", prefixes: ["75"] }], saeOverrideByZip: { "75": { "Köremez James": "38431796" } } };
+  base.countries.FR = { ...base.countries.FR, zones: [...base.countries.FR.zones, { id: "fr-tsa", owner: TSA, label: "TSA Team", prefixes: ["75"] }], saeOverride: { "TSA Team": JEREMY, "KÖREMEZ JAMES": TSA }, saeOverrideByZip: { "75": { "Köremez James": TSA, "Borey Jeremy": TSA } } };
   const { rules } = applyFixes(base, []);
   const fr = (zip: string, sae: string | null) => decide({ id: "1", country: "France", zip, sae }, rules, active).owner;
   assert.equal(fr("75001", null), JEREMY); // a zone that was TSA Team's
   assert.equal(fr("29200", null), JEREMY); // in no zone (was the country's default, TSA Team)
   assert.equal(fr("69001", "TSA Team"), JEREMY);
-  assert.equal(fr("31000", "Köremez James"), JEREMY); // as Owner redirection's rule 1 did (first match)
-  assert.equal(fr("75001", "Köremez James"), JEREMY); // a zip-code override too
+  // "the redirection was for all France outside of SAE James" - every override on his SAE goes, at every level
+  assert.equal(fr("31000", "Köremez James"), "38431796");
+  assert.equal(fr("75001", "Köremez James"), "38431796");
+  assert.equal(fr("31000", "Kuridza Sandra"), "38431796");
+  assert.equal(fr("75001", "Borey Jeremy"), JEREMY); // a zip-code override to TSA Team turned to Jeremy
+  assert.ok(Object.keys(rules.countries.FR.saeOverride ?? {}).every((k) => !/james|sandra/i.test(k)));
   assert.equal(fr("31000", "Stahl Christopher"), JEREMY);
   assert.equal(fr("31000", "Some Unknown SAE"), JEREMY);
   assert.ok(rules.countries.FR.keyAccounts?.every((k) => k.owner === JEREMY));
