@@ -12,8 +12,16 @@ import { pageState, runOnce, saveSettings, startClear, startGuessScan, type Mode
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** the guesses that exist are many and only to look at: the first ones are sent */
-const ALIVE_SENT = 1500;
+/** A list's rows sent to the page - the counts are always whole (after the dead guesses are cleared ~13,000 companies have
+ *  no domain; the page needs the figures and a first page of each list, not every row). */
+const PER_LIST = 1500;
+type CoRow = Awaited<ReturnType<typeof pageState>>["state"]["rows"][number];
+/** The tab's filters on the companies without a domain (DomainsView.tsx shows them). */
+const FILTERS: Record<string, (x: CoRow) => boolean> = {
+  all: () => true, found: (x) => !!x.v.domain, micro: (x) => x.v.micro, written: (x) => !!x.written && !x.written.error,
+  generic: (x) => x.v.kind === "generic", noemail: (x) => x.v.kind === "noemail", nocontacts: (x) => x.v.kind === "nocontacts",
+  contacts: (x) => x.v.kind === "contacts", website: (x) => x.v.kind === "website",
+};
 
 export async function GET() {
   const access = await myAccess();
@@ -21,18 +29,32 @@ export async function GET() {
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
     const s = await pageState();
+    // companies without a domain: every filter counted, the newest rows of each sent
+    const newest = [...s.state.rows].sort((a, b) => b.created.localeCompare(a.created));
+    const counts: Record<string, number> = {};
+    const keep = new Set<string>();
+    for (const [k, f] of Object.entries(FILTERS)) {
+      const hit = newest.filter(f);
+      counts[k] = hit.length;
+      for (const x of hit.slice(0, PER_LIST)) keep.add(x.id);
+    }
+    const state = { at: s.state.at, rows: newest.filter((x) => keep.has(x.id)), counts };
+    // the old name guesses: a guess that exists and matches its contacts (or has none to say otherwise) is the firm's own
+    // domain - counted, not listed; the ones to look at are those whose contacts write from another domain
     const g = s.guesses;
     const rows = g?.rows ?? [];
+    const suspect = (r: (typeof rows)[number]) => r.exists === true && !!r.real && r.real !== r.domain;
+    const dead = rows.filter((r) => r.exists === false).sort((a, b) => Number(!!b.real) - Number(!!a.real));
     const guesses = g && {
       ...g,
       counts: {
-        total: rows.length, dead: rows.filter((r) => r.exists === false).length, alive: rows.filter((r) => r.exists === true).length,
-        unsure: rows.filter((r) => r.exists === null).length, deadWithReal: rows.filter((r) => r.exists === false && r.real).length,
+        total: rows.length, dead: dead.length, alive: rows.filter((r) => r.exists === true).length, suspect: rows.filter(suspect).length,
+        unsure: rows.filter((r) => r.exists === null).length, deadWithReal: dead.filter((r) => r.real).length,
         cleared: rows.filter((r) => r.cleared && !r.cleared.error).length,
       },
-      rows: [...rows.filter((r) => r.exists !== true), ...rows.filter((r) => r.exists === true).slice(0, ALIVE_SENT)],
+      rows: [...dead.slice(0, PER_LIST), ...rows.filter(suspect).slice(0, PER_LIST), ...rows.filter((r) => r.exists === null).slice(0, PER_LIST)],
     };
-    return NextResponse.json({ configured: true, ok: true, data: { ...s, guesses, admin: access.role === "admin" } });
+    return NextResponse.json({ configured: true, ok: true, data: { ...s, state, guesses, admin: access.role === "admin" } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }
