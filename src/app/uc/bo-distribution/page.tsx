@@ -55,6 +55,7 @@ import { BarList } from "@/app/charts/BarList";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { PersonRow, Row, RunInfo, Settings } from "@/lib/boDistribution/engine";
 import type { Classification } from "@/lib/boDistribution/classifier";
@@ -266,9 +267,9 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
  * widening this page's payload with figures the other tabs never use. Rendered with a key of its
  * own: two held loaders in one slot is the crash we fixed once already.
  */
-function SentimentPanel({ days }: { days: number }) {
+function SentimentPanel({ days, from, to, label }: { days: number; from: string; to: string; label: string }) {
   const [n, setN] = useState(0);
-  const url = `/api/uc/bo-sentiment?days=${days}${n ? `&n=${n}` : ""}`;
+  const url = `/api/uc/bo-sentiment?days=${days}&from=${from}&to=${to}${n ? `&n=${n}` : ""}`;
   const held = useHeld<SentimentData>(url, [url]);
   const r = held.result;
   if (r === null) return <LoadingPanel label="Reading the tone of the Back Office tickets…" />;
@@ -276,16 +277,23 @@ function SentimentPanel({ days }: { days: number }) {
     return <UpstreamPanel source="Back Office sentiment" error={r.state === "error" ? r.error : "not configured"}
       status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   }
-  return <SentimentTab d={r.data} onChanged={() => setN((x) => x + 1)} />;
+  return <SentimentTab d={r.data} periodLabel={label} onChanged={() => setN((x) => x + 1)} />;
 }
 
-/** How far back the page looks. The engines keep 21 days of rows; 7 was the only window before. */
-const WINDOWS = [7, 14, 21] as const;
+/**
+ * The store keeps 21 days of decided tickets, which is not the same as the period somebody asks
+ * for (SARCLA 25.10.2026: "why only 21, this is not what is expected"). The page therefore uses
+ * the platform's own period picker, and the parts that cannot reach back that far say so instead
+ * of silently showing less: the Sentiment figures come from HubSpot and cover any period, the
+ * decision detail is capped at what is stored.
+ */
+const STORE_DAYS = 21;
 
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
-  const [days, setDays] = useState<number>(7);
+  const { window: win, days: askedDays, label: periodLabel } = useReportingWindow();
+  const days = Math.min(STORE_DAYS, Math.max(1, askedDays));
   const url = `/api/uc/bo-distribution?days=${days}${n ? `&n=${n}` : ""}`;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
@@ -296,7 +304,7 @@ export default function BoDistribution() {
   else if (view === "tickets") body = <Tickets d={r.data} />;
   else if (view === "flow") body = <FlowTab d={r.data} />;
   else if (view === "detection") body = <DetectionTab d={r.data} />;
-  else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} />;
+  else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
   else if (view === "people") body = <People d={r.data} onSaved={reload} />;
   else if (view === "gqs") body = <GqsTab d={r.data} />;
   else if (view === "settings") body = <SettingsTab key={r.data.settings.at ?? "s"} d={r.data} onChanged={reload} />;
@@ -310,14 +318,7 @@ export default function BoDistribution() {
         subtitle="Who gets each new Back Office and GQS ticket, and why - decided here since 19.10.2026"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Box sx={{ display: "flex", gap: 0.5 }}>
-              {WINDOWS.map((w) => (
-                <Button key={w} size="small" variant={days === w ? "contained" : "outlined"}
-                  onClick={() => setDays(w)} sx={{ textTransform: "none", minWidth: 0, px: 1.25 }}>
-                  {w} days
-                </Button>
-              ))}
-            </Box>
+            <WindowPicker />
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Read again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>

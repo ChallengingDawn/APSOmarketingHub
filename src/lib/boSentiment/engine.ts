@@ -419,3 +419,55 @@ export async function runScheduled(): Promise<Record<string, unknown>> {
   const info = await runOnce(client, "schedule");
   return info ?? { skipped: "switched off on the Sentiment tab" };
 }
+
+/* ── figures for any period, read from HubSpot itself ──────────────────── */
+
+const FIG_TTL_MS = 10 * 60_000;
+export type WindowFigures = {
+  from: string; to: string; total: number;
+  tone: Record<string, number>;
+  resolution: Record<string, number>;
+  at: string;
+};
+
+/**
+ * The spread of both properties over ANY window, counted in HubSpot.
+ *
+ * The page's own rows are a 21-day rolling store, so a period picker backed by them stops at 21
+ * days - which is not a period picker (SARCLA, 25.10.2026: "why only 21, this is not what is
+ * expected"). These two values live ON the ticket, so the whole history can be counted straight
+ * from HubSpot: eleven searches that return only a total, cached for ten minutes because a page
+ * is re-read far more often than a day's figures change.
+ *
+ * What it deliberately does NOT return is the old workflow's answer beside the new one. That
+ * comparison was honest during the cut-over, when HubSpot still held the workflow's values; the
+ * correction of 25.10 overwrote them, so there is nothing left to compare against and a "before"
+ * bar would be drawing the same numbers twice.
+ */
+export async function windowFigures(fromIso: string, toIso: string): Promise<WindowFigures> {
+  const key = `boSentiment:figures:${fromIso}:${toIso}`;
+  const cached = await kvGet<WindowFigures>(key);
+  if (cached && Date.now() - new Date(cached.at).getTime() < FIG_TTL_MS) return cached;
+
+  const period = [
+    { propertyName: "hs_pipeline", operator: "EQ", value: BO_PIPELINE },
+    { propertyName: "createdate", operator: "GTE", value: String(new Date(fromIso).getTime()) },
+    { propertyName: "createdate", operator: "LTE", value: String(new Date(toIso).getTime()) },
+  ];
+  const count = async (extra: Record<string, string>[]) => {
+    const j = await hs<{ total?: number }>("/crm/v3/objects/tickets/search", "POST", {
+      filterGroups: [{ filters: [...period, ...extra] }], limit: 1,
+    });
+    return j.total ?? 0;
+  };
+  const values = [...WRITABLE, NOT_VALID_VALUE];
+  const tone: Record<string, number> = {};
+  const resolution: Record<string, number> = {};
+  const total = await count([]);
+  for (const v of values) tone[v] = await count([{ propertyName: TONE_PROP, operator: "EQ", value: v }]);
+  for (const v of values) resolution[v] = await count([{ propertyName: RESOL_PROP, operator: "EQ", value: v }]);
+
+  const out: WindowFigures = { from: fromIso, to: toIso, total, tone, resolution, at: new Date().toISOString() };
+  await kvSet(key, out);
+  return out;
+}

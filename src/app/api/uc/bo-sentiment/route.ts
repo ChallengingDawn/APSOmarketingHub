@@ -15,7 +15,7 @@ import { describeIntegrationError } from "@/lib/integrations/status";
 import { getAnthropic } from "@/lib/ai/claude";
 import { setLive } from "@/lib/connectors/steps/run";
 import {
-  aiUsedToday, checkTicket, getSettings, lastRun, recentRows, runOnce, saveSettings, workflowOn,
+  aiUsedToday, checkTicket, getSettings, lastRun, recentRows, runOnce, saveSettings, windowFigures, workflowOn,
   type Mode,
 } from "@/lib/boSentiment/engine";
 import { AI_PER_DAY, AI_PER_RUN } from "@/lib/boSentiment/ai";
@@ -43,16 +43,26 @@ export async function GET(req: NextRequest) {
     if (t && /^\d+$/.test(t)) {
       return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t, client()) });
     }
-    // the same window as the rest of Back Office distribution, capped at what is kept
+    // Two sources on purpose. The FIGURES come from HubSpot for whatever period was asked for,
+    // because the two values live on the ticket and the whole history can be counted. The ROWS -
+    // which ticket, which words fired, what the model said - exist only in the 21-day store, so
+    // the detail tables say the shorter window out loud rather than pretending.
     const days = Math.min(21, Math.max(1, Number(sp.get("days")) || 7));
-    const [settings, last, rows, usedToday, on] = await Promise.all([
+    const iso = (v: string | null, fallback: Date) => {
+      const d = v ? new Date(v) : fallback;
+      return (Number.isNaN(d.getTime()) ? fallback : d).toISOString();
+    };
+    const to = iso(sp.get("to"), new Date());
+    const from = iso(sp.get("from"), new Date(Date.now() - days * 86400_000));
+    const [settings, last, rows, usedToday, on, figures] = await Promise.all([
       getSettings(), lastRun(), recentRows(days), aiUsedToday(), workflowOn(),
+      windowFigures(from, to).catch(() => null),
     ]);
     const summary = summarise(rows);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary), days,
+        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary), days, figures, detailDays: days,
         workflowOn: on, everyMinutes: 15,
         ai: { usedToday, perRun: AI_PER_RUN, perDay: AI_PER_DAY, available: client() !== null },
         admin: access.role === "admin",

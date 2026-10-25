@@ -73,8 +73,11 @@ export type SentimentData = {
   headline: string;
   workflowOn: boolean | null;
   everyMinutes: number;
-  /** The window the figures cover, set by the picker in the page header. */
+  /** The days of DETAIL the store holds - the tables below, not the figures. */
   days: number;
+  detailDays: number;
+  /** Counted in HubSpot for the period asked for; null when that read failed. */
+  figures: { from: string; to: string; total: number; tone: Record<string, number>; resolution: Record<string, number>; at: string } | null;
   ai: { usedToday: number; perRun: number; perDay: number; available: boolean };
   admin: boolean;
 };
@@ -113,30 +116,28 @@ const MODE_BUTTON: Record<"off" | "shadow" | "live", string> = {
 };
 
 /**
- * One question, drawn the way the rest of the platform draws a comparison.
+ * One question over the period asked for, drawn as the platform draws a distribution.
  *
- * It was two tables of numbers and percentages, which SARCLA called what they were (24.10.2026).
- * The house pattern is a chart with its figures a click away - ChartFrame's table twin - and a
- * comparison is a grouped column, now beside before. "Nothing to go on" has no "before" column:
- * the old scoring had no word for it and called those tickets neutral, so a bar there would be
- * inventing a figure.
+ * Counted in HubSpot rather than from the page's 21-day store, so a year is as easy as a week.
+ * There is no "before the workflow" series any more: that comparison was honest during the
+ * cut-over, while HubSpot still held the old answers, and the correction of 25.10 overwrote them
+ * - a second bar now would be the same numbers drawn twice.
  */
-function Answers({ caption, counts, scored, old, words }: {
-  caption: string; counts: Record<Bucket, number>; scored: number;
-  old?: { positive: number; neutral: number; negative: number };
-  words: Record<Bucket, string>;
+function Answers({ caption, counts, total, words }: {
+  caption: string; counts: Record<string, number>; total: number; words: Record<string, string>;
 }) {
-  const order: Bucket[] = ["negative", "neutral", "positive", "unknown"];
-  const priorOf = (b: Bucket) => (b === "unknown" || !old ? null : old[b]);
-  const data = order.map((b) => ({ x: words[b], current: counts[b], prior: priorOf(b) }));
+  const order = ["negative", "neutral", "positive", "unknown", "not_valid_email"];
+  const label = (b: string) => (b === "not_valid_email" ? "Not a customer" : words[b as Bucket] ?? b);
+  const rows = order.filter((b) => (counts[b] ?? 0) > 0 || b !== "not_valid_email");
   const table: TableTwin = {
-    columns: ["", "Now", "Share", "Before"],
-    rows: order.map((b) => [words[b], counts[b], pc(counts[b], scored), priorOf(b) === null ? "—" : full(priorOf(b)!)]),
-    numeric: [1, 3],
+    columns: ["", "Tickets", "Share"],
+    rows: rows.map((b) => [label(b), counts[b] ?? 0, pc(counts[b] ?? 0, total)]),
+    numeric: [1],
   };
   return (
-    <ChartFrame caption={caption} table={table} empty={scored ? null : "Nothing has been scored yet."}>
-      <GroupedColumns data={data} currentLabel="Now" priorLabel="Before the hand-over" height={200} format={(v) => full(v ?? 0)} />
+    <ChartFrame caption={caption} table={table} empty={total ? null : "No ticket in this period."}>
+      <BarList rows={rows.map((b) => ({ label: label(b), value: counts[b] ?? 0 }))}
+        labelWidth={190} format={(v) => full(v ?? 0)} />
     </ChartFrame>
   );
 }
@@ -205,7 +206,7 @@ function CheckOne() {
   );
 }
 
-export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: () => void }) {
+export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; periodLabel: string; onChanged: () => void }) {
   const s = d.summary;
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -225,20 +226,6 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
       onChanged();
     } catch (e) { setNote((e as Error).message); } finally { setBusy(null); }
   };
-
-  // the workflow's own answers on the same tickets, for the side-by-side - both questions, so
-  // the two tables read the same way
-  const old = { positive: 0, neutral: 0, negative: 0 };
-  const oldResol = { positive: 0, neutral: 0, negative: 0 };
-  for (const r of d.rows) {
-    if (!r.real) continue;
-    if (r.workflow.tone === "positive") old.positive += 1;
-    else if (r.workflow.tone === "neutral") old.neutral += 1;
-    else if (r.workflow.tone === "negative") old.negative += 1;
-    if (r.workflow.resolution === "positive") oldResol.positive += 1;
-    else if (r.workflow.resolution === "neutral") oldResol.neutral += 1;
-    else if (r.workflow.resolution === "negative") oldResol.negative += 1;
-  }
 
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
@@ -337,17 +324,23 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
             <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="What the answers are"
-              note="The same tickets, scored here and by the workflow" />
+              note={`${periodLabel} · counted in HubSpot, so any period works`} />
             <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
-              <Answers caption="How the customer sounds" counts={s.tone} scored={s.scored} old={old} words={TONE_WORD} />
-              <Answers caption="Whether we settled the matter" counts={s.resolution} scored={s.scored} old={oldResol} words={RESOL_WORD} />
+              {d.figures ? (
+                <>
+                  <Answers caption="How the customer sounds" counts={d.figures.tone} total={d.figures.total} words={TONE_WORD} />
+                  <Answers caption="Whether we settled the matter" counts={d.figures.resolution} total={d.figures.total} words={RESOL_WORD} />
+                </>
+              ) : (
+                <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>HubSpot could not be counted for this period.</Typography>
+              )}
             </Box>
           </GlassCard>
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
             <CardTitle icon={<BlockIcon />} tint="slate" title="Why a ticket gets no sentiment"
-              note="Counted here and in no other figure on this page" />
+              note={`The last ${d.detailDays} days - the reasons are kept here, not on the ticket`} />
             <Box sx={{ mt: 1.5 }}>
               <BarList rows={s.reasons.map((r) => ({ label: r.label, value: r.n }))}
                 emptyMessage="Nothing has been left out yet." labelWidth={260} />
@@ -393,7 +386,7 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
 
       <GlassCard>
         <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="The latest tickets"
-          note="What the hub says, what the workflow wrote, and who answered" />
+          note={`The last ${d.detailDays} days - which words fired and what the model said is kept here, not on the ticket`} />
         <Table size="small" sx={{ mt: 1 }}>
           <TableHead>
             <TableRow>
