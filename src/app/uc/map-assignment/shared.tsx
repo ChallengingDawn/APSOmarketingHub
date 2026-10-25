@@ -24,9 +24,11 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // API (src/lib/companyDomain, /api/uc/company-domain)
 // Differences its own tab again 25.10.2026 (SARCLA: "differences by topic instead of a drop-down in the Contacts - create
 // another tab Differences")
-export type View = "map" | "sae" | "performis" | "differences" | "contacts" | "nocompany" | "domains" | "live";
+// Phone numbers 25.10.2026 (SARCLA: "a new tab phone number to integrate the workflow SARCLA | Contact phone number
+// correction")
+export type View = "map" | "sae" | "performis" | "differences" | "contacts" | "nocompany" | "domains" | "phones" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", differences: "#differences", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", live: "#live",
+  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", differences: "#differences", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", phones: "#phone-numbers", live: "#live",
 };
 /** Old links that open another view - none since #differences is a view again. */
 export const OLD_VIEW_HASH = {} as const;

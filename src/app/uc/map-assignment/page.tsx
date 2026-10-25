@@ -50,6 +50,7 @@ import { LiveView } from "./LiveView";
 import { SaeTableView } from "./SaeTableView";
 import { WrongPerformisView } from "./WrongPerformisView";
 import { DomainsView } from "./DomainsView";
+import { PhoneView } from "./PhoneView";
 import { DiffView } from "./DiffView";
 import {
   API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, effectiveRules, namesOf, partName, rulesParts, saveRules, send,
@@ -63,7 +64,7 @@ type Space = "live" | "sandbox";
 const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", nocompany: "No company", domains: "Domains", live: "Live",
+  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", nocompany: "No company", domains: "Domains", phones: "Phone numbers", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded, sandbox, liveRules }: {
@@ -333,8 +334,9 @@ export default function MapAssignment() {
   };
 
   let body: React.ReactNode;
-  // Domains has its own engine and API - it never waits for the map's data
+  // Domains and Phone numbers have their own engine and API - they never wait for the map's data
   if (view === "domains") body = <DomainsView key="domains" />;
+  else if (view === "phones") body = <PhoneView key="phones" />;
   else if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
   else if (r.state !== "ok") {
     body = r.state === "error" && r.status === 404
@@ -377,6 +379,7 @@ export default function MapAssignment() {
           { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
           { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "domains", label: VIEW_LABEL.domains, count: null },
+          { id: "phones", label: VIEW_LABEL.phones, count: null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />
         <Box sx={{ flex: 1 }} />
