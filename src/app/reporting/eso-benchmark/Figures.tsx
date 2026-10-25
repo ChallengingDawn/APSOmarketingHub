@@ -1,17 +1,16 @@
 "use client";
 // THE ESO REPORTS' FIGURES - first in the BUC View and the first page (SARCLA 24.10.2026: "simple to read: revenue per
 // month per ESO; a toggle ESO | TSA | TOTAL, on click change all; OI MTD, OI YTD as the revenue; to forecast").
-// Third version the same night (SARCLA: "the graphs' design is still not good - you are copying the existing
-// dashboard; more fluid, more logic, more data on the graph; it is hard to read - think differently"), the direction
-// SARCLA chose: a TRAJECTORY (the year so far as fluid cumulative curves - this year, last year, the forecast), the
-// PEOPLE (a card each: their months as a curve against last year, the year to date, order intake, book-to-bill),
-// the DRIVERS (who moves the figure: a row per country, priority… with the value, a bar, € and % against last year).
-// The year to date and month to date are the ERP's own per company (erp_rev_* / erp_oi_*): the monthly order intake
-// per company lags months behind (SARCLA: "not sure the figures are right" - order intake MTD read 0). ESO | TSA |
-// Total as the pages' tabs, the Filters window as Digital Growth's (without its period: the ERP's figures are to date).
-// Split by the Performis SAE - the sales agent Performis has on the customer, as its person - or by the company owner
-// (SARCLA 24.10.2026: "the revenue should come from Performis SAE, the split as well next to the company owner; TSA as
-// individuals, not only TSA Team" - under the owner most TSA customers sit with "TSA Team").
+// Fifth version, started over (SARCLA 25.10.2026 on the fourth: the Performis SAE | Company owner switch "should not be
+// a major toggle, this should be in a tab"; "graphs are still shit to steer, it doesn't follow the context with the
+// tab and wraps like in digital growth"). Drawn as Digital Growth's Who are our customers: the title, ESO | TSA |
+// Total and the figures top right; a tab per breakdown - the year so far, Performis SAE, company owner, country,
+// sales priority, APSO customer, customer type - with Views and Filters at their right end; each tab ONE card that
+// follows it: revenue and order intake side by side, the months under them, all the figures in a table. No switch
+// inside a card - the tabs and the Filters window steer, a bar or a row picks its value.
+// The year and month to date are the ERP's own per customer (erp_rev_* / erp_oi_*); the months are each customer's
+// monthly revenue and order intake (the order intake per customer lags months behind - loaded to June in October).
+// ESO and TSA by the Performis SAE (as Map assignment maps it to a person), on the Company owner tab by the owner.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -21,7 +20,16 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import InputBase from "@mui/material/InputBase";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import TableSortLabel from "@mui/material/TableSortLabel";
 import TuneIcon from "@mui/icons-material/Tune";
+import SearchIcon from "@mui/icons-material/Search";
+import CheckIcon from "@mui/icons-material/Check";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
@@ -30,23 +38,20 @@ import TodayOutlinedIcon from "@mui/icons-material/TodayOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
-import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
-import AlignHorizontalLeftOutlinedIcon from "@mui/icons-material/AlignHorizontalLeftOutlined";
-import { Area, ComposedChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { ChartFrame } from "@/app/charts/ChartFrame";
-import { THIS, BEFORE } from "@/app/reporting/marketing-kpis/DimChart";
+import { BEFORE, DimChart, THIS } from "@/app/reporting/marketing-kpis/DimChart";
 import { DIM, FilterWindow, useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, refreshActions, send, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import {
-  DIMS, MONTH_NAMES, byMonthBy, chosenDims, defaultWindow, erpBy, erpTotals, lastComplete, lastMonth, monthOf, yearCurve,
-  type Cube, type Dim, type ErpAgg, type Filters, type MonthFig,
+  DIMS, MONTH_NAMES, PRIO_ORDER, byMonth, byMonthBy, chosenDims, defaultWindow, erpBy, erpTotals, lastComplete, lastMonth, monthOf, partial, yearCurve,
+  type Cube, type Dim, type ErpAgg, type Filters,
 } from "@/lib/marketingKpis/cube";
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
 
@@ -67,64 +72,536 @@ function useKpiSeries(): EsoFigures | null {
   return v;
 }
 
-/* ── ESO | TSA | Total ─────────────────────────────────────────────────── */
+/* ── ESO | TSA | Total, and whose customers they are ───────────────────── */
 
 export type TeamKey = "eso" | "tsa" | "total";
 const TEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "tsa", label: "TSA", count: null }, { id: "total", label: "Total", count: null }];
 const TEAM_OF: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
 const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
-/** Who the figures are split by: the Performis SAE (its person), or the company's owner in HubSpot. */
-export type Split = "sae" | "owner";
-const SPLITS: { id: Split; label: string }[] = [{ id: "sae", label: "Performis SAE" }, { id: "owner", label: "Company owner" }];
-const teamsOf = (cube: Cube, split: Split) => (split === "sae" ? cube.saeTeams : cube.teams) ?? {};
-/** The people of a team under the split, as the cube names them; null for Total. */
-const teamMembers = (cube: Cube, team: TeamKey, split: Split) => (team === "total" ? null : cube.labels[split].filter((l) => teamsOf(cube, split)[l] === TEAM_OF[team]));
-function withTeam(cube: Cube, filters: Filters, team: TeamKey, split: Split): Filters {
-  const members = teamMembers(cube, team, split);
-  if (!members) return filters;
-  const chosen = filters[split]?.length ? filters[split]!.filter((o) => members.includes(o)) : members;
-  return { ...filters, [split]: chosen.length ? chosen : ["\u0000 none"] };
-}
 /** ESO | TSA | Total, drawn as the pages' tabs - a click changes every figure. */
 export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKey) => void }) {
   return <Box sx={{ justifySelf: "start" }}><ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TEAMS} /></Box>;
 }
 
-/** A small switch in the tabs' look: a white pill, the chosen part light blue. */
-function Switch<T extends string>({ value, options, onChange, label }: { value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; label: string }) {
+/** The two ways a customer belongs to a person: the Performis SAE (as its person), or the company owner in HubSpot. */
+type PersonDim = "sae" | "owner";
+const teamsOf = (cube: Cube, d: PersonDim) => (d === "sae" ? cube.saeTeams : cube.teams) ?? {};
+/** A team's people by that way; null for Total. */
+const membersOf = (cube: Cube, team: TeamKey, d: PersonDim) => (team === "total" ? null : cube.labels[d].filter((l) => teamsOf(cube, d)[l] === TEAM_OF[team]));
+function withTeam(cube: Cube, filters: Filters, team: TeamKey, d: PersonDim): Filters {
+  const members = membersOf(cube, team, d);
+  if (!members) return filters;
+  const chosen = filters[d]?.length ? filters[d]!.filter((o) => members.includes(o)) : members;
+  return { ...filters, [d]: chosen.length ? chosen : ["\u0000 none"] };
+}
+
+/* ── the tabs ──────────────────────────────────────────────────────────── */
+
+const BREAKDOWNS = ["sae", "owner", "country", "prio", "segment", "type"] as const;
+type Breakdown = (typeof BREAKDOWNS)[number];
+type View = "year" | Breakdown;
+const isBreakdown = (x: string | null | undefined): x is Breakdown => (BREAKDOWNS as readonly string[]).includes(x ?? "");
+/** The sales rep is the company owner here (SARCLA's word for the split). */
+const NAMES: Partial<Record<Dim, string>> = { owner: "Company owner" };
+const nameOf = (d: Dim) => NAMES[d] ?? DIM[d].name;
+const lowerOf = (d: Dim) => (d === "owner" ? "company owner" : DIM[d].lower);
+const VIEWS: { id: View; label: string }[] = [{ id: "year", label: "Year so far" }, ...BREAKDOWNS.map((d) => ({ id: d as View, label: nameOf(d) }))];
+/** The team is the Performis SAE's people - on the Company owner tab the owners'. */
+const teamDimOf = (v: View): PersonDim => (v === "owner" ? "owner" : "sae");
+const NOTES: Record<Breakdown, string> = {
+  sae: "The sales agent Performis has on the customer, as its person - the revenue as Performis splits it",
+  owner: "The company owner in HubSpot today - ESO and TSA here are the companies their people own",
+  country: "Where the customers are",
+  prio: "Which priority bands carry the revenue",
+  segment: "APSOcore, APSOgrowth, APSOprospect, APSOlost, APSOmicro, Growth Engine",
+  type: "OEM, C2S workshops, MRO, resellers",
+};
+
+/* ── words and numbers, in full ────────────────────────────────────────── */
+
+const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
+const signedEur = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
+const changeOf = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
+const signedPct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x * 100).toFixed(1)}%`);
+const pct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
+const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
+const changeNote = (a: number, b: number) => (b ? { text: signedPct(changeOf(a, b)), color: tone(changeOf(a, b)) } : a > 0 ? { text: "new", color: GREEN } : null);
+
+/** The day the ERP's figures are of - the file's day, else as far as the monthly revenue reaches. */
+function erpDate(cube: Cube): { day: number; month: number; year: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cube.erpDay ?? "");
+  if (m) return { year: Number(m[1]), month: Number(m[2]) - 1, day: Number(m[3]) };
+  const run = cube.running;
+  return run ? { year: cube.years[0], month: run.month % 12, day: run.day } : null;
+}
+/** "13 Oct 2026" */
+const dayWords = (cube: Cube, back = 0) => { const d = erpDate(cube); return d ? `${d.day} ${MONTH_NAMES[d.month]} ${d.year - back}` : "the last ERP file"; };
+/** "Jan – 13 Oct 2026": the year to date, a year earlier with back = 1 */
+const ytdWords = (cube: Cube, back = 0) => { const d = erpDate(cube); return d ? `Jan – ${d.day} ${MONTH_NAMES[d.month]} ${d.year - back}` : `${cube.years[back]} to date`; };
+/** "1 – 13 Oct 2026": the month to date */
+const mtdWords = (cube: Cube, back = 0) => { const d = erpDate(cube); return d ? `1 – ${d.day} ${MONTH_NAMES[d.month]} ${d.year - back}` : "the month to date"; };
+/** This year's months read: 0 = January, the month in progress included. */
+const runOf = (cube: Cube) => lastMonth(cube) - monthOf(0, 0);
+/** This year's months with each customer's order intake loaded. */
+const oiLoadedOf = (cube: Cube) => Math.min(cube.oiLoaded ?? runOf(cube) + 1, runOf(cube) + 1);
+
+/* ── what every chart is drawn with ────────────────────────────────────── */
+
+export type FigCtx = {
+  cube: Cube; kpi: EsoFigures | null; team: TeamKey; view: View;
+  /** the filters chosen, and with the team in them */
+  filters: Filters; eff: Filters;
+  /** in half a row of the BUC View */
+  half?: boolean;
+  /** a row or a person's months: show only it */
+  onPick?: (d: Dim, label: string) => void;
+  /** a bar: show only it, and the Filters window opens on its breakdown - as Who are our customers */
+  onBar?: (d: Dim, label: string) => void;
+  onFilter?: (d: Dim) => void;
+};
+const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
+
+/** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
+function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <Box role="group" aria-label={label} sx={{ display: "inline-flex", p: 0.4, gap: 0.25, borderRadius: "12px", bgcolor: "rgba(255,255,255,.85)", border: `1px solid ${HAIRLINE}` }}>
-      {options.map((o) => {
-        const on = o.id === value;
-        return (
-          <Box key={o.id} component="button" type="button" aria-pressed={on} onClick={() => onChange(o.id)}
-            sx={{ border: 0, font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.4, py: 0.55, borderRadius: "9px", cursor: "pointer", bgcolor: on ? TINT.blue.bg : "transparent", color: on ? TINT.blue.fg : MUTED, "&:hover": { color: on ? TINT.blue.fg : INK } }}>
-            {o.label}
-          </Box>
-        );
-      })}
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
+          {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>}
+        </Box>
+        {actions}
+      </Box>
+      {children}
+    </Box>
+  );
+}
+const TWO = { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } } as const;
+const tip = { contentStyle: { fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" } };
+/** A value axis as wide as its longest figure, in full. */
+const axisWidth = (max: number) => Math.max(56, eur(max).length * 7 + 10);
+
+/* ── the year so far: each month added to the one before ───────────────── */
+
+type Which = "rev" | "oi";
+const cum = (xs: (number | null)[]) => { let s = 0; return xs.map((x) => (x == null ? null : (s += x))); };
+
+function YearCurve({ c, which }: { c: FigCtx; which: Which }) {
+  const { cube } = c;
+  const y = yearCurve(cube, c.eff);
+  const e = erpTotals(cube, c.eff);
+  const run = runOf(cube), loaded = oiLoadedOf(cube);
+  const cyMonths = which === "rev" ? y.rev.map((x, i) => (i <= run ? x : null)) : y.oi.map((x, i) => (i < loaded ? x : null));
+  const cyCum = cum(cyMonths), pyCum = cum(which === "rev" ? y.revPy : y.oiPy);
+  const fc = which === "rev" && forecastShown(c) ? cum(c.kpi!.total.forecast) : null;
+  // the order intake per customer is loaded months behind the ERP: its curve stops where loaded, and a dashed line
+  // reaches the ERP's own year to date in the running month
+  const gap = which === "oi" && loaded <= run && loaded > 0;
+  const ytd = which === "rev" ? e.revYtd : e.oiYtd;
+  const data = MONTH_NAMES.map((x, i) => ({
+    x, cy: cyCum[i], py: pyCum[i], fc: fc ? fc[i] : null,
+    bridge: gap && (i === loaded - 1 || i === run) ? (i === run ? ytd : cyCum[i]) : null,
+  }));
+  const lastCy = gap ? run : cyCum.reduce<number>((k, v, i) => (v != null ? i : k), -1);
+  const max = Math.max(1, ...pyCum.map((v) => v ?? 0), ...(fc ?? []).map((v) => v ?? 0), ytd);
+  // each curve named at its end, in its colour; the two at December kept apart
+  const pyEnd = pyCum[11] ?? 0, fcEnd = fc?.[11] ?? null;
+  const pyDy = fcEnd != null && fcEnd > pyEnd ? 16 : -6, fcDy = fcEnd != null && fcEnd > pyEnd ? -6 : 16;
+  const label = (at: number, color: string, text: (v: number) => string, dy = -8) => (p: { x?: number | string; y?: number | string; index?: number; value?: unknown }) =>
+    p.index === at && p.value != null ? <text x={Number(p.x ?? 0) + 6} y={Number(p.y ?? 0) + dy} fontSize={12} fontWeight={700} fill={color}>{text(Number(p.value))}</text> : <g />;
+  const CY_DY = 20;
+  const [y0, y1] = cube.years;
+  return (
+    <ResponsiveContainer width="100%" height={c.half ? 240 : 280}>
+      <ComposedChart data={data} margin={{ top: 22, right: 152, bottom: 0, left: 4 }}>
+        <defs>
+          <linearGradient id={`fig-${which}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={THIS} stopOpacity={0.26} />
+            <stop offset="100%" stopColor={THIS} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid vertical={false} stroke="#e8ebf0" />
+        <XAxis dataKey="x" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: MUTED }} />
+        <YAxis tickFormatter={(v: number) => eur(v)} tickLine={false} axisLine={false} width={axisWidth(max)} tick={{ fontSize: 11.5, fill: MUTED }} />
+        <Tooltip {...tip} formatter={(v: unknown, n: unknown) => (v == null ? [null, null] : [eur(Number(v)), String(n)])} />
+        {fc && <Line dataKey="fc" name={`Forecast ${y0}`} stroke="#d99a2b" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} isAnimationActive={false}
+          label={label(11, "#b07a12", (v) => `Forecast ${eur(v)}`, fcDy)} />}
+        <Line dataKey="py" name={String(y1)} stroke={BEFORE} strokeWidth={2.2} strokeDasharray="6 5" dot={false} isAnimationActive={false}
+          label={label(11, MUTED, (v) => `${y1} ${eur(v)}`, pyDy)} />
+        <Area dataKey="cy" name={String(y0)} stroke={THIS} strokeWidth={3} fill={`url(#fig-${which})`} dot={false} isAnimationActive={false} connectNulls={false}
+          label={gap ? undefined : label(lastCy, THIS, (v) => `${y0} ${eur(v)}`, CY_DY)} />
+        {gap && <Line dataKey="bridge" name={`${y0}, the ERP's year to date`} stroke={THIS} strokeWidth={2.5} strokeDasharray="4 4" connectNulls dot={{ r: 4, fill: "#fff", stroke: THIS, strokeWidth: 2 }} isAnimationActive={false}
+          label={label(run, THIS, (v) => `${y0} ${eur(v)}`, CY_DY)} />}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+function yearCurveHint(c: FigCtx, which: Which) {
+  const e = erpTotals(c.cube, c.eff);
+  const [now, then] = which === "rev" ? [e.revYtd, e.revYtdPy] : [e.oiYtd, e.oiYtdPy];
+  const loaded = oiLoadedOf(c.cube);
+  const lag = which === "oi" && loaded <= runOf(c.cube) && loaded > 0 ? ` · each customer's months loaded to ${MONTH_NAMES[loaded - 1]}, the dashed line reaches the ERP's year to date` : "";
+  return `${ytdWords(c.cube)}: ${eur(now)}, ${signedPct(changeOf(now, then))} against ${eur(then)} · ${c.cube.years[1]} dashed${which === "rev" && forecastShown(c) ? ", the forecast dotted" : ""}${lag}`;
+}
+
+/* ── month by month ────────────────────────────────────────────────────── */
+
+/** The month under each pair of columns, and its change in its colour under it. */
+function monthTick(data: { ch: number | null; missing: boolean }[]) {
+  return function Tick(p: { x?: number | string; y?: number | string; payload?: { value?: string; index?: number } }) {
+    const d = data[p.payload?.index ?? -1];
+    return (
+      <g transform={`translate(${Number(p.x ?? 0)},${Number(p.y ?? 0)})`}>
+        <text dy={12} textAnchor="middle" fontSize={12} fill={MUTED}>{p.payload?.value}</text>
+        {d && (d.missing
+          ? <text dy={27} textAnchor="middle" fontSize={10.5} fill={FAINT}>not in</text>
+          : d.ch != null && <text dy={27} textAnchor="middle" fontSize={11} fontWeight={700} fill={tone(d.ch)}>{signedPct(d.ch)}</text>)}
+      </g>
+    );
+  };
+}
+function MonthColumns({ c, which }: { c: FigCtx; which: Which }) {
+  const ms = byMonth(c.cube, c.eff);
+  const loaded = oiLoadedOf(c.cube);
+  const data = ms.map((m, i) => {
+    const cur = which === "rev" ? m.rev : i < loaded ? m.oi : null;
+    const prev = which === "rev" ? m.revPy : m.oiPy;
+    return { x: MONTH_NAMES[i], cur, prev, ch: cur == null ? null : changeOf(cur, prev), missing: cur == null };
+  });
+  const max = Math.max(1, ...data.map((d) => Math.max(d.cur ?? 0, d.prev)));
+  const [y0, y1] = c.cube.years;
+  return (
+    <ResponsiveContainer width="100%" height={c.half ? 240 : 280}>
+      <BarChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: 4 }} barCategoryGap="22%" barGap={2}>
+        <CartesianGrid vertical={false} stroke="#e8ebf0" />
+        <XAxis dataKey="x" tickLine={false} axisLine={{ stroke: HAIRLINE }} interval={0} height={40} tick={monthTick(data)} />
+        <YAxis tickFormatter={(v: number) => eur(v)} tickLine={false} axisLine={false} width={axisWidth(max)} tick={{ fontSize: 11.5, fill: MUTED }} />
+        <Tooltip {...tip} cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => (v == null ? ["not loaded yet", String(n)] : [eur(Number(v)), String(n)])} />
+        <Bar dataKey="cur" name={String(y0)} fill={THIS} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
+        <Bar dataKey="prev" name={String(y1)} fill={BEFORE} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+function monthColumnsHint(c: FigCtx, which: Which) {
+  const run = partial(c.cube);
+  const loaded = oiLoadedOf(c.cube);
+  const lag = which === "oi" && loaded <= runOf(c.cube) && loaded > 0 ? ` · loaded to ${MONTH_NAMES[loaded - 1]} for each customer` : "";
+  return `${c.cube.years[0]} blue, ${c.cube.years[1]} grey, the change under each month${run ? ` · ${MONTH_NAMES[run.month % 12]} to the ${run.day}th, against the same days` : ""}${lag}`;
+}
+
+/* ── a breakdown: its values, the people's months ──────────────────────── */
+
+type ValueRow = { label: string; e: ErpAgg };
+/** The values of a breakdown with figures, the largest year to date first (priority in its own order); a team's people only. */
+function valuesOf(c: FigCtx, dim: Dim): ValueRow[] {
+  const by = erpBy(c.cube, c.eff, dim);
+  const members = (dim === "sae" || dim === "owner") && dim === teamDimOf(c.view) ? membersOf(c.cube, c.team, dim) : null;
+  const rows = [...by.entries()].filter(([l, e]) => (!members || members.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy)).map(([label, e]) => ({ label, e }));
+  if (dim === "prio") return rows.sort((a, b) => (PRIO_ORDER.indexOf(a.label) + 99) % 99 - (PRIO_ORDER.indexOf(b.label) + 99) % 99 || a.label.localeCompare(b.label));
+  return rows.sort((a, b) => b.e.revYtd - a.e.revYtd || a.label.localeCompare(b.label));
+}
+
+function ValueBars({ c, dim, which, actions }: { c: FigCtx; dim: Dim; which: Which; actions?: React.ReactNode }) {
+  const rows = valuesOf(c, dim).map((r) => ({ label: r.label, rev: r.e.revYtd, cur: which === "rev" ? r.e.revYtd : r.e.oiYtd, prev: which === "rev" ? r.e.revYtdPy : r.e.oiYtdPy }));
+  type R = (typeof rows)[number];
+  const what = which === "rev" ? "Revenue" : "Order intake";
+  return (
+    <DimChart key={`${which}-${dim}`} title={`${what} ${ytdWords(c.cube)}, by ${lowerOf(dim)}`} rows={rows}
+      cur={(r: R) => r.cur} prev={(r: R) => r.prev} curNote={(r: R) => changeNote(r.cur, r.prev)}
+      // the period is in the title: the legend names the years, so it stays on one line in half a row
+      curLabel={String(c.cube.years[0])} prevLabel={String(c.cube.years[1])} fmt={eur} pageSize={c.half ? 8 : 12} fixedOrder={dim === "prio"}
+      selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
+      onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
+  );
+}
+
+/** A value's months: its revenue this year against last year (dashed), its year to date and change - a click picks it. */
+function MonthCard({ c, row, months, on, onClick }: { c: FigCtx; row: ValueRow; months: { rev: number; revPy: number }[]; on: boolean; onClick?: () => void }) {
+  const [y0, y1] = c.cube.years;
+  const data = months.map((m, i) => ({ x: MONTH_NAMES[i], cy: m.rev, py: m.revPy }));
+  const ch = changeOf(row.e.revYtd, row.e.revYtdPy);
+  return (
+    <Box component={onClick ? "button" : "div"} type={onClick ? "button" : undefined} onClick={onClick} aria-pressed={onClick ? on : undefined}
+      sx={{ font: "inherit", textAlign: "left", cursor: onClick ? "pointer" : "default", borderRadius: "14px", p: 1.25, pb: 0.5, minWidth: 0, display: "grid", gap: 0.25,
+        bgcolor: on ? TINT.blue.bg : "#fff", border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.09)"}`, transition: "border-color .15s ease",
+        "&:hover": onClick ? { borderColor: TINT.blue.fg } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0 }}>
+        <Typography noWrap title={row.label} sx={{ flex: 1, minWidth: 0, fontSize: "0.84rem", fontWeight: 700, color: INK }}>{row.label}</Typography>
+        <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(row.e.revYtd)}</Typography>
+        <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: row.e.revYtdPy ? tone(ch) : GREEN, whiteSpace: "nowrap" }}>{row.e.revYtdPy ? signedPct(ch) : row.e.revYtd ? "new" : "—"}</Typography>
+      </Box>
+      <Box sx={{ height: 96 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: 6 }}>
+            <XAxis dataKey="x" tickLine={false} axisLine={false} interval={0} tick={{ fontSize: 10, fill: FAINT }} tickFormatter={(v: string) => v.slice(0, 1)} height={16} />
+            <YAxis hide domain={[0, "dataMax"]} />
+            <Tooltip {...tip} formatter={(v: unknown, n: unknown) => [eur(Number(v)), String(n)]} />
+            <Line dataKey="py" name={String(y1)} stroke={BEFORE} strokeWidth={1.6} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+            <Line dataKey="cy" name={String(y0)} stroke={THIS} strokeWidth={2.4} dot={{ r: 2, fill: THIS, strokeWidth: 0 }} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Box>
     </Box>
   );
 }
 
-/* ── words and numbers ─────────────────────────────────────────────────── */
+function MonthCards({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.ReactNode }) {
+  const [all, setAll] = useState(false);
+  const rows = valuesOf(c, dim);
+  const months = byMonthBy(c.cube, c.eff, dim);
+  const chosen = c.filters[dim] ?? [];
+  const FIRST = c.half ? 4 : 6;
+  const base = chosen.length ? rows.filter((r) => chosen.includes(r.label)) : rows;
+  const shown = all ? rows : base.slice(0, FIRST);
+  // complete months only: on a curve, a month 13 days in reads as a collapse (its figure is in the year to date)
+  const run = partial(c.cube);
+  const complete = (ms: { rev: number; revPy: number }[]) => (run ? ms.slice(0, -1) : ms);
+  const which = chosen.length ? (chosen.length === 1 ? "The one chosen" : "The ones chosen") : rows.length > FIRST ? `The largest ${FIRST} of ${rows.length}` : dim === "prio" ? "Each priority" : `All ${rows.length}`;
+  return (
+    <ChartBox title={`Revenue month by month, by ${lowerOf(dim)}`} actions={actions}
+      hint={`${which} · the complete months, ${c.cube.years[0]} blue, ${c.cube.years[1]} dashed · the year to date and its change${c.onPick ? " · a click shows only them" : ""}`}>
+      {shown.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing with figures under these filters.</Typography> : (
+        <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: c.half ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))" } }}>
+          {shown.map((r) => (
+            <MonthCard key={r.label} c={c} row={r} months={complete(months.get(r.label) ?? [])} on={chosen.includes(r.label)} onClick={c.onPick ? () => c.onPick!(dim, r.label) : undefined} />
+          ))}
+        </Box>
+      )}
+      {rows.length > FIRST && (
+        <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>
+          {all ? (chosen.length ? "Show the ones chosen" : `Show the largest ${FIRST}`) : `Show all ${rows.length}`}
+        </Button>
+      )}
+    </ChartBox>
+  );
+}
 
-const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
-/** a short figure where a curve or a row is busy: €2.14M, €214k, €940 */
-const short = (n: number) => {
-  const a = Math.abs(n), s = n < 0 ? "−" : "";
-  return a >= 1e6 ? `${s}€${(a / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M` : a >= 1e4 ? `${s}€${Math.round(a / 1e3)}k` : `${s}€${Math.round(a).toLocaleString("en")}`;
+/* ── all the figures: wide, in words, any column sorts ─────────────────── */
+
+type Col<R> = { key: string; head: string; tip?: string; cell: (r: R) => React.ReactNode; sort?: (r: R) => number };
+function FullTable<R extends { label: string }>({ first, cols, rows, total, selected, onPick, tint = "blue", natural = false, initial, find }: {
+  first: string; cols: Col<R>[]; rows: R[]; total?: R | null; selected?: string[]; onPick?: (label: string) => void; tint?: Tint;
+  /** the column sorted by at first - the first that sorts unless given */
+  initial?: string;
+  /** the rows keep their own order until a header is clicked (months, priorities) */
+  natural?: boolean;
+  /** "a country" - a search box when there are many rows */
+  find?: string;
+}) {
+  const [sort, setSort] = useState<{ key: string; desc: boolean } | null>(natural ? null : { key: initial ?? cols.find((x) => x.sort)?.key ?? "label", desc: true });
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const col = sort ? cols.find((x) => x.key === sort.key) : null;
+  const sorted = sort?.key === "label" ? [...rows].sort((a, b) => a.label.localeCompare(b.label) * (sort.desc ? -1 : 1))
+    : col?.sort ? [...rows].sort((a, b) => (col.sort!(b) - col.sort!(a)) * (sort!.desc ? 1 : -1) || a.label.localeCompare(b.label)) : rows;
+  const found = q ? sorted.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : sorted;
+  const LIMIT = 25;
+  const shown = open || q ? found : found.slice(0, LIMIT);
+  const by = (key: string) => setSort((s) => (s?.key === key ? { key, desc: !s.desc } : { key, desc: key !== "label" }));
+  const pad = cols.length > 10 ? 0.6 : 0.75;
+  const head = {
+    fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: pad, verticalAlign: "bottom" as const,
+    maxWidth: 124, "& .MuiTableSortLabel-root": { whiteSpace: "normal", textAlign: "right" },
+    "& .MuiTableSortLabel-root:not(.Mui-active) .MuiTableSortLabel-icon": { display: "none" },
+  };
+  const body = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const, py: 1, px: pad };
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      {find && rows.length > 12 && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, mb: 1, height: 34, maxWidth: 320, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
+          <SearchIcon sx={{ fontSize: 18, color: MUTED }} />
+          <InputBase value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Find ${find}…`} inputProps={{ "aria-label": `Find ${find}` }} sx={{ fontSize: "0.86rem", flex: 1 }} />
+        </Box>
+      )}
+      <Box sx={{ overflowX: "auto", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)" }}>
+        <Table size="small" sx={{ minWidth: 860 }} aria-label={`All the figures, by ${first.toLowerCase()}`}>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...head, maxWidth: "none", minWidth: 110, pl: 1.5 }}>
+                <TableSortLabel active={sort?.key === "label"} direction={sort?.key === "label" && sort.desc ? "desc" : "asc"} onClick={() => by("label")}>{first}</TableSortLabel>
+              </TableCell>
+              {cols.map((x, i) => (
+                <TableCell key={`${i}-${x.key}`} align="right" sx={head} title={x.tip}>
+                  {x.sort ? <TableSortLabel active={sort?.key === x.key} direction={sort?.key === x.key && !sort.desc ? "asc" : "desc"} onClick={() => by(x.key)}>{x.head}</TableSortLabel> : x.head}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {shown.map((r) => {
+              const on = !!selected?.includes(r.label);
+              return (
+                <TableRow key={r.label} hover={!!onPick} onClick={onPick ? () => onPick(r.label) : undefined} selected={on} aria-selected={onPick ? on : undefined}
+                  sx={{ cursor: onPick ? "pointer" : "default", opacity: selected?.length && !on ? 0.5 : 1, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: TINT[tint].bg } }}>
+                  <TableCell sx={{ ...body, fontWeight: 600, pl: 1.5 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>{on && <CheckIcon sx={{ fontSize: 16, color: TINT[tint].fg }} />}{r.label}</Box>
+                  </TableCell>
+                  {cols.map((x, i) => <TableCell key={`${i}-${x.key}`} align="right" sx={body}>{x.cell(r)}</TableCell>)}
+                </TableRow>
+              );
+            })}
+            {total && (
+              <TableRow>
+                <TableCell sx={{ ...body, fontWeight: 800, borderBottom: 0, pl: 1.5 }}>{total.label}</TableCell>
+                {cols.map((x, i) => <TableCell key={`${i}-${x.key}`} align="right" sx={{ ...body, fontWeight: 800, borderBottom: 0 }}>{x.cell(total)}</TableCell>)}
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+      {!q && found.length > LIMIT && (
+        <Button size="small" onClick={() => setOpen((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, mt: 0.75 }}>{open ? `Show the first ${LIMIT}` : `Show all ${found.length}`}</Button>
+      )}
+    </Box>
+  );
+}
+
+const zeroErp = (): ErpAgg => ({ revMtd: 0, revMtdPy: 0, revYtd: 0, revYtdPy: 0, oiMtd: 0, oiMtdPy: 0, oiYtd: 0, oiYtdPy: 0 });
+/** A figure with its change under it, right-aligned - as Digital Growth's Visit tables: the table keeps to its card. */
+const withChangeCell = (v: number, a: number, b: number) => (
+  <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.25 }}>
+    {eur(v)}
+    <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: b ? tone(changeOf(a, b)) : a > 0 ? GREEN : FAINT }}>{b ? signedPct(changeOf(a, b)) : a > 0 ? "new" : "—"}</Box>
+  </Box>
+);
+const changeCell = (a: number, b: number) => <span style={{ color: tone(changeOf(a, b)), fontWeight: 700 }}>{b ? signedPct(changeOf(a, b)) : a > 0 ? "new" : "—"}</span>;
+
+function ValueTable({ c, dim }: { c: FigCtx; dim: Dim }) {
+  const rows = valuesOf(c, dim);
+  const total: ValueRow = { label: "Total", e: rows.reduce((t, r) => { for (const k of Object.keys(t) as (keyof ErpAgg)[]) t[k] += r.e[k]; return t; }, zeroErp()) };
+  const sumRev = rows.reduce((s, r) => s + Math.max(0, r.e.revYtd), 0);
+  const person = dim === "sae" || dim === "owner";
+  const cube = c.cube;
+  const cols: Col<ValueRow>[] = [
+    ...(person && c.team === "total" ? [{ key: "team", head: "Team", cell: (r: ValueRow) => (r.label === "Total" ? "" : teamsOf(cube, dim as PersonDim)[r.label] ?? "—") }] : []),
+    { key: "rev", head: `Revenue ${ytdWords(cube)}`, tip: "The ERP's revenue, the year to date", cell: (r) => eur(r.e.revYtd), sort: (r) => r.e.revYtd },
+    { key: "revPy", head: `Revenue ${ytdWords(cube, 1)}`, tip: "The same days a year earlier", cell: (r) => eur(r.e.revYtdPy), sort: (r) => r.e.revYtdPy },
+    { key: "diff", head: "Change in €", cell: (r) => <span style={{ color: tone(r.e.revYtd - r.e.revYtdPy) }}>{signedEur(r.e.revYtd - r.e.revYtdPy)}</span>, sort: (r) => r.e.revYtd - r.e.revYtdPy },
+    { key: "change", head: "Change in %", cell: (r) => changeCell(r.e.revYtd, r.e.revYtdPy), sort: (r) => changeOf(r.e.revYtd, r.e.revYtdPy) ?? -Infinity },
+    { key: "share", head: "Share of revenue", tip: "This row's part of the revenue in the table", cell: (r) => (r.e.revYtd > 0 && sumRev > 0 ? pct(r.e.revYtd / sumRev) : "—"), sort: (r) => r.e.revYtd },
+    { key: "mtd", head: `Revenue ${mtdWords(cube)}`, tip: `The ERP's revenue, the month to date - under it the change against ${mtdWords(cube, 1)}`, cell: (r) => withChangeCell(r.e.revMtd, r.e.revMtd, r.e.revMtdPy), sort: (r) => r.e.revMtd },
+    { key: "oi", head: `Order intake ${ytdWords(cube)}`, tip: `The ERP's order intake, the year to date - under it the change against ${ytdWords(cube, 1)}`, cell: (r) => withChangeCell(r.e.oiYtd, r.e.oiYtd, r.e.oiYtdPy), sort: (r) => r.e.oiYtd },
+    { key: "oiMtd", head: `Order intake ${mtdWords(cube)}`, tip: `The ERP's order intake, the month to date - under it the change against ${mtdWords(cube, 1)}`, cell: (r) => withChangeCell(r.e.oiMtd, r.e.oiMtd, r.e.oiMtdPy), sort: (r) => r.e.oiMtd },
+    { key: "b2b", head: "Book-to-bill", tip: "Order intake against revenue, the year to date", cell: (r) => (r.e.revYtd ? `${Math.round((r.e.oiYtd / r.e.revYtd) * 100)}%` : "—"), sort: (r) => (r.e.revYtd ? r.e.oiYtd / r.e.revYtd : -Infinity) },
+  ];
+  return <FullTable key={`${dim}-${c.team}`} first={nameOf(dim)} cols={cols} initial="rev" rows={rows} total={total} selected={c.filters[dim]} tint={DIM[dim].tint}
+    onPick={c.onPick ? (l) => c.onPick!(dim, l) : undefined} natural={dim === "prio"} find={`a ${lowerOf(dim)}`} />;
+}
+
+type MonthRow = { label: string; rev: number; revPy: number; revCum: number; revPyCum: number; oi: number | null; oiPy: number; fc: number | null; erp?: boolean };
+function YearTable({ c }: { c: FigCtx }) {
+  const { cube } = c;
+  const ms = byMonth(cube, c.eff);
+  const loaded = oiLoadedOf(cube);
+  const fc = forecastShown(c) ? c.kpi!.total.forecast : null;
+  const run = partial(cube);
+  let a = 0, b = 0;
+  const rows: MonthRow[] = ms.map((m, i) => ({
+    label: run && i === ms.length - 1 ? `${MONTH_NAMES[i]} (to the ${run.day}th)` : MONTH_NAMES[i],
+    rev: m.rev, revPy: m.revPy, revCum: (a += m.rev), revPyCum: (b += m.revPy), oi: i < loaded ? m.oi : null, oiPy: m.oiPy, fc: fc ? fc[i] ?? 0 : null,
+  }));
+  const last = rows[rows.length - 1];
+  // the order intake's total is the ERP's year to date: the months not loaded per customer are in it
+  const e = erpTotals(cube, c.eff);
+  const total: MonthRow | null = last ? {
+    label: `Jan – ${MONTH_NAMES[rows.length - 1]}`, rev: last.revCum, revPy: last.revPyCum, revCum: last.revCum, revPyCum: last.revPyCum,
+    oi: e.oiYtd, oiPy: e.oiYtdPy, fc: fc ? rows.reduce((s, r) => s + (r.fc ?? 0), 0) : null, erp: true,
+  } : null;
+  const [y0, y1] = cube.years;
+  const cols: Col<MonthRow>[] = [
+    { key: "rev", head: `Revenue ${y0}`, tip: `Under it the change against ${y1}`, cell: (r) => withChangeCell(r.rev, r.rev, r.revPy) },
+    { key: "revPy", head: `Revenue ${y1}`, tip: "The same month a year earlier - the running month, the same days", cell: (r) => eur(r.revPy) },
+    ...(fc ? [] : [{ key: "diff", head: "Change in €", cell: (r: MonthRow) => <span style={{ color: tone(r.rev - r.revPy) }}>{signedEur(r.rev - r.revPy)}</span> }]),
+    { key: "cum", head: `${y0} so far`, tip: "Each month added to the one before", cell: (r) => eur(r.revCum) },
+    { key: "cumPy", head: `${y1} so far`, cell: (r) => eur(r.revPyCum) },
+    { key: "oi", head: `Order intake ${y0}`, tip: `Each customer's order intake, loaded to ${MONTH_NAMES[Math.max(0, loaded - 1)]} - under it the change against ${y1}`,
+      cell: (r) => (r.oi == null ? <span style={{ color: FAINT }}>not loaded yet</span> : <span title={r.erp ? `The ERP's year to date, ${ytdWords(cube)}` : undefined}>{withChangeCell(r.oi, r.oi, r.oiPy)}</span>) },
+    { key: "oiPy", head: `Order intake ${y1}`, cell: (r) => eur(r.oiPy) },
+    ...(fc ? [
+      { key: "fc", head: "Forecast", tip: "The ERP's forecast - the whole company", cell: (r: MonthRow) => eur(r.fc ?? 0) },
+      { key: "reached", head: "Reached", tip: "Revenue against the forecast", cell: (r: MonthRow) => (r.fc ? pct(r.rev / r.fc) : "—") },
+    ] : []),
+  ];
+  return <FullTable first="Month" cols={cols} rows={rows} total={total} natural />;
+}
+
+/* ── every chart by its key: the tabs draw them, and so does the BUC View ── */
+
+type Drawn = { view: View; title: (c: FigCtx) => string; draw: (c: FigCtx, actions?: React.ReactNode) => React.ReactNode };
+const yearChart = (which: Which, kind: "cum" | "mon"): Drawn => {
+  const title = (c: FigCtx) => `${which === "rev" ? "Revenue" : "Order intake"}${kind === "cum" ? ", the year so far" : " month by month"}${c.team === "total" ? "" : ` - ${teamWord(c.team)}`}`;
+  return {
+    view: "year", title,
+    draw: (c, actions) => (
+      <ChartBox title={title(c)} hint={kind === "cum" ? yearCurveHint(c, which) : monthColumnsHint(c, which)} actions={actions}>
+        {kind === "cum" ? <YearCurve c={c} which={which} /> : <MonthColumns c={c} which={which} />}
+      </ChartBox>
+    ),
+  };
 };
-const signedShort = (n: number) => `${n > 0 ? "+" : ""}${short(n)}`;
-const changeOf = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
-const signedPct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x * 100).toFixed(1)}%`);
-const tone = (x: number | null) => (x == null || Math.abs(x) < 0.0005 ? FAINT : x > 0 ? GREEN : RED);
-const pctPlain = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${Math.round(x * 100)}%`);
-const ym = (cube: Cube, k: number) => `${cube.years[2] + Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, "0")}`;
-/** "21 Oct 2026" - the ERP file's day */
-const erpDayWords = (cube: Cube) => (cube.erpDay ? new Date(`${cube.erpDay}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "the last ERP file");
-/** the running month's index (0 = January) the ERP's month to date is of */
-const erpMonth = (cube: Cube) => (cube.erpDay ? Number(cube.erpDay.slice(5, 7)) - 1 : (lastMonth(cube) - monthOf(0, 0)));
+export const FIG_CHARTS: Record<string, Drawn> = {
+  "year:cumrev": yearChart("rev", "cum"),
+  "year:cumoi": yearChart("oi", "cum"),
+  "year:monrev": yearChart("rev", "mon"),
+  "year:monoi": yearChart("oi", "mon"),
+  ...Object.fromEntries(BREAKDOWNS.flatMap((d): [string, Drawn][] => [
+    [`${d}:rev`, { view: d, title: (c: FigCtx) => `Revenue by ${lowerOf(d)} - ${teamWord(c.team)}`, draw: (c: FigCtx, actions?: React.ReactNode) => <ValueBars c={c} dim={d} which="rev" actions={actions} /> }],
+    [`${d}:oi`, { view: d, title: (c: FigCtx) => `Order intake by ${lowerOf(d)} - ${teamWord(c.team)}`, draw: (c: FigCtx, actions?: React.ReactNode) => <ValueBars c={c} dim={d} which="oi" actions={actions} /> }],
+    [`${d}:months`, { view: d, title: (c: FigCtx) => `Revenue month by month, by ${lowerOf(d)} - ${teamWord(c.team)}`, draw: (c: FigCtx, actions?: React.ReactNode) => <MonthCards c={c} dim={d} actions={actions} /> }],
+  ])),
+};
+/** A key's chart - the fourth version's keys (trajectory, people, drivers), still sent to some BUC Views, by what took their place. */
+function chartOf(key: string, part?: string, split?: string): Drawn | undefined {
+  const [, view, chart = ""] = key.split(":");
+  if (view !== "figures") return FIG_CHARTS[`${view}:${chart}`];
+  if (chart.startsWith("trajectory")) return FIG_CHARTS[part === "oi" ? "year:cumoi" : "year:cumrev"];
+  if (chart.startsWith("people")) return FIG_CHARTS[`${split === "owner" ? "owner" : "sae"}:months`];
+  if (chart.startsWith("drivers")) return FIG_CHARTS[`${isBreakdown(part) ? part : "country"}:rev`];
+  return undefined;
+}
+
+/* ── a tab: one card that follows it ───────────────────────────────────── */
+
+type Act = (id: string, title: string) => React.ReactNode;
+const draw = (c: FigCtx, act: Act, id: string) => { const d = FIG_CHARTS[id]; return d.draw(c, act(id, d.title(c))); };
+
+function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.ReactNode }) {
+  const { view } = c;
+  if (view === "year") return (
+    <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <CardTitle icon={<ShowChartIcon />} tint="blue" title={`${teamWord(c.team)} - the year so far`}
+        note={`Revenue and order intake from January, ${c.cube.years[0]} against ${c.cube.years[1]} - to ${dayWords(c.cube)}`} />
+      <Box sx={{ ...TWO, mt: -1 }}>
+        {draw(c, act, "year:cumrev")}
+        {draw(c, act, "year:cumoi")}
+        {draw(c, act, "year:monrev")}
+        {draw(c, act, "year:monoi")}
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by month</Typography>
+        <YearTable c={c} />
+      </Box>
+      {footnote}
+    </GlassCard>
+  );
+  const d = DIM[view];
+  return (
+    <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <CardTitle icon={d.icon} tint={d.tint} title={`${teamWord(c.team)} by ${lowerOf(view)}`} note={NOTES[view]} />
+      <Box sx={{ ...TWO, mt: -1 }}>
+        {draw(c, act, `${view}:rev`)}
+        {draw(c, act, `${view}:oi`)}
+      </Box>
+      {draw(c, act, `${view}:months`)}
+      <Box>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>All the figures, by {lowerOf(view)}</Typography>
+        <ValueTable c={c} dim={view} />
+      </Box>
+      {footnote}
+    </GlassCard>
+  );
+}
 
 /* ── the figures top right: the ERP's year and month to date ───────────── */
 
@@ -137,7 +614,7 @@ function againstForecast(cube: Cube, kpi: EsoFigures | null) {
   return fc ? { fc, rev, reached: rev / fc, through: MONTH_NAMES[(done - 1) % 12] } : null;
 }
 type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint };
-export function figuresOf(e: ErpAgg, forecast: ReturnType<typeof againstForecast>): Fig[] {
+function figuresOf(e: ErpAgg, forecast: ReturnType<typeof againstForecast>): Fig[] {
   const out: Fig[] = [
     { label: "Revenue YTD", value: eur(e.revYtd), ch: changeOf(e.revYtd, e.revYtdPy), sub: `a year earlier: ${eur(e.revYtdPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
     { label: "Revenue MTD", value: eur(e.revMtd), ch: changeOf(e.revMtd, e.revMtdPy), sub: `the same days a year earlier: ${eur(e.revMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
@@ -167,276 +644,6 @@ function FigureCards({ items }: { items: Fig[] }) {
   );
 }
 
-/* ── what every section is drawn with ──────────────────────────────────── */
-
-export type FigCtx = {
-  cube: Cube; kpi: EsoFigures | null; team: TeamKey; split: Split;
-  /** the filters chosen, and with the team in them */
-  filters: Filters; eff: Filters;
-  actions?: React.ReactNode; half?: boolean;
-  /** on the page: a person or a value picks itself; Total's team cards switch the toggle */
-  onPick?: (dim: Dim, label: string) => void; onTeam?: (t: TeamKey) => void;
-};
-const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
-
-/** A section: glass, its title and note, its Actions - the BUC View draws it the same. */
-function Section({ icon, tint, title, note, right, actions, children }: { icon: React.ReactNode; tint: Tint; title: string; note?: string; right?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <GlassCard sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: "wrap" }}>
-        <Box sx={{ flex: 1, minWidth: 220 }}><CardTitle icon={icon} tint={tint} title={title} note={note} /></Box>
-        {right}
-        {actions}
-      </Box>
-      {children}
-    </GlassCard>
-  );
-}
-
-/* ── 1 · the trajectory: the year so far, as curves ────────────────────── */
-
-type Which = "rev" | "oi";
-const cum = (xs: (number | null)[]) => { let s = 0; return xs.map((x) => (x == null ? null : (s += x))); };
-
-function Trajectory({ c, which }: { c: FigCtx; which: Which }) {
-  const { cube } = c;
-  const y = yearCurve(cube, c.eff);
-  const e = erpTotals(cube, c.eff);
-  const run = lastMonth(cube) - monthOf(0, 0);
-  // order intake per company is loaded month by month behind the ERP: this year's curve stops where it is loaded,
-  // and the ERP's own year to date closes the line at the running month (dashed: the months between not loaded)
-  const oiLoaded = Math.min(cube.oiLoaded ?? run + 1, run + 1);
-  const cyMonths = which === "rev" ? y.rev.map((x, i) => (i <= run ? x : null)) : y.oi.map((x, i) => (i < oiLoaded ? x : null));
-  const pyMonths = which === "rev" ? y.revPy : y.oiPy;
-  const cyCum = cum(cyMonths), pyCum = cum(pyMonths);
-  const fc = which === "rev" && forecastShown(c) ? cum(c.kpi!.total.forecast) : null;
-  const gap = which === "oi" && oiLoaded <= run;
-  const ytd = which === "rev" ? e.revYtd : e.oiYtd, ytdPy = which === "rev" ? e.revYtdPy : e.oiYtdPy;
-  const data = MONTH_NAMES.map((x, i) => ({
-    x, cy: cyCum[i], py: pyCum[i], fc: fc ? fc[i] : null,
-    // the dashed bridge: from the last month loaded to the ERP's year to date
-    bridge: gap && (i === oiLoaded - 1 || i === run) ? (i === run ? ytd : cyCum[i]) : null,
-    m: cyMonths[i], mPy: pyMonths[i],
-  }));
-  const lastCy = gap ? run : cyCum.reduce<number>((k, v, i) => (v != null ? i : k), -1);
-  const ch = changeOf(ytd, ytdPy);
-  // a curve's name and figure at its end, in its colour - the rest of the curve unlabelled
-  const label = (at: number, color: string, text: (v: number) => string) => (p: { x?: number | string; y?: number | string; index?: number; value?: unknown }) =>
-    p.index === at && p.value != null ? <text x={Number(p.x ?? 0) + 8} y={Number(p.y ?? 0) + 4} fontSize={12} fontWeight={700} fill={color}>{text(Number(p.value))}</text> : <g />;
-  return (
-    <ChartFrame table={{
-      columns: ["Month", String(cube.years[0]), String(cube.years[1]), "Change", `${cube.years[0]} so far`, `${cube.years[1]} so far`, ...(fc ? ["Forecast so far"] : [])],
-      rows: MONTH_NAMES.map((x, i) => [x, data[i].m == null ? "—" : Math.round(data[i].m!), Math.round(data[i].mPy), data[i].m == null ? "—" : signedPct(changeOf(data[i].m!, data[i].mPy)), data[i].cy == null ? "—" : Math.round(data[i].cy!), Math.round(data[i].py!), ...(fc ? [Math.round(fc[i] ?? 0)] : [])]),
-      numeric: [1, 2, 4, 5, ...(fc ? [6] : [])],
-    }}>
-      <ResponsiveContainer width="100%" height={c.half ? 260 : 340}>
-        <ComposedChart data={data} margin={{ top: 16, right: 150, bottom: 0, left: 4 }}>
-          <defs>
-            <linearGradient id={`traj-${which}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={THIS} stopOpacity={0.28} />
-              <stop offset="100%" stopColor={THIS} stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid vertical={false} stroke="#e8ebf0" />
-          <XAxis dataKey="x" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: MUTED }} />
-          <YAxis tickFormatter={(v: number) => short(v)} tickLine={false} axisLine={false} width={62} tick={{ fontSize: 11.5, fill: MUTED }} />
-          <Tooltip contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }}
-            formatter={(v: unknown, n: unknown) => (v == null ? [null, null] : [eur(Number(v)), String(n)])} />
-          {fc && <Line dataKey="fc" name={`Forecast ${cube.years[0]}, so far`} stroke="#d99a2b" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} isAnimationActive={false}
-            label={label(11, "#b07a12", (v) => `Forecast ${short(v)}`)} />}
-          <Line dataKey="py" name={`${cube.years[1]}, so far`} stroke={BEFORE} strokeWidth={2.2} strokeDasharray="6 5" dot={false} isAnimationActive={false}
-            label={label(11, MUTED, (v) => `${cube.years[1]} ${short(v)}`)} />
-          <Area dataKey="cy" name={`${cube.years[0]}, so far`} stroke={THIS} strokeWidth={3} fill={`url(#traj-${which})`} dot={false} isAnimationActive={false} connectNulls={false}
-            label={gap ? undefined : label(lastCy, THIS, (v) => `${cube.years[0]} ${short(v)} ${ch == null ? "" : signedPct(ch)}`)} />
-          {gap && <Line dataKey="bridge" name={`${cube.years[0]}, the ERP's year to date`} stroke={THIS} strokeWidth={2.5} strokeDasharray="4 4" connectNulls dot={{ r: 4, fill: "#fff", stroke: THIS, strokeWidth: 2 }} isAnimationActive={false}
-            label={label(run, THIS, (v) => `${cube.years[0]} ${short(v)} ${ch == null ? "" : signedPct(ch)}`)} />}
-        </ComposedChart>
-      </ResponsiveContainer>
-    </ChartFrame>
-  );
-}
-
-function TrajectorySection({ c, which, setWhich }: { c: FigCtx; which: Which; setWhich?: (w: Which) => void }) {
-  const run = lastMonth(c.cube) - monthOf(0, 0);
-  const oiGap = which === "oi" && (c.cube.oiLoaded ?? run + 1) <= run;
-  const note = which === "rev"
-    ? `${teamWord(c.team)} · each month added to the one before - ${c.cube.years[0]} as a filled curve to ${erpDayWords(c.cube)}, ${c.cube.years[1]} dashed${forecastShown(c) ? ", the ERP's forecast dotted" : ""}; the label: the ERP's year to date against the same days a year earlier`
-    : `${teamWord(c.team)} · each month added to the one before${oiGap ? ` - the customers' order intake is loaded to ${MONTH_NAMES[(c.cube.oiLoaded ?? 1) - 1]}, the dashed line reaches the ERP's year to date` : ""}`;
-  return (
-    <Section icon={<ShowChartIcon />} tint="blue" title={which === "rev" ? "The year so far - revenue" : "The year so far - order intake"} note={note} actions={c.actions}
-      right={setWhich ? <Switch label="Revenue or order intake" value={which} onChange={setWhich} options={[{ id: "rev", label: "Revenue" }, { id: "oi", label: "Order intake" }]} /> : undefined}>
-      <Trajectory c={c} which={which} />
-    </Section>
-  );
-}
-
-/* ── 2 · the people: a card each ───────────────────────────────────────── */
-
-type Person = { key: string; label: string; e: ErpAgg; months: MonthFig[]; team?: TeamKey };
-const zeroErp = (): ErpAgg => ({ revMtd: 0, revMtdPy: 0, revYtd: 0, revYtdPy: 0, oiMtd: 0, oiMtdPy: 0, oiYtd: 0, oiYtdPy: 0 });
-const addErp = (a: ErpAgg, b: ErpAgg) => { for (const k of Object.keys(a) as (keyof ErpAgg)[]) a[k] += b[k]; return a; };
-const addMonths = (a: MonthFig[], b: MonthFig[]) => a.map((m, i) => ({ ...m, rev: m.rev + (b[i]?.rev ?? 0), revPy: m.revPy + (b[i]?.revPy ?? 0), oi: m.oi + (b[i]?.oi ?? 0), oiPy: m.oiPy + (b[i]?.oiPy ?? 0) }));
-
-/** ESO or TSA: its people; Total: the teams. Largest year to date first. */
-function peopleOf(c: FigCtx): Person[] {
-  const erp = erpBy(c.cube, c.eff, c.split);
-  const months = byMonthBy(c.cube, c.eff, c.split);
-  const blank = () => (months.values().next().value as MonthFig[] | undefined)?.map((m) => ({ ...m, rev: 0, revPy: 0, oi: 0, oiPy: 0 })) ?? [];
-  if (c.team !== "total") {
-    const owners = new Set(teamMembers(c.cube, c.team, c.split) ?? []);
-    const chosen = c.filters[c.split]?.length ? new Set(c.filters[c.split]) : null;
-    return [...new Set([...erp.keys(), ...months.keys()])].filter((o) => owners.has(o) && (!chosen || chosen.has(o)))
-      .map((o) => ({ key: o, label: o, e: erp.get(o) ?? zeroErp(), months: months.get(o) ?? blank() }))
-      .filter((p) => p.e.revYtd || p.e.revYtdPy || p.e.oiYtd || p.months.some((m) => m.rev || m.revPy))
-      .sort((a, b) => b.e.revYtd - a.e.revYtd);
-  }
-  const groups: [string, string, TeamKey | undefined][] = [["ESO", "ESO", "eso"], ["TSA", "TSA", "tsa"], ["Other", c.split === "sae" ? "Other SAE" : "Other owners", undefined], ["None", c.split === "sae" ? "No SAE" : "No owner", undefined]];
-  const teamOfOwner = (o: string) => (o === "No owner" || o === "No SAE" ? "None" : teamsOf(c.cube, c.split)[o] ?? "Other");
-  return groups.map(([k, label, team]) => {
-    const own = [...new Set([...erp.keys(), ...months.keys()])].filter((o) => teamOfOwner(o) === k);
-    return { key: k, label, team, e: own.reduce((a, o) => addErp(a, erp.get(o) ?? zeroErp()), zeroErp()), months: own.reduce((a, o) => addMonths(a, months.get(o) ?? blank()), blank()) };
-  }).filter((p) => p.e.revYtd || p.e.revYtdPy || p.e.oiYtd);
-}
-
-function PersonCard({ p, on, onClick, cube }: { p: Person; on?: boolean; onClick?: () => void; cube: Cube }) {
-  const ch = changeOf(p.e.revYtd, p.e.revYtdPy), oiCh = changeOf(p.e.oiYtd, p.e.oiYtdPy), mCh = changeOf(p.e.revMtd, p.e.revMtdPy);
-  const b2b = p.e.revYtd ? p.e.oiYtd / p.e.revYtd : null;
-  const data = p.months.map((m) => ({ x: MONTH_NAMES[m.month % 12], cy: m.rev, py: m.revPy }));
-  return (
-    <Box component={onClick ? "button" : "div"} type={onClick ? "button" : undefined} onClick={onClick} aria-pressed={onClick ? !!on : undefined}
-      sx={{ ...glass, all: undefined, textAlign: "left", font: "inherit", cursor: onClick ? "pointer" : "default", borderRadius: "18px", p: 1.75, display: "grid", gap: 0.5, minWidth: 0,
-        bgcolor: on ? TINT.blue.bg : "rgba(255,255,255,.78)", border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.08)"}`, boxShadow: "0 6px 20px rgba(31,45,78,.05)",
-        transition: "border-color .15s ease, transform .15s ease", "&:hover": onClick ? { borderColor: TINT.blue.fg, transform: "translateY(-1px)" } : {} }}>
-      <Typography noWrap title={p.label} sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{p.label}</Typography>
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "1.35rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{short(p.e.revYtd)}</Typography>
-        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: tone(ch) }}>{signedPct(ch)}</Typography>
-        <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>vs {short(p.e.revYtdPy)}</Typography>
-      </Box>
-      <Box sx={{ height: 64, mx: -0.5 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
-            <XAxis dataKey="x" hide />
-            <YAxis hide domain={[0, "dataMax"]} />
-            <Tooltip contentStyle={{ fontSize: "0.75rem", borderRadius: 8, border: "1px solid rgba(21,34,58,.1)", padding: "4px 8px" }} formatter={(v: unknown, n: unknown) => [eur(Number(v)), String(n)]} />
-            <Line dataKey="py" name={String(cube.years[1])} stroke={BEFORE} strokeWidth={1.6} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-            <Line dataKey="cy" name={String(cube.years[0])} stroke={THIS} strokeWidth={2.4} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </Box>
-      {/* label left, figure and change right - one line each */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", columnGap: 0.75, rowGap: 0.3, alignItems: "baseline", fontSize: "0.74rem", color: MUTED, borderTop: "1px solid rgba(21,34,58,.07)", pt: 0.75, whiteSpace: "nowrap" }}>
-        <span>Order intake</span><b style={{ color: INK, textAlign: "right" }}>{short(p.e.oiYtd)}</b><span style={{ color: tone(oiCh), fontWeight: 700, textAlign: "right" }}>{signedPct(oiCh)}</span>
-        <span>{MONTH_NAMES[erpMonth(cube)]} so far</span><b style={{ color: INK, textAlign: "right" }}>{short(p.e.revMtd)}</b><span style={{ color: tone(mCh), fontWeight: 700, textAlign: "right" }}>{signedPct(mCh)}</span>
-        <span title="order intake against revenue, year to date">Book-to-bill</span><b style={{ color: INK, textAlign: "right" }}>{pctPlain(b2b)}</b><span />
-      </Box>
-    </Box>
-  );
-}
-
-function PeopleSection({ c }: { c: FigCtx }) {
-  const people = peopleOf(c);
-  const [all, setAll] = useState(false);
-  const LIMIT = c.half ? 4 : 12;
-  const shown = all ? people : people.slice(0, LIMIT);
-  const total = c.team === "total";
-  return (
-    <Section icon={<GroupsOutlinedIcon />} tint="purple" title={`${total ? "The teams" : `The people - ${teamWord(c.team)}`} · by ${c.split === "sae" ? "Performis SAE" : "company owner"}`} actions={c.actions}
-      note={`${total ? "A card per team" : `A card per ${teamWord(c.team)} person, the largest first`}, ${c.split === "sae" ? "as Performis has the customers (the SAE, as its person)" : "as HubSpot has the customers (their owner today)"}: the year to date against the same days a year earlier, the months as a curve (dashed: last year) - a click ${total ? "opens the team" : "shows only them"}`}>
-      {people.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nobody with figures under these filters.</Typography> : (
-        <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(auto-fill, minmax(230px, 1fr))" } }}>
-          {shown.map((p) => (
-            <PersonCard key={p.key} p={p} cube={c.cube} on={!total && !!c.filters[c.split]?.includes(p.label)}
-              onClick={total ? (p.team && c.onTeam ? () => c.onTeam!(p.team!) : undefined) : c.onPick ? () => c.onPick!(c.split, p.label) : undefined} />
-          ))}
-        </Box>
-      )}
-      {people.length > LIMIT && (
-        <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? "Show fewer" : `Show all ${people.length}`}</Button>
-      )}
-    </Section>
-  );
-}
-
-/* ── 3 · the drivers: who moves the figure ─────────────────────────────── */
-
-const DRIVER_DIMS: Dim[] = ["country", "prio", "segment", "type", "sae", "owner"];
-type SortBy = "value" | "change";
-
-function DriverRows({ c, dim, sortBy }: { c: FigCtx; dim: Dim; sortBy: SortBy }) {
-  const [all, setAll] = useState(false);
-  const by = erpBy(c.cube, c.eff, dim);
-  const owners = dim === "owner" || dim === "sae" ? teamMembers(c.cube, c.team, dim) : null;
-  const rows = [...by.entries()].filter(([l, e]) => (!owners || owners.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy))
-    .map(([label, e]) => ({ label, e, diff: e.revYtd - e.revYtdPy }))
-    .sort((a, b) => (sortBy === "change" ? Math.abs(b.diff) - Math.abs(a.diff) : b.e.revYtd - a.e.revYtd) || a.label.localeCompare(b.label));
-  const max = Math.max(1, ...rows.map((r) => Math.max(r.e.revYtd, r.e.revYtdPy)));
-  const LIMIT = c.half ? 8 : 12;
-  const shown = all ? rows : rows.slice(0, LIMIT);
-  const sel = c.filters[dim] ?? [];
-  const cols = { xs: "minmax(110px, 1.2fr) 90px 80px", md: "minmax(150px, 1.3fr) 100px minmax(120px, 1.6fr) 90px 70px 100px 70px 80px" };
-  const head = ["", "Revenue YTD", "", "vs last year", "", "Order intake", "", "Book-to-bill"];
-  const hideMd = { display: { xs: "none", md: "block" } };
-  return (
-    <Box sx={{ display: "grid", gap: 0.25 }}>
-      <Box sx={{ display: "grid", gridTemplateColumns: cols, columnGap: 1.25, px: 1, pb: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
-        {head.map((h, i) => (
-          <Typography key={i} sx={{ fontSize: "0.66rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: i === 0 || i === 2 ? "left" : "right", ...(i > 2 ? hideMd : {}), ...(i === 2 ? hideMd : {}) }}>{h}</Typography>
-        ))}
-      </Box>
-      {shown.map((r) => {
-        const ch = changeOf(r.e.revYtd, r.e.revYtdPy), oiCh = changeOf(r.e.oiYtd, r.e.oiYtdPy), on = sel.includes(r.label);
-        const b2b = r.e.revYtd ? r.e.oiYtd / r.e.revYtd : null;
-        return (
-          <Box key={r.label} component={c.onPick ? "button" : "div"} type={c.onPick ? "button" : undefined} onClick={c.onPick ? () => c.onPick!(dim, r.label) : undefined} aria-pressed={c.onPick ? on : undefined}
-            sx={{ display: "grid", gridTemplateColumns: cols, columnGap: 1.25, alignItems: "center", px: 1, py: 0.75, border: 0, font: "inherit", textAlign: "left", width: "100%", cursor: c.onPick ? "pointer" : "default",
-              borderRadius: "10px", bgcolor: on ? TINT.blue.bg : "transparent", "&:hover": c.onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {} }}>
-            <Typography noWrap title={r.label} sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{short(r.e.revYtd)}</Typography>
-            {/* this year's bar over last year's, a hair below it */}
-            <Box sx={{ ...hideMd, position: "relative", height: 18 }}>
-              <Box sx={{ position: "absolute", left: 0, top: 2, height: 9, width: `${(Math.max(0, r.e.revYtd) / max) * 100}%`, bgcolor: THIS, borderRadius: "0 4px 4px 0" }} />
-              <Box sx={{ position: "absolute", left: 0, top: 13, height: 4, width: `${(Math.max(0, r.e.revYtdPy) / max) * 100}%`, bgcolor: BEFORE, borderRadius: "0 3px 3px 0" }} />
-            </Box>
-            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: tone(ch), textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{signedShort(r.diff)}</Typography>
-            <Typography sx={{ ...hideMd, fontSize: "0.8rem", fontWeight: 700, color: tone(ch), textAlign: "right" }}>{signedPct(ch)}</Typography>
-            <Typography sx={{ ...hideMd, fontSize: "0.82rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{short(r.e.oiYtd)}</Typography>
-            <Typography sx={{ ...hideMd, fontSize: "0.78rem", fontWeight: 700, color: tone(oiCh), textAlign: "right" }}>{signedPct(oiCh)}</Typography>
-            <Typography sx={{ ...hideMd, fontSize: "0.82rem", color: MUTED, textAlign: "right" }}>{pctPlain(b2b)}</Typography>
-          </Box>
-        );
-      })}
-      {rows.length > LIMIT && (
-        <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", mt: 0.5 }}>{all ? "Show fewer" : `Show all ${rows.length}`}</Button>
-      )}
-    </Box>
-  );
-}
-
-function DriversSection({ c, dim, setDim }: { c: FigCtx; dim: Dim; setDim?: (d: Dim) => void }) {
-  const [sortBy, setSortBy] = useState<SortBy>("value");
-  return (
-    <Section icon={<AlignHorizontalLeftOutlinedIcon />} tint="green" title={`Who moves the figure - by ${DIM[dim].lower}`} actions={c.actions}
-      note={`${teamWord(c.team)} · the ERP's year to date against the same days a year earlier: the bar this year, the line under it last year; the change in € and %, the order intake, and how much of the revenue it covers (book-to-bill)${c.onPick ? " - a click shows only that one" : ""}`}
-      right={
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          {setDim && <Switch label="By" value={dim} onChange={setDim} options={DRIVER_DIMS.map((d) => ({ id: d, label: DIM[d].name }))} />}
-          <Switch label="Order" value={sortBy} onChange={setSortBy} options={[{ id: "value", label: "Largest" }, { id: "change", label: "Biggest change" }]} />
-        </Box>
-      }>
-      <DriverRows c={c} dim={dim} sortBy={sortBy} />
-    </Section>
-  );
-}
-
-/* ── the sections by key: the page draws them, and so does the BUC View ─── */
-
-export const FIG_CHARTS: Record<string, { title: (c: FigCtx) => string; draw: (c: FigCtx, part?: string) => React.ReactNode }> = {
-  "figures:trajectory": { title: (c) => `The year so far - ${teamWord(c.team)}`, draw: (c, part) => <TrajectorySection c={c} which={part === "oi" ? "oi" : "rev"} /> },
-  "figures:people": { title: (c) => (c.team === "total" ? "The teams" : `The people - ${teamWord(c.team)}`), draw: (c) => <PeopleSection c={c} /> },
-  "figures:drivers": { title: (c) => `Who moves the figure - ${teamWord(c.team)}`, draw: (c, part) => <DriversSection c={c} dim={(DRIVER_DIMS as string[]).includes(part ?? "") ? (part as Dim) : "country"} /> },
-};
-
 /* ── the page ──────────────────────────────────────────────────────────── */
 
 const KEPT = "eso.team";
@@ -446,12 +653,12 @@ function setQuery(mut: (q: URLSearchParams) => void) {
   const s = q.toString();
   window.history.replaceState(null, "", s ? `${window.location.pathname}?${s}` : window.location.pathname);
 }
+const asTeam = (x: string | null): TeamKey | null => (x === "eso" || x === "tsa" || x === "total" ? x : null);
 function useTeam(): [TeamKey, (t: TeamKey) => void] {
   const params = useSearchParams();
-  const asked = params.get("team");
   const [kept, setKept] = useState<TeamKey | null>(null);
-  useEffect(() => { try { const x = localStorage.getItem(KEPT); if (x === "eso" || x === "tsa" || x === "total") setKept(x); } catch { /* ESO */ } }, []);
-  const team: TeamKey = asked === "eso" || asked === "tsa" || asked === "total" ? asked : kept ?? "eso";
+  useEffect(() => { try { setKept(asTeam(localStorage.getItem(KEPT))); } catch { /* ESO */ } }, []);
+  const team: TeamKey = asTeam(params.get("team")) ?? kept ?? "eso";
   const set = (t: TeamKey) => {
     setQuery((q) => q.set("team", t));
     setKept(t);
@@ -474,18 +681,17 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 }
 /** The cube read before the ERP's figures were in it (until the first new read after a deployment). */
 const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
+const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "owner", "type", "apic", "mandant"];
+const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 } as const;
 
 export function FiguresExplorer() {
   const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const kpi = useKpiSeries();
   const params = useSearchParams();
   const [team, setTeam] = useTeam();
-  const which: Which = params.get("show") === "oi" ? "oi" : "rev";
-  const setWhich = (w: Which) => setQuery((q) => { if (w === "rev") q.delete("show"); else q.set("show", w); });
-  const dim: Dim = (DRIVER_DIMS as string[]).includes(params.get("by") ?? "") ? (params.get("by") as Dim) : "country";
-  const split: Split = params.get("split") === "owner" ? "owner" : "sae";
-  const setSplit = (x: Split) => setQuery((q) => { if (x === "sae") q.delete("split"); else q.set("split", x); });
-  const setDim = (d: Dim) => setQuery((q) => { if (d === "country") q.delete("by"); else q.set("by", d); });
+  const asked = params.get("view");
+  const view: View = isBreakdown(asked) ? asked : "year";
+  const setView = (v: View) => setQuery((q) => { if (v === "year") q.delete("view"); else q.set("view", v); });
   const filters: Filters = useMemo(() => Object.fromEntries(DIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
   const toggle = (d: Dim, label: string) => setQuery((q) => {
     const cur = q.getAll(d), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
@@ -493,80 +699,91 @@ export function FiguresExplorer() {
     for (const x of next) q.append(d, x);
   });
   const clearAll = () => setQuery((q) => { for (const d of DIMS) q.delete(d); });
+  // the filters open as a window of their own, closed at first; a bar opens it on its breakdown (as Who are our customers)
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
-  const head = (
+  const back = (
     <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
+  const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
   if (!cube || tooOld(cube)) return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gap: 1.75 }}>
-      {head}
-      <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" } }}>Figures</Typography>
+    <Box sx={shell}>
+      {back}
+      <Typography component="h1" sx={H1}>Figures</Typography>
       <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />
     </Box>
   );
-  const eff = withTeam(cube, filters, team, split);
-  const c: FigCtx = { cube, kpi, team, split, filters, eff, onPick: (d, l) => toggle(d, l), onTeam: setTeam };
+  const teamDim = teamDimOf(view);
+  const eff = withTeam(cube, filters, team, teamDim);
+  const c: FigCtx = { cube, kpi, team, view, filters, eff, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
   const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
-  const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
-  const act = (key: string, title: string, part?: string) => (
-    <TileActions where="tab" start="tab" edge={{ xs: 2, md: 2.75 }}
-      tile={{ key: `eso-figures:figures:${key}${part ? `-${part}` : ""}`, page: "eso-figures", tab: "figures", title, summary: `${teamWord(team)} · to ${erpDayWords(cube)}`,
-        filters: { ...Object.fromEntries(chosenDims(filters).map((d) => [d, filters[d] ?? []])), team: [team], split: [split], ...(part ? { part: [part] } : {}) }, kind: "card" }} />
+  const active = chosenDims(filters);
+  const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
+  // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it
+  const act: Act = (id, title) => (
+    <TileActions where="tab" start="tab" edge={2}
+      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamWord(team)} · ${ytdWords(cube)}`,
+        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [team] }, kind: "card" }} />
+  );
+  const footnote = (
+    <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+      Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. The months: each customer&apos;s monthly revenue and order intake, summed
+      {cube.oiLoaded != null ? ` (the order intake per customer loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]})` : ""}.
+      {team !== "total" && (teamDim === "sae"
+        ? ` ${teamWord(team)}: the customers Performis gives its people (the SAE, as Map assignment maps it to a person) - a person's team from the rosters, else their HubSpot team.`
+        : ` ${teamWord(team)}: the companies its people own in HubSpot today - a person's team from the rosters, else their HubSpot team.`)}
+      {forecast ? " The forecast: the ERP's, the whole company - shown on Total with nothing filtered." : ""} Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
+    </Typography>
   );
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 }}>
-      {head}
+    <Box sx={shell}>
+      {back}
+      {/* the title, the team and what is shown on the left; the figures top right */}
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
-          <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 }}>Figures</Typography>
+          <Typography component="h1" sx={H1}>Figures</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamWord(team)}</b>{team !== "total" ? ` by ${split === "sae" ? "Performis SAE" : "company owner"}` : ""} · the year to {erpDayWords(cube)} against the same days of {cube.years[1]} - the ERP&apos;s figures{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamWord(team)}</b>{team !== "total" ? ` by ${teamDim === "sae" ? "Performis SAE" : "company owner"}` : ""} · <b style={{ color: INK }}>{ytdWords(cube)}</b> against the same days of {cube.years[1]} - the ERP&apos;s figures{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
-            <TeamToggle team={team} onTeam={setTeam} />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-              <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>Split by</Typography>
-              <Switch label="Split by" value={split} onChange={setSplit} options={SPLITS} />
-            </Box>
-          </Box>
+          <TeamToggle team={team} onTeam={setTeam} />
           {chosen.length > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
               {chosen.map(([x, v]) => (
-                <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
+                <Chip key={`${x}:${v}`} size="small" label={<span><b>{nameOf(x)}:</b> {v}</span>} onDelete={() => toggle(x, v)}
                   sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
               ))}
               <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
             </Box>
           )}
         </Box>
-        <Box sx={{ display: "grid", gap: 1, justifyItems: { lg: "end" } }}>
+        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
           <FigureCards items={figuresOf(erpTotals(cube, eff), forecast)} />
-          <Box sx={{ display: "flex", gap: 1, "& .MuiButton-root": { height: 40 } }}>
-            <SavedViews page="eso-figures" />
-            <Button onClick={() => setPanel(!panel)} variant={panel || chosen.length ? "contained" : "outlined"} disableElevation aria-expanded={panel} aria-controls="eso-figures-filters" startIcon={<TuneIcon />}
-              sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, whiteSpace: "nowrap", bgcolor: panel || chosen.length ? undefined : "#fff" }}>
-              Filters{chosen.length ? ` · ${chosen.length}` : ""}
-            </Button>
-          </Box>
         </Box>
       </Box>
 
-      <TrajectorySection c={{ ...c, actions: act("trajectory", `The year so far - ${teamWord(team)}`, which) }} which={which} setWhich={setWhich} />
-      <PeopleSection c={{ ...c, actions: act("people", team === "total" ? "The teams" : `The people - ${teamWord(team)}`) }} />
-      <DriversSection c={{ ...c, actions: act("drivers", `Who moves the figure - ${teamWord(team)}`, dim) }} dim={dim} setDim={setDim} />
+      {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
+        <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
+          <ReportTabs name="eso-figures" tab={view} onSelect={setView}
+            tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "year" && filters[v.id]?.length ? String(filters[v.id]!.length) : null }))} />
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-figures" /></Box>
+        <Button onClick={() => (panel ? setPanel(false) : view === "year" ? setPanel(true) : openOn(view))} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+          aria-expanded={panel} aria-controls="eso-figures-filters" startIcon={<TuneIcon />}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
+          Filters{chosen.length ? ` · ${chosen.length}` : ""}
+        </Button>
+      </Box>
 
-      <Typography component="div" sx={{ fontSize: "0.76rem", color: FAINT }}>
-        Year and month to date: the ERP file&apos;s own figures per customer, of {erpDayWords(cube)}, against the same days a year earlier. The curves: each customer&apos;s monthly revenue and order intake, summed
-        {cube.oiLoaded != null ? ` (order intake per customer loaded to ${MONTH_NAMES[Math.max(0, cube.oiLoaded - 1)]})` : ""}. ESO and TSA by Performis SAE: the customers Performis gives their people (the SAE as Map assignment maps it to a person); by company owner: the companies they own in HubSpot today - a person's team from the rosters, else their HubSpot team.
-        {forecast ? " The forecast: the ERP's, the whole company - shown on Total with nothing filtered." : ""} Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
-      </Typography>
+      <TabCard key={view} c={c} act={act} footnote={footnote} />
 
-      <FilterWindow id="eso-figures-filters" period={false} dims={["prio", "segment", "potential", "country", "sae", "owner", "type", "apic", "mandant"]} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={defaultWindow(cube)} setWin={() => {}} filters={filters} toggle={toggle} clearAll={clearAll} />
+      <FilterWindow id="eso-figures-filters" period={false} dims={FILTER_DIMS} names={NAMES} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
+        win={defaultWindow(cube)} setWin={() => {}} filters={filters} toggle={toggle} clearAll={clearAll} />
     </Box>
   );
 }
@@ -575,28 +792,25 @@ export function FiguresExplorer() {
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 
-/** The figures for ESO, TSA or Total with the same toggle, the year so far - and the Figures sections sent here. */
+/** The figures for ESO, TSA or Total with the same toggle, the year so far - and the Figures charts sent here. */
 export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const { cube, computing, progress, error } = useCustomersCube();
   const kpi = useKpiSeries();
   const [team, setTeam] = useState<TeamKey>("eso");
-  useEffect(() => { try { const x = localStorage.getItem(KEPT); if (x === "eso" || x === "tsa" || x === "total") setTeam(x); } catch { /* ESO */ } }, []);
+  useEffect(() => { try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); } catch { /* ESO */ } }, []);
   const pick = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, team, split: "sae", filters: {}, eff: withTeam(cube, {}, team, "sae") } : null;
+  const c: FigCtx | null = ready ? { cube, kpi, team, view: "year", filters: {}, eff: withTeam(cube, {}, team, "sae") } : null;
   const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
-    const [, tab, raw] = spec.key.split(":");
-    const [card] = (raw ?? "").split("-");
-    const ch = FIG_CHARTS[`${tab}:${card}`];
-    const sent = spec.filters?.team?.[0];
-    const st: TeamKey = sent === "eso" || sent === "tsa" || sent === "total" ? sent : team;
+    const ch = chartOf(spec.key, spec.filters?.part?.[0], spec.filters?.split?.[0]);
+    const st = asTeam(spec.filters?.team?.[0] ?? null) ?? team;
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
-    const actions = <TileActions where="nutshell" start="tab" edge={{ xs: 2, md: 2.75 }} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind }} />;
-    const sp: Split = spec.filters?.split?.[0] === "owner" ? "owner" : "sae";
-    const sc: FigCtx = { cube: cube!, kpi, team: st, split: sp, filters: sf, eff: withTeam(cube!, sf, st, sp), actions, half: fmt === "half" };
+    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind }} />;
+    const view = ch?.view ?? "year";
+    const sc: FigCtx = { cube: cube!, kpi, team: st, view, filters: sf, eff: withTeam(cube!, sf, st, teamDimOf(view)), half: fmt === "half" };
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
-      node: ch ? ch.draw(sc, spec.filters?.part?.[0]) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
+      node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   });
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi) : null) : [];
@@ -609,7 +823,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Figures</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.purple.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(team)}${team !== "total" ? " by Performis SAE" : ""} · the year to ${erpDayWords(c.cube)} against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(team)}${team !== "total" ? " by Performis SAE" : ""} · ${ytdWords(c.cube)} against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
         </Box>
         <TeamToggle team={team} onTeam={pick} />
       </Box>
@@ -630,13 +844,14 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
               </Box>
             ))}
           </Box>
-          {/* the year so far - the panel's own chart */}
-          <TrajectorySection c={c} which="rev" />
+          {/* the year so far, revenue and order intake side by side - the panel's own */}
+          <Box sx={TWO}>
+            {FIG_CHARTS["year:cumrev"].draw(c)}
+            {FIG_CHARTS["year:cumoi"].draw(c)}
+          </Box>
           {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-figures"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
         </>
       )}
     </GlassCard>
   );
 }
-
-export { ym };

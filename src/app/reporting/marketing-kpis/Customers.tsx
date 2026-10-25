@@ -612,13 +612,15 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, names = {}, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
   /** the breakdowns it offers - this page's, unless given (the Figures add the Performis SAE) */
   dims?: Dim[];
   /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
   id?: string;
   /** the Period fold - the Figures stand on the ERP's month and year to date, they have none */
   period?: boolean;
+  /** a breakdown under another name on that page - the Figures call the sales rep "Company owner" */
+  names?: Partial<Record<Dim, string>>;
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -644,7 +646,7 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
       subtitle={chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}
       onClearAll={chosen.length ? clearAll : undefined}
       chips={chosen.length > 0 ? chosen.map(([x, v]) => (
-        <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
+        <Chip key={`${x}:${v}`} size="small" label={<span><b>{names[x] ?? DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
           sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
       )) : null}>
       {period && (
@@ -657,7 +659,7 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
       </Section>
       )}
       {dims.map((dim, i) => (
-        <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
+        <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={names[dim] ?? DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>
       ))}

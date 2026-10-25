@@ -20,7 +20,7 @@ export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 /** A row the chart can draw: its label (also what a click picks); revenue, when it has it, breaks ties. */
 export type ChartRow = { label: string; rev?: number };
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false }: {
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
@@ -33,6 +33,8 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   curColor?: string; prevColor?: string;
   /** one figure only - no second bar */
   single?: boolean;
+  /** a word after the first figure, in its own colour - the change against the year before (the ESO Figures, SARCLA 25.10.2026) */
+  curNote?: (r: T) => { text: string; color: string } | null;
 }) {
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
   // "this should follow revenue or customer count on top depending on the value")
@@ -42,7 +44,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
-  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)) }));
+  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)), note: curNote?.(r) ?? null }));
   const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick?.(l); };
   const hint = [onPick ? "Click bars to show only them" : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
   const tall = Math.min(rows.length, pageSize);
@@ -68,7 +70,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
         {actions}
       </Box>
       <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
-        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: curNote ? 190 : 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
           <CartesianGrid horizontal={false} stroke="#e6e8ec" />
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" width={170} tickLine={false} axisLine={false} interval={0}
@@ -78,7 +80,19 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
           <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
           <Bar dataKey="cur" name={curLabel} fill={curColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16}>
             {data.map((d) => <Cell key={d.label} fill={curColor} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
-            <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />
+            {curNote ? (
+              // the figure, then its change in its colour
+              <LabelList dataKey="cur" content={(p: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; index?: number; value?: unknown }) => {
+                const d = data[p.index ?? -1];
+                if (!d) return <g />;
+                return (
+                  <text x={Number(p.x ?? 0) + Number(p.width ?? 0) + 5} y={Number(p.y ?? 0) + Number(p.height ?? 0) / 2} dy={4} fontSize={12}>
+                    <tspan fill={INK} fontWeight={700}>{fmt(Number(p.value))}</tspan>
+                    {d.note && <tspan dx={6} fill={d.note.color} fontWeight={700}>{d.note.text}</tspan>}
+                  </text>
+                );
+              }} />
+            ) : <LabelList dataKey="cur" position="right" formatter={(v: unknown) => fmt(Number(v))} style={{ fontSize: 12, fill: INK, fontWeight: 700 }} />}
           </Bar>
           {!single && (
           <Bar dataKey="prev" name={prevLabel} fill={prevColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16}>
