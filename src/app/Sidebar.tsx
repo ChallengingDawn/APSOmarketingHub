@@ -337,6 +337,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
+      // the workflow "SARCLA | PERSONAS SET", run by the hub and put right (SARCLA, 25.10.2026)
+      { group: "HubSpot apps", label: "Personas", href: "/uc/personas", icon: <PsychologyIcon fontSize="small" /> },
       // Owner Redirection (12.10.2026) is gone since 25.10.2026 - SARCLA: "that page should not exist"; its rules are
       // overrides on Map Assignment's map; /uc/owner-redirection sends there
       // the "Ticket associations" workflow of the Tickets app, run by the hub (SARCLA, 17.10.2026)

@@ -113,5 +113,11 @@ export async function register() {
     // switched off (src/lib/contactPhone). CONTACT_PHONE=off stops it. SARCLA, 25.10.2026.
     const { startContactPhone } = await import("./lib/contactPhone/engine");
     startContactPhone();
+
+    // HubSpot apps > Personas: each contact's persona from its job and its company - replaces the workflow SARCLA |
+    // PERSONAS SET (which never read the company); writes only in Live with the workflow switched off
+    // (src/lib/personas). PERSONAS=off stops it. SARCLA, 25.10.2026.
+    const { startPersonas } = await import("./lib/personas/engine");
+    startPersonas();
   }
 }

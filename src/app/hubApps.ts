@@ -187,6 +187,8 @@ export const APPS: HubApp[] = [
       { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
       { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
       { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
+      // the workflow "SARCLA | PERSONAS SET", run by the hub and put right (SARCLA, 25.10.2026)
+      { name: "Personas", note: "Each contact's persona from its job and its company - shadow first, side by side with the PERSONAS SET workflow", href: "/uc/personas", icon: "brain", ...PURPLE },
       { name: "Ticket/order/article associations", note: "Tickets linked to the orders and articles they name; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
       { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
       { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
