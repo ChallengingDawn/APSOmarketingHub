@@ -111,7 +111,32 @@ export function topicOf(r: TopicRow): TopicId | null {
   }
 }
 
-/* ── the OK answers ── */
+/* ── fixing a topic (SARCLA 25.10.2026) ── */
+
+/**
+ * The topics a "Fix" corrects in HubSpot, and which of their companies (SARCLA 25.10.2026, instead of the OK: "call it
+ * differently - this should not create new rules on the assignment; it should only correct the new ones because they are
+ * not related to Performis, so we can fix them"): the zip-code ones WITHOUT an SAE (the new ones), the region
+ * responsibility to fill, the contacts to follow, the key accounts. What Performis decides is corrected in Performis
+ * (the Wrong Performis Owners tab), a missing country in HubSpot, someone who has left in the SAE table.
+ */
+export const FIXABLE: Partial<Record<TopicId, (r: Pick<TopicRow, "sae">) => boolean>> = {
+  rule2: (r) => !String(r.sae ?? "").trim(),
+  region: () => true,
+  contacts: () => true,
+  key: () => true,
+};
+/** Where the others are fixed - said on their card instead of a button. */
+export const FIX_ELSEWHERE: Partial<Record<TopicId, string>> = {
+  "no-country": "Fill Country in HubSpot - the rules then decide them.",
+  left: "Name who takes over in the SAE table - nothing is ever given to someone who has left.",
+  "sae-nobody": "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
+  "sae-elsewhere": "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
+  rule1: "Performis decides these - correct the SAE in Performis (Wrong Performis Owners).",
+  redirection: "Owner redirection keeps them while its rule is switched on - nothing to fix here.",
+};
+
+/* ── the OK answers (kept for the record; the page shows Fix since 25.10.2026) ── */
 
 /** An OK as stored (kv "mapAssign:topicsOk" -> {[topic]: TopicOk}): when, who, and the topic's companies (every
  *  country) at that moment. */
@@ -169,6 +194,8 @@ export type TopicStat = {
   examples: TopicExample[];
   /** the OK, if any: `changed` = the topic moved by more than 10% since (the OK is kept, the page flags it) */
   ok: (TopicOk & { changed: boolean }) | null;
+  /** of `companies`, how many a Fix corrects (0 = the topic is fixed elsewhere: FIX_ELSEWHERE) */
+  fixable: number;
 };
 export type TopicsData = {
   /** the last scan */
@@ -181,6 +208,8 @@ export type TopicsData = {
   total: { companies: number; contacts: number; changeOwner: number };
   /** non-empty topics only, in TOPIC_ORDER */
   topics: TopicStat[];
+  /** a Fix going, and the last one (fixTopic.ts; absent from an older hub) */
+  fix?: import("./fixState").FixState;
 };
 /** PUT body: an OK for one topic (ok: false takes it back); `country` only picks what the answer's data shows. */
 export type TopicOkPut = { topicOk: { topic: TopicId; ok: boolean; country?: string | null } };
@@ -264,6 +293,7 @@ export function buildTopics(rows: TopicRow[], opts: { country?: string | null; o
 
     const ok = oks[t];
     const now = all[t] ?? 0;
+    const can = FIXABLE[t];
     topics.push({
       topic: t, ...TOPIC_TEXT[t], kind: kindOf(t),
       companies: g.length, contacts, all: now,
@@ -272,6 +302,7 @@ export function buildTopics(rows: TopicRow[], opts: { country?: string | null; o
       more: { moves: rest.length, companies: rest.reduce((a, m) => a + m.companies, 0) },
       examples,
       ok: ok ? { ...ok, changed: changedSinceOk(ok.companies, now) } : null,
+      fixable: can ? g.filter(({ row }) => can(row)).length : 0,
     });
   }
 

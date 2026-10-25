@@ -3,8 +3,8 @@
 // MAP ASSIGNMENT - the differences, grouped by WHY (SARCLA 20.10.2026, after "9,200 companies would change owner - TSA
 // Team gets 7,892 ...": "Why these differences - it's where I get really lost. Let's do the first batch of difference
 // logic so I can understand per topic and give my ok"). One card per topic (src/lib/mapAssign/topics.ts, first match
-// wins): a plain title, one sentence why, how many, where, the biggest moves, 5 examples, and the OK (admins) - an OK is
-// for the topic as it is now, flagged when its count moves by more than 10% since. Rules change on the map (#map).
+// wins): a plain title, one sentence why, how many, where, the biggest moves, 5 examples, and - since 25.10.2026 instead
+// of the OK - "Fix N in HubSpot" for the topics Performis does not decide (fixTopic.ts). Rules change on the map (#map).
 // From GET ?topics=1&country=; an OK is PUT {topicOk: {topic, ok}}. Below, folded: the moves by person as before
 // (d.moves, complete over the whole table; a move's companies from GET ?changes=1, 50 at a time).
 
@@ -28,8 +28,7 @@ import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import PinDropOutlinedIcon from "@mui/icons-material/PinDropOutlined";
 import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
 import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
-import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
-import CheckIcon from "@mui/icons-material/Check";
+import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -37,11 +36,12 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, AMBER, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip, headCell, type Tint } from "@/app/uc/report/ui";
+import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip, headCell, type Tint } from "@/app/uc/report/ui";
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { ChangesPage, CompanyChange, MapData } from "@/lib/mapAssign/api";
 import type { OwnerId } from "@/lib/mapAssign/rules";
-import type { TopicId, TopicStat, TopicsData } from "@/lib/mapAssign/topics";
+import { FIX_ELSEWHERE, type TopicId, type TopicStat, type TopicsData } from "@/lib/mapAssign/topics";
+import type { FixRun, FixState } from "@/lib/mapAssign/fixState";
 import { API, FLAG_LABEL, Swatch, VIA_LABEL, countryName, hsCompany, send, type Names, type Palette } from "./shared";
 
 /** Country pills shown before the rest go behind "more". */
@@ -76,7 +76,6 @@ const same = (m: { from: OwnerId | null; to: OwnerId }) => pkey(m.from) === pkey
 const many = (n: number, one: string, more: string) => `${full(n)} ${n === 1 ? one : more}`;
 const signed = (n: number) => (n > 0 ? `+${full(n)}` : n < 0 ? `−${full(-n)}` : "±0");
 /** "20.10" */
-const day = (iso: string) => when(iso).split(" ")[0];
 const ccShort = (cc: string | null) => (!cc || cc === "??" ? "no country" : cc);
 const subhead = { fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.08em", mb: 0.75 };
 
@@ -102,54 +101,71 @@ function Who({ id, names, palette, strong = false, empty = "No owner" }: { id: O
 
 /* ── the topics ── */
 
-/** The OK of one topic: given (green, with Undo), changed since (amber, OK again), or not yet. */
-function OkButtons({ t, admin, busy, filtered, onAnswer }: { t: TopicStat; admin: boolean; busy: boolean; filtered: boolean; onAnswer: (ok: boolean) => void }) {
-  const ok = t.ok;
-  const given = ok ? `OK given ${day(ok.at)}${ok.by ? ` by ${ok.by}` : ""}` : "";
-  const undo = (
-    <Button size="small" disabled={busy} onClick={() => onAnswer(false)} sx={{ textTransform: "none", color: MUTED, minWidth: 0, px: 1 }}>Undo</Button>
-  );
-  const rules = (
-    <Button size="small" href="#map" onClick={() => window.scrollTo({ top: 0 })} startIcon={<TuneOutlinedIcon sx={{ fontSize: 16 }} />}
-      sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}>Change the rules</Button>
-  );
-  if (!admin) return ok ? <Box><Chip tint={ok.changed ? "amber" : "green"}>{ok.changed ? `Changed since the OK of ${day(ok.at)}` : given}</Chip></Box> : null;
+/** A topic's Fix (SARCLA 25.10.2026, instead of the OK: "call it differently - this should not create new rules on the
+ *  assignment, it should only correct the new ones because they are not related to Performis"): "Fix N in HubSpot" asks
+ *  once, then corrects the topic's companies a fix may touch in the background (how far it is shows here); the others say
+ *  where they are fixed. The rules never change from here. */
+function FixRow({ t, cc, admin, fix, busy, onFix }: {
+  t: TopicStat; cc: string; admin: boolean; fix: FixState | null; busy: boolean; onFix: () => void;
+}) {
+  const [sure, setSure] = useState(false);
+  const mine = (r: FixRun | null | undefined) => !!r && r.topic === t.topic;
+  const going = fix?.running ? fix.now : null;
+  const last = mine(fix?.last) ? fix!.last! : null;
+  const elsewhere = FIX_ELSEWHERE[t.topic];
+  const where = cc === "all" ? "" : ` in ${countryName(cc)}`;
+  const n = t.fixable;
+  const performis = n < t.companies && t.topic === "rule2";
   return (
-    <Box sx={{ display: "grid", gap: 0.5 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        {ok && !ok.changed ? (
-          <Box role="status" sx={{
-            display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.5, py: 0.55, borderRadius: "10px", bgcolor: GREEN, color: "#ffffff",
-            fontSize: "0.8125rem", fontWeight: 600, maxWidth: "100%", minWidth: 0,
-          }}>
-            <CheckIcon sx={{ fontSize: 16 }} />
-            <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{given}</Box>
+    <Box sx={{ display: "grid", gap: 0.6, pt: 1.5, borderTop: `1px solid ${HAIRLINE}` }}>
+      {n > 0 && (
+        mine(going) ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <CircularProgress size={14} sx={{ color: GREEN }} />
+            <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>
+              Fixing{going!.country ? ` in ${countryName(going!.country)}` : ""} - {full(going!.done)} of {full(going!.companies)} companies looked at, {full(going!.wrote)} written, {many(going!.contacts, "contact", "contacts")}. This line moves by itself.
+            </Typography>
+          </Box>
+        ) : !admin ? null : sure ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "0.84rem", color: INK, flex: 1, minWidth: 260 }}>
+              {many(n, "company gets", "companies get")} the owner and region responsibility the rules give{where}; their contacts follow. The rules do not change. Every write is logged and can be undone.
+            </Typography>
+            <Box component="button" type="button" disabled={busy} onClick={() => { setSure(false); onFix(); }}
+              sx={{ all: "unset", cursor: busy ? "default" : "pointer", px: 1.5, py: 0.55, borderRadius: "10px", fontSize: "0.82rem", fontWeight: 700, color: "#fff", bgcolor: busy ? "#8fb8a6" : GREEN, "&:hover": { bgcolor: busy ? "#8fb8a6" : "#166548" }, "&:focus-visible": { outline: `2px solid ${GREEN}`, outlineOffset: 2 } }}>
+              Yes, fix {full(n)}
+            </Box>
+            <Button size="small" onClick={() => setSure(false)} sx={{ textTransform: "none" }}>Cancel</Button>
           </Box>
         ) : (
-          <Button size="small" variant={ok ? "contained" : "outlined"} disableElevation disabled={busy} onClick={() => onAnswer(true)}
-            startIcon={<CheckIcon sx={{ fontSize: 16 }} />}
-            sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px", ...(ok ? { bgcolor: AMBER, "&:hover": { bgcolor: "#8a560e" } } : { color: GREEN, borderColor: GREEN, "&:hover": { borderColor: GREEN, bgcolor: "rgba(27,122,85,.06)" } }) }}>
-            {ok ? "OK again" : "OK"}
-          </Button>
-        )}
-        {ok && undo}
-        {rules}
-        {busy && <CircularProgress size={14} />}
-      </Box>
-      {ok?.changed && (
-        <Typography sx={{ fontSize: "0.76rem", color: AMBER }}>
-          Changed since your OK of {day(ok.at)}{ok.by ? ` (${ok.by})` : ""}: {full(ok.companies)} companies then, {full(t.all)} now. Your OK is kept - look again and give it again.
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Button size="small" variant="contained" disableElevation disabled={busy || !!fix?.running} onClick={() => setSure(true)} startIcon={<BuildOutlinedIcon sx={{ fontSize: 16 }} />}
+              sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px", bgcolor: GREEN, "&:hover": { bgcolor: "#166548" } }}>
+              Fix {full(n)} in HubSpot
+            </Button>
+            {fix?.running && !mine(going) && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>another fix is going - one at a time</Typography>}
+          </Box>
+        )
+      )}
+      {performis && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{many(t.companies - n, "company has", "companies have")} an SAE - Performis decides {t.companies - n === 1 ? "it" : "them"}: correct the SAE in Performis (<Box component="a" href="#wrong-performis-owners" sx={{ color: ACCENT }}>Wrong Performis Owners</Box>).</Typography>}
+      {n === 0 && elsewhere && (
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+          {elsewhere.includes("Wrong Performis Owners")
+            ? <>{elsewhere.replace(" (Wrong Performis Owners).", "")} - <Box component="a" href="#wrong-performis-owners" sx={{ color: ACCENT }}>Wrong Performis Owners</Box>.</>
+            : elsewhere}
         </Typography>
       )}
-      {filtered && (
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>Your OK covers this topic in every country: {many(t.all, "company", "companies")}.</Typography>
+      {last && !mine(going) && (
+        <Typography sx={{ fontSize: "0.78rem", color: last.error ? RED : MUTED }}>
+          Fixed {when(last.at)}{last.country ? ` in ${countryName(last.country)}` : ""} by {last.by}: {many(last.wrote, "company", "companies")} and {many(last.contacts, "contact", "contacts")} written{last.failed ? `, ${full(last.failed)} not taken by HubSpot` : ""}{last.error ? ` - it stopped: ${last.error}` : ""}.
+        </Typography>
       )}
     </Box>
   );
 }
 
-function TopicCard({ t, all, admin, busy, onAnswer, names, palette }: {
-  t: TopicStat; all: boolean; admin: boolean; busy: boolean; onAnswer: (ok: boolean) => void; names: Names; palette: Palette;
+function TopicCard({ t, all, cc, admin, busy, fix, onFix, names, palette }: {
+  t: TopicStat; all: boolean; cc: string; admin: boolean; busy: boolean; fix: FixState | null; onFix: () => void; names: Names; palette: Palette;
 }) {
   const look = TOPIC_LOOK[t.topic] ?? TOPIC_LOOK.other;
   const restCountries = t.countries.length - CHIPS;
@@ -210,7 +226,7 @@ function TopicCard({ t, all, admin, busy, onAnswer, names, palette }: {
           ))}
         </Box>
       </Box>
-      <OkButtons t={t} admin={admin} busy={busy} filtered={!all && t.all !== t.companies} onAnswer={onAnswer} />
+      <FixRow t={t} cc={cc} admin={admin} fix={fix} busy={busy} onFix={onFix} />
     </GlassCard>
   );
 }
@@ -490,11 +506,24 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
     if (t && !held.stale && country !== "all" && !t.countries.some((c) => c.country === country)) setCountry("all");
   }, [t, held.stale, country]);
 
-  const answer = async (topic: TopicId, ok: boolean) => {
+  // a Fix (SARCLA 25.10.2026): started in the background, the topics read again every 8 seconds while one goes
+  const fix = t?.fix ?? null;
+  const [watchUntil, setWatchUntil] = useState(0);
+  const watching = !!fix?.running || Date.now() < watchUntil;
+  useEffect(() => {
+    if (!watching || held.stale) return;
+    const tm = window.setTimeout(() => setN((x) => x + 1), 8000);
+    return () => window.clearTimeout(tm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watching, held.stale, r]);
+  const startFix = async (topic: TopicId) => {
     setBusy(topic); setErr(null);
-    const res = await send("PUT", { topicOk: { topic, ok, ...(country !== "all" ? { country } : {}) } });
+    const res = await send("POST", { action: "fix-topic", topic, ...(country !== "all" ? { country } : {}) });
     setBusy(null);
-    if (!res.ok) setErr(`The answer was not saved: ${res.error ?? "?"}`);
+    const got = (res.data ?? {}) as { started?: boolean; why?: string };
+    if (!res.ok) setErr(`The fix did not start: ${res.error ?? "?"}`);
+    else if (got.started === false) setErr(`The fix did not start: ${got.why ?? "?"}`);
+    else setWatchUntil(Date.now() + 90_000);
     setN((x) => x + 1);
   };
 
@@ -523,7 +552,7 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber"
           title={`${many(t.total.changeOwner, "company", "companies")} would change owner${inWhere} - grouped by why`}
-          note={`Counted with the saved rules (Live, not the sandbox), again at every save. The OK on a topic records that you agree with what the rules give there - it writes nothing; nothing is written while a country is in shadow.${d.last ? ` Last scan ${when(d.last.at)}.` : ""}`}
+          note={`Counted with the saved rules (Live, not the sandbox), again at every save. "Fix in HubSpot" corrects a topic's companies that Performis does not decide - the new ones without an SAE, the region responsibility, the contacts, the key accounts - and never changes the rules; the others say where they are fixed.${d.last ? ` Last scan ${when(d.last.at)}.` : ""}`}
           right={cc === "all" ? (liveCount ? <Chip tint="pink">{liveCount} live</Chip> : <Chip tint="slate">all shadow</Chip>) : d.live[cc] ? <Chip tint="pink">LIVE</Chip> : <Chip tint="slate">shadow</Chip>} />
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
           <Choice<string> value={cc} onChange={pickCountry} options={[
@@ -551,7 +580,7 @@ export function DiffView({ d, names, palette }: { d: MapData; names: Names; pale
 
       <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, opacity: held.stale ? 0.6 : 1, transition: "opacity .15s" }}>
         {t.topics.map((x) => (
-          <TopicCard key={x.topic} t={x} all={cc === "all"} admin={d.admin} busy={busy === x.topic} onAnswer={(ok) => void answer(x.topic, ok)} names={names} palette={palette} />
+          <TopicCard key={x.topic} t={x} all={cc === "all"} cc={cc} admin={d.admin} busy={busy === x.topic} fix={fix} onFix={() => void startFix(x.topic)} names={names} palette={palette} />
         ))}
         {!t.topics.length && <Info>Nothing differs{inWhere} any more - the next scan updates the counts.</Info>}
       </Box>

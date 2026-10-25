@@ -700,7 +700,7 @@ export async function writeBatch(obj: "companies" | "contacts", inputs: { id: st
   return out;
 }
 
-type Wrote = { companies: number; contacts: number; links: number; failed: number };
+export type Wrote = { companies: number; contacts: number; links: number; failed: number };
 
 /**
  * Live countries: the companies that differ (owner, region, or contacts), at most `breaker` a run. Each is read again
@@ -720,11 +720,41 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
      LIMIT $2`,
     [live, ctx.settings.breaker],
   );
-  let contactBudget = ctx.settings.contactBreaker;
+  await writeCompanies(pending.rows.map((r) => String(r.company_id)), ctx, by, w, { contacts: ctx.settings.contactBreaker }, { liveOnly: true });
+  return w;
+}
+
+/** What a fix may look at to decide a company is still what was asked (fixTopic.ts). */
+export type FixFacts = { sae: string | null; ownerNow: string | null; regionNow: string | null; decided: string; via: string };
+
+/**
+ * "Fix N in HubSpot" on a topic of the Differences (SARCLA 25.10.2026: "this should not create new rules on the
+ * assignment - this should only correct the new ones because they are not related to Performis, so we can fix them"):
+ * the same writes as a live country, for these companies only, whatever their country's switch - each read and decided
+ * again first, skipped when `only` no longer holds (an SAE came meanwhile ...), only what differs written, contacts
+ * following, every write logged. The rules are not touched.
+ */
+export async function fixCompanies(ids: string[], by: string, opts: { only?: (f: FixFacts) => boolean; signal?: AbortSignal; onBatch?: (w: Wrote) => Promise<void> } = {}): Promise<Wrote> {
+  await ensureMapAssign();
+  const ctx = await context(opts.signal);
+  const w: Wrote = { companies: 0, contacts: 0, links: 0, failed: 0 };
+  const only = opts.only;
+  await writeCompanies(ids, ctx, by, w, { contacts: Number.MAX_SAFE_INTEGER }, {
+    liveOnly: false,
+    only: only ? (r) => only({ sae: r.sae, ownerNow: r.owner_now, regionNow: r.region_now, decided: r.owner_decided, via: r.via }) : undefined,
+    onBatch: opts.onBatch ? () => opts.onBatch!(w) : undefined,
+  });
+  return w;
+}
+
+/** The writes of a live country (or a fix), 100 companies at a time: each read and decided again, the company then its
+ *  own contacts, only what differs, logged; `budget.contacts` = the most contacts written. */
+async function writeCompanies(all: string[], ctx: Ctx, by: string, w: Wrote, budget: { contacts: number },
+  opts: { liveOnly: boolean; only?: (r: Rec) => boolean; onBatch?: () => Promise<void> }): Promise<void> {
   const active = isActive(ctx);
-  for (let i = 0; i < pending.rows.length; i += 100) {
+  for (let i = 0; i < all.length; i += 100) {
     stop(ctx);
-    const ids = pending.rows.slice(i, i + 100).map((r) => String(r.company_id));
+    const ids = all.slice(i, i + 100);
     const fresh = await batchRead("companies", ids, companyProps(ctx.year));
     const recs: Rec[] = [];
     /** id -> the outcome to record (null = fine); absent = nothing was attempted */
@@ -738,7 +768,8 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
       if (!p) { outcome.set(id, "not found in HubSpot (deleted or merged)"); continue; }
       const r = toRec({ id, properties: p }, ctx);
       recs.push(r);
-      if (!isLive(ctx, r.country)) continue; // its country changed meanwhile: the row is refreshed, nothing written
+      if (opts.liveOnly && !isLive(ctx, r.country)) continue; // its country changed meanwhile: the row is refreshed, nothing written
+      if (opts.only && !opts.only(r)) { outcome.set(id, "no longer what the fix was asked for - not written"); continue; }
       if (!active(r.owner_decided)) { outcome.set(id, `${ctx.own.names.get(r.owner_decided) ?? r.owner_decided} is deactivated - not written`); continue; }
       const ch = companyChanges({ owner: r.owner_now, region: r.region_now }, r.owner_decided);
       if (Object.keys(ch).length) {
@@ -768,8 +799,8 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
           if (isInternal(c.email, ctx.internal)) continue;
           const ch = contactChanges(c, { owner: r.owner_decided, sae: r.sae });
           if (!Object.keys(ch).length) continue;
-          if (contactBudget <= 0) { left.set(r.company_id, (left.get(r.company_id) ?? 0) + 1); continue; }
-          contactBudget--;
+          if (budget.contacts <= 0) { left.set(r.company_id, (left.get(r.company_id) ?? 0) + 1); continue; }
+          budget.contacts--;
           cw.push({ id: c.id, properties: ch, company: r.company_id, before: { hubspot_owner_id: c.owner, region_responsibility: c.region, sae_performis: c.sae } });
         }
       }
@@ -802,8 +833,8 @@ async function writeLive(ctx: Ctx, by: string): Promise<Wrote> {
       );
     }
     await log(logs);
+    await opts.onBatch?.();
   }
-  return w;
 }
 
 /* ── contacts with no company ──────────────────────────────────────────── */

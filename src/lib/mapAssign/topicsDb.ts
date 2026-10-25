@@ -15,8 +15,8 @@ type DbRow = {
   contacts_off: number | null; revenue: number | null;
 };
 
-/** Every company that differs from the rules, as the engine's Differences count them. */
-async function differingRows(): Promise<TopicRow[]> {
+/** Every company that differs from the rules, as the engine's Differences count them (also what a Fix picks from). */
+export async function differingRows(): Promise<TopicRow[]> {
   await ensureMapAssign();
   // revenue only to pick telling examples: this year's, as the map's layers read it (a row read before New Year holds last year's)
   const r = await query<DbRow>(

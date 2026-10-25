@@ -28,6 +28,8 @@
 //                             of its own; answers {ok, data: TopicsData} (topicOk.country: the country the data shows)
 // PUT {redirection: {ruleId, decision}}   an Owner redirection rule against the map answered: "map" switches the rule
 //                             off (and publishes), "rule" keeps it over the map, null forgets the answer
+// POST {action: "fix-topic", topic, country?}   "Fix N in HubSpot": the topic's companies a fix may touch, corrected in
+//                             the background as a live country would (src/lib/mapAssign/fixTopic.ts; the rules untouched)
 // POST {action: "run"}        a run now, in the background (unless one is going)
 // POST {action: "link", contactId, companyId}   link a contact from the "No company" list (its owner too when the
 //                             company's country is live)
@@ -46,6 +48,7 @@ import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/pl
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
 import { TOPIC_ORDER, isTopicId, type TopicId } from "@/lib/mapAssign/topics";
 import { answerTopic, topicsData } from "@/lib/mapAssign/topicsDb";
+import { fixState, kickFix } from "@/lib/mapAssign/fixTopic";
 import { contactsData } from "@/lib/mapAssign/contactsKpi";
 import { performisWrong, performisWrongXlsx } from "@/lib/mapAssign/performisWrongDb";
 import { WRONG_ORDER } from "@/lib/mapAssign/performisWrong";
@@ -93,7 +96,8 @@ export async function GET(req: NextRequest) {
     if (sp.get("topics") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
       if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
-      return NextResponse.json({ configured: true, ok: true, data: await topicsData(country || null) });
+      // with a Fix going / the last one (SARCLA 25.10.2026: Fix instead of the OK)
+      return NextResponse.json({ configured: true, ok: true, data: { ...(await topicsData(country || null)), fix: await fixState().catch(() => undefined) } });
     }
     if (sp.get("companies") !== null) {
       const country = (sp.get("country") ?? "").trim().toUpperCase();
@@ -207,8 +211,15 @@ export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as Partial<MapPost> & { contactId?: unknown; companyId?: unknown };
+  const b = (await req.json().catch(() => ({}))) as Partial<MapPost> & { contactId?: unknown; companyId?: unknown; topic?: unknown; country?: unknown };
   try {
+    // "Fix N in HubSpot" on a topic of the Differences (SARCLA 25.10.2026): its companies corrected in the background
+    if ((b as { action?: string }).action === "fix-topic") {
+      if (!isTopicId(b.topic)) return NextResponse.json({ ok: false, error: `topic must be one of ${TOPIC_ORDER.join(", ")}` }, { status: 400 });
+      const country = typeof b.country === "string" ? b.country.trim().toUpperCase() : "";
+      if (country && !/^([A-Z]{2}|\?\?)$/.test(country)) return NextResponse.json({ ok: false, error: "country must be an ISO 3166 two-letter code" }, { status: 400 });
+      return NextResponse.json({ ok: true, data: kickFix(b.topic, country || null, await who(access.userId)) });
+    }
     if (b.action === "run") {
       if (await isRunning()) return NextResponse.json({ ok: true, data: { started: false, why: "a run is going already" } });
       const started = kick(await who(access.userId));
