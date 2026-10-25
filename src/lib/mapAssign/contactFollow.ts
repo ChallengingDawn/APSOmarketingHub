@@ -183,6 +183,8 @@ async function passAll(p: Pass, maxCompanies: number): Promise<number> {
         `UPDATE apsomh_map_assign m SET contacts_mism = x.n FROM jsonb_to_recordset($1::jsonb) AS x(id text, n int) WHERE m.company_id = x.id`,
         [JSON.stringify([...left].map(([id, n]) => ({ id, n })))],
       );
+      // a company the batch's 2,000 ran out on is taken again by the next batch (which starts with 2,000 more)
+      for (const [id, n] of left) if (n > 0) p.seen.delete(id);
     }
   }
   return ids.length;
@@ -424,17 +426,27 @@ export async function followData(kpi: NewContactsKpi | null, countedAt: string |
   const running = await isFollowRunning().catch(() => false);
   // how far the pass going is - only while one is going (a pass cut by a restart leaves its last count behind)
   const now = running ? ((await kvGet<FollowNow | null>(KV.now).catch(() => null)) ?? null) : null;
-  const r = await query<{ country: string; owned: boolean; companies: number; contacts: number }>(
-    `SELECT COALESCE(country, '??') AS country, (owner_now IS NOT NULL) AS owned, count(*)::int AS companies, COALESCE(sum(contacts_mism), 0)::int AS contacts
+  const r = await query<{ country: string; owner: string | null; companies: number; contacts: number }>(
+    `SELECT COALESCE(country, '??') AS country, owner_now AS owner, count(*)::int AS companies, COALESCE(sum(contacts_mism), 0)::int AS contacts
      FROM apsomh_map_assign WHERE contacts_mism > 0 GROUP BY 1, 2 ORDER BY 4 DESC, 1`,
   );
-  const pending: FollowPending = { contacts: 0, companies: 0, byCountry: {}, at: countedAt, noOwner: { contacts: 0, companies: 0 } };
+  // a company whose owner has left is never corrected (its contacts would get someone who has left) - counted apart,
+  // so "Correct all now" can end at 0 (SARCLA 25.10.2026: "Correct all now but still 2 Polish stay" - Paulina Bozek's)
+  const active = await owners().then((o) => o.active).catch(() => null);
+  const pending: FollowPending = { contacts: 0, companies: 0, byCountry: {}, at: countedAt, noOwner: { contacts: 0, companies: 0 }, ownerLeft: { contacts: 0, companies: 0, owners: [] } };
+  const leftBy = new Map<string, number>();
   for (const x of r.rows) {
     const n = Number(x.contacts) || 0, c = Number(x.companies) || 0;
-    if (!x.owned) { pending.noOwner.contacts += n; pending.noOwner.companies += c; continue; }
+    if (!x.owner) { pending.noOwner.contacts += n; pending.noOwner.companies += c; continue; }
+    if (active && !active.has(String(x.owner))) {
+      pending.ownerLeft!.contacts += n; pending.ownerLeft!.companies += c;
+      leftBy.set(String(x.owner), (leftBy.get(String(x.owner)) ?? 0) + n);
+      continue;
+    }
     pending.contacts += n; pending.companies += c;
     pending.byCountry[String(x.country)] = (pending.byCountry[String(x.country)] ?? 0) + n;
   }
+  pending.ownerLeft!.owners = [...leftBy].map(([owner, contacts]) => ({ owner, contacts })).sort((a, b) => b.contacts - a.contacts);
   const known = typeof kpi?.sure === "number" && !!kpi?.notSure;
   return {
     ...sw, last, running, now, pending, cap: FOLLOW_CAP, rest: await getRest().catch(() => null),

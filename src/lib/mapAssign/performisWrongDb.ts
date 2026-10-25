@@ -8,7 +8,8 @@ import { xlsx, type Cell, type Column } from "@/lib/xlsx";
 import { ensureMapAssign, getRules, owners } from "./engine";
 import { WRONG_ORDER, WRONG_TEXT, performisFix, spellings, type PerformisWrongData, type WrongReason, type WrongRow } from "./performisWrong";
 
-const PAGE = 50;
+// 25 a page (SARCLA 25.10.2026: "still much scrolling before the pagination - paginate at 25 max")
+const PAGE = 25;
 const hubspotCompanyUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${id}`;
 type Db = {
   company_id: string; name: string | null; country: string | null; zip: string | null; sae: string | null; erp_id: string | null;

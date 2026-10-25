@@ -516,7 +516,7 @@ function lastSays(l: FollowLast): string {
     + `${l.notSure ? ` · ${full(l.notSure)} not sure, left alone` : ""}.`;
 }
 
-function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
+function FollowCard({ f, acts, names }: { f: ContactFollow; acts: Acts; names: Names }) {
   const p = f.pending;
   const countries = Object.entries(p.byCountry).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const top = countries.slice(0, FOLLOW_CHIPS), more = countries.length - top.length;
@@ -535,7 +535,8 @@ function FollowCard({ f, acts }: { f: ContactFollow; acts: Acts }) {
       </Box>
       <Typography sx={{ ...note, mb: 1.25 }}>
         {p.at ? `As of the nightly read ${when(p.at)} - each pass takes off what it corrects` : "Counted on the nightly read - the first numbers come after the next one"}
-        {p.noOwner.contacts ? ` · ${many(p.noOwner.contacts, "contact", "contacts")} of ${many(p.noOwner.companies, "company", "companies")} with no owner left alone` : ""}.
+        {p.noOwner.contacts ? ` · ${many(p.noOwner.contacts, "contact", "contacts")} of ${many(p.noOwner.companies, "company", "companies")} with no owner left alone` : ""}
+        {p.ownerLeft?.contacts ? ` · ${many(p.ownerLeft.contacts, "contact", "contacts")} of ${many(p.ownerLeft.companies, "company", "companies")} whose owner has left (${p.ownerLeft.owners.slice(0, 3).map((o) => names.name(o.owner)).join(", ")}${p.ownerLeft.owners.length > 3 ? " and others" : ""}) left alone until the company gets a new owner` : ""}.
       </Typography>
       {top.length > 0 && (
         <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mb: 2 }}>
@@ -692,7 +693,7 @@ export function ContactsView({ d, names, palette, held, onRetry, onRefresh }: {
   } else {
     top = (
       <>
-        {follow && <FollowCard f={follow} acts={acts} />}
+        {follow && <FollowCard f={follow} acts={acts} names={names} />}
         <NewContactsCard k={data.newContacts} names={names} palette={palette} stale={h.stale}
           sure={follow ? { latest: follow.latest, running: follow.running, acts } : undefined} />
         <MatchCard m={data.match} names={names} palette={palette} />

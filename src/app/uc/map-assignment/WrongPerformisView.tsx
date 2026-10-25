@@ -29,7 +29,7 @@ import { WRONG_ORDER, WRONG_TEXT, type PerformisWrongData, type WrongReason } fr
 import { API, countryName, hsCompany, type Names } from "./shared";
 
 /** A page as the hub reads it (performisWrongDb.ts PAGE). */
-const PER_PAGE = 50;
+const PER_PAGE = 25;
 
 export function WrongPerformisView({ names, n }: { names: Names; n: number }) {
   const [reason, setReason] = useState<WrongReason | "">("");

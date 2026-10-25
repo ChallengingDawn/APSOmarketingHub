@@ -44,6 +44,8 @@ export type FollowPending = {
   at: string | null;
   /** companies with no owner: their contacts are left alone (not in the figures above) */
   noOwner: { contacts: number; companies: number };
+  /** companies whose owner has left (Stahl, Nitschke, Bozek): left alone too, until they get a new owner - by that owner */
+  ownerLeft?: { contacts: number; companies: number; owners: { owner: string; contacts: number }[] };
 };
 /** The pass going, as far as it is: written after every hundred contacts (seen = then). */
 export type FollowNow = { at: string; scope: FollowScope | "auto"; by: string; checked: number; wrote: number; failed: number; companies: number; seen: string };
