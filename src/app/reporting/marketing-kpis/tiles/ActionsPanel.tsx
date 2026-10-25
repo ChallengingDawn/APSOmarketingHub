@@ -60,9 +60,53 @@ function People({ owners, value, onChange, label = "Shared with" }: { owners: Op
   );
 }
 
-export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite }: {
+/** A chart's target (SARCLA 25.10.2026: "allow to enter a threshold so we can measure the rest of it"): typed here, one
+ *  for everyone; the chart draws it and says how far each row is from it. Shown only for a chart that can use one. */
+function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | null; canWrite: boolean }) {
+  const t = tile.target!;
+  const shown = (v: number | null) => (v == null ? "" : t.unit === "pct" ? String(Math.round(v * 1000) / 10) : String(Math.round(v)));
+  const [v, setV] = useState(shown(value));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setV(shown(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  const parsed = (): number | null => {
+    const s = v.replace(/[\s',€%]/g, "");
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? (t.unit === "pct" ? n / 100 : n) : null;
+  };
+  const save = async (val: number | null) => {
+    setBusy(true); setErr(null);
+    try { await send("/api/reporting/kpi-actions/target", "POST", { key: t.key, value: val }); await refreshActions(tile.page); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const now = value == null ? "No target yet" : t.unit === "pct" ? `${(value * 100).toFixed(1)}%` : `€${Math.round(value).toLocaleString("en")}`;
+  return (
+    <Box sx={{ p: 2, borderRadius: "14px", border: `1px solid ${value == null ? HAIRLINE : TINT.blue.fg}`, bgcolor: "#fff", display: "grid", gap: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+        <Typography sx={section}>Target</Typography>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: value == null ? FAINT : INK, fontVariantNumeric: "tabular-nums" }}>{now}</Typography>
+      </Box>
+      <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{t.label}</Typography>
+      {canWrite && (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <TextField size="small" value={v} onChange={(e) => setV(e.target.value)} label={t.unit === "pct" ? "Target in %" : "Target in EUR"}
+            placeholder={t.unit === "pct" ? "100" : "500000"} sx={{ ...field, width: 200 }} slotProps={{ htmlInput: { inputMode: "decimal" } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && parsed() != null) void save(parsed()); }} />
+          <Button variant="contained" disableElevation disabled={busy || parsed() == null} onClick={() => void save(parsed())} sx={cta}>Save the target</Button>
+          {value != null && <Button disabled={busy} onClick={() => { setV(""); void save(null); }} sx={cta}>Clear</Button>}
+        </Box>
+      )}
+      {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
+    </Box>
+  );
+}
+
+export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null }: {
   tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat; formats: TileFormat[];
   onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
+  /** the chart's target now, when the chart takes one */
+  target?: number | null;
 }) {
   // how big it goes to the nutshell - a small tile, half or the whole width, as the graph allows
   // (SARCLA 19.10: "propose several types"); chosen before the switch is turned on, or changed at once there
@@ -157,6 +201,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
             </Box>
           )}
           <Box sx={{ overflowY: "auto", px: 3, py: 2.5, display: "grid", gap: 1.5, alignContent: "start" }}>
+            {tile.target && <TargetBox tile={tile} value={target} canWrite={canWrite} />}
             <Typography sx={section}>Tasks{tasks?.length ? ` · ${openCount} open of ${tasks.length}` : ""}</Typography>
             {(err || tErr) && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
             {!tasks ? <CircularProgress size={18} /> : !tasks.length && !loose.length ? (

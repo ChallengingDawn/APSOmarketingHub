@@ -9,8 +9,10 @@
 //   views      a named set of a page's filters (its URL query), personal unless shared
 //   order      the tiles of a nutshell panel in the order someone dragged them (SARCLA 19.10: "press
 //              continuously with the mouse on a graph and move it inside the card") - one order for everyone
+//   target     a figure a chart is measured against (SARCLA 25.10.2026: "allow to enter a threshold so we can measure
+//              the rest of it" - his pick: a target per chart), typed in the Actions window; one for everyone
 // A tile is known by its key: "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02".
-// Five small tables, created on first use.
+// Six small tables, created on first use.
 
 import { query } from "@/lib/db/client";
 
@@ -19,6 +21,7 @@ const LINKS = "apsomh_kpi_ticket_links";
 const PLACE = "apsomh_kpi_tile_placement";
 const VIEWS = "apsomh_kpi_views";
 const ORDER = "apsomh_kpi_tile_order";
+const TARGET = "apsomh_kpi_tile_target";
 
 export type TaskStatus = "open" | "doing" | "done";
 export const TASK_STATUSES: readonly TaskStatus[] = ["open", "doing", "done"];
@@ -94,6 +97,12 @@ function ensure(): Promise<void> {
       await query(`CREATE TABLE IF NOT EXISTS ${ORDER} (
         scope text PRIMARY KEY,
         keys jsonb NOT NULL,
+        by_name text NOT NULL DEFAULT '',
+        at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await query(`CREATE TABLE IF NOT EXISTS ${TARGET} (
+        target text PRIMARY KEY,
+        value double precision NOT NULL,
         by_name text NOT NULL DEFAULT '',
         at timestamptz NOT NULL DEFAULT now()
       )`);
@@ -238,6 +247,26 @@ export async function orders(): Promise<Record<string, string[]>> {
     if (Array.isArray(v)) out[x.scope] = v.filter((k): k is string => typeof k === "string");
   }
   return out;
+}
+
+/* ── targets ─────────────────────────────────────────────────────────── */
+
+/** A chart's target, by the key the chart gives it ("eso-figures:ytd:ytdrev@eso"); null takes it away. */
+export async function setTarget(key: string, value: number | null, by: string): Promise<void> {
+  await ensure();
+  if (value == null) { await query(`DELETE FROM ${TARGET} WHERE target = $1`, [key]); return; }
+  await query(
+    `INSERT INTO ${TARGET} (target, value, by_name) VALUES ($1, $2, $3)
+     ON CONFLICT (target) DO UPDATE SET value = EXCLUDED.value, by_name = EXCLUDED.by_name, at = now()`,
+    [key, value, by],
+  );
+}
+
+/** Every target set: key -> value. */
+export async function targets(): Promise<Record<string, number>> {
+  await ensure();
+  const r = await query<{ target: string; value: number }>(`SELECT target, value FROM ${TARGET}`);
+  return Object.fromEntries(r.rows.map((x) => [x.target, Number(x.value)]).filter(([, v]) => Number.isFinite(v as number)));
 }
 
 /* ── saved views ───────────────────────────────────────────────────────── */

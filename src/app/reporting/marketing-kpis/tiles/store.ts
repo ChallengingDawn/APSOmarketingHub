@@ -7,7 +7,7 @@ import type { Placement, SavedView, TileFormat, TileSpec } from "@/lib/reporting
 
 export type Counts = Record<string, { open: number; tasks: number; tickets: number }>;
 export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat | null; by: string; at: string };
-export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]> };
+export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]>; targets: Record<string, number> };
 
 type Store = { state: ActionsState | null; error: string | null; listeners: Set<() => void>; loading: Promise<void> | null };
 const stores = new Map<string, Store>();
@@ -26,7 +26,7 @@ async function load(page: string): Promise<void> {
       const r = await fetch(`/api/reporting/kpi-actions?page=${encodeURIComponent(page)}`);
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
-      s.state = { canWrite: !!j.canWrite, counts: j.counts ?? {}, placements: j.placements ?? [], views: j.views ?? [], orders: j.orders ?? {} };
+      s.state = { canWrite: !!j.canWrite, counts: j.counts ?? {}, placements: j.placements ?? [], views: j.views ?? [], orders: j.orders ?? {}, targets: j.targets ?? {} };
       s.error = null;
     } catch (e) {
       s.error = (e as Error).message;
@@ -79,6 +79,9 @@ export function formatOf(state: ActionsState | null, t: Sized): TileFormat {
   const f = state?.placements.find((p) => p.spec.key === t.key)?.format;
   return f && can.includes(f) ? f : can[0] === "tile" ? "tile" : "card";
 }
+
+/** A chart's target (typed in its Actions window), by the key the chart gives it; null when none is set. */
+export const targetOf = (state: ActionsState | null, key: string | undefined): number | null => (key && state?.targets?.[key] != null ? state.targets[key] : null);
 
 /** Where a tile is shown: what someone chose, else where it starts. */
 export function placementOf(state: ActionsState | null, key: string, start: Placement): Placement {

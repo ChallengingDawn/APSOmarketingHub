@@ -17,6 +17,11 @@
 // from order lines"): bullet rows instead of the paired bars (this year's bar green up / red down, last year's tick -
 // his choice), the months as bullet columns; the Profit center tab from each customer's rev_<y>_pc_monthly in the
 // cube, so it follows ESO | TSA | Total and the filters, split by country and by Performis SAE.
+// Tenth (SARCLA 25.10.2026): each profit centre its own chart of the people ("per person revenue per profit center as a
+// graph"), each with its own Actions so each goes to the BUC View alone; book-to-bill as its own leaderboards and figure
+// ("book to bill is not done"); the months keep their proportions at half width; a target per chart, typed in its
+// Actions ("a threshold so we can measure the rest of it") - each row's share of it, the months' line; and under ESO the
+// line managers' teams, RABE TEAM | SARCLA TEAM | FALU TEAM, as Map assignment's SAE table sets them.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -48,6 +53,7 @@ import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
+import BalanceOutlinedIcon from "@mui/icons-material/BalanceOutlined";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { GUTTER } from "@/app/analytics/Shell";
@@ -58,12 +64,13 @@ import { DIM, FilterWindow, useCustomersCube } from "@/app/reporting/marketing-k
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
-import { formatOf, refreshActions, send, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
+import { formatOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import {
   DIMS, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonth, byMonthBy, chosenDims, defaultWindow, erpBy, erpTotals, lastMonth, monthOf, partial, pcBy, totals,
   type Cube, type Dim, type ErpAgg, type Filters, type PcMonths, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
+import { LEADS, leadTeam, type Lead } from "@/lib/mapAssign/leadsRules";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -93,10 +100,37 @@ const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
 export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKey) => void }) {
   return <Box sx={{ justifySelf: "start" }}><ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TEAMS} /></Box>;
 }
-/** A team's Performis SAE people (the SAE as its person); null for Total. */
-const membersOf = (cube: Cube, team: TeamKey) => (team === "total" ? null : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team]));
-function withTeam(cube: Cube, filters: Filters, team: TeamKey): Filters {
-  const members = membersOf(cube, team);
+/** Under ESO, a line manager's team (SARCLA 25.10.2026: "next to ESO | TSA | All I want RABE TEAM | SARCLA TEAM | FALU
+ *  TEAM, only visible on ESO") - each person's line manager as Map assignment's SAE table sets it. */
+export type LeadKey = "all" | Lead;
+const LEAD_TABS: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...LEADS.map((l) => ({ id: l as LeadKey, label: leadTeam(l), count: null }))];
+const asLead = (x: string | null): LeadKey | null => (x === "all" || LEADS.includes(x as Lead) ? (x as LeadKey) : null);
+/** The people's line managers, by the names the cube carries. */
+function useLeads(): Record<string, Lead> | null {
+  const [v, setV] = useState<Record<string, Lead> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/uc/map-assignment/leads").then((r) => r.json())
+      .then((j: { byName?: Record<string, Lead> }) => { if (alive) setV(j.byName ?? {}); })
+      .catch(() => { if (alive) setV({}); });
+    return () => { alive = false; };
+  }, []);
+  return v;
+}
+/** ESO | TSA | Total, and beside it - under ESO only - the line managers' teams. */
+function Teams({ team, onTeam, lead, onLead }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void }) {
+  return (
+    <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
+      <TeamToggle team={team} onTeam={onTeam} />
+      {team === "eso" && <ReportTabs name="eso-lead" tab={lead} onSelect={onLead} tabs={LEAD_TABS} />}
+    </Box>
+  );
+}
+/** A team's Performis SAE people (the SAE as its person); null for Total - under ESO, a line manager's team only. */
+const membersOf = (cube: Cube, team: TeamKey, lead: Lead | null = null, leads: Record<string, Lead> | null = null) => (team === "total" ? null
+  : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team] && (team !== "eso" || !lead || leads?.[l] === lead)));
+function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: Lead | null = null, leads: Record<string, Lead> | null = null): Filters {
+  const members = membersOf(cube, team, lead, leads);
   if (!members) return filters;
   const chosen = filters.sae?.length ? filters.sae.filter((o) => members.includes(o)) : members;
   return { ...filters, sae: chosen.length ? chosen : ["\u0000 none"] };
@@ -140,6 +174,7 @@ type Which = "rev" | "oi";
 const PERIOD: Record<Period, string> = { ytd: "year to date", mtd: "month to date" };
 const PERIOD_CAP: Record<Period, string> = { ytd: "Year to date", mtd: "Month to date" };
 const WHAT: Record<Which, string> = { rev: "Revenue", oi: "Order intake" };
+const WHAT_ALL: Record<Which | "b2b", string> = { ...WHAT, b2b: "Book-to-bill" };
 
 /** The day the ERP's figures are of - the file's day, else as far as the monthly revenue reaches. */
 function erpDate(cube: Cube): { day: number; month: number; year: number } | null {
@@ -178,9 +213,18 @@ export type FigCtx = {
   /** a bar: show only it, and the Filters window opens on its breakdown - as Who are our customers */
   onBar?: (d: Dim, label: string) => void;
   onFilter?: (d: Dim) => void;
+  /** under ESO, a line manager's team, and each person's line manager (by name) */
+  lead?: Lead | null; leads?: Record<string, Lead> | null;
+  /** every chart's target, typed in its Actions window, by its key */
+  targets?: Record<string, number>;
 };
 /** The ERP's forecast is the whole company's: on Total, nothing filtered. */
 const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
+/** The team's name - a line manager's team under ESO. */
+const teamName = (c: { team: TeamKey; lead?: Lead | null }) => (c.team === "eso" && c.lead ? leadTeam(c.lead) : teamWord(c.team));
+/** A chart's target, one per chart and team (a line manager's team its own): "eso-figures:ytd:ytdrev@eso-RABE". */
+const targetKey = (id: string, team: TeamKey, lead?: Lead | null) => `eso-figures:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
+const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead)]; return t != null && t > 0 ? t : null; };
 
 /** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
 function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
@@ -211,13 +255,13 @@ const valueCache = new WeakMap<Filters, Map<string, ValueRow[]>>();
 function valuesOf(c: FigCtx, dim: Dim): ValueRow[] {
   let memo = valueCache.get(c.eff);
   if (!memo) { memo = new Map(); valueCache.set(c.eff, memo); }
-  const key = `${c.cube.generatedAt}|${dim}|${c.team}`;
+  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const by = erpBy(c.cube, c.eff, dim);
   const y = new Map(breakdown(c.cube, dim, c.eff, ytdWin(c.cube)).map((r) => [r.label, r]));
   const m = new Map(breakdown(c.cube, dim, c.eff, mtdWin(c.cube)).map((r) => [r.label, r]));
-  const members = dim === "sae" ? membersOf(c.cube, c.team) : null;
+  const members = dim === "sae" ? membersOf(c.cube, c.team, c.lead, c.leads) : null;
   const rows: ValueRow[] = [...by.entries()].filter(([l, e]) => (!members || members.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy))
     .map(([label, e]) => ({ label, e, cust: { ytd: y.get(label)?.bought ?? 0, ytdPy: y.get(label)?.boughtPy ?? 0, mtd: m.get(label)?.bought ?? 0, mtdPy: m.get(label)?.boughtPy ?? 0 } }));
   if (dim === "prio") rows.sort((a, b) => ((PRIO_ORDER.indexOf(a.label) + 99) % 99) - ((PRIO_ORDER.indexOf(b.label) + 99) % 99) || a.label.localeCompare(b.label));
@@ -234,8 +278,8 @@ const lowerOf = (d: Dim) => DIM[d].lower;
 /** The rows' columns, the same in every row of every chart: the name, the bar, the figures. */
 const ROW_COLS = { xs: "104px minmax(0, 1fr) 116px", sm: "150px minmax(0, 1fr) 128px" };
 const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
-/** The bullets' legend: this year up or down, last year's tick (and the forecast's dashes where they are drawn). */
-function BulletLegend({ cur, prev, forecast }: { cur: string; prev: string; forecast?: boolean }) {
+/** The bullets' legend: this year up or down, last year's tick (and the forecast's and the target's dashes where they are drawn). */
+function BulletLegend({ cur, prev, forecast, target }: { cur: string; prev: string; forecast?: boolean; target?: React.ReactNode }) {
   const item = (mark: React.ReactNode, text: string) => (
     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>{mark}{text}</Box>
   );
@@ -245,6 +289,7 @@ function BulletLegend({ cur, prev, forecast }: { cur: string; prev: string; fore
       {item(sw(THIS), cur)}
       {item(<Box component="span" sx={{ width: 2, height: 12, bgcolor: INK, borderRadius: 1 }} />, prev)}
       {forecast && item(<Box component="span" sx={{ width: 14, borderTop: `2px dashed ${FORECAST}` }} />, "Forecast")}
+      {target && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, color: INK, fontWeight: 600 }}><Box component="span" sx={{ width: 14, borderTop: `2px dashed ${TARGET}` }} />{target}</Box>}
     </Box>
   );
 }
@@ -271,29 +316,52 @@ const changeLine = (cur: number, prev: number) => { const ch = changeNote(cur, p
 /* ── the leaderboard: the top three as cards, everyone else ranked under them (SARCLA 25.10.2026 picked it - number 30 - from thirty proposals) ── */
 
 type BoardRow = { label: string; cur: number; prev: number; sub?: string };
-/** "−2.6% · −€141,542" in its colour - "new" without last year */
-const changeBoth = (cur: number, prev: number) => { const ch = changeNote(cur, prev); return { text: `${ch?.text ?? "—"} · ${signedEur(cur - prev)}`, color: ch?.color ?? FAINT }; };
 const PODIUM_BG = "rgba(45,111,168,.07)";
+/** "+1.2 pts" - a ratio's change (book-to-bill) */
+const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions }: {
+function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
   selected?: string[]; onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; actions?: React.ReactNode;
+  /** how a figure is written - euros unless given */
+  fmt?: (n: number) => string;
+  /** the figures are ratios (book-to-bill): the change in points, no change in euros */
+  ratio?: boolean;
+  /** the chart's target (typed in its Actions window): each row measured against it */
+  target?: number | null;
+  /** a line under the title: the chart's own total (a profit centre's) */
+  summary?: React.ReactNode;
 }) {
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, first);
   const podium = shown.slice(0, 3), rest = shown.slice(3);
+  const reached = target ? rows.filter((r) => r.cur >= target).length : 0;
   const hint = [onPick ? "Click a name to show only it" : "", `ranked by ${curLabel}`, rows.length > first && !all ? `the first ${first} of ${rows.length}` : ""].filter(Boolean).join(" · ");
+  // the change: in % and euros, or in points for a ratio
+  const change = (r: BoardRow) => {
+    if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? tone(r.cur - r.prev) : FAINT, second: null as string | null };
+    const ch = changeNote(r.cur, r.prev);
+    return { main: ch?.text ?? "—", color: ch?.color ?? FAINT, second: signedEur(r.cur - r.prev) };
+  };
+  // how far a row is from the target: "86% of the target", in its colour
+  const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: r.cur >= target ? GREEN : RED } : null);
   const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
-  const tipOf = (r: BoardRow) => `${r.label} - ${curLabel}: ${eur(r.cur)} · ${prevLabel}: ${eur(r.prev)} · ${changeBoth(r.cur, r.prev).text}`;
+  const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)} · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}${target ? ` · target ${fmt(target)}` : ""}`; };
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>
+          {summary && <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, mt: 0.25 }}>{summary}</Typography>}
+          {target != null && target > 0 && (
+            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: INK, mt: 0.25 }}>
+              Target {fmt(target)} · <span style={{ color: reached === rows.length ? GREEN : RED }}>{reached} of {rows.length} reached it</span>
+            </Typography>
+          )}
         </Box>
         {onFilter && (
           <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...NAV, color: selected?.length ? TINT.blue.fg : MUTED, bgcolor: selected?.length ? TINT.blue.bg : "transparent" }}>
@@ -307,7 +375,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
           {/* the first three as cards */}
           <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" } }}>
             {podium.map((r, i) => {
-              const on = !!selected?.includes(r.label), line = changeBoth(r.cur, r.prev);
+              const on = !!selected?.includes(r.label), c = change(r), t = toTarget(r);
               return (
                 <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
                   sx={{ font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default", borderRadius: "14px", p: 1.5, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start",
@@ -315,8 +383,9 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
                     "&:hover": onPick ? { borderColor: TINT.blue.fg } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
                   <Typography sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: "1.6rem", fontWeight: 700, color: THIS, lineHeight: 1 }}>{i + 1}</Typography>
                   <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mt: 0.5 }}>{r.label}</Typography>
-                  <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{eur(r.cur)}</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: line.color, fontVariantNumeric: "tabular-nums" }}>{line.text}</Typography>
+                  <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>
+                  {t && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: t.color }}>{t.text}</Typography>}
                   {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
                 </Box>
               );
@@ -326,7 +395,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
           {rest.length > 0 && (
             <Box sx={{ display: "grid" }}>
               {rest.map((r, i) => {
-                const on = !!selected?.includes(r.label), ch = changeNote(r.cur, r.prev);
+                const on = !!selected?.includes(r.label), c = change(r), t = toTarget(r);
                 return (
                   <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
                     sx={{ display: "grid", gridTemplateColumns: { xs: "24px minmax(0, 1fr) auto 64px", sm: "30px minmax(0, 1fr) 128px 108px" }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
@@ -336,12 +405,16 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
                     <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: FAINT, fontVariantNumeric: "tabular-nums" }}>{i + 4}</Typography>
                     <Box sx={{ minWidth: 0 }}>
                       <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{r.label}</Typography>
-                      {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>{r.sub}</Typography>}
+                      {(r.sub || t) && (
+                        <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>
+                          {r.sub}{r.sub && t ? " · " : ""}{t && <span style={{ color: t.color, fontWeight: 700 }}>{t.text}</span>}
+                        </Typography>
+                      )}
                     </Box>
-                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(r.cur)}</Typography>
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(r.cur)}</Typography>
                     <Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: ch?.color ?? FAINT, lineHeight: 1.25 }}>{ch?.text ?? "—"}</Typography>
-                      <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.72rem", fontWeight: 600, color: ch?.color ?? FAINT, lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>{signedEur(r.cur - r.prev)}</Typography>
+                      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: c.color, lineHeight: 1.25 }}>{c.main}</Typography>
+                      {c.second && <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.72rem", fontWeight: 600, color: c.color, lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>{c.second}</Typography>}
                     </Box>
                   </Box>
                 );
@@ -357,19 +430,23 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   );
 }
 
-/** Revenue or order intake, year or month to date, by a breakdown - the period in the title; the customers under each name. */
-function ValueBars({ c, dim, period, which, actions }: { c: FigCtx; dim: Dim; period: Period; which: Which; actions?: React.ReactNode }) {
-  const rows: BoardRow[] = valuesOf(c, dim).map((r) => {
-    const [cur, prev] = pick(r.e, period, which);
+/** Revenue, order intake or book-to-bill, year or month to date, by a breakdown - the period in the title; under each
+ *  name the customers (revenue), the book-to-bill (order intake) or the two figures it is made of (book-to-bill). */
+function ValueBars({ c, id, dim, period, which, actions }: { c: FigCtx; id: string; dim: Dim; period: Period; which: Which | "b2b"; actions?: React.ReactNode }) {
+  const b2b = which === "b2b";
+  const rows: BoardRow[] = valuesOf(c, dim).flatMap((r) => {
+    const [o, oPy] = pick(r.e, period, "oi"), [v, vPy] = pick(r.e, period, "rev");
     const n = Math.round(period === "ytd" ? r.cust.ytd : r.cust.mtd);
+    if (b2b) return v > 0 ? [{ label: r.label, cur: o / v, prev: vPy ? oPy / vPy : 0, sub: `order intake ${eur(o)} · revenue ${eur(v)}` }] : [];
+    const [cur, prev] = which === "rev" ? [v, vPy] : [o, oPy];
     // the order intake's own line: book-to-bill, the order intake against the revenue (SARCLA 25.10.2026: "missing book to bill per SAE")
-    const [o] = pick(r.e, period, "oi"), [v] = pick(r.e, period, "rev");
     const sub = which === "oi" ? `Book-to-bill ${v ? `${Math.round((o / v) * 100)}%` : "—"}` : `${int(n)} customer${n === 1 ? "" : "s"}`;
-    return { label: r.label, cur, prev, sub };
-  }).filter((r) => r.cur || r.prev);
+    return cur || prev ? [{ label: r.label, cur, prev, sub }] : [];
+  });
   return (
-    <Leaderboard key={`${period}-${which}-${dim}`} title={`${WHAT[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
+    <Leaderboard key={`${period}-${which}-${dim}`} title={`${WHAT_ALL[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
       curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 8 : 12}
+      fmt={b2b ? pct : eur} ratio={b2b} target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
@@ -382,7 +459,7 @@ const monthCache = new WeakMap<Filters, Map<string, MonthRow[]>>();
 function monthRows(c: FigCtx): MonthRow[] {
   let memo = monthCache.get(c.eff);
   if (!memo) { memo = new Map(); monthCache.set(c.eff, memo); }
-  const key = `${c.cube.generatedAt}|${c.team}|${forecastShown(c)}`;
+  const key = `${c.cube.generatedAt}|${c.team}|${c.lead ?? ""}|${forecastShown(c)}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const { cube } = c;
@@ -408,6 +485,8 @@ function monthRows(c: FigCtx): MonthRow[] {
 }
 
 const FORECAST = "#d99a2b";
+/** a chart's target, typed in its Actions */
+const TARGET = TINT.purple.fg;
 /** A value axis's top: a round figure just above the largest. */
 function niceTop(max: number) {
   if (max <= 0) return 1;
@@ -415,27 +494,32 @@ function niceTop(max: number) {
   for (const s of [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10]) if (s * mag >= max) return s * mag;
   return 10 * mag;
 }
-/** The months as bullet columns: this year's column green up / red down, last year's tick across it, the forecast dashed on Total. */
-function MonthColumns({ c, which }: { c: FigCtx; which: Which }) {
+/** The months as columns: this year's column, last year's tick across it, the forecast dashed on Total, the target (typed
+ *  in Actions) as a line across. The plot keeps its proportions at any width (SARCLA 25.10.2026: "in half width it loses its ratio"). */
+function MonthColumns({ c, which, target = null }: { c: FigCtx; which: Which; target?: number | null }) {
   const rows = monthRows(c);
   const [y0, y1] = c.cube.years;
-  const data = rows.map((r) => ({ x: MONTH_NAMES[r.i], cur: which === "rev" ? r.rev : r.oi, prev: which === "rev" ? r.revPy : r.oiPy, fc: which === "rev" ? r.fc : null }));
-  const top = niceTop(Math.max(1, ...data.map((d) => Math.max(d.cur ?? 0, d.prev, d.fc ?? 0))));
-  const H = c.half ? 180 : 220;
+  const data = rows.map((r) => ({ x: MONTH_NAMES[r.i], cur: which === "rev" ? r.rev : r.oi, prev: which === "rev" ? r.revPy : r.oiPy, fc: which === "rev" ? r.fc : null, erp: r.erp }));
+  const top = niceTop(Math.max(1, target ?? 0, ...data.map((d) => Math.max(d.cur ?? 0, d.prev, d.fc ?? 0))));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const withFc = data.some((d) => d.fc != null);
+  // the target against the months that are over - the running one is not counted
+  const done = data.filter((d) => d.cur != null && !(d.erp && partial(c.cube)));
+  const reached = target ? done.filter((d) => (d.cur ?? 0) >= target).length : 0;
+  const goal = target ? <>Target {eur(target)} a month · <span style={{ color: reached === done.length ? GREEN : RED }}>{reached} of {done.length} months reached it</span></> : undefined;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
-      <BulletLegend cur={String(y0)} prev={`${y1}, same month`} forecast={withFc} />
+      <BulletLegend cur={String(y0)} prev={`${y1}, same month`} forecast={withFc} target={goal} />
       <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
-        <Box sx={{ position: "relative", height: H, minWidth: axisWidth(top) - 10 }}>
+        <Box sx={{ position: "relative", minWidth: axisWidth(top) - 10 }}>
           {ticks.map((f) => <Typography key={f} sx={{ position: "absolute", right: 0, bottom: `calc(${f * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", lineHeight: 1.2 }}>{eur(f * top)}</Typography>)}
         </Box>
-        <Box sx={{ position: "relative", height: H }}>
+        <Box sx={{ position: "relative", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 340 }}>
           {ticks.map((f) => <Box key={f} sx={{ position: "absolute", left: 0, right: 0, bottom: `${f * 100}%`, borderTop: `1px solid ${f === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
+          {target != null && target > 0 && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((d) => (
-              <Box key={d.x} title={`${d.x} - ${y0}: ${d.cur == null ? "not loaded yet" : eur(d.cur)} · ${y1}: ${eur(d.prev)}${d.fc != null ? ` · forecast: ${eur(d.fc)}` : ""}`}
+              <Box key={d.x} title={`${d.x} - ${y0}: ${d.cur == null ? "not loaded yet" : eur(d.cur)} · ${y1}: ${eur(d.prev)}${d.fc != null ? ` · forecast: ${eur(d.fc)}` : ""}${target && d.cur != null ? ` · ${pct(d.cur / target)} of the target` : ""}`}
                 sx={{ flex: 1, position: "relative", height: "100%", borderRadius: "6px", "&:hover": { bgcolor: "rgba(21,34,58,.035)" } }}>
                 {d.cur != null && <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.max(0, d.cur) / top) * 100}%`, bgcolor: THIS, borderRadius: "4px 4px 0 0" }} />}
                 {d.prev > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(d.prev / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
@@ -743,20 +827,30 @@ function pcRows(c: FigCtx): PcRow[] {
   const all = foldPcs(pcBy(c.cube, c.eff).get(""));
   return PC_ORDER.filter((pc) => all.has(pc)).map((pc) => ({ pc, label: PC_NAME[pc], ...pcFig(c.cube, all.get(pc)!) })).filter((r) => r.ytd || r.ytdPy);
 }
-type SplitRow = { label: string; byPc: Record<string, number>; total: number; totalPy: number };
-/** Each value of a breakdown with its year to date by profit centre - a team's own people on the Performis SAE. */
+type SplitRow = { label: string; byPc: Record<string, number>; byPcPy: Record<string, number>; total: number; totalPy: number };
+const splitCache = new WeakMap<Filters, Map<string, SplitRow[]>>();
+/** Each value of a breakdown with its year to date by profit centre, and last year's same days - a team's own people on the Performis SAE. */
 function pcSplit(c: FigCtx, dim: Dim): SplitRow[] {
-  const members = dim === "sae" ? membersOf(c.cube, c.team) : null;
+  let memo = splitCache.get(c.eff);
+  if (!memo) { memo = new Map(); splitCache.set(c.eff, memo); }
+  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}`;
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const members = dim === "sae" ? membersOf(c.cube, c.team, c.lead, c.leads) : null;
   const rows: SplitRow[] = [];
   for (const [label, m] of pcBy(c.cube, c.eff, dim)) {
     if (members && !members.includes(label)) continue;
-    const byPc: Record<string, number> = {};
+    const byPc: Record<string, number> = {}, byPcPy: Record<string, number> = {};
     let total = 0, totalPy = 0;
-    for (const [pc, v] of foldPcs(m)) { const x = pcFig(c.cube, v); byPc[pc] = x.ytd; total += x.ytd; totalPy += x.ytdPy; }
-    if (total || totalPy) rows.push({ label, byPc, total, totalPy });
+    for (const [pc, v] of foldPcs(m)) { const x = pcFig(c.cube, v); byPc[pc] = x.ytd; byPcPy[pc] = x.ytdPy; total += x.ytd; totalPy += x.ytdPy; }
+    if (total || totalPy) rows.push({ label, byPc, byPcPy, total, totalPy });
   }
-  return rows.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  rows.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  memo.set(key, rows);
+  return rows;
 }
+/** The profit centres the people have revenue in, in their fixed order. */
+const pcsOf = (c: FigCtx) => { const rows = pcSplit(c, "sae"); return PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc] || r.byPcPy[pc])); };
 function PcWaiting() {
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, display: "flex", gap: 1.25, alignItems: "center" }}>
@@ -766,11 +860,29 @@ function PcWaiting() {
   );
 }
 
-function PcBars({ c, period, actions }: { c: FigCtx; period: Period; actions?: React.ReactNode }) {
+function PcBars({ c, id, period, actions }: { c: FigCtx; id: string; period: Period; actions?: React.ReactNode }) {
   if (!hasPc(c)) return <PcWaiting />;
   const all = pcRows(c), sum = all.reduce((a, x) => a + (period === "ytd" ? x.ytd : x.mtd), 0);
   const rows: BoardRow[] = all.map((r) => { const cur = period === "ytd" ? r.ytd : r.mtd; return { label: r.label, cur, prev: period === "ytd" ? r.ytdPy : r.mtdPy, sub: `${sum > 0 ? pct(cur / sum) : "—"} of the revenue` }; });
-  return <Leaderboard key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} actions={actions} />;
+  return <Leaderboard key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} target={targetFor(c, id)} actions={actions} />;
+}
+
+/** One profit centre's people: each Performis SAE's revenue year to date in it (SARCLA 25.10.2026: "per person revenue per
+ *  profit center as a graph") - each profit centre its own chart, so each goes to the BUC View alone, with its total on top. */
+function PcSaeBars({ c, id, pc, actions }: { c: FigCtx; id: string; pc: string; actions?: React.ReactNode }) {
+  if (!hasPc(c)) return <PcWaiting />;
+  const rows: BoardRow[] = pcSplit(c, "sae").flatMap((r) => {
+    const cur = r.byPc[pc] ?? 0, prev = r.byPcPy[pc] ?? 0;
+    return cur || prev ? [{ label: r.label, cur, prev, sub: `${r.total > 0 ? pct(cur / r.total) : "—"} of their revenue` }] : [];
+  });
+  const cur = rows.reduce((s, r) => s + r.cur, 0), prev = rows.reduce((s, r) => s + r.prev, 0), ch = changeNote(cur, prev);
+  return (
+    <Leaderboard key={`pcsae-${pc}`} title={`${PC_NAME[pc]} - revenue year to date, by Performis SAE`} rows={rows}
+      summary={<>In all {eur(cur)} <span style={{ color: ch?.color ?? FAINT }}>{ch?.text ?? "—"} · {signedEur(cur - prev)}</span></>}
+      curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 6 : 8} target={targetFor(c, id)}
+      selected={c.filters.sae} onPick={c.onBar ? (l) => c.onBar!("sae", l) : undefined}
+      onFilter={c.onFilter ? () => c.onFilter!("sae") : undefined} filterLabel="Filter by Performis SAE" actions={actions} />
+  );
 }
 
 /** The profit centres' colours and names. */
@@ -882,7 +994,8 @@ function PcTable({ c, period }: { c: FigCtx; period: Period }) {
 function PcSplitTable({ c, dim }: { c: FigCtx; dim: Dim }) {
   const rows = pcSplit(c, dim);
   const pcs = PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc]));
-  const total: SplitRow = { label: "Total", byPc: Object.fromEntries(pcs.map((pc) => [pc, rows.reduce((s, r) => s + (r.byPc[pc] ?? 0), 0)])), total: rows.reduce((s, r) => s + r.total, 0), totalPy: rows.reduce((s, r) => s + r.totalPy, 0) };
+  const sumOf = (f: (r: SplitRow) => Record<string, number>) => Object.fromEntries(pcs.map((pc) => [pc, rows.reduce((s, r) => s + (f(r)[pc] ?? 0), 0)]));
+  const total: SplitRow = { label: "Total", byPc: sumOf((r) => r.byPc), byPcPy: sumOf((r) => r.byPcPy), total: rows.reduce((s, r) => s + r.total, 0), totalPy: rows.reduce((s, r) => s + r.totalPy, 0) };
   const cols: Col<SplitRow>[] = [
     ...pcs.map((pc) => ({ key: pc, head: PC_NAME[pc], tip: `${PC_NAME[pc]}, revenue year to date`, cell: (r: SplitRow) => (r.byPc[pc] ? eur(r.byPc[pc]) : "—"), sort: (r: SplitRow) => r.byPc[pc] ?? 0 })),
     { key: "total", head: "Revenue year to date", tip: `All profit centers - under it the change against ${periodWords(c.cube, "ytd", 1)}`, cell: (r) => withChangeCell(eur(r.total), r.total, r.totalPy), sort: (r) => r.total },
@@ -893,30 +1006,47 @@ function PcSplitTable({ c, dim }: { c: FigCtx; dim: Dim }) {
 
 /* ── every chart by its key: the tabs draw them, and so does the BUC View ── */
 
-type Drawn = { view: View; title: (c: FigCtx) => string; draw: (c: FigCtx, actions?: React.ReactNode) => React.ReactNode };
-const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamWord(c.team)}`);
-/** A chart by its id "<tab>:<chart>" - ytdrev, ytdoi, mtdrev, mtdoi, monrev, monoi, months. */
+/** What a chart's target is typed in, and what it measures - shown in its Actions window. */
+type TargetOf = { unit: "eur" | "pct"; label: string };
+type Drawn = { id: string; view: View; title: (c: FigCtx) => string; draw: (c: FigCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: FigCtx) => TargetOf };
+const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
+/** A chart by its id "<tab>:<chart>" - ytdrev, ytdoi, ytdb2b, mtdrev, mtdoi, mtdb2b, monrev, monoi, months; on Profit center also sae-<pc>. */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
-  const bar = /^(ytd|mtd)(rev|oi)$/.exec(chart);
+  const bar = /^(ytd|mtd)(rev|oi|b2b)$/.exec(chart);
+  const forWhom = (c: FigCtx) => `${teamName(c)}'s target - each team its own`;
   if (v === "pc") {
-    if (bar && bar[2] === "rev") { const p = bar[1] as Period; return { view: v, title: (c) => `Revenue ${PERIOD[p]}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={c} period={p} actions={a} /> }; }
-    if (chart === "country" || chart === "sae") { const d: Dim = chart; return { view: v, title: (c) => `Revenue year to date by ${lowerOf(d)}, split by profit center${team(c)}`, draw: (c, a) => <PcSplitBars c={c} dim={d} actions={a} /> }; }
-    if (chart === "months") return { view: v, title: (c) => `Revenue month by month, by profit center${team(c)}`, draw: (c, a) => <PcCards c={c} actions={a} /> };
+    if (bar && bar[2] === "rev") {
+      const p = bar[1] as Period;
+      return { id, view: v, title: (c) => `Revenue ${PERIOD[p]}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={c} id={id} period={p} actions={a} />,
+        target: (c) => ({ unit: "eur", label: `Each profit center's revenue ${PERIOD[p]} is measured against it · ${forWhom(c)}.` }) };
+    }
+    const one = /^sae-([a-z]+)$/.exec(chart);
+    if (one && PC_ORDER.includes(one[1])) {
+      const pc = one[1];
+      return { id, view: v, title: (c) => `${PC_NAME[pc]} - revenue year to date, by Performis SAE${team(c)}`, draw: (c, a) => <PcSaeBars c={c} id={id} pc={pc} actions={a} />,
+        target: (c) => ({ unit: "eur", label: `Each person's revenue year to date in ${PC_NAME[pc]} is measured against it · ${forWhom(c)}.` }) };
+    }
+    if (chart === "country" || chart === "sae") { const d: Dim = chart; return { id, view: v, title: (c) => `Revenue year to date by ${lowerOf(d)}, split by profit center${team(c)}`, draw: (c, a) => <PcSplitBars c={c} dim={d} actions={a} /> }; }
+    if (chart === "months") return { id, view: v, title: (c) => `Revenue month by month, by profit center${team(c)}`, draw: (c, a) => <PcCards c={c} actions={a} /> };
     return undefined;
   }
   const dim = dimOf(v)!;
   if (bar) {
-    const p = bar[1] as Period, w = bar[2] as Which;
-    return { view: v, title: (c) => `${WHAT[w]} ${PERIOD[p]}, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <ValueBars c={c} dim={dim} period={p} which={w} actions={a} /> };
+    const p = bar[1] as Period, w = bar[2] as Which | "b2b";
+    return { id, view: v, title: (c) => `${WHAT_ALL[w]} ${PERIOD[p]}, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <ValueBars c={c} id={id} dim={dim} period={p} which={w} actions={a} />,
+      target: (c) => (w === "b2b"
+        ? { unit: "pct", label: `Each ${lowerOf(dim)}'s book-to-bill ${PERIOD[p]} - the order intake against the revenue - is measured against it, e.g. 100 · ${forWhom(c)}.` }
+        : { unit: "eur", label: `Each ${lowerOf(dim)}'s ${WHAT[w].toLowerCase()} ${PERIOD[p]} is measured against it · ${forWhom(c)}.` }) };
   }
   if (v === "ytd" && (chart === "monrev" || chart === "monoi")) {
     const w: Which = chart === "monrev" ? "rev" : "oi";
     const title = (c: FigCtx) => `${WHAT[w]} year to date, month by month${team(c)}`;
-    return { view: v, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthColumnsHint(c, w)} actions={a}><MonthColumns c={c} which={w} /></ChartBox> };
+    return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthColumnsHint(c, w)} actions={a}><MonthColumns c={c} which={w} target={targetFor(c, id)} /></ChartBox>,
+      target: (c) => ({ unit: "eur", label: `Each month's ${WHAT[w].toLowerCase()} is measured against it - a line across the months; the running month is not counted · ${forWhom(c)}.` }) };
   }
-  if (chart === "months") return { view: v, title: (c) => `Revenue and customers month by month, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <MonthCards c={c} dim={dim} actions={a} /> };
+  if (chart === "months") return { id, view: v, title: (c) => `Revenue and customers month by month, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <MonthCards c={c} dim={dim} actions={a} /> };
   return undefined;
 }
 /** A key's chart - the earlier versions' keys, still sent to some BUC Views, by what took their place. */
@@ -940,8 +1070,8 @@ function chartOf(key: string, part?: string): Drawn | undefined {
 
 /* ── a tab: one card that follows it ───────────────────────────────────── */
 
-type Act = (id: string, title: string) => React.ReactNode;
-const draw = (c: FigCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c))); };
+type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
+const draw = (c: FigCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
 
 function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.ReactNode }) {
   const { view, cube } = c;
@@ -951,12 +1081,13 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
     const p: Period = view;
     return (
       <GlassCard sx={card}>
-        <CardTitle icon={p === "ytd" ? <DateRangeOutlinedIcon /> : <TodayOutlinedIcon />} tint="blue" title={`${teamWord(c.team)}, ${PERIOD[p]}`}
+        <CardTitle icon={p === "ytd" ? <DateRangeOutlinedIcon /> : <TodayOutlinedIcon />} tint="blue" title={`${teamName(c)}, ${PERIOD[p]}`}
           note={`${against(p)} · by Performis SAE - the sales agent Performis has on the customer, as its person`} />
         <Box sx={{ ...TWO, mt: -1 }}>
           {draw(c, act, `${p}:${p}rev`)}
           {draw(c, act, `${p}:${p}oi`)}
         </Box>
+        {draw(c, act, `${p}:${p}b2b`)}
         {p === "ytd" && (
           <>
             <Box sx={TWO}>
@@ -981,11 +1112,15 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   }
   if (view === "pc") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<CategoryOutlinedIcon />} tint="green" title={`${teamWord(c.team)} by profit center`}
+      <CardTitle icon={<CategoryOutlinedIcon />} tint="green" title={`${teamName(c)} by profit center`}
         note={`Each customer's monthly revenue by profit center, as the Compass connector brings it from the ERP · year to date ${periodWords(cube, "ytd")}, against the same days of ${cube.years[1]}`} />
       {!hasPc(c) ? <PcWaiting /> : (
         <>
           <Box sx={{ mt: -1 }}>{draw(c, act, "pc:ytdrev")}</Box>
+          <Box>
+            <SubTitle>Each profit center by Performis SAE, year to date</SubTitle>
+            <Box sx={TWO}>{pcsOf(c).map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:sae-${pc}`)}</Box>)}</Box>
+          </Box>
           <Box><SubTitle>Year to date, by profit center</SubTitle><PcTable c={c} period="ytd" /></Box>
           <Box><SubTitle>Year to date, by country and profit center</SubTitle><PcSplitTable c={c} dim="country" /></Box>
           <Box><SubTitle>Year to date, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
@@ -1000,13 +1135,17 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   const d = DIM[view];
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={d.icon} tint={d.tint} title={`${teamWord(c.team)} by ${lowerOf(view)}`}
+      <CardTitle icon={d.icon} tint={d.tint} title={`${teamName(c)} by ${lowerOf(view)}`}
         note={`${NOTES[view]} · year to date ${periodWords(cube, "ytd")} and month to date ${periodWords(cube, "mtd")}, each against the same days of ${cube.years[1]}`} />
       <Box sx={{ ...TWO, mt: -1 }}>
         {draw(c, act, `${view}:ytdrev`)}
         {draw(c, act, `${view}:ytdoi`)}
         {draw(c, act, `${view}:mtdrev`)}
         {draw(c, act, `${view}:mtdoi`)}
+      </Box>
+      <Box sx={TWO}>
+        {draw(c, act, `${view}:ytdb2b`)}
+        {draw(c, act, `${view}:mtdb2b`)}
       </Box>
       <Box><SubTitle>Year to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="ytd" /></Box>
       <Box><SubTitle>Month to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="mtd" /></Box>
@@ -1025,20 +1164,33 @@ function againstForecast(cube: Cube, kpi: EsoFigures | null) {
   const rev = erpTotals(cube, {}).revYtd;
   return fc ? { fc, rev, reached: rev / fc } : null;
 }
-type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint };
+type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint;
+  /** the change written out (book-to-bill: in points) */
+  chText?: { text: string; color: string } };
+/** Book-to-bill, year to date: the order intake against the revenue, its change in points. */
+function b2bFig(e: ErpAgg, cube: Cube): Fig {
+  const cur = e.revYtd ? e.oiYtd / e.revYtd : null, prev = e.revYtdPy ? e.oiYtdPy / e.revYtdPy : null;
+  return { label: "Book-to-bill year to date", value: pct(cur), chText: cur != null && prev != null ? { text: points(cur, prev), color: tone(cur - prev) } : undefined,
+    sub: `Order intake against revenue · ${periodWords(cube, "ytd", 1)}: ${pct(prev)}`, icon: <BalanceOutlinedIcon />, tint: "green" };
+}
+/** A figure's change, in its colour. */
+const FigChange = ({ f, size }: { f: Fig; size: string }) => (f.chText
+  ? <Typography sx={{ fontSize: size, fontWeight: 700, color: f.chText.color }}>{f.chText.text}</Typography>
+  : f.ch !== undefined ? <Typography sx={{ fontSize: size, fontWeight: 700, color: tone(f.ch ?? null) }}>{signedPct(f.ch ?? null)}</Typography> : null);
 function figuresOf(e: ErpAgg, forecast: ReturnType<typeof againstForecast>, cube: Cube): Fig[] {
   const out: Fig[] = [
     { label: "Revenue year to date", value: eur(e.revYtd), ch: changeOf(e.revYtd, e.revYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.revYtdPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
     { label: "Revenue month to date", value: eur(e.revMtd), ch: changeOf(e.revMtd, e.revMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.revMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
     { label: "Order intake year to date", value: eur(e.oiYtd), ch: changeOf(e.oiYtd, e.oiYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.oiYtdPy)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
     { label: "Order intake month to date", value: eur(e.oiMtd), ch: changeOf(e.oiMtd, e.oiMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.oiMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "purple" },
+    b2bFig(e, cube),
   ];
   if (forecast) out.push({ label: "Against forecast", value: `${(forecast.reached * 100).toFixed(1)}%`, sub: `${eur(forecast.rev)} of ${eur(forecast.fc)} to ${dayWords(cube)}`, icon: <FlagOutlinedIcon />, tint: "amber" });
   return out;
 }
 function FigureCards({ items }: { items: Fig[] }) {
   return (
-    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${items.length}, minmax(124px, 172px))` }, flex: "0 1 auto" }}>
+    <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(124px, 172px))", xl: `repeat(${items.length}, minmax(124px, 172px))` }, flex: "0 1 auto" }}>
       {items.map((it) => (
         <Box key={it.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 0, display: "grid", gap: 0.25, alignContent: "start" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -1047,7 +1199,7 @@ function FigureCards({ items }: { items: Fig[] }) {
           </Box>
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6, flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{it.value}</Typography>
-            {it.ch !== undefined && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: tone(it.ch ?? null) }}>{signedPct(it.ch ?? null)}</Typography>}
+            <FigChange f={it} size="0.76rem" />
           </Box>
           <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{it.sub}</Typography>
         </Box>
@@ -1078,6 +1230,29 @@ function useTeam(): [TeamKey, (t: TeamKey) => void] {
   };
   return [team, set];
 }
+const KEPT_LEAD = "eso.lead";
+/** Under ESO, the line manager's team: ?lead= in the address, kept for the next visit. */
+function useLead(): [LeadKey, (l: LeadKey) => void] {
+  const params = useSearchParams();
+  const [kept, setKept] = useState<LeadKey | null>(null);
+  useEffect(() => { try { setKept(asLead(localStorage.getItem(KEPT_LEAD))); } catch { /* all ESO */ } }, []);
+  const lead: LeadKey = asLead(params.get("lead")) ?? kept ?? "all";
+  const set = (l: LeadKey) => {
+    setQuery((q) => { if (l === "all") q.delete("lead"); else q.set("lead", l); });
+    setKept(l);
+    try { localStorage.setItem(KEPT_LEAD, l); } catch { /* still applies here */ }
+  };
+  return [lead, set];
+}
+/** A line manager's team with nobody in it yet: where to set it. */
+function NoLeadYet({ lead }: { lead: Lead }) {
+  return (
+    <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+      Nobody is in {leadTeam(lead)} yet - pick each ESO person&apos;s line manager in the Line manager column of{" "}
+      <Box component={Link} href="/uc/map-assignment#sae-table" sx={{ color: TINT.blue.fg, fontWeight: 600 }}>Map assignment &gt; SAE table</Box>.
+    </Typography>
+  );
+}
 
 function Waiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
   return (
@@ -1104,6 +1279,9 @@ export function FiguresExplorer() {
   const { kpi, busy } = useKpiSeries();
   const params = useSearchParams();
   const [teamKey, setTeam] = useTeam();
+  const [leadKey, setLead] = useLead();
+  const leads = useLeads();
+  const { state: acts } = useActions("eso-figures");
   const view = viewOf(params.get("view"));
   const setView = (v: View) => setQuery((q) => { if (v === "ytd") q.delete("view"); else q.set("view", v); });
   const filters: Filters = useMemo(() => Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
@@ -1131,22 +1309,25 @@ export function FiguresExplorer() {
       <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />
     </Box>
   );
-  const eff = withTeam(cube, filters, teamKey);
-  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, filters, eff, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
+  const lead = teamKey === "eso" && leadKey !== "all" ? leadKey : null;
+  const eff = withTeam(cube, filters, teamKey, lead, leads);
+  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, filters, eff, lead, leads, targets: acts?.targets, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
   const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
-  // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it
-  const act: Act = (id, title) => (
+  // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it, and its target per team
+  const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamWord(teamKey)} · to ${dayWords(cube)}`,
-        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [teamKey] }, kind: "card" }} />
+      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamName(c)} · to ${dayWords(cube)}`,
+        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [teamKey], ...(lead ? { lead: [lead] } : {}) }, kind: "card",
+        target: target ? { key: targetKey(id, teamKey, lead), ...target } : undefined }} />
   );
   const footnote = (
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
       Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. The months: each customer&apos;s monthly revenue and order intake, summed
       {cube.oiLoaded != null ? ` (the order intake per customer loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]})` : ""}; the running month the ERP&apos;s month to date. Customers: the companies that bought.
       {teamKey !== "total" ? ` ${teamWord(teamKey)}: the customers Performis gives its people (the SAE, as Map assignment maps it to a person) - a person's team from the rosters, else their HubSpot team.` : ""}
+      {lead ? ` ${leadTeam(lead)}: the ESO people whose line manager is ${lead}, as Map assignment's SAE table sets it.` : ""}
       {" "}The forecast: the ERP&apos;s, per mandant - the whole company only, shown on Total with nothing filtered. Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
     </Typography>
   );
@@ -1158,9 +1339,8 @@ export function FiguresExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Figures</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamWord(teamKey)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · year to date <b style={{ color: INK }}>{periodWords(cube, "ytd")}</b>, month to date <b style={{ color: INK }}>{periodWords(cube, "mtd")}</b> - against the same days of {cube.years[1]}{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamName(c)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · year to date <b style={{ color: INK }}>{periodWords(cube, "ytd")}</b>, month to date <b style={{ color: INK }}>{periodWords(cube, "mtd")}</b> - against the same days of {cube.years[1]}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          <TeamToggle team={teamKey} onTeam={setTeam} />
           {chosen.length > 0 && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
               {chosen.map(([x, v]) => (
@@ -1174,6 +1354,11 @@ export function FiguresExplorer() {
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
           <FigureCards items={figuresOf(erpTotals(cube, eff), forecast, cube)} />
         </Box>
+      </Box>
+      {/* ESO | TSA | Total and, under ESO, the line managers' teams beside it - a row of their own, so the two stay side by side */}
+      <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
+        <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} />
+        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet lead={lead} />}
       </Box>
 
       {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
@@ -1208,17 +1393,26 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const { cube, computing, progress, error } = useCustomersCube();
   const { kpi, busy } = useKpiSeries();
   const [teamKey, setTeam] = useState<TeamKey>("eso");
-  useEffect(() => { try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); } catch { /* ESO */ } }, []);
+  const [leadKey, setLeadKey] = useState<LeadKey>("all");
+  const leads = useLeads();
+  useEffect(() => {
+    try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ }
+  }, []);
   const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
+  const lead = teamKey === "eso" && leadKey !== "all" ? leadKey : null;
   const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", filters: {}, eff: withTeam(cube, {}, teamKey) } : null;
+  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, targets: acts?.targets } : null;
   const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
     const st = asTeam(spec.filters?.team?.[0] ?? null) ?? teamKey;
+    const sl = asLead(spec.filters?.lead?.[0] ?? null);
+    const slead = st === "eso" && sl && sl !== "all" ? sl : null;
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
-    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind }} />;
-    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", filters: sf, eff: withTeam(cube!, sf, st), half: fmt === "half" };
+    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, targets: acts?.targets, half: fmt === "half" };
+    const target = ch?.target ? { key: targetKey(ch.id, st, slead), ...ch.target(sc) } : undefined;
+    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   });
@@ -1229,17 +1423,18 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<QueryStatsOutlinedIcon />} tint="purple" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/figures?team=${teamKey}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
+          <Box component={Link} href={`/reporting/eso-benchmark/figures?team=${teamKey}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Figures</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.purple.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamWord(teamKey)}${teamKey !== "total" ? " by Performis SAE" : ""} · year to date ${periodWords(c.cube, "ytd")}, month to date ${periodWords(c.cube, "mtd")} - against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName(c)}${teamKey !== "total" ? " by Performis SAE" : ""} · year to date ${periodWords(c.cube, "ytd")}, month to date ${periodWords(c.cube, "mtd")} - against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
         </Box>
-        <TeamToggle team={teamKey} onTeam={choose} />
+        <Teams team={teamKey} onTeam={choose} lead={leadKey} onLead={chooseLead} />
       </Box>
+      {c && lead && leads && membersOf(c.cube, "eso", lead, leads)?.length === 0 && <NoLeadYet lead={lead} />}
       {!c ? <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} /> : (
         <>
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${figs.length}, minmax(0, 1fr))` } }}>
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))", xl: `repeat(${figs.length}, minmax(0, 1fr))` } }}>
             {figs.map((f) => (
               <Box key={f.label} sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "grid", gap: 0.75, alignContent: "start", minWidth: 0 }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
@@ -1248,7 +1443,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
                   <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{f.value}</Typography>
-                  {f.ch !== undefined && <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: tone(f.ch ?? null) }}>{signedPct(f.ch ?? null)}</Typography>}
+                  <FigChange f={f} size="0.82rem" />
                 </Box>
                 <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{f.sub}</Typography>
               </Box>

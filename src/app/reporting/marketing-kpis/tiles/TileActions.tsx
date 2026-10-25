@@ -12,7 +12,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
 import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 import { ActionsPanel } from "./ActionsPanel";
-import { formatOf, formatsFor, placementOf, refreshActions, send, useActions } from "./store";
+import { formatOf, formatsFor, placementOf, refreshActions, send, targetOf, useActions } from "./store";
 
 export type TileInfo = {
   /** "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02" - the same on the page and in the nutshell */
@@ -22,6 +22,9 @@ export type TileInfo = {
   /** where it lives; the page's address with its filters when left out */
   href?: string;
   kind?: "kpi" | "card";
+  /** a chart that can be measured against a target (SARCLA 25.10.2026: "a threshold so we can measure the rest of it"):
+   *  the key it is kept under (a chart may keep one per team), what is typed - euros or a percent - and what it means */
+  target?: { key: string; unit: "eur" | "pct"; label: string };
 };
 
 type Space = number | { xs?: number; md?: number };
@@ -83,7 +86,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
         </Box>
       </Tooltip>
       </Box>
-      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move} canWrite={state?.canWrite ?? false} />}
+      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move} canWrite={state?.canWrite ?? false} target={targetOf(state, tile.target?.key)} />}
     </>
   );
 }

@@ -4,7 +4,7 @@
 // separate tab"): the HubSpot workflow's table SAE -> person, used wherever rule 1 is on; a country's overrides (the Rules
 // window) come first. Its own view on the page; edits are the page's draft, saved with the page's Save.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -22,6 +22,7 @@ import { API, OwnerPicker, Swatch, newId, takesOver, type Names, type Palette, t
 import type { Owner } from "@/lib/mapAssign/api";
 import TextFieldSelect from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import { LEADS, isLead, leadTeam, type Lead } from "@/lib/mapAssign/leadsRules";
 
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
 const head = { fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.05em" };
@@ -39,6 +40,26 @@ export function usePerformis(n: number): Got {
   if (r.state === "ok") { const x = r.data as Partial<PerformisData> | null; return x && Array.isArray(x.sae) ? { state: "ok", data: x as PerformisData } : { state: "missing" }; }
   if (r.state === "error" && (r.status === 404 || r.status === 400)) return { state: "missing" };
   return { state: "error", error: r.state === "error" ? r.error : "not configured" };
+}
+
+/* ── the line managers (SARCLA 25.10.2026: "a column line manager so we can pick a line manager for each ESO") ── */
+
+/** owner id -> RABE | SARCLA | FALU, read once, saved on every pick - outside the page's draft and the rules */
+function useLeads(): { leads: Record<string, Lead>; set: (owner: string, lead: Lead | null) => void; err: string | null } {
+  const [leads, setLeads] = useState<Record<string, Lead>>({});
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/leads`).then((r) => r.json()).then((j) => { if (alive && j?.ok) setLeads(j.leads ?? {}); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const set = (owner: string, lead: Lead | null) => {
+    setLeads((l) => { const n = { ...l }; if (lead) n[owner] = lead; else delete n[owner]; return n; });
+    fetch(`${API}/leads`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerId: owner, lead }) })
+      .then((r) => r.json()).then((j) => { if (j?.ok) { setLeads(j.leads ?? {}); setErr(null); } else setErr(j?.error ?? "not saved"); })
+      .catch((e) => setErr(String(e?.message ?? e)));
+  };
+  return { leads, set, err };
 }
 
 /* ── the table ── */
@@ -62,9 +83,10 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
   const unknown = [...counts].filter(([k]) => !keys.has(k)).sort((a, b) => b[1] - a[1]);
   const spelled = new Map<string, string>();
   if (got.state === "ok") for (const s of got.data.sae) if (s.sae && !spelled.has(saeKey(s.sae))) spelled.set(saeKey(s.sae), s.sae);
+  const lm = useLeads();
   const needle = q.trim().toLowerCase();
   const shown = rows.map((r, i) => ({ r, i })).filter(({ r }) => !needle || r.k.toLowerCase().includes(needle) || names.name(r.owner).toLowerCase().includes(needle));
-  const cols = { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(220px, 1fr) 100px 36px" };
+  const cols = { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(220px, 1fr) 150px 100px 36px" };
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
       <Typography sx={hint}>For <b>every country</b> where rule 1 is on: SAE → person. A country&apos;s overrides (Rules on the map) come first. Case, accents and word order do not count.</Typography>
@@ -73,6 +95,7 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
         <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
           <Typography sx={head}>SAE (as Performis writes it)</Typography>
           <Typography sx={head}>Person</Typography>
+          <Typography sx={head} title="The ESO team each person is in - the ESO Figures' RABE / SARCLA / FALU TEAM. Saved as soon as it is picked">Line manager</Typography>
           <Typography sx={{ ...head, textAlign: "right" }}>Companies</Typography>
           <span />
         </Box>
@@ -95,6 +118,13 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
                   </Typography>
                 )}
               </Box>
+              {/* one line manager per person: several SAE spellings of one person share it */}
+              <TextFieldSelect select size="small" value={r.owner && lm.leads[r.owner] ? lm.leads[r.owner] : ""} disabled={!admin || !r.owner}
+                onChange={(e) => lm.set(r.owner, isLead(e.target.value) ? e.target.value : null)}
+                slotProps={{ htmlInput: { "aria-label": `Line manager of ${names.name(r.owner) || "this person"}` } }} sx={{ minWidth: 0 }}>
+                <MenuItem value="">—</MenuItem>
+                {LEADS.map((l) => <MenuItem key={l} value={l}>{leadTeam(l)}</MenuItem>)}
+              </TextFieldSelect>
               <Typography sx={numSx}>{k && counts.has(k) ? full(counts.get(k)!) : "—"}</Typography>
               {admin ? <IconButton size="small" onClick={() => push(rows.filter((x) => x.id !== r.id))} aria-label={`Remove SAE ${r.k}`}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
             </Box>
@@ -102,6 +132,7 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
         })}
       </Box>
       {admin && <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", justifySelf: "start" }} onClick={() => push([...rows, { id: newId("s"), k: "", owner: "" }])}>Add an SAE</Button>}
+      <Typography sx={hint}>Line manager: the ESO team each person is in (RABE, SARCLA or FALU TEAM) - the ESO Figures show each team on its own. Saved as soon as it is picked, apart from Save above.{lm.err ? ` Not saved: ${lm.err}` : ""}</Typography>
       {unknown.length > 0 && (
         <Box sx={{ border: "1px solid rgba(169,106,18,.25)", bgcolor: "rgba(169,106,18,.05)", borderRadius: "12px", p: 1.5, display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>SAE values with nobody · {unknown.length}</Typography>
