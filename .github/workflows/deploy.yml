@@ -1,8 +1,38 @@
 name: Build and push image to ECR
 
-# Phase 1: build the container image and push it to Amazon ECR.
-# (Once True Soft creates the Fargate service, add an ECS deploy step here —
-#  see the commented block at the bottom.)
+# Builds the image for every master commit and tags it with that commit's sha.
+# IT DOES NOT RELEASE. Releasing is a separate, deliberate act done by a person.
+#
+# Why (25.10.2026): this workflow used to tag every master build :prod as well, and the task
+# definition points at :prod. That made one tag mean two different things at once - "the newest
+# build" and "what is supposed to be running" - so the only thing keeping those equal was every
+# session holding its push until the previous rollout finished. Six rollouts in one evening were
+# serialised behind each other for that reason alone.
+#
+# It was not only slow, it was unsafe. With :prod moving on every push, ANY unplanned task
+# replacement - out of memory, a failed health check, AWS retiring a host, a scale event - would
+# start an unreleased image on ONE task, with no press, no chain check and nobody told; the two
+# tasks would then be serving different code, and that task would adopt every secret rotated since
+# the others booted.
+#
+# Now: push freely, master is always buildable, and :prod only moves when somebody releases.
+# A spontaneous restart pulls the last RELEASED image.
+#
+# TO RELEASE (by hand, after the gate: exactly one COMPLETED deployment, no open ERP chain in a
+# 6 h window with the log alive, every [connectors] "started" closed):
+#
+#   aws ecr batch-get-image --repository-name apsomarketinghub \
+#     --image-ids imageTag=<sha> --query 'images[0].imageManifest' --output text > m.json
+#   aws ecr put-image --repository-name apsomarketinghub \
+#     --image-tag prod --image-manifest file://m.json
+#   aws ecs update-service --cluster apso-dev --service apso-dev-apsomarketinghub \
+#     --force-new-deployment            # never --task-definition
+#
+# Then verify BOTH tasks' imageDigest equals the :prod digest, and that both booted clean
+# ("Ready", no "Failed to prepare server", no "Cannot find module", no FATAL).
+#
+# The retag copies the manifest inside ECR - nothing is pulled, rebuilt or re-pushed, so the
+# released image is bit-for-bit the one CI built and tested.
 
 on:
   push:
@@ -42,22 +72,13 @@ jobs:
           docker build \
             --build-arg GIT_SHA="$IMAGE_TAG" \
             --build-arg BUILT_AT="$BUILT_AT" \
-            -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:prod" .
+            -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" .
           docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
-          docker push "$REGISTRY/$REPOSITORY:prod"
+          echo "Built and pushed $REPOSITORY:$IMAGE_TAG — NOT released."
+          echo "To release it, retag :prod to this sha and force a new deployment (see the top of this file)."
 
-      # Without this the image sits in ECR and the running tasks never change —
-      # every push since 15.09 built something nobody was serving, and the only
-      # way to see a change was to force a deployment by hand in the console.
-      # The task definition points at :prod, so a forced deployment pulls the
-      # image this run just pushed.
-      # Needs ecs:UpdateService + ecs:DescribeServices on apso-github-actions-role;
-      # if the role lacks them this step fails loudly, and the image is still pushed.
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service \
-            --cluster apso-dev \
-            --service apso-dev-apsomarketinghub \
-            --force-new-deployment \
-            --no-cli-pager \
-            --query 'service.{name:serviceName,taskDefinition:taskDefinition,desired:desiredCount}'
+      # There is deliberately no deploy step here. A workflow that deploys every master push is
+      # the hazard described at the top of this file: it would release code nobody approved, with
+      # no gate. The old step called `aws ecs update-service --force-new-deployment` and survived
+      # only because apso-github-actions-role lacks ecs:UpdateService, so it failed every run.
+      # If that permission is ever granted, do not reinstate it.
