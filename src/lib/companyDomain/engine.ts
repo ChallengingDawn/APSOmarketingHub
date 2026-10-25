@@ -14,7 +14,7 @@ import { Resolver } from "node:dns/promises";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { GENERIC, INTERNAL, WORKFLOW_ID, decide, emailDomain, isNameGuess, pickBest, type Verdict } from "./rules";
+import { GENERIC, INTERNAL, WORKFLOW_ID, decide, emailDomain, isNameGuess, pickBest, websiteDomain, type Verdict } from "./rules";
 
 const LOCK = 4_107_242;
 const EVERY_MS = 15 * 60_000;
@@ -146,13 +146,25 @@ async function run(): Promise<RunInfo> {
   let found = 0, micro = 0;
   for (const c of due) {
     const p = c.properties, apso = (p.apso_customer ?? "").trim();
-    const v = decide({ name: p.name ?? "", website: p.website, apso, turnover: num(p.max_pot_or_turnover), revenue: num(p.max_revenue_2015_2026), contacts: num(p.num_associated_contacts), emails: emails.get(c.id) ?? [] });
+    let v = decide({ name: p.name ?? "", website: p.website, apso, turnover: num(p.max_pot_or_turnover), revenue: num(p.max_revenue_2015_2026), contacts: num(p.num_associated_contacts), emails: emails.get(c.id) ?? [] });
+    // HubSpot copies a domain into an empty website: a cleared name guess stays behind there (25.10.2026 - "hpe group"
+    // got its dead hpe-group.it back from its website at the next run). A domain from the website is taken only when it
+    // exists; a website that is a dead name guess is cleared with it
+    let deadSite = false;
+    if (v.kind === "website" && v.domain) {
+      const exists = await domainExists(v.domain);
+      if (exists !== true) {
+        deadSite = exists === false && isNameGuess(v.domain, p.name ?? "");
+        v = { kind: "deadsite", domain: null, from: v.from, micro: false };
+      }
+    }
     const row: Row = { id: c.id, name: p.name ?? "", country: (p.country || p.country_custom || "").trim(), created: p.createdate ?? "", contacts: num(p.num_associated_contacts), apso, key: keyOf(c), checkedAt: now, v };
     rows.set(c.id, row);
     const after: Record<string, string> = {};
     if (v.domain) { after.domain = v.domain; found++; }
     if (v.micro) { after.apso_customer = "APSOmicro"; micro++; }
-    if (Object.keys(after).length) changes.push({ id: c.id, before: { domain: null, apso_customer: apso || null }, after });
+    if (deadSite) after.website = "";
+    if (Object.keys(after).length) changes.push({ id: c.id, before: { domain: null, apso_customer: apso || null, website: p.website ?? null }, after });
   }
   let written = 0;
   if (live && changes.length) {
@@ -160,7 +172,7 @@ async function run(): Promise<RunInfo> {
     await log("run", changes, result);
     for (const ch of changes) {
       const err = result.get(ch.id), row = rows.get(ch.id)!;
-      row.written = err ? { at: now, error: err } : { at: now, domain: ch.after.domain, apso: ch.after.apso_customer };
+      row.written = err ? { at: now, error: err } : { at: now, domain: ch.after.domain ?? (ch.after.website === "" ? "" : undefined), apso: ch.after.apso_customer };
       if (!err) written++;
     }
   }
@@ -292,7 +304,14 @@ export async function startClear(by: string): Promise<{ started: boolean; why?: 
   void (async () => {
     for (let i = 0; i < dead.length; i += 100) {
       const chunk = dead.slice(i, i + 100);
-      const changes: Change[] = chunk.map((r) => ({ id: r.id, before: { domain: r.domain }, after: { domain: r.real ?? "" } }));
+      // the website HubSpot copied from the dead domain goes with it - else it gives the dead domain back (25.10.2026)
+      const site = new Map<string, string | null>();
+      const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: chunk.map((r) => ({ id: r.id })), properties: ["website"] } });
+      for (const o of j.results ?? []) site.set(String(o.id), o.properties.website ?? null);
+      const changes: Change[] = chunk.map((r) => {
+        const w = site.get(r.id) ?? null, deadCopy = !!w && websiteDomain(w) === r.domain;
+        return { id: r.id, before: { domain: r.domain, website: w }, after: { domain: r.real ?? "", ...(deadCopy ? { website: "" } : {}) } };
+      });
       const result = await writeCompanies(changes);
       await log("clear", changes, result);
       const now = new Date().toISOString();

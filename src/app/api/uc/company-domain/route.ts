@@ -20,7 +20,7 @@ type CoRow = Awaited<ReturnType<typeof pageState>>["state"]["rows"][number];
 const FILTERS: Record<string, (x: CoRow) => boolean> = {
   all: () => true, found: (x) => !!x.v.domain, micro: (x) => x.v.micro, written: (x) => !!x.written && !x.written.error,
   generic: (x) => x.v.kind === "generic", noemail: (x) => x.v.kind === "noemail", nocontacts: (x) => x.v.kind === "nocontacts",
-  contacts: (x) => x.v.kind === "contacts", website: (x) => x.v.kind === "website",
+  contacts: (x) => x.v.kind === "contacts", website: (x) => x.v.kind === "website", deadsite: (x) => x.v.kind === "deadsite",
 };
 
 export async function GET() {

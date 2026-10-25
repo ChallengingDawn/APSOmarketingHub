@@ -79,10 +79,10 @@ export function isNameGuess(domain: string, name: string): boolean {
 export type Facts = {
   name: string; website: string | null; apso: string; turnover: number; revenue: number; contacts: number; emails: string[];
 };
-export type Kind = "contacts" | "website" | "generic" | "noemail" | "nocontacts";
+export type Kind = "contacts" | "website" | "deadsite" | "generic" | "noemail" | "nocontacts";
 export type Verdict = { kind: Kind; domain: string | null; from: string[]; micro: boolean };
 export const KIND_TEXT: Record<Kind, string> = {
-  contacts: "from its contacts' work e-mails", website: "from its website", generic: "only private e-mail addresses (gmail, bluewin…)",
+  contacts: "from its contacts' work e-mails", website: "from its website", deadsite: "its website does not exist (an old name guess)", generic: "only private e-mail addresses (gmail, bluewin…)",
   noemail: "its contacts have no e-mail", nocontacts: "no contact",
 };
 

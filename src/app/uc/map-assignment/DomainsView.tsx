@@ -67,7 +67,7 @@ export function DomainsView() {
   const rowsAll = d?.state.rows ?? [];
   const test: Record<Filter, (x: Row) => boolean> = {
     all: () => true, found: (x) => !!x.v.domain, micro: (x) => x.v.micro, written: (x) => !!x.written && !x.written.error,
-    contacts: (x) => x.v.kind === "contacts", website: (x) => x.v.kind === "website", generic: (x) => x.v.kind === "generic", noemail: (x) => x.v.kind === "noemail", nocontacts: (x) => x.v.kind === "nocontacts",
+    contacts: (x) => x.v.kind === "contacts", website: (x) => x.v.kind === "website", deadsite: (x) => x.v.kind === "deadsite", generic: (x) => x.v.kind === "generic", noemail: (x) => x.v.kind === "noemail", nocontacts: (x) => x.v.kind === "nocontacts",
   };
   const rows = rowsAll.filter(test[filter]).sort((a, b) => b.created.localeCompare(a.created));
   const { slice, pager } = usePaged(rows, 15);
@@ -117,6 +117,7 @@ export function DomainsView() {
             { key: "all", label: "All", count: count("all") }, { key: "found", label: "Domain found", count: count("found") },
             { key: "micro", label: "Private or micro", count: count("micro") }, { key: "generic", label: "Only private e-mails", count: count("generic") },
             { key: "noemail", label: "Contacts without e-mail", count: count("noemail") }, { key: "nocontacts", label: "No contact", count: count("nocontacts") },
+            { key: "deadsite", label: "Website doesn't exist", count: count("deadsite") },
             { key: "written", label: "Written", count: count("written") },
           ]} />
         </Box>
