@@ -229,10 +229,10 @@ const pick = (e: ErpAgg, p: Period, w: Which): [number, number] =>
   p === "ytd" ? (w === "rev" ? [e.revYtd, e.revYtdPy] : [e.oiYtd, e.oiYtdPy]) : w === "rev" ? [e.revMtd, e.revMtdPy] : [e.oiMtd, e.oiMtdPy];
 const lowerOf = (d: Dim) => DIM[d].lower;
 
-/* ── bullet rows: this year's bar - green up, red down - and last year's tick (SARCLA 25.10.2026, over the paired bars) ── */
+/* ── bullet rows: this year's bar and last year's tick, the change in its colour beside (SARCLA 25.10.2026: "too much, it was really confusing" - one colour for the bars) ── */
 
-const UP = GREEN, DOWN = RED;
-const dirColor = (cur: number, prev: number) => (cur > prev ? UP : cur < prev ? DOWN : FAINT);
+/** The rows' columns, the same in every row of every chart: the name, the bar, the figures. */
+const ROW_COLS = { xs: "104px minmax(0, 1fr) 116px", sm: "150px minmax(0, 1fr) 128px" };
 type BulletRow = { label: string; cur: number; prev: number; sub?: string };
 const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
 /** The bullets' legend: this year up or down, last year's tick (and the forecast's dashes where they are drawn). */
@@ -240,11 +240,10 @@ function BulletLegend({ cur, prev, forecast }: { cur: string; prev: string; fore
   const item = (mark: React.ReactNode, text: string) => (
     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>{mark}{text}</Box>
   );
-  const sw = (bg: string) => <Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: bg, opacity: 0.88 }} />;
+  const sw = (bg: string) => <Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: bg }} />;
   return (
     <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
-      {item(sw(UP), `${cur}, up`)}
-      {item(sw(DOWN), `${cur}, down`)}
+      {item(sw(THIS), cur)}
       {item(<Box component="span" sx={{ width: 2, height: 12, bgcolor: INK, borderRadius: 1 }} />, prev)}
       {forecast && item(<Box component="span" sx={{ width: 14, borderTop: `2px dashed ${FORECAST}` }} />, "Forecast")}
     </Box>
@@ -304,7 +303,7 @@ function BulletBars({ title, rows: given, curLabel, prevLabel, pageSize = 12, fi
             return (
               <Box key={r.label} component={onPick ? "button" : "div"} type={onPick ? "button" : undefined} onClick={onPick ? () => onPick(r.label) : undefined} aria-pressed={onPick ? on : undefined}
                 title={`${r.label} - ${curLabel}: ${eur(r.cur)} · ${prevLabel}: ${eur(r.prev)} · ${line.text}`}
-                sx={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) minmax(64px, 1.35fr) auto", alignItems: "center", columnGap: 1.5, px: 1, py: 0.6, width: "100%",
+                sx={{ display: "grid", gridTemplateColumns: ROW_COLS, alignItems: "center", columnGap: 1.5, px: 1, py: 0.6, width: "100%",
                   border: 0, font: "inherit", textAlign: "left", borderRadius: "10px", cursor: onPick ? "pointer" : "default",
                   bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.45 : 1,
                   "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
@@ -313,10 +312,10 @@ function BulletBars({ title, rows: given, curLabel, prevLabel, pageSize = 12, fi
                   {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>{r.sub}</Typography>}
                 </Box>
                 <Box sx={{ position: "relative", height: 22 }}>
-                  <Box sx={{ position: "absolute", left: 0, top: 5, height: 12, width: `${(Math.max(0, r.cur) / max) * 100}%`, minWidth: r.cur > 0 ? 2 : 0, bgcolor: dirColor(r.cur, r.prev), opacity: 0.88, borderRadius: "0 4px 4px 0" }} />
+                  <Box sx={{ position: "absolute", left: 0, top: 5, height: 12, width: `${(Math.max(0, r.cur) / max) * 100}%`, minWidth: r.cur > 0 ? 2 : 0, bgcolor: THIS, borderRadius: "0 4px 4px 0" }} />
                   {r.prev > 0 && <Box sx={{ position: "absolute", top: 0, bottom: 0, left: `calc(${(r.prev / max) * 100}% - 1px)`, width: 2, bgcolor: INK, borderRadius: 1 }} />}
                 </Box>
-                <Box sx={{ textAlign: "right", whiteSpace: "nowrap", minWidth: 92 }}>
+                <Box sx={{ textAlign: "right", whiteSpace: "nowrap", minWidth: 0 }}>
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{eur(r.cur)}</Typography>
                   <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: line.color, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{line.text}</Typography>
                 </Box>
@@ -334,7 +333,10 @@ function ValueBars({ c, dim, period, which, actions }: { c: FigCtx; dim: Dim; pe
   const rows: BulletRow[] = valuesOf(c, dim).map((r) => {
     const [cur, prev] = pick(r.e, period, which);
     const n = Math.round(period === "ytd" ? r.cust.ytd : r.cust.mtd);
-    return { label: r.label, cur, prev, sub: `${int(n)} customer${n === 1 ? "" : "s"}` };
+    // the order intake's own line: book-to-bill, the order intake against the revenue (SARCLA 25.10.2026: "missing book to bill per SAE")
+    const [o] = pick(r.e, period, "oi"), [v] = pick(r.e, period, "rev");
+    const sub = which === "oi" ? `Book-to-bill ${v ? `${Math.round((o / v) * 100)}%` : "—"}` : `${int(n)} customer${n === 1 ? "" : "s"}`;
+    return { label: r.label, cur, prev, sub };
   }).filter((r) => r.cur || r.prev);
   return (
     <BulletBars key={`${period}-${which}-${dim}`} title={`${WHAT[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
@@ -406,7 +408,7 @@ function MonthColumns({ c, which }: { c: FigCtx; which: Which }) {
             {data.map((d) => (
               <Box key={d.x} title={`${d.x} - ${y0}: ${d.cur == null ? "not loaded yet" : eur(d.cur)} · ${y1}: ${eur(d.prev)}${d.fc != null ? ` · forecast: ${eur(d.fc)}` : ""}`}
                 sx={{ flex: 1, position: "relative", height: "100%", borderRadius: "6px", "&:hover": { bgcolor: "rgba(21,34,58,.035)" } }}>
-                {d.cur != null && <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.max(0, d.cur) / top) * 100}%`, bgcolor: dirColor(d.cur, d.prev), opacity: 0.88, borderRadius: "4px 4px 0 0" }} />}
+                {d.cur != null && <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.max(0, d.cur) / top) * 100}%`, bgcolor: THIS, borderRadius: "4px 4px 0 0" }} />}
                 {d.prev > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(d.prev / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
                 {d.fc != null && d.fc > 0 && <Box sx={{ position: "absolute", bottom: `${(d.fc / top) * 100}%`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, borderTop: `2px dashed ${FORECAST}` }} />}
               </Box>
@@ -782,7 +784,7 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
             const line = changeLine(r.total, r.totalPy);
             return (
               <Box key={r.label} component={onPick ? "button" : "div"} type={onPick ? "button" : undefined} onClick={onPick ? () => onPick(r.label) : undefined} aria-pressed={onPick ? on : undefined}
-                sx={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) minmax(64px, 1.35fr) auto", alignItems: "center", columnGap: 1.5, px: 1, py: 0.6, width: "100%",
+                sx={{ display: "grid", gridTemplateColumns: ROW_COLS, alignItems: "center", columnGap: 1.5, px: 1, py: 0.6, width: "100%",
                   border: 0, font: "inherit", textAlign: "left", borderRadius: "10px", cursor: onPick ? "pointer" : "default",
                   bgcolor: on ? TINT.blue.bg : "transparent", opacity: sel.length && !on ? 0.45 : 1,
                   "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 1 } }}>
@@ -803,7 +805,7 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
                     });
                   })()}
                 </Box>
-                <Box sx={{ textAlign: "right", whiteSpace: "nowrap", minWidth: 92 }}>
+                <Box sx={{ textAlign: "right", whiteSpace: "nowrap", minWidth: 0 }}>
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{eur(r.total)}</Typography>
                   <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: line.color, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{line.text}</Typography>
                 </Box>
@@ -933,7 +935,6 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
               {draw(c, act, "ytd:monrev")}
               {draw(c, act, "ytd:monoi")}
             </Box>
-            {draw(c, act, "ytd:months")}
           </>
         )}
         <Box>
@@ -953,26 +954,17 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   if (view === "pc") return (
     <GlassCard sx={card}>
       <CardTitle icon={<CategoryOutlinedIcon />} tint="green" title={`${teamWord(c.team)} by profit center`}
-        note={`Each customer's monthly revenue by profit center, as the Compass connector brings it from the ERP · year to date ${periodWords(cube, "ytd")} and month to date ${periodWords(cube, "mtd")}, against the same days of ${cube.years[1]}`} />
+        note={`Each customer's monthly revenue by profit center, as the Compass connector brings it from the ERP · year to date ${periodWords(cube, "ytd")}, against the same days of ${cube.years[1]}`} />
       {!hasPc(c) ? <PcWaiting /> : (
         <>
-          <Box sx={{ ...TWO, mt: -1 }}>
-            {draw(c, act, "pc:ytdrev")}
-            {draw(c, act, "pc:mtdrev")}
-          </Box>
-          <Box sx={TWO}>
-            {draw(c, act, "pc:country")}
-            {draw(c, act, "pc:sae")}
-          </Box>
-          {draw(c, act, "pc:months")}
+          <Box sx={{ mt: -1 }}>{draw(c, act, "pc:ytdrev")}</Box>
           <Box><SubTitle>Year to date, by profit center</SubTitle><PcTable c={c} period="ytd" /></Box>
-          <Box><SubTitle>Month to date, by profit center</SubTitle><PcTable c={c} period="mtd" /></Box>
           <Box><SubTitle>Year to date, by country and profit center</SubTitle><PcSplitTable c={c} dim="country" /></Box>
           <Box><SubTitle>Year to date, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
         </>
       )}
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        The ERP&apos;s year and month to date per customer carry no profit center: this tab adds up each customer&apos;s monthly revenue by profit center, last year&apos;s running month pro rata - its totals can differ a little from the figures top right.
+        The ERP&apos;s year to date per customer carries no profit center: this tab adds up each customer&apos;s monthly revenue by profit center, last year&apos;s running month pro rata - its totals can differ a little from the figures top right.
       </Typography>
       {footnote}
     </GlassCard>
@@ -988,7 +980,6 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
         {draw(c, act, `${view}:mtdrev`)}
         {draw(c, act, `${view}:mtdoi`)}
       </Box>
-      {draw(c, act, `${view}:months`)}
       <Box><SubTitle>Year to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="ytd" /></Box>
       <Box><SubTitle>Month to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="mtd" /></Box>
       {footnote}
