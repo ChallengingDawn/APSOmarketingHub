@@ -83,7 +83,7 @@ A deadline is NOT dissatisfaction. "This is urgent", "we need it today", "asap" 
 - "unknown" if we wrote nothing, or nothing that says either way.
 An apology is not a failure: "sorry for the delay, the credit note is issued" is positive.
 
-"machine" - true if no human customer is talking in this thread: an automatic notification, a system warning, a newsletter, an order confirmation nobody answered, a bounce, an out-of-office, or only our own colleagues writing. Otherwise false.
+"machine" - true if no human customer is talking in this thread: an automatic notification, a system warning, a newsletter, an order confirmation nobody answered, a bounce, an out-of-office, or only our own colleagues writing. Also true when there is no message to read at all - only a signature, a legal disclaimer, a confidentiality footer or quoted history, with nothing the person actually wrote. Judge the words in front of you: if they carry no request, no question and no complaint, nobody is talking. Otherwise false.
 
 Answer only JSON: {"tone":"...","resolution":"...","machine":true|false,"why":"max 12 words"}`;
 }

@@ -43,14 +43,16 @@ export async function GET(req: NextRequest) {
     if (t && /^\d+$/.test(t)) {
       return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t, client()) });
     }
+    // the same window as the rest of Back Office distribution, capped at what is kept
+    const days = Math.min(21, Math.max(1, Number(sp.get("days")) || 7));
     const [settings, last, rows, usedToday, on] = await Promise.all([
-      getSettings(), lastRun(), recentRows(7), aiUsedToday(), workflowOn(),
+      getSettings(), lastRun(), recentRows(days), aiUsedToday(), workflowOn(),
     ]);
     const summary = summarise(rows);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary),
+        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary), days,
         workflowOn: on, everyMinutes: 15,
         ai: { usedToday, perRun: AI_PER_RUN, perDay: AI_PER_DAY, available: client() !== null },
         admin: access.role === "admin",

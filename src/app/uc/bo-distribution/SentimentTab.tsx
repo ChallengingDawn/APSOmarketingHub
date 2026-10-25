@@ -35,6 +35,8 @@ import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import { BarList } from "@/app/charts/BarList";
+import { ChartFrame, type TableTwin } from "@/app/charts/ChartFrame";
+import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { full } from "@/app/charts/format";
 import {
   ACCENT, CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, bodyCell, clip, headCell, hsTicket,
@@ -71,6 +73,8 @@ export type SentimentData = {
   headline: string;
   workflowOn: boolean | null;
   everyMinutes: number;
+  /** The window the figures cover, set by the picker in the page header. */
+  days: number;
   ai: { usedToday: number; perRun: number; perDay: number; available: boolean };
   admin: boolean;
 };
@@ -108,41 +112,32 @@ const MODE_BUTTON: Record<"off" | "shadow" | "live", string> = {
   off: "Switch off", shadow: "Watch only", live: "Write it to HubSpot",
 };
 
-function Bucketed({ title, counts, scored, old, words }: {
-  title: string; counts: Record<Bucket, number>; scored: number;
+/**
+ * One question, drawn the way the rest of the platform draws a comparison.
+ *
+ * It was two tables of numbers and percentages, which SARCLA called what they were (24.10.2026).
+ * The house pattern is a chart with its figures a click away - ChartFrame's table twin - and a
+ * comparison is a grouped column, now beside before. "Nothing to go on" has no "before" column:
+ * the old scoring had no word for it and called those tickets neutral, so a bar there would be
+ * inventing a figure.
+ */
+function Answers({ caption, counts, scored, old, words }: {
+  caption: string; counts: Record<Bucket, number>; scored: number;
   old?: { positive: number; neutral: number; negative: number };
   words: Record<Bucket, string>;
 }) {
   const order: Bucket[] = ["negative", "neutral", "positive", "unknown"];
+  const priorOf = (b: Bucket) => (b === "unknown" || !old ? null : old[b]);
+  const data = order.map((b) => ({ x: words[b], current: counts[b], prior: priorOf(b) }));
+  const table: TableTwin = {
+    columns: ["", "Now", "Share", "Before"],
+    rows: order.map((b) => [words[b], counts[b], pc(counts[b], scored), priorOf(b) === null ? "—" : full(priorOf(b)!)]),
+    numeric: [1, 3],
+  };
   return (
-    <Box>
-      <Typography sx={{ color: MUTED, fontSize: "0.8rem", mb: 0.75 }}>{title}</Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell sx={headCell}>&nbsp;</TableCell>
-            <TableCell sx={headCell} align="right">The hub</TableCell>
-            {old ? <TableCell sx={headCell} align="right">The workflow</TableCell> : null}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {order.map((b) => (
-            <TableRow key={b}>
-              <TableCell sx={{ ...bodyCell, color: toneColour(b), fontWeight: 600 }}>{words[b]}</TableCell>
-              <TableCell sx={bodyCell} align="right">
-                {full(counts[b])} <Typography component="span" sx={{ color: MUTED, fontSize: "0.78rem" }}>{pc(counts[b], scored)}</Typography>
-              </TableCell>
-              {old ? (
-                <TableCell sx={{ ...bodyCell, color: MUTED }} align="right">
-                  {b === "unknown" ? <Tooltip title="The workflow has no word for it - it called these neutral"><span>—</span></Tooltip>
-                    : `${full(old[b as "positive" | "neutral" | "negative"])} ${pc(old[b as "positive" | "neutral" | "negative"], scored)}`}
-                </TableCell>
-              ) : null}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Box>
+    <ChartFrame caption={caption} table={table} empty={scored ? null : "Nothing has been scored yet."}>
+      <GroupedColumns data={data} currentLabel="Now" priorLabel="Before the hand-over" height={200} format={(v) => full(v ?? 0)} />
+    </ChartFrame>
   );
 }
 
@@ -248,6 +243,19 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
   return (
     <Box sx={{ display: "grid", gap: 2.5 }}>
       <GlassCard>
+        <CardTitle icon={<MoodIcon />} tint="purple" title="Customer tone and resolution"
+          note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
+        <Typography sx={{ color: INK, mt: 1.25, fontSize: "1rem" }}>{d.headline}</Typography>
+        <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={full(s.scored)} note={`of ${full(s.looked)} looked at`} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={pc(s.excluded, s.looked)} note={`${full(s.excluded)} tickets`} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={pc(s.tone.negative, s.scored)} note={`${full(s.tone.negative)} tickets`} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={pc(s.tone.unknown, s.scored)} note="said, not hidden as neutral" /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="amber" label="Asked for speed" value={pc(s.urgent, s.scored)} note="urgency, not unhappiness" /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<PsychologyOutlinedIcon />} tint="blue" label="Model answered" value={full(s.source.model)} note={`${d.ai.usedToday} of ${d.ai.perDay} today`} /></Grid>
+        </Grid>
+      </GlassCard>
+      <GlassCard>
         <CardTitle icon={<TuneIcon />} tint="amber" title="What this is doing right now"
           note={d.admin ? "And how to change it" : "Admins can change this"} />
         <Box sx={{ mt: 1.5, display: "grid", gap: 1.25 }}>
@@ -269,12 +277,7 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
               The old HubSpot workflow is still switched on, so this will not write even if you ask it to - the two of them
               would overwrite each other. Switch the workflow off in HubSpot to hand over, and back on to undo.
             </Typography>
-          ) : d.workflowOn === false ? (
-            <Typography sx={{ color: "#1b7a55", fontSize: "0.88rem" }}>
-              The old HubSpot workflow is off and this is writing the two fields instead. Switching that workflow back on
-              stops the hub writing, with no deploy - that is the way back.
-            </Typography>
-          ) : (
+          ) : d.workflowOn === false ? null : (
             <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>Could not check whether the old workflow is on, so this will not write until it can.</Typography>
           )}
           {d.last ? (
@@ -329,19 +332,6 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
           ) : null}
         </Box>
       </GlassCard>
-      <GlassCard>
-        <CardTitle icon={<MoodIcon />} tint="purple" title="Customer tone and resolution"
-          note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
-        <Typography sx={{ color: INK, mt: 1.25, fontSize: "1rem" }}>{d.headline}</Typography>
-        <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={full(s.scored)} note={`of ${full(s.looked)} looked at`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={pc(s.excluded, s.looked)} note={`${full(s.excluded)} tickets`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={pc(s.tone.negative, s.scored)} note={`${full(s.tone.negative)} tickets`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={pc(s.tone.unknown, s.scored)} note="said, not hidden as neutral" /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="amber" label="Asked for speed" value={pc(s.urgent, s.scored)} note="urgency, not unhappiness" /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<PsychologyOutlinedIcon />} tint="blue" label="Model answered" value={full(s.source.model)} note={`${d.ai.usedToday} of ${d.ai.perDay} today`} /></Grid>
-        </Grid>
-      </GlassCard>
 
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -349,8 +339,8 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
             <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="What the answers are"
               note="The same tickets, scored here and by the workflow" />
             <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
-              <Bucketed title="How the customer sounds" counts={s.tone} scored={s.scored} old={old} words={TONE_WORD} />
-              <Bucketed title="Whether we settled the matter" counts={s.resolution} scored={s.scored} old={oldResol} words={RESOL_WORD} />
+              <Answers caption="How the customer sounds" counts={s.tone} scored={s.scored} old={old} words={TONE_WORD} />
+              <Answers caption="Whether we settled the matter" counts={s.resolution} scored={s.scored} old={oldResol} words={RESOL_WORD} />
             </Box>
           </GlassCard>
         </Grid>
@@ -368,8 +358,8 @@ export function SentimentTab({ d, onChanged }: { d: SentimentData; onChanged: ()
 
       {s.modelChanged.length ? (
         <GlassCard>
-          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="Where the model overruled the words"
-            note="The cases worth reading: what the keywords said, what the model said, and why" />
+          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="Where the model answered instead of the words"
+            note="Already applied - the model's answer is the one written on the ticket. Here to be checked, not to be done" />
           <Table size="small" sx={{ mt: 1 }}>
             <TableHead>
               <TableRow>

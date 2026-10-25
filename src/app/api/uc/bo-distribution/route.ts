@@ -34,11 +34,15 @@ export async function GET(req: NextRequest) {
     if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
     const t = sp.get("ticket");
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
-    const [settings, last, rows, backfill, stages, strays, workflows] = await Promise.all([getSettings(), lastRun(), recentRows(7), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [], eso: [], tsa: [], gqsClosed: [], boClosed: [], esoClosed: [], tsaClosed: [] })), strayState(), workflowsOn().catch(() => ({ bo: null, gqs: null }))]);
+    // SARCLA 25.10.2026: "back office distribution don't have the time filter on top, it limits
+    // to only 7 days". The rows are kept for 21 days (engine DAYS_KEPT), so the page may ask for
+    // any window up to that; 7 stays the default.
+    const days = Math.min(21, Math.max(1, Number(sp.get("days")) || 7));
+    const [settings, last, rows, backfill, stages, strays, workflows] = await Promise.all([getSettings(), lastRun(), recentRows(days), backfillState(), pipelineStages().catch(() => ({ bo: [], gqs: [], eso: [], tsa: [], gqsClosed: [], boClosed: [], esoClosed: [], tsaClosed: [] })), strayState(), workflowsOn().catch(() => ({ bo: null, gqs: null }))]);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, backfill, everyMinutes: 2, rows: rows.slice(0, 1500), strays, workflows, admin: access.role === "admin",
+        settings, last, backfill, everyMinutes: 2, days, daysKept: 21, rows: rows.slice(0, 1500), strays, workflows, admin: access.role === "admin",
         legacy: legacyRosters, labels: rosterLabels, deactivated: [PEOPLE.adriana, PEOPLE.vanessa], classifier: classifierInfo(), fixes: classifierFixes, stages,
         priorityTable: PRIORITY_TABLE, defaults: { hub: DEFAULT_HUB, priority: DEFAULT_PRIORITY },
       },

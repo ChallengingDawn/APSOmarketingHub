@@ -72,3 +72,12 @@ test("the caps are small enough that a backlog cannot become a bill", () => {
   // the sweep runs every few minutes, so the daily cap must be the binding one
   assert.ok(AI_PER_DAY > AI_PER_RUN);
 });
+
+test("a thread with nothing but a signature is nobody talking", () => {
+  // SARCLA read a live row where the model answered "neutral" for a ticket whose body was only a
+  // signature and a disclaimer. That is not a neutral customer, it is no customer.
+  const s = aiSystem();
+  assert.match(s, /only a signature/i);
+  assert.match(s, /disclaimer/i);
+  assert.match(s, /no request, no question and no complaint/i);
+});
