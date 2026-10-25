@@ -96,15 +96,17 @@ export function summarise(rows: Row[]): Summary {
  * figures looked the way they did, and the first thing anybody reading a sentiment report should
  * know about its denominator.
  */
-export function headline(s: Summary): string {
-  if (!s.looked) return "Nothing looked at yet.";
-  const parts = [
-    `${s.scored} of ${s.looked} tickets were a customer talking`,
-    `${s.excluded} were not (${pctOf(s.excluded, s.looked)}%)`,
-  ];
-  if (s.scored) {
-    parts.push(`${pctOf(s.tone.negative, s.scored)}% of them sound unhappy`);
-    if (s.tone.unknown) parts.push(`${pctOf(s.tone.unknown, s.scored)}% give nothing to go on`);
-  }
-  return parts.join(", ") + ".";
+export function headline(f: { total: number; tone: Record<string, number> } | null): string {
+  if (!f || !f.total) return "Nothing in this period.";
+  const machine = f.tone.not_valid_email ?? 0;
+  const customers = f.total - machine;
+  if (!customers) return `All ${pctOf(0, 1) && ""}${f.total} tickets in this period were machines, not customers.`;
+  const unhappy = f.tone.negative ?? 0;
+  const blank = f.tone.unknown ?? 0;
+  return [
+    `${customers} of ${f.total} tickets were a customer talking`,
+    `${machine} were not (${pctOf(machine, f.total)}%)`,
+    `${pctOf(unhappy, customers)}% of the customers sound unhappy`,
+    `${pctOf(blank, customers)}% give nothing to go on`,
+  ].join(", ") + ".";
 }

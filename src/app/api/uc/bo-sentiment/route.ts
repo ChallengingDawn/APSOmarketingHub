@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(summary), days, figures, detailDays: days,
+        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(figures), days, figures, detailDays: days,
         // Whether the sweep actually has its 15-minute rhythm. A mode of "live" with this false
         // means the page would otherwise claim to be writing while nothing ran since the last
         // button press - which is exactly what happened to SARCLA on 25.10.2026.

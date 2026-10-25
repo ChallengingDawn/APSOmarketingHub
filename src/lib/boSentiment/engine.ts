@@ -458,8 +458,20 @@ export type WindowFigures = {
   from: string; to: string; total: number;
   tone: Record<string, number>;
   resolution: Record<string, number>;
+  /**
+   * What the machine tickets are, counted from the property the sweep writes - so it covers the
+   * whole period like everything else on the card, instead of the sweep's own 21 days of notes.
+   */
+  reasons: { value: string; n: number }[];
   at: string;
 };
+
+/** The reasons, in the order the property lists them. */
+export const REASON_VALUES = [
+  "erp_stale_warning", "order_confirmation", "shipping_notification", "anyseals", "directcut",
+  "doc_declaration", "new_registrant", "newsletter", "bulk_mail", "auto_reply", "bounce",
+  "only_our_own_words", "model_says_machine", "no_inbound_mail",
+] as const;
 
 
 /**
@@ -499,7 +511,15 @@ export async function windowFigures(fromIso: string, toIso: string): Promise<Win
   for (const v of values) tone[v] = await count([{ propertyName: TONE_PROP, operator: "EQ", value: v }]);
   for (const v of values) resolution[v] = await count([{ propertyName: RESOL_PROP, operator: "EQ", value: v }]);
 
-  const out: WindowFigures = { from: fromIso, to: toIso, total, tone, resolution, at: new Date().toISOString() };
+  // what the machine tickets are, from the property rather than from the sweep's own notes
+  const reasons: { value: string; n: number }[] = [];
+  for (const v of REASON_VALUES) {
+    const n = await count([{ propertyName: REASON_PROP, operator: "EQ", value: v }]);
+    if (n > 0) reasons.push({ value: v, n });
+  }
+  reasons.sort((a, b) => b.n - a.n);
+
+  const out: WindowFigures = { from: fromIso, to: toIso, total, tone, resolution, reasons, at: new Date().toISOString() };
   await kvSet(key, out);
   return out;
 }

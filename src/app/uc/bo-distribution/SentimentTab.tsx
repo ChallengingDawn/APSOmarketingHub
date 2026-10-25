@@ -77,7 +77,7 @@ export type SentimentData = {
   days: number;
   detailDays: number;
   /** Counted in HubSpot for the period asked for; null when that read failed. */
-  figures: { from: string; to: string; total: number; tone: Record<string, number>; resolution: Record<string, number>; at: string } | null;
+  figures: { from: string; to: string; total: number; tone: Record<string, number>; resolution: Record<string, number>; reasons: { value: string; n: number }[]; at: string } | null;
   /** Does the sweep actually have its rhythm? false with a live mode means it is NOT running. */
   stepLive: boolean | null;
   ai: { usedToday: number; perRun: number; perDay: number; available: boolean };
@@ -98,6 +98,24 @@ const TONE_WORD: Record<Bucket, string> = {
 const RESOL_WORD: Record<Bucket, string> = {
   positive: "We settled it", neutral: "We replied, not settled", negative: "Not settled", unknown: "Nothing to go on",
 };
+/** The reasons as the property spells them, for the period figures. */
+const REASON_WORD: Record<string, string> = {
+  erp_stale_warning: "ERP stale-export warning",
+  order_confirmation: "Order confirmation",
+  shipping_notification: "Shipping notification",
+  anyseals: "Anyseals list",
+  directcut: "DirectCut / cut-to-size",
+  doc_declaration: "Declaration of conformity",
+  new_registrant: "New registrant",
+  newsletter: "Newsletter",
+  bulk_mail: "Bulk mail (unsubscribe footer)",
+  auto_reply: "Automatic reply / out of office",
+  bounce: "Undeliverable / bounce",
+  only_our_own_words: "Our own address or a no-reply",
+  model_says_machine: "The model says nobody is talking",
+  no_inbound_mail: "No mail from outside (historic)",
+};
+
 const toneColour = (b: string) =>
   b === "negative" ? "#c5221f" : b === "positive" ? "#1b7a55" : b === "unknown" ? MUTED : INK;
 
@@ -126,11 +144,12 @@ const MODE_BUTTON: Record<"off" | "shadow" | "live", string> = {
  * - a second bar now would be the same numbers drawn twice.
  */
 function Answers({ caption, counts, total, words }: {
+  /** `total` is the CUSTOMERS in the period, not every ticket - a machine has no tone to count. */
   caption: string; counts: Record<string, number>; total: number; words: Record<string, string>;
 }) {
-  const order = ["negative", "neutral", "positive", "unknown", "not_valid_email"];
-  const label = (b: string) => (b === "not_valid_email" ? "Not a customer" : words[b as Bucket] ?? b);
-  const rows = order.filter((b) => (counts[b] ?? 0) > 0 || b !== "not_valid_email");
+  const order = ["negative", "neutral", "positive", "unknown"];
+  const label = (b: string) => words[b as Bucket] ?? b;
+  const rows = order;
   const table: TableTwin = {
     columns: ["", "Tickets", "Share"],
     rows: rows.map((b) => [label(b), counts[b] ?? 0, pc(counts[b] ?? 0, total)]),
@@ -211,6 +230,10 @@ function CheckOne() {
 export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; periodLabel: string; onChanged: () => void }) {
   const s = d.summary;
   const f = d.figures;
+  // every figure on this card counts the same thing: the tickets in the period, and of those the
+  // ones a customer was talking on. Three denominators on one card is what made it unreadable.
+  const machine = f?.tone.not_valid_email ?? 0;
+  const customers = f ? f.total - machine : 0;
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   // the ticket list is long enough to page (SARCLA 24.10: "use pagination")
@@ -241,12 +264,10 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
               at since it started - so the page showed "Not a customer 41.3%" beside a chart saying
               54%. Same question, two denominators (SARCLA 25.10.2026: "are you sure of"). They now
               read the period, like the charts. */}
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(f.total - (f.tone.not_valid_email ?? 0)) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(f.tone.not_valid_email ?? 0, f.total) : "—"} note={f ? `${full(f.tone.not_valid_email ?? 0)} tickets` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, f.total - (f.tone.not_valid_email ?? 0)) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, f.total - (f.tone.not_valid_email ?? 0)) : "—"} note="said, not hidden as neutral" /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="amber" label="Asked for speed" value={pc(s.urgent, s.scored)} note={`urgency, not unhappiness · last ${d.detailDays} days`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<PsychologyOutlinedIcon />} tint="blue" label="Model answered" value={full(s.source.model)} note={`${d.ai.usedToday} of ${d.ai.perDay} today · last ${d.detailDays} days`} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(customers) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(machine, f.total) : "—"} note={f ? `${full(machine)} tickets` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, customers) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, customers) : "—"} note="said, not hidden as neutral" /></Grid>
         </Grid>
       </GlassCard>
       <GlassCard>
@@ -284,6 +305,15 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
           ) : d.workflowOn === false ? null : (
             <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>Could not check whether the old workflow is on, so this will not write until it can.</Typography>
           )}
+          {/* the sweep's own numbers live here, with the sweep - on the KPI row they were a third
+              denominator beside figures counting the whole period (SARCLA: "the KPI are still
+              completely wrong") */}
+          {s.scored ? (
+            <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>
+              Of the {full(s.scored)} it has looked at in the last {d.detailDays} days: {pc(s.urgent, s.scored)} asked for
+              speed (urgency, not unhappiness), and the model answered {full(s.source.model)} of them.
+            </Typography>
+          ) : null}
           {d.last ? (
             <Typography sx={{ color: MUTED, fontSize: "0.85rem" }}>
               Last pass {new Date(d.last.at).toLocaleString()} in {d.last.seconds}s: looked at {d.last.looked},
@@ -345,8 +375,8 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
             <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
               {d.figures ? (
                 <>
-                  <Answers caption="How the customer sounds" counts={d.figures.tone} total={d.figures.total} words={TONE_WORD} />
-                  <Answers caption="Whether we settled the matter" counts={d.figures.resolution} total={d.figures.total} words={RESOL_WORD} />
+                  <Answers caption="How the customer sounds" counts={d.figures.tone} total={customers} words={TONE_WORD} />
+                  <Answers caption="Whether we settled the matter" counts={d.figures.resolution} total={customers} words={RESOL_WORD} />
                 </>
               ) : (
                 <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>HubSpot could not be counted for this period.</Typography>
@@ -357,10 +387,10 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
             <CardTitle icon={<BlockIcon />} tint="slate" title="What the machine tickets are"
-              note={`Why each one was left out · the last ${d.detailDays} days, because the reason is worked out here and is not written on the ticket`} />
+              note={`${periodLabel} · the ${f ? full(machine) : "—"} tickets nobody was talking on, by what they are`} />
             <Box sx={{ mt: 1.5 }}>
-              <BarList rows={s.reasons.map((r) => ({ label: r.label, value: r.n }))}
-                emptyMessage="Nothing has been left out yet." labelWidth={260} />
+              <BarList rows={(f?.reasons ?? []).map((r) => ({ label: REASON_WORD[r.value] ?? r.value, value: r.n }))}
+                emptyMessage="Nothing machine-made in this period." labelWidth={250} format={(v) => full(v ?? 0)} />
             </Box>
           </GlassCard>
         </Grid>
