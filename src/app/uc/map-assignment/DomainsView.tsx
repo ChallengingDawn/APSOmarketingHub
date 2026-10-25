@@ -74,7 +74,7 @@ export function DomainsView() {
   const g = d?.guesses ?? null;
   const done = (x: Guess) => !!x.cleared && !x.cleared.error;
   const gTest: Record<GuessFilter, (x: Guess) => boolean> = {
-    dead: (x) => x.exists === false && !done(x), cleared: done, suspect: (x) => x.exists === true, unsure: (x) => x.exists === null && !done(x),
+    dead: (x) => x.exists === false && !done(x), cleared: done, suspect: (x) => x.exists === true && !x.cleared, unsure: (x) => x.exists === null && !done(x),
   };
   const gRows = (g?.rows ?? []).filter(gTest[gf]);
   const gPaged = usePaged<Guess>(gRows, 15);
@@ -155,7 +155,7 @@ export function DomainsView() {
 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<TravelExploreOutlinedIcon />} tint="pink" title="Old name guesses"
-          note="Domains made up from the name (“name.de”) - looked up on the internet. One that does not exist is cleared, and the contacts' real domain goes in its place when there is one. One that exists is usually the firm's own and is kept; only those whose contacts write from another domain are listed to look at."
+          note="Domains made up from the name (“name.de”) - looked up on the internet. One that does not exist is cleared, and the contacts' real domain goes in its place when there is one. One that exists is usually the firm's own and is kept - unless its contacts write from another domain: then the hub replaces it with theirs by itself (in Live, 100 a run)."
           right={d.admin ? (
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <Button size="small" variant="outlined" disabled={!!busy || busyJob} onClick={() => void call("scan", "POST", { action: "scan" })} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>{g?.at ? "Look again" : "Find old guesses"}</Button>
@@ -173,7 +173,7 @@ export function DomainsView() {
           <>
             <Box sx={{ mb: 1.5 }}>
               <Choice<GuessFilter> value={gf} onChange={setGf} options={[
-                { key: "dead", label: "Don't exist - to clear", count: g.counts.dead }, { key: "cleared", label: "Cleared", count: g.counts.cleared }, { key: "suspect", label: "Exist, but the contacts use another domain", count: g.counts.suspect ?? 0 }, { key: "unsure", label: "Could not tell", count: g.counts.unsure },
+                { key: "dead", label: "Don't exist - to clear", count: g.counts.dead }, { key: "cleared", label: "Cleared", count: g.counts.cleared }, { key: "suspect", label: "Exist, contacts use another - being replaced", count: g.counts.suspect ?? 0 }, { key: "unsure", label: "Could not tell", count: g.counts.unsure },
               ]} />
             </Box>
             <Box sx={{ overflowX: "auto" }}>
@@ -215,7 +215,7 @@ export function DomainsView() {
           }} options={[{ key: "live", label: "Live - the hub writes" }, { key: "shadow", label: "Paused - works it out, writes nothing" }, { key: "off", label: "Off" }]} />
           <Typography sx={{ fontSize: "0.84rem", color: INK }}>
             {d.writing ? <>Writing{d.settings.liveFrom ? ` since ${when(d.settings.liveFrom)}` : ""}.</> : mode === "live" ? "Waiting for the workflow to be switched off." : mode === "shadow" ? "Paused: domains are worked out, nothing is written." : "Off."}
-            {d.last ? ` Last look ${when(d.last.at)}: ${full(d.last.without)} without a domain, ${full(d.last.looked)} looked at, ${full(d.last.found)} found, ${full(d.last.written)} written${d.last.error ? ` - ${d.last.error}` : ""}.` : ""}
+            {d.last ? ` Last look ${when(d.last.at)}: ${full(d.last.without)} without a domain, ${full(d.last.looked)} looked at, ${full(d.last.found)} found, ${full(d.last.written)} written${d.last.replaced ? `, ${full(d.last.replaced)} old guesses replaced by the contacts' domain` : ""}${d.last.error ? ` - ${d.last.error}` : ""}.` : ""}
           </Typography>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
             Written: the company&apos;s <b>domain</b>, and <b>APSO customer = APSOmicro</b> for a private or micro company that is still APSOprospect (never one that bought).

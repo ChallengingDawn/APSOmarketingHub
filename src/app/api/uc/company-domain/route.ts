@@ -43,7 +43,8 @@ export async function GET() {
     // domain - counted, not listed; the ones to look at are those whose contacts write from another domain
     const g = s.guesses;
     const rows = g?.rows ?? [];
-    const suspect = (r: (typeof rows)[number]) => r.exists === true && !!r.real && r.real !== r.domain;
+    // still to replace (the run replaces them with the contacts' domain, 100 a run); the replaced ones join "Cleared"
+    const suspect = (r: (typeof rows)[number]) => r.exists === true && !!r.real && r.real !== r.domain && !r.cleared;
     // "don't exist" = still to clear; the cleared ones are their own list (SARCLA 25.10.2026: "clear but don't exist still")
     const done = (r: (typeof rows)[number]) => !!r.cleared && !r.cleared.error;
     const dead = rows.filter((r) => r.exists === false && !done(r)).sort((a, b) => Number(!!b.real) - Number(!!a.real));

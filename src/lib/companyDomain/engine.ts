@@ -32,7 +32,7 @@ export type Settings = { mode: Mode; liveFrom: string | null; by?: string; at?: 
 export type Written = { at: string; domain?: string; apso?: string; error?: string };
 export type Row = { id: string; name: string; country: string; created: string; contacts: number; apso: string; key: string; checkedAt: string; v: Verdict; written?: Written };
 export type State = { at: string; rows: Row[] };
-export type RunInfo = { at: string; seconds: number; without: number; looked: number; found: number; micro: number; written: number; live: boolean; error?: string };
+export type RunInfo = { at: string; seconds: number; without: number; looked: number; found: number; micro: number; written: number; live: boolean; replaced?: number; error?: string };
 export type Guess = { id: string; name: string; domain: string; contacts: number; exists: boolean | null; real: string | null; cleared?: Written };
 export type Guesses = { running: boolean; startedAt: string | null; beatAt: string | null; progress: string; at: string | null; scanned: number; rows: Guess[]; by?: string; error?: string };
 export type Clearing = { running: boolean; startedAt: string | null; beatAt: string | null; done: number; of: number; errors: number; at: string | null; by?: string };
@@ -179,7 +179,8 @@ async function run(): Promise<RunInfo> {
   // a company that has a domain since is no longer searched: the hub's own writes are kept 30 days to be seen
   for (const r of state.rows) if (!rows.has(r.id) && r.written && !r.written.error && Date.now() - Date.parse(r.written.at) < KEEP_WRITTEN_MS) rows.set(r.id, r);
   await kvSet(KV.state, { at: now, rows: [...rows.values()] });
-  const info: RunInfo = { at: now, seconds: Math.round((Date.now() - t0) / 1000), without: without.length, looked: due.length, found, micro, written, live };
+  const replaced = live ? await replaceSuspects() : 0;
+  const info: RunInfo = { at: now, seconds: Math.round((Date.now() - t0) / 1000), without: without.length, looked: due.length, found, micro, written, live, replaced };
   await kvSet(KV.last, info);
   return info;
 }
@@ -288,6 +289,40 @@ export async function startGuessScan(by: string): Promise<{ started: boolean; wh
     await kvSet(KV.guesses, g);
   })();
   return { started: true };
+}
+
+const REPLACE_PER_RUN = 100;
+/**
+ * An old name guess that exists while the company's own contacts write from another domain: the contacts' domain
+ * replaces it, by itself in every Live run (SARCLA 25.10.2026, "replace them automatically" - 734 of them). Only while the
+ * company still has that guess (a domain a person changed since the look-up is left), the copied website with it.
+ */
+async function replaceSuspects(): Promise<number> {
+  const g = await kvGet<Guesses>(KV.guesses);
+  if (!g?.at || alive(g) || alive(await kvGet<Clearing>(KV.clear))) return 0;
+  const todo = g.rows.filter((r) => r.exists === true && r.real && r.real !== r.domain && !r.cleared).slice(0, REPLACE_PER_RUN);
+  if (!todo.length) return 0;
+  const cur = new Map<string, Record<string, string | null>>();
+  const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: todo.map((r) => ({ id: r.id })), properties: ["domain", "website"] } });
+  for (const o of j.results ?? []) cur.set(String(o.id), o.properties);
+  const now = new Date().toISOString();
+  const changes: Change[] = [];
+  for (const r of todo) {
+    const p = cur.get(r.id);
+    if (!p || (p.domain ?? "").toLowerCase() !== r.domain) { r.cleared = { at: now, error: "changed in HubSpot since the look-up - left as it is" }; continue; }
+    const deadCopy = !!p.website && websiteDomain(p.website) === r.domain;
+    changes.push({ id: r.id, before: { domain: r.domain, website: p.website ?? null }, after: { domain: r.real!, ...(deadCopy ? { website: "" } : {}) } });
+  }
+  const result = changes.length ? await writeCompanies(changes) : new Map<string, string | null>();
+  if (changes.length) await log("replace", changes, result);
+  let n = 0;
+  for (const ch of changes) {
+    const r = todo.find((x) => x.id === ch.id)!, err = result.get(ch.id);
+    r.cleared = err ? { at: now, error: err } : { at: now, domain: ch.after.domain };
+    if (!err) n++;
+  }
+  await kvSet(KV.guesses, g);
+  return n;
 }
 
 /** The guesses that do not exist get the contacts' real domain, or none. Live only, the workflow off, on a scan of the last 24 h. */
