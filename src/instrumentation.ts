@@ -95,5 +95,11 @@ export async function register() {
     // nothing of the chat lives only on Railway (src/lib/chat/logCopy.ts). CHAT_LOG_COPY=off stops it. SARCLA, 24.10.2026.
     const { startChatLogCopy } = await import("./lib/chat/logCopy");
     startChatLogCopy();
+
+    // Map assignment > Domains: every company without a domain gets its contacts' real one (never a guess from the name),
+    // and "private or micro" goes to APSOmicro - replaces the workflow SARCLA | COMPANY SETS DOMAIN; writes only in Live
+    // with the workflow switched off (src/lib/companyDomain). COMPANY_DOMAIN=off stops it. SARCLA, 25.10.2026.
+    const { startCompanyDomain } = await import("./lib/companyDomain/engine");
+    startCompanyDomain();
   }
 }

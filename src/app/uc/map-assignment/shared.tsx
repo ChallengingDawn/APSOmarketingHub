@@ -20,9 +20,11 @@ import type { MapData, Owner } from "@/lib/mapAssign/api";
 // the contact association"); the differences by topic are folded inside it
 // Wrong Performis Owners 24.10.2026 (SARCLA: "change it in Performis but create a tab Wrong Performis Owners so we can
 // list the deviation")
-export type View = "map" | "sae" | "performis" | "contacts" | "nocompany" | "live";
+// Domains 25.10.2026 (SARCLA: "a new tab to replace the workflow SARCLA | COMPANY SETS DOMAIN") - its own engine and
+// API (src/lib/companyDomain, /api/uc/company-domain)
+export type View = "map" | "sae" | "performis" | "contacts" | "nocompany" | "domains" | "live";
 export const VIEW_HASH: Record<View, string> = {
-  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", contacts: "#contacts", nocompany: "#no-company", live: "#live",
+  map: "#map", sae: "#sae-table", performis: "#wrong-performis-owners", contacts: "#contacts", nocompany: "#no-company", domains: "#domains", live: "#live",
 };
 /** Old links: #differences opens Contacts (and the address becomes #contacts). */
 export const OLD_VIEW_HASH = { differences: "#differences" } as const;
