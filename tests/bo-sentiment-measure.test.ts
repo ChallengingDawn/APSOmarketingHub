@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { headline, summarise } from "../src/lib/boSentiment/measure";
+import { summarise } from "../src/lib/boSentiment/measure";
 import type { Row } from "../src/lib/boSentiment/engine";
 
 const row = (p: Partial<Row>): Row => ({
@@ -35,7 +35,7 @@ test("the reasons are ordered by how often they happen, with the page's own word
     row({ real: false, reasons: ["erp_stale_warning", "only_our_own_words"] }),
   ]);
   assert.deepEqual(s.reasons.map((r) => [r.label, r.n]), [
-    ["Only our own words", 3],
+    ["Mail from us or a no-reply robot", 3],
     ["Bulk mail (unsubscribe footer)", 1],
     ["ERP stale-export warning", 1],
   ]);
@@ -85,21 +85,6 @@ test("live writes and the writes that could not be made are both counted", () =>
   assert.equal(s.written, 1);
   assert.equal(s.skipped, 2);
 });
-
-test("the headline counts the period, like every other figure on the card", () => {
-  // It used to read the sweep's own rows and said "420 of 680" beside tiles saying
-  // "13,074 of 25,462" - the same question, two denominators, on one card
-  // (SARCLA 25.10.2026: "THE KPI ARE STILL COMPLETELY WRONG").
-  const h = headline({ total: 1000, tone: { positive: 100, neutral: 200, negative: 50, unknown: 150, not_valid_email: 500 } });
-  assert.match(h, /500 of 1000 tickets were a customer talking/);
-  assert.match(h, /500 were not \(50%\)/);
-  assert.match(h, /10% of the customers sound unhappy/);
-  assert.match(h, /30% give nothing to go on/);
-
-  assert.equal(headline(null), "Nothing in this period.");
-  assert.equal(headline({ total: 0, tone: {} }), "Nothing in this period.");
-});
-
 
 /* ─────────── what reaches HubSpot ─────────── */
 

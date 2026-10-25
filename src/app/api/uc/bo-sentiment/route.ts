@@ -19,10 +19,13 @@ import {
   type Mode,
 } from "@/lib/boSentiment/engine";
 import { AI_PER_DAY, AI_PER_RUN } from "@/lib/boSentiment/ai";
-import { headline, summarise } from "@/lib/boSentiment/measure";
+import { summarise } from "@/lib/boSentiment/measure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** The figures cache's own TTL - the default window ends on one of these boundaries, see GET. */
+const FIG_BUCKET_MS = 10 * 60_000;
 
 /** The model is optional: without a key the keyword layer still answers, and the page says so. */
 function client() {
@@ -52,18 +55,29 @@ export async function GET(req: NextRequest) {
       const d = v ? new Date(v) : fallback;
       return (Number.isNaN(d.getTime()) ? fallback : d).toISOString();
     };
-    const to = iso(sp.get("to"), new Date());
-    const from = iso(sp.get("from"), new Date(Date.now() - days * 86400_000));
-    const [settings, last, rows, usedToday, on, figures, steps] = await Promise.all([
+    // The default window ends on a ten-minute boundary rather than on "now". Keyed by the exact
+    // window, the figures cache never hit while "to" moved every second, so every page load asked
+    // HubSpot ~25 fresh searches - and this card now counts two windows, not one. Nothing is lost:
+    // a ticket younger than that has not been scored yet either, the sweep runs every 15 minutes.
+    const nowMs = Math.floor(Date.now() / FIG_BUCKET_MS) * FIG_BUCKET_MS;
+    const to = iso(sp.get("to"), new Date(nowMs));
+    const from = iso(sp.get("from"), new Date(nowMs - days * 86400_000));
+    // The same length of time immediately before it. A single still figure cannot be read - the
+    // charts draw this beside it so the movement is the thing you see.
+    const span = Math.max(60_000, new Date(to).getTime() - new Date(from).getTime());
+    const beforeTo = new Date(new Date(from).getTime() - 1).toISOString();
+    const beforeFrom = new Date(new Date(from).getTime() - span).toISOString();
+    const [settings, last, rows, usedToday, on, figures, before, steps] = await Promise.all([
       getSettings(), lastRun(), recentRows(days), aiUsedToday(), workflowOn(),
       windowFigures(from, to).catch(() => null),
+      windowFigures(beforeFrom, beforeTo).catch(() => null),
       liveSteps().catch(() => null),
     ]);
     const summary = summarise(rows);
     return NextResponse.json({
       configured: true, ok: true,
       data: {
-        settings, last, rows: rows.slice(0, 1000), summary, headline: headline(figures), days, figures, detailDays: days,
+        settings, last, rows: rows.slice(0, 1000), summary, days, figures, before, detailDays: days,
         // Whether the sweep actually has its 15-minute rhythm. A mode of "live" with this false
         // means the page would otherwise claim to be writing while nothing ran since the last
         // button press - which is exactly what happened to SARCLA on 25.10.2026.

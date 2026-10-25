@@ -65,19 +65,26 @@ type Summary = {
   modelChanged: { ticketId: string; subject: string; from: string; to: string; why: string }[];
   written: number; skipped: number;
 };
+/** What HubSpot counted for one span of time. */
+type Figures = {
+  from: string; to: string; total: number;
+  tone: Record<string, number>; resolution: Record<string, number>;
+  reasons: { value: string; n: number }[]; at: string;
+};
 export type SentimentData = {
   settings: { mode: "off" | "shadow" | "live"; aiOn: boolean; templateRepliesCount: boolean; by: string | null; at: string | null };
   last: { at: string; seconds: number; looked: number; excluded: number; scored: number; asked: number; wrote: number; mode: string; heldBy?: string; error?: string } | null;
   rows: Row[];
   summary: Summary;
-  headline: string;
   workflowOn: boolean | null;
   everyMinutes: number;
   /** The days of DETAIL the store holds - the tables below, not the figures. */
   days: number;
   detailDays: number;
   /** Counted in HubSpot for the period asked for; null when that read failed. */
-  figures: { from: string; to: string; total: number; tone: Record<string, number>; resolution: Record<string, number>; reasons: { value: string; n: number }[]; at: string } | null;
+  figures: Figures | null;
+  /** The same span of time immediately before it - what every chart here draws beside it. */
+  before: Figures | null;
   /** Does the sweep actually have its rhythm? false with a live mode means it is NOT running. */
   stepLive: boolean | null;
   ai: { usedToday: number; perRun: number; perDay: number; available: boolean };
@@ -98,6 +105,20 @@ const TONE_WORD: Record<Bucket, string> = {
 const RESOL_WORD: Record<Bucket, string> = {
   positive: "We settled it", neutral: "We replied, not settled", negative: "Not settled", unknown: "Nothing to go on",
 };
+/**
+ * The same four answers, short enough to sit under a column.
+ *
+ * The full wording is 15-23 characters, and these charts are half a card wide: Recharts drops a
+ * category label rather than overlapping it, so "We replied, not settled" would have shipped as a
+ * bar with no name under it. The chart wears these; the table twin beside it wears the real words.
+ */
+const TONE_SHORT: Record<Bucket, string> = {
+  positive: "Pleased", neutral: "Ordinary", negative: "Unhappy", unknown: "No signal",
+};
+const RESOL_SHORT: Record<Bucket, string> = {
+  positive: "Settled", neutral: "Replied only", negative: "Not settled", unknown: "No signal",
+};
+
 /** The reasons as the property spells them, for the period figures. */
 const REASON_WORD: Record<string, string> = {
   erp_stale_warning: "ERP stale-export warning",
@@ -111,7 +132,7 @@ const REASON_WORD: Record<string, string> = {
   bulk_mail: "Bulk mail (unsubscribe footer)",
   auto_reply: "Automatic reply / out of office",
   bounce: "Undeliverable / bounce",
-  only_our_own_words: "Our own address or a no-reply",
+  only_our_own_words: "Mail from us or a no-reply robot",
   model_says_machine: "The model says nobody is talking",
   no_inbound_mail: "No mail from outside (historic)",
 };
@@ -136,29 +157,73 @@ const MODE_BUTTON: Record<"off" | "shadow" | "live", string> = {
 };
 
 /**
- * One question over the period asked for, drawn as the platform draws a distribution.
+ * One question, this period beside the same span of time immediately before it.
  *
- * Counted in HubSpot rather than from the page's 21-day store, so a year is as easy as a week.
- * There is no "before the workflow" series any more: that comparison was honest during the
- * cut-over, while HubSpot still held the old answers, and the correction of 25.10 overwrote them
- * - a second bar now would be the same numbers drawn twice.
+ * A single still bar per answer cannot be read: "1,064 unhappy" is neither good nor bad until you
+ * know what it was. The windows are the same length, so the two counts compare directly, and the
+ * table carries the share of customers on both sides and the movement between them.
  */
-function Answers({ caption, counts, total, words }: {
+function Answers({ caption, now, before, total, beforeTotal, words, short, periodLabel, beforeLabel }: {
+  caption: string;
   /** `total` is the CUSTOMERS in the period, not every ticket - a machine has no tone to count. */
-  caption: string; counts: Record<string, number>; total: number; words: Record<string, string>;
+  now: Record<string, number>; total: number;
+  before: Record<string, number> | null; beforeTotal: number;
+  /** the real words, for the table; `short` is what fits under a column */
+  words: Record<string, string>; short: Record<string, string>;
+  periodLabel: string; beforeLabel: string;
 }) {
   const order = ["negative", "neutral", "positive", "unknown"];
   const label = (b: string) => words[b as Bucket] ?? b;
-  const rows = order;
+  const move = (b: string) => {
+    if (!before) return "—";
+    const d = (now[b] ?? 0) - (before[b] ?? 0);
+    return d === 0 ? "0" : `${d > 0 ? "+" : "-"}${full(Math.abs(d))}`;
+  };
   const table: TableTwin = {
-    columns: ["", "Tickets", "Share"],
-    rows: rows.map((b) => [label(b), counts[b] ?? 0, pc(counts[b] ?? 0, total)]),
-    numeric: [1],
+    columns: ["", "Tickets", "Share of customers", beforeLabel, "Share then", "Change in tickets"],
+    rows: order.map((b) => [
+      label(b), now[b] ?? 0, pc(now[b] ?? 0, total),
+      before ? (before[b] ?? 0) : "—", before ? pc(before[b] ?? 0, beforeTotal) : "—", move(b),
+    ]),
+    numeric: [1, 2, 3, 4, 5],
   };
   return (
     <ChartFrame caption={caption} table={table} empty={total ? null : "No ticket in this period."}>
-      <BarList rows={rows.map((b) => ({ label: label(b), value: counts[b] ?? 0 }))}
-        labelWidth={190} format={(v) => full(v ?? 0)} />
+      <GroupedColumns
+        data={order.map((b) => ({ x: short[b] ?? label(b), current: now[b] ?? 0, prior: before ? (before[b] ?? 0) : null }))}
+        currentLabel={periodLabel} priorLabel={beforeLabel} format={full} />
+    </ChartFrame>
+  );
+}
+
+/**
+ * What the machine traffic is, ranked.
+ *
+ * Fourteen kinds is too many for columns, so this one stays a list and the movement goes in the
+ * table beside it - a chart idiom per question, not per card.
+ */
+function MachineReasons({ now, before, total, beforeLabel }: {
+  now: { value: string; n: number }[]; before: { value: string; n: number }[] | null;
+  total: number; beforeLabel: string;
+}) {
+  const was = new Map((before ?? []).map((r) => [r.value, r.n]));
+  const label = (v: string) => REASON_WORD[v] ?? v;
+  const table: TableTwin = {
+    columns: ["", "Tickets", "Share of the machine traffic", beforeLabel, "Change in tickets"],
+    rows: now.map((r) => {
+      const d = before ? r.n - (was.get(r.value) ?? 0) : null;
+      return [
+        label(r.value), r.n, pc(r.n, total), before ? (was.get(r.value) ?? 0) : "—",
+        d === null ? "—" : d === 0 ? "0" : `${d > 0 ? "+" : "-"}${full(Math.abs(d))}`,
+      ];
+    }),
+    numeric: [1, 2, 3, 4],
+  };
+  return (
+    <ChartFrame caption="By what they are" table={table}
+      empty={total ? null : "Nothing machine-made in this period."}>
+      <BarList rows={now.map((r) => ({ label: label(r.value), value: r.n }))}
+        emptyMessage="Nothing machine-made in this period." labelWidth={250} format={(v) => full(v ?? 0)} />
     </ChartFrame>
   );
 }
@@ -234,6 +299,16 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
   // ones a customer was talking on. Three denominators on one card is what made it unreadable.
   const machine = f?.tone.not_valid_email ?? 0;
   const customers = f ? f.total - machine : 0;
+  // the same span immediately before, counted the same way - every chart on this card draws it
+  const b = d.before;
+  const beforeMachine = b ? b.tone.not_valid_email ?? 0 : 0;
+  const beforeCustomers = b ? b.total - beforeMachine : 0;
+  const beforeLabel = "The same days before";
+  // A figure with nothing beside it is a number, not an indicator: every tile carries its movement
+  // against the same span of days before this one.
+  const shareOf = (n: number, dd: number) => (dd > 0 ? n / dd : 0);
+  const vs = (now: number, then: number, goodWhenUp: boolean) =>
+    then > 0 ? { ratio: (now - then) / then, versus: beforeLabel, goodWhenUp } : undefined;
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   // the ticket list is long enough to page (SARCLA 24.10: "use pagination")
@@ -258,18 +333,57 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
       <GlassCard>
         <CardTitle icon={<MoodIcon />} tint="purple" title="Customer tone and resolution"
           note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
-        <Typography sx={{ color: INK, mt: 1.25, fontSize: "1rem" }}>{d.headline}</Typography>
         <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
-          {/* These four used to count the sweep's OWN rows - only the tickets it happened to look
-              at since it started - so the page showed "Not a customer 41.3%" beside a chart saying
-              54%. Same question, two denominators (SARCLA 25.10.2026: "are you sure of"). They now
-              read the period, like the charts. */}
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(customers) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(machine, f.total) : "—"} note={f ? `${full(machine)} tickets` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, customers) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, customers) : "—"} note="said, not hidden as neutral" /></Grid>
+          {/* Four tiles, the period's own figures, each against the same span before it. There is
+              no sentence above them any more: it repeated these four numbers in one comma-spliced
+              line, which is harder to read than the tiles and says nothing they do not. */}
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(customers) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"}
+            delta={f && b ? vs(customers, beforeCustomers, true) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(machine, f.total) : "—"} note={f ? `${full(machine)} tickets` : "—"}
+            delta={f && b ? vs(shareOf(machine, f.total), shareOf(beforeMachine, b.total), false) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, customers) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"}
+            delta={f && b ? vs(shareOf(f.tone.negative ?? 0, customers), shareOf(b.tone.negative ?? 0, beforeCustomers), false) : undefined} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, customers) : "—"} note="said, not hidden as neutral"
+            delta={f && b ? vs(shareOf(f.tone.unknown ?? 0, customers), shareOf(b.tone.unknown ?? 0, beforeCustomers), false) : undefined} /></Grid>
         </Grid>
       </GlassCard>
+      <Grid container spacing={2.5}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="What the answers are"
+              note={`${periodLabel} · counted in HubSpot, so any period works`} />
+            <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
+              {d.figures ? (
+                <>
+                  <Answers caption="How the customer sounds" now={d.figures.tone} total={customers}
+                    before={b ? b.tone : null} beforeTotal={beforeCustomers} words={TONE_WORD} short={TONE_SHORT}
+                    periodLabel={periodLabel} beforeLabel={beforeLabel} />
+                  <Answers caption="Whether we settled the matter" now={d.figures.resolution} total={customers}
+                    before={b ? b.resolution : null} beforeTotal={beforeCustomers} words={RESOL_WORD} short={RESOL_SHORT}
+                    periodLabel={periodLabel} beforeLabel={beforeLabel} />
+                </>
+              ) : (
+                <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>HubSpot could not be counted for this period.</Typography>
+              )}
+            </Box>
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<BlockIcon />} tint="slate" title="What the machine tickets are"
+              note={`${periodLabel} · the ${f ? full(machine) : "—"} tickets nobody was talking on, by what they are`} />
+            <Box sx={{ mt: 1.5 }}>
+              <MachineReasons now={f?.reasons ?? []} before={b ? b.reasons : null} total={machine} beforeLabel={beforeLabel} />
+              <Typography sx={{ color: MUTED, fontSize: "0.8rem", mt: 1.5 }}>
+                <b>Mail from us or a no-reply robot</b> is much the largest kind, so it is worth saying what it means: a
+                mail did arrive on the ticket, but every sender was one of our own addresses or a robot nobody can write
+                back to. Nobody outside the company wrote a word, so there is no customer to have a tone.
+              </Typography>
+            </Box>
+          </GlassCard>
+        </Grid>
+      </Grid>
+
       <GlassCard>
         <CardTitle icon={<TuneIcon />} tint="amber" title="What this is doing right now"
           note={d.admin ? "And how to change it" : "Admins can change this"} />
@@ -366,35 +480,6 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
           ) : null}
         </Box>
       </GlassCard>
-
-      <Grid container spacing={2.5}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<CompareArrowsIcon />} tint="blue" title="What the answers are"
-              note={`${periodLabel} · counted in HubSpot, so any period works`} />
-            <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
-              {d.figures ? (
-                <>
-                  <Answers caption="How the customer sounds" counts={d.figures.tone} total={customers} words={TONE_WORD} />
-                  <Answers caption="Whether we settled the matter" counts={d.figures.resolution} total={customers} words={RESOL_WORD} />
-                </>
-              ) : (
-                <Typography sx={{ color: MUTED, fontSize: "0.88rem" }}>HubSpot could not be counted for this period.</Typography>
-              )}
-            </Box>
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<BlockIcon />} tint="slate" title="What the machine tickets are"
-              note={`${periodLabel} · the ${f ? full(machine) : "—"} tickets nobody was talking on, by what they are`} />
-            <Box sx={{ mt: 1.5 }}>
-              <BarList rows={(f?.reasons ?? []).map((r) => ({ label: REASON_WORD[r.value] ?? r.value, value: r.n }))}
-                emptyMessage="Nothing machine-made in this period." labelWidth={250} format={(v) => full(v ?? 0)} />
-            </Box>
-          </GlassCard>
-        </Grid>
-      </Grid>
 
       <CheckOne />
 

@@ -315,7 +315,7 @@ export default function BoDistribution() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Back Office distribution"
-        subtitle="Who gets each new Back Office and GQS ticket, and why - decided here since 19.10.2026"
+        subtitle="Who gets each new Back Office and GQS ticket, and why"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <WindowPicker />

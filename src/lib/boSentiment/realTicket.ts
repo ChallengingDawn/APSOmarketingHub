@@ -187,7 +187,7 @@ export const REASON_LABEL: Record<DisqualifyReason, string> = {
   bounce: "Undeliverable / bounce",
   newsletter: "Newsletter",
   no_inbound_mail: "No mail from outside",
-  only_our_own_words: "Only our own words",
+  only_our_own_words: "Mail from us or a no-reply robot",
   bulk_mail: "Bulk mail (unsubscribe footer)",
   model_says_machine: "The model says nobody is talking",
 };
