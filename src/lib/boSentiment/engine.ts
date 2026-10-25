@@ -430,6 +430,7 @@ export type WindowFigures = {
   at: string;
 };
 
+
 /**
  * The spread of both properties over ANY window, counted in HubSpot.
  *

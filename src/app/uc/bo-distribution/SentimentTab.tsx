@@ -210,6 +210,7 @@ function CheckOne() {
 
 export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; periodLabel: string; onChanged: () => void }) {
   const s = d.summary;
+  const f = d.figures;
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   // the ticket list is long enough to page (SARCLA 24.10: "use pagination")
@@ -236,12 +237,16 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
           note={`The HubSpot workflow's work, done here instead - every ${d.everyMinutes} minutes`} />
         <Typography sx={{ color: INK, mt: 1.25, fontSize: "1rem" }}>{d.headline}</Typography>
         <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={full(s.scored)} note={`of ${full(s.looked)} looked at`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={pc(s.excluded, s.looked)} note={`${full(s.excluded)} tickets`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={pc(s.tone.negative, s.scored)} note={`${full(s.tone.negative)} tickets`} /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={pc(s.tone.unknown, s.scored)} note="said, not hidden as neutral" /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="amber" label="Asked for speed" value={pc(s.urgent, s.scored)} note="urgency, not unhappiness" /></Grid>
-          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<PsychologyOutlinedIcon />} tint="blue" label="Model answered" value={full(s.source.model)} note={`${d.ai.usedToday} of ${d.ai.perDay} today`} /></Grid>
+          {/* These four used to count the sweep's OWN rows - only the tickets it happened to look
+              at since it started - so the page showed "Not a customer 41.3%" beside a chart saying
+              54%. Same question, two denominators (SARCLA 25.10.2026: "are you sure of"). They now
+              read the period, like the charts. */}
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="green" label="A customer talking" value={f ? full(f.total - (f.tone.not_valid_email ?? 0)) : "—"} note={f ? `of ${full(f.total)} in the period` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BlockIcon />} tint="slate" label="Not a customer" value={f ? pc(f.tone.not_valid_email ?? 0, f.total) : "—"} note={f ? `${full(f.tone.not_valid_email ?? 0)} tickets` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<MoodIcon />} tint="pink" label="Sound unhappy" value={f ? pc(f.tone.negative ?? 0, f.total - (f.tone.not_valid_email ?? 0)) : "—"} note={f ? `${full(f.tone.negative ?? 0)} of the customers` : "—"} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<HelpOutlineIcon />} tint="slate" label="Nothing to go on" value={f ? pc(f.tone.unknown ?? 0, f.total - (f.tone.not_valid_email ?? 0)) : "—"} note="said, not hidden as neutral" /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="amber" label="Asked for speed" value={pc(s.urgent, s.scored)} note={`urgency, not unhappiness · last ${d.detailDays} days`} /></Grid>
+          <Grid size={{ xs: 6, md: 2 }}><KpiTile icon={<PsychologyOutlinedIcon />} tint="blue" label="Model answered" value={full(s.source.model)} note={`${d.ai.usedToday} of ${d.ai.perDay} today · last ${d.detailDays} days`} /></Grid>
         </Grid>
       </GlassCard>
       <GlassCard>
@@ -351,8 +356,8 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
           <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<BlockIcon />} tint="slate" title="Why a ticket gets no sentiment"
-              note={`The last ${d.detailDays} days - the reasons are kept here, not on the ticket`} />
+            <CardTitle icon={<BlockIcon />} tint="slate" title="What the machine tickets are"
+              note={`Why each one was left out · the last ${d.detailDays} days, because the reason is worked out here and is not written on the ticket`} />
             <Box sx={{ mt: 1.5 }}>
               <BarList rows={s.reasons.map((r) => ({ label: r.label, value: r.n }))}
                 emptyMessage="Nothing has been left out yet." labelWidth={260} />
@@ -363,8 +368,8 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
 
       {s.modelChanged.length ? (
         <GlassCard>
-          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="Where the model answered instead of the words"
-            note="Already applied - the model's answer is the one written on the ticket. Here to be checked, not to be done" />
+          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="What the words would have got wrong"
+            note="Each of these is already written on the ticket. They are here as the evidence that the AI is worth its cost - read a few and you will see what the keywords alone would have recorded" />
           <Table size="small" sx={{ mt: 1 }}>
             <TableHead>
               <TableRow>
