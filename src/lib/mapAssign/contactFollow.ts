@@ -16,7 +16,9 @@
 // logged in apsomh_map_assign_log (kind "contact-follow", before / after, by) - an undo puts "before" back.
 // kv: mapAssign:contactFollow {auto, by, at} (default off), mapAssign:contactFollowLast (the last pass),
 // mapAssign:contactFollowCursor (how far the "new" pass has read). One pass at a time over both copies of the hub:
-// advisory lock 4107234 (the engine's run is 4107233). The pure part: follow.ts; the sure ones: contacts.ts sureClass.
+// advisory lock 4107241 (the engine's run is 4107233; 4107234 is Ticket value's - this pass held it until 25.10.2026 and every
+// Ticket value run was skipped while a "Correct all now" went on, and the card read Ticket value's run as "a pass is going").
+// The pure part: follow.ts; the sure ones: contacts.ts sureClass.
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
@@ -32,7 +34,7 @@ import {
   type ContactFollow, type FollowContact, type FollowLast, type FollowNow, type FollowPending, type FollowScope, type FollowSwitch, type FollowTarget, type FollowWrite,
 } from "./follow";
 
-const LOCK = 4_107_234;
+const LOCK = 4_107_241;
 const KV = {
   switch: "mapAssign:contactFollow", last: "mapAssign:contactFollowLast", cursor: "mapAssign:contactFollowCursor",
   /** the pass going: how far it is (SARCLA 24.10.2026: "A pass is going ... No pass yet - this is not moving") */
