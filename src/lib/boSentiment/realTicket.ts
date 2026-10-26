@@ -24,6 +24,9 @@ export type DisqualifyReason =
   | "no_inbound_mail" | "only_our_own_words"
   /** The three cases "only our own words" used to hide: a colleague, a robot, an empty mail. */
   | "mail_from_colleague" | "mail_from_noreply" | "mail_had_no_words"
+  /** WHICH of our own systems or people wrote in - the sub-division of mail_from_colleague. */
+  | "from_performis" | "from_finance" | "from_avor" | "from_lvs" | "from_pdm"
+  | "from_ms365" | "from_mailbox"
   /** Bulk mail recognised from the body, not the subject: an unsubscribe footer and friends. */
   | "bulk_mail"
   /** The model's second opinion, recorded by the engine - the gate never sets this itself. */
@@ -126,6 +129,50 @@ export function fold(s: string | null | undefined): string {
 }
 
 /**
+ * WHICH of our own addresses wrote in.
+ *
+ * "One of us wrote it" was 9,317 tickets and SARCLA asked for it to be subdivided. Reading every
+ * inbound sender behind them gives 231 addresses, and all but 1.4% fall into a handful of systems
+ * plus a long tail of named people. The system is taken from the ADDRESS, not the subject: the
+ * subject usually carries it too ("BO | EMAIL | PERFORMIS | ..."), but the address cannot be
+ * reworded by whoever edits a template.
+ *
+ * Counts behind each rule when it was written (26.10.2026): PERFORMIS 2,149, a named colleague
+ * 3,302 across 201 people, Finance 1,276, Microsoft 365 quarantine 1,119, AVOR 848, PDM 149,
+ * country mailboxes 149, LVS 104, shared and other internal mailboxes ~220.
+ */
+const INTERNAL_SOURCE: [RegExp, DisqualifyReason][] = [
+  [/^performis\d*@/, "from_performis"],
+  [/^(?:accounting|accountreceivable|debitoren|kreditoren|buchhaltung|finance)[.\w-]*@/, "from_finance"],
+  [/^security@/, "from_ms365"],
+  [/^avor@/, "from_avor"],
+  [/^lvs@/, "from_lvs"],
+  [/^pdm[.\w-]*@/, "from_pdm"],
+];
+/** A person writes from firstname.lastname@, hyphens included (tania.rapp-hotz, hans-peter.hoehn). */
+const PERSON = /^[a-z][a-z-]*\.[a-z][a-z-]*\d*@/;
+/**
+ * ...unless the first segment IS a role word, which makes it a shared mailbox however it is
+ * punctuated ("sales-support.apch"). Matched whole, never as a prefix: as a prefix "it" would
+ * swallow "italo.rossi" and "op" would swallow "oprea.ion", filing real people as a mailbox.
+ */
+const ROLE_WORDS = new Set([
+  "sales", "support", "info", "service", "contact", "help", "helpline", "shop", "webshop",
+  "order", "orders", "spedition", "op", "opex", "gqs", "import", "export", "admin",
+  "reception", "marketing", "hr", "it",
+]);
+
+/** Our own address: which system or person is this? */
+export function internalSource(from: string): DisqualifyReason {
+  const f = fold(from);
+  for (const [re, reason] of INTERNAL_SOURCE) if (re.test(f)) return reason;
+  const local = f.split("@")[0] ?? "";
+  const firstSegment = local.split(/[.\-_]/)[0] ?? "";
+  if (PERSON.test(f) && !ROLE_WORDS.has(firstSegment)) return "mail_from_colleague";
+  return "from_mailbox";
+}
+
+/**
  * WHY no outside person wrote - the three cases, told apart.
  *
  * "Mail from us or a no-reply robot" was one bucket of 9,608 tickets, by far the largest thing on
@@ -144,7 +191,11 @@ export function whyNoVoice(mails: GateInput["mails"]): DisqualifyReason {
     else if (!mailText(m).trim()) wordless += 1;
   }
   const n = inbound.length;
-  if (n > 0 && ours === n) return "mail_from_colleague";
+  if (n > 0 && ours === n) {
+    // all ours: say WHICH of ours, and only fall back to the general one when they disagree
+    const sources = new Set(inbound.map((m) => internalSource(String(m.from ?? ""))));
+    return sources.size === 1 ? [...sources][0] : "mail_from_colleague";
+  }
   if (n > 0 && robot === n) return "mail_from_noreply";
   if (n > 0 && wordless === n) return "mail_had_no_words";
   return "only_our_own_words";
@@ -215,7 +266,14 @@ export const REASON_LABEL: Record<DisqualifyReason, string> = {
   newsletter: "Newsletter",
   no_inbound_mail: "No mail from outside",
   only_our_own_words: "Mail from us or a robot (mixed)",
-  mail_from_colleague: "One of us wrote it, not a customer",
+  mail_from_colleague: "A colleague wrote it",
+  from_performis: "PERFORMIS",
+  from_finance: "Finance / accounting",
+  from_avor: "AVOR",
+  from_lvs: "LVS (warehouse)",
+  from_pdm: "PDM",
+  from_ms365: "Microsoft 365 quarantine notice",
+  from_mailbox: "One of our shared mailboxes",
   mail_from_noreply: "A no-reply robot wrote it",
   mail_had_no_words: "The mail arrived empty",
   bulk_mail: "Bulk mail (unsubscribe footer)",

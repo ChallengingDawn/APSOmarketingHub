@@ -88,7 +88,10 @@ const REASON_ORDER: DisqualifyReason[] = [
   "bulk_mail", "model_says_machine",
   // what the ticket IS beats how we noticed: the three split cases name a sender, the
   // general one only says we could not find a customer, so it ranks below them
-  "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
+  // the named sources first: "PERFORMIS" tells somebody what the ticket IS, "a colleague
+  // wrote it" only tells them it was not a customer
+  "from_performis", "from_finance", "from_ms365", "from_avor", "from_lvs", "from_pdm",
+  "from_mailbox", "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
   "only_our_own_words", "no_inbound_mail",
 ];
 export function primaryReason(reasons: DisqualifyReason[]): string {
@@ -478,7 +481,8 @@ export type WindowFigures = {
 export const REASON_VALUES = [
   "erp_stale_warning", "order_confirmation", "shipping_notification", "anyseals", "directcut",
   "doc_declaration", "new_registrant", "newsletter", "bulk_mail", "auto_reply", "bounce",
-  "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
+  "from_performis", "from_finance", "from_ms365", "from_avor", "from_lvs", "from_pdm",
+  "from_mailbox", "mail_from_colleague", "mail_from_noreply", "mail_had_no_words",
   "only_our_own_words", "model_says_machine", "no_inbound_mail",
 ] as const;
 

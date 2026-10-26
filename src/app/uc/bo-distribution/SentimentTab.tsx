@@ -143,7 +143,14 @@ const REASON_WORD: Record<string, string> = {
   auto_reply: "Automatic reply / out of office",
   bounce: "Undeliverable / bounce",
   only_our_own_words: "Mail from us or a robot (mixed)",
-  mail_from_colleague: "One of us wrote it, not a customer",
+  mail_from_colleague: "A colleague wrote it",
+  from_performis: "PERFORMIS",
+  from_finance: "Finance / accounting",
+  from_avor: "AVOR",
+  from_lvs: "LVS (warehouse)",
+  from_pdm: "PDM",
+  from_ms365: "Microsoft 365 quarantine notice",
+  from_mailbox: "One of our shared mailboxes",
   mail_from_noreply: "A no-reply robot wrote it",
   mail_had_no_words: "The mail arrived empty",
   model_says_machine: "The model says nobody is talking",
@@ -403,11 +410,12 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
             <Box sx={{ mt: 1.5 }}>
               <MachineReasons now={f?.reasons ?? []} before={b ? b.reasons : null} total={machine} beforeLabel={beforeLabel} />
               <Typography sx={{ color: MUTED, fontSize: "0.8rem", mt: 1.5 }}>
-                The top three all mean the same thing in the end - mail arrived on the ticket, but nobody outside the
+                All of these mean the same thing in the end - mail arrived on the ticket, but nobody outside the
                 company wrote a word, so there is no customer to have a tone. They are kept apart because they are
-                different problems: <b>one of us wrote it</b> is a colleague raising a ticket, <b>a no-reply robot</b> is
-                a system mail, and <b>the mail arrived empty</b> is a mail we could not read. Tickets scored before
-                25.10.2026 still sit in the older single bucket.
+                different problems. <b>PERFORMIS</b>, <b>AVOR</b>, <b>LVS</b>, <b>PDM</b> and <b>Finance</b> are our own
+                systems writing in; <b>Microsoft 365 quarantine notice</b> is not Back Office work at all;
+                <b>a colleague wrote it</b> is a real person on our side raising a ticket, and that one is still the
+                largest - 201 different people, one of whom accounts for a third of it.
               </Typography>
             </Box>
           </GlassCard>

@@ -121,7 +121,7 @@ test("a real complaint still comes out negative - the baseline is not useless", 
 
 /* ─────────── the real-ticket gate ─────────── */
 
-import { fold, gate, hasCustomerVoice, looksBulk, REASON_LABEL } from "../src/lib/boSentiment/realTicket";
+import { fold, gate, hasCustomerVoice, internalSource, looksBulk, REASON_LABEL } from "../src/lib/boSentiment/realTicket";
 import { mailText } from "../src/lib/boSentiment/detect";
 
 const customer = (text = "Hello, where is my order?") => ({ direction: "INCOMING_EMAIL", from: "buyer@kunde.de", text });
@@ -204,6 +204,8 @@ test("every reason has the words the report shows", () => {
   used.add("mail_from_colleague");
   used.add("mail_from_noreply");
   used.add("mail_had_no_words");
+  for (const r of ["from_performis", "from_finance", "from_ms365", "from_avor",
+                   "from_lvs", "from_pdm", "from_mailbox"]) used.add(r);
   used.add("bulk_mail");            // set from the body, tested on its own below
   used.add("model_says_machine");   // set by the engine from the model, never by the gate
   for (const r of used) assert.ok(REASON_LABEL[r as never], `${r} has no label`);
@@ -215,24 +217,73 @@ test("the three ways nobody outside wrote are told apart", () => {
   // ticket and a shipping robot are different problems.
   const inbound = (from: string, text = "something") => [{ direction: "INCOMING_EMAIL", from, text }];
 
-  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus@angst-pfister.com") }).reasons,
+  // a real person writes from firstname.lastname@; a bare "klaus@" is a mailbox, not a person
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus.meier@angst-pfister.com") }).reasons,
     ["mail_from_colleague"], "one of us wrote it");
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus@angst-pfister.com") }).reasons,
+    ["from_mailbox"], "a one-word address is a shared mailbox");
   assert.deepEqual(gate({ subject: "Stock", mails: inbound("donotreply@someshop.com") }).reasons,
     ["mail_from_noreply"], "a robot wrote it");
-  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus@angst-pfister.com", "   ") }).reasons,
+  assert.deepEqual(gate({ subject: "Stock", mails: inbound("klaus.meier@angst-pfister.com", "   ") }).reasons,
     ["mail_from_colleague"], "a sender we recognise is named before an empty body");
   assert.deepEqual(gate({ subject: "Stock", mails: inbound("someone@unknown-partner.io", "") }).reasons,
     ["mail_had_no_words"], "nothing readable and nobody we recognise");
 
   // a genuinely mixed thread is not forced into one of the three
   const mixed = [
-    { direction: "INCOMING_EMAIL", from: "klaus@angst-pfister.com", text: "forwarding" },
+    { direction: "INCOMING_EMAIL", from: "klaus.meier@angst-pfister.com", text: "forwarding" },
     { direction: "INCOMING_EMAIL", from: "noreply@dhl.com", text: "delivered" },
   ];
   assert.deepEqual(gate({ subject: "Stock", mails: mixed }).reasons, ["only_our_own_words"]);
 
   // and none of this makes a customer's ticket disappear
   assert.deepEqual(gate({ subject: "Stock", mails: inbound("buyer@kunde.de") }).reasons, []);
+});
+
+test("our own senders are named by system, and a person is not mistaken for a mailbox", () => {
+  // SARCLA, 26.10.2026: "sub divide then". Counts behind each: PERFORMIS 2,149, Finance 1,276,
+  // Microsoft 365 quarantine 1,119, AVOR 848, a named colleague 3,302 across 201 people.
+  const cases: [string, string][] = [
+    ["performis@angst-pfister.com", "from_performis"],
+    ["performis02@angst-pfister.com", "from_performis"],
+    ["accounting.de@apsoparts.com", "from_finance"],
+    ["debitoren-apso@angst-pfister.com", "from_finance"],
+    ["accountreceivable@angst-pfister.com", "from_finance"],
+    ["security@angst-pfister.com", "from_ms365"],
+    ["avor@angst-pfister.com", "from_avor"],
+    ["lvs@angst-pfister.com", "from_lvs"],
+    ["pdm_auswertung@angst-pfister.com", "from_pdm"],
+    // real people, hyphens and all
+    ["ersin.ucer@angst-pfister.com", "mail_from_colleague"],
+    ["tania.rapp-hotz@angst-pfister.com", "mail_from_colleague"],
+    ["hans-peter.hoehn@apsoparts.com", "mail_from_colleague"],
+    // a role word as the FIRST segment is a mailbox, however it is punctuated
+    ["sales-support.apch@angst-pfister.com", "from_mailbox"],
+    ["support@apsoparts.com", "from_mailbox"],
+    ["ch@angst-pfister.com", "from_mailbox"],
+    ["r.box.apnl@angst-pfister.com", "from_mailbox"],
+  ];
+  for (const [addr, want] of cases) assert.equal(internalSource(addr), want, addr);
+
+  // a role word must match WHOLE: as a prefix, "it" and "op" would file these people as mailboxes
+  assert.equal(internalSource("italo.rossi@angst-pfister.com"), "mail_from_colleague");
+  assert.equal(internalSource("oprea.ion@angst-pfister.com"), "mail_from_colleague");
+  assert.equal(internalSource("information.desk@angst-pfister.com"), "mail_from_colleague",
+    "only an exact role segment counts - \"information\" is not \"info\"");
+});
+
+test("a ticket written only by one of our systems is named after that system", () => {
+  const ours = (from: string) => [{ direction: "INCOMING_EMAIL", from, text: "x" }];
+  assert.deepEqual(gate({ subject: "Stock", mails: ours("performis@angst-pfister.com") }).reasons, ["from_performis"]);
+  assert.deepEqual(gate({ subject: "Stock", mails: ours("avor@angst-pfister.com") }).reasons, ["from_avor"]);
+  // two different internal sources on one ticket fall back to the general reason
+  const mixed = [
+    { direction: "INCOMING_EMAIL", from: "performis@angst-pfister.com", text: "a" },
+    { direction: "INCOMING_EMAIL", from: "avor@angst-pfister.com", text: "b" },
+  ];
+  assert.deepEqual(gate({ subject: "Stock", mails: mixed }).reasons, ["mail_from_colleague"]);
+  // and a customer is still a customer
+  assert.deepEqual(gate({ subject: "Stock", mails: ours("buyer@kunde.de") }).reasons, []);
 });
 
 test("fold makes one rule cover every spelling", () => {
