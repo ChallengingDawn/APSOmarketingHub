@@ -41,7 +41,11 @@ export function getPool(): Pool {
     // sync, the chain's sweep lane, price checks and every page on that copy stopped). Room for
     // twelve (Aurora Serverless takes ~200; two copies, four during a rollout), and a wait that
     // ends: after 30 s the query fails, its holder lets go of its lock, and the rest moves on.
-    max: 12,
+    // 26.10.2026: thirty. ~30 schedulers start together at boot, so at every quarter hour (and :00) a dozen locked
+    // ones fire in the same second, each holding one connection and asking for a second: 12 ran out and 8-18 jobs a
+    // burst gave up ("timeout exceeded when trying to connect", 30-39 an hour). The database was raised to 2 ACU the
+    // same day (max_connections ~ memory/9.5 MB, ~400); two copies x 30, four during a rollout, peak 29 in use.
+    max: 30,
     connectionTimeoutMillis: 30_000,
     idleTimeoutMillis: 30000,
   });
