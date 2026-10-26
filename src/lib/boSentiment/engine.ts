@@ -189,12 +189,23 @@ export const lastRun = async () => (await kvGet<RunInfo>(KV.last)) ?? null;
 export const aiUsedToday = async () => (await kvGet<number>(KV.aiDay(today()))) ?? 0;
 
 const rowsOfDay = async (d: string) => (await kvGet<Row[]>(KV.day(d))) ?? [];
+/** How many day-reads may be in flight at once - see recentRows. */
+const READ_AT_ONCE = 6;
+
 export async function recentRows(days = 7): Promise<Row[]> {
-  // One read per day, so a 90-day window is 90 of them: sequentially that is a page load spent
-  // waiting on the database, in parallel it is one round trip.
+  // One read per day, so a 90-day window is 90 of them. Sequentially that is a page load spent
+  // waiting on the database; all 90 at once is a 90-way fan-out at the connection pool, and the
+  // Aurora cluster behind this hub sits at its 1.0 ACU ceiling with connections peaking at 34
+  // (d3, 26.10.2026: 387 "timeout exceeded when trying to connect" in 48 h, across every job).
+  // A few at a time keeps nearly all of the speed and none of the stampede.
   const wanted = Array.from({ length: days }, (_, i) =>
     new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10));
-  const perDay = await Promise.all(wanted.map((d) => rowsOfDay(d).catch(() => [] as Row[])));
+  const perDay: Row[][] = [];
+  for (let i = 0; i < wanted.length; i += READ_AT_ONCE) {
+    perDay.push(...await Promise.all(
+      wanted.slice(i, i + READ_AT_ONCE).map((d) => rowsOfDay(d).catch(() => [] as Row[])),
+    ));
+  }
   return perDay.flat().sort((a, b) => b.at.localeCompare(a.at));
 }
 
