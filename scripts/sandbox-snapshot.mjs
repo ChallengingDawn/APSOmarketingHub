@@ -55,7 +55,11 @@ const FAKE_PHONE = /123\s?45\s?67|0{4,}|00\s00|555/;
 // carries its canton: "Buchs AG") - is the map's, not a customer's; only addresses and secrets are checked there
 const REFERENCE = [/^public\/geo\//];
 
-const names = flag("--names") ? readFileSync(flag("--names"), "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length >= 3) : [];
+// Customers named without a legal form ("the Metrohm case"): sandbox-kit/real-names.txt of the same commit (it never
+// ships - sandbox-kit/ is dropped), plus any --names file. One name per line.
+const listed = spawnSync("git", ["show", `${sha}:sandbox-kit/real-names.txt`], { cwd: repo, encoding: "utf8" });
+const names = [listed.status === 0 ? listed.stdout : "", flag("--names") ? readFileSync(flag("--names"), "utf8") : ""]
+  .join("\n").split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length >= 3);
 const nameRes = names.map((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"));
 
 const tmp = mkdtempSync(path.join(tmpdir(), "sbx-snap-"));
@@ -117,8 +121,12 @@ if (archive.status !== 0) { console.error(`git archive ${sha} failed: ${archive.
 const untar = spawnSync("tar", ["-x", "-f", "-", "-C", tmp], { input: archive.stdout });
 if (untar.status !== 0) { console.error(`tar failed: ${untar.stderr}`); process.exit(1); }
 
-// 2. scrub
+// 2. scrub, then drop the folders that are empty now (docs/, the ad scripts)
 walk(tmp);
+(function prune(dir) {
+  for (const f of readdirSync(dir)) { const abs = path.join(dir, f); if (statSync(abs).isDirectory()) prune(abs); }
+  if (dir !== tmp && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+})(tmp);
 
 // 3. the sandbox kit, from the same commit
 for (const [from, to] of [["sandbox-kit/CLAUDE.md", "CLAUDE.md"], ["sandbox-kit/.env.example", ".env.example"]]) {
@@ -150,7 +158,7 @@ if (pack.status !== 0) { console.error(`tar -czf failed: ${pack.stderr}`); proce
 writeFileSync(out, pack.stdout);
 console.log(`Snapshot of ${sha}: ${counts.files} files (${counts.dropped} dropped), ${counts.changedFiles} scrubbed - `
   + `${counts.emails.size} e-mail addresses, ${counts.phones} phone numbers, ${counts.companies.size} company names`
-  + `${names.length ? `, ${counts.named} listed names` : ""} replaced`
+  + `${counts.named ? `, ${counts.named} listed names` : ""} replaced`
   + `${counts.testsLeft ? `; ${counts.testsLeft} test files with real data left on the hub` : ""}`
   + ` -> ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);
 
