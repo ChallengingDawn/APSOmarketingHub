@@ -38,11 +38,13 @@ const SECRETS = [
 
 // ---- what is replaced ----
 const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/g;
-// the reserved names (RFC 2606) can never be anybody's address - tests use them for made-up customers
-const KEEP_EMAIL = /(@example\.(com|org|net)|\.(example|test|invalid|localhost))$/i;
+// the reserved names (RFC 2606, and .internal/.local for private networks) can never be anybody's address - tests
+// use them for made-up customers, and "user:pass@postgres.railway.internal" only looks like an address
+const KEEP_EMAIL = /(@example\.(com|org|net)|\.(example|test|invalid|localhost|internal|local))$/i;
 const PHONE = /\+(41|49|33|39|43|44|31|32|34|420)[\s0-9]{8,14}\d/g;
 const LEGAL = /\b([A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*(?:[ -]+(?:[&+][ ]+)?[A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*){0,3})\s+(GmbH & Co\. KG|AG|GmbH|SA|S\.A\.|Sàrl|SARL|SàRL|Ltd\.?|S\.p\.A\.|SpA|S\.r\.l\.|Srl|BV|B\.V\.|Inc\.?|SAS|KG)\b/g;
-const PLACEHOLDER = /^(Muster|Kunde|Kundin|ACME|Acme|Firma|Name|Example|Beispiel|Test|Demo|Sample|Zimtstern|APSOparts|APSO|Angst|Pfister|Angst \+ Pfister|Angst\+Pfister)\b/;
+// a placeholder word anywhere in the name ("Object Muster AG" in an error message is still Muster AG)
+const PLACEHOLDER = /\b(Muster|Kunde|Kundin|ACME|Acme|Firma|Name|Example|Beispiel|Test|Demo|Sample|Zimtstern|APSOparts|APSO|Angst|Pfister)\b/;
 // Our own domains carry the hub's logic (who may sign up, our own mailboxes, a reply from us is not a customer):
 // they stay, and only a person in front of the @ is replaced. A role mailbox is nobody - it stays whole.
 const OWN_DOMAIN = /@([a-z0-9-]+\.)*(apsoparts|angst-pfister)\.[a-z]{2,}$/i;
