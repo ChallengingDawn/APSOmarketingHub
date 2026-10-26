@@ -43,6 +43,11 @@ const KEEP_EMAIL = /(@example\.(com|org|net)|\.(example|test|invalid|localhost))
 const PHONE = /\+(41|49|33|39|43|44|31|32|34|420)[\s0-9]{8,14}\d/g;
 const LEGAL = /\b([A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*(?:[ -]+(?:[&+][ ]+)?[A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*){0,3})\s+(GmbH & Co\. KG|AG|GmbH|SA|S\.A\.|Sàrl|SARL|SàRL|Ltd\.?|S\.p\.A\.|SpA|S\.r\.l\.|Srl|BV|B\.V\.|Inc\.?|SAS|KG)\b/g;
 const PLACEHOLDER = /^(Muster|Kunde|Kundin|ACME|Acme|Firma|Name|Example|Beispiel|Test|Demo|Sample|Zimtstern|APSOparts|APSO|Angst|Pfister|Angst \+ Pfister|Angst\+Pfister)\b/;
+// a made-up number stays (tests use them): 123 45 67, runs of zeros, 555
+const FAKE_PHONE = /123\s?45\s?67|0{4,}|00\s00|555/;
+// public reference data - postcodes and their places (a German postcode can belong to a large firm, a Swiss town
+// carries its canton: "Buchs AG") - is the map's, not a customer's; only addresses and secrets are checked there
+const REFERENCE = [/^public\/geo\//];
 
 const names = flag("--names") ? readFileSync(flag("--names"), "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length >= 3) : [];
 const nameRes = names.map((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"));
@@ -78,7 +83,11 @@ function visit(abs, rel) {
     if (!counts.emails.has(k)) counts.emails.set(k, counts.emails.size + 1);
     return `person${counts.emails.get(k)}@example.invalid`;
   });
-  s = s.replace(PHONE, () => { counts.phones++; return "+41 00 000 00 00"; });
+  if (REFERENCE.some((re) => re.test(rel))) {
+    if (s !== before) { writeFileSync(abs, s); counts.changedFiles++; }
+    return;
+  }
+  s = s.replace(PHONE, (p) => { if (FAKE_PHONE.test(p)) return p; counts.phones++; return "+41 44 000 00 00"; });
   s = s.replace(LEGAL, (whole, name, form) => {
     if (PLACEHOLDER.test(name)) return whole;
     const k = `${name} ${form}`.toLowerCase();
@@ -116,10 +125,11 @@ let left = 0;
 })(tmp);
 if (left) { console.error(`STOP: ${left} address(es) still in the scrubbed code - no snapshot was made.`); process.exit(2); }
 
-// 5. pack
-const pack = spawnSync("tar", ["-czf", out, "-C", tmp, "."], { stdio: "inherit" });
+// 5. pack - through stdout: Git Bash's GNU tar reads "C:\..." as a remote host, Windows' bsdtar does not
+const pack = spawnSync("tar", ["-czf", "-", "-C", tmp, "."], { maxBuffer: 1024 * 1024 * 1024 });
 rmSync(tmp, { recursive: true, force: true });
-if (pack.status !== 0) { console.error("tar -czf failed"); process.exit(1); }
+if (pack.status !== 0) { console.error(`tar -czf failed: ${pack.stderr}`); process.exit(1); }
+writeFileSync(out, pack.stdout);
 console.log(`Snapshot of ${sha}: ${counts.files} files (${counts.dropped} dropped), ${counts.changedFiles} scrubbed - `
   + `${counts.emails.size} e-mail addresses, ${counts.phones} phone numbers, ${counts.companies.size} company names`
   + `${names.length ? `, ${counts.named} listed names` : ""} replaced -> ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);

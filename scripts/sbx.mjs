@@ -16,8 +16,8 @@
 // written to disk. It only reaches the sandbox environment, and the hub replaces it every day.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -138,8 +138,7 @@ if (cmd === "login") {
   if (git(["status", "--porcelain"], { allowFail: true })) fail("commit or stash your work first - pull switches branches");
   const res = await call("GET", "pull");
   const sha = res.headers.get("x-snapshot-sha");
-  const tmp = path.join(tmpdir(), `sbx-${sha}.tar.gz`);
-  writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+  const tar = Buffer.from(await res.arrayBuffer());
   const fresh = !existsSync(".git");
   if (fresh) git(["init", "-q", "-b", "base"]);
   const back = fresh ? "work" : git(["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -148,8 +147,8 @@ if (cmd === "login") {
     else git(["checkout", "-q", "--orphan", "base"]);
     git(["rm", "-r", "-q", "--ignore-unmatch", "."]);
   }
-  const t = spawnSync("tar", ["-xzf", tmp], { stdio: "inherit" });
-  rmSync(tmp, { force: true });
+  // through stdin: Git Bash's GNU tar reads "C:\..." as a remote host, Windows' bsdtar does not
+  const t = spawnSync("tar", ["-xzf", "-"], { input: tar, stdio: ["pipe", "inherit", "inherit"] });
   if (t.status !== 0) fail("could not unpack the code (tar)");
   git(["add", "-A"]);
   git(["commit", "-q", "--allow-empty", "-m", `release ${sha}`]);
