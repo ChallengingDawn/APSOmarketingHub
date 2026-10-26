@@ -1,9 +1,8 @@
 "use client";
 
-// PERSONAS - a HubSpot app (UC & HubSpot Apps). Each contact's persona (hs_persona) from its job and its company - the
-// workflow "SARCLA | PERSONAS SET" brought into the hub and put right (SARCLA 25.10.2026: "migrate as a new sub-app and
-// reinforce it"): it never read the company, matched no umlaut and decided a contact once, ever. Reads/writes
-// /api/uc/personas (src/lib/personas).
+// PERSONAS - a HubSpot app (UC & HubSpot Apps). Each contact's persona (hs_persona) from its job and its company
+// (SARCLA 25.10.2026: "migrate as a new sub-app and reinforce it"; 26.10: no comparison with the old workflow, the
+// unclassified ones shown differently, "change it at once"). Reads/writes /api/uc/personas (src/lib/personas).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -33,6 +32,18 @@ const hsContact = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587
 type Data = { settings: Settings; last: RunInfo | null; state: State | null; workflowOn: boolean | null; writing: boolean; admin: boolean; keys: PersonaKey[] };
 
 const persona = (k: PersonaKey | null) => (k ? PERSONAS[k].name : "none");
+const pct = (a: number, b: number) => (b ? `${((a / b) * 100).toFixed(a / b < 0.1 ? 1 : 0)}%` : "—");
+/** What each Unclassified reason means, in plain words - and its group. */
+const MISSING: Record<string, { text: string; group: "nojob" | "job" }> = {
+  "no job - company has an industry": { text: "No job title - the company has an industry code", group: "nojob" },
+  "no job - company without industry": { text: "No job title - the company has no industry code either", group: "nojob" },
+  "no job and no company": { text: "No job title and no company", group: "nojob" },
+  "job title matches no persona": { text: "The job title fits no persona (sales, manager, other …)", group: "job" },
+  "purchaser in DACH - not a machine builder of 50+ or APSOgrowth": { text: "Purchaser in DACH - company not a machine builder of 50+ people, not APSOgrowth", group: "job" },
+  "purchaser outside DACH and Italy": { text: "Purchaser outside DACH and Italy", group: "job" },
+  "owner outside DACH": { text: "Owner or managing director outside DACH", group: "job" },
+  "owner in DACH - company over 50 people or size unknown": { text: "Owner in DACH - company over 50 people, or its size unknown", group: "job" },
+};
 
 /** The cascade in plain words - first match wins (rules.ts). */
 function Rules() {
@@ -57,7 +68,7 @@ function Rules() {
         </Box>
       ))}
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1 }}>
-        Job words are matched in German, English, French and Italian, with or without accents. A contact with no job and no company is left as it is. A persona set by hand in HubSpot is never overwritten.
+        First match wins. Job words are matched in German, English, French and Italian, with or without accents. A contact with no job and no company is left as it is. A persona set by hand in HubSpot is never overwritten.
       </Typography>
     </Box>
   );
@@ -90,7 +101,16 @@ export default function Personas() {
         setN((x) => x + 1);
       } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); }
     };
-    const byTo = (k: PersonaKey) => open.filter((x) => x.to === k).length;
+    // the counts of every change (the daily check counts them all; only the first rows are listed)
+    const byTo = (k: PersonaKey) => s?.changeCounts?.[k] ?? open.filter((x) => x.to === k).length;
+    const toChange = s?.changeCounts ? Object.values(s.changeCounts).reduce((a, b) => a + b, 0) : open.length;
+    const classified = s ? d.keys.reduce((a, k) => a + (s.rules[k] ?? 0), 0) : 0;
+    const un = s?.rules.UN ?? 0;
+    const why = s ? Object.entries(s.why).map(([w, c]) => ({ w, c, m: MISSING[w] ?? { text: w, group: "job" as const } })).sort((a, b) => b.c - a.c) : [];
+    const goLive = () => {
+      if (!window.confirm(`Change the persona of ${full(toChange)} contacts now, and every contact from then on? A persona set by hand in HubSpot is never overwritten; every change is kept with what was there before.`)) return;
+      void call("mode", "PUT", { mode: "live" });
+    };
     return (
       <>
         {mode !== "live" ? (
@@ -102,33 +122,23 @@ export default function Personas() {
         )}
 
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<GroupsOutlinedIcon />} tint="blue" title="Personas" note={s ? `Every contact, checked ${when(s.at)} - ${full(s.contacts)} contacts, ${full(s.skipped)} with no job and no company left as they are` : "Every contact is checked within minutes of the deploy"} />
+          <CardTitle icon={<GroupsOutlinedIcon />} tint="blue" title="Personas" note={s ? `Every contact, checked ${when(s.at)} - ${full(classified)} contacts; ${full(s.skipped)} with no job and no company are left out` : "Every contact is checked within minutes of the deploy"} />
           {s && (
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
-                <TableHead><TableRow>{["Persona", "", "In HubSpot now", "By the rules", "Difference"].map((h, i) => <TableCell key={i} sx={{ ...headCell, textAlign: i >= 2 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{["Persona", "Who", "Contacts", "Share"].map((h, i) => <TableCell key={i} sx={{ ...headCell, textAlign: i >= 2 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
                   {d.keys.map((k) => {
-                    const a = s.now[k] ?? 0, b = s.rules[k] ?? 0, diff = b - a;
+                    const b = s.rules[k] ?? 0;
                     return (
                       <TableRow key={k}>
-                        <TableCell sx={{ ...bodyCell, fontWeight: 600, whiteSpace: "nowrap" }}>{PERSONAS[k].name}</TableCell>
+                        <TableCell sx={{ ...bodyCell, fontWeight: 600, whiteSpace: "nowrap", color: k === "UN" ? MUTED : INK }}>{PERSONAS[k].name}</TableCell>
                         <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{PERSONAS[k].short}</TableCell>
-                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(a)}</TableCell>
                         <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{full(b)}</TableCell>
-                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: diff ? (diff > 0 ? "#1b7a55" : "#a96a12") : FAINT }}>{diff ? `${diff > 0 ? "+" : "−"}${full(Math.abs(diff))}` : "—"}</TableCell>
+                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: MUTED }}>{pct(b, classified)}</TableCell>
                       </TableRow>
                     );
                   })}
-                  {!!s.now.none && (
-                    <TableRow>
-                      <TableCell sx={{ ...bodyCell, color: MUTED }}>No persona</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>empty in HubSpot</TableCell>
-                      <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(s.now.none)}</TableCell>
-                      <TableCell sx={{ ...bodyCell, textAlign: "right", color: FAINT }}>—</TableCell>
-                      <TableCell sx={bodyCell} />
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </Box>
@@ -137,24 +147,49 @@ export default function Personas() {
 
         {s && (
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<HelpOutlineIcon />} tint="amber" title={`Why ${full(s.rules.UN ?? 0)} are Unclassified`} note="What the rules lack for them - the place to decide new rules" />
-            <Box sx={{ display: "grid", gap: 0.5 }}>
-              {Object.entries(s.why).sort((a, b) => b[1] - a[1]).map(([w, c]) => (
-                <Box key={w} sx={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr)", gap: 1.5, alignItems: "center" }}>
-                  <Typography sx={{ fontSize: "0.86rem", fontVariantNumeric: "tabular-nums", textAlign: "right", fontWeight: 600, color: INK }}>{full(c)}</Typography>
-                  <Typography sx={{ fontSize: "0.86rem", color: INK }}>{w}</Typography>
-                </Box>
-              ))}
+            <CardTitle icon={<HelpOutlineIcon />} tint="amber" title={`Unclassified · ${full(un)}`} note="What is missing for these contacts to get a persona - a new rule for a large group gives many of them one" />
+            <Box sx={{ overflowX: "auto" }}>
+              <Table size="small">
+                <TableHead><TableRow>{["What is missing", "Contacts", "Share", ""].map((h, i) => <TableCell key={i} sx={{ ...headCell, textAlign: i === 1 || i === 2 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {(["nojob", "job"] as const).map((g) => {
+                    const items = why.filter((x) => x.m.group === g);
+                    if (!items.length) return null;
+                    const sum = items.reduce((a, x) => a + x.c, 0);
+                    return [
+                      <TableRow key={g}>
+                        <TableCell sx={{ ...bodyCell, fontWeight: 700, color: INK, bgcolor: "rgba(21,34,58,.03)" }}>{g === "nojob" ? "No job title" : "Job title known - no persona fits"}</TableCell>
+                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", bgcolor: "rgba(21,34,58,.03)" }}>{full(sum)}</TableCell>
+                        <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: MUTED, bgcolor: "rgba(21,34,58,.03)" }}>{pct(sum, un)}</TableCell>
+                        <TableCell sx={{ ...bodyCell, bgcolor: "rgba(21,34,58,.03)" }} />
+                      </TableRow>,
+                      ...items.map((x) => (
+                        <TableRow key={x.w}>
+                          <TableCell sx={{ ...bodyCell, pl: 3, fontSize: "0.84rem" }}>{x.m.text}</TableCell>
+                          <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(x.c)}</TableCell>
+                          <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: MUTED }}>{pct(x.c, un)}</TableCell>
+                          <TableCell sx={{ ...bodyCell, width: { xs: 80, md: 220 } }}>
+                            <Box sx={{ height: 8, borderRadius: 4, bgcolor: "#f3e6d3", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${un ? Math.max(1, (x.c / un) * 100) : 0}%`, bgcolor: "#d39a4a" }} /></Box>
+                          </TableCell>
+                        </TableRow>
+                      )),
+                    ];
+                  })}
+                </TableBody>
+              </Table>
             </Box>
           </GlassCard>
         )}
 
         {s && (
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<SwapHorizIcon />} tint="green" title={`${d.writing ? "Being changed" : "What would change"} · ${full(open.length)}`}
-              note={`Contacts whose persona in HubSpot is not the rules' one${s.changesTotal > s.changes.length ? ` - the first ${full(s.changes.length)} of ${full(s.changesTotal)} listed` : ""}`} />
+            <CardTitle icon={<SwapHorizIcon />} tint="green" title={`${d.writing ? "Being changed" : "To change"} · ${full(toChange)}`}
+              note={`Contacts whose persona in HubSpot is not the rules' one${toChange > open.length ? ` - ${full(open.length)} of them listed here` : ""}`}
+              right={d.admin && mode !== "live" && toChange > 0 ? (
+                <Button size="small" variant="contained" disableElevation disabled={!!busy} onClick={goLive} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>Change all {full(toChange)} now</Button>
+              ) : undefined} />
             <Box sx={{ mb: 1.5 }}>
-              <Choice<PersonaKey | "all"> value={to} onChange={setTo} options={[{ key: "all", label: "All", count: open.length }, ...d.keys.filter((k) => byTo(k)).map((k) => ({ key: k, label: `→ ${k === "UN" ? "Unclassified" : k}`, count: byTo(k) }))]} />
+              <Choice<PersonaKey | "all"> value={to} onChange={setTo} options={[{ key: "all", label: "All", count: toChange }, ...d.keys.filter((k) => byTo(k)).map((k) => ({ key: k, label: `→ ${k === "UN" ? "Unclassified" : k}`, count: byTo(k) }))]} />
             </Box>
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
@@ -183,17 +218,14 @@ export default function Personas() {
         )}
 
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<RuleOutlinedIcon />} tint="slate" title="The rules" note="The workflow's own order - first match wins - with the company read and the words in four languages" />
+          <CardTitle icon={<RuleOutlinedIcon />} tint="slate" title="The rules" note="In this order - the first that fits gives the persona" />
           <Rules />
         </GlassCard>
 
         {d.admin && (
           <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Admin:</Typography>
-            <Button size="small" variant="text" disabled={!!busy} onClick={() => {
-              if (mode !== "live" && !window.confirm(`Switch Personas to live? The hub writes the persona of ${full(open.length)} contacts (and every change after), once the HubSpot workflow is switched off. A persona set by hand is never overwritten; every change is kept with what was there before.`)) return;
-              void call("mode", "PUT", { mode: mode === "live" ? "shadow" : "live" });
-            }} sx={{ textTransform: "none" }}>{mode === "live" ? "Pause" : "Switch to Live"}</Button>
+            <Button size="small" variant="text" disabled={!!busy} onClick={() => (mode === "live" ? void call("mode", "PUT", { mode: "shadow" }) : goLive())} sx={{ textTransform: "none" }}>{mode === "live" ? "Pause" : "Switch to Live"}</Button>
             <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
             <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("full", "POST", { action: "full" })} sx={{ textTransform: "none" }}>Check every contact now</Button>
             {busy && <CircularProgress size={14} />}
@@ -207,7 +239,7 @@ export default function Personas() {
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Personas" subtitle="Each contact's persona from its job and its company - the workflow SARCLA | PERSONAS SET, in the hub and put right" />
+      <PageHeader title="Personas" subtitle="Each contact's persona from its job and its company" />
       {body}
     </Box>
   );

@@ -39,6 +39,8 @@ export type State = {
   /** why the unclassified ones are */
   why: Record<string, number>;
   changes: Change[]; changesTotal: number;
+  /** of every change (not only the rows kept): how many go to each persona */
+  changeCounts?: Record<string, number>;
 };
 export type RunInfo = { at: string; seconds: number; looked: number; differ: number; written: number; kept: number; full: boolean; live: boolean; error?: string };
 
@@ -52,6 +54,8 @@ export async function saveSettings(mode: Mode, by: string): Promise<Settings> {
   const cur = await getSettings();
   const next: Settings = { mode, liveFrom: mode === "live" ? (cur.mode === "live" ? cur.liveFrom : new Date().toISOString()) : null, by, at: new Date().toISOString() };
   await kvSet(KV.settings, next);
+  // SARCLA 26.10.2026 ("change it at once"): switching to Live changes every contact now, not at the next daily pass
+  if (mode === "live" && cur.mode !== "live") startFull();
   return next;
 }
 let wfCache: { at: number; on: boolean | null } | null = null;
@@ -122,7 +126,7 @@ async function writePersonas(rows: Change[]): Promise<Map<string, string | null>
 
 // ---------------- the run ----------------
 /** Decide a page of contacts: the changes, and (for the daily pass) the counts. */
-function decide(contacts: Obj[], companies: Map<string, Record<string, string | null>>, tally?: Omit<State, "at" | "changes" | "changesTotal">): Change[] {
+function decide(contacts: Obj[], companies: Map<string, Record<string, string | null>>, tally?: Omit<State, "at" | "changes" | "changesTotal" | "changeCounts">): Change[] {
   const out: Change[] = [];
   for (const c of contacts) {
     const p = c.properties;
@@ -157,7 +161,9 @@ async function run(): Promise<RunInfo> {
     const tally = { contacts: 0, skipped: 0, now: {} as Record<string, number>, rules: {} as Record<string, number>, why: {} as Record<string, number> };
     changes = decide(contacts, companies, tally);
     looked = contacts.length;
-    next = { at: startedAt, ...tally, changes: [], changesTotal: changes.length };
+    const changeCounts: Record<string, number> = {};
+    for (const r of changes) changeCounts[r.to] = (changeCounts[r.to] ?? 0) + 1;
+    next = { at: startedAt, ...tally, changes: [], changesTotal: changes.length, changeCounts };
   } else {
     const since = await kvGet<string>(KV.cursor);
     const contacts = since ? await searchAll("contacts", CONTACT_PROPS, [{ propertyName: "lastmodifieddate", operator: "GTE", value: String(Date.parse(since) - 5 * 60_000) }], RECENT_MAX) : [];
