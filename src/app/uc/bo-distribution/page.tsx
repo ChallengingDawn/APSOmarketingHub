@@ -72,6 +72,7 @@ import { SettingsTab } from "./SettingsTab";
 import { DetectionTab } from "./DetectionTab";
 import { SentimentTab, type SentimentData } from "./SentimentTab";
 import { StraysCard } from "./StraysCard";
+import { ChatCard } from "./ChatCard";
 /* ── Overview ── */
 
 function Overview({ d }: { d: Data }) {
@@ -110,6 +111,7 @@ function Overview({ d }: { d: Data }) {
         {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
       </Grid>
       <StraysCard d={d} />
+      <ChatCard d={d} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title="Day by day" note="Copy against HubSpot: same owner, another owner, no distribution on the path, not settled yet" />
         <StackedColumns data={days} parts={[{ key: "same", label: "Same owner" }, { key: "different", label: "Another owner" }, { key: "none", label: "No distribution" }, { key: "waiting", label: "Not settled" }]} format={(v) => full(v ?? 0)} />

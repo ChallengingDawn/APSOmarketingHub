@@ -115,7 +115,7 @@ export type Route = {
   sets: Record<string, string>;
   /** the classifier's answer when the path ran it */
   classified?: Classified;
-  /** after #27: c2s_problem_order known -> stage Cut-to-Size issue */
+  /** after #27: c2s_problem_order known -> stage CHAT/C2S Issue (STAGE.cutToSizeIssue) */
   c2sStageAfter?: boolean;
 };
 
@@ -240,6 +240,27 @@ export function route(f: RouteFacts, classify: () => Classified): Route {
   if (has(f.subject, "CERTIFICATES", "MAIL TO CUSTOMER")) { r.path.push("CERTIFICATES AND MAIL TO CUSTOMER"); return r; }
   router();
   return r;
+}
+
+/* ── the chat's Back Office topics, the new way (shadow) ───────────────────── */
+// SARCLA 26.10.2026: the AI tries first; a chat topic it cannot finish that is NOT a sales topic goes to the Back
+// Office - no longer parked in the chat pipeline's "New BO Topic", no longer given to Rose when TSA sends it back. It
+// goes to the stage "CHAT/C2S Issue" (5948837104, renamed from "Cut-to-Size issue") with an owner from the
+// distribution - the account's ERP sales agent, else the SA Sub, else the least busy (#27) - and that person calls the
+// customer within the hour. Worked out beside today's path and written by nobody until it is switched live.
+export const CHAT_CALL_WITHIN_MIN = 60;
+export type ChatPlan = { path: string[]; today: string; stage: string; assigner: "27"; callWithinMin: number };
+export function chatPlan(r: Route): ChatPlan | null {
+  const origin = r.path[0];
+  if (origin !== "CHAT" && origin !== "AI CHAT") return null;
+  // the two exclusions stay as they are: the shop bug to Daniel, the 3D model request to the CAD team
+  if (r.path.includes("EXCLUDE SHOP BUG DANIEL") || r.path.includes("EXCLUDE FORM 3D REQUESTS")) return null;
+  const resent = r.path.includes("RESENT TO BO BY TSA");
+  return {
+    path: [origin, resent ? "SENT BACK BY TSA" : "HANDED OVER BY THE CHAT", "#27 sales agent > SA Sub > least busy", "CHAT/C2S Issue"],
+    today: resent ? "Rose" : "parked in New BO Topic",
+    stage: STAGE.cutToSizeIssue, assigner: "27", callWithinMin: CHAT_CALL_WITHIN_MIN,
+  };
 }
 
 /* ── the sales agent: company first, then contact ──────────────────────────── */

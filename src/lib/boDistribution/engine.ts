@@ -23,7 +23,7 @@ import { hubspotToken } from "@/lib/integrations/status";
 import { NOTE_NO_O, anysealsToFolder, gqsTaskFor, mergeIntoGqs, note, noteNoMatch, oNumber, salesSplit, type Call } from "./codeSteps";
 import {
   BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
-  assignBo, assignGqs, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route,
+  assignBo, assignGqs, chatPlan, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route,
   type Priority, type PriorityFacts, type PrioritySettings,
   type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload, requeuedByHand,} from "./rules";
 
@@ -113,6 +113,9 @@ export type Row = {
   /** GQS: a task with no contact and no company takes them from its linked ticket (the code's
    *  inherit_associations_from_linked_ticket) - read before deciding, written in live mode */
   inherit?: { from: string; contacts: string[]; companies: string[] } | null;
+  /** a chat ticket: the new way (rules.ts chatPlan) - its stage, the owner the distribution picks and when the call is
+   *  due (null = nobody available, the hour starts when someone gets it). Shadow: nothing of it is written. */
+  chat?: { path: string[]; today: string; stage: string; owner: Answer; callBy: string | null } | null;
   /** live mode: what the hub wrote, or why it left the ticket to the workflow */
   wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string; what?: string };
   note?: string;
@@ -438,6 +441,12 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const subKey = { "Website Issue": SUB.website, "Product Price": SUB.price, Delivery: SUB.delivery, "Invoicing & Accounting": SUB.invoicing, "Product Information": SUB.product }[cat ?? ""];
   const sub = subKey ? r.sets[subKey] ?? facts.subs[subKey] ?? null : null;
   row.priorityHub = priorityFor((r.sets.hs_ticket_priority as Priority | undefined) ?? null, cat ?? null, sub, row.priorityFacts, settings.priority);
+  // a chat ticket: the new way beside today's (parked / Rose below) - the distribution's pick with the hub's rules
+  const plan = opts.stray ? null : chatPlan(r);
+  if (plan) {
+    const owner = answer(assignBo(plan.assigner, input("saToOwnerBo"), "hub"));
+    row.chat = { path: plan.path, today: plan.today, stage: plan.stage, owner, callBy: owner.ownerId ? new Date(Date.parse(enteredAt) + plan.callWithinMin * 60_000).toISOString() : null };
+  }
   const strayStep = opts.stray && (!r.assigner || r.assigner === "75" || r.assigner === "50" || !!r.sets.hubspot_owner_id) ? "27" as const : null;
   if (!strayStep) {
     if (r.sets.hubspot_owner_id) {

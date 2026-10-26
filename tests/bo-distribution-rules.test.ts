@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  LEGACY, PEOPLE, STAGE, SUB, assignBo, assignGqs, findSalesAgent, route,
+  LEGACY, PEOPLE, STAGE, SUB, assignBo, assignGqs, chatPlan, findSalesAgent, route,
   type AssignInput, type Availability, type Classified, type RouteFacts, type SalesAgent,
 } from "../src/lib/boDistribution/rules";
 
@@ -79,6 +79,27 @@ test("chat tickets never reach a distribution step", () => {
   // EMAIL wins over an AI chat source
   assert.equal(route(facts({ aiChatSource: "CHAT" }), none).path[0], "EMAIL");
   assert.equal(route(facts({ sourceType: null, aiChatSource: "CHAT" }), none).path[0], "AI CHAT");
+});
+
+test("the chat's new way: CHAT/C2S Issue with #27 instead of parking or Rose - exclusions and other origins untouched", () => {
+  const handed = chatPlan(route(facts({ sourceType: "CHAT", stage: STAGE.boRedirectedFromChat, stagesEver: [STAGE.boRedirectedFromChat] }), none));
+  assert.equal(handed?.stage, STAGE.cutToSizeIssue);
+  assert.equal(handed?.stage, "5948837104");
+  assert.equal(handed?.assigner, "27");
+  assert.equal(handed?.callWithinMin, 60);
+  assert.equal(handed?.today, "parked in New BO Topic");
+  const resent = chatPlan(route(facts({ sourceType: null, aiChatSource: "CHAT", stagesEver: ["1", STAGE.boNew], category: "Delivery" }), none));
+  assert.equal(resent?.today, "Rose");
+  assert.equal(resent?.path[0], "AI CHAT");
+  assert.equal(resent?.path[1], "SENT BACK BY TSA");
+  // the shop bug and the 3D model request keep their own way
+  assert.equal(chatPlan(route(facts({ sourceType: "CHAT", category: "Website Issue", subs: { [SUB.website]: "Other Issue" } }), none)), null);
+  assert.equal(chatPlan(route(facts({ sourceType: "CHAT", category: "Product Information", subs: { [SUB.product]: "3D Model request" } }), none)), null);
+  // not a chat: no plan
+  assert.equal(chatPlan(route(facts(), as("Delivery", SUB.delivery, "Existing Order"))), null);
+  assert.equal(chatPlan(route(facts({ sourceType: "FORM", category: "Order Cancellation" }), none)), null);
+  // today's path itself is unchanged by the plan (shadow)
+  assert.equal(route(facts({ sourceType: "CHAT" }), none).sets.hs_pipeline_stage, STAGE.chatNewBoTopic);
 });
 
 test("forms skip the classifier; API / hub tickets stop on CERTIFICATES and MAIL TO CUSTOMER", () => {
