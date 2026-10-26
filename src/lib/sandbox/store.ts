@@ -28,6 +28,14 @@ export function ensureSandboxTables(): Promise<void> {
     await p.query(`CREATE TABLE IF NOT EXISTS sandbox_asks (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(),
       by_user text NOT NULL, spec jsonb NOT NULL, reason text NOT NULL DEFAULT '', state text NOT NULL DEFAULT 'new',
       note text, asked_at timestamptz, answered_at timestamptz)`);
+    // an answered ask points at its replay row, so the CLI can fetch what it asked for
+    await p.query(`ALTER TABLE sandbox_asks ADD COLUMN IF NOT EXISTS answer_key text`);
+    // "send to review" from the CLI: the hub mails it to the reviewer on its next round
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_reviews (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(),
+      by_user text NOT NULL, title text NOT NULL, summary text NOT NULL DEFAULT '', base text, preview_url text,
+      files jsonb NOT NULL DEFAULT '[]', patch text NOT NULL DEFAULT '', state text NOT NULL DEFAULT 'new', sent_at timestamptz)`);
+    // what the CLI is handed after password + TOTP: the Railway token the hub replaces every day
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_cli (k text PRIMARY KEY, v text NOT NULL, at timestamptz NOT NULL DEFAULT now())`);
   })().catch((e: unknown) => { ready = null; throw e; });
   return ready;
 }
@@ -102,8 +110,9 @@ export async function askForRequested(): Promise<number> {
 }
 
 // Delete all keeps the logins - the sandbox's own users, sessions and grants, and in the key store only their
-// invitations and recovery codes. Everything else in the database is the sandbox's data and goes.
-export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker"] as const;
+// invitations and recovery codes - plus the CLI's Railway token and the reviews already sent. Everything else in the
+// database is the sandbox's data and goes.
+export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker", "sandbox_cli", "sandbox_reviews"] as const;
 export const KEEP_KV_PREFIXES = ["invite:", "recovery:"] as const;
 
 /** The tables Delete all empties: every table of the database but the kept ones (and the key store, done apart). */

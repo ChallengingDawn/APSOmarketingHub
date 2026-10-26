@@ -97,6 +97,12 @@ export async function register() {
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
 
+    // The Railway sandbox's data: every minute the reads its pages (Bring data) and the CLI (Bring requested data) asked
+    // for, run here read-only, coded - customers by their HubSpot number, nothing real - and delivered
+    // (src/lib/sandboxFeed). Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.
+    const { startSandboxFeed } = await import("./lib/sandboxFeed/feeder");
+    startSandboxFeed();
+
     // APSOassistant Chat > Setup: the orchestrator's chat log copied whole into the hub's database, every 5 min, so
     // nothing of the chat lives only on Railway (src/lib/chat/logCopy.ts). CHAT_LOG_COPY=off stops it. SARCLA, 24.10.2026.
     const { startChatLogCopy } = await import("./lib/chat/logCopy");

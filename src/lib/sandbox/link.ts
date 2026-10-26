@@ -15,9 +15,16 @@ export function hubKeyOk(authorization: string | null, expectedSha256Hex: string
   return timingSafeEqual(got, Buffer.from(expectedSha256Hex, "hex"));
 }
 
+export type Review = { id: number; by: string; title: string; summary: string; base: string | null; preview_url: string | null;
+  files: { path: string; added?: number; removed?: number }[]; patch: string };
+
 export type Asked = {
   misses: { key: string; kind: string; request: unknown }[];
   asks: { id: number; by: string; spec: unknown; reason: string }[];
+  /** Sent to review from the CLI, not mailed yet. */
+  reviews?: Review[];
+  /** When the CLI's Railway token was last replaced (null = never), so the hub knows when to replace it. */
+  railwayTokenAt?: string | null;
 };
 
 /** What the hub should answer this round: the asked reads and the asked CLI requests, oldest first, bounded. */
@@ -26,13 +33,26 @@ export async function asked(limit = 200): Promise<Asked> {
   const p = getPool();
   const m = await p.query(`SELECT key, kind, request FROM sandbox_misses WHERE state = 'asked' ORDER BY asked_at, key LIMIT $1`, [limit]);
   const a = await p.query(`SELECT id, by_user AS by, spec, reason FROM sandbox_asks WHERE state = 'asked' ORDER BY id LIMIT 20`);
-  return { misses: m.rows, asks: a.rows.map((r) => ({ ...r, id: Number(r.id) })) };
+  const r = await p.query(`SELECT id, by_user AS by, title, summary, base, preview_url, files, patch FROM sandbox_reviews
+    WHERE state = 'new' ORDER BY id LIMIT 5`);
+  const t = await p.query<{ at: string }>(`SELECT at FROM sandbox_cli WHERE k = 'railway_token'`);
+  return {
+    misses: m.rows,
+    asks: a.rows.map((x) => ({ ...x, id: Number(x.id) })),
+    reviews: r.rows.map((x) => ({ ...x, id: Number(x.id) })),
+    railwayTokenAt: t.rows[0]?.at ? new Date(t.rows[0].at).toISOString() : null,
+  };
 }
 
 export type Delivery = {
   answers?: { key: string; kind: string; request: unknown; response: unknown }[];
   refused?: { key: string; note: string }[];
-  asks?: { id: number; state: "answered" | "refused"; note?: string }[];
+  /** An ask's outcome; an answered one names the replay row its data went to. */
+  asks?: { id: number; state: "answered" | "refused"; note?: string; key?: string }[];
+  /** Reviews the hub has mailed. */
+  reviewsSent?: number[];
+  /** The Railway token the CLI is handed from now on (the sandbox environment's only). */
+  railwayToken?: string;
 };
 
 // The second lock, on this side: the hub codes and leak-checks every answer, and a delivery that still carries an
@@ -65,7 +85,15 @@ export async function deliver(d: Delivery): Promise<{ answers: number; refused: 
       await client.query(`UPDATE sandbox_misses SET state = 'refused', note = $2 WHERE key = $1`, [r.key, r.note]);
     }
     for (const a of d.asks ?? []) {
-      await client.query(`UPDATE sandbox_asks SET state = $2, note = $3, answered_at = now() WHERE id = $1`, [a.id, a.state, a.note ?? null]);
+      await client.query(`UPDATE sandbox_asks SET state = $2, note = $3, answer_key = $4, answered_at = now() WHERE id = $1`,
+        [a.id, a.state, a.note ?? null, a.key ?? null]);
+    }
+    for (const id of d.reviewsSent ?? []) {
+      await client.query(`UPDATE sandbox_reviews SET state = 'sent', sent_at = now() WHERE id = $1`, [id]);
+    }
+    if (d.railwayToken) {
+      await client.query(`INSERT INTO sandbox_cli (k, v, at) VALUES ('railway_token', $1, now())
+        ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, at = now()`, [d.railwayToken]);
     }
     await client.query("COMMIT");
   } catch (e) {
