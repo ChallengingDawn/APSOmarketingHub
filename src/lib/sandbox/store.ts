@@ -75,38 +75,24 @@ export async function dropReplaysOf(table: string): Promise<void> {
   await pool().query(`DELETE FROM sandbox_replay WHERE kind = 'sql' AND request->>'text' ILIKE $1`, [`%${table}%`]);
 }
 
-export type SandboxState = { missing: number; asked: number; refused: number; brought: number; wouldWrite: number; asks: number; asksAsked: number };
+// What the sandbox holds and what waits. Nothing here asks the hub for anything: the reads and the CLI's asks wait
+// until somebody brings them from the hub's Sandbox app (SARCLA 26.10.2026: the hub is the front end for pulling data;
+// the sandbox cannot reach the hub, and the decision to let data out belongs on the hub, behind its TOTP and its log).
+export type SandboxState = { missing: number; refused: number; brought: number; wouldWrite: number; asks: number };
 
 export async function sandboxState(): Promise<SandboxState> {
   await ensureSandboxTables();
   const r = await pool().query<Record<string, string>>(`SELECT
       (SELECT count(*) FROM sandbox_misses WHERE state = 'new') AS missing,
-      (SELECT count(*) FROM sandbox_misses WHERE state = 'asked') AS asked,
       (SELECT count(*) FROM sandbox_misses WHERE state = 'refused') AS refused,
       (SELECT count(*) FROM sandbox_replay) AS brought,
       (SELECT count(*) FROM sandbox_would_write) AS would_write,
-      (SELECT count(*) FROM sandbox_asks WHERE state = 'new') AS asks,
-      (SELECT count(*) FROM sandbox_asks WHERE state = 'asked') AS asks_asked`);
+      (SELECT count(*) FROM sandbox_asks WHERE state = 'new') AS asks`);
   const x = r.rows[0] ?? {};
   return {
-    missing: Number(x.missing ?? 0), asked: Number(x.asked ?? 0), refused: Number(x.refused ?? 0),
-    brought: Number(x.brought ?? 0), wouldWrite: Number(x.would_write ?? 0),
-    asks: Number(x.asks ?? 0), asksAsked: Number(x.asks_asked ?? 0),
+    missing: Number(x.missing ?? 0), refused: Number(x.refused ?? 0), brought: Number(x.brought ?? 0),
+    wouldWrite: Number(x.would_write ?? 0), asks: Number(x.asks ?? 0),
   };
-}
-
-/** Bring data: every read the pages could not answer goes to the hub on its next round (it checks every minute). */
-export async function askForMisses(): Promise<number> {
-  await ensureSandboxTables();
-  const r = await pool().query(`UPDATE sandbox_misses SET state = 'asked', asked_at = now() WHERE state = 'new' RETURNING key`);
-  return r.rowCount ?? 0;
-}
-
-/** Bring requested data: the CLI's asks go to the hub on its next round. */
-export async function askForRequested(): Promise<number> {
-  await ensureSandboxTables();
-  const r = await pool().query(`UPDATE sandbox_asks SET state = 'asked', asked_at = now() WHERE state = 'new' RETURNING id`);
-  return r.rowCount ?? 0;
 }
 
 // Delete all keeps the logins - the sandbox's own users, sessions and grants, and in the key store only their

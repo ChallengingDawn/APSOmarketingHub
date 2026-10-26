@@ -74,24 +74,34 @@ test("the whole loop: a miss is brought from the hub, coded, and nothing real is
     await sb.query(`INSERT INTO sandbox_reviews (by_user, title, summary, base, files, patch) VALUES ('tester', 'Bar spacing', 'Tighter bar', 'd70958d', $1, $2)`,
       [JSON.stringify([{ path: "src/app/SandboxBar.tsx", added: 3, removed: 1 }]), "diff --git a/x b/x\n"]);
 
-    // 2. Bring data, Bring requested data
-    await as("/api/sandbox", { method: "POST", body: JSON.stringify({ action: "bring" }) });
-    await as("/api/sandbox", { method: "POST", body: JSON.stringify({ action: "bring-requested" }) });
+    // 2. the sandbox cannot bring anything itself any more - only the hub can
+    assert.equal((await as("/api/sandbox", { method: "POST", body: JSON.stringify({ action: "bring" }) })).status, 400);
+    const { bring, feedOne, readSandbox } = await import("../src/lib/sandboxFeed/feed");
+    const waiting = await readSandbox(URL_!, KEY!);
+    assert.equal(waiting.misses.length, 3, "the page's read, the database read and the write wait");
+    assert.equal(waiting.asks.length, 2);
 
-    // 3. the hub's round
-    const { feedOne } = await import("../src/lib/sandboxFeed/feed");
+    // 3. the hub's minute round never runs a read: it mails the review and hands over the token
     const mailed: { title: string; host: string }[] = [];
     const line = await feedOne(URL_!, KEY!, {
       railway: { token: "railway-test-token", at: new Date().toISOString() },
       sendReview: async (r, host) => { mailed.push({ title: r.title, host }); },
     });
-    assert.match(line, /3 answered, 2 refused.*1 review mailed, Railway token replaced/, line);
+    assert.match(line, /1 review mailed, 0 sign-up links mailed, Railway token replaced/, line);
+    assert.equal(hubspotCalls.length, 0, "the round read nothing from HubSpot");
+    assert.equal((await readSandbox(URL_!, KEY!)).misses.length, 3, "and the reads still wait");
     assert.deepEqual(mailed.map((m) => m.title), ["Bar spacing"]);
     assert.equal((await sb.query(`SELECT state FROM sandbox_reviews`)).rows[0].state, "sent");
     assert.equal((await sb.query(`SELECT v FROM sandbox_cli WHERE k = 'railway_token'`)).rows[0].v, "railway-test-token");
     // the next round: the review is not mailed twice, the token is not handed over again
     const again = await feedOne(URL_!, KEY!, { railway: { token: "railway-test-token", at: new Date(Date.now() - 60_000).toISOString() }, sendReview: async () => { throw new Error("mailed twice"); } });
-    assert.match(again, /nothing asked/, again);
+    assert.match(again, /nothing to do/, again);
+
+    // 4. Bring data and Bring requested data, pressed on the hub
+    const reads = await bring(URL_!, KEY!, "reads");
+    assert.match(reads.line, /2 brought, 1 refused \(1x only reads are run/, reads.line);
+    const asked = await bring(URL_!, KEY!, "asks");
+    assert.match(asked.line, /1 brought, 1 refused \(1x leak check/, asked.line);
     assert.equal(hubspotCalls.includes("PATCH /crm/v3/objects/companies/1"), false, "a write is never run");
 
     // 4. the page answers coded

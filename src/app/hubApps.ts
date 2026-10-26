@@ -36,7 +36,7 @@ export type HubApp = {
   from: string;
   to: string;
   wash: string;
-  icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart" | "cable";
+  icon: "store" | "globe" | "campaign" | "trend" | "hub" | "chart" | "cable" | "science";
   subs: SubApp[];
   /** Reached from its own square under the tiles, not a tile of its own (Connectors - SARCLA, 07.10.2026). */
   square?: boolean;
@@ -221,6 +221,18 @@ export const APPS: HubApp[] = [
       { group: "Magento connector", name: "What the shop sync writes", short: "What it writes", note: "Every order property and link, and its shop field", href: "/connectors/magento/writes", icon: "layers", ...PURPLE },
       { group: "Magento connector", name: "Shop review queue", short: "Review queue", note: "Orders held back or missing their contact", href: "/connectors/magento/review", icon: "groups", ...AMBER },
       { group: "Magento connector", name: "Web orders' ERP numbers", short: "ERP numbers", note: "Each web order's A-number, asked of the shop", href: "/connectors/magento/erp-numbers", icon: "tag", ...AMBER },
+    ],
+  },
+  {
+    // The copies on Railway that people build in, with coded data: what their pages and the CLI wait for is brought
+    // from here, and nowhere else (SARCLA, 26.10.2026).
+    key: "sandbox",
+    href: "/sandbox",
+    name: "Sandbox",
+    line: "Coded data for the sandboxes, and what is built in them.",
+    from: "#7c8aa5", to: "#4a5a70", wash: "rgba(124,138,165,.10)", icon: "science",
+    subs: [
+      { name: "Sandboxes", note: "What waits, what was brought, the reviews", href: "/sandbox", icon: "science", ...PURPLE },
     ],
   },
 ];

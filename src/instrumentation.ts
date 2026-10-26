@@ -97,9 +97,9 @@ export async function register() {
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
 
-    // The Railway sandbox's data: every minute the reads its pages (Bring data) and the CLI (Bring requested data) asked
-    // for, run here read-only, coded - customers by their HubSpot number, nothing real - and delivered
-    // (src/lib/sandboxFeed). Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.
+    // The Railway sandboxes' errands, every minute: reviews and sign-up links mailed, the CLI's Railway token replaced.
+    // Their data is brought only from the Sandbox app, when somebody presses Bring data (src/lib/sandboxFeed).
+    // Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.
     const { startSandboxFeed } = await import("./lib/sandboxFeed/feeder");
     startSandboxFeed();
 

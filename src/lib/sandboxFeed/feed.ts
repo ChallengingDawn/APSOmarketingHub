@@ -1,4 +1,7 @@
-// ONE SANDBOX, ONE ROUND - collect what it asked for, run each read here (run.ts), code it (code.ts), deliver it.
+// ONE SANDBOX - read what waits in it, BRING it (run each read here - run.ts - code it - code.ts - deliver it), and the
+// minute round's errands (mails, the CLI's Railway token). Data leaves only through bring(), which the hub's Sandbox app
+// calls when a person presses Bring data or Bring requested data there (SARCLA 26.10.2026: the hub is the front end for
+// pulling data - behind its login, its TOTP and its log). The minute round never runs a read.
 // The timer, the lock and the ERP-chain check are feeder.ts; this part is tested end to end (tests/sandbox-loop.test.ts).
 
 import { hubspotKey, sqlKey } from "../sandbox/canon";
@@ -9,7 +12,7 @@ import { codeHubspotAnswer, codeRows, kindOfPath, type CodeCtx } from "./code";
 import { moneyFactor } from "./policy";
 import { hubspotRefusal, propertyTypes, runHubspotRead, runSqlRead, sqlRefusal } from "./run";
 
-/** A round stops taking new reads after this; the rest stay asked for the next round. */
+/** A bring stops taking new reads after this; the rest keep waiting for the next press. */
 const ROUND_BUDGET_MS = 45_000;
 const DELIVER_EVERY = 40;
 
@@ -52,7 +55,60 @@ async function post(base: string, linkKey: string, d: Delivery): Promise<void> {
   if (!res.ok) throw new Error(`the sandbox refused the delivery (${res.status}): ${(await res.text()).slice(0, 200)}`);
 }
 
-/** One sandbox, one round. Returns the line for the log. */
+export const hostOf = (base: string) => base.replace(/^https?:\/\//, "");
+
+/** What waits in a sandbox, who works there, its counts, and its errands. */
+export async function readSandbox(base: string, linkKey: string): Promise<Asked> {
+  const got = await fetch(`${base}/api/sandbox-link/feed`, { headers: { authorization: `Bearer ${linkKey}` }, signal: AbortSignal.timeout(20_000) });
+  if (!got.ok) throw new Error(`${hostOf(base)} answered ${got.status}`);
+  return (await got.json()) as Asked;
+}
+
+export type BringResult = { answered: number; refused: number; left: number; reasons: [string, number][]; line: string };
+
+/**
+ * Bring data ("reads": what the sandbox's pages could not answer) or Bring requested data ("asks": the CLI's asks):
+ * each one refused, or run here read-only, coded, leak-checked - and delivered. `only` narrows it to some of them.
+ */
+export async function bring(base: string, linkKey: string, which: "reads" | "asks", only?: { keys?: string[]; ids?: number[] }): Promise<BringResult> {
+  const asked = await readSandbox(base, linkKey);
+  const ctx: CodeCtx = { salt: linkKey, factor: moneyFactor(linkKey) };
+  const until = Date.now() + ROUND_BUDGET_MS;
+  let pending: Delivery = { answers: [], refused: [], asks: [] };
+  let answered = 0, refused = 0, left = 0;
+  const reasons = new Map<string, number>();
+  const flush = async () => {
+    if (pending.answers!.length || pending.refused!.length || pending.asks!.length) await post(base, linkKey, pending);
+    pending = { answers: [], refused: [], asks: [] };
+  };
+  const refuse = (why: string) => { refused++; reasons.set(why, (reasons.get(why) ?? 0) + 1); };
+  const failed = (e: Error) => ({ refused: `the hub could not run it: ${e.message.slice(0, 120)}` });
+
+  if (which === "reads") {
+    for (const m of asked.misses.filter((x) => !only?.keys || only.keys.includes(x.key))) {
+      if (Date.now() > until) { left++; continue; }
+      const out = await answerOne(m.kind, m.request, ctx, m.key).catch(failed);
+      if ("answer" in out) { pending.answers!.push(out.answer); answered++; }
+      else { pending.refused!.push({ key: m.key, note: out.refused }); refuse(out.refused); }
+      if (pending.answers!.length + pending.refused!.length >= DELIVER_EVERY) await flush();
+    }
+  } else {
+    for (const a of asked.asks.filter((x) => !only?.ids || only.ids.includes(x.id))) {
+      if (Date.now() > until) { left++; continue; }
+      const spec = (a.spec ?? {}) as { kind?: string; request?: unknown };
+      const out = await answerOne(String(spec.kind ?? ""), spec.request, ctx).catch(failed);
+      if ("answer" in out) { pending.answers!.push(out.answer); pending.asks!.push({ id: a.id, state: "answered", key: out.answer.key }); answered++; }
+      else { pending.asks!.push({ id: a.id, state: "refused", note: out.refused }); refuse(out.refused); }
+    }
+  }
+  await flush();
+  const why = [...reasons].map(([r, n]) => `${n}x ${r}`).join("; ");
+  return {
+    answered, refused, left, reasons: [...reasons],
+    line: `${hostOf(base)}: ${answered} brought, ${refused} refused${why ? ` (${why})` : ""}${left ? `, ${left} still waiting` : ""}`,
+  };
+}
+
 export type FeedOptions = {
   /** Today's Railway token for the CLI; delivered to a sandbox that holds an older one. */
   railway?: { token: string; at: string };
@@ -62,60 +118,40 @@ export type FeedOptions = {
   sendInvite?: (i: PendingInvite, sandboxHost: string) => Promise<void>;
 };
 
+/** The minute round for one sandbox: its reviews and new people's links mailed, today's Railway token handed over.
+ *  It never runs a read - that is bring(). Returns the line for the log. */
 export async function feedOne(base: string, linkKey: string, opts: FeedOptions = {}): Promise<string> {
-  const host = base.replace(/^https?:\/\//, "");
-  const got = await fetch(`${base}/api/sandbox-link/feed`, { headers: { authorization: `Bearer ${linkKey}` }, signal: AbortSignal.timeout(20_000) });
-  if (!got.ok) return `${host}: the feed answered ${got.status}`;
-  const asked = (await got.json()) as Asked;
+  const host = hostOf(base);
+  const asked = await readSandbox(base, linkKey).catch(() => null);
+  if (!asked) return `${host}: did not answer`;
   const reviews = opts.sendReview ? asked.reviews ?? [] : [];
   const invites = opts.sendInvite ? asked.invites ?? [] : [];
   const newToken = opts.railway && (!asked.railwayTokenAt || asked.railwayTokenAt < opts.railway.at) ? opts.railway.token : undefined;
-  if (!asked.misses.length && !asked.asks.length && !reviews.length && !invites.length && !newToken) return `${host}: nothing asked`;
+  if (!reviews.length && !invites.length && !newToken) return `${host}: nothing to do`;
 
-  const ctx: CodeCtx = { salt: linkKey, factor: moneyFactor(linkKey) };
-  const until = Date.now() + ROUND_BUDGET_MS;
-  let pending: Delivery = { answers: [], refused: [], asks: [] };
-  let answered = 0, refused = 0, left = 0;
-  const reasons = new Map<string, number>();
-  const flush = async () => {
-    if (pending.answers!.length || pending.refused!.length || pending.asks!.length || pending.reviewsSent || pending.invitesSent || pending.railwayToken) {
-      await post(base, linkKey, pending);
-    }
-    pending = { answers: [], refused: [], asks: [] };
-  };
-  const refuse = (why: string) => { refused++; reasons.set(why, (reasons.get(why) ?? 0) + 1); };
-
-  for (const m of asked.misses) {
-    if (Date.now() > until) { left++; continue; }
-    const out = await answerOne(m.kind, m.request, ctx, m.key).catch((e: Error) => ({ refused: `the hub could not run it: ${e.message.slice(0, 120)}` }));
-    if ("answer" in out) { pending.answers!.push(out.answer); answered++; }
-    else { pending.refused!.push({ key: m.key, note: out.refused }); refuse(out.refused); }
-    if (pending.answers!.length + pending.refused!.length >= DELIVER_EVERY) await flush();
-  }
-  for (const a of asked.asks) {
-    if (Date.now() > until) { left++; continue; }
-    const spec = (a.spec ?? {}) as { kind?: string; request?: unknown };
-    const out = await answerOne(String(spec.kind ?? ""), spec.request, ctx).catch((e: Error) => ({ refused: `the hub could not run it: ${e.message.slice(0, 120)}` }));
-    if ("answer" in out) { pending.answers!.push(out.answer); pending.asks!.push({ id: a.id, state: "answered", key: out.answer.key }); answered++; }
-    else { pending.asks!.push({ id: a.id, state: "refused", note: out.refused }); refuse(out.refused); }
-  }
-  let mailed = 0;
+  const d: Delivery = {};
   const sent: number[] = [];
   for (const r of reviews) {
-    try { await opts.sendReview!(r, host); sent.push(r.id); mailed++; }
+    try { await opts.sendReview!(r, host); sent.push(r.id); }
     catch (e) { console.warn(`[sandbox-feed] ${host}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
-  if (sent.length) pending.reviewsSent = sent;
+  if (sent.length) d.reviewsSent = sent;
   const invited: number[] = [];
   for (const i of invites) {
     try { await opts.sendInvite!(i, host); invited.push(i.userId); }
     catch (e) { console.warn(`[sandbox-feed] ${host}: the link for user ${i.userId} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
-  if (invited.length) pending.invitesSent = invited;
-  if (newToken) pending.railwayToken = newToken;
-  await flush();
-  const why = [...reasons].map(([r, n]) => `${n}x ${r}`).join("; ");
-  return `${host}: ${answered} answered, ${refused} refused${why ? ` (${why})` : ""}${left ? `, ${left} left for the next round` : ""}`
-    + `${mailed ? `, ${mailed} review${mailed === 1 ? "" : "s"} mailed` : ""}${invited.length ? `, ${invited.length} sign-up link${invited.length === 1 ? "" : "s"} mailed` : ""}`
+  if (invited.length) d.invitesSent = invited;
+  if (newToken) d.railwayToken = newToken;
+  if (d.reviewsSent || d.invitesSent || d.railwayToken) await post(base, linkKey, d);
+  return `${host}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed, ${invited.length} sign-up link${invited.length === 1 ? "" : "s"} mailed`
     + `${newToken ? ", Railway token replaced" : ""}`;
+}
+
+/** Delete all, pressed on the hub: the sandbox's own Delete all, through the link. */
+export async function deleteAllIn(base: string, linkKey: string): Promise<{ tables: number }> {
+  const res = await fetch(`${base}/api/sandbox-link/delete-all`, { method: "POST", headers: { authorization: `Bearer ${linkKey}` }, signal: AbortSignal.timeout(30_000) });
+  const j = (await res.json().catch(() => ({}))) as { tables?: number; error?: string };
+  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
+  return { tables: j.tables ?? 0 };
 }

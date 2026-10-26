@@ -27,17 +27,20 @@ empty states, tooltips). They belong in code comments and commit messages only.
 
 ## How data reaches a page
 
-1. A page's read that the sandbox cannot answer (HubSpot or the hub's database) is noted as a *miss*. The page
-   shows "Not in the sandbox yet - press Bring data".
-2. **Bring data** (bar on top of every page) sends those reads to the hub. Within a minute the hub runs them
-   read-only, codes the answer, checks it for leaks and sends it back. The page then reads again and its own
-   code runs on the coded data.
-3. Reads are matched by the day. Tomorrow the same page misses once more, and Bring data fetches the new day.
+Data is only ever pulled **on the hub**, in its **Sandbox** app. The person signs in to the hub with their TOTP
+and presses the button there. The sandbox never asks the hub for anything; you cannot pull data from here.
+
+1. A page's read that the sandbox cannot answer (HubSpot or the hub's database) is noted as *waiting*. The page
+   shows "Not in the sandbox yet", and the bar on top says how many reads wait, with a link to the hub.
+2. On the hub's Sandbox app the person sees which reads wait (a HubSpot path, a table, never data) and presses
+   **Bring data**. The hub runs them read-only, codes the answers, checks them for leaks and sends them to this
+   sandbox. Reload the page: its own code now runs on the coded data.
+3. Reads are matched by the day. Tomorrow the same page waits once more, and Bring data fetches the new day.
 4. Once the sandbox writes a database table itself, that table belongs to the sandbox.
 5. HubSpot **writes** never leave. They are answered "done" and counted as "held back" in the bar. Use that to
    check what a change *would* write.
-6. **Delete all** empties everything except logins (and your code snapshot). Use it, then Bring data, to start
-   clean.
+6. **Delete all** (in the bar, or on the hub) empties everything except logins (and your code snapshot). Use it,
+   then Bring data, to start clean.
 7. The hub refuses: writes, logins and keys, the database catalogue, HubSpot paths outside its list, and any
    answer where a real value survived coding. The bar shows "refused by the hub". If you need such data, ask
    Claudio.
@@ -49,8 +52,8 @@ npm run sbx -- ask --hs POST /crm/v3/objects/tickets/search --body @query.json -
 npm run sbx -- ask --sql "SELECT ... FROM ..." --reason "why"
 ```
 
-Then the person presses **Bring requested data** in the sandbox. Read the result with
-`npm run sbx -- ask-status <id> --out ask-<id>.json`. It is coded like everything else.
+Then the person presses **Bring requested data** on the hub's Sandbox app, where the ask shows with its reason.
+Read the result with `npm run sbx -- ask-status <id> --out ask-<id>.json`. It is coded like everything else.
 
 ## The CLI: `npm run sbx -- <command>`
 

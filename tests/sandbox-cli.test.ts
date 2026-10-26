@@ -11,6 +11,7 @@ import { Client } from "pg";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import { Secret, TOTP } from "otpauth";
+import { APP_KEYS } from "../src/lib/auth/access";
 
 const URL_ = process.env.SANDBOX_TEST_URL;
 const SANDBOX_DB = process.env.SANDBOX_TEST_DATABASE_URL;
@@ -42,7 +43,7 @@ test("a new person gets a mailed link; the CLI signs in with TOTP, asks, reviews
     const diana = (await sb.query(`SELECT awaiting_setup, role FROM apsomh_users WHERE email = 'diana@apsoparts.example'`)).rows[0];
     assert.deepEqual(diana, { awaiting_setup: true, role: "user" });
     assert.equal((await sb.query(`SELECT count(*)::int AS n FROM apsomh_user_app_access ua JOIN apsomh_users u ON u.id = ua.user_id
-      WHERE u.email = 'diana@apsoparts.example' AND ua.level = 'write'`)).rows[0].n, 7, "write on every app");
+      WHERE u.email = 'diana@apsoparts.example' AND ua.level = 'write'`)).rows[0].n, APP_KEYS.length, "write on every app");
 
     // 2. a person who has set up: password + TOTP on the CLI
     const secret = new Secret({ size: 20 });

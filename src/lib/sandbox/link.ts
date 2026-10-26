@@ -4,8 +4,8 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { getPool } from "../db/client";
-import { ensureSandboxTables } from "./store";
-import type { PendingInvite } from "./peopleList";
+import { ensureSandboxTables, sandboxState, type SandboxState } from "./store";
+import { parsePeople, type PendingInvite } from "./peopleList";
 
 /** The hub's key, checked against the hash the sandbox keeps. No hash configured = nobody gets in. */
 export function hubKeyOk(authorization: string | null, expectedSha256Hex: string | undefined): boolean {
@@ -20,22 +20,28 @@ export type Review = { id: number; by: string; title: string; summary: string; b
   files: { path: string; added?: number; removed?: number }[]; patch: string };
 
 export type Asked = {
-  misses: { key: string; kind: string; request: unknown }[];
-  asks: { id: number; by: string; spec: unknown; reason: string }[];
+  /** The pages' reads waiting to be brought, oldest first. */
+  misses: { key: string; kind: string; request: unknown; first_at?: string; hits?: number }[];
+  /** The CLI's asks waiting to be brought. */
+  asks: { id: number; by: string; spec: unknown; reason: string; at?: string }[];
   /** Sent to review from the CLI, not mailed yet. */
   reviews?: Review[];
   /** When the CLI's Railway token was last replaced (null = never), so the hub knows when to replace it. */
   railwayTokenAt?: string | null;
   /** New people's one-time links, for the hub to mail (src/lib/sandbox/people.ts). */
   invites?: PendingInvite[];
+  /** Who works in this sandbox (SANDBOX_PEOPLE) - the hub shows it only to them, and to admins. */
+  people?: { email: string; role: string; name: string }[];
+  /** Its counts, for the hub's Sandbox app. */
+  state?: SandboxState;
 };
 
-/** What the hub should answer this round: the asked reads and the asked CLI requests, oldest first, bounded. */
+/** Everything the hub's Sandbox app and its minute round need: what waits, what to mail, who works here. */
 export async function asked(limit = 200): Promise<Asked> {
   await ensureSandboxTables();
   const p = getPool();
-  const m = await p.query(`SELECT key, kind, request FROM sandbox_misses WHERE state = 'asked' ORDER BY asked_at, key LIMIT $1`, [limit]);
-  const a = await p.query(`SELECT id, by_user AS by, spec, reason FROM sandbox_asks WHERE state = 'asked' ORDER BY id LIMIT 20`);
+  const m = await p.query(`SELECT key, kind, request, first_at, hits FROM sandbox_misses WHERE state = 'new' ORDER BY first_at, key LIMIT $1`, [limit]);
+  const a = await p.query(`SELECT id, by_user AS by, spec, reason, at FROM sandbox_asks WHERE state = 'new' ORDER BY id LIMIT 20`);
   const r = await p.query(`SELECT id, by_user AS by, title, summary, base, preview_url, files, patch FROM sandbox_reviews
     WHERE state = 'new' ORDER BY id LIMIT 5`);
   const t = await p.query<{ at: string }>(`SELECT at FROM sandbox_cli WHERE k = 'railway_token'`);
@@ -46,6 +52,8 @@ export async function asked(limit = 200): Promise<Asked> {
     reviews: r.rows.map((x) => ({ ...x, id: Number(x.id) })),
     railwayTokenAt: t.rows[0]?.at ? new Date(t.rows[0].at).toISOString() : null,
     invites: i.rows.map((x) => JSON.parse(x.v) as PendingInvite),
+    people: parsePeople(process.env.SANDBOX_PEOPLE).people,
+    state: await sandboxState(),
   };
 }
 

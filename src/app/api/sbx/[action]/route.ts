@@ -47,7 +47,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const spec = askSpec((body as { spec?: unknown } | null)?.spec);
     if (typeof spec === "string") return json({ error: spec }, 400);
     const id = await addAsk(u.username, spec, String((body as { reason?: unknown }).reason ?? ""));
-    return json({ id, next: "Press Bring requested data in the sandbox; the hub answers within a minute." });
+    const hub = process.env.SANDBOX_HUB_URL ? `${process.env.SANDBOX_HUB_URL.replace(/\/+$/, "")}/sandbox` : "the hub's Sandbox app";
+    return json({ id, next: `Bring it on the hub: ${hub} - Bring requested data.` });
   }
   if (action === "review") {
     const r = reviewIn(body);

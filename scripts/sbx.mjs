@@ -8,7 +8,7 @@
 //   pull                                                the hub's current release (scrubbed) onto branch "base"
 //   ask --hs <METHOD> <path> [--body <json|@file>] --reason "<why>"
 //   ask --sql "<SELECT ...>" [--params <json>] --reason "<why>"
-//                                                       ask for data; press "Bring requested data" in the sandbox
+//                                                       ask for data; then "Bring requested data" on the hub
 //   ask-status <id> [--out <file.json>]                 the ask's state; its coded data when answered
 //   review --title "<title>" --summary "<what and why>" send this branch's change (vs base) to review
 //

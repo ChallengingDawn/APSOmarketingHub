@@ -22,6 +22,7 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
 import CableIcon from "@mui/icons-material/Cable";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -41,7 +42,7 @@ const ACCENT = "#3b7df6";
 
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
-  trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />, cable: <CableIcon />,
+  trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />, cable: <CableIcon />, science: <ScienceOutlinedIcon />,
 };
 
 const glass = {
