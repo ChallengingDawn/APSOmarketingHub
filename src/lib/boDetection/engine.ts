@@ -7,7 +7,7 @@
 // the month being counted. Reads HubSpot only, writes nothing there. BO_DETECTION=off stops it.
 
 import type { PoolClient } from "pg";
-import { getPool } from "@/lib/db/client";
+import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsSince, previousWindow, sumDays, type DayFig, type Hist, type Win } from "./figures";
@@ -134,7 +134,11 @@ export type PeriodFigures = {
 export async function periodFigures(from: string, to: string): Promise<PeriodFigures> {
   const prev = previousWindow(from, to);
   const months = monthsSince(FIRST_MONTH);
-  const stores = await Promise.all(months.map((ym) => kvGet<MonthStore>(KV.month(ym))));
+  // every month in ONE query: twenty kvGets side by side were twenty connections per page load, on a database already
+  // at its ceiling (26.10.2026)
+  const got = await query<{ k: string; v: MonthStore | string }>("SELECT k, v FROM apsomh_kv WHERE k = ANY($1)", [months.map(KV.month)]);
+  const byKey = new Map(got.rows.map((r) => [r.k, typeof r.v === "string" ? (JSON.parse(r.v) as MonthStore) : r.v]));
+  const stores = months.map((ym) => byKey.get(KV.month(ym)));
   const missing = months.filter((_, i) => stores[i]?.v !== VERSION);
   const have = stores.filter((s): s is MonthStore => s?.v === VERSION);
   const days = mergeDays(have.map((s) => s.days));
