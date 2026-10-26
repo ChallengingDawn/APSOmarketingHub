@@ -5,7 +5,13 @@
 // too, and only this form lets the compiler drop pg from that bundle (an early
 // `return` does not, and the build fails on 'fs' and 'path').
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
+  // The sandbox copy (Railway, coded data only) starts NONE of the schedulers below: its network guard first, then
+  // only the jobs SANDBOX_JOBS names - src/lib/sandbox/boot.ts. Same `if` form, so the edge bundle still drops it.
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.APSOHUB_SANDBOX === "1") {
+    const { startSandbox } = await import("./lib/sandbox/boot");
+    await startSandbox();
+  }
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.APSOHUB_SANDBOX !== "1") {
     // first: every HubSpot search of this copy books its turn in the hub-wide queue (both copies together stay under
     // HubSpot's per-app limit; SARCLA 19.10.2026). Before the schedulers below, so none searches outside it.
     const { installSharedSearchQueue } = await import("./lib/integrations/searchQueue");

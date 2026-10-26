@@ -1,0 +1,143 @@
+// THE SANDBOX'S OWN BOOKKEEPING - what it was given (replay), what it still lacks (misses), what it would have written
+// to HubSpot, and the asks from the CLI. Server only, and only ever on the sandbox's own database: every statement
+// here goes straight to the pool, past the replay hook in db/client.ts.
+
+import { getPool } from "../db/client";
+import { isSandbox } from "./mode";
+import { looksLikeHubDatabase } from "./jobs";
+
+export type MissKind = "hs" | "sql";
+export type HsRequest = { method: string; url: string; body: unknown };
+export type SqlRequest = { text: string; params: unknown[] };
+export type Miss = { key: string; kind: MissKind; request: HsRequest | SqlRequest; state: string; hits: number; last_at: string };
+
+const pool = () => getPool();
+
+let ready: Promise<void> | null = null;
+export function ensureSandboxTables(): Promise<void> {
+  ready ??= (async () => {
+    const p = pool();
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_marker (k text PRIMARY KEY, at timestamptz NOT NULL DEFAULT now())`);
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_replay (key text PRIMARY KEY, kind text NOT NULL, request jsonb NOT NULL,
+      response jsonb NOT NULL, brought_at timestamptz NOT NULL DEFAULT now())`);
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_misses (key text PRIMARY KEY, kind text NOT NULL, request jsonb NOT NULL,
+      state text NOT NULL DEFAULT 'new', hits int NOT NULL DEFAULT 1, note text,
+      first_at timestamptz NOT NULL DEFAULT now(), last_at timestamptz NOT NULL DEFAULT now(), asked_at timestamptz)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_would_write (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(),
+      method text NOT NULL, url text NOT NULL, body jsonb)`);
+    await p.query(`CREATE TABLE IF NOT EXISTS sandbox_asks (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(),
+      by_user text NOT NULL, spec jsonb NOT NULL, reason text NOT NULL DEFAULT '', state text NOT NULL DEFAULT 'new',
+      note text, asked_at timestamptz, answered_at timestamptz)`);
+  })().catch((e: unknown) => { ready = null; throw e; });
+  return ready;
+}
+
+/** Written once by startSandbox: Delete all runs only on a database that carries it. */
+export async function markSandboxDatabase(): Promise<void> {
+  await ensureSandboxTables();
+  await pool().query(`INSERT INTO sandbox_marker (k) VALUES ('sandbox') ON CONFLICT (k) DO NOTHING`);
+}
+
+export async function replayed(key: string): Promise<unknown | undefined> {
+  await ensureSandboxTables();
+  const r = await pool().query<{ response: unknown }>(`SELECT response FROM sandbox_replay WHERE key = $1`, [key]);
+  return r.rows[0]?.response;
+}
+
+/** A read the sandbox could not answer. A refused one stays refused (with the hub's reason) until Delete all. */
+export async function noteMiss(kind: MissKind, key: string, request: HsRequest | SqlRequest): Promise<void> {
+  await ensureSandboxTables();
+  await pool().query(
+    `INSERT INTO sandbox_misses (key, kind, request) VALUES ($1, $2, $3)
+     ON CONFLICT (key) DO UPDATE SET hits = sandbox_misses.hits + 1, last_at = now(),
+       state = CASE WHEN sandbox_misses.state = 'answered' THEN 'new' ELSE sandbox_misses.state END`,
+    [key, kind, JSON.stringify(request)],
+  );
+}
+
+export async function noteWouldWrite(method: string, url: string, body: unknown): Promise<void> {
+  await ensureSandboxTables();
+  await pool().query(`INSERT INTO sandbox_would_write (method, url, body) VALUES ($1, $2, $3)`,
+    [method, url, JSON.stringify(body ?? null)]);
+}
+
+/** Once the sandbox writes a table itself, that table is the sandbox's: the hub's replayed reads of it step aside. */
+export async function dropReplaysOf(table: string): Promise<void> {
+  await ensureSandboxTables();
+  await pool().query(`DELETE FROM sandbox_replay WHERE kind = 'sql' AND request->>'text' ILIKE $1`, [`%${table}%`]);
+}
+
+export type SandboxState = { missing: number; asked: number; refused: number; brought: number; wouldWrite: number; asks: number; asksAsked: number };
+
+export async function sandboxState(): Promise<SandboxState> {
+  await ensureSandboxTables();
+  const r = await pool().query<Record<string, string>>(`SELECT
+      (SELECT count(*) FROM sandbox_misses WHERE state = 'new') AS missing,
+      (SELECT count(*) FROM sandbox_misses WHERE state = 'asked') AS asked,
+      (SELECT count(*) FROM sandbox_misses WHERE state = 'refused') AS refused,
+      (SELECT count(*) FROM sandbox_replay) AS brought,
+      (SELECT count(*) FROM sandbox_would_write) AS would_write,
+      (SELECT count(*) FROM sandbox_asks WHERE state = 'new') AS asks,
+      (SELECT count(*) FROM sandbox_asks WHERE state = 'asked') AS asks_asked`);
+  const x = r.rows[0] ?? {};
+  return {
+    missing: Number(x.missing ?? 0), asked: Number(x.asked ?? 0), refused: Number(x.refused ?? 0),
+    brought: Number(x.brought ?? 0), wouldWrite: Number(x.would_write ?? 0),
+    asks: Number(x.asks ?? 0), asksAsked: Number(x.asks_asked ?? 0),
+  };
+}
+
+/** Bring data: every read the pages could not answer goes to the hub on its next round (it checks every minute). */
+export async function askForMisses(): Promise<number> {
+  await ensureSandboxTables();
+  const r = await pool().query(`UPDATE sandbox_misses SET state = 'asked', asked_at = now() WHERE state = 'new' RETURNING key`);
+  return r.rowCount ?? 0;
+}
+
+/** Bring requested data: the CLI's asks go to the hub on its next round. */
+export async function askForRequested(): Promise<number> {
+  await ensureSandboxTables();
+  const r = await pool().query(`UPDATE sandbox_asks SET state = 'asked', asked_at = now() WHERE state = 'new' RETURNING id`);
+  return r.rowCount ?? 0;
+}
+
+// Delete all keeps the logins - the sandbox's own users, sessions and grants, and in the key store only their
+// invitations and recovery codes. Everything else in the database is the sandbox's data and goes.
+export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker"] as const;
+export const KEEP_KV_PREFIXES = ["invite:", "recovery:"] as const;
+
+/** The tables Delete all empties: every table of the database but the kept ones (and the key store, done apart). */
+export function tablesToEmpty(all: string[]): string[] {
+  return all.filter((t) => !(KEEP_TABLES as readonly string[]).includes(t) && t !== "apsomh_kv").sort();
+}
+
+/**
+ * Delete all - three locks, all on this side: the copy runs as the sandbox, its database is not the hub's, and the
+ * database carries the sandbox marker (written by startSandbox, never by the hub).
+ */
+export async function deleteAll(): Promise<{ tables: number }> {
+  if (!isSandbox()) throw new Error("Delete all exists only in the sandbox");
+  if (looksLikeHubDatabase(process.env)) throw new Error("this is the hub's database - refused");
+  await ensureSandboxTables();
+  const p = pool();
+  const marked = await p.query(`SELECT 1 FROM sandbox_marker WHERE k = 'sandbox'`);
+  if (!marked.rowCount) throw new Error("this database carries no sandbox marker - refused");
+  const all = await p.query<{ tablename: string }>(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`);
+  const tables = tablesToEmpty(all.rows.map((r) => r.tablename));
+  const client = await p.connect();
+  try {
+    await client.query("BEGIN");
+    if (tables.length) await client.query(`TRUNCATE ${tables.map((t) => `"${t.replace(/"/g, '""')}"`).join(", ")} RESTART IDENTITY`);
+    if (all.rows.some((r) => r.tablename === "apsomh_kv")) {
+      await client.query(`DELETE FROM apsomh_kv WHERE NOT (${KEEP_KV_PREFIXES.map((_, i) => `k LIKE $${i + 1}`).join(" OR ")})`,
+        KEEP_KV_PREFIXES.map((x) => `${x}%`));
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+  return { tables: tables.length };
+}

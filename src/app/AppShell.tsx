@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { ViewAsProvider } from "./ViewAs";
 import { ReportingWindowProvider } from "./window/ReportingWindow";
+import SandboxBar from "./SandboxBar";
 
 /**
  * Routes whose page owns its own outer spacing get the shell's default padding;
@@ -33,7 +34,8 @@ function isPadded(pathname: string) {
   return PADDED_PATHS.some((p) => matchPrefix(pathname, p)) || pathname.startsWith("/docs");
 }
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+/** `sandbox`: this copy is the Railway sandbox (the layout reads APSOHUB_SANDBOX) - every page gets its bar on top. */
+export default function AppShell({ children, sandbox = false }: { children: React.ReactNode; sandbox?: boolean }) {
   const pathname = usePathname() || "/";
   const isAuthRoute =
     pathname.startsWith("/signin") ||
@@ -56,6 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <ViewAsProvider>
         <Box sx={{ minHeight: "100vh", bgcolor: MESH_BASE }}>
+          {sandbox && <SandboxBar />}
           <ReportingWindowProvider>{children}</ReportingWindowProvider>
         </Box>
       </ViewAsProvider>
@@ -93,6 +96,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           height: isFullBleed ? "100vh" : "auto",
         }}
       >
+        {sandbox && <SandboxBar />}
         <ReportingWindowProvider>{children}</ReportingWindowProvider>
       </Box>
     </Box>

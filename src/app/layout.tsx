@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import ThemeRegistry from "./ThemeRegistry";
 import AppShell from "./AppShell";
+import { isSandbox } from "@/lib/sandbox/mode";
 import "./globals.css";
 
 // THE FONTS LIVE IN THE REPO.
@@ -51,7 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
       <body>
         <ThemeRegistry>
-          <AppShell>{children}</AppShell>
+          <AppShell sandbox={isSandbox()}>{children}</AppShell>
         </ThemeRegistry>
       </body>
     </html>

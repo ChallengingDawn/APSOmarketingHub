@@ -11,6 +11,7 @@ const PUBLIC_PREFIXES = [
   "/enroll",
   "/api/auth/",
   "/api/health",
+  "/api/sandbox-link/", // the hub's own key, not a session; 404 anywhere but the sandbox copy
   "/_next",
   "/favicon",
   "/icon",
