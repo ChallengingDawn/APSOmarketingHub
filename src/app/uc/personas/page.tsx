@@ -118,7 +118,7 @@ export default function Personas() {
         ) : !d.writing ? (
           <Info><b>Live - waiting:</b> the HubSpot workflow “SARCLA | PERSONAS SET” is {d.workflowOn ? "still switched on" : "not readable"} - the hub writes nothing while it runs. Switch it off in HubSpot (Automation → Workflows) and the hub goes on within 15 minutes.</Info>
         ) : (
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Automatic: every 15 minutes the contacts changed since the last run, and every contact once a day, get the persona of the rules below.</Typography>
+          <Info>Automatic: every 15 minutes the contacts changed since the last run, and every contact once a day, get the persona of the rules below.{d.last?.error ? ` The last run did not finish (${d.last.error}) - the next one tries again.` : ""}</Info>
         )}
 
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
