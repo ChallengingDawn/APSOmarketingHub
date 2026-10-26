@@ -322,7 +322,7 @@ export default function BoDistribution() {
   else if (r.state !== "ok") body = <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
   else if (view === "tickets") body = <Tickets d={r.data} />;
   else if (view === "flow") body = <FlowTab d={r.data} />;
-  else if (view === "detection") body = <DetectionTab d={r.data} />;
+  else if (view === "detection") body = <DetectionTab d={r.data} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
   else if (view === "people") body = <People d={r.data} onSaved={reload} />;
   else if (view === "gqs") body = <GqsTab d={r.data} />;

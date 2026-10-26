@@ -108,6 +108,12 @@ export async function register() {
     const { startTicketClose } = await import("./lib/ticketClose/engine");
     startTicketClose();
 
+    // Back Office distribution > Detection for any period: every Back Office ticket counted per day - its category today
+    // and whether a person re-filed it - so the tiles answer for a year, not only for the e-mails the hub keeps
+    // (src/lib/boDetection). Reads HubSpot only. BO_DETECTION=off stops it. SARCLA, 25.10.2026.
+    const { startBoDetection } = await import("./lib/boDetection/engine");
+    startBoDetection();
+
     // Map assignment > Phone numbers: a contact with the shop's phone and no phone gets it, in the international form from
     // its country - replaces the workflow SARCLA | Contact phone number correction; writes only in Live with the workflow
     // switched off (src/lib/contactPhone). CONTACT_PHONE=off stops it. SARCLA, 25.10.2026.

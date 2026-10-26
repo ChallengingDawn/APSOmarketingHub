@@ -4,6 +4,8 @@
 // classified that way"; "how can we improve the detection of Others?"). The workflow's keyword classifier and the improved
 // one (classifierV2.ts) side by side on every e-mail: the category, the keywords that decided it, the fixes that changed it,
 // and the category a person set afterwards - the only real measure. Then what the "Others" are, and how to shrink them.
+// The three tiles count every Back Office ticket of the period picked on top, from HubSpot (src/lib/boDetection), beside the
+// same number of days just before it; the e-mail by e-mail part below is what the hub read itself and names its dates.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -24,12 +26,15 @@ import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined
 import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
+import { useHeld } from "@/app/analytics/AnalyticsData";
 import { full } from "@/app/charts/format";
 import { BarList } from "@/app/charts/BarList";
 import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Row } from "@/lib/boDistribution/engine";
+import type { PeriodFigures } from "@/lib/boDetection/engine";
+import { dayOf, rangeLabel, type Win } from "@/lib/boDetection/figures";
 import { count, pct, type Data } from "./shared";
 
 type Both = { v1: Classification; v2: Classification & { fixes: string[] } };
@@ -51,7 +56,39 @@ function Answer({ cat, subCat, words, fixes, d }: { cat: string; subCat?: string
   );
 }
 
-export function DetectionTab({ d }: { d: Data }) {
+/** The period's tiles - every Back Office ticket created in it, as it is filed today, and the same days just before. */
+function PeriodTiles({ from, to }: { from: string; to: string }) {
+  const url = `/api/uc/bo-distribution?detection=1&from=${from}&to=${to}`;
+  const r = useHeld<PeriodFigures>(url, [url]).result;
+  const f = r?.state === "ok" ? r.data : null;
+  const counting = !f || f.missing.some((ym) => ym >= from.slice(0, 7));
+  const since = f?.since ?? null;
+  const label = (w: Win) => rangeLabel(since && w.from < since ? since : w.from, w.to);
+  const rec = (w: Win) => w.n - w.others - w.empty;
+  // the days before, only when they hold tickets and are counted completely
+  const b = f && f.before.n > 0 && !f.missing.some((ym) => ym < from.slice(0, 7)) ? f.before : null;
+  const wait = r && r.state !== "ok" ? "The figures could not be read - try again in a moment" : "Counting the Back Office history - the first count after a release takes a few minutes";
+  if (counting || !f) {
+    return (
+      <Grid container spacing={2}>
+        {["Recognised", "Re-filed by a person", "Others"].map((l) => <Grid key={l} size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="slate" label={l} value="—" note={wait} /></Grid>)}
+      </Grid>
+    );
+  }
+  const n = f.now;
+  return (
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised" value={pct(rec(n), n.n)}
+        note={`${full(rec(n))} of the ${full(n.n)} Back Office tickets created ${label(n)} have a category.${b ? ` ${label(b)}: ${pct(rec(b), b.n)} of ${full(b.n)}.` : ""}`} /></Grid>
+      <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Re-filed by a person" value={pct(n.person, n.n)}
+        note={`${full(n.person)} tickets a person gave another category, ${full(n.fromOthers)} of them were Others or empty.${b ? ` ${label(b)}: ${pct(b.person, b.n)}.` : ""}`} /></Grid>
+      <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others" value={full(n.others + n.empty)}
+        note={`${pct(n.others + n.empty, n.n)} of the tickets. Nothing recognised means Others, and the ticket goes to whoever is least busy.${b ? ` ${label(b)}: ${full(b.others + b.empty)} (${pct(b.others + b.empty, b.n)}).` : ""}`} /></Grid>
+    </Grid>
+  );
+}
+
+export function DetectionTab({ d, from, to }: { d: Data; from: string; to: string }) {
   const [subject, setSubject] = useState("");
   const [content, setContent] = useState("");
   const [res, setRes] = useState<Both | null>(null);
@@ -85,17 +122,23 @@ export function DetectionTab({ d }: { d: Data }) {
   const rows = view === "changed" ? changed : view === "others" ? others1 : view === "ai" ? asked : view === "person" ? corrected : read;
   const { slice, pager } = usePaged(rows, 12);
   const caught = others1.filter((r) => r.v2 && v2cat(r) !== "Others");
+  // the days the hub's own e-mails cover, named
+  const entered = d.rows.map((r) => r.enteredAt).filter(Boolean).sort();
+  const span = entered.length ? rangeLabel(dayOf(entered[0]), dayOf(entered[entered.length - 1])) : null;
 
   return (
     <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised: in use → improved" value={`${pct(read.length - others1.length, read.length)} → ${pct(withV2.length - others2.length, withV2.length)}`} note={`${full(read.length)} e-mails read by the classifier in 7 days`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="blue" label="Right where a person changed it" value={`${pct(right1.length, corrected.length)} → ${pct(right2.length, corrected.length)}`} note={`${full(corrected.length)} tickets a person re-filed. On 30 days: 10% → 26%; the 90 before: 13% → 46%`} /></Grid>
-        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others: in use → improved" value={`${full(others1.length)} → ${full(others2.length)}`} note={`Nothing recognised means Others, and the ticket goes to whoever is least busy.${asked.length ? ` The AI files ${full(aiFiled.length)} of the ${full(asked.length)} it was asked` : ""}`} /></Grid>
-      </Grid>
+      <PeriodTiles key="detection-period" from={from} to={to} />
 
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="purple" title="Why each ticket got its category" note="The keywords each classifier found, the fixes that changed the improved one's answer (hover a fix), and what a person set afterwards" />
+        {span && (
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.25 }}>
+            The {full(read.length)} e-mails the hub read, {span}. The classifier in use → the improved one: recognised {pct(read.length - others1.length, read.length)} → {pct(withV2.length - others2.length, withV2.length)} ·
+            Others {full(others1.length)} → {full(others2.length)} · right where a person re-filed it {pct(right1.length, corrected.length)} → {pct(right2.length, corrected.length)} of {full(corrected.length)}
+            {asked.length ? ` · the AI files ${full(aiFiled.length)} of the ${full(asked.length)} it was asked` : ""}
+          </Typography>
+        )}
         <Box sx={{ mb: 1.5 }}>
           <Choice<"changed" | "others" | "ai" | "person" | "all"> value={view} onChange={setView} options={[
             { key: "changed", label: "The improved one decides otherwise", count: changed.length },
@@ -129,13 +172,13 @@ export function DetectionTab({ d }: { d: Data }) {
           </Table>
         </Box>
         {pager}
-        {!rows.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>None in the last 7 days.</Typography>}
+        {!rows.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{span ? `None in ${span}.` : "None yet."}</Typography>}
       </GlassCard>
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<HelpOutlineOutlinedIcon />} tint="amber" title={`What the ${full(others1.length)} "Others" are`} note="Where those e-mails came from - suppliers, newsletters, our own mailboxes and customers the keywords missed" />
+            <CardTitle icon={<HelpOutlineOutlinedIcon />} tint="amber" title={`What the ${full(others1.length)} "Others" are`} note={`Where those e-mails came from${span ? `, ${span}` : ""} - suppliers, newsletters, our own mailboxes and customers the keywords missed`} />
             <BarList rows={count(others1, (r) => r.fromDomain ?? "sender unknown").slice(0, 14)} labelWidth={200} format={(v) => full(v ?? 0)} />
           </GlassCard>
         </Grid>
@@ -146,7 +189,7 @@ export function DetectionTab({ d }: { d: Data }) {
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>The improved classifier</b> - recognises {full(caught.length)} of these {full(others1.length)}: {count(caught, (r) => v2cat(r)).map((x) => `${x.label} ${x.value}`).join(", ") || "none yet"}.</Typography>
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>Rules by sender</b> - our own mailboxes, known suppliers and newsletter senders (left) always mean the same thing: a short list per domain files them without reading a word.</Typography>
               <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>The ticket&apos;s own facts</b> - an order number the hub found in the e-mail or a shop link (Ticket/order/article associations) points to Delivery; an article number to Product Information or Price.</Typography>
-              <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>AI for the rest</b> (on, shadow) - the smallest Claude model, only for what neither classifier recognises ({full(bothOthers.length)} in 7 days), the first 1,200 characters without history or addresses, at most 60 a day.
+              <Typography component="li" sx={{ fontSize: "0.82rem", color: INK }}><b>AI for the rest</b> (on, shadow) - the smallest Claude model, only for what neither classifier recognises ({full(bothOthers.length)} of the e-mails{span ? ` of ${span}` : ""}), the first 1,200 characters without history or addresses, at most 60 a day.
                 {asked.length
                   ? <> Asked {full(asked.length)}: {count(asked, (r) => r.ai!.category ?? "Others").map((x) => `${x.label} ${x.value}`).join(", ")}. Right where a person re-filed it: {full(aiRight.length)} of {full(aiCorrected.length)}. Used: {full(Math.round(aiTokens / 100) / 10)}k tokens.</>
                   : " Nothing asked yet - a few e-mails a run."}</Typography>

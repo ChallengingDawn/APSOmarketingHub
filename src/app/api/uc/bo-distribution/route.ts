@@ -5,6 +5,8 @@
 // classifier's lists, the teams.
 // GET ?people=1: everyone in a team - chat status, open tickets, deactivated - and the active owners to pick from.
 // GET ?ticket=ID: one ticket decided now, nothing stored.
+// GET ?detection=1&from=YYYY-MM-DD&to=YYYY-MM-DD: the Detection tiles for any period and the same days just before it,
+// counted from HubSpot (src/lib/boDetection).
 // POST {action: "classify", subject, content}: the classifier on any text (read-only, for everyone with access).
 // Admins: PUT {mode?, rosters?} - the teams the hub uses (a list set to null goes back to the workflow's);
 // POST {action: "run"} look now; POST {action: "replay"} replay the last 7 days.
@@ -21,6 +23,7 @@ import {
 } from "@/lib/boDistribution/engine";
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
 import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
+import { periodFigures } from "@/lib/boDetection/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +37,12 @@ export async function GET(req: NextRequest) {
     if (sp.get("people")) return NextResponse.json({ configured: true, ok: true, data: await people() });
     const t = sp.get("ticket");
     if (t && /^\d+$/.test(t)) return NextResponse.json({ configured: true, ok: true, data: await checkTicket(t) });
+    if (sp.get("detection")) {
+      const day = /^\d{4}-\d{2}-\d{2}$/;
+      const from = sp.get("from") ?? "", to = sp.get("to") ?? "";
+      if (!day.test(from) || !day.test(to) || from > to) return NextResponse.json({ configured: true, ok: false, error: "from and to must be days, from first" }, { status: 400 });
+      return NextResponse.json({ configured: true, ok: true, data: await periodFigures(from, to) });
+    }
     // SARCLA 25.10.2026: "back office distribution don't have the time filter on top, it limits
     // to only 7 days". The rows are kept for 21 days (engine DAYS_KEPT), so the page may ask for
     // any window up to that; 7 stays the default.
