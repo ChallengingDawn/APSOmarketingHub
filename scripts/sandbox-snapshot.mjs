@@ -43,6 +43,10 @@ const KEEP_EMAIL = /(@example\.(com|org|net)|\.(example|test|invalid|localhost))
 const PHONE = /\+(41|49|33|39|43|44|31|32|34|420)[\s0-9]{8,14}\d/g;
 const LEGAL = /\b([A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*(?:[ -]+(?:[&+][ ]+)?[A-ZÄÖÜ][\wÄÖÜäöüéèàç&'.-]*){0,3})\s+(GmbH & Co\. KG|AG|GmbH|SA|S\.A\.|Sàrl|SARL|SàRL|Ltd\.?|S\.p\.A\.|SpA|S\.r\.l\.|Srl|BV|B\.V\.|Inc\.?|SAS|KG)\b/g;
 const PLACEHOLDER = /^(Muster|Kunde|Kundin|ACME|Acme|Firma|Name|Example|Beispiel|Test|Demo|Sample|Zimtstern|APSOparts|APSO|Angst|Pfister|Angst \+ Pfister|Angst\+Pfister)\b/;
+// Our own domains carry the hub's logic (who may sign up, our own mailboxes, a reply from us is not a customer):
+// they stay, and only a person in front of the @ is replaced. A role mailbox is nobody - it stays whole.
+const OWN_DOMAIN = /@([a-z0-9-]+\.)*(apsoparts|angst-pfister)\.[a-z]{2,}$/i;
+const ROLE = /^(info|no-?reply|support|sales|verkauf|vente|service|office|kontakt|contact|hello|helpdesk|backoffice|bo|tsa|eso|orders?|shop|webshop|marketing|hr|admin|it|billing|accounting|invoice|rechnung|news|newsletter|mail|postmaster|team|dpo|privacy|datenschutz|doc|avor|logistics|logistik|einkauf|purchasing|quality|qualitaet)$/i;
 // a made-up number stays (tests use them): 123 45 67, runs of zeros, 555
 const FAKE_PHONE = /123\s?45\s?67|0{4,}|00\s00|555/;
 // public reference data - postcodes and their places (a German postcode can belong to a large firm, a Swiss town
@@ -53,7 +57,7 @@ const names = flag("--names") ? readFileSync(flag("--names"), "utf8").split(/\r?
 const nameRes = names.map((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"));
 
 const tmp = mkdtempSync(path.join(tmpdir(), "sbx-snap-"));
-const counts = { files: 0, dropped: 0, emails: new Map(), phones: 0, companies: new Map(), named: 0, changedFiles: 0 };
+const counts = { files: 0, dropped: 0, emails: new Map(), phones: 0, companies: new Map(), named: 0, changedFiles: 0, testsLeft: 0 };
 
 function walk(dir, rel = "") {
   for (const f of readdirSync(dir)) {
@@ -79,9 +83,11 @@ function visit(abs, rel) {
   const before = s;
   s = s.replace(EMAIL, (e) => {
     if (KEEP_EMAIL.test(e)) return e;
+    const [local, domain] = [e.slice(0, e.lastIndexOf("@")), e.slice(e.lastIndexOf("@") + 1)];
+    if (OWN_DOMAIN.test(e) && ROLE.test(local)) return e;
     const k = e.toLowerCase();
     if (!counts.emails.has(k)) counts.emails.set(k, counts.emails.size + 1);
-    return `person${counts.emails.get(k)}@example.invalid`;
+    return OWN_DOMAIN.test(e) ? `person${counts.emails.get(k)}@${domain}` : `person${counts.emails.get(k)}@example.invalid`;
   });
   if (REFERENCE.some((re) => re.test(rel))) {
     if (s !== before) { writeFileSync(abs, s); counts.changedFiles++; }
@@ -95,7 +101,12 @@ function visit(abs, rel) {
     return `Kunde ${counts.companies.get(k)} ${form}`;
   });
   for (const re of nameRes) s = s.replace(re, () => { counts.named++; return "Kunde"; });
-  if (s !== before) { writeFileSync(abs, s); counts.changedFiles++; }
+  if (s === before) return;
+  // a test that had to be scrubbed carried real data and asserts on it: it stays on the hub. Every test that ships
+  // is the hub's own, unchanged, and passes.
+  if (rel.startsWith("tests/")) { rmSync(abs); counts.files--; counts.testsLeft++; return; }
+  writeFileSync(abs, s);
+  counts.changedFiles++;
 }
 
 // 1. the released commit, as it is in git (nothing uncommitted, nothing ignored)
@@ -120,7 +131,12 @@ let left = 0;
   for (const f of readdirSync(dir)) {
     const abs = path.join(dir, f);
     if (statSync(abs).isDirectory()) recheck(abs);
-    else if (TEXT.test(f)) for (const e of readFileSync(abs, "utf8").match(EMAIL) ?? []) if (!KEEP_EMAIL.test(e)) left++;
+    else if (TEXT.test(f)) {
+      for (const e of readFileSync(abs, "utf8").match(EMAIL) ?? []) {
+        const local = e.slice(0, e.lastIndexOf("@"));
+        if (!KEEP_EMAIL.test(e) && !(OWN_DOMAIN.test(e) && (ROLE.test(local) || /^person\d+$/.test(local)))) left++;
+      }
+    }
   }
 })(tmp);
 if (left) { console.error(`STOP: ${left} address(es) still in the scrubbed code - no snapshot was made.`); process.exit(2); }
@@ -132,7 +148,9 @@ if (pack.status !== 0) { console.error(`tar -czf failed: ${pack.stderr}`); proce
 writeFileSync(out, pack.stdout);
 console.log(`Snapshot of ${sha}: ${counts.files} files (${counts.dropped} dropped), ${counts.changedFiles} scrubbed - `
   + `${counts.emails.size} e-mail addresses, ${counts.phones} phone numbers, ${counts.companies.size} company names`
-  + `${names.length ? `, ${counts.named} listed names` : ""} replaced -> ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);
+  + `${names.length ? `, ${counts.named} listed names` : ""} replaced`
+  + `${counts.testsLeft ? `; ${counts.testsLeft} test files with real data left on the hub` : ""}`
+  + ` -> ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);
 
 // 6. hand it to the sandboxes
 if (args.includes("--upload")) {
