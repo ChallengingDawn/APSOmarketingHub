@@ -54,3 +54,20 @@ test("the conversation: the customer's e-mails first without the quoted history,
   assert.ok(!c.includes("Our answer"));
   assert.ok(c.includes("chat line") && c.includes("note"));
 });
+
+test("a customer's e-mail nobody could place gets the AI's closest topic, never Others", async () => {
+  const { guessParse, guessSystem } = await import("../src/lib/ticketClose/guess");
+  const { fromGuess, isCustomer } = await import("../src/lib/ticketClose/rules");
+  assert.ok(!guessSystem().includes('- "Others"'));
+  assert.deepEqual(guessParse('{"category":"Delivery","sub":"","sure":"low","why":"asks about a parcel"}'), { category: "Delivery", sub: null, sure: "low", why: "asks about a parcel" });
+  assert.equal(guessParse('{"category":"Others","sure":"high","why":"x"}'), null); // Others is not an answer here
+  // nobody asks anything: its own hidden topic, not a business one
+  assert.equal(guessParse('{"category":"Spam or advertising","sub":"","sure":"high","why":"a prize draw"}')?.category, "Spam or advertising");
+  assert.ok(guessSystem().includes("Spam or advertising"));
+  assert.equal(guessParse('{"category":"Product Price","sure":"maybe"}')?.sure, "low");
+  const d = fromGuess({ category: "Delivery", sub: null, why: "x", sure: "medium" }, "Bestellung A26.551982.001", "");
+  assert.deepEqual([d.category, d.by, d.sure, d.order], ["Delivery", "guess", "medium", "A26.551982.001"]);
+  assert.equal(isCustomer("negative"), true);
+  assert.equal(isCustomer("not_valid_email"), false);
+  assert.equal(isCustomer(null), false);
+});

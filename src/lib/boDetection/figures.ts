@@ -13,13 +13,16 @@ export type Hist = { value: string; timestamp: string; sourceType?: string; sour
 
 /**
  * Who set the category a ticket has today: a person; the AI reading the whole conversation at the close; the sentiment
- * flag (a hidden topic: internal, automatic or empty e-mail); the form or app the ticket came from; keywords (the
- * classifiers at intake and at the close, the workflows' branches); none = Others or empty.
+ * flag (a hidden topic: internal, automatic or empty e-mail); the form or app the ticket came from; the AI's closest
+ * guess for a customer e-mail it could not place (guess = it said "low"); keywords (the classifiers at intake and at
+ * the close, the workflows' branches); none = Others or empty.
  */
-export type How = "person" | "ai" | "flag" | "source" | "keywords" | "none";
-export const HOW_ORDER: How[] = ["person", "flag", "ai", "source", "keywords", "none"];
-/** high = a person or the flag, medium = the AI or the form/app, low = keywords */
-export const LEVEL: Record<How, "high" | "medium" | "low" | "none"> = { person: "high", flag: "high", ai: "medium", source: "medium", keywords: "low", none: "none" };
+export type How = "person" | "ai" | "flag" | "source" | "guess" | "keywords" | "none";
+export const HOW_ORDER: How[] = ["person", "flag", "ai", "source", "guess", "keywords", "none"];
+/** high = a person or the flag, medium = the AI or the form/app, low = the AI's unsure guess or keywords */
+export const LEVEL: Record<How, "high" | "medium" | "low" | "none"> = { person: "high", flag: "high", ai: "medium", source: "medium", guess: "low", keywords: "low", none: "none" };
+/** a ticket the AI filed by its closest guess (kv ticketClose:guessed) */
+export type Guessed = { cat: string; sure: string };
 
 /** What one ticket counts for: its category today, how it got it, and whether a person changed it to another one. */
 export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How };
@@ -43,13 +46,16 @@ const KEYWORD_APPS = new Set(["30109717", "34987322"]);
 const byPerson = (h: Hist) => h.sourceType === "CRM_UI" || h.sourceType === "CONVERSATIONS" || /^MOBILE/.test(h.sourceType ?? "");
 
 /** Who set today's category - from the newest entry of its history; the hub's app at or after the close is the AI. */
-export function howOf(cat: string, newest: Hist | undefined, resolvedAt?: string | null): How {
+export function howOf(cat: string, newest: Hist | undefined, resolvedAt?: string | null, guessed?: Guessed): How {
   if (isEmpty(cat) || isOthers(cat)) return "none";
   if (FLAG_TOPICS.includes(cat)) return "flag";
   if (!newest) return "keywords";
   if (byPerson(newest)) return "person";
   if (newest.sourceType === "INTEGRATION") {
-    if (newest.sourceId === HUB_APP) return resolvedAt && Date.parse(newest.timestamp) >= Date.parse(resolvedAt) - 60_000 ? "ai" : "keywords";
+    if (newest.sourceId === HUB_APP) {
+      if (guessed?.cat === cat) return guessed.sure === "low" ? "guess" : "ai";
+      return resolvedAt && Date.parse(newest.timestamp) >= Date.parse(resolvedAt) - 60_000 ? "ai" : "keywords";
+    }
     return newest.sourceId && KEYWORD_APPS.has(newest.sourceId) ? "keywords" : "source";
   }
   return "keywords";
@@ -59,10 +65,10 @@ export function howOf(cat: string, newest: Hist | undefined, resolvedAt?: string
  * A person re-filed the ticket when a change made by hand set a category other than the one it had just before - the
  * automatic one, or none. Setting the same value again is not a correction.
  */
-export function factOf(current: string | null | undefined, hist: Hist[], resolvedAt?: string | null): Fact {
+export function factOf(current: string | null | undefined, hist: Hist[], resolvedAt?: string | null, guessed?: Guessed): Fact {
   const cat = (current ?? "").trim();
   const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  const how = howOf(cat, asc[asc.length - 1], resolvedAt);
+  const how = howOf(cat, asc[asc.length - 1], resolvedAt, guessed);
   let prev = "";
   for (const h of asc) {
     const v = (h.value ?? "").trim();
@@ -107,6 +113,18 @@ export function sumDays(days: Record<string, DayFig>, from: string, to: string):
   const w: Win = { ...emptyDay(), from, to };
   for (const [k, d] of Object.entries(days)) if (k >= from && k <= to) addDay(w, d);
   return w;
+}
+
+/** The tickets of from..to per month (YYYY-MM) and topic. */
+export function monthsOf(days: Record<string, DayFig>, from: string, to: string): { ym: string; topics: Record<string, number> }[] {
+  const by = new Map<string, Record<string, number>>();
+  for (const [k, d] of Object.entries(days)) {
+    if (k < from || k > to) continue;
+    const m = by.get(k.slice(0, 7)) ?? {};
+    for (const [c, hows] of Object.entries(d.topics)) m[c] = (m[c] ?? 0) + Object.values(hows).reduce((a, n) => a + (n ?? 0), 0);
+    by.set(k.slice(0, 7), m);
+  }
+  return [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([ym, topics]) => ({ ym, topics }));
 }
 
 const DAY_MS = 86_400_000;

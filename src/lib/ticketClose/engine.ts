@@ -17,16 +17,22 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { getAnthropic } from "@/lib/ai/claude";
 import { aiClassify } from "@/lib/boDistribution/aiClassify";
-import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, isOpen, patchFor, type Decision, type Mail } from "./rules";
-import { FLAG_TOPICS, HIDDEN_TOPICS } from "./topics";
+import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, fromGuess, isCustomer, isOpen, patchFor, type Decision, type Mail } from "./rules";
+import { aiGuess } from "./guess";
+import { FLAG_TOPICS, HIDDEN_TOPICS, TOPIC } from "./topics";
 
 const LOCK = 4_107_245;
 const EVERY_MS = 5 * 60_000;
 const KEEP_DAYS = 21;
-/** AI answers a day (a busy day has ~60 Back Office tickets closing on Others/empty) */
-const AI_PER_DAY = 300;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep" };
-const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", `hs_v2_date_entered_${RESOLVED}`];
+/**
+ * AI answers a day: a busy day has ~60 Back Office tickets closing on Others/empty, and the customer sweep reads the
+ * history 25 a run (Haiku, ~1,000 tokens an answer - about USD 0.10 for a full day's 1,000).
+ */
+const AI_PER_DAY = 1000;
+/** customer e-mails of the history read per run, until all are done */
+const SWEEP_PER_RUN = 25;
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", guessed: "ticketClose:guessed" };
+const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", "sentiment_customer_tone", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
 export type Row = { id: string; subject: string; created: string; closed: string | null; now: string; d: Decision; written?: Written };
@@ -133,6 +139,12 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
         let ans = null;
         for (let i = 0; i < 2 && !ans; i++) { try { ans = await aiClassify(client, p.subject, txt); } catch { /* asked again once */ } }
         d = fromAi(ans, txt, p.subject);
+        // a customer wrote it, and nothing stays Others: the closest topic, with how sure
+        if (d.stay === "unclear" && isCustomer(p.sentiment_customer_tone) && ai < aiMax) {
+          ai++;
+          const g = await aiGuess(client, p.subject, txt).catch(() => null);
+          if (g) d = fromGuess(g, txt, p.subject);
+        }
       }
     }
     rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: { ...d, why: d.why.slice(0, 120) } });
@@ -181,7 +193,54 @@ async function writeSafe(rows: Row[]): Promise<number> {
     }
   }
   if (log.length) await kvSet(`ticketClose:log:${now}`, log);
+  // the months these tickets were created in are counted again on Detection's next run
+  const months = [...new Set(log.map((x) => rows.find((r) => r.id === x.id)?.created?.slice(0, 7)).filter((m): m is string => !!m))];
+  if (months.length) await kvSet("boDetection:dirty", [...new Set([...((await kvGet<string[]>("boDetection:dirty")) ?? []), ...months])]);
+  const guessed = rows.filter((r) => r.d.by === "guess" && r.written && !r.written.error && !r.written.skipped);
+  if (guessed.length) {
+    const g = (await kvGet<Record<string, { cat: string; sure: string }>>(KV.guessed)) ?? {};
+    for (const r of guessed) g[r.id] = { cat: r.d.category!, sure: r.d.sure ?? "low" };
+    await kvSet(KV.guessed, g);
+  }
   return done;
+}
+
+/**
+ * Every run, while the history is not done: 25 closed tickets still on Others/empty that the sentiment sweep scored as a
+ * customer get the AI's closest topic - one answer each, within the day's AI budget. Oldest first (cursor kept in kv).
+ */
+async function customerSweep(aiLeft: number): Promise<number> {
+  const st = (await kvGet<{ cursor: string; done?: boolean; written?: number }>(KV.customers)) ?? { cursor: "0" };
+  const client = getAnthropic();
+  if (st.done || !client || aiLeft <= 0) return 0;
+  // the AI's answers include "Spam or advertising": wait until HubSpot has it, or those tickets would be skipped for good
+  if (!(await options())?.has(TOPIC.spam)) return 0;
+  const base = [
+    { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
+    { propertyName: "sentiment_customer_tone", operator: "HAS_PROPERTY" }, { propertyName: "sentiment_customer_tone", operator: "NEQ", value: "not_valid_email" },
+    { propertyName: "sentiment_not_valid_reason", operator: "NOT_HAS_PROPERTY" }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
+  ];
+  const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+    filterGroups: [{ filters: [...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }] }, { filters: [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }] }],
+    properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
+  } });
+  const found = j.results ?? [];
+  if (!found.length) { await kvSet(KV.customers, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  const text = await conversations(found);
+  const rows: Row[] = [];
+  let used = 0;
+  for (const t of found) {
+    const p = t.properties, txt = text.get(t.id) ?? "";
+    if (!(p.subject ?? "").trim() && !txt.trim()) continue;
+    used++;
+    const g = await aiGuess(client, p.subject, txt).catch(() => null);
+    if (g) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
+  }
+  const written = rows.length ? await writeSafe(rows) : 0;
+  await kvSet(KV.customers, { cursor: String(found[found.length - 1].id), written: (st.written ?? 0) + written, at: new Date().toISOString() });
+  const sure = (k: string) => rows.filter((r) => r.d.sure === k).length;
+  console.log(`[ticket-close] customers of the history: ${found.length} read, ${written} get their closest topic (sure: high ${sure("high")}, medium ${sure("medium")}, low ${sure("low")}) - ${(st.written ?? 0) + written} so far`);
+  return used;
 }
 
 /**
@@ -192,9 +251,9 @@ async function writeSafe(rows: Row[]): Promise<number> {
 async function flagSweep(): Promise<void> {
   const last = await kvGet<{ day: string; waitingSaid?: string }>(KV.sweep);
   if (last?.day === day()) return;
-  // nothing to do until the hidden options are in HubSpot - said once a day, not searched every run
+  // nothing to do until the topics the flags give are options in HubSpot - said once a day, not searched every run
   const opts = await options();
-  const missing = HIDDEN_TOPICS.filter((t) => !opts?.has(t));
+  const missing = FLAG_TOPICS.filter((t) => !opts?.has(t));
   if (missing.length) {
     if (last?.waitingSaid !== day()) {
       console.log(`[ticket-close] waiting for the hidden Enquiry Category options in HubSpot: ${missing.join(", ")}`);
@@ -244,7 +303,12 @@ async function run(): Promise<RunInfo> {
     const cats = rows.filter((x) => x.d.category).map((x) => x.d.category).join(", ");
     console.log(`[ticket-close] ${todo.length} resolved on Others/empty: ${rows.filter((x) => x.d.category).length} get a category${cats ? ` (${cats})` : ""}, ${rows.filter((x) => !x.d.category).length} stay Others - ${live ? `${written} written` : "the workflow is still on: nothing written"}`);
   }
-  if (live) await flagSweep();
+  if (live) {
+    await flagSweep();
+    const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
+    const spent = await customerSweep(AI_PER_DAY - usedNow);
+    if (spent) await kvSet(aiKey, usedNow + spent);
+  }
   const byId = new Map(kept.map((x) => [x.id, x]));
   for (const x of rows) byId.set(x.id, x);
   await kvSet(KV.rows, [...byId.values()].sort((a, b) => String(b.closed).localeCompare(String(a.closed))).slice(0, 3000));

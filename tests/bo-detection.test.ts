@@ -60,3 +60,14 @@ test("days are Swiss days, the period before has the same length, months run to 
   assert.equal(rangeLabel("2025-10-26", "2026-10-25"), "26 Oct 2025 – 25 Oct 2026");
   assert.equal(rangeLabel("2026-10-25", "2026-10-25"), "25 Oct 2026");
 });
+
+test("the AI's unsure guess counts apart, and the period splits by month", async () => {
+  const { howOf, monthsOf } = await import("../src/lib/boDetection/figures");
+  const hub = { value: "Delivery", timestamp: "2026-10-05T10:00:00Z", sourceType: "INTEGRATION", sourceId: "50521064" };
+  assert.equal(howOf("Delivery", hub, "2026-10-05T09:00:00Z", { cat: "Delivery", sure: "low" }), "guess");
+  assert.equal(howOf("Delivery", hub, "2026-10-05T09:00:00Z", { cat: "Delivery", sure: "high" }), "ai");
+  assert.equal(howOf("Delivery", hub, "2026-10-05T09:00:00Z", { cat: "Product Price", sure: "low" }), "ai"); // re-filed since
+  const day = (t: Record<string, Record<string, number>>) => ({ n: 0, others: 0, empty: 0, person: 0, fromOthers: 0, topics: t });
+  const m = monthsOf({ "2026-09-30": day({ Delivery: { keywords: 2 } }), "2026-10-01": day({ Delivery: { ai: 1 }, Others: { none: 3 } }), "2026-11-01": day({ Delivery: { keywords: 9 } }) }, "2026-09-01", "2026-10-31");
+  assert.deepEqual(m, [{ ym: "2026-09", topics: { Delivery: 2 } }, { ym: "2026-10", topics: { Delivery: 1, Others: 3 } }]);
+});

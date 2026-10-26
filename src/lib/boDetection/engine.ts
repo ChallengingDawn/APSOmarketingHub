@@ -10,17 +10,17 @@ import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsSince, previousWindow, sumDays, type DayFig, type Hist, type Win } from "./figures";
+import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsOf, monthsSince, previousWindow, sumDays, type DayFig, type Guessed, type Hist, type Win } from "./figures";
 
 const LOCK = 4_107_247;
 const EVERY_MS = 30 * 60_000;
 const BO = "1726786777";
 /** The Back Office pipeline's first tickets */
 const FIRST_MONTH = "2025-03";
-const KV = { month: (ym: string) => `boDetection:month:${ym}` };
+const KV = { month: (ym: string) => `boDetection:month:${ym}`, dirty: "boDetection:dirty", guessed: "ticketClose:guessed" };
 const RESOLVED_AT = "hs_v2_date_entered_2338266328";
-/** what a month store holds; a store of another version is counted again (2: who set the category, 26.10.2026) */
-const VERSION = 2;
+/** what a month store holds; a store of another version is counted again (2: who set the category; 3: the AI's guess) */
+const VERSION = 3;
 
 type MonthStore = { v?: number; at: string; n: number; days: Record<string, DayFig> };
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
@@ -53,7 +53,7 @@ async function ticketsOfMonth(ym: string): Promise<Obj[]> {
   }
 }
 
-async function countMonth(ym: string): Promise<MonthStore> {
+async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise<MonthStore> {
   const tickets = await ticketsOfMonth(ym);
   const days: Record<string, DayFig> = {};
   for (let i = 0; i < tickets.length; i += 50) {
@@ -67,7 +67,7 @@ async function countMonth(ym: string): Promise<MonthStore> {
       if (!created) continue;
       const h = hist.get(String(t.id));
       const k = dayOf(created);
-      addFact((days[k] ??= emptyDay()), factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT]));
+      addFact((days[k] ??= emptyDay()), factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT], guessed[String(t.id)]));
     }
   }
   return { v: VERSION, at: new Date().toISOString(), n: tickets.length, days };
@@ -77,13 +77,20 @@ async function run(): Promise<void> {
   const t0 = Date.now();
   const done: string[] = [];
   let n = 0;
+  // months the ticket-close engine wrote into since their last count are counted again now, not next week
+  const dirty = new Set((await kvGet<string[]>(KV.dirty)) ?? []);
+  const guessed = (await kvGet<Record<string, Guessed>>(KV.guessed)) ?? {};
   for (const ym of monthsSince(FIRST_MONTH).reverse()) {
     const have = await kvGet<MonthStore>(KV.month(ym));
-    if (have?.v === VERSION && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
-    const m = await countMonth(ym);
+    if (have?.v === VERSION && !dirty.has(ym) && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
+    const m = await countMonth(ym, guessed);
     await kvSet(KV.month(ym), m);
     done.push(ym);
     n += m.n;
+  }
+  if (dirty.size) {
+    const still = ((await kvGet<string[]>(KV.dirty)) ?? []).filter((ym) => !done.includes(ym));
+    await kvSet(KV.dirty, still);
   }
   if (done.length) console.log(`[bo-detection] counted ${done.length} month(s) (${done.join(", ")}) - ${n} Back Office tickets, ${Math.round((Date.now() - t0) / 1000)} s`);
 }
@@ -123,6 +130,8 @@ export function startBoDetection() {
 export type PeriodFigures = {
   now: Win;
   before: Win;
+  /** the period's tickets per month and topic */
+  byMonth: { ym: string; topics: Record<string, number> }[];
   /** the first day with a Back Office ticket - a period that starts earlier really starts here */
   since: string | null;
   /** months not counted yet (the first count after a deploy takes a few minutes) */
@@ -146,6 +155,7 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
   const keys = Object.keys(days).filter((k) => days[k].n > 0).sort();
   return {
     now: sumDays(days, from, to),
+    byMonth: monthsOf(days, from, to),
     before: sumDays(days, prev.from, prev.to),
     since: keys[0] ?? null,
     missing: missing.filter((ym) => ym >= prev.from.slice(0, 7) && ym <= to.slice(0, 7)),

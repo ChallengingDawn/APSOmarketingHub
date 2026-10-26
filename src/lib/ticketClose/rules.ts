@@ -28,7 +28,9 @@ export const isOpen = (cat: string | null | undefined) => !cat || cat === "Other
 export type Decision = {
   category: string | null; sub: string | null; order: string | null;
   /** why: the AI's few words, the sentiment flag, or STAY_TEXT's key when it stays Others */
-  why: string; stay: string | null; by: "ai" | "flag" | "empty";
+  why: string; stay: string | null; by: "ai" | "flag" | "empty" | "guess";
+  /** how sure the AI's closest guess is (by "guess" only) */
+  sure?: "high" | "medium" | "low";
 };
 
 const strip = (h: string | null | undefined) => String(h ?? "")
@@ -66,6 +68,15 @@ export function fromAi(ans: { category: string | null; sub: string | null; why: 
   if (!ans.category || ans.category === "Others") return { category: null, sub: null, order: null, why: ans.why || "unclear", stay: "unclear", by: "ai" };
   const order = extractOrderNumbers(`${subject ?? ""} ${text}`)[0] ?? null;
   return { category: ans.category, sub: ans.sub, order, why: ans.why, stay: null, by: "ai" };
+}
+
+/** The sentiment sweep scored a real customer writing: it has a tone, and it is not "not a valid e-mail". */
+export const isCustomer = (tone: string | null | undefined) => !!tone && tone !== "not_valid_email";
+
+/** The AI's closest guess as a decision; the order number read from the text. */
+export function fromGuess(g: { category: string; sub: string | null; why: string; sure: "high" | "medium" | "low" }, text: string, subject?: string | null): Decision {
+  const order = extractOrderNumbers(`${subject ?? ""} ${text}`)[0] ?? null;
+  return { category: g.category, sub: g.sub, order, why: g.why, stay: null, by: "guess", sure: g.sure };
 }
 
 /** What is written on the ticket: the category, its own sub-category property, the order number when it has none. */

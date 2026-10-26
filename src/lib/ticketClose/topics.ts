@@ -11,14 +11,19 @@ export const TOPIC = {
   /** SARCLA 26.10.2026: "this should be even separate - Finance email and AVOR emails" */
   finance: "Finance e-mail",
   avor: "AVOR e-mail",
+  /**
+   * the AI's answer for mail from outside that asks nothing: advertising, spam, surveys, job applications, IT notices
+   * (SARCLA 26.10.2026, after 6 of 10 sampled "customer" Others were exactly that)
+   */
+  spam: "Spam or advertising",
   /** a hidden option HubSpot already had (596 Back Office tickets on 26.10.2026) */
   ms365: "MS365",
 } as const;
 
 /** The hidden options the hub added - the only categories besides Others/empty it may later replace. */
-export const HIDDEN_TOPICS: readonly string[] = [TOPIC.internal, TOPIC.automatic, TOPIC.finance, TOPIC.avor, TOPIC.empty];
+export const HIDDEN_TOPICS: readonly string[] = [TOPIC.internal, TOPIC.automatic, TOPIC.finance, TOPIC.avor, TOPIC.empty, TOPIC.spam];
 /** Every topic a sentiment flag gives - a ticket on one of these says what it is, not what was asked. */
-export const FLAG_TOPICS: readonly string[] = [...HIDDEN_TOPICS, TOPIC.ms365];
+export const FLAG_TOPICS: readonly string[] = [TOPIC.internal, TOPIC.automatic, TOPIC.finance, TOPIC.avor, TOPIC.empty, TOPIC.ms365];
 
 /**
  * sentiment_not_valid_reason -> the topic: a person of ours, or a shared or country mailbox people write from, is
