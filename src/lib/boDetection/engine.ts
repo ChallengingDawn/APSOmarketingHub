@@ -1,8 +1,8 @@
 // BACK OFFICE DETECTION FOR ANY PERIOD - the counting (the pure rules are in figures.ts).
 //
 // Every 30 minutes, one copy of the hub at a time (advisory lock 4107247): each month of Back Office tickets since the
-// pipeline began is counted per day - the category each ticket has today, and whether a person re-filed it (its
-// category history) - and kept in kv boDetection:month:<YYYY-MM>. The current month is counted again every 30 minutes,
+// pipeline began is counted per day - the category each ticket has today, who set it, and whether a person re-filed
+// it (its category history) - and kept in kv boDetection:month:<YYYY-MM>. The current month is counted again every 30 minutes,
 // the one before every 6 hours, older ones once a week (a person rarely re-files an old ticket). A restart loses at most
 // the month being counted. Reads HubSpot only, writes nothing there. BO_DETECTION=off stops it.
 
@@ -18,8 +18,11 @@ const BO = "1726786777";
 /** The Back Office pipeline's first tickets */
 const FIRST_MONTH = "2025-03";
 const KV = { month: (ym: string) => `boDetection:month:${ym}` };
+const RESOLVED_AT = "hs_v2_date_entered_2338266328";
+/** what a month store holds; a store of another version is counted again (2: who set the category, 26.10.2026) */
+const VERSION = 2;
 
-type MonthStore = { at: string; n: number; days: Record<string, DayFig> };
+type MonthStore = { v?: number; at: string; n: number; days: Record<string, DayFig> };
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
 
 const HOUR = 3_600_000;
@@ -56,7 +59,7 @@ async function countMonth(ym: string): Promise<MonthStore> {
   for (let i = 0; i < tickets.length; i += 50) {
     const chunk = tickets.slice(i, i + 50);
     const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: {
-      inputs: chunk.map((t) => ({ id: t.id })), properties: ["enquiry_category"], propertiesWithHistory: ["enquiry_category"],
+      inputs: chunk.map((t) => ({ id: t.id })), properties: ["enquiry_category", RESOLVED_AT], propertiesWithHistory: ["enquiry_category"],
     } });
     const hist = new Map((j.results ?? []).map((o) => [String(o.id), o]));
     for (const t of chunk) {
@@ -64,10 +67,10 @@ async function countMonth(ym: string): Promise<MonthStore> {
       if (!created) continue;
       const h = hist.get(String(t.id));
       const k = dayOf(created);
-      addFact((days[k] ??= emptyDay()), factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? []));
+      addFact((days[k] ??= emptyDay()), factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT]));
     }
   }
-  return { at: new Date().toISOString(), n: tickets.length, days };
+  return { v: VERSION, at: new Date().toISOString(), n: tickets.length, days };
 }
 
 async function run(): Promise<void> {
@@ -76,7 +79,7 @@ async function run(): Promise<void> {
   let n = 0;
   for (const ym of monthsSince(FIRST_MONTH).reverse()) {
     const have = await kvGet<MonthStore>(KV.month(ym));
-    if (have && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
+    if (have?.v === VERSION && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
     const m = await countMonth(ym);
     await kvSet(KV.month(ym), m);
     done.push(ym);
@@ -132,8 +135,8 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
   const prev = previousWindow(from, to);
   const months = monthsSince(FIRST_MONTH);
   const stores = await Promise.all(months.map((ym) => kvGet<MonthStore>(KV.month(ym))));
-  const missing = months.filter((_, i) => !stores[i]);
-  const have = stores.filter((s): s is MonthStore => !!s);
+  const missing = months.filter((_, i) => stores[i]?.v !== VERSION);
+  const have = stores.filter((s): s is MonthStore => s?.v === VERSION);
   const days = mergeDays(have.map((s) => s.days));
   const countedAt = have.map((s) => s.at).sort()[0] ?? null;
   const keys = Object.keys(days).filter((k) => days[k].n > 0).sort();

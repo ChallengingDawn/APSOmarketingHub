@@ -4,8 +4,9 @@
 // classified that way"; "how can we improve the detection of Others?"). The workflow's keyword classifier and the improved
 // one (classifierV2.ts) side by side on every e-mail: the category, the keywords that decided it, the fixes that changed it,
 // and the category a person set afterwards - the only real measure. Then what the "Others" are, and how to shrink them.
-// The three tiles count every Back Office ticket of the period picked on top, from HubSpot (src/lib/boDetection), beside the
-// same number of days just before it; the e-mail by e-mail part below is what the hub read itself and names its dates.
+// The three tiles, the funnel (how sure each topic is) and its table count every Back Office ticket of the period picked on
+// top, from HubSpot (src/lib/boDetection), beside the same number of days just before it; the e-mail by e-mail part below
+// is what the hub read itself and names its dates.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -34,7 +35,7 @@ import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Row } from "@/lib/boDistribution/engine";
 import type { PeriodFigures } from "@/lib/boDetection/engine";
-import { dayOf, rangeLabel, type Win } from "@/lib/boDetection/figures";
+import { HOW_ORDER, LEVEL, dayOf, rangeLabel, type How, type Win } from "@/lib/boDetection/figures";
 import { count, pct, type Data } from "./shared";
 
 type Both = { v1: Classification; v2: Classification & { fixes: string[] } };
@@ -53,6 +54,75 @@ function Answer({ cat, subCat, words, fixes, d }: { cat: string; subCat?: string
       )}
       {!!words?.length && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{words.slice(0, 6).join(" · ")}</Typography>}
     </Box>
+  );
+}
+
+const HOW_WORD: Record<How, string> = { person: "A person", flag: "Sentiment flag", ai: "The AI", source: "Form or app", keywords: "Keywords", none: "No topic" };
+const isTopic = (c: string) => c !== "Others" && c !== "(empty)";
+
+/** The same funnel as Ticket value's, in tickets: each step keeps the tickets that are surer of their topic. */
+function Funnel({ steps, of }: { steps: { label: string; n: number; shade: number }[]; of: string }) {
+  const max = Math.max(1, steps[0]?.n ?? 0);
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      {steps.map((x, i) => (
+        <Box key={x.label} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "230px minmax(0, 1fr) 170px" }, alignItems: "center", gap: { xs: 0.5, md: 1.5 } }}>
+          <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK }}>{x.label}</Typography>
+          <Box sx={{ display: "flex", justifyContent: "center" }}>
+            <Box sx={{
+              width: `${Math.max(14, (x.n / max) * 100)}%`, height: 44, borderRadius: "10px", display: "grid", placeItems: "center", whiteSpace: "nowrap",
+              bgcolor: `rgba(36, 89, 209, ${x.shade})`, color: x.shade > 0.6 ? "#fff" : INK, fontWeight: 700, fontSize: "0.98rem", fontVariantNumeric: "tabular-nums", transition: "width .3s",
+            }}>
+              {full(x.n)}
+            </Box>
+          </Box>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, textAlign: { xs: "left", md: "right" } }}>{`${i === 0 ? "100%" : pct(x.n, steps[0].n)} of ${of}`}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/** How sure the topics are: the funnel for all of them or one, and every topic by who set it. */
+function Confidence({ w, label }: { w: Win; label: string }) {
+  const [topic, setTopic] = useState("all");
+  const sum = (hows: Partial<Record<How, number>>, keep: (h: How) => boolean) => (Object.entries(hows) as [How, number][]).filter(([h]) => keep(h)).reduce((a, [, n]) => a + n, 0);
+  const rows = Object.entries(w.topics).map(([c, hows]) => ({ c, hows, n: sum(hows, () => true) }))
+    .sort((a, b) => Number(isTopic(b.c)) - Number(isTopic(a.c)) || b.n - a.n);
+  const picked = topic === "all" ? null : rows.find((r) => r.c === topic) ?? null;
+  const all: Partial<Record<How, number>> = {};
+  for (const r of rows) for (const [h, n] of Object.entries(r.hows) as [How, number][]) all[h] = (all[h] ?? 0) + n;
+  const hows = picked ? picked.hows : all;
+  const mid = sum(hows, (h) => LEVEL[h] === "high" || LEVEL[h] === "medium"), high = sum(hows, (h) => LEVEL[h] === "high");
+  const steps = picked
+    ? [{ label: picked.c, n: picked.n, shade: 0.14 }, { label: "Medium or high confidence", n: mid, shade: 0.42 }, { label: "High confidence", n: high, shade: 0.88 }]
+    : [{ label: "All tickets", n: w.n, shade: 0.1 }, { label: "With a topic", n: w.n - w.others - w.empty, shade: 0.24 }, { label: "Medium or high confidence", n: mid, shade: 0.5 }, { label: "High confidence", n: high, shade: 0.88 }];
+  const cols = HOW_ORDER.filter((h) => h !== "none");
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<CategoryOutlinedIcon />} tint="blue" title="How sure the topics are"
+        note={`Back Office tickets created ${label}, by who set the category they have today. High: a person, or the sentiment flag (internal, automatic or empty e-mail). Medium: the AI read the conversation, or the form or app the ticket came from. Low: keywords only`} />
+      <Box sx={{ mb: 1.5 }}>
+        <Choice<string> value={topic} onChange={setTopic} options={[{ key: "all", label: "All topics", count: w.n }, ...rows.filter((r) => isTopic(r.c)).map((r) => ({ key: r.c, label: r.c, count: r.n }))]} />
+      </Box>
+      <Funnel steps={steps} of={picked ? picked.c : "all tickets"} />
+      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, mt: 2.5, mb: 0.75 }}>All the figures</Typography>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead><TableRow>{["Topic", "Tickets", "Share", ...cols.map((h) => HOW_WORD[h])].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.c}>
+                <TableCell sx={{ ...bodyCell, fontWeight: 600, color: isTopic(r.c) ? INK : MUTED }}>{r.c === "(empty)" ? "No category" : r.c}</TableCell>
+                <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(r.n)}</TableCell>
+                <TableCell sx={{ ...bodyCell, textAlign: "right", color: MUTED }}>{pct(r.n, w.n)}</TableCell>
+                {cols.map((h) => <TableCell key={h} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.hows[h] ? INK : MUTED }}>{r.hows[h] ? full(r.hows[h]!) : "—"}</TableCell>)}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+    </GlassCard>
   );
 }
 
@@ -77,6 +147,7 @@ function PeriodTiles({ from, to }: { from: string; to: string }) {
   }
   const n = f.now;
   return (
+    <>
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<PriorityHighOutlinedIcon />} tint="green" label="Recognised" value={pct(rec(n), n.n)}
         note={`${full(rec(n))} of the ${full(n.n)} Back Office tickets created ${label(n)} have a category.${b ? ` ${label(b)}: ${pct(rec(b), b.n)} of ${full(b.n)}.` : ""}`} /></Grid>
@@ -85,6 +156,8 @@ function PeriodTiles({ from, to }: { from: string; to: string }) {
       <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<HelpOutlineOutlinedIcon />} tint="amber" label="Others" value={full(n.others + n.empty)}
         note={`${pct(n.others + n.empty, n.n)} of the tickets. Nothing recognised means Others, and the ticket goes to whoever is least busy.${b ? ` ${label(b)}: ${full(b.others + b.empty)} (${pct(b.others + b.empty, b.n)}).` : ""}`} /></Grid>
     </Grid>
+    <Confidence w={n} label={label(n)} />
+    </>
   );
 }
 

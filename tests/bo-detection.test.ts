@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsSince, previousWindow, rangeLabel, sumDays } from "../src/lib/boDetection/figures";
+import { addFact, dayOf, emptyDay, factOf, howOf, mergeDays, monthsSince, previousWindow, rangeLabel, sumDays } from "../src/lib/boDetection/figures";
 
 test("a person re-filed a ticket only when they set ANOTHER category", () => {
   const auto = { value: "Others", timestamp: "2026-10-01T08:00:00Z", sourceType: "AUTOMATION_PLATFORM" };
-  assert.deepEqual(factOf("Delivery", [{ value: "Delivery", timestamp: "2026-10-01T09:00:00Z", sourceType: "CRM_UI" }, auto]), { cat: "Delivery", person: true, fromOthers: true });
+  assert.deepEqual(factOf("Delivery", [{ value: "Delivery", timestamp: "2026-10-01T09:00:00Z", sourceType: "CRM_UI" }, auto]), { cat: "Delivery", person: true, fromOthers: true, how: "person" });
   // the same value again is no correction
   assert.equal(factOf("Others", [{ value: "Others", timestamp: "2026-10-01T09:00:00Z", sourceType: "CRM_UI" }, auto]).person, false);
   // an automatic change is never a person
@@ -15,25 +15,40 @@ test("a person re-filed a ticket only when they set ANOTHER category", () => {
     { value: "Delivery", timestamp: "2026-10-02T00:00:00Z", sourceType: "AUTOMATION_PLATFORM" },
   ]);
   assert.deepEqual([f.person, f.fromOthers], [true, false]);
-  assert.deepEqual(factOf(null, []), { cat: "", person: false, fromOthers: false });
+  assert.deepEqual(factOf(null, []), { cat: "", person: false, fromOthers: false, how: "none" });
+});
+
+test("who set today's category: a person, the flag, the AI at the close, the form or app, keywords", () => {
+  const at = (sourceType: string, sourceId?: string, timestamp = "2026-10-05T10:00:00Z") => ({ value: "Delivery", timestamp, sourceType, sourceId });
+  assert.equal(howOf("Delivery", at("CRM_UI")), "person");
+  assert.equal(howOf("Delivery", at("CONVERSATIONS")), "person");
+  assert.equal(howOf("Internal e-mail", at("INTEGRATION", "50521064")), "flag");
+  assert.equal(howOf("Delivery", at("INTEGRATION", "50521064"), "2026-10-05T09:59:30Z"), "ai"); // the hub, at the close
+  assert.equal(howOf("Delivery", at("INTEGRATION", "50521064"), "2026-10-09T00:00:00Z"), "keywords"); // the hub, before it
+  assert.equal(howOf("Delivery", at("INTEGRATION", "30109717")), "keywords");
+  assert.equal(howOf("Delivery", at("INTEGRATION", "34987322")), "keywords");
+  assert.equal(howOf("Delivery", at("INTEGRATION", "40488847")), "source");
+  assert.equal(howOf("Delivery", at("AUTOMATION_PLATFORM", "enrollmentId:1")), "keywords");
+  assert.equal(howOf("Others", at("CRM_UI")), "none");
+  assert.equal(howOf("", undefined), "none");
 });
 
 test("a day's counts and a period's sum", () => {
   const d = emptyDay();
-  addFact(d, { cat: "Delivery", person: false, fromOthers: false });
-  addFact(d, { cat: "Others", person: false, fromOthers: false });
-  addFact(d, { cat: "", person: true, fromOthers: true });
+  addFact(d, { cat: "Delivery", person: false, fromOthers: false, how: "keywords" });
+  addFact(d, { cat: "Others", person: false, fromOthers: false, how: "none" });
+  addFact(d, { cat: "", person: true, fromOthers: true, how: "none" });
   assert.deepEqual([d.n, d.others, d.empty, d.person, d.fromOthers], [3, 1, 1, 1, 1]);
-  assert.deepEqual(d.cats, { Delivery: 1, Others: 1, "(empty)": 1 });
+  assert.deepEqual(d.topics, { Delivery: { keywords: 1 }, Others: { none: 1 }, "(empty)": { none: 1 } });
   const w = sumDays({ "2026-10-01": d, "2026-10-02": d, "2026-09-30": d }, "2026-10-01", "2026-10-31");
-  assert.deepEqual([w.n, w.others, w.cats.Delivery], [6, 2, 2]);
+  assert.deepEqual([w.n, w.others, w.topics.Delivery.keywords], [6, 2, 2]);
 });
 
 test("a day that appears in two month stores is added, not replaced", () => {
-  const a = emptyDay(); addFact(a, { cat: "Delivery", person: false, fromOthers: false });
-  const b = emptyDay(); addFact(b, { cat: "Others", person: false, fromOthers: false });
+  const a = emptyDay(); addFact(a, { cat: "Delivery", person: false, fromOthers: false, how: "ai" });
+  const b = emptyDay(); addFact(b, { cat: "Delivery", person: false, fromOthers: false, how: "ai" });
   const m = mergeDays([{ "2026-04-01": a }, { "2026-04-01": b }]);
-  assert.equal(m["2026-04-01"].n, 2);
+  assert.deepEqual([m["2026-04-01"].n, m["2026-04-01"].topics.Delivery.ai], [2, 2]);
 });
 
 test("days are Swiss days, the period before has the same length, months run to today", () => {

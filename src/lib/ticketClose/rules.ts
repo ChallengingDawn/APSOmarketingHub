@@ -4,34 +4,30 @@
 // its category was empty or "Others". Measured 25.10 on the 2,459 tickets of 265 days left "Others"/empty: keywords are
 // wrong on what is left (the AI agreed on 14 of 60 - Microsoft 365 quarantine notices, Task Status Reports and
 // newsletters filed as Delivery or Product Price; 540 of 604 keyword "Delivery" had only our own words). So: a ticket
-// session 88's sentiment sweep marks as no customer request stays "Others"; every other one is read by the AI (88's
+// the sentiment sweep marks as no customer request gets the hidden topic of what it is (topics.ts: Internal, Automatic
+// or Empty e-mail - SARCLA 26.10.2026, "we should be able to recognise 100%"); every other one is read by the AI (88's
 // aiClassify, unchanged) on the whole conversation. A category is only ever written onto "Others" or empty.
 
 import { PROPERTY_MAPPING, extractOrderNumbers } from "../boDistribution/classifier";
+import { FLAG_TOPIC, TOPIC } from "./topics";
 
 export const WORKFLOW_ID = "4088710379";
 export const BO = "1726786777";
 export const RESOLVED = "2338266328";
 
-/** sentiment_not_valid_reason values that mean "no customer request" - the ticket stays Others. */
-export const NOT_A_REQUEST: ReadonlySet<string> = new Set(["only_our_own_words", "bulk_mail", "auto_reply", "newsletter"]);
 /** Why a ticket stays Others, in words. */
 export const STAY_TEXT: Record<string, string> = {
-  only_our_own_words: "Only our own words - no customer text",
-  bulk_mail: "Bulk mail",
-  auto_reply: "Auto-reply or out of office",
-  newsletter: "Newsletter",
   unclear: "No clear customer reason",
-  empty: "Nothing to read",
   ai_failed: "The AI gave no answer - tried again later",
 };
-export const stayKey = (notValid: string | null | undefined): string | null => (notValid && NOT_A_REQUEST.has(notValid) ? notValid : null);
+/** The hidden topic a sentiment flag means, or null when the AI reads the ticket. */
+export const flagTopic = (notValid: string | null | undefined): string | null => (notValid ? FLAG_TOPIC[notValid] ?? null : null);
 /** A category nobody has decided yet: the only kind this ever writes over. */
 export const isOpen = (cat: string | null | undefined) => !cat || cat === "Others";
 
 export type Decision = {
   category: string | null; sub: string | null; order: string | null;
-  /** why: the AI's few words, or STAY_TEXT's key when it stays Others */
+  /** why: the AI's few words, the sentiment flag, or STAY_TEXT's key when it stays Others */
   why: string; stay: string | null; by: "ai" | "flag" | "empty";
 };
 
@@ -57,11 +53,11 @@ export function conversation(t: { content?: string | null; mails: Mail[]; chat?:
   return parts.filter(Boolean).join("\n\n");
 }
 
-/** Before the AI: the tickets that stay Others without being asked. null = ask the AI. */
+/** Before the AI: no customer request (the sentiment flag) or nothing to read gets its hidden topic. null = ask the AI. */
 export function before(t: { subject?: string | null; text: string; notValid?: string | null }): Decision | null {
-  const k = stayKey(t.notValid);
-  if (k) return { category: null, sub: null, order: null, why: k, stay: k, by: "flag" };
-  if (!(t.subject ?? "").trim() && !t.text.trim()) return { category: null, sub: null, order: null, why: "empty", stay: "empty", by: "empty" };
+  const topic = flagTopic(t.notValid);
+  if (topic) return { category: topic, sub: null, order: null, why: t.notValid!, stay: null, by: "flag" };
+  if (!(t.subject ?? "").trim() && !t.text.trim()) return { category: TOPIC.empty, sub: null, order: null, why: "nothing to read", stay: null, by: "empty" };
   return null;
 }
 /** The AI's answer as a decision; the order number read from the text. */

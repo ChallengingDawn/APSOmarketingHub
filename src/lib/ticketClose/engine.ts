@@ -4,10 +4,12 @@
 //
 // Every 5 minutes, one copy of the hub at a time (advisory lock 4107245): the Back Office tickets that reached Resolved
 // with their category empty or "Others" are read (the whole conversation) and decided - no customer request (session
-// 88's sentiment flag) stays "Others", every other one is read by the AI (88's aiClassify, unchanged, this engine's own
-// daily budget). The category is written only while the workflow is switched off (never both writing), only onto
-// "Others" or empty, every change kept with what was there before (kv ticketClose:log:<time>). Each run that finds
-// something says so in the log ("[ticket-close] ..."). TICKET_CLOSE=off stops it.
+// the sentiment flag) gets the hidden topic of what it is (topics.ts), every other one is read by the AI (88's aiClassify,
+// unchanged, this engine's own daily budget). Once a day the closed tickets still on "Others"/empty that carry a flag
+// get their topic too - the whole history the first time, then a flag that came after the close. The category is
+// written only while the workflow is switched off (never both writing), only onto "Others" or empty, a hidden topic only
+// once it is an option of the property, every change kept with what was there before (kv ticketClose:log:<time>). Each
+// run that finds something says so in the log ("[ticket-close] ..."). TICKET_CLOSE=off stops it.
 
 import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/client";
@@ -16,13 +18,14 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { getAnthropic } from "@/lib/ai/claude";
 import { aiClassify } from "@/lib/boDistribution/aiClassify";
 import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, isOpen, patchFor, type Decision, type Mail } from "./rules";
+import { HIDDEN_TOPICS } from "./topics";
 
 const LOCK = 4_107_245;
 const EVERY_MS = 5 * 60_000;
 const KEEP_DAYS = 21;
 /** AI answers a day (a busy day has ~60 Back Office tickets closing on Others/empty) */
 const AI_PER_DAY = 300;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last" };
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep" };
 const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
@@ -40,6 +43,18 @@ async function workflowOn(): Promise<boolean | null> {
   try { on = !!(await hubspotRetry<{ isEnabled?: boolean }>({ path: `/automation/v4/flows/${WORKFLOW_ID}` })).isEnabled; } catch { on = null; }
   wfCache = { at: Date.now(), on };
   return on;
+}
+
+let optCache: { at: number; values: Set<string> | null } | null = null;
+/** The values enquiry_category accepts (the hidden topics are added by hand in HubSpot). null = could not be read. */
+async function options(): Promise<Set<string> | null> {
+  if (optCache && Date.now() - optCache.at < 10 * 60_000) return optCache.values;
+  let values: Set<string> | null = null;
+  try {
+    values = new Set(((await hubspotRetry<{ options?: { value: string }[] }>({ path: "/crm/v3/properties/tickets/enquiry_category" })).options ?? []).map((o) => o.value));
+  } catch { values = null; }
+  optCache = { at: Date.now(), values };
+  return values;
 }
 
 // ---------------- HubSpot, reading the conversations ----------------
@@ -124,27 +139,78 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
   }
   return { rows, ai };
 }
-/** Only onto Others / empty (read again just before); kept with what was there before. */
+/**
+ * Only onto Others / empty (read again just before), a hidden topic only once HubSpot has it as an option; 100 a call,
+ * one by one if a call is refused; kept with what was there before.
+ */
 async function writeSafe(rows: Row[]): Promise<number> {
   let done = 0;
   const cur = await batch("tickets", rows.map((r) => r.id), ["enquiry_category", "order_number"]);
+  const opts = await options();
   const now = new Date().toISOString();
   const log: { id: string; before: Record<string, string | null>; after: Record<string, string> }[] = [];
+  const todo: { r: Row; before: Record<string, string | null>; after: Record<string, string> }[] = [];
   for (const r of rows) {
     const c = cur.get(r.id);
     if (!c) { r.written = { at: now, error: "ticket not found" }; continue; }
     if (!isOpen(c.enquiry_category)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
+    if (r.d.category && HIDDEN_TOPICS.includes(r.d.category) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
     const after = patchFor(r.d, c);
-    if (!Object.keys(after).length) continue;
+    if (Object.keys(after).length) todo.push({ r, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
+  }
+  const ok = (x: (typeof todo)[number]) => { log.push({ id: x.r.id, before: x.before, after: x.after }); x.r.written = { at: now }; done++; };
+  for (let i = 0; i < todo.length; i += 100) {
+    const chunk = todo.slice(i, i + 100);
     try {
-      await hubspotRetry({ path: `/crm/v3/objects/tickets/${r.id}`, method: "PATCH", body: { properties: after } });
-      log.push({ id: r.id, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
-      r.written = { at: now };
-      done++;
-    } catch (e) { r.written = { at: now, error: (e as Error).message.slice(0, 160) }; }
+      await hubspotRetry({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", body: { inputs: chunk.map((x) => ({ id: x.r.id, properties: x.after })) } });
+      chunk.forEach(ok);
+    } catch {
+      for (const x of chunk) {
+        try {
+          await hubspotRetry({ path: `/crm/v3/objects/tickets/${x.r.id}`, method: "PATCH", body: { properties: x.after } });
+          ok(x);
+        } catch (e) { x.r.written = { at: now, error: (e as Error).message.slice(0, 160) }; }
+      }
+    }
   }
   if (log.length) await kvSet(`ticketClose:log:${now}`, log);
   return done;
+}
+
+/**
+ * Once a day: the closed tickets still on Others / empty whose sentiment flag says what they are get that topic - the
+ * whole history the first time, afterwards a flag the sweep set after the ticket had closed. No AI.
+ */
+async function flagSweep(): Promise<void> {
+  const last = await kvGet<{ day: string; waitingSaid?: string }>(KV.sweep);
+  if (last?.day === day()) return;
+  // nothing to do until the hidden options are in HubSpot - said once a day, not searched every run
+  const opts = await options();
+  const missing = HIDDEN_TOPICS.filter((t) => !opts?.has(t));
+  if (missing.length) {
+    if (last?.waitingSaid !== day()) {
+      console.log(`[ticket-close] waiting for the hidden Enquiry Category options in HubSpot: ${missing.join(", ")}`);
+      await kvSet(KV.sweep, { ...last, day: last?.day ?? "", waitingSaid: day() });
+    }
+    return;
+  }
+  const base = [
+    { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
+    { propertyName: "sentiment_not_valid_reason", operator: "HAS_PROPERTY" },
+  ];
+  const found = await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]]);
+  const rows: Row[] = [];
+  for (const t of found) {
+    const p = t.properties, d = before({ subject: p.subject, text: "x", notValid: p.sentiment_not_valid_reason });
+    if (d?.category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
+  }
+  const written = rows.length ? await writeSafe(rows) : 0;
+  const by: Record<string, number> = {};
+  for (const r of rows) if (r.written && !r.written.error && !r.written.skipped) by[r.d.category!] = (by[r.d.category!] ?? 0) + 1;
+  const waiting = rows.filter((r) => r.written?.skipped?.includes("not an option")).length;
+  if (found.length) console.log(`[ticket-close] daily: ${found.length} closed tickets on Others/empty with a sentiment flag - ${written} written${written ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}${waiting ? `, ${waiting} wait for the hidden options in HubSpot` : ""}`);
+  // a run that could not write its topics yet (options missing) tries again on the next run, not tomorrow
+  if (!waiting) await kvSet(KV.sweep, { day: day(), at: new Date().toISOString(), found: found.length, written });
 }
 
 async function run(): Promise<RunInfo> {
@@ -167,6 +233,7 @@ async function run(): Promise<RunInfo> {
     const cats = rows.filter((x) => x.d.category).map((x) => x.d.category).join(", ");
     console.log(`[ticket-close] ${todo.length} resolved on Others/empty: ${rows.filter((x) => x.d.category).length} get a category${cats ? ` (${cats})` : ""}, ${rows.filter((x) => !x.d.category).length} stay Others - ${live ? `${written} written` : "the workflow is still on: nothing written"}`);
   }
+  if (live) await flagSweep();
   const byId = new Map(kept.map((x) => [x.id, x]));
   for (const x of rows) byId.set(x.id, x);
   await kvSet(KV.rows, [...byId.values()].sort((a, b) => String(b.closed).localeCompare(String(a.closed))).slice(0, 3000));

@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { before, conversation, fromAi, isOpen, ownText, patchFor, stayKey } from "../src/lib/ticketClose/rules";
+import { before, conversation, flagTopic, fromAi, isOpen, ownText, patchFor } from "../src/lib/ticketClose/rules";
 
-test("no customer request stays Others without asking the AI (88's sentiment flags)", () => {
-  for (const k of ["only_our_own_words", "bulk_mail", "auto_reply", "newsletter"]) {
-    assert.equal(stayKey(k), k);
-    assert.deepEqual(before({ subject: "Microsoft 365 security: messages in quarantine", text: "x", notValid: k })?.stay, k);
+test("no customer request gets the hidden topic of what it is, without asking the AI (the sentiment flags)", () => {
+  for (const [k, topic] of [["mail_from_colleague", "Internal e-mail"], ["only_our_own_words", "Internal e-mail"], ["bulk_mail", "Automatic e-mail"],
+    ["mail_from_noreply", "Automatic e-mail"], ["auto_reply", "Automatic e-mail"], ["newsletter", "Automatic e-mail"], ["mail_had_no_words", "Empty e-mail"]]) {
+    assert.equal(flagTopic(k), topic);
+    const d = before({ subject: "Microsoft 365 security: messages in quarantine", text: "x", notValid: k });
+    assert.deepEqual([d?.category, d?.stay, d?.by], [topic, null, "flag"]);
+    assert.deepEqual(patchFor(d!, {}), { enquiry_category: topic });
   }
-  assert.equal(stayKey("order_confirmation"), null); // a customer's order confirmation is read by the AI
+  assert.equal(flagTopic("order_confirmation"), null); // a customer's order confirmation is read by the AI
   assert.equal(before({ subject: "Liefertermin", text: "Wann kommt die Ware?", notValid: null }), null);
-  assert.equal(before({ subject: "", text: "  ", notValid: null })?.stay, "empty");
+  assert.equal(before({ subject: "", text: "  ", notValid: null })?.category, "Empty e-mail");
 });
 
 test("the AI's answer: a real category with its order number, Others stays Others, no answer is tried again", () => {
