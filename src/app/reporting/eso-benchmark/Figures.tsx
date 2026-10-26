@@ -70,7 +70,7 @@ import {
   type Cube, type Dim, type ErpAgg, type Filters, type PcMonths, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
-import { LEADS, leadTeam, type Lead } from "@/lib/mapAssign/leadsRules";
+import { isTeamId, type Team } from "@/lib/mapAssign/leadsRules";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -101,35 +101,39 @@ export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKe
   return <Box sx={{ justifySelf: "start" }}><ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TEAMS} /></Box>;
 }
 /** Under ESO, a line manager's team (SARCLA 25.10.2026: "next to ESO | TSA | All I want RABE TEAM | SARCLA TEAM | FALU
- *  TEAM, only visible on ESO") - each person's line manager as Map assignment's SAE table sets it. */
-export type LeadKey = "all" | Lead;
-const LEAD_TABS: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...LEADS.map((l) => ({ id: l as LeadKey, label: leadTeam(l), count: null }))];
-const asLead = (x: string | null): LeadKey | null => (x === "all" || LEADS.includes(x as Lead) ? (x as LeadKey) : null);
-/** The people's line managers, by the names the cube carries. */
-function useLeads(): Record<string, Lead> | null {
-  const [v, setV] = useState<Record<string, Lead> | null>(null);
+ *  TEAM, only visible on ESO") - the teams and each person's as Map assignment's SAE table keeps them, renamed, added or
+ *  deleted there (26.10.2026). A team is known by its id, so a renamed team keeps its targets and its address. */
+export type LeadKey = "all" | string;
+const asLead = (x: string | null): LeadKey | null => (x === "all" || isTeamId(x) ? x : null);
+type Leads = { byName: Record<string, string>; teams: Team[] };
+/** The teams, and each person's (by the name the cube carries) - read once per page. */
+function useLeads(): Leads | null {
+  const [v, setV] = useState<Leads | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/uc/map-assignment/leads").then((r) => r.json())
-      .then((j: { byName?: Record<string, Lead> }) => { if (alive) setV(j.byName ?? {}); })
-      .catch(() => { if (alive) setV({}); });
+      .then((j: Partial<Leads>) => { if (alive) setV({ byName: j.byName ?? {}, teams: j.teams ?? [] }); })
+      .catch(() => { if (alive) setV({ byName: {}, teams: [] }); });
     return () => { alive = false; };
   }, []);
   return v;
 }
+/** The team shown: a line manager's under ESO, once the teams are read and it is one of them. */
+const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
 /** ESO | TSA | Total, and beside it - under ESO only - the line managers' teams. */
-function Teams({ team, onTeam, lead, onLead }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void }) {
+function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
+  const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((t) => ({ id: t.id, label: t.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
       <TeamToggle team={team} onTeam={onTeam} />
-      {team === "eso" && <ReportTabs name="eso-lead" tab={lead} onSelect={onLead} tabs={LEAD_TABS} />}
+      {team === "eso" && teams.length > 0 && <ReportTabs name="eso-lead" tab={teams.some((t) => t.id === lead) ? lead : "all"} onSelect={onLead} tabs={tabs} />}
     </Box>
   );
 }
 /** A team's Performis SAE people (the SAE as its person); null for Total - under ESO, a line manager's team only. */
-const membersOf = (cube: Cube, team: TeamKey, lead: Lead | null = null, leads: Record<string, Lead> | null = null) => (team === "total" ? null
+const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (team === "total" ? null
   : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team] && (team !== "eso" || !lead || leads?.[l] === lead)));
-function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: Lead | null = null, leads: Record<string, Lead> | null = null): Filters {
+function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null): Filters {
   const members = membersOf(cube, team, lead, leads);
   if (!members) return filters;
   const chosen = filters.sae?.length ? filters.sae.filter((o) => members.includes(o)) : members;
@@ -214,16 +218,16 @@ export type FigCtx = {
   onBar?: (d: Dim, label: string) => void;
   onFilter?: (d: Dim) => void;
   /** under ESO, a line manager's team, and each person's line manager (by name) */
-  lead?: Lead | null; leads?: Record<string, Lead> | null;
+  lead?: string | null; leads?: Record<string, string> | null; teams?: Team[];
   /** every chart's target, typed in its Actions window, by its key */
   targets?: Record<string, number>;
 };
 /** The ERP's forecast is the whole company's: on Total, nothing filtered. */
 const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
 /** The team's name - a line manager's team under ESO. */
-const teamName = (c: { team: TeamKey; lead?: Lead | null }) => (c.team === "eso" && c.lead ? leadTeam(c.lead) : teamWord(c.team));
+const teamName = (c: { team: TeamKey; lead?: string | null; teams?: Team[] }) => (c.team === "eso" && c.lead ? c.teams?.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
 /** A chart's target, one per chart and team (a line manager's team its own): "eso-figures:ytd:ytdrev@eso-RABE". */
-const targetKey = (id: string, team: TeamKey, lead?: Lead | null) => `eso-figures:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
+const targetKey = (id: string, team: TeamKey, lead?: string | null) => `eso-figures:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
 const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead)]; return t != null && t > 0 ? t : null; };
 
 /** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
@@ -320,7 +324,7 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary }: {
+function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary, unranked }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -333,9 +337,12 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   target?: number | null;
   /** a line under the title: the chart's own total (a profit centre's) */
   summary?: React.ReactNode;
+  /** rows listed under the ranking, not in it - book-to-bill's small books - and why */
+  unranked?: { why: string; rows: BoardRow[] };
 }) {
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
+  const [small, setSmall] = useState(false);
   const shown = all ? rows : rows.slice(0, first);
   const podium = shown.slice(0, 3), rest = shown.slice(3);
   const reached = target ? rows.filter((r) => r.cur >= target).length : 0;
@@ -426,18 +433,45 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
           )}
         </>
       )}
+      {unranked && unranked.rows.length > 0 && (
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          <Button size="small" onClick={() => setSmall((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", color: MUTED }}>
+            {small ? "Hide" : "Show"} the {unranked.rows.length} not ranked - {unranked.why}
+          </Button>
+          {small && [...unranked.rows].sort((a, b) => a.label.localeCompare(b.label)).map((r) => (
+            <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: 600, color: MUTED }}>{r.label}</Typography>
+                {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
+              </Box>
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
+
+/** Book-to-bill ranks the books of some size only (SARCLA 26.10.2026, his pick: "leave out small books") - a person with
+ *  €18,658 of revenue at 109% topped ESO. €50,000 over three months or more; a month or two count less. */
+const b2bMin = (months: number) => (months >= 3 ? 50_000 : months === 2 ? 10_000 : 5_000);
 
 /** Revenue, order intake or book-to-bill, year or month to date, by a breakdown - the period in the title; under each
  *  name the customers (revenue), the book-to-bill (order intake) or the two figures it is made of (book-to-bill). */
 function ValueBars({ c, id, dim, period, which, actions }: { c: FigCtx; id: string; dim: Dim; period: Period; which: Which | "b2b"; actions?: React.ReactNode }) {
   const b2b = which === "b2b";
+  const min = b2bMin(period === "ytd" ? runOf(c.cube) + 1 : 1);
+  const small: BoardRow[] = [];
   const rows: BoardRow[] = valuesOf(c, dim).flatMap((r) => {
     const [o, oPy] = pick(r.e, period, "oi"), [v, vPy] = pick(r.e, period, "rev");
     const n = Math.round(period === "ytd" ? r.cust.ytd : r.cust.mtd);
-    if (b2b) return v > 0 ? [{ label: r.label, cur: o / v, prev: vPy ? oPy / vPy : 0, sub: `order intake ${eur(o)} · revenue ${eur(v)}` }] : [];
+    if (b2b) {
+      if (v <= 0) return [];
+      const row = { label: r.label, cur: o / v, prev: vPy ? oPy / vPy : 0, sub: `order intake ${eur(o)} · revenue ${eur(v)}` };
+      if (v < min) { small.push(row); return []; }
+      return [row];
+    }
     const [cur, prev] = which === "rev" ? [v, vPy] : [o, oPy];
     // the order intake's own line: book-to-bill, the order intake against the revenue (SARCLA 25.10.2026: "missing book to bill per SAE")
     const sub = which === "oi" ? `Book-to-bill ${v ? `${Math.round((o / v) * 100)}%` : "—"}` : `${int(n)} customer${n === 1 ? "" : "s"}`;
@@ -446,7 +480,7 @@ function ValueBars({ c, id, dim, period, which, actions }: { c: FigCtx; id: stri
   return (
     <Leaderboard key={`${period}-${which}-${dim}`} title={`${WHAT_ALL[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
       curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 8 : 12}
-      fmt={b2b ? pct : eur} ratio={b2b} target={targetFor(c, id)}
+      fmt={b2b ? pct : eur} ratio={b2b} target={targetFor(c, id)} unranked={b2b ? { why: `under ${eur(min)} of revenue`, rows: small } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
@@ -849,8 +883,8 @@ function pcSplit(c: FigCtx, dim: Dim): SplitRow[] {
   memo.set(key, rows);
   return rows;
 }
-/** The profit centres the people have revenue in, in their fixed order. */
-const pcsOf = (c: FigCtx) => { const rows = pcSplit(c, "sae"); return PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc] || r.byPcPy[pc])); };
+/** The profit centres the people (or the countries) have revenue in, in their fixed order. */
+const pcsOf = (c: FigCtx, dim: PcDim = "sae") => { const rows = pcSplit(c, dim); return PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc] || r.byPcPy[pc])); };
 function PcWaiting() {
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, display: "flex", gap: 1.25, alignItems: "center" }}>
@@ -867,21 +901,23 @@ function PcBars({ c, id, period, actions }: { c: FigCtx; id: string; period: Per
   return <Leaderboard key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} target={targetFor(c, id)} actions={actions} />;
 }
 
-/** One profit centre's people: each Performis SAE's revenue year to date in it (SARCLA 25.10.2026: "per person revenue per
- *  profit center as a graph") - each profit centre its own chart, so each goes to the BUC View alone, with its total on top. */
-function PcSaeBars({ c, id, pc, actions }: { c: FigCtx; id: string; pc: string; actions?: React.ReactNode }) {
+/** One profit centre by the people or by country: each one's revenue year to date in it (SARCLA 25.10.2026: "per person
+ *  revenue per profit center as a graph"; 26.10: the country table "should be a completely different graph" - his pick, one
+ *  chart per profit center) - each its own chart, so each goes to the BUC View alone, with its total on top. */
+type PcDim = "sae" | "country";
+function PcDimBars({ c, id, pc, dim, actions }: { c: FigCtx; id: string; pc: string; dim: PcDim; actions?: React.ReactNode }) {
   if (!hasPc(c)) return <PcWaiting />;
-  const rows: BoardRow[] = pcSplit(c, "sae").flatMap((r) => {
+  const rows: BoardRow[] = pcSplit(c, dim).flatMap((r) => {
     const cur = r.byPc[pc] ?? 0, prev = r.byPcPy[pc] ?? 0;
-    return cur || prev ? [{ label: r.label, cur, prev, sub: `${r.total > 0 ? pct(cur / r.total) : "—"} of their revenue` }] : [];
+    return cur || prev ? [{ label: r.label, cur, prev, sub: `${r.total > 0 ? pct(cur / r.total) : "—"} of ${dim === "sae" ? "their" : "its"} revenue` }] : [];
   });
   const cur = rows.reduce((s, r) => s + r.cur, 0), prev = rows.reduce((s, r) => s + r.prev, 0), ch = changeNote(cur, prev);
   return (
-    <Leaderboard key={`pcsae-${pc}`} title={`${PC_NAME[pc]} - revenue year to date, by Performis SAE`} rows={rows}
+    <Leaderboard key={`pc${dim}-${pc}`} title={`${PC_NAME[pc]} - revenue year to date, by ${lowerOf(dim)}`} rows={rows}
       summary={<>In all {eur(cur)} <span style={{ color: ch?.color ?? FAINT }}>{ch?.text ?? "—"} · {signedEur(cur - prev)}</span></>}
       curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 6 : 8} target={targetFor(c, id)}
-      selected={c.filters.sae} onPick={c.onBar ? (l) => c.onBar!("sae", l) : undefined}
-      onFilter={c.onFilter ? () => c.onFilter!("sae") : undefined} filterLabel="Filter by Performis SAE" actions={actions} />
+      selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
+      onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
 }
 
@@ -1022,11 +1058,11 @@ function drawnOf(id: string): Drawn | undefined {
       return { id, view: v, title: (c) => `Revenue ${PERIOD[p]}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={c} id={id} period={p} actions={a} />,
         target: (c) => ({ unit: "eur", label: `Each profit center's revenue ${PERIOD[p]} is measured against it · ${forWhom(c)}.` }) };
     }
-    const one = /^sae-([a-z]+)$/.exec(chart);
-    if (one && PC_ORDER.includes(one[1])) {
-      const pc = one[1];
-      return { id, view: v, title: (c) => `${PC_NAME[pc]} - revenue year to date, by Performis SAE${team(c)}`, draw: (c, a) => <PcSaeBars c={c} id={id} pc={pc} actions={a} />,
-        target: (c) => ({ unit: "eur", label: `Each person's revenue year to date in ${PC_NAME[pc]} is measured against it · ${forWhom(c)}.` }) };
+    const one = /^(sae|country)-([a-z]+)$/.exec(chart);
+    if (one && PC_ORDER.includes(one[2])) {
+      const d = one[1] as PcDim, pc = one[2];
+      return { id, view: v, title: (c) => `${PC_NAME[pc]} - revenue year to date, by ${lowerOf(d)}${team(c)}`, draw: (c, a) => <PcDimBars c={c} id={id} pc={pc} dim={d} actions={a} />,
+        target: (c) => ({ unit: "eur", label: `Each ${d === "sae" ? "person's" : "country's"} revenue year to date in ${PC_NAME[pc]} is measured against it · ${forWhom(c)}.` }) };
     }
     if (chart === "country" || chart === "sae") { const d: Dim = chart; return { id, view: v, title: (c) => `Revenue year to date by ${lowerOf(d)}, split by profit center${team(c)}`, draw: (c, a) => <PcSplitBars c={c} dim={d} actions={a} /> }; }
     if (chart === "months") return { id, view: v, title: (c) => `Revenue month by month, by profit center${team(c)}`, draw: (c, a) => <PcCards c={c} actions={a} /> };
@@ -1121,8 +1157,11 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
             <SubTitle>Each profit center by Performis SAE, year to date</SubTitle>
             <Box sx={TWO}>{pcsOf(c).map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:sae-${pc}`)}</Box>)}</Box>
           </Box>
+          <Box>
+            <SubTitle>Each profit center by country, year to date</SubTitle>
+            <Box sx={TWO}>{pcsOf(c, "country").map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:country-${pc}`)}</Box>)}</Box>
+          </Box>
           <Box><SubTitle>Year to date, by profit center</SubTitle><PcTable c={c} period="ytd" /></Box>
-          <Box><SubTitle>Year to date, by country and profit center</SubTitle><PcSplitTable c={c} dim="country" /></Box>
           <Box><SubTitle>Year to date, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
         </>
       )}
@@ -1245,10 +1284,10 @@ function useLead(): [LeadKey, (l: LeadKey) => void] {
   return [lead, set];
 }
 /** A line manager's team with nobody in it yet: where to set it. */
-function NoLeadYet({ lead }: { lead: Lead }) {
+function NoLeadYet({ name }: { name: string }) {
   return (
     <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-      Nobody is in {leadTeam(lead)} yet - pick each ESO person&apos;s line manager in the Line manager column of{" "}
+      Nobody is in {name} yet - pick each ESO person&apos;s line manager in the Line manager column of{" "}
       <Box component={Link} href="/uc/map-assignment#sae-table" sx={{ color: TINT.blue.fg, fontWeight: 600 }}>Map assignment &gt; SAE table</Box>.
     </Typography>
   );
@@ -1280,7 +1319,8 @@ export function FiguresExplorer() {
   const params = useSearchParams();
   const [teamKey, setTeam] = useTeam();
   const [leadKey, setLead] = useLead();
-  const leads = useLeads();
+  const lt = useLeads();
+  const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
   const { state: acts } = useActions("eso-figures");
   const view = viewOf(params.get("view"));
   const setView = (v: View) => setQuery((q) => { if (v === "ytd") q.delete("view"); else q.set("view", v); });
@@ -1309,9 +1349,9 @@ export function FiguresExplorer() {
       <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />
     </Box>
   );
-  const lead = teamKey === "eso" && leadKey !== "all" ? leadKey : null;
+  const lead = leadOf(teamKey, leadKey, lt);
   const eff = withTeam(cube, filters, teamKey, lead, leads);
-  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, filters, eff, lead, leads, targets: acts?.targets, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
+  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, filters, eff, lead, leads, teams, targets: acts?.targets, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
   const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -1327,7 +1367,7 @@ export function FiguresExplorer() {
       Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. The months: each customer&apos;s monthly revenue and order intake, summed
       {cube.oiLoaded != null ? ` (the order intake per customer loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]})` : ""}; the running month the ERP&apos;s month to date. Customers: the companies that bought.
       {teamKey !== "total" ? ` ${teamWord(teamKey)}: the customers Performis gives its people (the SAE, as Map assignment maps it to a person) - a person's team from the rosters, else their HubSpot team.` : ""}
-      {lead ? ` ${leadTeam(lead)}: the ESO people whose line manager is ${lead}, as Map assignment's SAE table sets it.` : ""}
+      {lead ? ` ${teamName(c)}: the ESO people Map assignment's SAE table puts in this team.` : ""}
       {" "}The forecast: the ERP&apos;s, per mandant - the whole company only, shown on Total with nothing filtered. Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
     </Typography>
   );
@@ -1357,8 +1397,8 @@ export function FiguresExplorer() {
       </Box>
       {/* ESO | TSA | Total and, under ESO, the line managers' teams beside it - a row of their own, so the two stay side by side */}
       <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
-        <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} />
-        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet lead={lead} />}
+        <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
+        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(c)} />}
       </Box>
 
       {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
@@ -1394,23 +1434,23 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const { kpi, busy } = useKpiSeries();
   const [teamKey, setTeam] = useState<TeamKey>("eso");
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
-  const leads = useLeads();
+  const lt = useLeads();
+  const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
   useEffect(() => {
     try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ }
   }, []);
   const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
-  const lead = teamKey === "eso" && leadKey !== "all" ? leadKey : null;
+  const lead = leadOf(teamKey, leadKey, lt);
   const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, targets: acts?.targets } : null;
+  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, teams, targets: acts?.targets } : null;
   const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
     const st = asTeam(spec.filters?.team?.[0] ?? null) ?? teamKey;
-    const sl = asLead(spec.filters?.lead?.[0] ?? null);
-    const slead = st === "eso" && sl && sl !== "all" ? sl : null;
+    const slead = leadOf(st, asLead(spec.filters?.lead?.[0] ?? null) ?? "all", lt);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
-    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, targets: acts?.targets, half: fmt === "half" };
+    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, teams, targets: acts?.targets, half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, st, slead), ...ch.target(sc) } : undefined;
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
@@ -1429,9 +1469,9 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
           </Box>
           <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName(c)}${teamKey !== "total" ? " by Performis SAE" : ""} · year to date ${periodWords(c.cube, "ytd")}, month to date ${periodWords(c.cube, "mtd")} - against the same days of ${c.cube.years[1]}` : "Revenue and order intake"}</Typography>
         </Box>
-        <Teams team={teamKey} onTeam={choose} lead={leadKey} onLead={chooseLead} />
+        <Teams team={teamKey} onTeam={choose} lead={leadKey} onLead={chooseLead} teams={teams} />
       </Box>
-      {c && lead && leads && membersOf(c.cube, "eso", lead, leads)?.length === 0 && <NoLeadYet lead={lead} />}
+      {c && lead && leads && membersOf(c.cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(c)} />}
       {!c ? <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} /> : (
         <>
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))", xl: `repeat(${figs.length}, minmax(0, 1fr))` } }}>

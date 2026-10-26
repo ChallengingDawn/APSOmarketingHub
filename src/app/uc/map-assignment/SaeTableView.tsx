@@ -22,7 +22,8 @@ import { API, OwnerPicker, Swatch, newId, takesOver, type Names, type Palette, t
 import type { Owner } from "@/lib/mapAssign/api";
 import TextFieldSelect from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
-import { LEADS, isLead, leadTeam, type Lead } from "@/lib/mapAssign/leadsRules";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import type { Team } from "@/lib/mapAssign/leadsRules";
 
 const hint = { fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 };
 const head = { fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase" as const, letterSpacing: "0.05em" };
@@ -44,22 +45,83 @@ export function usePerformis(n: number): Got {
 
 /* ── the line managers (SARCLA 25.10.2026: "a column line manager so we can pick a line manager for each ESO") ── */
 
-/** owner id -> RABE | SARCLA | FALU, read once, saved on every pick - outside the page's draft and the rules */
-function useLeads(): { leads: Record<string, Lead>; set: (owner: string, lead: Lead | null) => void; err: string | null } {
-  const [leads, setLeads] = useState<Record<string, Lead>>({});
+type Leads = { leads: Record<string, string>; teams: Team[]; set: (owner: string, team: string | null) => void; saveTeams: (teams: Partial<Team>[]) => Promise<boolean>; err: string | null };
+/** owner id -> team id and the teams, read once, saved on every change - outside the page's draft and the rules */
+function useLeads(): Leads {
+  const [leads, setLeads] = useState<Record<string, string>>({});
+  const [teams, setTeams] = useState<Team[]>([]);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch(`${API}/leads`).then((r) => r.json()).then((j) => { if (alive && j?.ok) setLeads(j.leads ?? {}); }).catch(() => {});
+    fetch(`${API}/leads`).then((r) => r.json()).then((j) => { if (alive && j?.ok) { setLeads(j.leads ?? {}); setTeams(j.teams ?? []); } }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const set = (owner: string, lead: Lead | null) => {
-    setLeads((l) => { const n = { ...l }; if (lead) n[owner] = lead; else delete n[owner]; return n; });
-    fetch(`${API}/leads`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerId: owner, lead }) })
-      .then((r) => r.json()).then((j) => { if (j?.ok) { setLeads(j.leads ?? {}); setErr(null); } else setErr(j?.error ?? "not saved"); })
+  const put = (body: unknown) => fetch(`${API}/leads`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+  const set = (owner: string, team: string | null) => {
+    setLeads((l) => { const n = { ...l }; if (team) n[owner] = team; else delete n[owner]; return n; });
+    put({ ownerId: owner, lead: team })
+      .then((j) => { if (j?.ok) { setLeads(j.leads ?? {}); setErr(null); } else setErr(j?.error ?? "not saved"); })
       .catch((e) => setErr(String(e?.message ?? e)));
   };
-  return { leads, set, err };
+  const saveTeams = (next: Partial<Team>[]) => put({ teams: next })
+    .then((j) => { if (j?.ok) { setTeams(j.teams ?? []); setLeads(j.leads ?? {}); setErr(null); return true; } setErr(j?.error ?? "not saved"); return false; })
+    .catch((e) => { setErr(String(e?.message ?? e)); return false; });
+  return { leads, teams, set, saveTeams, err };
+}
+
+/** The line managers' teams (SARCLA 26.10.2026: "a panel to change the teams' names, or to delete and add more teams"):
+ *  a name changes where it is typed, a team is added below, a deleted team's people lose their team. Saved at once. */
+function TeamsPanel({ lm, admin, names }: { lm: Leads; admin: boolean; names: Names }) {
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState("");
+  const [sure, setSure] = useState<string | null>(null);
+  const forget = (id: string) => setDraft((d) => { const n = { ...d }; delete n[id]; return n; });
+  const people = (id: string) => Object.entries(lm.leads).filter(([, t]) => t === id).map(([o]) => names.name(o));
+  const rename = (t: Team) => {
+    const name = (draft[t.id] ?? t.name).trim();
+    if (!name || name === t.name) { forget(t.id); return; }
+    void lm.saveTeams(lm.teams.map((x) => (x.id === t.id ? { id: x.id, name } : x))).then((ok) => { if (ok) forget(t.id); });
+  };
+  const add = () => { const name = adding.trim(); if (name) void lm.saveTeams([...lm.teams, { name }]).then((ok) => { if (ok) setAdding(""); }); };
+  const remove = (t: Team) => { setSure(null); void lm.saveTeams(lm.teams.filter((x) => x.id !== t.id)); };
+  return (
+    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, display: "grid", gap: 1 }}>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Line managers&apos; teams · {lm.teams.length}</Typography>
+      <Typography sx={hint}>The teams the Line manager column offers - the ESO Figures show each one beside ESO | TSA | Total. {admin ? "Change a name where it is written (Enter keeps it), add a team below, or delete one: its people then have no team. Saved at once." : "Only an admin changes them."}</Typography>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {lm.teams.map((t) => {
+          const who = people(t.id);
+          return (
+            <Box key={t.id} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(180px, 280px) minmax(0, 1fr) auto" }, gap: 1, alignItems: "center" }}>
+              <TextField size="small" value={draft[t.id] ?? t.name} disabled={!admin} onChange={(e) => setDraft((d) => ({ ...d, [t.id]: e.target.value }))}
+                onBlur={() => rename(t)} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") forget(t.id); }}
+                slotProps={{ htmlInput: { "aria-label": `Name of ${t.name}`, maxLength: 60 } }} />
+              <Typography sx={{ fontSize: "0.8rem", color: who.length ? MUTED : FAINT, minWidth: 0 }} noWrap title={who.join(", ")}>
+                {who.length ? `${who.length} ${who.length === 1 ? "person" : "people"}: ${who.join(", ")}` : "nobody yet"}
+              </Typography>
+              {admin && (sure === t.id ? (
+                <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.8rem", color: INK }}>Delete {t.name}?{who.length ? ` ${who.length} lose their team.` : ""}</Typography>
+                  <Button size="small" color="error" variant="contained" disableElevation sx={{ textTransform: "none" }} onClick={() => remove(t)}>Delete</Button>
+                  <Button size="small" sx={{ textTransform: "none" }} onClick={() => setSure(null)}>Keep</Button>
+                </Box>
+              ) : (
+                <IconButton size="small" aria-label={`Delete ${t.name}`} onClick={() => setSure(t.id)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton>
+              ))}
+            </Box>
+          );
+        })}
+        {!lm.teams.length && <Typography sx={hint}>No team yet.</Typography>}
+      </Box>
+      {admin && (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <TextField size="small" placeholder="a new team's name" value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+            slotProps={{ htmlInput: { "aria-label": "A new team's name", maxLength: 60 } }} sx={{ width: { xs: "100%", sm: 280 } }} />
+          <Button size="small" startIcon={<AddIcon />} disabled={!adding.trim()} onClick={add} sx={{ textTransform: "none" }}>Add a team</Button>
+        </Box>
+      )}
+    </Box>
+  );
 }
 
 /* ── the table ── */
@@ -95,7 +157,7 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
         <Box sx={{ ...row, display: { xs: "none", md: "grid" }, gridTemplateColumns: cols, bgcolor: "rgba(21,34,58,.03)", py: 0.75 }}>
           <Typography sx={head}>SAE (as Performis writes it)</Typography>
           <Typography sx={head}>Person</Typography>
-          <Typography sx={head} title="The ESO team each person is in - the ESO Figures' RABE / SARCLA / FALU TEAM. Saved as soon as it is picked">Line manager</Typography>
+          <Typography sx={head} title="The ESO team each person is in - the ESO Figures show each team on its own. Saved as soon as it is picked">Line manager</Typography>
           <Typography sx={{ ...head, textAlign: "right" }}>Companies</Typography>
           <span />
         </Box>
@@ -119,11 +181,11 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
                 )}
               </Box>
               {/* one line manager per person: several SAE spellings of one person share it */}
-              <TextFieldSelect select size="small" value={r.owner && lm.leads[r.owner] ? lm.leads[r.owner] : ""} disabled={!admin || !r.owner}
-                onChange={(e) => lm.set(r.owner, isLead(e.target.value) ? e.target.value : null)}
+              <TextFieldSelect select size="small" value={r.owner && lm.teams.some((t) => t.id === lm.leads[r.owner]) ? lm.leads[r.owner] : ""} disabled={!admin || !r.owner}
+                onChange={(e) => lm.set(r.owner, e.target.value || null)}
                 slotProps={{ htmlInput: { "aria-label": `Line manager of ${names.name(r.owner) || "this person"}` } }} sx={{ minWidth: 0 }}>
                 <MenuItem value="">—</MenuItem>
-                {LEADS.map((l) => <MenuItem key={l} value={l}>{leadTeam(l)}</MenuItem>)}
+                {lm.teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
               </TextFieldSelect>
               <Typography sx={numSx}>{k && counts.has(k) ? full(counts.get(k)!) : "—"}</Typography>
               {admin ? <IconButton size="small" onClick={() => push(rows.filter((x) => x.id !== r.id))} aria-label={`Remove SAE ${r.k}`}><CloseIcon sx={{ fontSize: 16 }} /></IconButton> : <span />}
@@ -132,7 +194,8 @@ function TableTab({ rules, setDraft, names, palette, admin, got }: { rules: Assi
         })}
       </Box>
       {admin && <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", justifySelf: "start" }} onClick={() => push([...rows, { id: newId("s"), k: "", owner: "" }])}>Add an SAE</Button>}
-      <Typography sx={hint}>Line manager: the ESO team each person is in (RABE, SARCLA or FALU TEAM) - the ESO Figures show each team on its own. Saved as soon as it is picked, apart from Save above.{lm.err ? ` Not saved: ${lm.err}` : ""}</Typography>
+      <Typography sx={hint}>Line manager: the ESO team each person is in - the ESO Figures show each team on its own. Saved as soon as it is picked, apart from Save above.{lm.err ? ` Not saved: ${lm.err}` : ""}</Typography>
+      <TeamsPanel lm={lm} admin={admin} names={names} />
       {unknown.length > 0 && (
         <Box sx={{ border: "1px solid rgba(169,106,18,.25)", bgcolor: "rgba(169,106,18,.05)", borderRadius: "12px", p: 1.5, display: "grid", gap: 0.75 }}>
           <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>SAE values with nobody · {unknown.length}</Typography>
