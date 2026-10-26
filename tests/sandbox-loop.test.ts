@@ -17,17 +17,17 @@ const SECRET = process.env.SANDBOX_TEST_SESSION_SECRET;
 const ready = !!(URL_ && SANDBOX_DB && HUB_DB && KEY && SECRET);
 
 // made-up "real" data - none of it may reach the sandbox
-const REAL = ["bossard", "anna", "muster", "kunde-ag", "kunde ag", "0417496611", "maida"];
+const REAL = ["zimtstern", "anna", "muster", "kunde-ag", "kunde ag", "0417496611", "maida"];
 const HUBSPOT: Record<string, unknown> = {
   "POST /crm/v3/objects/contacts/batch/read": { results: [
-    { id: "101", properties: { email: "anna.muster@kunde-ag.ch", firstname: "Anna", lastname: "Muster", phone: "0417496611", mobilephone: null, address: "Seestrasse 1", zip: "6300", city: "Zug", country: "Switzerland" } },
-    { id: "102", properties: { email: "info@bossard.com", firstname: "Info", lastname: "Bossard", phone: null, mobilephone: null, address: null, zip: "6301", city: "Zug", country: "Switzerland" } }] },
+    { id: "101", properties: { email: "anna.muster@kunde-ag.example", firstname: "Anna", lastname: "Muster", phone: "0417496611", mobilephone: null, address: "Seestrasse 1", zip: "6300", city: "Zug", country: "Switzerland" } },
+    { id: "102", properties: { email: "info@zimtstern-fluid.example", firstname: "Info", lastname: "Zimtstern", phone: null, mobilephone: null, address: null, zip: "6301", city: "Zug", country: "Switzerland" } }] },
   "POST /crm/v3/objects/companies/search": { total: 2, results: [
-    { id: "900001", properties: { name: "Bossard AG", domain: "bossard.com", revenue_2025: "120000", revenue_monthly: "1250.50", sales_priority: "A" } },
-    { id: "900002", properties: { name: "Kunde AG", domain: "kunde-ag.ch", revenue_2025: "5000", revenue_monthly: "80.00", sales_priority: "C" } }] },
+    { id: "900001", properties: { name: "Zimtstern Fluidtechnik AG", domain: "zimtstern-fluid.example", revenue_2025: "120000", revenue_monthly: "1250.50", sales_priority: "A" } },
+    { id: "900002", properties: { name: "Kunde AG", domain: "kunde-ag.example", revenue_2025: "5000", revenue_monthly: "80.00", sales_priority: "C" } }] },
   "GET /crm/v3/properties/companies": { results: [{ name: "sales_priority", type: "enumeration" }, { name: "revenue_2025", type: "number" }, { name: "revenue_monthly", type: "number" }, { name: "name", type: "string" }, { name: "domain", type: "string" }] },
   "GET /crm/v3/properties/contacts": { results: [{ name: "phone", type: "string", fieldType: "phonenumber" }] },
-  "GET /crm/v3/objects/companies/900003": { id: "900003", properties: { name: "Bossard AG", erp_alias: "BOSSARD" } },
+  "GET /crm/v3/objects/companies/900003": { id: "900003", properties: { name: "Zimtstern Fluidtechnik AG", erp_alias: "ZIMTSTERN" } },
 };
 
 test("the whole loop: a miss is brought from the hub, coded, and nothing real is stored", { skip: !ready }, async () => {
@@ -50,7 +50,7 @@ test("the whole loop: a miss is brought from the hub, coded, and nothing real is
   try {
     await hub.query(`CREATE TABLE IF NOT EXISTS erp_fixture (company_id int, customer_name text, revenue numeric, revenue_2024 numeric, contact_email text, note text)`);
     await hub.query(`TRUNCATE erp_fixture`);
-    await hub.query(`INSERT INTO erp_fixture VALUES (900001, 'Bossard AG', 1000.50, 900, 'anna.muster@kunde-ag.ch', 'Anna wants a call')`);
+    await hub.query(`INSERT INTO erp_fixture VALUES (900001, 'Zimtstern Fluidtechnik AG', 1000.50, 900, 'anna.muster@kunde-ag.example', 'Anna wants a call')`);
 
     const token = await new SignJWT({ uid: 1, username: "tester", role: "admin", typ: "session" })
       .setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(SECRET));

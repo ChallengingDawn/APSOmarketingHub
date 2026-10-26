@@ -132,7 +132,7 @@ export function placeholderText(salt: string, original: string): string {
 }
 
 // Words a real name may share with the coded output without being a leak: our own placeholders, legal forms,
-// country words. A real name's other words of 6+ letters are checked on their own too ("Bossard" of "Bossard AG");
+// country words. A real name's other words of 6+ letters are checked on their own too ("Zimtstern" of "Zimtstern AG");
 // shorter ones are too likely to meet a stage or an industry by chance and refuse a whole answer for nothing.
 export const LEAK_STOPWORDS: ReadonlySet<string> = new Set([
   ...LOREM, "company", "contact", "owner", "example", "invalid", "person", "customer", "kunde", "firma", "gmbh",

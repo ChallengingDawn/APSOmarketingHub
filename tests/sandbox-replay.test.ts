@@ -83,6 +83,6 @@ test("only the hub's key opens the side door, and only when a hash is configured
 test("a delivery carrying a real address is refused whole; coded addresses pass", () => {
   const ok = { answers: [{ key: "k", kind: "hs", request: {}, response: { body: { email: "c123@example.invalid" } } }] };
   assert.equal(realAddressIn(ok), null);
-  const bad = { answers: [{ key: "k", kind: "hs", request: {}, response: { body: { note: "write to anna@customer.ch" } } }] };
-  assert.equal(realAddressIn(bad), "…@customer.ch");
+  const bad = { answers: [{ key: "k", kind: "hs", request: {}, response: { body: { note: "write to anna@customer.example" } } }] };
+  assert.equal(realAddressIn(bad), "…@customer.example");
 });

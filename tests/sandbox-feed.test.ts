@@ -45,9 +45,9 @@ test("fields are read by their names", () => {
 
 test("a company search: named by its HubSpot number, its money as the rules say, its words replaced", () => {
   const body = { total: 1, results: [{ id: "31258743810", properties: {
-    name: "Bossard AG", domain: "bossard.com", phone: "0417496611", city: "Zug", zip: "6300", country: "Switzerland",
+    name: "Zimtstern Fluidtechnik AG", domain: "zimtstern-fluid.example", phone: "0417496611", city: "Zug", zip: "6300", country: "Switzerland",
     industry: "Mechanical or Industrial Engineering", revenue_2025: "120000", revenue_monthly: "1250.50",
-    description: "Bossard supplies fastening technology", sales_priority: "A", hubspot_owner_id: "1202569408" } }] };
+    description: "Zimtstern supplies fluid technology", sales_priority: "A", hubspot_owner_id: "1202569408" } }] };
   const out = codeHubspotAnswer("/crm/v3/objects/companies/search", 200, body,
     ctx({ industry: "enumeration", sales_priority: "enumeration", revenue_2025: "number", revenue_monthly: "number" }));
   assert.ok("response" in out, JSON.stringify(out));
@@ -60,18 +60,18 @@ test("a company search: named by its HubSpot number, its money as the rules say,
   assert.equal(p.revenue_2025, "120000");             // segmentation reads it: real
   assert.equal(p.revenue_monthly, "1000.40");         // a customer figure: x factor
   assert.notEqual(p.description, body.results[0].properties.description);
-  assert.equal(String(p.description).toLowerCase().includes("bossard"), false);
+  assert.equal(String(p.description).toLowerCase().includes("zimtstern"), false);
   assert.equal(p.hubspot_owner_id, "1202569408");
 });
 
 test("contacts and owners: Contact <id> and Owner <id>, addresses at example.invalid", () => {
   const c = codeHubspotAnswer("/crm/v3/objects/contacts/batch/read", 200, { results: [{ id: "101", properties: {
-    firstname: "Anna", lastname: "Muster", email: "anna.muster@kunde-ag.ch", jobtitle: "Einkauf", mobilephone: "+41 79 000 00 00" } }] }, ctx());
+    firstname: "Anna", lastname: "Muster", email: "anna.muster@kunde-ag.example", jobtitle: "Einkauf", mobilephone: "+41 79 000 00 00" } }] }, ctx());
   const cp = (c as { response: { body: { results: { properties: Record<string, unknown> }[] } } }).response.body.results[0].properties;
   assert.deepEqual(cp, { firstname: "Contact", lastname: "101", email: "c101@example.invalid", jobtitle: "Contact 101", mobilephone: null });
 
   const o = codeHubspotAnswer("/crm/v3/owners?limit=100", 200, { results: [
-    { id: "1202569408", email: "maida.x@apsoparts.com", firstName: "Maida", lastName: "X", userId: 77, teams: [{ id: "5", name: "Back Office" }] }] }, ctx());
+    { id: "1202569408", email: "maida.x@apsoparts.example", firstName: "Maida", lastName: "X", userId: 77, teams: [{ id: "5", name: "Back Office" }] }] }, ctx());
   const ow = (o as { response: { body: { results: Record<string, unknown>[] } } }).response.body.results[0];
   assert.equal(ow.firstName, "Owner");
   assert.equal(ow.lastName, "1202569408");
@@ -81,14 +81,14 @@ test("contacts and owners: Contact <id> and Owner <id>, addresses at example.inv
 
 test("a real name that survives in a field no rule knows is caught, and the answer is not sent", () => {
   const out = codeHubspotAnswer("/crm/v3/objects/companies/search", 200, { results: [{ id: "9", properties: {
-    name: "Bossard AG", erp_alias: "BOSSARD" } }] }, ctx());
+    name: "Zimtstern Fluidtechnik AG", erp_alias: "ZIMTSTERN" } }] }, ctx());
   assert.ok("refused" in out);
   assert.match((out as { refused: string }).refused, /results\[\]\.properties\.erp_alias/);
-  assert.equal((out as { refused: string }).refused.toLowerCase().includes("bossard"), false, "the reason never names the value");
+  assert.equal((out as { refused: string }).refused.toLowerCase().includes("zimtstern"), false, "the reason never names the value");
 });
 
 test("database rows: names by the ids beside them, customer money scaled, notes replaced", () => {
-  const out = codeRows([{ company_id: 7, customer_name: "Kunde AG", revenue: 100.5, revenue_2024: 90, contact_email: "a@kunde-ag.ch",
+  const out = codeRows([{ company_id: 7, customer_name: "Kunde AG", revenue: 100.5, revenue_2024: 90, contact_email: "a@kunde-ag.example",
     note: "call Anna on Monday", stage: "won", meta: { owner_name: "Sara Y", owner_id: 12 } }], ctx());
   assert.ok("response" in out, JSON.stringify(out));
   const r = (out as { response: { rows: Record<string, unknown>[] } }).response.rows[0];
@@ -102,7 +102,7 @@ test("database rows: names by the ids beside them, customer money scaled, notes 
 });
 
 test("an error from HubSpot goes on as its status only - its message could echo a value", () => {
-  const out = codeHubspotAnswer("/crm/v3/objects/companies/1", 404, { message: "Object Bossard AG not found" }, ctx());
+  const out = codeHubspotAnswer("/crm/v3/objects/companies/1", 404, { message: "Object Zimtstern Fluidtechnik AG not found" }, ctx());
   assert.deepEqual(out, { response: { status: 404, body: { status: "error", message: "HubSpot answered 404" } } });
 });
 
@@ -110,7 +110,7 @@ test("placeholders are as long as the text they replace and the same each time",
   const t = "Bitte um Offerte für 200 O-Ringe, Lieferung bis Ende Monat";
   assert.equal(placeholderText("s", t), placeholderText("s", t));
   assert.ok(Math.abs(placeholderText("s", t).length - t.length) <= 1);
-  assert.deepEqual(leakNeedles("Bossard AG").sort(), ["bossard", "bossard ag"]);
+  assert.deepEqual(leakNeedles("Zimtstern Fluidtechnik AG").sort(), ["fluidtechnik", "zimtstern", "zimtstern fluidtechnik ag"]);
   assert.deepEqual(leakNeedles("AG"), []);
   assert.deepEqual(leakCheck({ a: ["company 7"] }, new Set(["company"])), { ok: false, path: "a[]" });
 });

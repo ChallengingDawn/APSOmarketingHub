@@ -110,9 +110,9 @@ export async function askForRequested(): Promise<number> {
 }
 
 // Delete all keeps the logins - the sandbox's own users, sessions and grants, and in the key store only their
-// invitations and recovery codes - plus the CLI's Railway token and the reviews already sent. Everything else in the
-// database is the sandbox's data and goes.
-export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker", "sandbox_cli", "sandbox_reviews"] as const;
+// invitations and recovery codes - plus the CLI's Railway token, the reviews already sent and the code `sbx pull` hands
+// out. Everything else in the database is the sandbox's data and goes.
+export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker", "sandbox_cli", "sandbox_reviews", "sandbox_snapshot"] as const;
 export const KEEP_KV_PREFIXES = ["invite:", "recovery:"] as const;
 
 /** The tables Delete all empties: every table of the database but the kept ones (and the key store, done apart). */
