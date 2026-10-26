@@ -101,7 +101,7 @@ function Confidence({ w, label }: { w: Win; label: string }) {
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={<CategoryOutlinedIcon />} tint="blue" title="How sure the topics are"
-        note={`Back Office tickets created ${label}, by who set the category they have today. High: a person, or the sentiment flag (internal, automatic or empty e-mail). Medium: the AI read the conversation, or the form or app the ticket came from. Low: keywords only`} />
+        note={`Back Office tickets created ${label}, by who set the category they have today. High: a person, or the sentiment flag (internal, automatic or empty e-mail, MS365). Medium: the AI read the conversation, or the form or app the ticket came from. Low: keywords only`} />
       <Box sx={{ mb: 1.5 }}>
         <Choice<string> value={topic} onChange={setTopic} options={[{ key: "all", label: "All topics", count: w.n }, ...rows.filter((r) => isTopic(r.c)).map((r) => ({ key: r.c, label: r.c, count: r.n }))]} />
       </Box>

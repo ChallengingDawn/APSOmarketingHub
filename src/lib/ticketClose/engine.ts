@@ -18,7 +18,7 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { getAnthropic } from "@/lib/ai/claude";
 import { aiClassify } from "@/lib/boDistribution/aiClassify";
 import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, isOpen, patchFor, type Decision, type Mail } from "./rules";
-import { HIDDEN_TOPICS } from "./topics";
+import { FLAG_TOPICS, HIDDEN_TOPICS } from "./topics";
 
 const LOCK = 4_107_245;
 const EVERY_MS = 5 * 60_000;
@@ -140,8 +140,15 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
   return { rows, ai };
 }
 /**
- * Only onto Others / empty (read again just before), a hidden topic only once HubSpot has it as an option; 100 a call,
- * one by one if a call is refused; kept with what was there before.
+ * What may be written over: Others or empty - or one of the hub's own hidden topics when the sentiment flag now says
+ * another topic (the sweep made "one of us wrote it" more precise). Nothing a person or a classifier set.
+ */
+const replaceable = (cur: string | null | undefined, cat: string | null) =>
+  isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && !!cat && FLAG_TOPICS.includes(cat) && cur !== cat);
+
+/**
+ * Only onto what is replaceable (read again just before), a flag topic only once HubSpot has it as an option; 100 a
+ * call, one by one if a call is refused; kept with what was there before.
  */
 async function writeSafe(rows: Row[]): Promise<number> {
   let done = 0;
@@ -153,8 +160,8 @@ async function writeSafe(rows: Row[]): Promise<number> {
   for (const r of rows) {
     const c = cur.get(r.id);
     if (!c) { r.written = { at: now, error: "ticket not found" }; continue; }
-    if (!isOpen(c.enquiry_category)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
-    if (r.d.category && HIDDEN_TOPICS.includes(r.d.category) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
+    if (!replaceable(c.enquiry_category, r.d.category)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
+    if (r.d.category && FLAG_TOPICS.includes(r.d.category) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
     const after = patchFor(r.d, c);
     if (Object.keys(after).length) todo.push({ r, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
   }
@@ -179,7 +186,8 @@ async function writeSafe(rows: Row[]): Promise<number> {
 
 /**
  * Once a day: the closed tickets still on Others / empty whose sentiment flag says what they are get that topic - the
- * whole history the first time, afterwards a flag the sweep set after the ticket had closed. No AI.
+ * whole history the first time, afterwards a flag the sweep set after the ticket had closed - and a hidden topic of the
+ * hub's whose flag now says another one is moved. No AI.
  */
 async function flagSweep(): Promise<void> {
   const last = await kvGet<{ day: string; waitingSaid?: string }>(KV.sweep);
@@ -198,17 +206,20 @@ async function flagSweep(): Promise<void> {
     { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
     { propertyName: "sentiment_not_valid_reason", operator: "HAS_PROPERTY" },
   ];
-  const found = await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]]);
+  const found = [
+    ...(await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]])),
+    ...(await search([[...base, { propertyName: "enquiry_category", operator: "IN", values: [...HIDDEN_TOPICS] }]])),
+  ];
   const rows: Row[] = [];
   for (const t of found) {
     const p = t.properties, d = before({ subject: p.subject, text: "x", notValid: p.sentiment_not_valid_reason });
-    if (d?.category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
+    if (d?.category && d.category !== p.enquiry_category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
   }
   const written = rows.length ? await writeSafe(rows) : 0;
   const by: Record<string, number> = {};
   for (const r of rows) if (r.written && !r.written.error && !r.written.skipped) by[r.d.category!] = (by[r.d.category!] ?? 0) + 1;
   const waiting = rows.filter((r) => r.written?.skipped?.includes("not an option")).length;
-  if (found.length) console.log(`[ticket-close] daily: ${found.length} closed tickets on Others/empty with a sentiment flag - ${written} written${written ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}${waiting ? `, ${waiting} wait for the hidden options in HubSpot` : ""}`);
+  if (rows.length) console.log(`[ticket-close] daily: ${rows.length} closed tickets with a sentiment flag get its topic - ${written} written${written ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}${waiting ? `, ${waiting} wait for the hidden options in HubSpot` : ""}`);
   // a run that could not write its topics yet (options missing) tries again on the next run, not tomorrow
   if (!waiting) await kvSet(KV.sweep, { day: day(), at: new Date().toISOString(), found: found.length, written });
 }

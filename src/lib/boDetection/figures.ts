@@ -6,7 +6,7 @@
 // Back Office history and any period is a sum of days. Each ticket also counts for how sure its topic is - who set the
 // category it has today (SARCLA 26.10.2026: "see the split on topic and confidence").
 
-import { HIDDEN_TOPICS } from "../ticketClose/topics";
+import { FLAG_TOPICS } from "../ticketClose/topics";
 
 /** One entry of a property's history as HubSpot returns it. */
 export type Hist = { value: string; timestamp: string; sourceType?: string; sourceId?: string };
@@ -45,7 +45,7 @@ const byPerson = (h: Hist) => h.sourceType === "CRM_UI" || h.sourceType === "CON
 /** Who set today's category - from the newest entry of its history; the hub's app at or after the close is the AI. */
 export function howOf(cat: string, newest: Hist | undefined, resolvedAt?: string | null): How {
   if (isEmpty(cat) || isOthers(cat)) return "none";
-  if (HIDDEN_TOPICS.includes(cat)) return "flag";
+  if (FLAG_TOPICS.includes(cat)) return "flag";
   if (!newest) return "keywords";
   if (byPerson(newest)) return "person";
   if (newest.sourceType === "INTEGRATION") {
