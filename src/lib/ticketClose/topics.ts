@@ -18,18 +18,19 @@ export const HIDDEN_TOPICS: readonly string[] = [TOPIC.internal, TOPIC.automatic
 export const FLAG_TOPICS: readonly string[] = [...HIDDEN_TOPICS, TOPIC.ms365];
 
 /**
- * sentiment_not_valid_reason -> the topic: people and department mailboxes of ours are internal, our systems and
- * every robot automatic. Not here, so the AI reads them: an order confirmation (a customer's own order may need a
+ * sentiment_not_valid_reason -> the topic: a person of ours, or a shared or country mailbox people write from, is
+ * internal; our systems' templated mail (PERFORMIS, Finance, AVOR, PDM, LVS - same subject shape every time) and every
+ * robot automatic. Not here, so the AI reads them: an order confirmation (a customer's own order may need a
  * Delivery answer).
  */
 export const FLAG_TOPIC: Readonly<Record<string, string>> = {
   mail_from_colleague: TOPIC.internal,
-  from_finance: TOPIC.internal,
-  from_avor: TOPIC.internal,
   from_mailbox: TOPIC.internal,
   only_our_own_words: TOPIC.internal,
   no_inbound_mail: TOPIC.internal,
   from_performis: TOPIC.automatic,
+  from_finance: TOPIC.automatic,
+  from_avor: TOPIC.automatic,
   from_lvs: TOPIC.automatic,
   from_pdm: TOPIC.automatic,
   bulk_mail: TOPIC.automatic,

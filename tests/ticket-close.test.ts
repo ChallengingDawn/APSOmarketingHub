@@ -10,8 +10,8 @@ test("no customer request gets the hidden topic of what it is, without asking th
     assert.deepEqual([d?.category, d?.stay, d?.by], [topic, null, "flag"]);
     assert.deepEqual(patchFor(d!, {}), { enquiry_category: topic });
   }
-  // the sub-division of "one of us wrote it": our people and department mailboxes, our systems, Microsoft's quarantine
-  for (const [k, topic] of [["from_finance", "Internal e-mail"], ["from_avor", "Internal e-mail"], ["from_mailbox", "Internal e-mail"],
+  // the sub-division of "one of us wrote it": a person or shared mailbox of ours, our systems' templated mail, Microsoft's quarantine
+  for (const [k, topic] of [["from_finance", "Automatic e-mail"], ["from_avor", "Automatic e-mail"], ["from_mailbox", "Internal e-mail"],
     ["from_performis", "Automatic e-mail"], ["from_lvs", "Automatic e-mail"], ["from_pdm", "Automatic e-mail"], ["from_ms365", "MS365"]]) assert.equal(flagTopic(k), topic);
   assert.equal(flagTopic("order_confirmation"), null); // a customer's order confirmation is read by the AI
   assert.equal(before({ subject: "Liefertermin", text: "Wann kommt die Ware?", notValid: null }), null);
