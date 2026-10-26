@@ -108,7 +108,9 @@ export async function railwayFor(username: string): Promise<{ token: string; at:
   await ensureSandboxTables();
   const r = await getPool().query<{ v: string; at: string }>(`SELECT v, at FROM sandbox_cli WHERE k = 'railway_token'`);
   if (!r.rows[0]) return null;
-  return { token: r.rows[0].v, at: new Date(r.rows[0].at).toISOString(), service: `sandbox-${username.toLowerCase().replace(/[^a-z0-9-]/g, "-")}` };
+  // diana.fehr@apsoparts.com deploys to sandbox-diana-fehr (people are created with their address as username)
+  const who = username.toLowerCase().split("@")[0].replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+  return { token: r.rows[0].v, at: new Date(r.rows[0].at).toISOString(), service: `sandbox-${who}` };
 }
 
 // The scrubbed code of the hub's current release (the release step uploads it) - what `sbx pull` hands out.
